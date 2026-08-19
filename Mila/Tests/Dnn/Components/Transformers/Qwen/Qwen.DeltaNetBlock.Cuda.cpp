@@ -1,0 +1,445 @@
+/**
+ * @file Qwen.DeltaNetBlock.Cuda.cpp
+ * @brief Structural and state tests for QwenDeltaNetBlock<DeviceType::Cuda, ...>.
+ *
+ * Three things are under test, and they differ in kind.
+ *
+ * GEOMETRY and GRAPH: that the block splits its projections the way the precision plan's
+ * parameter counts require ([q|k] apart from v), and that every named child is present.
+ *
+ * PER-ROLE PRECISION: that the three DeltaNet roles resolve to three different Linear
+ * instantiations, and that a plan omitting one is rejected. Entirely compile-time, asserted
+ * as such.
+ *
+ * STATE: that a sequence fed in chunks equals the same sequence in one pass, through the
+ * WHOLE block. This is the integration property the two pieces underneath were built for --
+ * the convolution's rolling window and the mixer's recurrent state must both carry, and a
+ * bug in either shows up here as a chunk-boundary discontinuity.
+ *
+ * CUDA device tests -- skipped when no CUDA device is present.
+ */
+
+#include <gtest/gtest.h>
+#include <cmath>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+import Mila;
+
+// See the note in Qwen.Block.Cuda.cpp: instantiating a CUDA block from a consumer TU needs
+// ExecutionContext<Cuda> COMPLETE, and the public umbrella exports only IExecutionContext.
+import Compute.ExecutionContext;
+
+namespace Mila::Tests::Dnn::Components::Transformers::Qwen
+{
+    using namespace Mila::Dnn;
+    using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Quant::Weight;
+
+    namespace
+    {
+        // Small but structurally faithful: 3 value heads per key head, as the 27B has.
+        constexpr dim_t kModelDim = 64;
+        constexpr dim_t kLayers = 4;
+        constexpr dim_t kHidden = 128;
+        constexpr dim_t kVocab = 128;
+        constexpr dim_t kMaxSeq = 32;
+
+        constexpr dim_t kLinearKeyHeads = 2;
+        constexpr dim_t kLinearValueHeads = 6;
+        constexpr dim_t kLinearHeadDim = 8;
+        constexpr dim_t kConvKernel = 4;
+
+        constexpr dim_t kQueryKeyWidth = 2 * kLinearKeyHeads * kLinearHeadDim;   // 32
+        constexpr dim_t kValueWidth = kLinearValueHeads * kLinearHeadDim;        // 48
+
+        QwenConfig smallConfig()
+        {
+            return QwenConfig( kModelDim, kLayers )
+                .withVocabularyLength( kVocab )
+                .withNumHeads( 4 )
+                .withNumKVHeads( 2 )
+                .withHeadDim( 32 )
+                .withAttentionOutputGate( true )
+                .withHiddenDimension( kHidden )
+                .withMaxSequenceLength( kMaxSeq )
+                .withRMSNormEpsilon( 1e-6f )
+                .withRoPETheta( 1e7f )
+                .withPartialRotaryFactor( 0.25f )
+                .withFullAttentionInterval( 4 )
+                .withLinearNumKeyHeads( kLinearKeyHeads )
+                .withLinearNumValueHeads( kLinearValueHeads )
+                .withLinearHeadDim( kLinearHeadDim )
+                .withLinearConvKernelDim( kConvKernel );
+        }
+
+        using ReferenceBlock = QwenDeltaNetBlock<DeviceType::Cuda, TensorDataType::FP32>;
+
+        // The declaration the per-role mechanism exists to make readable.
+        using PlannedBlock = QwenDeltaNetBlock<DeviceType::Cuda, TensorDataType::BF16, QwenPrecisionPlan>;
+
+        using UniformBlock =
+            QwenDeltaNetBlock<DeviceType::Cuda, TensorDataType::BF16, QwenUniformPrecisionPlan<PerGroupFp4<128>>>;
+
+        struct PlanMissingDeltaNetGating
+        {
+            using QkvProjection = PerGroupFp4<128>;
+            using OutputProjection = PerGroupFp4<128>;
+            using FeedForwardGateUp = PerGroupCodebook2<32>;
+            using FeedForwardDown = PerGroupCodebook3<64>;
+            using DeltaNetQueryKey = PerGroupCodebook3<64>;
+            using DeltaNetValueGateOutput = PerGroupCodebook2<32>;
+        };
+    }
+
+    // ====================================================================
+    // Per-role precision dispatch -- entirely compile-time
+    // ====================================================================
+
+    // The three DeltaNet roles resolve to three DIFFERENT Linear instantiations. Without
+    // this the split would be documentation: it would compile, and every projection would
+    // still carry one format.
+    static_assert( !std::is_same_v<PlannedBlock::QueryKeyProjectionType,
+                                   PlannedBlock::ValueProjectionType> );
+    static_assert( !std::is_same_v<PlannedBlock::ValueProjectionType,
+                                   PlannedBlock::GatingProjectionType> );
+
+    // The gating projection is NEVER quantized -- a and b drive the forget gate.
+    static_assert( std::is_same_v<PlannedBlock::GatingProjectionType,
+                                  Linear<DeviceType::Cuda, TensorDataType::BF16, NoWeightQuant>> );
+
+    // v, z and out_proj share one role and therefore one instantiation.
+    static_assert( std::is_same_v<PlannedBlock::ValueProjectionType,
+                                  PlannedBlock::GateProjectionType> );
+    static_assert( std::is_same_v<PlannedBlock::ValueProjectionType,
+                                  PlannedBlock::OutputProjectionType> );
+
+    // A plan missing a role this block builds is rejected at the BLOCK, naming it, rather
+    // than falling back to some default precision.
+    static_assert( !DeltaNetPrecisionRoles<PlanMissingDeltaNetGating> );
+
+    // A uniform lift stays a valid spelling.
+    static_assert( std::is_same_v<UniformBlock::QueryKeyProjectionType,
+                                  UniformBlock::ValueProjectionType> );
+
+    class QwenDeltaNetBlockCudaTests : public ::testing::Test
+    {
+    protected:
+        using DeviceTensor = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+        void SetUp() override
+        {
+            try
+            {
+                cuda_context_ = createExecutionContext( Device::Cuda( 0 ) );
+            }
+            catch ( const std::exception& )
+            {
+                cuda_context_ = nullptr;
+            }
+
+            if ( !cuda_context_ )
+            {
+                GTEST_SKIP() << "CUDA device not available";
+            }
+        }
+
+        /**
+         * @brief A built block with DETERMINISTIC NON-ZERO weights in every parameter.
+         *
+         * Inference-mode BuildContext leaves shouldInitializeParameters() false, so a block
+         * built and used as-is carries whatever the allocator handed back -- in practice
+         * zeros, which makes the mixer output zero and every state-carry test vacuous. The
+         * fill below is what gives those tests something to distinguish, and
+         * BlockTransformsItsInput is the control that says so.
+         *
+         * Values are a bounded repeating pattern rather than a ramp: the recurrence
+         * multiplies a state by exp(g) every step, and a ramp over a large parameter count
+         * puts the tail weights far enough from zero to saturate it.
+         */
+        std::unique_ptr<ReferenceBlock> builtBlock( dim_t chunk )
+        {
+            auto block = std::make_unique<ReferenceBlock>( "delta_block", smallConfig(), Device::Cuda( 0 ) );
+            block->build( BuildContext( shape_t{ batch_, chunk, kModelDim },
+                RuntimeMode::Inference ).withPrefillSize( chunk ) );
+
+            int index = 0;
+
+            for ( auto* parameter : block->getParameters() )
+            {
+                auto* tensor = static_cast<DeviceTensor*>( parameter );
+                HostFp32 host( Device::Cpu(), tensor->shape() );
+
+                for ( dim_t i = 0; i < host.size(); ++i )
+                {
+                    host.data()[ i ] =
+                        0.05f * static_cast<float>( ((i + index * 7) % 13) - 6 );
+                }
+
+                copy( host, *tensor, cuda_context_.get() );
+                ++index;
+            }
+
+            cuda_context_->synchronize();
+
+            return block;
+        }
+
+        HostFp32 rampHost( const shape_t& shape, float start, float step )
+        {
+            HostFp32 host( Device::Cpu(), shape );
+
+            for ( dim_t i = 0; i < host.size(); ++i )
+            {
+                host.data()[ i ] = start + step * static_cast<float>( i );
+            }
+
+            return host;
+        }
+
+        DeviceTensor toDevice( const HostFp32& host )
+        {
+            DeviceTensor device( Device::Cuda( 0 ), host.shape() );
+            copy( host, device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return device;
+        }
+
+        HostFp32 toFloat( const DeviceTensor& device )
+        {
+            auto host = toHost<TensorDataType::FP32>( device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return host;
+        }
+
+        static constexpr dim_t batch_ = 1;
+        static constexpr dim_t seq_ = 8;
+
+        std::unique_ptr<IExecutionContext> cuda_context_;
+    };
+
+    // ====================================================================
+    // A. Construction and graph
+    // ====================================================================
+
+    TEST_F( QwenDeltaNetBlockCudaTests, Construct_StandaloneSucceeds )
+    {
+        ReferenceBlock block( "delta_block", smallConfig(), Device::Cuda( 0 ) );
+
+        EXPECT_EQ( block.getType(), ComponentType::Transformer );
+    }
+
+    TEST_F( QwenDeltaNetBlockCudaTests, Build_Succeeds )
+    {
+        auto block = builtBlock( seq_ );
+
+        EXPECT_TRUE( block->isBuilt() );
+        EXPECT_GT( block->parameterCount(), 0 );
+    }
+
+    TEST_F( QwenDeltaNetBlockCudaTests, TheMixerPiecesArePartOfTheGraph )
+    {
+        auto block = builtBlock( seq_ );
+
+        // Named, not merely present: the block reaches each by name at build, so a rename
+        // is a build failure rather than a silently missing piece of the mixer.
+        EXPECT_NO_THROW( (void)block->getComponent( "delta_block.delta_rule" ) );
+        EXPECT_NO_THROW( (void)block->getComponent( "delta_block.conv_qk" ) );
+        EXPECT_NO_THROW( (void)block->getComponent( "delta_block.conv_v" ) );
+        EXPECT_NO_THROW( (void)block->getComponent( "delta_block.norm_gate" ) );
+        EXPECT_NO_THROW( (void)block->getComponent( "delta_block.fc_in_proj_qk" ) );
+        EXPECT_NO_THROW( (void)block->getComponent( "delta_block.fc_in_proj_v" ) );
+    }
+
+    TEST_F( QwenDeltaNetBlockCudaTests, ProjectionsSplitQueryKeyFromValue )
+    {
+        ReferenceBlock block( "delta_block", smallConfig(), Device::Cuda( 0 ) );
+
+        // The plan's parameter counts only add up when q/k are one projection and v is
+        // another; a fused in_proj_qkv could not carry two storage policies.
+        EXPECT_EQ( block.queryKeyWidth(), kQueryKeyWidth );
+        EXPECT_EQ( block.valueWidth(), kValueWidth );
+        EXPECT_EQ( block.gatingWidth(), kLinearValueHeads );
+    }
+
+    TEST_F( QwenDeltaNetBlockCudaTests, Build_ThrowsOnNonRank3Input )
+    {
+        ReferenceBlock block( "delta_block", smallConfig(), Device::Cuda( 0 ) );
+
+        EXPECT_THROW( block.build( BuildContext( shape_t{ batch_, kModelDim },
+            RuntimeMode::Inference ).withPrefillSize( seq_ ) ), std::invalid_argument );
+    }
+
+    // ====================================================================
+    // B. The cache contract -- this block keeps a recurrence, not a cache
+    // ====================================================================
+
+    TEST_F( QwenDeltaNetBlockCudaTests, DoesNotSupportAKvCache )
+    {
+        auto block = builtBlock( seq_ );
+
+        EXPECT_FALSE( block->supportsKVCache() );
+    }
+
+    TEST_F( QwenDeltaNetBlockCudaTests, RefusesToRewind )
+    {
+        auto block = builtBlock( seq_ );
+
+        // A recurrent state is a lossy summary of every position it has seen: the
+        // information needed to undo the last N steps is not in it. Accepting a rewind
+        // would silently corrupt a prefix-reuse session rather than fail it.
+        EXPECT_FALSE( block->rewindKvCache( 0 ) );
+        EXPECT_FALSE( block->rewindKvCache( 4 ) );
+    }
+
+    TEST_F( QwenDeltaNetBlockCudaTests, SetStateIsAcceptedAndIgnored )
+    {
+        auto block = builtBlock( seq_ );
+
+        // The interface names a concrete GqaState; this block has no attention transient.
+        EXPECT_NO_THROW( block->setState( GqaState{} ) );
+    }
+
+    // ====================================================================
+    // C. The integration property -- both states carry across a chunk boundary
+    // ====================================================================
+
+    /**
+     * @brief Control for every equality test below: the block must actually DO something.
+     *
+     * Both residual paths pass the input straight through when the mixer and the
+     * feed-forward contribute nothing, so a block with zero weights returns its input
+     * unchanged -- and "chunked equals whole" then holds trivially, for two blocks that
+     * compute nothing. This asserts the mixer moves the stream before anything else
+     * compares two ways of running it.
+     */
+    TEST_F( QwenDeltaNetBlockCudaTests, BlockTransformsItsInput )
+    {
+        const shape_t shape{ batch_, seq_, kModelDim };
+
+        auto block = builtBlock( seq_ );
+        auto host_x = rampHost( shape, -0.4f, 0.013f );
+        auto device_x = toDevice( host_x );
+
+        auto& out_device = block->prefill( device_x, 0 );
+        block->synchronize();
+        auto out = toFloat( out_device );
+
+        float max_change = 0.0f;
+
+        for ( dim_t i = 0; i < out.size(); ++i )
+        {
+            EXPECT_FALSE( std::isnan( out.data()[ i ] ) ) << "NaN at index " << i;
+            max_change = std::max( max_change, std::fabs( out.data()[ i ] - host_x.data()[ i ] ) );
+        }
+
+        // Absolute, not a tolerance multiple: how far the block moves the stream is a
+        // property of these weights, measured well above the 1e-4 the equality tests use.
+        EXPECT_GT( max_change, 0.01f )
+            << "the block returned its input essentially unchanged -- the mixer is "
+               "contributing nothing and every equality test below is vacuous";
+    }
+
+    TEST_F( QwenDeltaNetBlockCudaTests, ChunkedPrefillEqualsWholeSequence )
+    {
+        constexpr dim_t kChunk = 4;
+        const shape_t whole_shape{ batch_, seq_, kModelDim };
+
+        auto host_x = rampHost( whole_shape, -0.4f, 0.013f );
+
+        auto whole_block = builtBlock( seq_ );
+        auto device_whole = toDevice( host_x );
+        auto& whole_device = whole_block->prefill( device_whole, 0 );
+        whole_block->synchronize();
+        auto whole = toFloat( whole_device );
+
+        // A second block, same weights (both zero-initialized deterministically), fed the
+        // same sequence in two chunks. The only link between chunks is the carried state:
+        // the convolution's rolling window AND the mixer's recurrence.
+        auto chunked_block = builtBlock( kChunk );
+        std::vector<float> chunked( static_cast<size_t>( batch_ * seq_ * kModelDim ), 0.0f );
+
+        for ( dim_t start = 0; start < seq_; start += kChunk )
+        {
+            HostFp32 host_chunk( Device::Cpu(), shape_t{ batch_, kChunk, kModelDim } );
+
+            for ( dim_t t = 0; t < kChunk; ++t )
+            {
+                for ( dim_t c = 0; c < kModelDim; ++c )
+                {
+                    host_chunk.data()[ t * kModelDim + c ] =
+                        host_x.data()[ (start + t) * kModelDim + c ];
+                }
+            }
+
+            auto device_chunk = toDevice( host_chunk );
+            auto& chunk_device = chunked_block->prefill( device_chunk, start );
+            chunked_block->synchronize();
+            auto chunk_out = toFloat( chunk_device );
+
+            for ( dim_t t = 0; t < kChunk; ++t )
+            {
+                for ( dim_t c = 0; c < kModelDim; ++c )
+                {
+                    chunked[ static_cast<size_t>( (start + t) * kModelDim + c ) ] =
+                        chunk_out.data()[ t * kModelDim + c ];
+                }
+            }
+        }
+
+        for ( size_t i = 0; i < chunked.size(); ++i )
+        {
+            EXPECT_NEAR( chunked[ i ], whole.data()[ i ], 1e-4f ) << "at index " << i;
+        }
+    }
+
+    TEST_F( QwenDeltaNetBlockCudaTests, DecodeProducesTheBlockShape )
+    {
+        auto block = builtBlock( 1 );
+
+        auto host_step = rampHost( shape_t{ batch_, 1, kModelDim }, 0.1f, 0.01f );
+        auto device_step = toDevice( host_step );
+
+        auto& first = block->prefill( device_step, 0 );
+        block->synchronize();
+
+        EXPECT_EQ( first.shape()[ 0 ], batch_ );
+        EXPECT_EQ( first.shape()[ 1 ], 1 );
+        EXPECT_EQ( first.shape()[ 2 ], kModelDim );
+
+        auto& second = block->decode( device_step, 1 );
+        block->synchronize();
+
+        EXPECT_EQ( second.shape()[ 2 ], kModelDim );
+    }
+
+    TEST_F( QwenDeltaNetBlockCudaTests, ResetKVCacheClearsBothCarriedStates )
+    {
+        const shape_t shape{ batch_, seq_, kModelDim };
+
+        auto block = builtBlock( seq_ );
+        auto host_x = rampHost( shape, -0.4f, 0.013f );
+        auto device_x = toDevice( host_x );
+
+        auto& first_device = block->prefill( device_x, 0 );
+        block->synchronize();
+        auto first = toFloat( first_device );
+
+        block->resetKVCache();
+
+        auto& second_device = block->prefill( device_x, 0 );
+        block->synchronize();
+        auto second = toFloat( second_device );
+
+        for ( dim_t i = 0; i < first.size(); ++i )
+        {
+            EXPECT_NEAR( second.data()[ i ], first.data()[ i ], 1e-5f ) << "at index " << i;
+        }
+    }
+}

@@ -119,6 +119,42 @@ namespace Mila::Dnn
      */
     export using QwenReferencePrecisionPlan = QwenUniformPrecisionPlan<NoWeightQuant>;
 
+    namespace QwenPlanDetail
+    {
+        // Bool selector rather than a constrained partial specialization, for the reason
+        // PrecisionPlan.ixx records against the generic one: the constrained form resolves
+        // differently across MSVC/Clang/GCC and this is on every Qwen block's path.
+        template<typename T, bool kIsBarePolicy>
+        struct QwenPrecisionPlanSelector
+        {
+            using type = T;
+        };
+
+        template<typename T>
+        struct QwenPrecisionPlanSelector<T, true>
+        {
+            using type = QwenUniformPrecisionPlan<T>;
+        };
+    }
+
+    /**
+     * @brief The Qwen lift: accepts a plan or a bare policy, and yields a plan WITH the
+     * DeltaNet roles.
+     *
+     * The generic `PrecisionPlanFor` cannot serve the DeltaNet block, because the generic
+     * uniform plan deliberately does not name this family's roles -- a block kind must not
+     * be able to invalidate plans that already work. So the family that adds roles adds the
+     * lift that carries them, and `QwenDeltaNetBlock<Cuda, BF16, PerGroupFp4<128>>` stays a
+     * valid spelling alongside `<..., QwenPrecisionPlan>`.
+     */
+    export template<typename T>
+        using QwenPrecisionPlanFor =
+            typename QwenPlanDetail::QwenPrecisionPlanSelector<T, WeightQuantPolicy<T>>::type;
+
+    static_assert( DeltaNetPrecisionRoles<QwenPrecisionPlanFor<NoWeightQuant>> );
+    static_assert( FeedForwardPrecisionRoles<QwenPrecisionPlanFor<NoWeightQuant>> );
+    static_assert( DeltaNetPrecisionRoles<QwenPrecisionPlanFor<QwenPrecisionPlan>> );
+
     // The plan must satisfy every concept the family's blocks and network require. Asserted
     // here rather than only at the block, so a role dropped from the table is caught in the
     // file that owns the table.

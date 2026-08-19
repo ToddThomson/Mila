@@ -226,6 +226,8 @@ export import Dnn.Quantization.Weight.PrecisionPlan;
 export import Dnn.Components.Linear;
 
 export import Dnn.Components.Residual;
+export import Dnn.Components.CausalConv1d;
+export import Dnn.Components.GatedDeltaRule;
 export import Dnn.Components.Softmax;
 // BACKLOG: export import Dnn.Components.SoftmaxCrossEntropy;
 
@@ -250,6 +252,7 @@ export import Dnn.Components.GemmaProtocol;
 export import Dnn.Components.QwenPrecisionPlan;
 export import Dnn.Components.QwenConfig;
 export import Dnn.Components.QwenBlock;
+export import Dnn.Components.QwenDeltaNetBlock;
 export import Dnn.Components.QwenTransformer;
 
 // ============================================================================

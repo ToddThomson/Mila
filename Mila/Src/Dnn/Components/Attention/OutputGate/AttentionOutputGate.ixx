@@ -59,8 +59,10 @@ namespace Mila::Dnn
      *
      * @tparam TDeviceType Compile-time device.
      * @tparam TPrecision  Activation/compute precision.
-     * @tparam TGate       Gate function, fixed at compile time. Swish (SiLU) is the Qwen 3.8
-     *                     `output_gate_type`, and is the default for that reason.
+     * @tparam TGate       Gate function, fixed at compile time. SiLU is the default because it
+     *                     is the common case across gated architectures -- NOT because of Qwen
+     *                     3.8, whose `output_gate_type: "swish"` is a dead config key its
+     *                     reference implementation never reads. That block passes Sigmoid.
      *
      * Stateless: no trainable parameters. The gate WEIGHTS are the second half of the query
      * projection and belong to that Linear, not here -- which is why this component owns

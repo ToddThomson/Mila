@@ -256,9 +256,20 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
     {
         ReferenceBlock block( "qwen_block", smallConfig(), Device::Cuda( 0 ) );
 
-        // 2 norms (input, post_attn) + fc_qkv_proj + rope + gqa + output_gate + fc_o_proj +
-        // res_1 + fc_gate_up + swiglu + fc_down + res_2.
-        EXPECT_EQ( block.getComponents().size(), 12u );
+        // 2 norms (input, post_attn) + fc_qkv_proj + q_norm + k_norm + rope + gqa +
+        // output_gate + fc_o_proj + res_1 + fc_gate_up + swiglu + fc_down + res_2.
+        EXPECT_EQ( block.getComponents().size(), 14u );
+    }
+
+    TEST_F( QwenBlockCudaTests, QkNormIsPartOfTheGraph )
+    {
+        auto block = builtBlock( RuntimeMode::Inference );
+
+        // The checkpoint carries self_attn.q_norm/k_norm [head_dim] on every full-attention
+        // layer. Named for the same reason the output gate is: a rename must break the build
+        // rather than silently drop the normalization.
+        EXPECT_NO_THROW( (void)block->getComponent( "qwen_block.q_norm" ) );
+        EXPECT_NO_THROW( (void)block->getComponent( "qwen_block.k_norm" ) );
     }
 
     TEST_F( QwenBlockCudaTests, OutputGateIsPartOfTheGraph )

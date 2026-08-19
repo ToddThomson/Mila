@@ -21,6 +21,8 @@ import Compute.CudaGqaOp;
 import Compute.CudaGeluOp;
 import Compute.CudaElementwiseActivationOp;
 import Compute.CudaResidualOp;
+import Compute.CudaCausalConv1dOp;
+import Compute.CudaGatedDeltaRuleOp;
 import Compute.CudaRmsNormOp;
 import Compute.CudaLayerNormOp;
 import Compute.CudaSoftmaxOp;
@@ -201,6 +203,38 @@ namespace Mila::Dnn::Compute
     {
         template<typename TFunctor>
         using op_for = Cuda::Activation::CudaElementwiseActivationOp<TensorDataType::BF16, TFunctor>;
+    };
+
+    // -------------------------------------------------------------------------
+    // CausalConv1dOp -- CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::CausalConv1dOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Convolution::CudaCausalConv1dOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::CausalConv1dOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Convolution::CudaCausalConv1dOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // GatedDeltaRuleOp -- CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::GatedDeltaRuleOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::DeltaNet::CudaGatedDeltaRuleOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::GatedDeltaRuleOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::DeltaNet::CudaGatedDeltaRuleOp<TensorDataType::BF16>;
     };
 
     // -------------------------------------------------------------------------

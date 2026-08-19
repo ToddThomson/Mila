@@ -42,6 +42,8 @@ namespace Mila::Dnn
         MultiHeadAttention,
         GroupedQueryAttention,
         AttentionOutputGate,
+        CausalConv1d,
+        GatedDeltaRule,
         Residual,
         TokenEmbedding,
         Lpe,
@@ -94,6 +96,10 @@ namespace Mila::Dnn
                 return "MultiHeadAttention";
             case ComponentType::AttentionOutputGate:
                 return "AttentionOutputGate";
+            case ComponentType::CausalConv1d:
+                return "CausalConv1d";
+            case ComponentType::GatedDeltaRule:
+                return "GatedDeltaRule";
             case ComponentType::Residual:
                 return "Residual";
             case ComponentType::Mlp:
@@ -150,6 +156,10 @@ namespace Mila::Dnn
             return ComponentType::MultiHeadAttention;
         if ( low == "attentionoutputgate" )
             return ComponentType::AttentionOutputGate;
+        if ( low == "causalconv1d" )
+            return ComponentType::CausalConv1d;
+        if ( low == "gateddeltarule" )
+            return ComponentType::GatedDeltaRule;
         if ( low == "residual" )
             return ComponentType::Residual;
         if ( low == "mlp" )
@@ -204,6 +214,10 @@ namespace Mila::Dnn
                 return "gqa";
             case ComponentType::AttentionOutputGate:
                 return "agate";
+            case ComponentType::CausalConv1d:
+                return "cconv";
+            case ComponentType::GatedDeltaRule:
+                return "gdr";
             case ComponentType::Residual:
                 return "res";
             case ComponentType::Mlp:
@@ -258,6 +272,10 @@ namespace Mila::Dnn
             return ComponentType::GroupedQueryAttention;
         if ( s == "agate" )
             return ComponentType::AttentionOutputGate;
+        if ( s == "cconv" )
+            return ComponentType::CausalConv1d;
+        if ( s == "gdr" )
+            return ComponentType::GatedDeltaRule;
         if ( s == "res" )
             return ComponentType::Residual;
         if ( s == "mlp" )

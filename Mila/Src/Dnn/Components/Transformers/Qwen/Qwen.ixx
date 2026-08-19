@@ -9,18 +9,27 @@
  * flag: that is right for one mixer at two geometries, and Qwen's two kinds are different
  * mixers (Specifications/Qwen3.8.md section 8, Phase 2 revision).
  *
+ * ## Two block kinds, two memory models
+ *
+ * The published 27B geometry (`full_attention_interval: 4`) builds three QwenDeltaNetBlocks
+ * per QwenAttentionBlock. The two kinds differ in more than their mixer:
+ *
+ *  - The attention layers hold a KV cache that GROWS with context, and share the pooled
+ *    workspace and the GQA transient this network owns.
+ *  - The DeltaNet layers hold a fixed-size recurrent state plus a short convolution window,
+ *    neither of which depends on context length, and self-allocate their transients. Their
+ *    slots share nothing with the attention workspace's, so pooling them means a SECOND
+ *    workspace struct rather than a wider one -- a memory optimization, still owed.
+ *
+ * One consequence reaches the product rather than the code: `rewindKvCache` asks every layer,
+ * and a DeltaNet layer always refuses, because a recurrent state is a lossy summary that
+ * cannot be rolled back to an earlier position. PROMPT-PREFIX REUSE IS THEREFORE UNAVAILABLE
+ * for any configuration containing these layers.
+ *
  * ## What this network cannot do yet
  *
- * The Gated DeltaNet block is Phase 3 and does not exist. This transformer therefore builds
- * only configurations whose layers are all full attention, and REFUSES -- loudly, at
- * construction, naming the phase -- any config whose interleave places a DeltaNet layer.
- * The published 27B geometry (`full_attention_interval: 4`) is such a config, so it does not
- * yet construct.
- *
- * That refusal is the point of building the transformer now rather than waiting. The layer
- * list, the untied tables, the per-role plan threading and the pooled workspace are the
- * parts Phase 2 owes, and they are exercised by the all-full-attention configuration; the
- * missing piece is one named block type, added at one site.
+ * Prefill runs the DeltaNet recurrence sequentially over the chunk (there is no chunked
+ * UT-transform kernel yet), so long-prompt prefill on those layers is O(T) in steps.
  *
  * ## Untied tables
  *
@@ -49,6 +58,7 @@ export module Dnn.Components.QwenTransformer;
 
 import Dnn.Components.QwenConfig;
 import Dnn.Components.QwenBlock;
+import Dnn.Components.QwenDeltaNetBlock;
 import Dnn.Components.QwenPrecisionPlan;
 import Dnn.Components.IDecoderLayer;
 
@@ -142,6 +152,7 @@ namespace Mila::Dnn
         using RmsNormType = RmsNorm<TDeviceType, TPrecision>;
 
         using AttentionBlockType = QwenAttentionBlock<TDeviceType, TPrecision, TWeightPlan, TKvCachePolicy>;
+        using DeltaNetBlockType = QwenDeltaNetBlock<TDeviceType, TPrecision, TWeightPlan>;
         using DecoderLayerType = IDecoderLayer<TDeviceType, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
@@ -158,8 +169,6 @@ namespace Mila::Dnn
                         deviceTypeToString( TDeviceType ),
                         deviceTypeToString( device_id.type ) ) );
             }
-
-            requireEveryLayerBuildable();
 
             createGraph();
 
@@ -327,7 +336,8 @@ namespace Mila::Dnn
                               block_workspace_.q.get(), block_workspace_.gate.get(),
                               block_workspace_.k.get(), block_workspace_.v.get(),
                               block_workspace_.normed.get(), block_workspace_.qkv.get(),
-                              block_workspace_.query_gate.get(), block_workspace_.attn.get(),
+                              block_workspace_.query_gate.get(), block_workspace_.q_normed.get(),
+                              block_workspace_.k_normed.get(), block_workspace_.attn.get(),
                               block_workspace_.gated.get(), block_workspace_.o.get(),
                               block_workspace_.res1.get(), block_workspace_.ffn_in.get(),
                               block_workspace_.gate_up.get(), block_workspace_.ffn_act.get(),
@@ -377,8 +387,16 @@ namespace Mila::Dnn
 
             for ( dim_t i = 0; i < config_.getNumLayers(); ++i )
             {
-                stats += this->template getComponentAs<AttentionBlockType>( blockName( i ) )
-                    ->getRequiredMemory( block_context );
+                if ( config_.isFullAttentionLayer( i ) )
+                {
+                    stats += this->template getComponentAs<AttentionBlockType>( blockName( i ) )
+                        ->getRequiredMemory( block_context );
+                }
+                else
+                {
+                    stats += this->template getComponentAs<DeltaNetBlockType>( blockName( i ) )
+                        ->getRequiredMemory( block_context );
+                }
             }
 
             stats += this->template getComponentAs<RmsNormType>( n + ".rmsn_final" )
@@ -559,22 +577,40 @@ namespace Mila::Dnn
 
             for ( dim_t i = 0; i < config_.getNumLayers(); ++i )
             {
-                auto block = this->template getComponentAs<AttentionBlockType>( blockName( i ) );
-
-                if ( context.isInferenceMode() )
-                    block->installSharedWorkspace( block_workspace_ );
-
-                block->build( block_context );
-
-                if ( context.isInferenceMode() )
+                if ( config_.isFullAttentionLayer( i ) )
                 {
-                    // Every layer here is unbounded, so the flash decision is one number for
-                    // the whole stack and MUST agree with prefillScoreWidth() below.
-                    block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
-                    block->setUseFlashDecode( true );
-                }
+                    auto block = this->template getComponentAs<AttentionBlockType>( blockName( i ) );
 
-                layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
+                    if ( context.isInferenceMode() )
+                        block->installSharedWorkspace( block_workspace_ );
+
+                    block->build( block_context );
+
+                    if ( context.isInferenceMode() )
+                    {
+                        // The full-attention layers are unbounded, so the flash decision is
+                        // one number for the whole stack and MUST agree with
+                        // prefillScoreWidth() below.
+                        block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
+                        block->setUseFlashDecode( true );
+                    }
+
+                    layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
+                }
+                else
+                {
+                    // The DeltaNet block self-allocates. Its transients are shaped by the
+                    // DeltaNet geometry -- key/value widths, a per-head view, a recurrent
+                    // state -- and share nothing with the attention workspace's slots, so
+                    // pooling them would mean a second workspace struct rather than a
+                    // wider one. Qwen3.8.md section 8 already anticipates that; it is a
+                    // memory optimization, and it is not free to get wrong.
+                    auto block = this->template getComponentAs<DeltaNetBlockType>( blockName( i ) );
+
+                    block->build( block_context );
+
+                    layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
+                }
             }
 
             final_rmsnorm_ = this->template getComponentAs<RmsNormType>( this->getName() + ".rmsn_final" );
@@ -650,26 +686,6 @@ namespace Mila::Dnn
             return this->getName() + ".tf_layer_" + std::to_string( layer_index );
         }
 
-        /**
-         * @brief Refuse a configuration whose interleave needs a block that does not exist.
-         *
-         * Checked at construction rather than at build so the failure names the config that
-         * caused it, before any device memory is touched. When QwenDeltaNetBlock lands this
-         * function goes away and createGraph()/onBuilding() gain the second arm.
-         */
-        void requireEveryLayerBuildable() const
-        {
-            if ( config_.getNumDeltaNetLayers() == 0 )
-                return;
-
-            throw std::invalid_argument( std::format(
-                "QwenTransformer '{}': this configuration places {} Gated DeltaNet layers "
-                "(full_attention_interval {} over {} layers), and the DeltaNet block is Phase 3 "
-                "-- not yet implemented. Only an all-full-attention configuration builds today.",
-                this->getName(), config_.getNumDeltaNetLayers(),
-                config_.getFullAttentionInterval(), config_.getNumLayers() ) );
-        }
-
         void createGraph()
         {
             TokenEmbeddingConfig embedding_config;
@@ -679,10 +695,9 @@ namespace Mila::Dnn
             this->addComponent(
                 std::make_shared<TokenEmbeddingType>( this->getName() + ".temb", embedding_config ) );
 
-            // The heterogeneous layer list. Today every position resolves to the attention
-            // block, because requireEveryLayerBuildable() has already refused any config
-            // where it would not; the branch is written out so the DeltaNet arm is added at
-            // one site rather than restructured in.
+            // The heterogeneous layer list: three DeltaNet layers per full-attention layer
+            // at the published interval of 4. Both kinds are stored as IDecoderLayer* and
+            // driven polymorphically.
             for ( dim_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 if ( config_.isFullAttentionLayer( i ) )
@@ -692,15 +707,17 @@ namespace Mila::Dnn
                 }
                 else
                 {
-                    throw std::logic_error(
-                        "QwenTransformer: DeltaNet layer reached createGraph -- "
-                        "requireEveryLayerBuildable should have refused this configuration" );
+                    this->addComponent(
+                        std::make_shared<DeltaNetBlockType>( blockName( i ), config_, std::nullopt ) );
                 }
             }
 
+            // Unit offset, like every stream norm in this family: Qwen scales by
+            // (1 + weight) with weights stored zero-centered.
             auto rms_config = RmsNormConfig( shape_t{ config_.getModelDim() } )
                 .withEpsilon( config_.getRMSNormEpsilon() )
-                .withBias( false );
+                .withBias( false )
+                .withUnitOffset( 1.0f );
 
             this->addComponent(
                 std::make_shared<RmsNormType>( this->getName() + ".rmsn_final", rms_config, std::nullopt ) );
@@ -754,11 +771,11 @@ namespace Mila::Dnn
             dim_t kv_width;
             dim_t qkv_width;
 
-            // q + gate + attn + gated + query_gate(2x); k + v; the six model_dim-wide
-            // stream-side slots; qkv; gate_up (2h) + ffn_act (h).
+            // q + gate + q_normed + attn + gated + query_gate(2x); k + v + k_normed; the six
+            // model_dim-wide stream-side slots; qkv; gate_up (2h) + ffn_act (h).
             dim_t totalRowElements() const
             {
-                return 6 * q_width + 2 * kv_width + 6 * model_dim + qkv_width + 3 * hidden_dim;
+                return 7 * q_width + 3 * kv_width + 6 * model_dim + qkv_width + 3 * hidden_dim;
             }
         };
 
@@ -881,6 +898,8 @@ namespace Mila::Dnn
             block_workspace_.normed = slot( widths.model_dim, "normed" );
             block_workspace_.qkv = slot( widths.qkv_width, "qkv" );
             block_workspace_.query_gate = slot( 2 * widths.q_width, "query_gate" );
+            block_workspace_.q_normed = slot( widths.q_width, "q_normed" );
+            block_workspace_.k_normed = slot( widths.kv_width, "k_normed" );
             block_workspace_.attn = slot( widths.q_width, "attn" );
             block_workspace_.gated = slot( widths.q_width, "gated" );
             block_workspace_.o = slot( widths.model_dim, "o" );

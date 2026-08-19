@@ -137,12 +137,34 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         EXPECT_EQ( net.getDeviceId().type, DeviceType::Cuda );
     }
 
-    TEST_F( QwenTransformerCudaTests, Construct_HybridInterleaveRefusesUntilDeltaNetExists )
+    TEST_F( QwenTransformerCudaTests, Construct_HybridInterleaveSucceeds )
     {
-        // The published geometry places 3 DeltaNet layers per attention layer. Refusing at
-        // construction, before any device memory is touched, is the whole reason the check
-        // is not deferred to build.
-        EXPECT_THROW( QwenCuda( "qwen", hybridConfig(), Device::Cuda( 0 ) ), std::invalid_argument );
+        // The published geometry: 3 Gated DeltaNet layers per full-attention layer. This
+        // configuration was refused at construction until the DeltaNet block existed --
+        // building it is what closes that gap.
+        QwenCuda net( "qwen", hybridConfig(), Device::Cuda( 0 ) );
+
+        EXPECT_EQ( net.getDeviceId().type, DeviceType::Cuda );
+    }
+
+    TEST_F( QwenTransformerCudaTests, Build_HybridInterleaveAllocatesBothBlockKinds )
+    {
+        auto net = builtNet( hybridConfig(), batch_, seq_ );
+
+        EXPECT_TRUE( net->isBuilt() );
+        EXPECT_GT( net->parameterCount(), 0 );
+    }
+
+    TEST_F( QwenTransformerCudaTests, HybridInterleaveCostsMoreParametersThanAllAttention )
+    {
+        // Not a size check for its own sake: it is the cheapest assertion that BOTH kinds
+        // were really instantiated. A DeltaNet layer carries five input projections plus a
+        // convolution where an attention layer carries one fused QKV, so a stack that
+        // silently built attention blocks everywhere would not clear this.
+        auto attention_only = builtNet( allAttentionConfig(), batch_, seq_ );
+        auto hybrid = builtNet( hybridConfig(), batch_, seq_ );
+
+        EXPECT_NE( hybrid->parameterCount(), attention_only->parameterCount() );
     }
 
     TEST_F( QwenTransformerCudaTests, Construct_DeviceTypeMismatchThrows )
@@ -224,6 +246,47 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         net->synchronize();
 
         EXPECT_TRUE( allFinite( host ) );
+    }
+
+    /**
+     * @brief The published interleave, driven end to end.
+     *
+     * Building both block kinds proves they instantiate; only running them proves the stack
+     * composes -- that a DeltaNet layer accepts the residual stream an attention layer
+     * produced and hands back something the next attention layer can use. Finiteness is the
+     * assertion that matters here: the recurrence multiplies its state by exp(g) every step
+     * and the convolution feeds it, so a sign or an index error surfaces as inf or NaN long
+     * before it would surface as a wrong-looking number.
+     */
+    TEST_F( QwenTransformerCudaTests, HybridInterleave_PrefillAndDecodeStayFinite )
+    {
+        constexpr dim_t kContext = 8;
+
+        auto net = builtNet( hybridConfig(), batch_, kContext, /*initialize_parameters*/ true );
+
+        auto prompt = makeTokens( batch_, seq_ );
+        auto& prefill_logits = net->prefill( prompt );
+
+        // Last position only, as the all-attention path returns: a full chunk of logit rows
+        // would be 0.48 GiB at the real vocabulary.
+        EXPECT_EQ( prefill_logits.shape(), ( shape_t{ batch_, 1, kVocab } ) );
+
+        HostTensor prefill_host( Device::Cpu(), prefill_logits.shape() );
+        copy( prefill_logits, prefill_host );
+        net->synchronize();
+
+        EXPECT_TRUE( allFinite( prefill_host ) );
+
+        auto next = makeTokens( batch_, 1 );
+        auto& decode_logits = net->decode( next, seq_ );
+
+        EXPECT_EQ( decode_logits.shape(), ( shape_t{ batch_, 1, kVocab } ) );
+
+        HostTensor decode_host( Device::Cpu(), decode_logits.shape() );
+        copy( decode_logits, decode_host );
+        net->synchronize();
+
+        EXPECT_TRUE( allFinite( decode_host ) );
     }
 
     TEST_F( QwenTransformerCudaTests, Decode_ProducesSingleTokenLogits )

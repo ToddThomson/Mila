@@ -14,9 +14,10 @@
  *    gate half never reaches attention -- it bypasses RoPE and the KV cache entirely and
  *    rejoins after the attention output is computed.
  *
- * And three that are ordinary once stated: head_dim 256 is decoupled from the 5120 residual
- * stream (so o_proj is non-square), rotary width is 64 of 256 (partial rotary), and the FFN
- * is SwiGLU over a fused gate+up projection.
+ * And four that are ordinary once stated: head_dim 256 is decoupled from the 5120 residual
+ * stream (so o_proj is non-square), rotary width is 64 of 256 (partial rotary), query and key
+ * carry a per-head RMSNorm before RoPE (q_norm/k_norm, [head_dim]), and the FFN is SwiGLU
+ * over a fused gate+up projection.
  *
  * PER-ROLE PRECISION. The block's third parameter is a PLAN, not a policy: its four Linears
  * carry four independently-chosen weight formats, which is the whole reason this model fits
@@ -35,6 +36,13 @@
  * WEIGHT LAYOUT CONTRACT. `fc_qkv_proj` is fused as [query | gate | key | value], with query
  * and gate as contiguous halves rather than interleaved per head. The converter (section 8
  * item 8) owns producing that ordering; the block's two splits assume it.
+ *
+ * The checkpoint does NOT store it that way, which is what makes this a contract rather than
+ * a description. `Qwen/Qwen3.8-27B` carries three separate tensors -- q_proj [12288, 5120],
+ * k_proj and v_proj [1024, 5120] -- and the query projection interleaves the two halves PER
+ * HEAD, [q_h0 | gate_h0 | q_h1 | gate_h1 | ...], because the reference views it as
+ * [..., heads, 2 * head_dim] and chunks on the last axis. So the converter concatenates the
+ * three and de-interleaves the query half; nothing here changes.
  */
 
 module;
@@ -122,6 +130,8 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> normed;      // input_norm out    [B, chunk, model_dim]
         std::shared_ptr<TensorType> qkv;         // fc_qkv_proj out   [B, chunk, packed gated QKV]
         std::shared_ptr<TensorType> query_gate;  // query|gate split  [B, chunk, 2 * q_width]
+        std::shared_ptr<TensorType> q_normed;    // q_norm out        [B, chunk, q_width]
+        std::shared_ptr<TensorType> k_normed;    // k_norm out        [B, chunk, kv_width]
         std::shared_ptr<TensorType> attn;        // gqa out           [B, chunk, q_width]
         std::shared_ptr<TensorType> gated;       // output gate out   [B, chunk, q_width]
         std::shared_ptr<TensorType> o;           // fc_o_proj out     [B, chunk, model_dim]
@@ -162,8 +172,11 @@ namespace Mila::Dnn
         using ResidualType = Residual<TDeviceType, TPrecision>;
         using SwigluType = Swiglu<TDeviceType, TPrecision, ActivationType::Silu>;
 
-        // Qwen 3.8's `output_gate_type` is swish, which is SiLU.
-        using OutputGateType = AttentionOutputGate<TDeviceType, TPrecision, ActivationType::Silu>;
+        // SIGMOID, not swish. The published config says `output_gate_type: "swish"`, but that
+        // key appears nowhere in the reference implementation, which applies a plain
+        // `sigmoid(gate)` to the attention output. The config field is dead; the code is the
+        // contract. sigmoid(x) and silu(x) = x * sigmoid(x) differ everywhere but the origin.
+        using OutputGateType = AttentionOutputGate<TDeviceType, TPrecision, ActivationType::Sigmoid>;
 
         // The four per-role Linear types. This block of five lines IS the mechanism the
         // whole precision-plan design exists for: four projections, four independently
@@ -362,6 +375,8 @@ namespace Mila::Dnn
 
             stats += required( this->template getComponentAs<RmsNormType>( n + ".input_norm" ), contexts.stream );
             stats += required( this->template getComponentAs<QkvProjectionType>( n + ".fc_qkv_proj" ), contexts.stream );
+            stats += required( this->template getComponentAs<RmsNormType>( n + ".q_norm" ), contexts.qknorm );
+            stats += required( this->template getComponentAs<RmsNormType>( n + ".k_norm" ), contexts.kknorm );
             stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.qproj );
             stats += required( this->template getComponentAs<AttentionType>( n + ".gqa" ), contexts.qkv );
             stats += required( this->template getComponentAs<OutputGateType>( n + ".output_gate" ), contexts.qproj );
@@ -416,6 +431,8 @@ namespace Mila::Dnn
             BuildContext gate_up;
             BuildContext hidden;
             BuildContext qkv;
+            BuildContext qknorm;
+            BuildContext kknorm;
 
             dim_t batch{ 0 };
             dim_t chunk{ 0 };
@@ -448,6 +465,12 @@ namespace Mila::Dnn
             contexts.gate_up = context.withShape( shape_t{ B, chunk, 2 * hidden_dim } );
             contexts.hidden = context.withShape( shape_t{ B, chunk, hidden_dim } );
 
+            // QK-norm normalizes over head_dim, so its rows are per-head: [B, chunk * heads, HD].
+            contexts.qknorm = context.withShape(
+                shape_t{ B, chunk * contexts.num_heads, contexts.head_dim } );
+            contexts.kknorm = context.withShape(
+                shape_t{ B, chunk * contexts.num_kv_heads, contexts.head_dim } );
+
             // The GQA op reads only B/T here (its geometry comes from GqaConfig) and
             // validates the trailing dim as its own UNGATED packing -- the gate half is not
             // part of what attention sees.
@@ -479,6 +502,14 @@ namespace Mila::Dnn
             qkv_proj_ = this->template getComponentAs<QkvProjectionType>( n + ".fc_qkv_proj" );
             install( qkv_proj_, workspace_.qkv );
             qkv_proj_->build( contexts.stream );
+
+            q_norm_ = this->template getComponentAs<RmsNormType>( n + ".q_norm" );
+            install( q_norm_, workspace_.q_normed );
+            q_norm_->build( contexts.qknorm );
+
+            k_norm_ = this->template getComponentAs<RmsNormType>( n + ".k_norm" );
+            install( k_norm_, workspace_.k_normed );
+            k_norm_->build( contexts.kknorm );
 
             rope_ = this->template getComponentAs<RopeType>( n + ".rope" );
             rope_->build( contexts.qproj );
@@ -566,6 +597,8 @@ namespace Mila::Dnn
 
         std::shared_ptr<RmsNormType> input_norm_{ nullptr };
         std::shared_ptr<QkvProjectionType> qkv_proj_{ nullptr };
+        std::shared_ptr<RmsNormType> q_norm_{ nullptr };
+        std::shared_ptr<RmsNormType> k_norm_{ nullptr };
         std::shared_ptr<RopeType> rope_{ nullptr };
         std::shared_ptr<AttentionType> attn_{ nullptr };
         std::shared_ptr<OutputGateType> output_gate_{ nullptr };
@@ -622,16 +655,28 @@ namespace Mila::Dnn
 
             split( query_gate, q, gate, this->getExecutionContext() );
 
-            // Partial rotary: 64 of head_dim 256, from RopeConfig::withRotaryDim. The gate
-            // half is deliberately absent here -- it carries no position.
+            // QK-norm: per-head RMSNorm over head_dim, before RoPE. Viewing [B,T,heads*HD] as
+            // [B, T*heads, HD] makes each head's HD vector one normalization group. The gate
+            // is NOT normalized -- it never reaches attention.
+            auto q_perhead = q.view( shape_t{ B, T * NH, HD }, 0 );
+            auto k_perhead = k.view( shape_t{ B, T * NKV, HD }, 0 );
+            auto& q_normed = q_norm_->forward( q_perhead );
+            auto& k_normed = k_norm_->forward( k_perhead );
+
+            auto q_roped = q_normed.view( shape_t{ B, T, NH * HD }, 0 );
+            auto k_roped = k_normed.view( shape_t{ B, T, NKV * HD }, 0 );
+
+            // Partial rotary: 64 of head_dim 256, from RopeConfig::withRotaryDim. Runs in
+            // place on the norm outputs, so the raw q_/k_ split buffers stay untouched. The
+            // gate half is deliberately absent here -- it carries no position.
             if ( is_decode )
-                rope_->decode( q, k, position );
+                rope_->decode( q_roped, k_roped, position );
             else
-                rope_->prefill( q, k, position );
+                rope_->prefill( q_roped, k_roped, position );
 
             auto& attn = is_decode
-                ? attn_->decode( q, k, v, position )
-                : attn_->prefill( q, k, v, position );
+                ? attn_->decode( q_roped, k_roped, v, position )
+                : attn_->prefill( q_roped, k_roped, v, position );
 
             // The Qwen delta: swish(gate) scales the attention output elementwise before
             // the output projection.
@@ -659,9 +704,14 @@ namespace Mila::Dnn
             const dim_t hidden_dim = config_.getHiddenDimension();
             const float eps = config_.getRMSNormEpsilon();
 
+            // UNIT OFFSET. Qwen 3.8's RMSNorm scales by (1 + weight) with weights stored
+            // zero-centered, the same convention Gemma uses and the opposite of Llama's raw
+            // (weight) -- so the default 0.0 offset would silently compute x_norm * w against
+            // a checkpoint whose weights sit near zero. Every RmsNorm in this block takes it.
+            // The DeltaNet block's gated norm does NOT: that one is genuinely raw.
             auto rms = [&]( const shape_t& shape )
             {
-                return RmsNormConfig( shape ).withEpsilon( eps ).withBias( false );
+                return RmsNormConfig( shape ).withEpsilon( eps ).withBias( false ).withUnitOffset( 1.0f );
             };
 
             this->addComponent( std::make_shared<RmsNormType>( n + ".input_norm", rms( shape_t{ model_dim } ) ) );
@@ -671,6 +721,13 @@ namespace Mila::Dnn
             this->addComponent( std::make_shared<QkvProjectionType>(
                 n + ".fc_qkv_proj", LinearConfig( model_dim, packedQKVWidth() ).withBias( false ) ) );
 
+            // QK-norm over head_dim, one group per head. Applied before RoPE, and only to
+            // query and key -- the gate half bypasses both.
+            this->addComponent( std::make_shared<RmsNormType>(
+                n + ".q_norm", rms( shape_t{ config_.getHeadDim() } ) ) );
+            this->addComponent( std::make_shared<RmsNormType>(
+                n + ".k_norm", rms( shape_t{ config_.getHeadDim() } ) ) );
+
             // RoPE over the query width (not the gated width) -- the gate carries no position.
             auto rope_config = RopeConfig( qProjWidth(), config_.getNumHeads(), numKVHeads(),
                     config_.getMaxSequenceLength() )
@@ -678,8 +735,8 @@ namespace Mila::Dnn
                 .withRotaryDim( config_.getRotaryDim() );
             this->addComponent( std::make_shared<RopeType>( n + ".rope", rope_config ) );
 
-            // Full attention: no window. Attention scale stays at the GqaConfig default
-            // (1/sqrt(head_dim)) -- Qwen has no QK-norm to absorb magnitude, unlike Gemma.
+            // Full attention: no window. Attention scale stays at the GqaConfig default,
+            // which is the 1/sqrt(head_dim) the reference uses.
             auto gqa_config = GqaConfig( qProjWidth(), config_.getNumHeads(), numKVHeads() )
                 .withWindow( dim_t{ 0 } );
             this->addComponent( std::make_shared<AttentionType>( n + ".gqa", gqa_config ) );

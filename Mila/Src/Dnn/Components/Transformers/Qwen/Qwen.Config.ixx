@@ -13,10 +13,11 @@
  *    which changes the packed QKV width and the split the block performs.
  *
  * What is deliberately NOT here:
- *  - The gate function (`output_gate_type: swish`). It selects a type, so it rides the
- *    AttentionOutputGate template parameter, per the discriminating principle in
- *    Qwen3.8.md's overview: template axes are for types and layouts, runtime config is for
- *    arithmetic.
+ *  - The gate function. It selects a type, so it rides the AttentionOutputGate template
+ *    parameter, per the discriminating principle in Qwen3.8.md's overview: template axes are
+ *    for types and layouts, runtime config is for arithmetic. Note the published
+ *    `output_gate_type: "swish"` is a DEAD key -- the reference implementation reads it
+ *    nowhere and applies sigmoid -- so it would be the wrong thing to carry here anyway.
  *  - The mrope section split [11, 11, 10]. It is a multimodal positional layout, and the
  *    vision tower is out of scope for this chassis; text-only mrope degenerates to standard
  *    RoPE because all three sections then carry the same position ids.

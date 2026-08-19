@@ -130,6 +130,27 @@ being a task list and needs a prune.
 - [ ] **[contributor]** Llama 3.2 1B/3B weight tying — the aliasing plumbing shipped; add
   `tie_word_embeddings_` + post-load aliasing + `getMemoryStats` correction to `LlamaTransformer`.
   See `Specifications/WeightTying.md` §6.
+- [ ] **DeltaNet prefill runs the recurrence sequentially — O(T) in sequence steps.** The chunked
+  UT-transform formulation is what makes long-prompt prefill affordable on the 48 DeltaNet layers,
+  and without it the 27B is not shippable at prefill. The recurrent kernel is the oracle it must be
+  validated against, bitwise where fp32 allows. `Cuda/Operations/DeltaNet/Kernels/GatedDeltaRule.cu`.
+- [ ] **DeltaNet blocks self-allocate their transients; the attention blocks pool theirs.** Their
+  slots (key/value widths, per-head view, recurrent state) share nothing with
+  `QwenAttentionBlockWorkspace`, so this needs a SECOND workspace struct rather than a wider one.
+  Pure memory optimization, sized by the prefill chunk. `Qwen.ixx:onBuilding`, DeltaNet arm.
+- [ ] **Prompt-prefix reuse is silently unavailable on any model with DeltaNet layers.**
+  `QwenDeltaNetBlock::rewindKvCache` always returns false — correctly, since a recurrent state is a
+  lossy summary that cannot be rolled back — and `QwenTransformer::rewindKvCache` ANDs that into a
+  whole-stack refusal. Chat and MIS need to report this as a model property, not retry.
+- [ ] **`AttentionOutputGate` now has two callers and one of them is not attention.**
+  `QwenDeltaNetBlock` uses it for the mixer's output gate. The component is mechanically generic
+  (`out = TGate(gate) * value`); the name is not. Rename to something generic, or accept the
+  mismatch deliberately. `Components/Attention/OutputGate/AttentionOutputGate.ixx`.
+- [ ] **Phase 4's parity harness cannot use `from_pretrained`.** The BF16 reference is 54 GB against
+  31.8 GB of system RAM and a 12 GiB card, so it must stream layer-by-layer off the shards via
+  safetensors mmap (a few GB resident). Separately, MTP has no HF reference at all — transformers
+  5.12.1 declares `_keys_to_ignore_on_load_unexpected = [r"^mtp.*"]` and implements no MTP class, so
+  that head cannot be gated against HF.
 
 ### Test Suite Revival
 
