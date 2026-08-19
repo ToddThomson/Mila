@@ -457,6 +457,7 @@ PUBLIC
         "Src/Logging/FileSink.ixx"
         
         "Src/Dnn/Quantization/Weight/Policies.ixx"
+        "Src/Dnn/Quantization/Weight/PrecisionPlan.ixx"
         "Src/Dnn/Quantization/KvCache/Policy.ixx"
         "Src/Dnn/Quantization/KvCache/QuantPolicy.ixx"
         "Src/Dnn/Quantization/Quantization.ixx"

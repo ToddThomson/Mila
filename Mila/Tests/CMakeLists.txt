@@ -105,6 +105,7 @@ add_executable( MilaTests
     "Dnn/Tensors/TensorOps/Zero.Cpu.cpp"
     "Dnn/Quantization/CodebookOracle.Cpu.cpp"
     "Dnn/Quantization/CodebookPacking.Cpu.cpp"
+    "Dnn/Quantization/PrecisionPlan.Cpu.cpp"
 
     # ==============================================================
     # Section 2 - Active, not yet revisited (pre-methodology)
