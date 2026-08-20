@@ -123,6 +123,17 @@ namespace Mila::Dnn::Serialization
         float    rope_theta_local;
         float    rope_theta_global;
         float    final_logit_softcapping;
+
+        // Qwen 3.8 geometry (0 / false for other architectures). This stack interleaves two
+        // different MIXERS rather than two geometries of one mixer, so the Gated DeltaNet
+        // fields are its own rather than variants of the attention ones above. See QwenConfig.
+        bool     attention_output_gate = false;
+        uint32_t full_attention_interval = 0;
+        float    partial_rotary_factor = 0.0f;
+        uint32_t linear_num_key_heads = 0;
+        uint32_t linear_num_value_heads = 0;
+        uint32_t linear_head_dim = 0;
+        uint32_t linear_conv_kernel_dim = 0;
     };
 
     /**
@@ -170,6 +181,14 @@ namespace Mila::Dnn::Serialization
         json[ "rope_theta_local" ] = metadata.rope_theta_local;
         json[ "rope_theta_global" ] = metadata.rope_theta_global;
         json[ "final_logit_softcapping" ] = metadata.final_logit_softcapping;
+
+        json[ "attention_output_gate" ] = metadata.attention_output_gate;
+        json[ "full_attention_interval" ] = metadata.full_attention_interval;
+        json[ "partial_rotary_factor" ] = metadata.partial_rotary_factor;
+        json[ "linear_num_key_heads" ] = metadata.linear_num_key_heads;
+        json[ "linear_num_value_heads" ] = metadata.linear_num_value_heads;
+        json[ "linear_head_dim" ] = metadata.linear_head_dim;
+        json[ "linear_conv_kernel_dim" ] = metadata.linear_conv_kernel_dim;
 
         return json.dump();
     }
@@ -1248,6 +1267,14 @@ namespace Mila::Dnn::Serialization
             metadata_.rope_theta_local        = extract_float( "rope_theta_local" );
             metadata_.rope_theta_global       = extract_float( "rope_theta_global" );
             metadata_.final_logit_softcapping = extract_float( "final_logit_softcapping" );
+
+            metadata_.attention_output_gate   = extract_bool( "attention_output_gate" );
+            metadata_.full_attention_interval = extract_int( "full_attention_interval" );
+            metadata_.partial_rotary_factor   = extract_float( "partial_rotary_factor" );
+            metadata_.linear_num_key_heads    = extract_int( "linear_num_key_heads" );
+            metadata_.linear_num_value_heads  = extract_int( "linear_num_value_heads" );
+            metadata_.linear_head_dim         = extract_int( "linear_head_dim" );
+            metadata_.linear_conv_kernel_dim  = extract_int( "linear_conv_kernel_dim" );
         }
 
         void readTensorIndex()

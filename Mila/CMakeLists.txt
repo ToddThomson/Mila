@@ -438,6 +438,7 @@ PUBLIC
         "Src/Dnn/Models/GptModel.ixx"
         "Src/Dnn/Models/LlamaModel.ixx"
         "Src/Dnn/Models/GemmaModel.ixx"
+        "Src/Dnn/Models/QwenModel.ixx"
 
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         
@@ -466,6 +467,7 @@ PUBLIC
         "Src/Dnn/Core/ModelConfig.ixx"
         "Src/Dnn/Models/LlamaModelConfig.ixx"
         "Src/Dnn/Models/GemmaModelConfig.ixx"
+        "Src/Dnn/Models/QwenModelConfig.ixx"
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/GqaState.ixx"

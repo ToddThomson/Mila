@@ -264,6 +264,31 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * Elementwise, so the output carries the input's shape exactly. This component has
+         * no installed-output path -- onBuilding always allocates its own -- so unlike the
+         * components that pool, there is no slot to discount here.
+         *
+         * See Specifications/MemoryFootprint.md.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            MemoryStats stats;
+
+            stats.device_state_bytes +=
+                storageBytes<TPrecision>( elementCount( context.inputShape() ) );
+
+            if ( context.isTrainingMode() )
+            {
+                stats.device_gradient_bytes +=
+                    storageBytes<TPrecision>( elementCount( context.inputShape() ) );
+            }
+
+            return stats;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;

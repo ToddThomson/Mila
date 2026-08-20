@@ -6,7 +6,7 @@ Converts pretrained model weights and tokenizer assets from HuggingFace to Mila 
 
 ```
 Converters/
-  common.py          — shared MilaWeightWriter used by all converters
+  common.py          — shared writers and the HF -> Mila tensor name maps
   Gpt2/
     convert_weights.py
     convert_tokenizer.py
@@ -16,6 +16,8 @@ Converters/
   Gemma/
     convert_weights.py    — Gemma 4 12B (dense text chassis)
     convert_tokenizer.py
+  Qwen/
+    convert_weights.py    — Qwen 3.8 27B (hybrid DeltaNet / full-attention stack)
 ```
 
 ## Setup
@@ -138,12 +140,14 @@ python Gemma/convert_weights.py --model google/gemma-4-12b-it --output <weights-
 **Three Gemma-specific transforms are folded in at convert time** (so the Mila inference path stays
 identical to Llama and needs no Gemma-only kernels):
 
-1. **Embedding scale** — HF multiplies embedded hidden states by `sqrt(hidden_size)` at runtime. Mila
-   keeps the token embedding and `lm_head` **untied**, so the scale is folded into the written
-   embedding table (`temb.wte`) and `lm_head` gets its own **unscaled** copy of the (HF-tied) tensor.
-2. **`(1 + weight)` RMSNorm** — Gemma's RMSNorm computes `x_norm * (1 + weight)`; Mila's kernel does the
-   standard `x_norm * weight`. The converter adds `1.0` to every RMSNorm weight (all sandwich norms,
-   both QK-norms, and the final norm).
+1. **Embedding scale** — HF multiplies embedded hidden states by `sqrt(hidden_size)` at runtime, and so
+   does Mila (`TokenEmbeddingConfig::embedding_scale`), so the table is written **raw**. With
+   `tie_word_embeddings` (the Gemma 4 default) the `lm_head` blob is omitted entirely and
+   `GemmaTransformer` aliases the shared table at load time.
+2. **`(1 + weight)` RMSNorm** — Gemma's RMSNorm computes `x_norm * (1 + weight)`. The `+1` is applied at
+   the kernel (`RmsNormConfig::withUnitOffset`), **not** folded in here, so every norm weight (all
+   sandwich norms, both QK-norms, and the final norm) is written **raw** — byte-identical to the HF
+   checkpoint and directly comparable against it.
 3. **K=V global layers** — the 1-in-N global (full-attention) layers share K=V and have no `v_proj`, so
    their fused QKV blob is `[Q | K]` only; the sliding layers are the usual `[Q | K | V]`.
 
@@ -160,6 +164,70 @@ identical to Llama and needs no Gemma-only kernels):
 
 ---
 
+## Qwen
+
+Qwen 3.8 is Apache 2.0 and ungated — no authentication step.
+
+> **Requires a recent transformers** for the reference implementation the conversion is checked
+> against (`models/qwen3_5/`). Validated on **5.12.1**.
+
+Target is **Qwen 3.8 27B**, text only: the 64-layer stack interleaving three Gated DeltaNet layers per
+full-attention layer (`full_attention_interval: 4`). The vision tower and the MTP draft head are out of
+scope for this chassis and are skipped at the checkpoint index.
+
+### Supported models
+
+| Model | Parameters |
+|---|---|
+| `Qwen/Qwen3.8-27B` | 26.9B text (51.8 GiB checkpoint) |
+
+```powershell
+# Qwen 3.8 27B — streams shard by shard; host RAM never holds more than one tensor
+python Qwen/convert_weights.py --model Qwen/Qwen3.8-27B --output <weights-dir>/qwen/qwen38_27b_bf16.bin
+
+# Structural smoke test — the first 4 layers (3 DeltaNet + 1 full attention)
+python Qwen/convert_weights.py --model Qwen/Qwen3.8-27B --max-layers 4 --output <weights-dir>/qwen/qwen38_27b_l4_bf16.bin
+```
+
+| Option | Values | Default |
+|---|---|---|
+| `--model` | `Qwen/Qwen3.8-27B`, or a local checkpoint directory | required |
+| `--output` | path to write `.bin` file | required |
+| `--dtype` | `float32`, `bfloat16` | `bfloat16` |
+| `--max-layers` | convert only the first N layers — a structural smoke test, **not a model** | all |
+
+> **This converter streams, and it has to.** The checkpoint is 51.8 GiB against 31.8 GB of host RAM, so
+> `from_pretrained` — which the other converters here use — cannot run at all. Shards are read through
+> safetensors mmap one tensor at a time, and the output goes through `MilaStreamingWeightWriter`, whose
+> index is declared from the checkpoint's own shard headers before any tensor data moves. Output is
+> ~54 GB at `bfloat16`.
+
+**Four Qwen-specific transforms**, each a contract stated in the consuming block's header:
+
+1. **De-interleave `q_proj`.** `attn_output_gate` makes the query projection double width, and the
+   checkpoint stores it interleaved per head, `[q_h0 | gate_h0 | q_h1 | gate_h1 | ...]`.
+   `QwenAttentionBlock` takes `[query | gate | key | value]` with query and gate as **contiguous
+   halves**, so the query half is de-interleaved before the three sources concatenate.
+2. **Split `in_proj_qkv`** `[10240, 5120]` into `[q|k]` at 4096 and `[v]` at 6144. One tensor cannot
+   carry two storage policies, and the precision plan puts DeltaNet q/k a half step above v.
+3. **Split `conv1d.weight`** `[10240, 1, 4]` on the same boundary. Exact rather than approximate: the
+   convolution is depthwise, so two convolutions over a partition of the channels compute what one over
+   all of them computes.
+4. **Norm weights are written RAW.** Qwen's stream norms scale by `(1 + weight)` with weights stored
+   zero-centered, and Mila applies the `+1` at the kernel — so stored weights stay identical to the
+   checkpoint. The DeltaNet mixer's gated norm (`linear_attn.norm`) is genuinely raw on both sides.
+   **Both conventions live in one model**, and getting them the wrong way round is silent.
+
+> **Nothing is dropped in silence.** Every checkpoint tensor is accounted for as consumed or explicitly
+> skipped; an unrecognized tensor family fails the run rather than being ignored. Declared shapes are
+> checked against the geometry the config implies before any data is written.
+
+---
+
 ## common.py
 
-`MilaWeightWriter` in `common.py` is shared infrastructure imported by every converter. It is not intended to be run directly.
+`common.py` is shared infrastructure imported by every converter, not intended to be run directly. It
+holds `MilaWeightWriter` (buffered) and `MilaStreamingWeightWriter` (declare-then-stream, for models
+larger than host RAM), plus the HuggingFace -> Mila tensor name maps. The maps live here rather than in
+each converter because the Qwen3.8 codebook packer names its quantized tensors from the same source —
+the packer and the BF16 converter cannot be allowed to disagree about what fuses with what.

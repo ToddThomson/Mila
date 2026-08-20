@@ -266,6 +266,9 @@ export import Dnn.Models.LlamaModelConfig;
 export import Dnn.Models.GemmaModel;
 export import Dnn.Models.GemmaModelConfig;
 
+export import Dnn.Models.QwenModel;
+export import Dnn.Models.QwenModelConfig;
+
 // ============================================================================
 // Dnn - Optimizers
 // ============================================================================

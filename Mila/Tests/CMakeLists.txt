@@ -226,6 +226,10 @@ if(MILA_ENABLE_CUDA)
         # checkpoint, so neither runs in CI -- see Specifications/MemoryFootprint.md 7.
         "Dnn/Models/GemmaModel.Footprint.Cuda.cpp"
         "Dnn/Models/LlamaModel.Footprint.Cuda.cpp"
+        # Qwen against a TRUNCATED real artifact -- the full 27B is 50 GiB at BF16 and fits
+        # no card here, so 4 layers (both block kinds) is what can be exercised. Skips
+        # without the fixture; see the file header for how to produce it.
+        "Dnn/Models/QwenModel.Load.Cuda.cpp"
         # The generation context bound. CUDA rather than CPU because the CPU operation
         # layer takes its extents from build(), so a CPU model cannot run a prompt
         # shorter than its built context and never reaches the loop under test.

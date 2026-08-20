@@ -35,6 +35,12 @@ Gemma's GQA path.
 > **Revision 2026-08-16:** table re-verified against the raw `config.json` (it was first
 > transcribed from a summarization, which dropped `attn_output_gate: true` — the source of
 > the Section 2 undercount). Licence and the 1M YaRN extension verified on the model card.
+>
+> **Revision 2026-08-19:** re-verified against the downloaded checkpoint — `config.json` plus
+> every shard header — and against the reference implementation, now readable locally
+> (`transformers 5.12.1`, `models/qwen3_5/`). Three rows changed: QK-norm exists and was
+> missing entirely, the attention output gate is **sigmoid** rather than swish, and the two
+> DeltaNet head dimensions are separate fields. See *Phase 3 status* for how each was found.
 
 | Field | Value | Note |
 |---|---|---|
@@ -45,15 +51,17 @@ Gemma's GQA path.
 | `tie_word_embeddings` | false | **untied** — two full-size tables, unlike Gemma |
 | `num_attention_heads` | 24 | full-attention layers only |
 | `num_key_value_heads` | 4 | full-attention layers, GQA group 6 |
-| `attn_output_gate` | true | **q projection is double-width**: [query \| gate], swish gate on the attention output (Section 2) |
+| `attn_output_gate` | true | **q projection is double-width**: [query \| gate], **sigmoid** gate on the attention output (Section 2) |
+| `q_norm` / `k_norm` | present | RMSNorm over `head_dim`, per head, **before RoPE**. Not a config field — visible only in the checkpoint and the reference |
 | `head_dim` | 256 | **decoupled** (5120 / 24 = 213 != 256) |
 | `partial_rotary_factor` | 0.25 | rotary width 64 of 256 |
 | `rope_theta` | 1e7 | |
 | `rope_parameters` | mrope, sections [11, 11, 10] | interleaved; multimodal positional layout |
-| `linear_num_key_heads` | 16 | Gated DeltaNet, head_dim 128 |
-| `linear_num_value_heads` | 48 | Gated DeltaNet, head_dim 128 |
+| `linear_num_key_heads` | 16 | Gated DeltaNet; 3 value heads per key head |
+| `linear_num_value_heads` | 48 | Gated DeltaNet |
+| `linear_key_head_dim` / `linear_value_head_dim` | 128 / 128 | two separate fields, equal here — do not assume one |
 | `linear_conv_kernel_dim` | 4 | short causal depthwise convolution over q/k/v |
-| `output_gate_type` | swish | on the DeltaNet value path |
+| `output_gate_type` | swish | **read nowhere in the implementation.** Its value does describe the DeltaNet value gate (silu = swish); it does **not** describe the attention output gate, which is hardcoded sigmoid. A chassis that keys the attention gate off this field picks the wrong function |
 | `mamba_ssm_dtype` | float32 | published dtype of the DeltaNet recurrent state (Section 3) |
 | `max_position_embeddings` | 262144 | extensible to 1M via YaRN overrides (model card) |
 | `dtype` | bfloat16 | transformers 5.x field name (formerly `torch_dtype`) |
@@ -319,6 +327,14 @@ the interface. Deliberately deferred until the DeltaNet workspace shape is known
 code — designing the generalization before there is a second instance to generalize over would
 be guessing.
 
+> **Resolved 2026-08-19, and the deferral paid.** With the block built, the generalization
+> turned out not to be needed: `QwenDeltaNetBlock` accepts `setState` and ignores it — there is
+> no attention transient to wire — and self-allocates its transients. The interface is
+> unchanged across all three families. What remains is a second workspace struct for pooling
+> the DeltaNet slots, which is a memory optimization rather than an interface question. Had
+> the generalization been designed in 2026-08-16, it would have been built for a shape that
+> never arrived.
+
 ### Consequence: prompt caching cannot work by rewinding
 
 A KV cache rewinds because it stores per-token entries and only the fill pointer moves. A
@@ -360,12 +376,16 @@ Ordered by dependency, not priority. Nothing here is scheduled.
    needs, and is no longer part of this item.
 3. **The precision plan struct and concept** (Section 6), and threading it through `Linear`
    construction inside a block.
-4. **Depthwise causal `Conv1d`**, kernel 4. No convolution component exists in the tree.
+4. ~~**Depthwise causal `Conv1d`**, kernel 4.~~ **Built** (Phase 3): `CausalConv1d`, the first
+   convolution component in the tree.
 5. **Gated DeltaNet component**: L2 normalization on q/k, swish output gate, chunked-parallel
    prefill kernel and O(1) recurrent decode kernel, FP32 state. Build against a Python
    reference oracle. Validate **generation, not per-layer tolerance** — a per-layer test can
    pass while 48 recurrent layers compound to garbage, and that failure mode is more likely
    here than in an attention stack.
+   *Phase 3 built the component, the recurrent kernel and the oracle. Still open: the
+   chunked-parallel prefill kernel, and the generation-level validation — which needs a
+   converter, so it lands with Phase 4.*
 6. **Host-resident `embed_tokens`** path.
 7. **`PerChannelKvFp8` KV-cache policy.** Optional for the 16K baseline (BF16 KV fits) and
    the price of the 32K stretch (Section 5). Independently useful for Gemma and Llama.
@@ -1074,10 +1094,11 @@ and `Qwen.ixx`; the output gate is a component of its own under
 
 Five decisions the code now carries, worth stating because none is recoverable from a diff:
 
-- **`QwenTransformer` refuses the published interleave at construction**, naming Phase 3.
-  Only an all-full-attention configuration builds today. A transformer that quietly built 16
-  of 64 layers is the worst failure available here, and the refusal is checked before any
-  device memory is touched so it names the config rather than a build.
+- **`QwenTransformer` refused the published interleave at construction**, naming Phase 3.
+  Only an all-full-attention configuration built. A transformer that quietly built 16 of 64
+  layers is the worst failure available here, and the refusal was checked before any device
+  memory was touched so it named the config rather than a build. *Superseded by Phase 3: the
+  refusal is deleted and the published interleave builds.*
 - **The output gate composes rather than fuses**: the shared elementwise activation op, then
   the TensorOps multiply in place over the gate's own output. Two launches on 16 of 64 layers.
   A fused kernel needs a new operation type and a dispatch row, and nothing has measured it.
@@ -1089,16 +1110,169 @@ Five decisions the code now carries, worth stating because none is recoverable f
   one *shared* table consistent across two consumers; Qwen's tables are independent and
   Section 5 prices them apart (BF16 host-resident against FP4), so the plan machinery gained
   a `LanguageModelHead` role beside `EmbeddingTable`.
-- **QK-norm is absent, on this document's authority.** Section 1's table is recorded as
-  re-verified against the raw `config.json` and names `attn_output_gate` explicitly while
-  naming no QK-norm field, so the block wires none. The Qwen 3 family does carry it upstream;
-  if the published config does too, this is a two-component addition to `createGraph` and a
-  per-head view in the forward path, and Section 2's count does not disambiguate (the norm
-  weights would land in the "norms, conv, misc" row either way).
+- **QK-norm was recorded as absent, on this document's authority, and that was WRONG.** The
+  reasoning was that Section 1's table had been re-verified against the raw `config.json` and
+  named `attn_output_gate` explicitly while naming no QK-norm field. The flaw is that
+  **QK-norm is not a config field in this architecture** — it is unconditional in the
+  reference's attention constructor and visible only in the checkpoint's tensor names. No
+  amount of re-reading `config.json` could have found it. *Corrected in Phase 3; see there
+  for the general lesson.*
 
 `QwenModel` is deliberately absent. Its whole job is loading weights, and with no converter
 (item 8) and no DeltaNet layers it would be an entry point to a model that cannot load —
-which gets mistaken for one that works.
+which gets mistaken for one that works. *Superseded: the converter and `QwenModel` both landed
+2026-08-19; see below.*
+
+### The converter and `QwenModel` (2026-08-19)
+
+Both halves of item 8's remainder. `Tools/Converters/Qwen/convert_weights.py` streams the
+checkpoint shard by shard — `from_pretrained` cannot run at 51.8 GiB against 31.8 GB of RAM —
+and emits the four transforms this document settled: the `q_proj` de-interleave, the
+`in_proj_qkv` split at `2 * key_dim`, the matching depthwise `conv1d` split, and raw norm
+weights. The name map lives in `Converters/common.py` beside the Llama one, so the codebook
+packer will name tensors from the same source.
+
+Every rearrangement is verified **bit-identical** to the checkpoint, and the de-interleave
+additionally against the reference's own expression
+(`q_proj(x).view(*shape, heads, 2 * head_dim).chunk(2, -1)`) — with a negative control
+confirming the naive first-half/second-half split fails that check. The full artifact is
+**50.10 GiB, 851 tensors**; 851 consumed plus 348 skipped accounts for all 1199 checkpoint
+tensors, and 50.10 GiB is the 53.8 GB text-only GGUF anchor Section 2 reconciles against.
+
+**The BF16 27B fits nowhere on this hardware** — 50 GiB against a 12 or 16 GiB card and
+31.8 GB of RAM. So reference precision cannot be exercised on the whole stack here at all,
+which is not a gap in `QwenModel` but the precise reason Phase 4's parity harness must stream
+layer by layer. What can be exercised is the converter's `--max-layers 4` fixture: three
+DeltaNet layers and one full-attention layer, every block kind and every transform, at
+7.57 GiB. `Tests/Dnn/Models/QwenModel.Load.Cuda.cpp` drives it and skips without it. Four of
+sixty-four layers produce meaningless tokens, so nothing there asserts what is generated.
+
+Three properties the model carries, none recoverable from a diff:
+
+- **Reference precision only.** The uniform FP4/FP8 modes are refused by name. Section 5 is a
+  per-role plan over codebook formats, so a uniform body is a *different allocation*, not Qwen
+  at lower precision, and the artifact carrying the real plan is Phase 5.
+- **No prefix-reuse path exists**, rather than Gemma's block present and permanently failing.
+  Machinery that can never fire reads as a capability.
+- **The recurrent state is self-cleaning at prefill-position-0** (`GatedDeltaRule::prefill`,
+  `CausalConv1d::prefill`), so no explicit reset is needed — and that is also why `prefillFrom`
+  at a non-zero offset must never be reached on this family. Pinned by a test asserting two
+  greedy generations agree.
+
+**One defect fell out of walking the path:** `Activation::getRequiredMemory` did not exist, so
+`getDeploymentFootprint` threw for any configuration containing a DeltaNet layer — the path
+Chat's GPU-fit verdict and `/context` use. The base throws by design so an unconverted
+component cannot be missed, and Qwen's block was the first composite to recurse into
+`Activation`. Fixed; nine components on the GPT-2 side still lack it, and are filed.
+
+### Phase 3 status (2026-08-19)
+
+**The published 27B geometry constructs, builds, and runs** — prefill and decode end to end,
+finite logits, all 64 layers in the 3:1 interleave. Suite 1743 passed / 1 pre-existing skip.
+Built: `CausalConv1d` (`Components/Convolutions/`), `GatedDeltaRule`
+(`Components/DeltaNet/`), `QwenDeltaNetBlock`, and both arms wired into `QwenTransformer`.
+
+**The phase is not finished** — its exit gate has three criteria and one is met outright. See
+*The exit gate is NOT met* below before treating this as done.
+
+#### The checkpoint settled four questions this document had guessed at
+
+Enumerating cost ~140 KiB: the safetensors index, then one HTTP **range** request per shard
+header (8-byte length prefix, then that much JSON). No tensor data. Worth reusing — it reads
+names, dtypes and shapes for a 51.77 GiB checkpoint for the price of a web page.
+
+- **QK-norm exists** — `q_norm`/`k_norm` `[256]`, per head, before RoPE, on every
+  full-attention layer and on the MTP layer. Now wired, mirroring `Gemma.Block.ixx`.
+- **The attention output gate is sigmoid, not swish.** `output_gate_type` is read nowhere.
+- **Both RMSNorm conventions appear in one model.** Every stream norm uses the unit-offset
+  form `x_norm * (1 + weight)` with weights stored zero-centered; the DeltaNet mixer's gated
+  norm uses the **raw** weight, ones-initialized. Getting these the same way round is silent,
+  not loud — the model produces plausible garbage.
+- **`intermediate_size` really is uniform** at 17408 across both kinds and MTP, confirming
+  Section 9's config-level answer at the checkpoint level.
+
+**The general lesson, worth more than any of the four:** three of these are invisible in
+`config.json` and visible in the tensor names or the reference source. *A config file
+describes what varies between checkpoints, not what the architecture always does.* Re-reading
+it more carefully would never have found them.
+
+#### The precision plan dictated the projection split
+
+Section 5's parameter counts only add up one way, and they are the reason the block does not
+mirror the checkpoint's tensor layout:
+
+| Role | Section 5 | Tensors |
+|---|---|---|
+| `DeltaNetQueryKey` | 1.007 B | q + k |
+| `DeltaNetValueGateOutput` | 4.531 B | v + z + out_proj |
+| `DeltaNetGating` | 0.024 B | a + b |
+
+The checkpoint fuses q, k and v into one `in_proj_qkv` `[10240, 5120]`, but one tensor cannot
+carry two storage policies. So the converter splits it into `[q|k]` at 4096 and `[v]` at 6144,
+and splits `conv1d.weight` `[10240, 4]` to match. **That split is exact, not an
+approximation**: the convolution is depthwise, so two convolutions over a partition of the
+channels compute what one convolution over all of them computes.
+
+#### Kernel shape: the recurrent state lives in registers
+
+A `[head_key_dim, head_value_dim]` state is 64 KiB per head — too large for shared memory, and
+streaming it through global memory each step would cost more bandwidth per layer than reading
+the whole model. But **one thread per value column makes the recurrence entirely thread-local**:
+decay, `kv_mem`, the outer-product update and the output projection each touch only that
+column, with no cross-thread exchange. The state therefore stays in registers for the whole
+chunk. Only q and k are shared (they are per key-head), so they pass through shared memory and
+their L2 norms are recomputed redundantly per thread — uniform control flow, no block
+reduction, no partial-warp sync.
+
+Two shortcuts, both licensed by an oracle rather than by reading: q and k are passed at
+`num_key_heads` width and the kernel indexes `key_head = value_head / group`, so no
+`repeat_interleave` is materialized; and `g`/`beta` are derived inside the rule from `A_log`
+and `dt_bias`, keeping a softplus off the public activation enum. The oracle is an independent
+Python implementation proven **bit-identical** (max |diff| = 0.0) to
+`torch_recurrent_gated_delta_rule`, and the C++ test vectors are its output — so a failure
+means divergence from the reference, not from someone's reading of it.
+
+#### Section 7's predictions, checked against working code
+
+Five of six held exactly. The sixth resolved more cheaply than expected: `setState(const
+GqaState&)` was recorded as *does not fit*, with the remedy being to make the workspace an
+associated type. In practice the DeltaNet block **accepts and ignores it** — there is no
+attention transient to wire — and self-allocates its own transients. Its slots share nothing
+with `QwenAttentionBlockWorkspace`, so pooling them means a *second* workspace struct rather
+than a wider one. That is a memory optimization, still owed, and the interface is unchanged.
+
+The prompt-caching consequence Section 7 derived is now enforced in code:
+`QwenDeltaNetBlock::rewindKvCache` always returns `false`, and the transformer ANDs it into a
+stack-wide refusal.
+
+#### The exit gate is NOT met — two of three criteria
+
+Phase 3's gate (above) names three. Stating this plainly because the geometry building and
+running makes it easy to read the phase as finished, and it is not:
+
+| Criterion | Status |
+|---|---|
+| Chunked prefill and token-by-token decode produce identical state and output | **Met.** Pinned at three levels — the convolution, the mixer, and the whole block — each with a positive control that fails if the carried state is ignored. |
+| Oracle parity per layer, at BF16, **on real checkpoint weights** | **Partial.** Parity holds against the Python oracle on synthetic vectors, bit-identically in FP32. Real weights now load (the converter landed 2026-08-19) and a 4-layer fixture runs end to end, but no layer has been compared against the oracle on them — that is the Phase 4 harness, and the 50 GiB reference is why it must stream. |
+| State-plus-conv-ring snapshot/restore roundtrips exactly | **Not started.** Neither the recurrent state nor the convolution window can be snapshotted or restored today. Section 7 identifies this as the mechanism that replaces rewinding for prompt caching, so it is the gate criterion with a product consequence attached. |
+
+#### What Phase 3 does not do
+
+**Prefill runs the recurrence sequentially**, O(T) in sequence steps. The chunked
+(UT-transform) formulation is the throughput answer and is not built; the recurrent form is
+the oracle it must be validated against. **This tree is not shippable at 27B prefill.**
+
+Two Phase 4 constraints found while enumerating, both filed:
+
+- **The parity harness cannot use `from_pretrained`.** The BF16 reference is 54 GB against
+  31.8 GB of system RAM and a 12 GiB card, so it must stream layer-by-layer off the shards via
+  safetensors mmap.
+- **MTP has no HF reference at all.** `transformers 5.12.1` declares
+  `_keys_to_ignore_on_load_unexpected = [r"^mtp.*"]` and implements no MTP class, so that head
+  cannot be gated against HF. Its wiring here is read from tensor shapes and family
+  convention, not from a reference.
+
+---
 
 **Owed, outside the phases:** `Web/content/blog/expressing-qwen38-in-types.md` is a `draft: true`
 post written before the 2026-08-16 revision of this document, so its figures are stale wherever
@@ -1113,17 +1287,21 @@ rather than in `BACKLOG.md` because this document, not the task list, is the rec
 - **`head_dim` 256 with 4 KV heads on the full-attention layers.** Gemma's global layers run
   512, so the width is precedented, but the shared-memory budget of the FlashAttention prefill
   kernel needs checking against this specific geometry.
-- **`intermediate_size` uniformity — resolved at the config level** (2026-08-16): the config
-  carries a single scalar, so both layer kinds share 17408 as published. The checkpoint-shape
-  check at converter time remains as cheap insurance (Section 2).
-- **Does the DeltaNet chunk size interact with the prefill chunk?** The convolution spans
-  chunk boundaries and needs a 3-token carry; whether the delta-rule chunk should match the
-  prefill chunk or be independent is unresolved.
+- ~~**`intermediate_size` uniformity**~~ — **closed 2026-08-19.** Resolved at the config level
+  in 2026-08-16 and now confirmed against every shard header: 17408 on all 64 layers, both
+  kinds, and the MTP layer.
+- **Does the DeltaNet chunk size interact with the prefill chunk?** *Half answered
+  2026-08-19.* The convolution side is settled and implemented: it carries `kernel_width - 1`
+  rows across chunk boundaries, and chunked prefill provably reproduces a single pass. The
+  delta rule is currently recurrent, so it has no chunk of its own; the question becomes live
+  again — and unresolved — when the UT-transform kernel is built.
 - **mRoPE sections [11, 11, 10].** Text-only input gives all three sections the same position
   index, so mRoPE degenerates to standard RoPE regardless of the interleaved layout — the
   single-section fallback is exact, not an approximation. `rotary_dim` already exists on
   `RopeConfig` and covers the 0.25 partial factor; the multi-section layout is a multimodal
-  concern and is deferred with the vision tower.
+  concern and is deferred with the vision tower. *Corroborated 2026-08-19: the sections sum to
+  32 = rotary_dim / 2, and `partial_rotary_factor` is honoured by the shared rope init
+  (`modeling_rope_utils.py:174`), so the 64-of-256 width is confirmed rather than inferred.*
 - **Spend the FP8-KV margin on context or on bits?** At the 16K baseline, landing the FP8 KV
   policy frees ~0.5 GiB — enough for +0.25 bits across the whole FFN or +0.5 bits on its
   most sensitive rows (Section 5). Quality (Section 8 step 0) should decide, not memory.

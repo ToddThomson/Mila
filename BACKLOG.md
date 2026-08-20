@@ -151,6 +151,18 @@ being a task list and needs a prune.
   safetensors mmap (a few GB resident). Separately, MTP has no HF reference at all — transformers
   5.12.1 declares `_keys_to_ignore_on_load_unexpected = [r"^mtp.*"]` and implements no MTP class, so
   that head cannot be gated against HF.
+- [ ] **`getRequiredMemory` is unimplemented on nine components, and the base throws by design.**
+  Gelu, MultiHeadAttention, Lpe, GatedMLP, MLP, SoftmaxCrossEntropy, LayerNorm, Softmax and
+  GptBlock — so `GptModel::getRequiredMemory` throws the way Qwen's did until `Activation` was
+  converted. The contract lands family by family (`Core/Component.ixx:615`); GPT-2 is the family
+  still outstanding.
+- [ ] **No Qwen tokenizer converter.** `Tools/Converters/Qwen/` converts weights only, so nothing can
+  drive the model end to end yet. Qwen is GPT-2-style BPE (`vocab.json` + `merges.txt`), so
+  `Gpt2/convert_tokenizer.py` is the closest template rather than the SentencePiece Gemma path.
+- [ ] **The Llama converter writes a metadata key the reader never parses.** It emits `norm_eps`;
+  `parseMetadataJSON` extracts `norm_epsilon` (Gemma and the packer both emit that). Harmless today
+  only because `LlamaModel::configFromMetadata` does not read the epsilon at all — it takes
+  `LlamaConfig`'s default. `Tools/Converters/Llama/convert_weights.py:188`.
 
 ### Test Suite Revival
 
