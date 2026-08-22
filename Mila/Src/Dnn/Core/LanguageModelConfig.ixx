@@ -90,6 +90,20 @@ namespace Mila::Dnn
         None,   ///< BF16 weights -- default; no quantization overhead.
         FP8,    ///< FP8_E4M3 per-channel weight quantization -- Alpha.5 target.
         FP4,    ///< Per-group FP4 weight quantization -- future target.
+
+        /**
+         * The family's own designed per-role allocation, rather than one uniform format.
+         *
+         * The three values above name a STORAGE FORMAT that applies to every Linear alike.
+         * This one does not name a format at all: it says "build this model the way its
+         * designers allocated its bits", and which formats that means is the family's to
+         * define -- Qwen 3.8 spends 2.5 bits on the feed-forward gate/up pair and 4.125 on
+         * full attention (Specifications/Qwen3.8.md section 5).
+         *
+         * A family with no plan must REFUSE this value rather than fall back to a uniform
+         * policy, which is why dispatchWeightQuantization handles it explicitly.
+         */
+        Plan,
     };
 
     /**
@@ -107,6 +121,13 @@ namespace Mila::Dnn
         {
             case WeightQuantization::FP4: return "per_group_fp4_128";
             case WeightQuantization::FP8: return "per_channel_fp8_e4m3";
+
+            // A plan's artifact scheme is the FAMILY's, not this enum's -- Qwen 3.8 writes
+            // "codebook" because its sub-4-bit rows are what a load cannot reconstruct. One
+            // family has a plan today, so the mapping is stated here; a second one with a
+            // different scheme is what forces it to move behind a family accessor.
+            case WeightQuantization::Plan: return "codebook";
+
             case WeightQuantization::None:
             default:
                 return "none";
@@ -275,6 +296,25 @@ namespace Mila::Dnn
             return static_cast<TDerived&>(*this);
         }
 
+        /**
+         * @brief The family's designed per-role allocation, from a pre-quantized artifact.
+         *
+         * Unlike the two above, this sets no KV compression: a plan allocates WEIGHT bits,
+         * and Qwen 3.8's baseline pairs its 2.90-bit body with a BF16 KV cache, which fits
+         * at 16K without compression (Qwen3.8.md section 5). A deployment that wants FP8 KV
+         * on top asks for it separately.
+         *
+         * There is no quantize-on-load path here and there cannot be one: a codebook is
+         * fitted offline against calibration data, so the artifact must already carry the
+         * codes. A load refuses an artifact whose scheme is not the compiled one.
+         */
+        TDerived& withPrecisionPlan()
+        {
+            weight_quantization_ = WeightQuantization::Plan;
+
+            return static_cast<TDerived&>(*this);
+        }
+
         // =====================================================================
         // Accessors
         // =====================================================================
@@ -313,6 +353,7 @@ namespace Mila::Dnn
                         case WeightQuantization::None: return "None (BF16)";
                         case WeightQuantization::FP8:  return "FP8 (PerChannelFp8)";
                         case WeightQuantization::FP4:  return "FP4 (PerGroupFp4)";
+                        case WeightQuantization::Plan: return "Plan (per-role allocation)";
                         default:                       return "Unknown";
                     }
                 };

@@ -39,8 +39,8 @@
  * memory, where it is a gather and never a multiply) while the head is FP4 because it drives
  * sampling and is re-read in full every decode step.
  *
- * Host-resident `embed_tokens` is section 8 item 6 and is NOT implemented here: the table is
- * device-resident, which costs the 0.610 GiB that section 5's budget hands back.
+ * The embedding table is HOST-RESIDENT on CUDA (section 8 item 6): 2.37 GiB of BF16 in
+ * pinned memory, gathered across PCIe at 10 KiB per token, costing the card nothing.
  */
 
 module;
@@ -103,20 +103,32 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::KvCache;
 
     // The chunk rungs, largest first, and the floor below which the GEMM M dimension is
-    // tensor-core-hostile on top of the weight re-read.
-    //
-    // These are the Gemma values, INHERITED RATHER THAN MEASURED: nothing has run this
-    // model, so a Qwen-specific ladder would be a guess dressed as a decision. The row-cost
-    // model below is Qwen's own, so the rung this picks already reflects Qwen's geometry;
-    // what is unvalidated is the ladder and the budget, and Phase 5 is where they get
-    // measured against the 12 GiB card.
+    // tensor-core-hostile on top of the weight re-read. Inherited from Gemma; the row-cost
+    // model below is Qwen's own, so the rung this picks already reflects Qwen's geometry.
     inline constexpr dim_t kQwenPrefillChunkRungs[] = { 1024, 512, 256, 128, 64 };
     inline constexpr dim_t kQwenPrefillChunkFloor = 64;
 
-    // Activation budget for one prefill pass. Section 5 allots 0.45 GiB to activations and
-    // scratch at the 16K baseline, well under this cap; the cap is the ceiling a chunk may
-    // not cross, not the expected occupancy.
-    inline constexpr dim_t kQwenPrefillActivationBudgetBytes = dim_t{ 1536 } * 1024 * 1024;
+    // Activation budget for one prefill pass, MEASURED on the 12 GiB card against the packed
+    // 2.90-bit artifact (2026-08-22) rather than inherited. Gemma's 1536 MiB does not fit
+    // this model, and the reason is not the budget's own size: a 27B body is 8.69 GiB of
+    // resident parameters, so the whole activation allowance has to come out of what a
+    // 12 GiB card has left after that, which is under 2 GiB once the KV cache and the CUDA
+    // context are paid for.
+    //
+    //   budget   512     2048    4096    8192    16384   (device GiB, 10.85 free)
+    //   1536     9.94    11.02   11.35   10.84   11.85   -- overruns from 2048 up
+    //   1024     9.94    11.02   11.35   10.25   10.34   -- still overruns 2048 and 4096
+    //    512     9.94    10.12    9.87    9.81   10.34   -- fits the whole ladder
+    //
+    // The overrun at SHORT context is the counter-intuitive part and is what a bigger budget
+    // cannot fix: with little KV to pay for, a generous cap lets the ladder take the 1024-row
+    // rung, and 1024 rows of a 27B geometry is the thing that does not fit. The cap has to be
+    // small enough that the largest affordable rung is affordable in TOTAL, not just against
+    // the cap.
+    //
+    // 32K remains out of reach at 11.50 GiB, which is what Section 5 already says: the stretch
+    // needs the FP8 KV policy, not a bigger activation allowance.
+    inline constexpr dim_t kQwenPrefillActivationBudgetBytes = dim_t{ 512 } * 1024 * 1024;
 
     /**
      * @brief Qwen 3.8 transformer (decoder-only) for autoregressive inference.

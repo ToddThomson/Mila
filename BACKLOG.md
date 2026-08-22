@@ -95,11 +95,16 @@ being a task list and needs a prune.
 - [ ] **Gate B has no unquantized case.** Both footprint suites test FP4 only, so `NoWeightQuant` —
   the path a store name without an `-fp4`/`-fp8` suffix takes — has never been checked against
   `cudaMemGetInfo`. Add `llama-3.2-3b-it` at BF16: ~6.3 GiB, fits the 12 GB card, no spill.
-- [~] **Attribute the Gate B residual.** Scratch is measured and is *not* the answer (~230 MiB on both
-  models, essentially model-independent), leaving 1.015 GiB unattributed on Gemma and 0.449 on Llama.
-  Next and cheap: per-allocation rounding — read `MemoryAllocationStats::allocationCount` (import
-  `Compute.MemoryResourceTracker` directly; `Mila.ixx:95` comments the re-export out) and divide.
-  Measurement noise floor is ~50-70 MiB, so nothing under ~0.1 GiB is signal.
+- [~] **Attribute the Gate B residual — now load-bearing, not cosmetic.** Scratch is measured and is
+  *not* the answer (~230 MiB on both models, essentially model-independent), leaving 1.015 GiB
+  unattributed on Gemma and 0.449 on Llama. Third and largest sighting 2026-08-22: the packed
+  Qwen 27B predicts 9.94 GiB at 512 context and consumes the whole 10.85 GiB free, and at 2048
+  predicts 10.12 and dies — so a ~0.9 GiB gap, not the Section 5 allocation, is what stands
+  between it and its 16K baseline. Chat's GPU FIT verdict reads `device_parameter_bytes`, so it
+  would say "fits" and then die. Next and cheap: per-allocation rounding — read
+  `MemoryAllocationStats::allocationCount` (import `Compute.MemoryResourceTracker` directly;
+  `Mila.ixx:95` comments the re-export out) and divide. Noise floor ~50-70 MiB, so nothing
+  under ~0.1 GiB is signal. See `Specifications/Qwen3.8.md`, "Phase 5's load path".
 - [ ] **Leaf-level Gate A for `Rope` is still unwritten**, and must not be a naive predict-vs-build
   equality: `RopeCacheRegistry` keys on (theta, max_seq_len, head_dim) and only the first owner
   allocates, so the assertion is registry-order dependent. Transformer-level dedup is in place.
@@ -176,6 +181,15 @@ being a task list and needs a prune.
 - [ ] **[contributor]** Llama 3.2 1B/3B weight tying — the aliasing plumbing shipped; add
   `tie_word_embeddings_` + post-load aliasing + `getMemoryStats` correction to `LlamaTransformer`.
   See `Specifications/WeightTying.md` §6.
+- [ ] **Decode on the packed 27B is 4.7 tok/s, ten times under the Section 5 ceiling.**
+  Measured 2026-08-22 by subtraction on the real artifact: 213 ms/token, an implied 44 GB/s
+  against the 4070's 504. The ceiling assumed bandwidth-bound decode and is now refuted, not
+  merely unverified — this is the DRAM-resident measurement Phase 1 said was owed. The path is
+  confirmed correct (`outer_size == 1` reaches `launchCodebookDecode`), so it is the kernels.
+  **Attribution is the first step and does not exist**: the codebook GEMVs and the DeltaNet
+  recurrent decode kernel (48 of 64 layers, one thread per value column, occupancy unexamined)
+  are both candidates and nothing separates them. Per-kernel timing first, optimization second.
+  `DISABLED_DecodeRate` in `QwenModel.Load.Cuda.cpp` is the harness.
 - [ ] **DeltaNet prefill runs the recurrence sequentially — O(T) in sequence steps.** The chunked
   UT-transform formulation is what makes long-prompt prefill affordable on the 48 DeltaNet layers,
   and without it the 27B is not shippable at prefill. The recurrent kernel is the oracle it must be

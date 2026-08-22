@@ -110,22 +110,10 @@ namespace Mila::Dnn
          */
         using QwenKvPolicy = NoKvCompression;
 
-        /**
-         * @brief The weight plan this entry point builds: everything BF16, nothing quantized.
-         *
-         * Phase 4 gates the chassis against the HF reference at reference precision; Phase 5
-         * applies `QwenPrecisionPlan`. Spelled as a plan rather than a bare policy so both
-         * arms of that comparison read as siblings.
-         */
-        using QwenWeightPlan = QwenReferencePrecisionPlan;
-
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
-
-        using ConcreteTransformerType =
-            QwenTransformer<TDeviceType, TPrecision, QwenWeightPlan, QwenKvPolicy>;
 
         QwenModel( const QwenModel& ) = delete;
         QwenModel& operator=( const QwenModel& ) = delete;
@@ -157,32 +145,14 @@ namespace Mila::Dnn
         {
             validateRequest( "QwenModel::fromPretrained", model_config, device_id );
 
-            PretrainedModelReader reader( path );
-            const auto& metadata = reader.getPretrainedMetadata();
-
-            QwenConfig network_config = configFromMetadata( metadata );
-
-            validateArtifact( "QwenModel::fromPretrained", path, reader, model_config,
-                network_config );
-
-            auto network = std::make_unique<ConcreteTransformerType>(
-                metadata.model_name, network_config, device_id );
-
-            BuildContext build_context(
-                shape_t{ 1, static_cast<dim_t>( model_config.getContextLength() ) },
-                RuntimeMode::Inference,
-                false );
-
-            network->build( build_context );
-
-            Logging::Logger::info( network->toString() );
-
-            network->loadParameters( reader );
-
-            return std::unique_ptr<QwenModel<TDeviceType, TPrecision>>(
-                new QwenModel<TDeviceType, TPrecision>(
-                    std::move( network ), network_config,
-                    model_config, metadata, RuntimeMode::Inference ) );
+            return dispatchQwenWeightPlan<
+                    std::unique_ptr<QwenModel<TDeviceType, TPrecision>>>(
+                model_config.getWeightQuantization(),
+                "QwenModel::fromPretrained",
+                [&]<typename TWeightPlan>()
+                {
+                    return fromPretrainedImpl<TWeightPlan>( path, model_config, device_id );
+                } );
         }
 
         /**
@@ -220,29 +190,17 @@ namespace Mila::Dnn
         {
             validateRequest( "QwenModel::getDeploymentFootprint", model_config, device_id );
 
-            PretrainedModelReader reader( path );
-            const auto& metadata = reader.getPretrainedMetadata();
-
-            QwenConfig network_config = configFromMetadata( metadata );
-
-            validateArtifact( "QwenModel::getDeploymentFootprint", path, reader, model_config,
-                network_config );
-
-            // Construction commits no device memory -- that is the whole premise. The graph
-            // exists, correctly shaped, and is then asked rather than built.
-            auto network = std::make_unique<ConcreteTransformerType>(
-                metadata.model_name, network_config, device_id );
-
-            const dim_t context_length = static_cast<dim_t>( model_config.getContextLength() );
-
-            BuildContext build_context(
-                shape_t{ 1, context_length },
-                RuntimeMode::Inference,
-                false );
-
-            return DeploymentFootprint{
-                network->getRequiredMemory( build_context ),
-                network->prefillChunking( 1, context_length ) };
+            // The same dispatcher as fromPretrained, deliberately: the footprint path and the
+            // load path must reach the identical instantiation, or a model reports a figure it
+            // does not allocate. At 2.90 bits against BF16 that error would be a factor of six.
+            return dispatchQwenWeightPlan<DeploymentFootprint>(
+                model_config.getWeightQuantization(),
+                "QwenModel::getDeploymentFootprint",
+                [&]<typename TWeightPlan>()
+                {
+                    return deploymentFootprintImpl<TWeightPlan>(
+                        path, model_config, device_id );
+                } );
         }
 
         // ====================================================================
@@ -482,6 +440,131 @@ namespace Mila::Dnn
         static constexpr int32_t kEndOfTurnToken = 248046;  // <|im_end|>
         static constexpr int32_t kEndOfTextToken = 248044;  // <|endoftext|>
 
+        /**
+         * @brief Resolve a deployment's weight setting to one of this family's two plans.
+         *
+         * Qwen has its own dispatcher rather than using the shared `dispatchWeightQuantization`
+         * for the reason `Qwen.PrecisionPlan.ixx` gives for its own lift: the shared one yields
+         * a UNIFORM policy, and Section 5's allocation is a per-role plan whose roles include
+         * two this family invented. Routing Qwen through it would either widen a shared table
+         * with a family's types or silently build the wrong body.
+         *
+         * Only two plans are reachable, and that is the point rather than a limitation: the
+         * uniform FP4/FP8 modes are not "Qwen at lower precision", they are a different
+         * allocation than the one this chassis is designed around, and no artifact carries them.
+         */
+        template<typename TResult, typename TAction>
+        static TResult dispatchQwenWeightPlan(
+            WeightQuantization weight_quantization,
+            std::string_view caller,
+            TAction&& action )
+        {
+            switch ( weight_quantization )
+            {
+                case WeightQuantization::None:
+                    return action.template operator()<QwenReferencePrecisionPlan>();
+
+                case WeightQuantization::Plan:
+                    if constexpr ( TPrecision == TensorDataType::BF16 )
+                    {
+                        return action.template operator()<QwenPrecisionPlan>();
+                    }
+                    else
+                    {
+                        throw std::runtime_error( std::format(
+                            "{}: the Section 5 allocation stages its codebook weights through "
+                            "BF16 and requires BF16 compute precision", caller ) );
+                    }
+
+                default:
+                    throw std::runtime_error( std::format(
+                        "{}: this chassis loads Qwen at reference precision or under its own "
+                        "per-role plan. A uniform FP4/FP8 body is a different allocation than "
+                        "Section 5's, and no artifact carries it", caller ) );
+            }
+        }
+
+        /**
+         * @brief The load path, once the plan is a type.
+         */
+        template<typename TWeightPlan>
+        static std::unique_ptr<QwenModel<TDeviceType, TPrecision>> fromPretrainedImpl(
+            const std::filesystem::path& path,
+            const QwenModelConfig& model_config,
+            DeviceId device_id )
+        {
+            using ConcreteTransformerType =
+                QwenTransformer<TDeviceType, TPrecision, TWeightPlan, QwenKvPolicy>;
+
+            PretrainedModelReader reader( path );
+            const auto& metadata = reader.getPretrainedMetadata();
+
+            QwenConfig network_config = configFromMetadata( metadata );
+
+            validateArtifact( "QwenModel::fromPretrained", path, reader, model_config,
+                network_config );
+
+            auto network = std::make_unique<ConcreteTransformerType>(
+                metadata.model_name, network_config, device_id );
+
+            BuildContext build_context(
+                shape_t{ 1, static_cast<dim_t>( model_config.getContextLength() ) },
+                RuntimeMode::Inference,
+                false );
+
+            network->build( build_context );
+
+            Logging::Logger::info( network->toString() );
+
+            network->loadParameters( reader );
+
+            return std::unique_ptr<QwenModel<TDeviceType, TPrecision>>(
+                new QwenModel<TDeviceType, TPrecision>(
+                    std::move( network ), network_config,
+                    model_config, metadata, RuntimeMode::Inference ) );
+        }
+
+        /**
+         * @brief The footprint sibling: the same prologue, stopping before build().
+         *
+         * Everything above `network->build()` is shared with the load path deliberately -- the
+         * artifact check, the geometry and the context-length validation must be the ones a
+         * real load would apply, or the reported figure describes a model that would not load.
+         */
+        template<typename TWeightPlan>
+        static DeploymentFootprint deploymentFootprintImpl(
+            const std::filesystem::path& path,
+            const QwenModelConfig& model_config,
+            DeviceId device_id )
+        {
+            using ConcreteTransformerType =
+                QwenTransformer<TDeviceType, TPrecision, TWeightPlan, QwenKvPolicy>;
+
+            PretrainedModelReader reader( path );
+            const auto& metadata = reader.getPretrainedMetadata();
+
+            QwenConfig network_config = configFromMetadata( metadata );
+
+            validateArtifact( "QwenModel::getDeploymentFootprint", path, reader, model_config,
+                network_config );
+
+            // Construction commits no device memory -- that is the whole premise. The graph
+            // exists, correctly shaped, and is then asked rather than built.
+            auto network = std::make_unique<ConcreteTransformerType>(
+                metadata.model_name, network_config, device_id );
+
+            const dim_t context_length = static_cast<dim_t>( model_config.getContextLength() );
+
+            BuildContext build_context(
+                shape_t{ 1, context_length },
+                RuntimeMode::Inference,
+                false );
+
+            return DeploymentFootprint{
+                network->getRequiredMemory( build_context ),
+                network->prefillChunking( 1, context_length ) };
+        }
+
         static void validateRequest(
             std::string_view caller,
             const QwenModelConfig& model_config,
@@ -502,18 +585,8 @@ namespace Mila::Dnn
                     std::format( "{}: context_length must be greater than zero", caller ) );
             }
 
-            // Not a dispatch gap -- a scope boundary. Section 5's allocation is a per-role
-            // plan over codebook formats, so the uniform FP4/FP8 modes are not "Qwen at lower
-            // precision", they are a different allocation than the one this model is designed
-            // around, and the artifact carrying the real plan does not exist yet. Refusing
-            // names that; building a uniform body would quietly answer a question nobody asked.
-            if ( model_config.getWeightQuantization() != WeightQuantization::None )
-            {
-                throw std::runtime_error( std::format(
-                    "{}: this chassis loads Qwen at reference precision (BF16) only. The "
-                    "Section 5 per-role allocation needs a pre-quantized codebook artifact, "
-                    "which is Phase 5 and does not exist yet", caller ) );
-            }
+            // The uniform modes are refused in dispatchQwenWeightPlan, where the reason is a
+            // scope boundary rather than a dispatch gap. Nothing to check here.
 
             if ( model_config.getKvCacheCompression() == KvCacheCompression::FP8 )
             {
@@ -537,13 +610,29 @@ namespace Mila::Dnn
             const QwenModelConfig& model_config,
             const QwenConfig& network_config )
         {
+            // The artifact and the build must agree on the storage format, because nothing
+            // downstream can tell them apart: packed codes reinterpreted as BF16, or a BF16
+            // blob decoded through a codebook, produce a model that loads and runs and is
+            // wrong. An empty string means an unquantized artifact -- the reader normalizes
+            // the writer's "none" to empty -- so the two spellings compare as one.
             const std::string& artifact_quantization = reader.getWeightQuantization();
+            const std::string requested =
+                weightQuantizationName( model_config.getWeightQuantization() );
 
-            if ( !artifact_quantization.empty() )
+            const bool artifact_is_quantized = !artifact_quantization.empty();
+            const bool build_is_quantized =
+                model_config.getWeightQuantization() != WeightQuantization::None;
+
+            if ( artifact_is_quantized != build_is_quantized
+                || ( artifact_is_quantized && artifact_quantization != requested ) )
             {
                 throw std::runtime_error( std::format(
-                    "{}: artifact '{}' is pre-quantized as '{}'; this chassis loads reference "
-                    "precision only", caller, path.string(), artifact_quantization ) );
+                    "{}: artifact '{}' is stored as '{}' but this load requested '{}'. A "
+                    "codebook artifact cannot be loaded at reference precision and a BF16 "
+                    "artifact cannot be decoded through one -- the codes are fitted offline "
+                    "and are not recoverable from weights",
+                    caller, path.string(),
+                    artifact_is_quantized ? artifact_quantization : "none", requested ) );
             }
 
             const auto& metadata = reader.getPretrainedMetadata();

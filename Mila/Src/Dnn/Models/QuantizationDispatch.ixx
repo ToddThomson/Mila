@@ -82,6 +82,16 @@ namespace Mila::Dnn
                         "{}: FP8 weight quantization requires BF16 compute precision", caller ) );
                 }
 
+            case WeightQuantization::Plan:
+                // Explicit rather than left to the default: a per-role plan is a property of
+                // one family's design, and this dispatcher yields a single uniform policy. If
+                // Plan fell through it would build an UNQUANTIZED body and report success --
+                // the silent-wrong-build failure this file exists to prevent. A family that
+                // has a plan resolves it in its own dispatcher and never arrives here.
+                throw std::runtime_error( std::format(
+                    "{}: this model has no designed precision plan; ask for a uniform "
+                    "quantization mode, or load a family that defines one", caller ) );
+
             case WeightQuantization::None:
             default:
                 // KV compression is only consulted on the unquantized path because that is where

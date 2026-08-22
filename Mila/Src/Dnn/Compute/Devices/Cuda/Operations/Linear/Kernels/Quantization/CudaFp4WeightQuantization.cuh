@@ -21,6 +21,7 @@
 
 #pragma once
 #include <cuda_runtime.h>
+#include <cstddef>
 #include <cstdint>
 
 namespace Mila::Dnn::Compute::Cuda::Linear
@@ -43,11 +44,18 @@ namespace Mila::Dnn::Compute::Cuda::Linear
      * @param out_features  Number of output channels (rows).
      * @param in_features   Number of input channels (columns). Must be divisible by group_size.
      * @param group_size    Quantization group size (64 or 128).
-     * @param dev_staging   Pre-allocated device buffer of at least
-     *                      out_features * in_features * sizeof(bfloat16) bytes.
-     * @param stream        CUDA stream for all async operations.
+     * @param dev_staging   Pre-allocated device buffer, at least one row
+     *                      (in_features * sizeof(bfloat16)) in size. It need NOT hold the
+     *                      whole tensor: rows are quantized in blocks that fit whatever is
+     *                      given, which is what keeps a vocabulary-sized output axis from
+     *                      demanding gigabytes of transient device memory.
+     * @param staging_bytes Capacity of dev_staging, in bytes.
+     * @param stream        CUDA stream for all async operations. Chunks are ordered on it,
+     *                      so a chunk's upload cannot overwrite the previous chunk's data
+     *                      before its kernel has read it.
      *
-     * @throws std::runtime_error if any CUDA call fails or group_size is unsupported.
+     * @throws std::runtime_error if any CUDA call fails, group_size is unsupported, or the
+     *         staging buffer cannot hold a single row.
      */
     void cuda_quantize_fp4_per_group(
         const void*  src_bf16,
@@ -57,6 +65,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int64_t      in_features,
         int          group_size,
         void*        dev_staging,
+        size_t       staging_bytes,
         cudaStream_t stream );
 
 } // namespace Mila::Dnn::Compute::Cuda::Linear

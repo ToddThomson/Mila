@@ -433,6 +433,16 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * @param scales_out     Device scale tensor at TWeightQuant::kScaleDtype.
          * @param expected_shape Logical weight shape, for validation.
          */
+        /**
+         * @brief Ceiling on the BF16 staging buffer a quantize-on-load pass may take.
+         *
+         * The shared scratch is grow-on-demand and never shrinks, so whatever this pass asks
+         * for is paid for the life of the process. A vocabulary-sized output axis makes the
+         * whole-tensor request gigabytes; row blocks under this ceiling cost the same total
+         * bandwidth and a bounded footprint. Mirrors CudaTokenEmbeddingOp's identical cap.
+         */
+        static constexpr size_t kQuantizeStagingLimitBytes = size_t{ 256 } * 1024 * 1024;
+
         void quantize(
             const ITensorBlob& blob,
             ITensor& weight_out,
@@ -458,11 +468,19 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             else if constexpr ( kIsPerGroupQuantized && TWeightQuant::kIsFp4E2M1 )
             {
                 // FP4 E2M1 per-group: scale[n,g] = max(|W[n,g*gs..(g+1)*gs)|) / 6.0f
-                void* staging = context_->getDeviceScratchBuffer( src_bytes );
+                //
+                // Staged in row blocks under a ceiling rather than whole. The scratch buffer
+                // is grow-only, so a request sized to the tensor is not a transient at all --
+                // it raises steady-state VRAM for the life of the process. Qwen 3.8's lm_head
+                // is 2.54 GiB of BF16 source, which put a 27B load 300 MiB over a 12 GiB card
+                // and killed it. Same ceiling and same reasoning as the FP8 table path in
+                // CudaTokenEmbeddingOp.
+                const size_t staging_bytes = std::min( src_bytes, kQuantizeStagingLimitBytes );
+                void* staging = context_->getDeviceScratchBuffer( staging_bytes );
                 Detail::quantize_fp4_per_group(
                     blob, weight_out, scales_out, expected_shape,
                     TWeightQuant::kQuantizationGroupSize,
-                    staging, stream );
+                    staging, staging_bytes, stream );
 
                 if constexpr ( kUseFp8ActivationPrefillPath )
                 {

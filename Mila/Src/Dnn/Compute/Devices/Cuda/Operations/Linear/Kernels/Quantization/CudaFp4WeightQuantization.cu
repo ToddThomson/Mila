@@ -30,8 +30,10 @@
 
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
+#include <algorithm>
 #include <stdexcept>
 #include <format>
+#include <cstddef>
 #include <cstdint>
 #include "CudaFp4WeightQuantization.cuh"
 
@@ -72,12 +74,19 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         /**
          * @brief Per-group BF16->FP4_E2M1 quantization kernel.
          *
-         * Grid  (blockIdx.x, blockIdx.y): (K/kGroupSize, out_features)
+         * Grid  (blockIdx.x, blockIdx.y): (out_features, K/kGroupSize)
          * Block (threadIdx.x):            kGroupSize threads
          * Smem:                           kGroupSize floats (absmax reduction workspace)
          *
-         * Thread tid handles element k = blockIdx.x * kGroupSize + tid within output
-         * channel blockIdx.y.
+         * Thread tid handles element k = blockIdx.y * kGroupSize + tid within output
+         * channel blockIdx.x.
+         *
+         * The output channel is on x and the group on y, not the reverse: grid.y is capped
+         * at 65535 on every CUDA architecture while grid.x is 2^31-1, and an output axis is
+         * the one that can be vocabulary-sized. Qwen 3.8's lm_head is 248320 wide, which is
+         * where the reversed mapping was found -- it failed the launch outright rather than
+         * computing anything wrong. The group count is bounded by in_features/group_size and
+         * is two orders of magnitude below the cap for every geometry in the tree.
          */
         template<int kGroupSize>
         __global__ void quantize_fp4_per_group_kernel(
@@ -86,8 +95,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             float*               __restrict__ scales,
             int                              K )
         {
-            const int channel   = static_cast<int>( blockIdx.y );
-            const int group     = static_cast<int>( blockIdx.x );
+            const int channel   = static_cast<int>( blockIdx.x );
+            const int group     = static_cast<int>( blockIdx.y );
             const int tid       = static_cast<int>( threadIdx.x );
             const int num_groups = K / kGroupSize;
 
@@ -162,9 +171,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         {
             const int64_t num_groups = in_features / kGroupSize;
 
+            // out_features on x: grid.y is capped at 65535 and an output axis can be
+            // vocabulary-sized. See the kernel's header.
             const dim3 grid(
-                static_cast<unsigned>( num_groups ),
-                static_cast<unsigned>( out_features ) );
+                static_cast<unsigned>( out_features ),
+                static_cast<unsigned>( num_groups ) );
             const dim3 block( kGroupSize );
             const int  smem_bytes = kGroupSize * static_cast<int>( sizeof( float ) );
 
@@ -189,37 +200,67 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int64_t      in_features,
         int          group_size,
         void*        dev_staging,
+        size_t       staging_bytes,
         cudaStream_t stream )
     {
-        const size_t src_bytes = static_cast<size_t>( out_features * in_features )
-                                 * sizeof( __nv_bfloat16 );
-
-        cudaError_t err = cudaMemcpyAsync( dev_staging, src_bf16, src_bytes,
-                                           cudaMemcpyHostToDevice, stream );
-        if ( err != cudaSuccess )
+        if ( group_size != 64 && group_size != 128 )
         {
             throw std::runtime_error( std::format(
-                "cuda_quantize_fp4_per_group: source upload failed: {}",
-                cudaGetErrorString( err ) ) );
+                "cuda_quantize_fp4_per_group: unsupported group_size={}", group_size ) );
         }
 
-        switch ( group_size )
+        const size_t row_bytes = static_cast<size_t>( in_features ) * sizeof( __nv_bfloat16 );
+        const int64_t rows_per_chunk =
+            static_cast<int64_t>( std::max<size_t>( 1, staging_bytes / row_bytes ) );
+
+        if ( staging_bytes < row_bytes )
         {
-            case 64:
+            throw std::runtime_error( std::format(
+                "cuda_quantize_fp4_per_group: staging buffer of {} bytes cannot hold one "
+                "row of {} bytes", staging_bytes, row_bytes ) );
+        }
+
+        // Rows are independent -- a group never spans two of them -- so the tensor is
+        // quantized a row block at a time through a BOUNDED staging buffer. Staging the
+        // whole tensor is what the caller used to do, and at a vocabulary-sized output
+        // axis that is 2.54 GiB for Qwen 3.8's lm_head, taken from the grow-only shared
+        // scratch and therefore never given back. It put a 27B load 300 MiB over a 12 GiB
+        // card. Same reasoning, and the same 256 MiB ceiling, as the FP8 table path in
+        // CudaTokenEmbeddingOp.
+        for ( int64_t row = 0; row < out_features; row += rows_per_chunk )
+        {
+            const int64_t rows = std::min( rows_per_chunk, out_features - row );
+
+            const auto* chunk_src = static_cast<const __nv_bfloat16*>( src_bf16 )
+                                    + row * in_features;
+
+            cudaError_t err = cudaMemcpyAsync(
+                dev_staging, chunk_src, static_cast<size_t>( rows ) * row_bytes,
+                cudaMemcpyHostToDevice, stream );
+
+            if ( err != cudaSuccess )
+            {
+                throw std::runtime_error( std::format(
+                    "cuda_quantize_fp4_per_group: source upload failed at row {}: {}",
+                    row, cudaGetErrorString( err ) ) );
+            }
+
+            auto* chunk_packed = static_cast<uint8_t*>( dst_packed )
+                                 + row * ( in_features / 2 );
+            float* chunk_scales = dst_scales + row * ( in_features / group_size );
+
+            if ( group_size == 64 )
+            {
                 launch_quantize_fp4_per_group<64>(
                     static_cast<const __nv_bfloat16*>( dev_staging ),
-                    static_cast<uint8_t*>( dst_packed ),
-                    dst_scales, out_features, in_features, stream );
-                break;
-            case 128:
+                    chunk_packed, chunk_scales, rows, in_features, stream );
+            }
+            else
+            {
                 launch_quantize_fp4_per_group<128>(
                     static_cast<const __nv_bfloat16*>( dev_staging ),
-                    static_cast<uint8_t*>( dst_packed ),
-                    dst_scales, out_features, in_features, stream );
-                break;
-            default:
-                throw std::runtime_error( std::format(
-                    "cuda_quantize_fp4_per_group: unsupported group_size={}", group_size ) );
+                    chunk_packed, chunk_scales, rows, in_features, stream );
+            }
         }
     }
 

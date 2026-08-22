@@ -1786,6 +1786,133 @@ code-bearing set is the first cheap thing to try if the Phase 5 quality numbers 
 layout, so it is expected rather than demonstrated — it is demonstrated when the Phase 5 load
 path exists.
 
+### Phase 5's load path, and the first real VRAM measurement (2026-08-22)
+
+**Qwen 3.8-27B at 2.82 bits per weight loads and generates on the 12 GiB card.** That is the
+claim this whole track exists to make, and it is now a passing test rather than an argument.
+It is not yet the Phase 5 gate: the context it runs at is 512, not the 16K baseline.
+
+`QwenModel` reaches the allocation through its own `dispatchQwenWeightPlan`, not the shared
+`dispatchWeightQuantization`, for the reason `Qwen.PrecisionPlan.ixx` gives for its own lift:
+the shared dispatcher yields a uniform policy and Section 5's allocation is a per-role plan
+over roles this family invented. `WeightQuantization::Plan` is the deployment value that
+selects it, and the shared dispatcher now refuses `Plan` explicitly rather than falling
+through its `default` to `NoWeightQuant` — which would have built Gemma or Llama unquantized
+and reported success.
+
+The artifact and the build must agree on storage format **in both directions**, and the load
+refuses either mismatch: packed codes read as BF16, or a BF16 blob decoded through a codebook,
+both produce a model that loads and runs and is wrong.
+
+#### The measured budget, against Section 5's table
+
+| | Section 5 | measured at 16K |
+|---|---|---|
+| Weights | 8.65 GiB | **8.69 GiB** |
+| Everything else on device | 1.94 GiB | 1.65 GiB |
+| Device total | 10.59 GiB | **10.34 GiB** |
+
+**The weights row lands within 0.5% of a budget written before any of this existed**, which
+is the strongest evidence so far that the Section 5 allocation is real rather than plausible.
+
+#### Three defects the first load found, all of them latent before Qwen
+
+- **The FP4 quantize-on-load kernel could not quantize a vocabulary-sized tensor at all.**
+  Its grid was `dim3(num_groups, out_features)` and `grid.y` is capped at 65535 on every CUDA
+  architecture; `lm_head` is 248320 wide, so the launch failed outright. Shipped code, and
+  Qwen is simply the first model to FP4-quantize an output axis that large — Llama's `lm_head`
+  ignores the weight policy entirely and Gemma's is tied and goes through the FP8 table path.
+  The output channel now indexes `grid.x`. The FP8 kernels use a 1-D grid and were never
+  affected, checked rather than assumed.
+- **Quantize-on-load staged the whole tensor through the grow-only shared scratch**, so
+  `lm_head` asked for 2.54 GiB that is never given back. Now staged in row blocks under the
+  same 256 MiB ceiling `CudaTokenEmbeddingOp` already applies to its FP8 table, for the same
+  recorded reason.
+- **Qwen's prefill activation budget was Gemma's, and does not fit this model.** Measured
+  across the ladder; the table and the reasoning are in `Qwen.ixx`. The counter-intuitive part
+  is that a *generous* budget overruns at SHORT context: with little KV to pay for, the ladder
+  takes the 1024-row rung, and 1024 rows of a 27B geometry is what does not fit. 512 MiB fits
+  the whole ladder to 16K; 32K remains out of reach, which is what Section 5 already says.
+
+#### What still bounds the context, and it is not the prediction
+
+At 512 the prediction is 9.94 GiB and the load consumes **the entire 10.85 GiB free** on a
+display-attached card. At 2048 the prediction is 10.12 GiB and the load dies. So a ~0.9 GiB
+gap between what the model accounts for and what the process takes — the CUDA context, the
+cuBLASLt workspace, per-allocation rounding — is what stands between here and the 16K
+baseline, not the allocation. BACKLOG already carries that residual as unattributed on Gemma
+(1.015 GiB) and Llama (0.449); this is the third and largest sighting, and now it is
+load-bearing rather than cosmetic.
+
+Two levers, in order of cheapness: run headless, since the desktop holds ~1.1 GiB of the
+card and Section 5 assumed 11.0-11.3 GiB usable rather than the 10.85 measured; and attribute
+the residual, which BACKLOG scopes as reading `MemoryAllocationStats::allocationCount`.
+
+#### The packed model is coherent (2026-08-22)
+
+Read, not inferred. Every other assertion in the load tests checks that generated ids are
+inside the vocabulary, which catches NaN logits and index errors and nothing else -- a
+2.82-bit model emitting plausible garbage passes all of them.
+
+Greedy, temperature 0, through the converted Qwen tokenizer:
+
+> **The capital of France is** " Paris.\nThe capital of Germany is Berlin.\nThe capital of
+> Italy is Rome.\nThe capital of Spain is"
+
+> **A gardener explains why compost matters:** " "Compost is a soil amendment that improves
+> soil structure, increases nutrient availability, and supports beneficial microbial activity.
+> It is not a fertilizer, but it does improve soil fertility over time.""
+
+**The first token is 11751 = " Paris", the same token Phase 4 measured the HF reference and
+Mila-at-BF16 both choosing** through all 64 layers on real weights. That is the assertion the
+test carries; it ties the 2.82-bit build directly to a number already of record rather than to
+a reading. Three further capitals are correct without being asked for, and the second
+completion is accurate on a point it would be easy to get wrong -- compost is a soil amendment
+rather than a fertilizer.
+
+The second sample then restates itself under a new speaker. Greedy decoding does this at BF16
+too, so it should not be attributed to the bit width without a controlled comparison; it is
+noted because Phase 0 recorded "grammatical, repetition loops" as the failure mode at these
+widths before compensation, and this is far milder than that.
+
+**What this does NOT establish** is the Phase 5 quality clause, which is a perplexity ratio
+and a divergence point against the FP4 oracle, not a reading. It establishes that the thing
+being measured is a working model.
+
+#### Decode is 4.7 tok/s, and the 47 tok/s ceiling is refuted (2026-08-22)
+
+Measured on the 4070 against the packed 27B, by subtracting an 8-token generation from a
+72-token one so the load and the prefill cancel exactly
+(`DISABLED_DecodeRate` in `QwenModel.Load.Cuda.cpp`):
+
+| | |
+|---|---|
+| Decode | **213.45 ms/token, 4.7 tok/s** |
+| Implied weight bandwidth | **44 GB/s** |
+| Card peak | 504 GB/s |
+| Section 5 ceiling | 47 tok/s |
+
+**Ten times under the ceiling, at 8.7% of the card's bandwidth.** Section 5 derives 47 tok/s
+from bytes moved per token, which assumes decode is bandwidth-bound. At model scale it is
+emphatically not, and this document already predicted that it would not be: the codebook GEMV
+was measured instruction-bound in Phase 1, and the ceiling was explicitly recorded as
+"unverified until they are measured against a DRAM-resident model rather than an L2-resident
+matrix". This is that measurement. **The ceiling should now be treated as refuted rather than
+unverified**, and Section 5's "even at half that ceiling the experiment is quality-limited,
+not speed-limited" no longer holds.
+
+The path is confirmed correct, not a fallback: `outer_size == 1` reaches `launchCodebookDecode`
+and the dedicated codebook GEMV, so this is what those kernels do at 8.69 GiB rather than
+evidence of a wrong dispatch.
+
+**What is NOT yet attributed** is which kernel spends the time. Two candidates and no
+measurement separating them: the codebook GEMVs, whose L2-resident figures (260-317 GB/s)
+overstate DRAM by an unknown factor; and the DeltaNet recurrent decode kernel, which runs on
+48 of the 64 layers and is one thread per value column, a shape whose occupancy nobody has
+looked at. Roughly 400 kernel launches per token at 0.53 ms average is far above launch
+overhead, so it is compute somewhere, not dispatch. Attribution needs per-kernel timing and
+is the next thing worth doing on the performance axis.
+
 ---
 
 ## 9. Open Questions
