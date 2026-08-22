@@ -19,6 +19,9 @@ record live in the spec ("Phase 0 first results"); this file is how to reproduce
 | `evaluate.py` | perplexity, greedy generation and agreement, the synthetic self-test |
 | `packing.py` | the packed-layout codec, and the C++ test fixture generator |
 | `quality_gate.py` | the command line, and the orchestration that wires the above |
+| `qwen_plan.py` | the Qwen 3.8 deployment allocation, as a per-tensor target table |
+| `pack_qwen.py` | the layer-streamed Qwen 3.8 packer: calibrate, quantize, emit, audit |
+| `streaming_safetensors.py` | a safetensors writer that never holds the artifact in memory |
 
 `packing.py` is held to `Src/Dnn/Quantization/Weight/CodebookPacking.ixx`, which is the
 normative statement of the layout; regenerate the fixture after any layout change:
@@ -76,6 +79,40 @@ python quality_gate.py --model meta-llama/Llama-3.2-3B-Instruct --gptq \
     --calib-text corpus/wiki.train.raw --protect-first 2 --protect-last 2 \
     --eval-text corpus/wiki.test.raw --ppl-tokens 131072
 ```
+
+## Packing Qwen 3.8
+
+`quality_gate.py` is the research harness: it loads a whole model with `transformers` and
+measures a scheme. `pack_qwen.py` is the production packer for the target model, and it
+cannot work that way — the checkpoint is 51.8 GiB against 31.8 GB of RAM — so it holds one
+decoder layer resident at a time and writes the artifact through `streaming_safetensors.py`.
+
+```
+# The control. Packs a small random Qwen model end to end and checks completeness,
+# transform fidelity, and that quantization actually damaged the weights.
+python pack_qwen.py --self-test
+
+# Structural smoke test on real weights: the 4 layers the converter's fixture covers.
+python pack_qwen.py --model Qwen/Qwen3.8-27B --max-layers 4 --samples 4 --seqlen 2048 \
+    --calib-text corpus/wiki.train.raw --output artifacts/qwen38_l4_2p9bit.safetensors
+
+# The full run.
+python pack_qwen.py --model Qwen/Qwen3.8-27B \
+    --calib-text corpus/wiki.train.raw \
+    --output artifacts/qwen38_27b_2p9bit.safetensors
+
+# Audit an artifact against the checkpoint, without regenerating it.
+python pack_qwen.py --model Qwen/Qwen3.8-27B \
+    --verify artifacts/qwen38_27b_2p9bit.safetensors
+```
+
+Measured on the 4070 at 4 samples x 2048 tokens: **46 s and 8.22 GiB peak per layer**, the
+peak flat from layer 2 on. The full 64-layer run at 32 x 2048 extrapolates to **1.5-2 hours**;
+most of a layer's cost is fixed (shard read, codebook fit, the compensated column walk) and
+only the two calibration passes scale with sample count.
+
+Run it on an otherwise idle card. 8.22 GiB against a 12 GiB display-attached device leaves
+under 3 GiB, and a spill turns an hour into a day.
 
 ## What the artifact contains
 

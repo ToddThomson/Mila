@@ -92,9 +92,8 @@ def pack_codebook_tensor(name, policy, quantized, codes, scale_bits, levels, gro
     return plane_two, plane_one, scale_bits_np
 
 
-def record_mila_tensor(artifact, name, policy, pieces, codebook, group_size,
-                       in_features):
-    """Assemble one Mila tensor from its per-HF-linear packed pieces.
+def codebook_tensor_records(name, pieces, codebook, group_size, in_features):
+    """{tensor_name: array} for one Mila codebook tensor, from its packed pieces.
 
     Codes, scale bits and the high plane all concatenate along the output axis --
     packing is row-major and rows are independent, so packing each source and
@@ -118,19 +117,29 @@ def record_mila_tensor(artifact, name, policy, pieces, codebook, group_size,
     expect_shape(name, "weight_scale", scale,
                  (out_features, in_features // group_size), np.float16)
 
-    artifact[f"{name}.weight"] = weight
-    artifact[f"{name}.weight_scale"] = scale
-    artifact[f"{name}.weight_codebook"] = codebook.cpu().numpy().astype(np.float32)
+    table = codebook.cpu().numpy().astype(np.float32)
+    expect_shape(name, "weight_codebook", table, (len(table),), np.float32)
+
+    records = {
+        f"{name}.weight": weight,
+        f"{name}.weight_scale": scale,
+        f"{name}.weight_codebook": table,
+    }
 
     if planes_one[0] is not None:
         high_plane = np.concatenate(planes_one, axis=0)
         expect_shape(name, "weight_high_plane", high_plane,
                      (out_features, in_features // 8), np.uint8)
-        artifact[f"{name}.weight_high_plane"] = high_plane
+        records[f"{name}.weight_high_plane"] = high_plane
 
-    entries = len(artifact[f"{name}.weight_codebook"])
-    expect_shape(name, "weight_codebook", artifact[f"{name}.weight_codebook"],
-                 (entries,), np.float32)
+    return records
+
+
+def record_mila_tensor(artifact, name, policy, pieces, codebook, group_size,
+                       in_features):
+    """Assemble one Mila tensor into an in-memory artifact dict."""
+    artifact.update(
+        codebook_tensor_records(name, pieces, codebook, group_size, in_features))
 
 
 def emit_mila_layer(artifact, policies, layer_index, targets, packed_pieces,

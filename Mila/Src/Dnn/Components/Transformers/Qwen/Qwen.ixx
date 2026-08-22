@@ -146,8 +146,19 @@ namespace Mila::Dnn
         // Gemma's TableQuantizationPolicy exists to keep ONE shared table consistent across
         // two consumers; with tying off there is nothing to keep consistent, and section 5
         // prices the two separately.
+        //
+        // The table is HOST-RESIDENT on CUDA (section 5, item 6): 1.271 B parameters at
+        // 2.37 GiB, gathered at 10 KiB per token over PCIe. It is a family property rather
+        // than a plan role, because the plan states a storage FORMAT and this is a decision
+        // about where those bytes sit -- the same table at the same precision either way.
+        // On CPU the axis has no second position, so the condition is on the device, not on
+        // a preference.
+        static constexpr EmbeddingTableResidency kEmbeddingTableResidency =
+            ( TDeviceType == DeviceType::Cuda )
+            ? EmbeddingTableResidency::Host : EmbeddingTableResidency::Device;
+
         using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision,
-            typename PrecisionPlan::EmbeddingTable>;
+            typename PrecisionPlan::EmbeddingTable, kEmbeddingTableResidency>;
         using LmHeadLinearType = Linear<TDeviceType, TPrecision, typename PrecisionPlan::LanguageModelHead>;
         using RmsNormType = RmsNorm<TDeviceType, TPrecision>;
 

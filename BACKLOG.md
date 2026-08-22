@@ -23,6 +23,24 @@ being a task list and needs a prune.
 
 ### Models
 
+- [ ] **Make activation probing a library feature, not harness scaffolding.** The Qwen Phase 4
+  work localized a rotary defect to one stage by comparing intermediates against a reference, and
+  every piece of that was built outside `Mila/Src`. A consumer debugging their own model cannot
+  do it. What exists: `LanguageNetwork::setStageProbe` (`LanguageNetwork.ixx:101`) fires per
+  LAYER, and `GemmaModel::fingerprintPrefill` uses it only to find the first NaN. What the
+  investigation actually needed, in order of value:
+  - **Intra-block stages.** The attention block's intermediates were only reachable because the
+    harness owns `QwenAttentionBlockWorkspace`; a model-driven run has no access. DeltaNet blocks
+    self-allocate, so they have none at all — a whole block kind is opaque.
+  - **A probe that can be attached per component**, not just per layer, and that names the stage.
+  - **A comparison target.** The reference arrived as a MILA container, which
+    `PretrainedModelReader` already reads — a reusable "compare activations against this file"
+    path would turn a bespoke test into a tool.
+  Design constraint learned the hard way: a probe must not change what it observes. Reading a
+  workspace slot after `prefill()` returns is safe only because exactly one block is live; a
+  general hook has to state its own lifetime. See `Specifications/Qwen3.8.md` for how the
+  bracketing actually ran, and `Tests/Dnn/Models/QwenModel.Parity.Cuda.cpp` for the shape.
+
 - [ ] **`GemmaConfig::getRotaryDimForLayer()` is dead library code.** Its only callers are two
   assertions in `Gemma.Config.cpp:183,198`; the block reaches the same value through
   `rotaryDim()` -> `getGlobalRotaryDim()` (`Gemma.Block.ixx:184`). Two names for one concept,
@@ -203,6 +221,12 @@ being a task list and needs a prune.
 - [~] **Test coverage behind the samples.** Both MNIST and Bard run; what is missing is the suite
   under them — the `Core/Network.cpp` delta and the GPU companions (`Network.Cuda`/`AdamW.Cuda`).
   Sample-independent, so a green sample is not evidence the primitives are pinned.
+- [ ] **A test discards a `[[nodiscard]] GenerateStatus`, and warns on every build.**
+  `QwenModel.Load.Cuda.cpp:189` calls `model->generate(...)` for its side effects inside a
+  lambda, producing C4834. The status is the only channel that reports why generation stopped,
+  so a test that ignores it cannot tell a completed run from an aborted one. Assert it instead
+  of casting it away. Note this is a third warning in the tree, in `Mila/Tests` rather than
+  `Mila/Src`, where the two Production Hardening warning items live.
 - [ ] **Backward-path kernels disabled or unverified.** `CudaSoftmaxOp.ixx:73` and `:103` throw
   `"needs review"` with the real calls commented out; `Gelu.Fp32.cu:65` records that the shipped
   backward is not the numerically stable `sech^2` form. Gradient-check these before the suite claims
@@ -296,6 +320,14 @@ being a task list and needs a prune.
 
 ### Production Hardening
 
+- [ ] **`PerGroupFp4` carries FP32 scales, and the offline tooling simulates FP16 ones.**
+  `Policies.ixx:112` sets `kScaleDtype = FP32`; `formats.py`'s `fake_fp4_e2m1` rounds the
+  scale through FP16, because Qwen3.8.md section 5 budgets FP4 at 4.125 bits — 4 + 16/128 —
+  and prices the whole allocation on it. So the two disagree by 0.125 bits per weight and,
+  more importantly, the packer's simulated FP4 damage is not quite the damage Mila's load-time
+  quantizer inflicts. Moving the runtime to FP16 scales is the fix Section 5 already names,
+  and it is a free win for Gemma and Llama independently of Qwen. Until then no FP4 number
+  from the offline tools is exactly a Mila number.
 - [ ] **The FP4 and FP8 wire formats are defined only by a CUDA kernel.** `cuda_quantize_fp4_per_group`
   is the sole place the nibble order and the `/6.0f` scale convention are written down, so the byte
   layout of every published artifact is unreadable from CPU-only CI and unstatable in the spec.

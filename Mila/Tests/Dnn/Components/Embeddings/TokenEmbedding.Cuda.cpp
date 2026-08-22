@@ -19,6 +19,10 @@
  * conversion to the device precision, read back to float so the reference sees
  * the precision-rounded values the kernel gathered.
  *
+ * Section H covers the TTableResidency axis: a table in pinned host memory, gathered
+ * across PCIe by the same kernel, which is how Qwen 3.8 keeps 2.37 GiB off a 12 GiB
+ * card (Specifications/Qwen3.8.md section 5, item 6).
+ *
  * Section F covers the TTableQuantization = PerChannelFp8<> axis (D4 Design B):
  * quantize-on-load through loadParameter("wte", bf16_blob) and the FP8
  * gather-dequant forward, bounded by the E4M3 half-ulp error against the BF16
@@ -27,10 +31,12 @@
 
 #include <gtest/gtest.h>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <system_error>
@@ -74,6 +80,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
             static constexpr TensorDataType value = TensorDataType::FP32;
             static constexpr float atol = 1e-4f;
             static constexpr float rtol = 1e-4f;
+            static constexpr size_t bytes_per_element = 4;
             static constexpr const char* name = "Fp32";
         };
 
@@ -82,6 +89,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
             static constexpr TensorDataType value = TensorDataType::BF16;
             static constexpr float atol = 5e-3f;
             static constexpr float rtol = 5e-3f;
+            static constexpr size_t bytes_per_element = 2;
             static constexpr const char* name = "Bf16";
         };
 
@@ -743,5 +751,296 @@ namespace Mila::Tests::Dnn::Components::Embeddings
         DeviceTensor output_grad( Device::Cuda( 0 ), shape_t{ 2, 3, kEmbed } );
 
         EXPECT_THROW( embedding->backward( device_tokens, output_grad ), std::logic_error );
+    }
+
+    // ====================================================================
+    // H. Host-resident table (TTableResidency = EmbeddingTableResidency::Host)
+    //
+    // The table is allocated in pinned host memory and the gather kernel reads its
+    // rows across PCIe; nothing about the kernel changes. That the arrangement WORKS
+    // at all rests on pinned memory being device-addressable under unified virtual
+    // addressing, which is a property of the platform rather than of this code -- so
+    // it is measured here rather than assumed.
+    //
+    // The assertions are equalities, not tolerances: a gather is a copy, so the two
+    // residencies must agree bit-for-bit and both must agree with the stored bytes.
+    // ====================================================================
+
+    namespace
+    {
+        // The table as its own dtype stores it -- the bytes a converter writes and
+        // loadParameter() consumes.
+        template<TensorDataType TPrecision>
+        std::vector<std::byte> encodedWteTable()
+        {
+            const size_t count = static_cast<size_t>( kVocab * kEmbed );
+
+            if constexpr ( TPrecision == TensorDataType::BF16 )
+            {
+                std::vector<std::byte> bytes( count * sizeof( uint16_t ) );
+                auto* encoded = reinterpret_cast<uint16_t*>( bytes.data() );
+
+                for ( int64_t v = 0; v < kVocab; ++v )
+                {
+                    for ( int64_t c = 0; c < kEmbed; ++c )
+                    {
+                        encoded[ v * kEmbed + c ] = floatToBf16Bits( wteValue( v, c ) );
+                    }
+                }
+
+                return bytes;
+            }
+            else
+            {
+                std::vector<std::byte> bytes( count * sizeof( float ) );
+                auto* encoded = reinterpret_cast<float*>( bytes.data() );
+
+                for ( int64_t v = 0; v < kVocab; ++v )
+                {
+                    for ( int64_t c = 0; c < kEmbed; ++c )
+                    {
+                        encoded[ v * kEmbed + c ] = wteValue( v, c );
+                    }
+                }
+
+                return bytes;
+            }
+        }
+
+        // What the stored bytes decode to. Exact in both precisions, which is what lets
+        // the gather reference below carry no tolerance.
+        template<TensorDataType TPrecision>
+        float decodedWteValue( const std::vector<std::byte>& table, int64_t token, int64_t channel )
+        {
+            if constexpr ( TPrecision == TensorDataType::BF16 )
+            {
+                return bf16BitsToFloat(
+                    reinterpret_cast<const uint16_t*>( table.data() )[ token * kEmbed + channel ] );
+            }
+            else
+            {
+                return reinterpret_cast<const float*>( table.data() )[ token * kEmbed + channel ];
+            }
+        }
+
+        template<TensorDataType TPrecision, typename TEmbedding>
+        void loadWteFromBlob( TEmbedding& embedding, const std::vector<std::byte>& table )
+        {
+            Serialization::TensorMetadata meta{ TPrecision, shape_t{ kVocab, kEmbed }, table.size() };
+            Serialization::TensorBlobView blob( meta, table.data(), table.size() );
+
+            embedding.loadParameter( "wte", blob );
+            embedding.synchronize();
+        }
+    }
+
+    TYPED_TEST( TokenEmbeddingCudaTests, HostResidentTable_GathersIdenticallyToDeviceResident )
+    {
+        using HostResidentEmbedding = Mila::Dnn::TokenEmbedding<
+            DeviceType::Cuda, TensorDataType::INT32, TypeParam::value,
+            Mila::Dnn::Quant::Weight::NoWeightQuant, EmbeddingTableResidency::Host>;
+
+        const shape_t token_shape{ 2, 3 };
+        const auto table = encodedWteTable<TypeParam::value>();
+
+        auto device_resident = this->builtEmbedding( token_shape, RuntimeMode::Inference );
+        loadWteFromBlob<TypeParam::value>( *device_resident, table );
+
+        HostResidentEmbedding host_resident( "token_embedding_host", this->config(), Device::Cuda( 0 ) );
+        host_resident.build( BuildContext( token_shape, RuntimeMode::Inference, false ) );
+        loadWteFromBlob<TypeParam::value>( host_resident, table );
+
+        auto host_tokens = this->rampTokens( token_shape );
+        auto device_tokens = this->toDevice( host_tokens );
+
+        auto& device_resident_out = device_resident->forward( device_tokens );
+        device_resident->synchronize();
+        auto from_device_table = this->toFloat( device_resident_out );
+
+        auto& host_resident_out = host_resident.forward( device_tokens );
+        host_resident.synchronize();
+        auto from_host_table = this->toFloat( host_resident_out );
+
+        ASSERT_EQ( from_host_table.shape(), ( shape_t{ 2, 3, kEmbed } ) );
+        ASSERT_EQ( from_host_table.size(), from_device_table.size() );
+
+        for ( dim_t i = 0; i < from_host_table.size(); ++i )
+        {
+            const int32_t token = host_tokens.data()[ i / kEmbed ];
+            const float reference = decodedWteValue<TypeParam::value>( table, token, i % kEmbed );
+
+            EXPECT_EQ( from_host_table.data()[ i ], reference )
+                << "host-resident gather does not match the stored table at index " << i;
+
+            EXPECT_EQ( from_host_table.data()[ i ], from_device_table.data()[ i ] )
+                << "residency changed the gathered value at index " << i;
+        }
+    }
+
+    // Decode is a separate kernel from prefill, so it needs its own case: a table the
+    // prefill kernel reads correctly proves nothing about the single-token path.
+    TYPED_TEST( TokenEmbeddingCudaTests, HostResidentTable_DecodeShapeGathersFromHostTable )
+    {
+        using HostResidentEmbedding = Mila::Dnn::TokenEmbedding<
+            DeviceType::Cuda, TensorDataType::INT32, TypeParam::value,
+            Mila::Dnn::Quant::Weight::NoWeightQuant, EmbeddingTableResidency::Host>;
+
+        const shape_t prefill_shape{ 2, 3 };
+        const shape_t decode_shape{ 2, 1 };
+        const auto table = encodedWteTable<TypeParam::value>();
+
+        HostResidentEmbedding host_resident( "token_embedding_host", this->config(), Device::Cuda( 0 ) );
+        host_resident.build( BuildContext( prefill_shape, RuntimeMode::Inference, false ) );
+        loadWteFromBlob<TypeParam::value>( host_resident, table );
+
+        auto host_tokens = this->rampTokens( decode_shape );
+        auto device_tokens = this->toDevice( host_tokens );
+
+        auto& decode_out = host_resident.forward( device_tokens );
+        host_resident.synchronize();
+
+        auto out = this->toFloat( decode_out );
+
+        ASSERT_EQ( out.shape(), ( shape_t{ 2, 1, kEmbed } ) );
+
+        for ( dim_t i = 0; i < out.size(); ++i )
+        {
+            const int32_t token = host_tokens.data()[ i / kEmbed ];
+            const float reference = decodedWteValue<TypeParam::value>( table, token, i % kEmbed );
+
+            EXPECT_EQ( out.data()[ i ], reference )
+                << "host-resident decode gather mismatch at index " << i;
+        }
+    }
+
+    // The arrangement's whole purpose: the table's bytes must not be counted against
+    // the card, in what was built AND in what the footprint API predicts.
+    TYPED_TEST( TokenEmbeddingCudaTests, HostResidentTable_TableBytesAreNotOnTheDevice )
+    {
+        using HostResidentEmbedding = Mila::Dnn::TokenEmbedding<
+            DeviceType::Cuda, TensorDataType::INT32, TypeParam::value,
+            Mila::Dnn::Quant::Weight::NoWeightQuant, EmbeddingTableResidency::Host>;
+
+        const shape_t token_shape{ 2, 3 };
+        const size_t table_bytes = static_cast<size_t>( kVocab * kEmbed ) * TypeParam::bytes_per_element;
+
+        HostResidentEmbedding host_resident( "token_embedding_host", this->config(), Device::Cuda( 0 ) );
+        host_resident.build( BuildContext( token_shape, RuntimeMode::Inference, false ) );
+
+        const auto built = host_resident.getMemoryStats();
+
+        EXPECT_EQ( built.host_parameter_bytes, table_bytes );
+        EXPECT_EQ( built.device_parameter_bytes, 0u );
+
+        const auto predicted = host_resident.getRequiredMemory(
+            BuildContext( token_shape, RuntimeMode::Inference, false ) );
+
+        EXPECT_EQ( predicted.host_parameter_bytes, table_bytes );
+        EXPECT_EQ( predicted.device_parameter_bytes, 0u );
+
+        // Control: the same component at the default residency does put it on the card,
+        // so the zero above is the residency and not a broken accounting path.
+        auto device_resident = this->builtEmbedding( token_shape, RuntimeMode::Inference );
+
+        EXPECT_EQ( device_resident->getMemoryStats().device_parameter_bytes, table_bytes );
+        EXPECT_EQ( device_resident->getMemoryStats().host_parameter_bytes, 0u );
+    }
+
+    // What the arrangement costs, at the real Qwen 3.8 geometry rather than the toy one.
+    // DISABLED because it allocates ~2.5 GB twice and is a measurement, not an assertion:
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=TokenEmbeddingCudaHostResidentCost.DISABLED_GatherCost
+    TEST( TokenEmbeddingCudaHostResidentCost, DISABLED_GatherCost )
+    {
+        // Qwen 3.8-27B: 248320 x 5120 BF16 = 2.37 GiB, the table section 5 moves off the card.
+        constexpr int64_t kQwenVocab = 248320;
+        constexpr int64_t kQwenModelDim = 5120;
+        constexpr dim_t kPrefillRows = 512;
+        constexpr int kDecodeIterations = 500;
+        constexpr int kPrefillIterations = 50;
+
+        using DeviceResident = Mila::Dnn::TokenEmbedding<
+            DeviceType::Cuda, TensorDataType::INT32, TensorDataType::BF16>;
+        using HostResident = Mila::Dnn::TokenEmbedding<
+            DeviceType::Cuda, TensorDataType::INT32, TensorDataType::BF16,
+            Mila::Dnn::Quant::Weight::NoWeightQuant, EmbeddingTableResidency::Host>;
+
+        if ( getDeviceCount( DeviceType::Cuda ) == 0 )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        auto config = TokenEmbeddingConfig().withVocabSize( kQwenVocab ).withEmbeddingDim( kQwenModelDim );
+
+        Tensor<TensorDataType::INT32, CpuMemoryResource> host_tokens( Device::Cpu(), shape_t{ 1, kPrefillRows } );
+
+        for ( dim_t i = 0; i < host_tokens.size(); ++i )
+        {
+            // Spread across the table so the reads are not one cached row.
+            host_tokens.data()[ i ] = static_cast<int32_t>( ( i * 7919 ) % kQwenVocab );
+        }
+
+        Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> prefill_tokens( Device::Cuda( 0 ), shape_t{ 1, kPrefillRows } );
+        copy( host_tokens, prefill_tokens );
+
+        Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> decode_tokens( Device::Cuda( 0 ), shape_t{ 1, 1 } );
+
+        auto timeForward = [] ( auto& embedding, auto& tokens, int iterations ) -> double
+            {
+                embedding.forward( tokens );
+                embedding.synchronize();
+
+                const auto start = std::chrono::steady_clock::now();
+
+                for ( int i = 0; i < iterations; ++i )
+                {
+                    embedding.forward( tokens );
+                }
+
+                embedding.synchronize();
+                const auto elapsed = std::chrono::steady_clock::now() - start;
+
+                return std::chrono::duration<double, std::micro>( elapsed ).count() / iterations;
+            };
+
+        auto report = [] ( const char* label, double microseconds, double bytes )
+            {
+                std::cout << label << ": " << microseconds << " us/call, "
+                    << ( bytes / microseconds / 1000.0 ) << " GB/s\n";
+            };
+
+        const double decode_bytes = static_cast<double>( kQwenModelDim ) * 2.0;
+        const double prefill_bytes = static_cast<double>( kPrefillRows ) * kQwenModelDim * 2.0;
+
+        {
+            DeviceResident device_resident( "device_resident", config, Device::Cuda( 0 ) );
+            device_resident.build( BuildContext( shape_t{ 1, kPrefillRows }, RuntimeMode::Inference, false ) );
+
+            report( "device-resident decode ", timeForward( device_resident, decode_tokens, kDecodeIterations ), decode_bytes );
+            report( "device-resident prefill", timeForward( device_resident, prefill_tokens, kPrefillIterations ), prefill_bytes );
+        }
+
+        {
+            HostResident host_resident( "host_resident", config, Device::Cuda( 0 ) );
+            host_resident.build( BuildContext( shape_t{ 1, kPrefillRows }, RuntimeMode::Inference, false ) );
+
+            report( "host-resident decode  ", timeForward( host_resident, decode_tokens, kDecodeIterations ), decode_bytes );
+            report( "host-resident prefill ", timeForward( host_resident, prefill_tokens, kPrefillIterations ), prefill_bytes );
+        }
+    }
+
+    // Inference-only, and refused at build rather than at the first backward: gradient
+    // accumulation uses device-scope atomics, which mapped host memory does not support.
+    TYPED_TEST( TokenEmbeddingCudaTests, HostResidentTable_TrainingBuildThrows )
+    {
+        using HostResidentEmbedding = Mila::Dnn::TokenEmbedding<
+            DeviceType::Cuda, TensorDataType::INT32, TypeParam::value,
+            Mila::Dnn::Quant::Weight::NoWeightQuant, EmbeddingTableResidency::Host>;
+
+        HostResidentEmbedding host_resident( "token_embedding_host", this->config(), Device::Cuda( 0 ) );
+
+        EXPECT_THROW(
+            host_resident.build( BuildContext( shape_t{ 2, 3 }, RuntimeMode::Training, false ) ),
+            std::logic_error );
     }
 }

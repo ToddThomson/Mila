@@ -116,9 +116,18 @@ namespace Mila::Tests::Dnn::Models
         const DeploymentFootprint footprint =
             QwenBf16::getDeploymentFootprint( fixture_, model_config );
 
-        // The fixture's weights alone are ~7.6 GiB; a figure below the parameter bytes would
-        // mean the prediction is not seeing the tables.
-        EXPECT_GT( footprint.memory.device_parameter_bytes, std::size_t{ 7 } * 1024 * 1024 * 1024 );
+        // The embedding table is host-resident (Qwen3.8.md section 5, item 6), so the
+        // fixture's ~7.6 GiB of weights arrives split. Both halves are asserted: the total
+        // still catches a prediction that is not seeing the tables, and the split is the
+        // property the residency exists for -- 248320 x 5120 BF16 rows off the card.
+        constexpr std::size_t kEmbeddingTableBytes = std::size_t{ 248320 } * 5120 * 2;
+
+        EXPECT_EQ( footprint.memory.host_parameter_bytes, kEmbeddingTableBytes );
+        EXPECT_GT( footprint.memory.device_parameter_bytes + footprint.memory.host_parameter_bytes,
+            std::size_t{ 7 } * 1024 * 1024 * 1024 );
+        EXPECT_LT( footprint.memory.device_parameter_bytes,
+            std::size_t{ 7 } * 1024 * 1024 * 1024 );
+
         EXPECT_GT( footprint.prefill.chunk_rows, 0 );
         EXPECT_LE( footprint.prefill.chunk_rows, kContextLength );
     }

@@ -21,6 +21,7 @@ module;
 #include <algorithm>
 #include <numeric>
 #include <format>
+#include <type_traits>
 
 export module Dnn.Components.TokenEmbedding;
 export import Dnn.Components.TokenEmbeddingConfig;
@@ -60,6 +61,25 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::Weight;
 
     /**
+     * @brief Where the embedding table's bytes live.
+     *
+     * Device is what every other parameter in the tree does and stays the default.
+     * Host places the table in pinned host memory, which is device-addressable under
+     * unified virtual addressing, so the gather kernel reads rows across PCIe and is
+     * unchanged -- the table simply costs no VRAM. It is worth doing only for a table
+     * large enough to matter and only because a lookup is a gather and never a
+     * multiply: the traffic is one row per token, not one pass per matrix.
+     *
+     * See Specifications/Qwen3.8.md section 5, which spends this on 1.271 B parameters
+     * (2.37 GiB) to bring a 27B model inside a 12 GiB card.
+     */
+    export enum class EmbeddingTableResidency
+    {
+        Device,
+        Host
+    };
+
+    /**
      * @brief Pure token embedding component (device-templated).
      *
      * Transforms input token indices into continuous vector representations
@@ -73,6 +93,11 @@ namespace Mila::Dnn
      * getWeightScalesTensorShared() feed Linear::installSharedWeight directly.
      * The quantized path is inference-only.
      *
+     * TTableResidency = EmbeddingTableResidency::Host keeps the table in pinned host
+     * memory and gathers from it across PCIe. Inference-only, for a reason stronger
+     * than the quantized path's: backward accumulates into the table with device-scope
+     * atomics, which are not defined against mapped host memory.
+     *
      * Construction modes:
      * - Standalone: provide a DeviceId to create and own an ExecutionContext.
      * - Child/deferred: omit DeviceId; caller must call setExecutionContext()
@@ -83,9 +108,11 @@ namespace Mila::Dnn
      * @tparam TPrecision         Tensor precision for embeddings (FP32 or BF16).
      * @tparam TTableQuantization Table quantization policy. Must satisfy
      *                            WeightQuantPolicy; defaults to NoWeightQuant.
+     * @tparam TTableResidency    Where the table is allocated; defaults to the device.
      */
     export template<DeviceType TDeviceType, TensorDataType TIndex = dtype_t::INT32, TensorDataType TPrecision = dtype_t::FP32,
-        WeightQuantPolicy TTableQuantization = NoWeightQuant>
+        WeightQuantPolicy TTableQuantization = NoWeightQuant,
+        EmbeddingTableResidency TTableResidency = EmbeddingTableResidency::Device>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class TokenEmbedding : public Component<TDeviceType, TPrecision>
     {
@@ -97,15 +124,32 @@ namespace Mila::Dnn
 
         static constexpr bool kIsQuantized = TTableQuantization::kIsQuantized;
 
+        static constexpr bool kIsHostResident = ( TTableResidency == EmbeddingTableResidency::Host );
+
         // Per-group scales sit on the gather (input) axis and do not transfer to a
         // row lookup -- only per-vocab-row (per-channel) quantization is meaningful.
         static_assert( !kIsQuantized || TTableQuantization::kPerChannel,
             "TokenEmbedding: table quantization must be per-channel (per vocabulary row)" );
 
+        // A CPU tensor is already host memory, so the axis has no second position there.
+        static_assert( !kIsHostResident || TDeviceType == DeviceType::Cuda,
+            "TokenEmbedding: a host-resident table is a CUDA arrangement; on a CPU device the table is already host memory" );
+
+        // Both are ways of not spending VRAM on the table, and combining them prices a
+        // quantization error against a cost that host residency has already removed.
+        static_assert( !kIsHostResident || !kIsQuantized,
+            "TokenEmbedding: a host-resident table is stored at compute precision; quantizing it buys nothing it has not already saved" );
+
         static constexpr TensorDataType kTableDtype = kIsQuantized
             ? TTableQuantization::kStorageDtype : TPrecision;
 
-        using TableTensorType = Tensor<kTableDtype, MR>;
+        // Pinned rather than pageable, and named through DeviceTypeTraits rather than
+        // directly: the CUDA resource is both host- and device-accessible, which is what
+        // lets one allocation serve the host loader and the gather kernel.
+        using TableMemoryResource = std::conditional_t<kIsHostResident,
+            typename DeviceTypeTraits<TDeviceType>::host_staging_memory_resource, MR>;
+
+        using TableTensorType = Tensor<kTableDtype, TableMemoryResource>;
         using TableScaleTensorType = Tensor<TTableQuantization::kScaleDtype, MR>;
 
         /**
@@ -436,6 +480,7 @@ namespace Mila::Dnn
             oss << "Vocabulary size: " << config_.getVocabSize() << " tokens\n";
             oss << "Embedding dim:   " << config_.getEmbeddingDim() << "\n";
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << "\n";
+            oss << "Table residency: " << ( kIsHostResident ? "host (pinned)" : "device" ) << "\n";
             oss << "Parameter count: " << parameterCount() << "\n";
             return oss.str();
         }
@@ -455,7 +500,14 @@ namespace Mila::Dnn
 
             if ( wte_ != nullptr )
             {
-                stats.device_parameter_bytes += wte_->getStorageSize();
+                if constexpr ( kIsHostResident )
+                {
+                    stats.host_parameter_bytes += wte_->getStorageSize();
+                }
+                else
+                {
+                    stats.device_parameter_bytes += wte_->getStorageSize();
+                }
             }
 
             if ( wte_scales_ != nullptr )
@@ -502,8 +554,19 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
-            stats.device_parameter_bytes +=
-                storageBytes<kTableDtype>( vocabulary_size * embedding_dim );
+            // The whole point of host residency is that this number is not on the card,
+            // so a footprint prediction that counted it under device bytes would report
+            // the arrangement as costing exactly what it was chosen to avoid.
+            if constexpr ( kIsHostResident )
+            {
+                stats.host_parameter_bytes +=
+                    storageBytes<kTableDtype>( vocabulary_size * embedding_dim );
+            }
+            else
+            {
+                stats.device_parameter_bytes +=
+                    storageBytes<kTableDtype>( vocabulary_size * embedding_dim );
+            }
 
             if constexpr ( kIsQuantized )
             {
@@ -549,6 +612,20 @@ namespace Mila::Dnn
         void onBuilding( const BuildContext& build_context ) override
         {
             validateBuildContext( build_context );
+
+            // Refused here rather than at backward(): initializeParameters() would
+            // otherwise allocate a gradient buffer for a table no backward kernel can
+            // legally reach, and the failure would arrive a full training step later.
+            if constexpr ( kIsHostResident )
+            {
+                if ( build_context.isTrainingMode() )
+                {
+                    throw std::logic_error(
+                        "TokenEmbedding: a host-resident table cannot be built in training mode; "
+                        "gradient accumulation uses device-scope atomics, which mapped host memory does not support." );
+                }
+            }
+
             const auto& input_shape = build_context.inputShape();
 
             max_batch_size_ = input_shape[ 0 ];

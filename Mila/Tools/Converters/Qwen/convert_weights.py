@@ -213,12 +213,14 @@ def _text_prefix( checkpoint: ShardedCheckpoint ) -> str:
     return key[ : -len( suffix ) ]
 
 
-def convert_qwen( model_name: str, output_path: str, dtype: str = 'bfloat16',
-                  max_layers: int = 0 ):
+def resolve_qwen_geometry( config: dict, max_layers: int = 0 ) -> dict:
+    """Every geometry field Mila needs, read and validated from a Qwen config.json.
 
-    root = _resolve_checkpoint( model_name )
-    config = json.loads( (root / 'config.json').read_text( encoding='utf-8' ) )
-
+    Shared with the quantizing packer rather than restated there: these fields decide
+    which block kind each layer is and how the DeltaNet projections split, so two
+    tools disagreeing about them produces an artifact that loads into the wrong
+    chassis. The two refusals below are the same for both callers.
+    """
     # The published checkpoint nests the text geometry under text_config; a text-only
     # packaging would carry it at the top level.
     text_config = config.get( 'text_config', config )
@@ -267,8 +269,7 @@ def convert_qwen( model_name: str, output_path: str, dtype: str = 'bfloat16',
     if max_layers:
         num_layers = min( num_layers, max_layers )
 
-    print( 'Resolved Qwen config:' )
-    for k, v in {
+    return {
         'hidden_size': hidden_size, 'num_hidden_layers': num_layers,
         'num_attention_heads': num_heads, 'num_key_value_heads': num_kv_heads,
         'head_dim': head_dim, 'attn_output_gate': output_gate,
@@ -278,7 +279,71 @@ def convert_qwen( model_name: str, output_path: str, dtype: str = 'bfloat16',
         'full_attention_interval': interval, 'tie_word_embeddings': tie_embeddings,
         'linear_num_key_heads': key_heads, 'linear_num_value_heads': value_heads,
         'linear_head_dim': key_head_dim, 'linear_conv_kernel_dim': conv_kernel,
-    }.items():
+    }
+
+
+def qwen_mila_metadata( geometry: dict, dtype: str, model_id: str ) -> dict:
+    """The metadata block Mila's reader parses, from resolved geometry.
+
+    Keys the reader's parser extracts, plus the Qwen-specific geometry. The parser
+    searches for each quoted key and ignores what it does not know, so no key may be
+    a prefix of another up to its closing quote. Shared with the packer: a quantized
+    artifact and a BF16 one must declare the same architecture or they load into
+    different models.
+    """
+    return {
+        'architecture':            'qwen',
+        'model_name':              model_id,
+        'dtype':                   dtype,
+        'vocab_size':              geometry[ 'vocab_size' ],
+        'max_seq_length':          geometry[ 'max_position_embeddings' ],
+        'embedding_dim':           geometry[ 'hidden_size' ],
+        'num_layers':              geometry[ 'num_hidden_layers' ],
+        'num_heads':               geometry[ 'num_attention_heads' ],
+        'num_kv_heads':            geometry[ 'num_key_value_heads' ],
+        'head_dim':                geometry[ 'head_dim' ],
+        'hidden_dim':              geometry[ 'intermediate_size' ],
+        'use_bias':                False,
+        'tie_word_embeddings':     geometry[ 'tie_word_embeddings' ],
+        'activation':              'silu',
+        'norm_type':               'rmsnorm',
+        'attention_type':          'gqa',
+        'positional_encoding':     'rope',
+        'rope_theta':              geometry[ 'rope_theta' ],
+        'norm_epsilon':            geometry[ 'rms_norm_eps' ],
+        'attention_output_gate':   geometry[ 'attn_output_gate' ],
+        'full_attention_interval': geometry[ 'full_attention_interval' ],
+        'partial_rotary_factor':   geometry[ 'partial_rotary_factor' ],
+        'linear_num_key_heads':    geometry[ 'linear_num_key_heads' ],
+        'linear_num_value_heads':  geometry[ 'linear_num_value_heads' ],
+        'linear_head_dim':         geometry[ 'linear_head_dim' ],
+        'linear_conv_kernel_dim':  geometry[ 'linear_conv_kernel_dim' ],
+    }
+
+
+def convert_qwen( model_name: str, output_path: str, dtype: str = 'bfloat16',
+                  max_layers: int = 0 ):
+
+    root = _resolve_checkpoint( model_name )
+    config = json.loads( (root / 'config.json').read_text( encoding='utf-8' ) )
+    geometry = resolve_qwen_geometry( config, max_layers )
+
+    hidden_size  = geometry[ 'hidden_size' ]
+    num_layers   = geometry[ 'num_hidden_layers' ]
+    num_heads    = geometry[ 'num_attention_heads' ]
+    num_kv_heads = geometry[ 'num_key_value_heads' ]
+    head_dim     = geometry[ 'head_dim' ]
+    intermediate = geometry[ 'intermediate_size' ]
+    vocab_size   = geometry[ 'vocab_size' ]
+    interval     = geometry[ 'full_attention_interval' ]
+
+    key_heads      = geometry[ 'linear_num_key_heads' ]
+    value_heads    = geometry[ 'linear_num_value_heads' ]
+    key_head_dim   = geometry[ 'linear_head_dim' ]
+    conv_kernel    = geometry[ 'linear_conv_kernel_dim' ]
+
+    print( 'Resolved Qwen config:' )
+    for k, v in geometry.items():
         print( f'  {k:28s} {v}' )
 
     checkpoint = ShardedCheckpoint( root )
@@ -287,8 +352,10 @@ def convert_qwen( model_name: str, output_path: str, dtype: str = 'bfloat16',
     if prefix != 'model.':
         print( f"  Note: multimodal packaging detected; text prefix is '{prefix}'" )
 
+    # One head width: resolve_qwen_geometry refuses a checkpoint whose key and value
+    # head dims differ, so linear_head_dim serves both.
     key_dim = key_heads * key_head_dim
-    value_dim = value_heads * value_head_dim
+    value_dim = value_heads * key_head_dim
 
     mappings = expand_qwen_tensor_map( num_layers, interval, key_dim, value_dim, prefix )
 
@@ -296,39 +363,7 @@ def convert_qwen( model_name: str, output_path: str, dtype: str = 'bfloat16',
     model_id = raw_name.replace( '.', '_' ).replace( '-', '_' )
 
     writer = MilaStreamingWeightWriter( output_path )
-
-    # Keys the reader's parser extracts, plus the Qwen-specific geometry. The parser
-    # searches for each quoted key and ignores what it does not know, so the extra
-    # rows are inert until PretrainedMetadata carries fields for them -- which is
-    # QwenModel's work, not the converter's.
-    writer.set_metadata( {
-        'architecture':            'qwen',
-        'model_name':              model_id,
-        'dtype':                   dtype,
-        'vocab_size':              vocab_size,
-        'max_seq_length':          max_seq_len,
-        'embedding_dim':           hidden_size,
-        'num_layers':              num_layers,
-        'num_heads':               num_heads,
-        'num_kv_heads':            num_kv_heads,
-        'head_dim':                head_dim,
-        'hidden_dim':              intermediate,
-        'use_bias':                False,
-        'tie_word_embeddings':     tie_embeddings,
-        'activation':              'silu',
-        'norm_type':               'rmsnorm',
-        'attention_type':          'gqa',
-        'positional_encoding':     'rope',
-        'rope_theta':              rope_theta,
-        'norm_epsilon':            rms_eps,
-        'attention_output_gate':   output_gate,
-        'full_attention_interval': interval,
-        'partial_rotary_factor':   partial_rotary,
-        'linear_num_key_heads':    key_heads,
-        'linear_num_value_heads':  value_heads,
-        'linear_head_dim':         key_head_dim,
-        'linear_conv_kernel_dim':  conv_kernel,
-    } )
+    writer.set_metadata( qwen_mila_metadata( geometry, dtype, model_id ) )
 
     # ---- Declaration pass: shapes from the shard headers, no tensor data ----
     for mapping in mappings:

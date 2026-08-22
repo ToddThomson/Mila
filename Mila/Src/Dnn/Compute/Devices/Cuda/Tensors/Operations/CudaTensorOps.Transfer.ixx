@@ -288,6 +288,18 @@ namespace Mila::Dnn::Compute::Cuda
                 throw std::runtime_error( "Invalid data pointers for copyFromBlob" );
             }
 
+            // A CUDA tensor is not necessarily device memory: pinned and managed resources
+            // report DeviceType::Cuda and are host-accessible, and a blob is always host
+            // memory. Declaring that copy cudaMemcpyHostToDevice would name a direction the
+            // pointers do not have, which the CUDA contract leaves undefined -- copy() has
+            // dispatched on accessibility for exactly this reason since it was written.
+            if constexpr ( TDstMemoryResource::is_host_accessible )
+            {
+                copyHostToHost<TDstDataType>( src_data, dst_data, dst.size() );
+
+                return;
+            }
+
             // Destination is device memory from here on.
             cudaStream_t stream = nullptr;
             int device_id = dst.getDeviceId().index;

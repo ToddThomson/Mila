@@ -386,11 +386,15 @@ Ordered by dependency, not priority. Nothing here is scheduled.
    *Phase 3 built the component, the recurrent kernel and the oracle. Still open: the
    chunked-parallel prefill kernel, and the generation-level validation — which needs a
    converter, so it lands with Phase 4.*
-6. **Host-resident `embed_tokens`** path.
+6. ~~**Host-resident `embed_tokens`** path.~~ **Built** (Phase 5): a residency axis on
+   `TokenEmbedding`, pinned host memory, gathered in place by the unchanged kernel. See
+   *Host-resident embedding* below.
 7. **`PerChannelKvFp8` KV-cache policy.** Optional for the 16K baseline (BF16 KV fits) and
    the price of the 32K stretch (Section 5). Independently useful for Gemma and Llama.
-8. **Qwen block types, model, config, converter.** The checkpoint carries the MTP tensors
-   (~0.45 B); the converter skips them.
+8. ~~**Qwen block types, model, config, converter.**~~ **Built**: blocks, model and config
+   in Phase 3, the BF16 converter in Phase 4, and the quantizing packer in Phase 5 (see
+   *The Qwen packer* below), which has now produced the full 15.09 GiB artifact. The
+   checkpoint carries the MTP tensors (~0.45 B); both converters skip them.
 9. **Corpus perplexity through Mila's inference path.** Teacher-forced summed
    log-likelihood over a fixed held-out corpus. Nothing in the tree does this —
    `quality_gate.py` is Python fake-quantization and Bard's perplexity is a training loss —
@@ -1632,6 +1636,155 @@ post written before the 2026-08-16 revision of this document, so its figures are
 they touch `attn_output_gate`, the GB/GiB rows, or the 16K baseline — including the "2.78 Bits per
 Weight" in its title. Reconcile it against this spec before the draft flag comes off. Tracked here
 rather than in `BACKLOG.md` because this document, not the task list, is the record for this track.
+
+### Host-resident embedding, item 6 (built 2026-08-22)
+
+Section 5 spends 1.271 B parameters -- 2.37 GiB of BF16 -- on a table that is gathered from
+and never multiplied by, and puts it in host memory. That is now a compile-time axis on the
+component, `EmbeddingTableResidency::{Device, Host}`, defaulting to Device so every other
+family is byte-identical. `QwenTransformer` selects Host on CUDA.
+
+**The kernel did not change, and that is the whole mechanism.** Pinned host memory is
+device-addressable under unified virtual addressing, so the existing gather
+(`Y[bt] = Wte[ix]`, 128-bit loads) reads rows across PCIe with the table pointer being the
+only difference. `CudaPinnedMemoryResource` already reported `DeviceType::Cuda` and
+`is_device_accessible`, so `CudaTokenEmbeddingOp` accepts the tensor through the same
+`ITensor*` binding with no new code at all.
+
+Three constraints fell out, each stated as a `static_assert` or a build-time refusal rather
+than left implicit:
+
+- **Host residency and table quantization are mutually exclusive.** Both are ways of not
+  spending VRAM on the table; combining them prices a quantization error against a cost that
+  residency has already removed.
+- **Inference only.** The backward kernel accumulates with device-scope `atomicAdd`, which is
+  not defined against mapped host memory. Refused at `build()`, not at the first backward.
+- **Tying is a compile error by construction**, since the shared handle's type now differs.
+  Qwen is untied (`tie_word_embeddings: false`); Gemma keeps Device residency and is untouched.
+
+**One real defect, found by the change and fixed with it.** `CudaTensorOps::copyFromBlob`
+issued every load as `cudaMemcpyHostToDevice` regardless of the destination resource. For a
+pinned destination both pointers are host, and a copy declaring a direction its pointers do
+not have is undefined. It now dispatches on `is_host_accessible`, which is what the sibling
+`copy()` has always done. This was latent for any host-accessible parameter, not only this one.
+
+**Measured cost** (RTX 4070, real 248320 x 5120 geometry, `DISABLED_GatherCost` in
+`Tests/Dnn/Components/Embeddings/TokenEmbedding.Cuda.cpp`):
+
+| | device-resident | host-resident |
+|---|---|---|
+| decode, 1 token (10 KiB) | 5.99 us | 5.51 us |
+| prefill, 512 rows (5 MiB) | 8.07 us | 229 us |
+
+**Decode is free** -- both figures are launch latency, not bandwidth; 10 KiB is too little
+traffic to measure either way, and the host arm being marginally faster is noise. Section 5's
+"no measurable latency" claim is now measured rather than argued.
+
+**Prefill pays 28x, at 22.8 GB/s** -- PCIe gen4 x16, as expected. It does not matter at this
+scale: 0.22 ms sits against a 512-token chunk that costs order 1 s of GEMM through 64 layers of
+a 27B model, so it is under 0.02% of the chunk. Recorded because it is the number that would
+change the answer on a wider prefill or a smaller model, and the mitigation is known if it ever
+does -- stage the chunk's distinct rows H2D once instead of gathering them in place.
+
+Cover: four cases per precision in section H of the component test (gather equality against
+both the stored bytes and the device-resident arm, the decode kernel separately, the memory
+split, the training refusal), plus the real 4-layer 27B fixture, which now loads its table
+through the reader into pinned memory and generates. Suite 1766 / 1 pre-existing skip.
+
+### The Qwen packer, item 8's offline half (built 2026-08-22)
+
+`Tools/Quantization/pack_qwen.py`. The converter pipeline above, implemented: it holds one
+decoder layer resident, calibrates it, quantizes it, emits its Mila tensors, and advances
+the calibration set through the quantized layer. It runs on the real checkpoint.
+
+**Measured on the 4070**, four layers at 4 samples x 2048 tokens: **46 s and 8.22 GiB peak
+per layer**, the peak flat from layer 2 onward. Extrapolating the full 64-layer run at
+32 x 2048 gives **1.5-2 hours** — most of a layer's cost is fixed (shard read, codebook
+fit, compensated column walk) and only the two calibration passes scale with sample count.
+
+**8.22 GiB is more than double this document's "under 4 GiB" estimate.** The estimate
+counted the layer and its Hessians and not the GPTQ transients: `gptq_quantize_tensor`
+clones its weight in FP32 and holds `Q` beside it, which for the fused `fc_gate_up` pair is
+713 MiB of the two together, plus the Cholesky inverse. It still fits, with under 3 GiB of
+headroom on a display-attached 12 GiB card — so the run wants an otherwise idle GPU.
+
+**Three structural things this needed that the Llama packer did not:**
+
+- **One HF tensor becoming two Mila tensors at two policies.** `in_proj_qkv` splits into
+  `fc_in_proj_qk` (cb8) and `fc_in_proj_v` (cb4). Legitimate because GPTQ's column walk
+  compensates each output row independently — the update is an outer product of a per-row
+  error with a row of the inverse Hessian — so quantizing a row range in isolation is
+  identical to quantizing it inside the whole matrix, given the same Hessian. The two
+  slices share one, because they share an input.
+- **A streaming safetensors writer.** `safetensors.numpy.save_file` takes a dict, so a
+  14 GB artifact would be 14 GB resident before a byte reached disk. `streaming_safetensors.py`
+  declares every tensor first, writes the header, and seeks to each offset as the bytes are
+  produced. It is held to `save_file` byte-for-byte in the data region.
+- **The FP4-at-load tensors are damaged in place but never compensated.** They are written
+  BF16 and Mila re-quantizes them data-free at load, so a compensated weight would be
+  optimized for a quantizer that never sees these codes. `lm_head` is not damaged at all:
+  nothing inside the model reads its output, so it would alter no other tensor's calibration.
+
+**Two facts about the Python safetensors writer, both measured:**
+
+- The data region is ordered by **dtype size descending, then name** — confirmed again here,
+  and now depended on rather than merely recorded.
+- **`__metadata__` key order is not stable between runs.** The Rust side carries the map in
+  a hash table, so two `save_file` calls over the same dict produced different orders. A
+  whole-file byte comparison against the library is therefore not a valid check; the writer's
+  test compares the parsed header and the data region instead.
+
+**What proves it, since an hour-long run must not be trusted on its output alone.**
+`--self-test` packs a small random 8-layer Qwen end to end and checks completeness (the
+artifact carries exactly the tensor set the BF16 converter emits, modulo the codebook
+companions), fidelity (all 69 pass-through tensors bit-identical to the transform applied to
+the live layer, which is what exercises the `q_proj` de-interleave and the DeltaNet row
+splits), and damage — a negative control, since every other property holds just as well if
+quantization silently did nothing. `--verify` audits a produced artifact against the
+checkpoint in minutes: on the 4-layer real-weight artifact, 103 tensors complete, packed
+shapes matching what `Linear` allocates per policy, 33 untouched tensors byte-identical to
+the checkpoint, and the FP4 tensors carrying damage.
+
+**One refactor rode with it, verified as a no-op.** `resolve_qwen_geometry` and
+`qwen_mila_metadata` moved out of `convert_qwen` so the packer and the BF16 converter read
+one geometry and declare one architecture; a metadata drift between them would load a
+quantized artifact into a differently-shaped chassis. The 4-layer fixture regenerated after
+the refactor is SHA-256 identical to the one on disk.
+
+**A silent-failure guard worth reusing:** the tensor map derives which layers are full
+attention arithmetically from `full_attention_interval`, while the model carries
+`layer_types` built by the config, and nothing connected the two. `verify_layer_kinds`
+now compares them per layer. A disagreement would have the packer look for
+`linear_attn.in_proj_qkv` on a layer holding `self_attn.q_proj`.
+
+#### The full 64-layer artifact exists (2026-08-22)
+
+`Data/Models/Qwen/qwen38_27b_2p9bit.safetensors`, **15.09 GiB from 50.10**, in **49.7
+minutes** on the 4070: 24.327 B quantized parameters at **2.819 average bits per weight**,
+1603 tensors over 320 packed Mila linears.
+
+**Peak VRAM was flat across all 64 layers** — 8.12 to 8.22 GiB, with only layer 1 lower at
+7.43 — which is the one-layer-resident design holding. Nothing like the monotonic creep the
+Llama gate showed before it freed its blocks per layer.
+
+The run cost far less than the layer-count extrapolation predicted, and the reason is worth
+keeping: per-layer time barely moved with calibration size (32.2 s at 512 tokens, 38.1 s at
+8192, 42.7 s at 65536). The calibration forwards are launch-bound at small token counts, so
+the fixed work — shard read, codebook fit, the compensated column walk — dominates a layer,
+and 64x the calibration data costs about a third more time rather than eight times.
+
+`--verify` against the checkpoint: 1603 tensors complete, packed shapes matching what
+`Linear` allocates for each policy, **498 untouched tensors byte-identical to the
+checkpoint**, and all 32 FP4-at-load tensors carrying damage. Ten seconds.
+
+**Calibration was wikitext-2 alone**, not the prose-plus-code set step 2 of the pipeline
+calls for — that is what `corpus/` holds and what Phase 0 used. Re-running with a
+code-bearing set is the first cheap thing to try if the Phase 5 quality numbers come in soft.
+
+**Still not shown:** a read of this artifact by `PretrainedModelReader`. The reader gate of
+2026-08-18 proved a `save_file`-written container reads, and this writer is byte-identical in
+layout, so it is expected rather than demonstrated — it is demonstrated when the Phase 5 load
+path exists.
 
 ---
 
