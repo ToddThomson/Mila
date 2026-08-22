@@ -43,7 +43,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             int                    device_id;
             dim_t                  max_seq_len;
             dim_t                  head_dim;
-            dim_t                  rotary_dim;   ///< 0 = full rotation; > 0 = proportional partial-rotary
+            dim_t                  rotary_dim;   ///< 0 = full rotation; > 0 = partial-rotary
+            int                    rotary_layout; ///< 0 = WholeHead, 1 = RotaryPrefix -- CHANGES THE FREQUENCIES
             float                  base;
             Dnn::TensorDataType    precision;
 
@@ -63,6 +64,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 seed = mix( seed, std::hash<dim_t>{}( k.max_seq_len ) );
                 seed = mix( seed, std::hash<dim_t>{}( k.head_dim ) );
                 seed = mix( seed, std::hash<dim_t>{}( k.rotary_dim ) );
+                seed = mix( seed, std::hash<int>{}( k.rotary_layout ) );
                 seed = mix( seed, std::hash<uint32_t>{}( std::bit_cast<uint32_t>( k.base ) ) );
                 seed = mix( seed, std::hash<int>{}( static_cast<int>( k.precision ) ) );
                 return seed;

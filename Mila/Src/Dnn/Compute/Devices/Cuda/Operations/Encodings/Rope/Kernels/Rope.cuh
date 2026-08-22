@@ -33,6 +33,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         int    head_dim,
         float  base,
         int    rotary_dim,
+        int    rotary_layout,
         cudaStream_t stream );
 
     // ========================================================================
@@ -71,6 +72,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
+        int rotary_dim, int rotary_layout,
         int position_offset,
         cudaStream_t stream );
 
@@ -107,6 +109,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
+        int rotary_dim, int rotary_layout,
         cudaStream_t stream );
 
     // ========================================================================
@@ -141,6 +144,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int position,
         int n_heads, int n_kv_heads, int head_dim,
+        int rotary_dim, int rotary_layout,
         cudaStream_t stream );
 
     // ========================================================================
@@ -156,6 +160,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
+        int rotary_dim, int rotary_layout,
         int position_offset,
         cudaStream_t stream );
 
@@ -168,6 +173,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
+        int rotary_dim, int rotary_layout,
         cudaStream_t stream );
 
     void cuda_rope_decode_bf16(
@@ -179,5 +185,6 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int position,
         int n_heads, int n_kv_heads, int head_dim,
+        int rotary_dim, int rotary_layout,
         cudaStream_t stream );
 }

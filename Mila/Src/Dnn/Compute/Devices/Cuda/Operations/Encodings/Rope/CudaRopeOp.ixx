@@ -185,6 +185,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                     static_cast<int>(config_.getHeadDim()),
                     config_.getBase(),
                     static_cast<int>(config_.getRotaryDim()),
+                    rotaryLayoutCode(),
                     context_->getStream() );
 
                 // Ensure cache is ready before any op can use it.
@@ -248,6 +249,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 static_cast<int>(config_.getNumHeads()),
                 static_cast<int>(config_.getNumKVHeads()),
                 static_cast<int>(config_.getHeadDim()),
+                static_cast<int>(config_.getRotaryDim()),
+                rotaryLayoutCode(),
                 context_->getStream() );
         }
 
@@ -283,6 +286,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 throw std::invalid_argument( std::format(
                     "CudaRopeOp::prefill: position_offset {} + T {} exceeds max_seq_len {}",
                     position_offset, T, config_.getMaxSequenceLength() ) );
+
+            requireInPlaceForPrefixLayout( Q_in.rawData(), Q_out.rawData(), "prefill" );
+            requireInPlaceForPrefixLayout( K_in.rawData(), K_out.rawData(), "prefill" );
 
             dispatchForward( Q_in, K_in, Q_out, K_out, B, T, narrowToKernelIndex( position_offset ) );
         }
@@ -323,6 +329,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 static_cast<int>(config_.getNumHeads()),
                 static_cast<int>(config_.getNumKVHeads()),
                 static_cast<int>(config_.getHeadDim()),
+                static_cast<int>(config_.getRotaryDim()),
+                rotaryLayoutCode(),
                 context_->getStream() );
             
             // DEBUG: context_->synchronize();
@@ -405,10 +413,39 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 static_cast<int>(config_.getNumHeads()),
                 static_cast<int>(config_.getNumKVHeads()),
                 static_cast<int>(config_.getHeadDim()),
+                static_cast<int>(config_.getRotaryDim()),
+                rotaryLayoutCode(),
                 position_offset,
                 context_->getStream() );
 
             // DEBUG: context_->synchronize();
+        }
+
+        /**
+         * @brief The layout as the kernels take it: 0 = WholeHead, 1 = RotaryPrefix.
+         *
+         * RotaryPrefix writes only the leading rotary_dim channels, so the pass-through tail
+         * is whatever the OUTPUT buffer already held. Every consumer today rotates in place
+         * (QwenAttentionBlock takes a view over the q_norm output), which makes that the
+         * input's own values. An out-of-place call would leave the tail unwritten -- checked
+         * below rather than left to surface as garbage.
+         */
+        int rotaryLayoutCode() const noexcept
+        {
+            return config_.getRotaryLayout() == RotaryLayout::RotaryPrefix ? 1 : 0;
+        }
+
+        void requireInPlaceForPrefixLayout(
+            const void* in_ptr, const void* out_ptr, const char* caller ) const
+        {
+            if ( rotaryLayoutCode() == 1 && in_ptr != out_ptr )
+            {
+                throw std::runtime_error( std::format(
+                    "CudaRopeOp::{}: RotaryLayout::RotaryPrefix rotates only the leading "
+                    "{} of {} channels and does not copy the remainder, so it requires an "
+                    "in-place call; got distinct input and output buffers.",
+                    caller, config_.getRotaryDim(), config_.getHeadDim() ) );
+            }
         }
 
         CacheKey makeCacheKey() const noexcept
@@ -421,6 +458,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 config_.getMaxSequenceLength(),
                 config_.getHeadDim(),
                 config_.getRotaryDim(),
+                rotaryLayoutCode(),
                 config_.getBase(),
                 TensorDataType::FP32
             };

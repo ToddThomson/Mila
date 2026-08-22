@@ -23,6 +23,34 @@ being a task list and needs a prune.
 
 ### Models
 
+- [ ] **`GemmaConfig::getRotaryDimForLayer()` is dead library code.** Its only callers are two
+  assertions in `Gemma.Config.cpp:183,198`; the block reaches the same value through
+  `rotaryDim()` -> `getGlobalRotaryDim()` (`Gemma.Block.ixx:184`). Two names for one concept,
+  and the dead one reads as the live one — it was cited as evidence about the RoPE path during
+  the 2026-08-19 investigation and had to be corrected. Delete it and let the test use the live
+  accessor. `Gemma.Config.ixx:536`.
+- [ ] **The FP32 materializing softmax kernels still store and reload the score row.**
+  `Gqa.Prefill.Fp32.cu:67`/`:73` and the FP32 common softmax park the unnormalized exponentials
+  in `att_row` and reload them to normalize. In FP32 the round trip is lossless, so this is
+  purely wasted traffic — one write pass and one read pass over the widest transient in the
+  prefill pipeline. The BF16 kernels were converted to recompute `expf` on the store pass
+  (2026-08-19); FP32 was deliberately left alone because recomputing there buys no accuracy, so
+  the trade is one `expf` against a global round trip and is unmeasured. Measure before copying
+  the change across.
+- [ ] **Nothing stops a new BF16 softmax kernel from reacquiring the store/reload.**
+  `70007c7b` wrote one three months after `2491d1b7` fixed the decode path, and the four
+  materializing sites fixed on 2026-08-19 were found by grep rather than by a failing test. The
+  masking differs per site (causal, causal+padded, causal+window, ring-slot), so a shared helper
+  would be three lines of arithmetic behind four predicates and buy little; a test that pins
+  single-narrowing against an FP32 oracle would.
+- [ ] **A parity script cites a debug flag that no longer exists.**
+  `kGemmaDumpActivations` was temporary and is gone from `Mila/Src`, but
+  `Gemma/gemma_4_BF16/hf_gemma_activation_dump.py:4` still tells the reader to diff its output
+  against what Mila prints. The replacement exists and the script should name it instead:
+  `LanguageNetwork::setStageProbe` (`LanguageNetwork.ixx:101`), implemented by both Gemma and
+  Qwen. Note the nearest consumer is not a parity dump — `GemmaModel::fingerprintPrefill`
+  (`GemmaModel.ixx:315`) prints stages only up to the first NaN, so it localizes a NaN rather
+  than comparing per-layer activations.
 - [ ] **A consumer cannot instantiate a CUDA component without importing a non-public module.**
   `Mila.ixx` exports `Compute.IExecutionContext` but not `Compute.ExecutionContext`, and instantiating
   any CUDA block reaches `CudaGqaOp::build` (`CudaGqaOp.ixx:260`), which needs `ExecutionContext<Cuda>`
@@ -146,19 +174,15 @@ being a task list and needs a prune.
   `QwenDeltaNetBlock` uses it for the mixer's output gate. The component is mechanically generic
   (`out = TGate(gate) * value`); the name is not. Rename to something generic, or accept the
   mismatch deliberately. `Components/Attention/OutputGate/AttentionOutputGate.ixx`.
-- [ ] **Phase 4's parity harness cannot use `from_pretrained`.** The BF16 reference is 54 GB against
-  31.8 GB of system RAM and a 12 GiB card, so it must stream layer-by-layer off the shards via
-  safetensors mmap (a few GB resident). Separately, MTP has no HF reference at all — transformers
-  5.12.1 declares `_keys_to_ignore_on_load_unexpected = [r"^mtp.*"]` and implements no MTP class, so
-  that head cannot be gated against HF.
+- [ ] **The MTP head cannot be gated against HuggingFace at all.** transformers 5.12.1 declares
+  `_keys_to_ignore_on_load_unexpected = [r"^mtp.*"]` and implements no MTP class, so the Phase 4
+  parity harness has nothing to compare it to. Its wiring is read from tensor shapes and family
+  convention rather than from a reference. The converter skips the tensors today.
 - [ ] **`getRequiredMemory` is unimplemented on nine components, and the base throws by design.**
   Gelu, MultiHeadAttention, Lpe, GatedMLP, MLP, SoftmaxCrossEntropy, LayerNorm, Softmax and
   GptBlock — so `GptModel::getRequiredMemory` throws the way Qwen's did until `Activation` was
   converted. The contract lands family by family (`Core/Component.ixx:615`); GPT-2 is the family
   still outstanding.
-- [ ] **No Qwen tokenizer converter.** `Tools/Converters/Qwen/` converts weights only, so nothing can
-  drive the model end to end yet. Qwen is GPT-2-style BPE (`vocab.json` + `merges.txt`), so
-  `Gpt2/convert_tokenizer.py` is the closest template rather than the SentencePiece Gemma path.
 - [ ] **The Llama converter writes a metadata key the reader never parses.** It emits `norm_eps`;
   `parseMetadataJSON` extracts `norm_epsilon` (Gemma and the packer both emit that). Harmless today
   only because `LlamaModel::configFromMetadata` does not read the epsilon at all — it takes

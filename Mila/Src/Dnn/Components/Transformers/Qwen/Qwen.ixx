@@ -330,22 +330,8 @@ namespace Mila::Dnn
             for ( const auto& child : this->getComponents() )
                 stats += child->getMemoryStats();
 
-            for ( auto* t : { gqa_q_permute_.get(), gqa_preatt_.get(), gqa_att_.get(),
-                              gqa_v_out_.get(), gqa_preatt_decode_.get(),
-                              gqa_att_decode_.get(), gqa_v_out_decode_.get(),
-                              block_workspace_.q.get(), block_workspace_.gate.get(),
-                              block_workspace_.k.get(), block_workspace_.v.get(),
-                              block_workspace_.normed.get(), block_workspace_.qkv.get(),
-                              block_workspace_.query_gate.get(), block_workspace_.q_normed.get(),
-                              block_workspace_.k_normed.get(), block_workspace_.attn.get(),
-                              block_workspace_.gated.get(), block_workspace_.o.get(),
-                              block_workspace_.res1.get(), block_workspace_.ffn_in.get(),
-                              block_workspace_.gate_up.get(), block_workspace_.ffn_act.get(),
-                              block_workspace_.ffn_down.get(), block_workspace_.stream.get() } )
-            {
-                if ( t )
-                    stats.device_state_bytes += t->getStorageSize();
-            }
+            stats.device_state_bytes += block_workspace_.deviceStorageBytes();
+            stats.device_state_bytes += gqa_workspace_.deviceStorageBytes();
 
             // No weight-tying correction: the tables are untied, so nothing is shared and
             // nothing is double-counted.
@@ -665,13 +651,7 @@ namespace Mila::Dnn
 
         // Shared GQA transient workspace -- inference only, owned here, shared across all
         // attention blocks (exactly one layer is live at a time on the sequential path).
-        std::unique_ptr<TensorType> gqa_q_permute_{ nullptr };
-        std::unique_ptr<TensorType> gqa_preatt_{ nullptr };
-        std::unique_ptr<TensorType> gqa_att_{ nullptr };
-        std::unique_ptr<TensorType> gqa_v_out_{ nullptr };
-        std::unique_ptr<TensorType> gqa_preatt_decode_{ nullptr };
-        std::unique_ptr<TensorType> gqa_att_decode_{ nullptr };
-        std::unique_ptr<TensorType> gqa_v_out_decode_{ nullptr };
+        QwenGqaWorkspace<TDeviceType, TPrecision> gqa_workspace_{};
 
         // Activation pointers -- valid between prefill/decode and the next call.
         TensorType* normalized_ptr_{ nullptr };
@@ -880,74 +860,22 @@ namespace Mila::Dnn
 
         void allocateBlockWorkspace( dim_t B )
         {
-            const auto widths = computeWorkspaceWidths();
-
-            auto device = this->getExecutionContext()->getDeviceId();
-            const std::string n = this->getName();
-
-            auto slot = [&]( dim_t width, const char* name )
-            {
-                return std::make_shared<TensorType>(
-                    device, shape_t{ B, prefill_chunk_size_, width }, n + ".block_ws." + name );
-            };
-
-            block_workspace_.q = slot( widths.q_width, "q" );
-            block_workspace_.gate = slot( widths.q_width, "gate" );
-            block_workspace_.k = slot( widths.kv_width, "k" );
-            block_workspace_.v = slot( widths.kv_width, "v" );
-            block_workspace_.normed = slot( widths.model_dim, "normed" );
-            block_workspace_.qkv = slot( widths.qkv_width, "qkv" );
-            block_workspace_.query_gate = slot( 2 * widths.q_width, "query_gate" );
-            block_workspace_.q_normed = slot( widths.q_width, "q_normed" );
-            block_workspace_.k_normed = slot( widths.kv_width, "k_normed" );
-            block_workspace_.attn = slot( widths.q_width, "attn" );
-            block_workspace_.gated = slot( widths.q_width, "gated" );
-            block_workspace_.o = slot( widths.model_dim, "o" );
-            block_workspace_.res1 = slot( widths.model_dim, "res1" );
-            block_workspace_.ffn_in = slot( widths.model_dim, "ffn_in" );
-            block_workspace_.gate_up = slot( 2 * widths.hidden_dim, "gate_up" );
-            block_workspace_.ffn_act = slot( widths.hidden_dim, "ffn_act" );
-            block_workspace_.ffn_down = slot( widths.model_dim, "ffn_down" );
-            block_workspace_.stream = slot( widths.model_dim, "stream" );
+            block_workspace_ = makeQwenAttentionBlockWorkspace<TDeviceType, TPrecision>(
+                config_, this->getExecutionContext()->getDeviceId(), B, prefill_chunk_size_,
+                this->getName() + ".block_ws." );
         }
 
         void allocateAndWireGqaWorkspace( dim_t B, dim_t T_ctx )
         {
-            const dim_t NH = config_.getNumHeads();
-            const dim_t HD = config_.getHeadDim();
-            auto device = this->getExecutionContext()->getDeviceId();
-            const std::string n = this->getName();
-
-            gqa_q_permute_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, prefill_chunk_size_, HD }, n + ".gqa_ws.q_perm" );
-
-            // MUST match the op's flash decision (set on each block above via
+            // score_width MUST match the op's flash decision (set on each block above via
             // setUseFlashPrefill) or the cuBLASLt path would overflow a narrow buffer; both
             // derive from useFlashPrefillForContext(T_ctx).
-            const dim_t score_width = prefillScoreWidth( T_ctx );
+            gqa_workspace_ = makeQwenGqaWorkspace<TDeviceType, TPrecision>(
+                config_, this->getExecutionContext()->getDeviceId(), B, T_ctx,
+                prefill_chunk_size_, prefillScoreWidth( T_ctx ),
+                this->getName() + ".gqa_ws." );
 
-            gqa_preatt_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, prefill_chunk_size_, score_width }, n + ".gqa_ws.preatt" );
-            gqa_att_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, prefill_chunk_size_, score_width }, n + ".gqa_ws.att" );
-            gqa_v_out_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, prefill_chunk_size_, HD }, n + ".gqa_ws.v_out" );
-
-            gqa_preatt_decode_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, 1, T_ctx }, n + ".gqa_ws.preatt_dec" );
-            gqa_att_decode_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, 1, T_ctx }, n + ".gqa_ws.att_dec" );
-            gqa_v_out_decode_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, 1, HD }, n + ".gqa_ws.v_out_dec" );
-
-            GqaState gqa_state;
-            gqa_state.q_permute = gqa_q_permute_.get();
-            gqa_state.preatt = gqa_preatt_.get();
-            gqa_state.att = gqa_att_.get();
-            gqa_state.v_out = gqa_v_out_.get();
-            gqa_state.preatt_decode = gqa_preatt_decode_.get();
-            gqa_state.att_decode = gqa_att_decode_.get();
-            gqa_state.v_out_decode = gqa_v_out_decode_.get();
+            const GqaState gqa_state = gqa_workspace_.state();
 
             for ( auto* layer : layers_ )
                 layer->setState( gqa_state );

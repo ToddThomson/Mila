@@ -300,6 +300,41 @@ namespace Mila::Dnn
             return config_.getVocabSize();
         }
 
+        /**
+         * @brief The network geometry an artifact's metadata declares.
+         *
+         * Public because loading the model is not the only way to drive it. The Phase 4
+         * parity harness streams the 50 GiB artifact one layer at a time and never
+         * constructs a QwenModel, but it must build its blocks from the SAME geometry a
+         * real load would -- a second reading of these twenty fields would agree until one
+         * of them changed, and then measure a different model than the one it is checking.
+         */
+        static QwenConfig configFromMetadata( const PretrainedMetadata& metadata )
+        {
+            QwenConfig config(
+                static_cast<dim_t>(metadata.embedding_dim),
+                static_cast<dim_t>(metadata.num_layers) );
+
+            config.withVocabularyLength( static_cast<dim_t>(metadata.vocab_size) )
+                .withMaxSequenceLength( static_cast<dim_t>(metadata.max_seq_length) )
+                .withNumHeads( static_cast<dim_t>(metadata.num_heads) )
+                .withNumKVHeads( static_cast<dim_t>(metadata.num_kv_heads) )
+                .withHeadDim( static_cast<dim_t>(metadata.head_dim) )
+                .withAttentionOutputGate( metadata.attention_output_gate )
+                .withHiddenDimension( static_cast<dim_t>(metadata.hidden_dim) )
+                .withRMSNormEpsilon( metadata.norm_epsilon )
+                .withRoPETheta( metadata.rope_theta )
+                .withPartialRotaryFactor( metadata.partial_rotary_factor )
+                .withFullAttentionInterval( static_cast<dim_t>(metadata.full_attention_interval) )
+                .withTieWordEmbeddings( metadata.tie_word_embeddings )
+                .withLinearNumKeyHeads( static_cast<dim_t>(metadata.linear_num_key_heads) )
+                .withLinearNumValueHeads( static_cast<dim_t>(metadata.linear_num_value_heads) )
+                .withLinearHeadDim( static_cast<dim_t>(metadata.linear_head_dim) )
+                .withLinearConvKernelDim( static_cast<dim_t>(metadata.linear_conv_kernel_dim) );
+
+            return config;
+        }
+
     protected:
 
         GenerateStatus onGenerating(
@@ -544,30 +579,5 @@ namespace Mila::Dnn
             return device_tensor;
         }
 
-        static QwenConfig configFromMetadata( const PretrainedMetadata& metadata )
-        {
-            QwenConfig config(
-                static_cast<dim_t>(metadata.embedding_dim),
-                static_cast<dim_t>(metadata.num_layers) );
-
-            config.withVocabularyLength( static_cast<dim_t>(metadata.vocab_size) )
-                .withMaxSequenceLength( static_cast<dim_t>(metadata.max_seq_length) )
-                .withNumHeads( static_cast<dim_t>(metadata.num_heads) )
-                .withNumKVHeads( static_cast<dim_t>(metadata.num_kv_heads) )
-                .withHeadDim( static_cast<dim_t>(metadata.head_dim) )
-                .withAttentionOutputGate( metadata.attention_output_gate )
-                .withHiddenDimension( static_cast<dim_t>(metadata.hidden_dim) )
-                .withRMSNormEpsilon( metadata.norm_epsilon )
-                .withRoPETheta( metadata.rope_theta )
-                .withPartialRotaryFactor( metadata.partial_rotary_factor )
-                .withFullAttentionInterval( static_cast<dim_t>(metadata.full_attention_interval) )
-                .withTieWordEmbeddings( metadata.tie_word_embeddings )
-                .withLinearNumKeyHeads( static_cast<dim_t>(metadata.linear_num_key_heads) )
-                .withLinearNumValueHeads( static_cast<dim_t>(metadata.linear_num_value_heads) )
-                .withLinearHeadDim( static_cast<dim_t>(metadata.linear_head_dim) )
-                .withLinearConvKernelDim( static_cast<dim_t>(metadata.linear_conv_kernel_dim) );
-
-            return config;
-        }
     };
 }

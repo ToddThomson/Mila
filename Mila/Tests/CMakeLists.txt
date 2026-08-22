@@ -117,6 +117,7 @@ add_executable( MilaTests
     "Data/Tokenizers/Bpe/BpeTokenizer.Gpt2.cpp"
     "Data/Tokenizers/Bpe/BpeTokenizer.Llama32.cpp"
     "Data/Tokenizers/Bpe/BpeTokenizer.Gemma.cpp"
+    "Data/Tokenizers/Bpe/BpeTokenizer.Qwen.cpp"
     "Data/Tokenizers/Bpe/BpeTrainer.cpp"
     "Data/Tokenizers/Bpe/BpeVocabulary.cpp"
     "Data/Tokenizers/Char/CharTokenizer.cpp"
@@ -230,6 +231,7 @@ if(MILA_ENABLE_CUDA)
         # no card here, so 4 layers (both block kinds) is what can be exercised. Skips
         # without the fixture; see the file header for how to produce it.
         "Dnn/Models/QwenModel.Load.Cuda.cpp"
+        "Dnn/Models/QwenModel.Parity.Cuda.cpp"
         # The generation context bound. CUDA rather than CPU because the CPU operation
         # layer takes its extents from build(), so a CPU model cannot run a prompt
         # shorter than its built context and never reaches the loop under test.

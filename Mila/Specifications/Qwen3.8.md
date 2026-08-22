@@ -1165,6 +1165,355 @@ Chat's GPU-fit verdict and `/context` use. The base throws by design so an uncon
 component cannot be missed, and Qwen's block was the first composite to recurse into
 `Activation`. Fixed; nine components on the GPT-2 side still lack it, and are filed.
 
+### The tokenizer converter (2026-08-19)
+
+`Tools/Converters/Qwen/convert_tokenizer.py` plus `BpeVocabulary::loadQwen`. Qwen 3.8 is
+GPT-2 style byte-level BPE — explicit merge ranks, no byte fallback, 248,077 pieces
+(248,044 learned plus 33 control tokens) — so it takes Mila's merge-by-rank path, not the
+max-munch path the Llama loader uses. The file layout is the one Gemma's converter defined,
+unchanged. EOS is `<|im_end|>` and there is no BOS and no UNK.
+
+**`transformers` is not a reliable tokenizer reference for this checkpoint.** Version 5.12.1's
+`Qwen2Tokenizer` rebuilds the backend from `vocab.json` + `merges.txt` and overwrites the
+checkpoint's pre-tokenizer with a hardcoded Qwen2-era pattern (`tokenization_qwen2.py:33`)
+omitting `\p{M}`. The checkpoint's pattern admits combining marks into the letter run; the
+stale one does not, so on Devanagari, Thai and Arabic the two produce different id sequences —
+measured at 7 tokens against 3 on a five-syllable Thai greeting. The checkpoint is right and
+the proof is in its own vocabulary: it contains base+mark pieces the stale pattern can never
+emit. Both decode back to the input, so the only symptom is worse output. The converter
+therefore reads `tokenizer.json` directly and pins the pattern against the constant the
+runtime carries (`QWEN3_PRETOKENIZATION_PATTERN`), failing the run on a mismatch — which is
+how this was found, on the guard's first execution.
+
+Two limits of the current state, neither blocking:
+
+- **The NFC normalizer is dropped.** Mila has no normalization stage, so text that is not
+  already composed may encode differently than in HuggingFace. ASCII is unaffected.
+- **The Unicode pattern never compiles under MSVC**, so the ASCII fallback is always what runs
+  (the pre-existing `\p{...}` gap, not a Qwen one). Under that fallback Qwen's pattern and
+  Llama's produce *identical* pretokens on ASCII, because the digit rule — the only remaining
+  difference — is inert here: this vocabulary holds no multi-digit piece and no digit-digit
+  merge rule, so the merge loop cannot join digits however they were grouped. **No ASCII test
+  can distinguish the two families**, which is worth knowing before writing one that claims to.
+
+### The layer-streamed HF reference (2026-08-19)
+
+`Tools/Converters/Qwen/qwen38_BF16/hf_qwen_layer_stream.py`. The reference half of Phase 4's
+parity harness, and it works on the real checkpoint: **64 layers at BF16 on the 12 GiB card,
+holding one decoder layer resident at a time.** On "The capital of France is" the last-position
+argmax is 11751 = ` Paris` at 17.50 against 14.69 for second place, so the driver is not merely
+running — it reproduces the model.
+
+It emits a **MILA `.bin`** (67 tensors, 2.22 MB): the last-token hidden state after every layer,
+after the final norm, and the last-position logits. That is the format `PretrainedModelReader`
+already reads, so the Mila side can assert against numbers rather than against printed digits.
+A `--max-layers 4` run pairs with the converter's 4-layer fixture.
+
+Layers are built on the meta device and installed with `load_state_dict(assign=True)`, so the
+default initialization never allocates and the checkpoint tensors become the parameters
+directly. Weights come from safetensors mmap; the embedding table is read one row per prompt
+token rather than materialized.
+
+**`--self-test` is the reason to trust it, and it earned its place immediately.** It builds a
+small random model, runs it both whole (`Qwen3_5TextModel`, `output_hidden_states=True`) and
+streamed, and requires bitwise agreement — plus a negative control that drops the causal mask
+and must diverge. Three findings came out of the first two runs:
+
+- **`attention_mask=None` is not causal.** `eager_attention_forward` adds nothing when the mask
+  is None, so a full-attention layer attends bidirectionally and returns a plausible hidden
+  state. The driver therefore calls the model's own `create_causal_mask` rather than
+  hand-rolling one, and passes `None` only to the linear-attention layers — which need a 2-D
+  padding mask, not a 4-D causal one.
+- **`output_hidden_states` does not expose the last layer's raw output.** Its final entry is the
+  post-norm state, so the last layer can only be checked through the norm.
+- **A causal-mask error in the LAST layer is invisible at the last token**, because the final
+  row of a causal mask masks nothing. It becomes observable only once a position-mixing layer
+  runs after it. The self-test uses eight layers rather than four for exactly this reason, and
+  the same blindness applies to layer 63 of the real stack: last-position comparison does not
+  exercise the final attention layer's masking.
+
+**Still owed: the Mila half.** A standalone `QwenAttentionBlock` cannot run prefill or decode —
+it needs the shared GQA workspace `QwenTransformer` owns — and `Component::build()` is `final`
+with no release hook, so there is no per-layer build/free cycle today. The streamed Mila run
+needs one of: a streaming mode inside `QwenTransformer`, or a harness that allocates the shared
+workspace itself and constructs one block at a time. This is the open decision.
+
+**Correction, same day: both claims in the paragraph above are wrong.** Kept rather than deleted
+so they are not re-derived. `Component::build()` being `final` with no release hook does not
+prevent a per-layer cycle — Python does not release a layer either, it *destroys* one, and a
+fresh block per layer is built exactly once in its lifetime and freed by its destructor. And a
+standalone `QwenAttentionBlock` *can* run prefill and decode: `Qwen.Block.Cuda.cpp`'s header says
+the transformer **owns** the shared GQA workspace, which is not the same as saying no one else
+may supply one. Every step the Python driver takes has a public counterpart:
+
+| Python | Mila |
+|---|---|
+| construct the layer on the meta device | construct the block — construction allocates nothing |
+| (not applicable) | `installSharedWorkspace()` on the attention block; `setState()`, which the DeltaNet block ignores |
+| `load_state_dict( assign=True )` | `PretrainedModelReader::readTensorBlob<MR>( name )` + `Component::loadParameter()` |
+| `layer( hidden, ... )` | `prefill()` / `decode()` |
+| `del layer` | drop the `shared_ptr` |
+
+`readTensorBlob` is random access by name, so a per-layer load costs one read per tensor rather
+than 64 passes over the 50 GiB artifact.
+
+What remains is a cost, not a blocker: the sizing lives in four private members of
+`QwenTransformer` — `computeWorkspaceWidths()`, `resolvePrefillChunkSize()`,
+`allocateBlockWorkspace()` and `allocateAndWireGqaWorkspace()`. A harness that duplicates them
+silently measures a different geometry than the model does, the first time one of them changes.
+Lifting them into a workspace type the transformer and a harness both construct is the smaller
+change, and it leaves the harness itself outside `Mila/Src`.
+
+### Phase 4's parity gate is MET on next-token agreement (2026-08-19)
+
+`Tests/Dnn/Models/QwenModel.Parity.Cuda.cpp` streams the 50 GiB BF16 artifact one block at a
+time on the 12 GiB card and compares against the reference above, layer by layer. **On "The
+capital of France is" Mila's last-position argmax is 11751 = ` Paris`, the same token the
+HuggingFace reference predicts, through all 64 layers at reference precision on real checkpoint
+weights.** Logit relative L2 is 2.24e-2. The run takes 43 s.
+
+That is the Phase 4 exit gate's second clause ("matching last-position logits") and it closes
+Phase 3's outstanding "oracle parity per layer, on real checkpoint weights" criterion.
+
+#### The per-layer error profile, and what it says
+
+| Layers | Relative L2 vs the reference |
+|---|---|
+| 0-2 (DeltaNet) | 5.3e-3 falling to 2.7e-3 |
+| 3 (first full attention) | 1.8e-2 |
+| 27 (peak) | 7.5e-2 |
+| 63 (last) | 3.3e-2 |
+| after final norm | 3.1e-2 |
+
+Two properties of that curve matter more than any single number.
+
+**It falls after layer 27 rather than compounding.** Error accumulating across 64 layers would
+grow monotonically; this does not. The residual stream grows in magnitude down the stack (the
+reference's own L2 goes 11.9 at layer 0 to 141.9 at the final norm), so a roughly fixed absolute
+error becomes a shrinking relative one. That is the signature of rounding, not of a wrong
+computation.
+
+**Every local maximum sits on a full-attention layer** — 3, 7, 27, 43, without exception, while
+the DeltaNet layers between them are flat or falling. **The cause is not yet known.**
+
+The first suspect was wrong and the elimination is worth recording. The materializing BF16
+softmax (`Gqa.Prefill.Bf16.cu:94`) stores the *unnormalized* exponentials as BF16 and narrows a
+second time after scaling, where the reference narrows once — a real defect, but not this one.
+Measured in Python against an FP64 softmax: the second rounding costs **2-22% more relative
+error than narrowing once, ~1e-4 absolute**, at every row length from 5 to 4096 and after the AV
+matmul. The step it was supposed to explain is ~2e-2, two orders of magnitude larger. BF16
+rounding is relative, so storing `exp(x - max)` and later scaling by a shared `inv_sum`
+perturbs each element by ~2^-9 either way and the two roundings do not compound.
+
+**Confirmed end to end.** The four materializing BF16 softmax kernels were converted to
+recompute the exponential on the store pass, and the parity run was repeated: layers 0-2 are
+bit-identical (no attention runs there) and every later layer moves by well under one percent of
+its error — layer 27 from 7.523e-2 to 7.565e-2, the logits from 2.238e-2 to 2.314e-2, i.e.
+*marginally worse*, which at this magnitude is only which way individual values happened to
+round. The argmax is unchanged. The rounding is not the cause, and the store/reload stands as a
+**throughput** change whose prefill benefit is so far argued from the decode precedent rather
+than measured.
+
+#### Measured against FP32 truth: the gap is real and it is Mila's (2026-08-19)
+
+A third arm settles it. The driver was run at `--dtype float32` over the *same BF16 weights*, so
+only the arithmetic width differs, and both BF16 arms were compared against it. Every layer now
+reports three numbers.
+
+| | layer 0 (DeltaNet) | layer 3 (first attention) | layer 63 | logits |
+|---|---|---|---|---|
+| Mila-BF16 vs FP32 | 4.124e-3 | 1.592e-2 | 3.703e-2 | 2.666e-2 |
+| HF-BF16 vs FP32 | 1.328e-3 | 4.399e-3 | 1.326e-2 | 1.387e-2 |
+
+**Mila carries roughly 3x the BF16 error HuggingFace does**, at essentially every layer. The
+hypothesis that Mila might be *more* accurate — its RoPE keeps the cos/sin cache and the rotation
+in FP32 where the reference does both in BF16 — is refuted: whatever that buys is swamped.
+
+Two structural facts fall out, and they point in different directions:
+
+- **The gap is already present at layer 0**, a DeltaNet layer with no attention, no RoPE and an
+  input identical on both sides (the embedding). 3.1x there. So its *origin* is not
+  attention-specific — something common to both block kinds contributes.
+- **But attention is where it compounds.** Across layer 3, Mila's error against truth quadruples
+  (3.505e-3 -> 1.592e-2) while HF's rises 18% (3.720e-3 -> 4.399e-3). HF's error against truth
+  plateaus near 1e-2 for the whole stack; Mila's keeps climbing to 3.7e-2.
+
+All three arms still choose 11751 (` Paris`), so this is headroom rather than a failure — but the
+headroom is smaller than the vs-HF numbers alone suggested, and a quantized body spends from it.
+
+The harness is not the cause: the hidden state crosses the host as FP32 between layers, and
+BF16 -> FP32 -> BF16 is exact, so no rounding is added there.
+
+#### FIXED: Qwen's rotary frequencies were spread over head_dim instead of rotary_dim (2026-08-19)
+
+**The cause, and it is a correctness defect, not precision.** `rope_build_cache_kernel`
+(`Rope.Fp32.cu:44`) computed `theta_i = base^(-2i / head_dim)`. Qwen's reference
+(`compute_default_rope_parameters`) uses `dim = head_dim * partial_rotary_factor` as the
+denominator, i.e. `base^(-2i / rotary_dim)`. At 64 of 256 that is a factor of ~29,000 at the last
+rotated pair.
+
+A partial-rotary convention has TWO halves — which channel pairs rotate, and what frequency
+spectrum they span — and the families differ on both:
+
+| | pairs | frequency denominator |
+|---|---|---|
+| Gemma (`WholeHead`) | `i` with `i + head_dim/2` | `head_dim` |
+| Qwen (`RotaryPrefix`) | `i` with `i + rotary_dim/2` | `rotary_dim` |
+
+Both now hang off `RotaryLayout` on `RopeConfig`, defaulting to `WholeHead` so Gemma and Llama
+are byte-identical. The layout is part of the RoPE cache key: two ops with identical geometry
+but different layouts build genuinely different tables and must not share an entry.
+
+**Result — the ~3x deficit is gone and reversed:**
+
+| | before | after | HF-BF16 |
+|---|---|---|---|
+| `q_roped` (layer 3) | 4.127e-1 | **5.064e-3** | 5.113e-3 |
+| `gated` | 1.174e-1 | **8.578e-3** | 9.259e-3 |
+| `block_output` | 1.117e-2 | **3.604e-3** | 3.614e-3 |
+| layer 63 | 3.703e-2 | **1.008e-2** | 1.326e-2 |
+| logits vs FP32 | 2.666e-2 | **9.677e-3** | 1.387e-2 |
+
+**Mila is now closer to FP32 truth than HuggingFace's own BF16 run at essentially every layer** —
+its cos/sin cache and rotation are FP32 where the reference does both in BF16, an advantage the
+frequency bug had been swamping. Layers 0-2 (DeltaNet, no RoPE) are unchanged to the digit, the
+control that the fix touches only what it should.
+
+**Why the first attempt made things worse, which is the lesson worth keeping.** Selecting
+`RotaryPrefix` while the cache still spread the spectrum across `head_dim` left the pairing and
+the frequencies on *different* conventions — worse than either consistent choice. The failed
+experiment was still what excluded the "layout alone" theory and forced the search upstream; the
+error was reporting a cause before the confirming run, not running it.
+
+**How it was found, in order:** stage attribution on a common input showed `input_norm`
+bit-identical and `q_roped` at 41%, bounding the fault to four stages. The projection probe then
+cleared two of them -- `split_q`/`split_gate` match HF *to the digit* after the converter's
+de-interleave, and `split_k`/`split_v` are marginally better -- leaving `q_norm` and RoPE.
+`q_norm` uses the same `rms()` helper as the bit-identical `input_norm`, which left the rotation,
+and the only part of it the layout experiment had not touched was the frequency table.
+
+#### Superseded: bounded to four stages; the rotary-LAYOUT-only explanation was refuted
+
+**Read this before the subsection below, which proposed a cause that turned out to be wrong.**
+The measurements in it stand; the conclusion does not.
+
+The partial-rotary layout difference between Qwen and Gemma is real — the two references
+genuinely disagree, and that is documented below. **It is not the cause of this error.** A
+`RotaryLayout` selector was built and Qwen switched to the prefix form; every measured number got
+worse:
+
+| | WholeHead (default) | RotaryPrefix |
+|---|---|---|
+| `q_roped` | 4.127e-1 | 3.575e-1 |
+| `gated` | 1.174e-1 | **2.865e-1** |
+| `block_output` | 1.117e-2 | **2.653e-2** |
+| logits vs FP32 | 2.666e-2 | **4.239e-2** |
+
+Reverted; the baseline reproduces exactly.
+
+**What the failed experiment established, which the successful-looking reasoning had not:**
+`q_roped` is ~36-41% wrong under *both* layouts. The rotation touches only 64 of 256 channels, so
+it can account for at most ~0.7 relative error and only if the remaining 192 already agree. Had
+pre-RoPE `q` been correct, the correct layout would have driven `q_roped` to ~5e-3. It did not
+move. **The divergence is upstream of the rotation.**
+
+With `input_norm` bit-identical and `q_roped` badly wrong, the fault is bounded to four stages:
+`fc_qkv_proj`, the query/gate split, `q_norm`, and RoPE — and RoPE is now excluded. The next
+probe is the cheapest of the three remaining: compare Mila's `q` and `gate` workspace slots
+against the reference's `stage_q_proj` *before* any norm or rotation. That isolates the fused
+projection and the de-interleaved split — the one transform in this path with no counterpart in
+any other family, recorded as verified against the checkpoint but never against a running block.
+Both slots already exist in the harness-owned workspace, so this is two more rows, not new
+machinery.
+
+**Method note worth keeping.** The per-head uniformity cited below as evidence for the rotary
+theory does not discriminate: a bad projection or a bad split produces it equally. Having a
+mechanism that *explains* an observation is not having measured that it *causes* it.
+
+#### The superseded reasoning: Qwen and Gemma's partial-rotary conventions do differ
+
+Stage attribution on layer 3, both sides fed the reference's own block input, so the two start
+identical and any difference is that block's:
+
+| stage | Mila vs FP32 | HF vs FP32 |
+|---|---|---|
+| `input_norm` | 2.967e-3 | 2.967e-3 (**bit-identical**) |
+| `q_roped` | 4.127e-1 | 5.113e-3 |
+| `k_roped` | 3.870e-1 | 5.111e-3 |
+| `gated` | 1.174e-1 | 9.259e-3 |
+| `o_proj` | 3.826e-2 | 5.438e-3 |
+| `ffn_down` | 6.891e-2 | 1.034e-2 |
+| `block_output` | 1.117e-2 | 3.614e-3 |
+
+RMSNorm is bit-identical, so the block enters agreeing. **The rotation is where it breaks**, at
+40% relative error — far too large for BF16 and uniform across heads (q: 0.41-0.53 over 24
+heads; k: 0.33-0.45 over 4), which rules out a head permutation. Everything downstream is this
+error decaying as the projections average it away.
+
+**The two sides rotate different dimension pairs.** With `head_dim` 256 and `rotary_dim` 64:
+
+- **The reference** slices the contiguous prefix and rotates *within* it:
+  `q_rot = q[..., :64]`, then `rotate_half(q_rot)` pairs `i` with `i + 32`. Rotated pairs are
+  `{(0,32) ... (31,63)}`; dims 64-255 are untouched.
+- **Mila** pairs across the whole head — `half_dim = head_dim / 2 = 128`
+  (`Rope.Bf16.cu:138`), so the kernel pairs `i` with `i + 128` and the cache zeroes the
+  frequency for pairs at or beyond `rotary_dim / 2` (`Rope.Fp32.cu:52-57`). Rotated pairs are
+  `{(0,128) ... (31,159)}`.
+
+Both rotate 64 of 256 dimensions; they are not the same 64, and not the same pairing. Mila's is
+the **proportional** convention the Gemma global layers were built for — the kernel comment says
+so — and `QwenAttentionBlock` reuses the shared `Rope` component and inherits it.
+
+This is a correctness defect, not a precision one, and the parity run understates it: at a
+5-token prompt the rotation angles are small and the corrupted dimensions are a minority, so the
+argmax survives. **It gets worse with context**, which is exactly the failure a short-prompt
+parity gate cannot see, and it is the reason to fix this before any long-context or quality
+measurement is trusted.
+
+**Mila's convention is CORRECT for Gemma — checked, not assumed.** Gemma 4's reference is
+`(x * cos) + (rotate_half(x) * sin)` with `rotate_half` splitting at `x.shape[-1] // 2`
+(`modeling_gemma4.py:780-806`): no prefix slice, the rotation spans the whole head pairing `i`
+with `i + head_dim/2`, and partial rotary lives entirely in the cos/sin cache. That is Mila's
+kernel exactly. Gemma runs this path for real — its global layers carry `global_rotary_dim` 128
+of `global_head_dim` 512, read from checkpoint metadata (`GemmaModel.ixx:839` ->
+`Gemma.Block.ixx:184`, `:898`) — so the proportional form is validated by Gemma's token-parity
+test rather than untested.
+
+So the two families genuinely disagree, and **the fix is a per-family choice on `RopeConfig`**,
+never a change to the shared kernel's default. Adding a rotary-layout selector and giving Qwen
+the prefix form leaves Gemma and Llama untouched.
+
+*(An earlier revision of this section cited `Gemma.Config.ixx:536` `getRotaryDimForLayer()` as
+the evidence Gemma uses partial rotary. That function is dead library code — its only callers
+are two assertions in `Gemma.Config.cpp`. The live path is `rotaryDim()` ->
+`getGlobalRotaryDim()`. The conclusion was right and the citation was not.)*
+
+The test's per-layer bound (1.0e-1) is a **recorded baseline, not a proof of correctness**; the
+argmax equality is the assertion that carries the gate. Tighten the bound if the softmax
+rounding is fixed.
+
+#### What the harness cost the tree
+
+Four private `QwenTransformer` members held the workspace sizing, so a harness would either
+duplicate them or reach inside. Instead `makeQwenAttentionBlockWorkspace()`, `QwenGqaWorkspace`
+and `makeQwenGqaWorkspace()` now live in `Qwen.Block.ixx` beside the struct they fill, and the
+transformer calls them — one source, no duplication. `QwenModel::configFromMetadata` moved from
+private to public so the harness builds blocks from the geometry a real load would use. All 73
+Qwen tests stayed green across the change.
+
+Three constraints the harness had to work around rather than change, each in its file header:
+`Component::getExecutionContext()` and `setExecutionContext()` are both protected, so
+independently constructed components can neither share a stream nor expose the one they own —
+the harness falls back to a device-wide synchronize; the hidden state travels between layers
+through the host, because a block's output buffer dies with the block; and prefill runs in one
+chunk, since chunk-boundary equivalence is already pinned by the Phase 3 block tests.
+
+One defect the run found in the harness itself, worth the note because the symptom was so
+readable: a leaf component's tensor name has no path left after its prefix (`temb.wte` -> `wte`),
+and requiring a dot made the embedding load silently load nothing. Every layer then reported a
+relative error of exactly 1.000e+00 — which is what a zero hidden state looks like, since the
+error equals the reference norm. The loader now refuses a prefix that matched no tensor.
+
 ### Phase 3 status (2026-08-19)
 
 **The published 27B geometry constructs, builds, and runs** — prefill and decode end to end,
@@ -1253,7 +1602,7 @@ running makes it easy to read the phase as finished, and it is not:
 | Criterion | Status |
 |---|---|
 | Chunked prefill and token-by-token decode produce identical state and output | **Met.** Pinned at three levels — the convolution, the mixer, and the whole block — each with a positive control that fails if the carried state is ignored. |
-| Oracle parity per layer, at BF16, **on real checkpoint weights** | **Partial.** Parity holds against the Python oracle on synthetic vectors, bit-identically in FP32. Real weights now load (the converter landed 2026-08-19) and a 4-layer fixture runs end to end, but no layer has been compared against the oracle on them — that is the Phase 4 harness, and the 50 GiB reference is why it must stream. |
+| Oracle parity per layer, at BF16, **on real checkpoint weights** | **Met 2026-08-19.** All 64 layers compared against the HuggingFace reference on the published checkpoint, and the last-position argmax agrees (` Paris`). See "Phase 4's parity gate is MET" above for the per-layer profile and the one open numerics question it raises. Parity against the Python oracle on synthetic vectors remains bit-identical in FP32. |
 | State-plus-conv-ring snapshot/restore roundtrips exactly | **Not started.** Neither the recurrent state nor the convolution window can be snapshotted or restored today. Section 7 identifies this as the mechanism that replaces rewinding for prompt caching, so it is the gate criterion with a product consequence attached. |
 
 #### What Phase 3 does not do
@@ -1267,6 +1616,10 @@ Two Phase 4 constraints found while enumerating, both filed:
 - **The parity harness cannot use `from_pretrained`.** The BF16 reference is 54 GB against
   31.8 GB of system RAM and a 12 GiB card, so it must stream layer-by-layer off the shards via
   safetensors mmap.
+- **The harness must tokenize from `tokenizer.json`, not from `AutoTokenizer`.** See the
+  tokenizer-converter section above: the two disagree on mark-bearing scripts. A parity run on
+  ASCII prompts is unaffected, but the moment one is not ASCII the reference is wrong rather
+  than the model.
 - **MTP has no HF reference at all.** `transformers 5.12.1` declares
   `_keys_to_ignore_on_load_unexpected = [r"^mtp.*"]` and implements no MTP class, so that head
   cannot be gated against HF. Its wiring here is read from tensor shapes and family

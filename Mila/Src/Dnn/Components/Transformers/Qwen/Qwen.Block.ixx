@@ -141,7 +141,170 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> ffn_act;     // swiglu out        [B, chunk, hidden_dim]
         std::shared_ptr<TensorType> ffn_down;    // fc_down out       [B, chunk, model_dim]
         std::shared_ptr<TensorType> stream;      // res_2 out         [B, chunk, model_dim]
+
+        /// Total device bytes held, for memory accounting.
+        std::size_t deviceStorageBytes() const
+        {
+            std::size_t total = 0;
+
+            for ( const auto* t : { q.get(), gate.get(), k.get(), v.get(), normed.get(),
+                                    qkv.get(), query_gate.get(), q_normed.get(), k_normed.get(),
+                                    attn.get(), gated.get(), o.get(), res1.get(), ffn_in.get(),
+                                    gate_up.get(), ffn_act.get(), ffn_down.get(), stream.get() } )
+            {
+                if ( t )
+                    total += t->getStorageSize();
+            }
+
+            return total;
+        }
     };
+
+    /**
+     * @brief Allocate the shared attention-block workspace.
+     *
+     * Lives here, beside the struct, rather than inside QwenTransformer, because the network
+     * is not the only thing that drives these blocks: a layer-streamed parity harness holds
+     * one block at a time and needs the identical slot geometry. A second copy of these
+     * eighteen widths would agree until the first time one of them changed, and then measure
+     * a different model than the one it is checking.
+     */
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    QwenAttentionBlockWorkspace<TDeviceType, TPrecision> makeQwenAttentionBlockWorkspace(
+        const QwenConfig& config, DeviceId device, dim_t B, dim_t prefill_chunk,
+        const std::string& name_prefix )
+    {
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using TensorType = Tensor<TPrecision, MR>;
+
+        const dim_t model_dim = config.getModelDim();
+        const dim_t hidden_dim = config.getHiddenDimension();
+        const dim_t q_width = config.getQProjectionWidth();
+        const dim_t kv_width = config.getKVProjectionWidth();
+        const dim_t qkv_width = config.getPackedQKVWidth();
+
+        auto slot = [&]( dim_t width, const char* name )
+        {
+            return std::make_shared<TensorType>(
+                device, shape_t{ B, prefill_chunk, width }, name_prefix + name );
+        };
+
+        QwenAttentionBlockWorkspace<TDeviceType, TPrecision> workspace;
+
+        workspace.q = slot( q_width, "q" );
+        workspace.gate = slot( q_width, "gate" );
+        workspace.k = slot( kv_width, "k" );
+        workspace.v = slot( kv_width, "v" );
+        workspace.normed = slot( model_dim, "normed" );
+        workspace.qkv = slot( qkv_width, "qkv" );
+        workspace.query_gate = slot( 2 * q_width, "query_gate" );
+        workspace.q_normed = slot( q_width, "q_normed" );
+        workspace.k_normed = slot( kv_width, "k_normed" );
+        workspace.attn = slot( q_width, "attn" );
+        workspace.gated = slot( q_width, "gated" );
+        workspace.o = slot( model_dim, "o" );
+        workspace.res1 = slot( model_dim, "res1" );
+        workspace.ffn_in = slot( model_dim, "ffn_in" );
+        workspace.gate_up = slot( 2 * hidden_dim, "gate_up" );
+        workspace.ffn_act = slot( hidden_dim, "ffn_act" );
+        workspace.ffn_down = slot( model_dim, "ffn_down" );
+        workspace.stream = slot( model_dim, "stream" );
+
+        return workspace;
+    }
+
+    /**
+     * @brief The GQA transient the attention blocks share, owned as one unit.
+     *
+     * Owned together rather than as seven loose tensors so a caller cannot allocate half of
+     * it: `GqaState` is a struct of raw pointers, and a null one is a crash at the kernel
+     * rather than an error at the call.
+     */
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    struct QwenGqaWorkspace
+    {
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using TensorType = Tensor<TPrecision, MR>;
+
+        std::unique_ptr<TensorType> q_permute;
+        std::unique_ptr<TensorType> preatt;
+        std::unique_ptr<TensorType> att;
+        std::unique_ptr<TensorType> v_out;
+        std::unique_ptr<TensorType> preatt_decode;
+        std::unique_ptr<TensorType> att_decode;
+        std::unique_ptr<TensorType> v_out_decode;
+
+        GqaState state() const
+        {
+            GqaState gqa_state;
+            gqa_state.q_permute = q_permute.get();
+            gqa_state.preatt = preatt.get();
+            gqa_state.att = att.get();
+            gqa_state.v_out = v_out.get();
+            gqa_state.preatt_decode = preatt_decode.get();
+            gqa_state.att_decode = att_decode.get();
+            gqa_state.v_out_decode = v_out_decode.get();
+
+            return gqa_state;
+        }
+
+        std::size_t deviceStorageBytes() const
+        {
+            std::size_t total = 0;
+
+            for ( const auto* t : { q_permute.get(), preatt.get(), att.get(), v_out.get(),
+                                    preatt_decode.get(), att_decode.get(), v_out_decode.get() } )
+            {
+                if ( t )
+                    total += t->getStorageSize();
+            }
+
+            return total;
+        }
+    };
+
+    /**
+     * @brief Allocate the shared GQA transient.
+     *
+     * `score_width` is the caller's flash decision made concrete: the flash path reads no
+     * score buffer, so it passes 1, while the cuBLASLt path needs the full context and would
+     * overflow a narrow buffer. The parameter exists so the caller cannot allocate for one
+     * path and then run the other -- the mismatch the transformer's own comment warns about.
+     */
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    QwenGqaWorkspace<TDeviceType, TPrecision> makeQwenGqaWorkspace(
+        const QwenConfig& config, DeviceId device, dim_t B, dim_t T_ctx,
+        dim_t prefill_chunk, dim_t score_width, const std::string& name_prefix )
+    {
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using TensorType = Tensor<TPrecision, MR>;
+
+        const dim_t NH = config.getNumHeads();
+        const dim_t HD = config.getHeadDim();
+
+        QwenGqaWorkspace<TDeviceType, TPrecision> workspace;
+
+        workspace.q_permute = std::make_unique<TensorType>(
+            device, shape_t{ B, NH, prefill_chunk, HD }, name_prefix + "q_perm" );
+        workspace.preatt = std::make_unique<TensorType>(
+            device, shape_t{ B, NH, prefill_chunk, score_width }, name_prefix + "preatt" );
+        workspace.att = std::make_unique<TensorType>(
+            device, shape_t{ B, NH, prefill_chunk, score_width }, name_prefix + "att" );
+        workspace.v_out = std::make_unique<TensorType>(
+            device, shape_t{ B, NH, prefill_chunk, HD }, name_prefix + "v_out" );
+
+        workspace.preatt_decode = std::make_unique<TensorType>(
+            device, shape_t{ B, NH, 1, T_ctx }, name_prefix + "preatt_dec" );
+        workspace.att_decode = std::make_unique<TensorType>(
+            device, shape_t{ B, NH, 1, T_ctx }, name_prefix + "att_dec" );
+        workspace.v_out_decode = std::make_unique<TensorType>(
+            device, shape_t{ B, NH, 1, HD }, name_prefix + "v_out_dec" );
+
+        return workspace;
+    }
 
     /**
      * @brief One Qwen 3.8 full-attention decoder block.
@@ -732,7 +895,14 @@ namespace Mila::Dnn
             auto rope_config = RopeConfig( qProjWidth(), config_.getNumHeads(), numKVHeads(),
                     config_.getMaxSequenceLength() )
                 .withBase( config_.getRoPETheta() )
-                .withRotaryDim( config_.getRotaryDim() );
+                .withRotaryDim( config_.getRotaryDim() )
+                // Qwen confines the rotation to the leading rotary_dim channels, pairs INSIDE
+                // that slice, and compresses the frequency spectrum into rotary_dim rather
+                // than head_dim. Gemma -- and so the shared default -- does neither. BOTH
+                // halves matter: selecting this layout while the cache still spread the
+                // spectrum across head_dim made every number worse, because the pairing then
+                // disagreed with the frequencies. See Specifications/Qwen3.8.md.
+                .withRotaryLayout( RotaryLayout::RotaryPrefix );
             this->addComponent( std::make_shared<RopeType>( n + ".rope", rope_config ) );
 
             // Full attention: no window. Attention scale stays at the GqaConfig default,

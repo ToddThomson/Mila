@@ -18,6 +18,7 @@ Converters/
     convert_tokenizer.py
   Qwen/
     convert_weights.py    — Qwen 3.8 27B (hybrid DeltaNet / full-attention stack)
+    convert_tokenizer.py
 ```
 
 ## Setup
@@ -182,6 +183,9 @@ scope for this chassis and are skipped at the checkpoint index.
 | `Qwen/Qwen3.8-27B` | 26.9B text (51.8 GiB checkpoint) |
 
 ```powershell
+# Tokenizer — reads tokenizer.json only; no weights are downloaded
+python Qwen/convert_tokenizer.py --model Qwen/Qwen3.8-27B --output <weights-dir>/qwen/qwen38_tokenizer.bin
+
 # Qwen 3.8 27B — streams shard by shard; host RAM never holds more than one tensor
 python Qwen/convert_weights.py --model Qwen/Qwen3.8-27B --output <weights-dir>/qwen/qwen38_27b_bf16.bin
 
@@ -221,6 +225,58 @@ python Qwen/convert_weights.py --model Qwen/Qwen3.8-27B --max-layers 4 --output 
 > **Nothing is dropped in silence.** Every checkpoint tensor is accounted for as consumed or explicitly
 > skipped; an unrecognized tensor family fails the run rather than being ignored. Declared shapes are
 > checked against the geometry the config implies before any data is written.
+
+### Tokenizer
+
+Qwen 3.8 is GPT-2 style byte-level BPE — explicit merge ranks, no byte fallback, 248,077 pieces
+(248,044 learned plus 33 control tokens). `BpeVocabulary::loadQwen` reads the result on the
+merge-by-rank path, not the max-munch path the Llama loader uses.
+
+> **`convert_tokenizer.py` does not use `transformers`, and that is deliberate.** `transformers`
+> 5.12.1 rebuilds Qwen tokenizers from `vocab.json` + `merges.txt` and replaces the checkpoint's
+> pre-tokenizer with a hardcoded Qwen2-era pattern (`tokenization_qwen2.py:33`) that omits `\p{M}`.
+> On Devanagari, Thai and Arabic the two disagree: the stale pattern splits combining marks away
+> from their base letters and emits roughly twice the tokens. The checkpoint's pattern is the
+> correct one — the vocabulary contains base+mark pieces the stale pattern can never produce — so
+> the converter reads `tokenizer.json` directly. Both decode back to the same text, which is why
+> this is only visible as worse output. **Anything comparing Mila against a HuggingFace reference
+> must tokenize from `tokenizer.json`, not from `AutoTokenizer`.**
+
+The checkpoint's split pattern is checked against the constant Mila carries
+(`QWEN3_PRETOKENIZATION_PATTERN`) on every run, so a checkpoint revision fails the conversion
+rather than silently diverging from the runtime.
+
+| Option | Values | Default |
+|---|---|---|
+| `--model` | `Qwen/Qwen3.8-27B`, or a local checkpoint directory | required |
+| `--output` | path to write `.bin` file | required |
+
+### Layer-streamed reference (`qwen38_BF16/`)
+
+`hf_qwen_layer_stream.py` produces the HuggingFace reference activations the Mila parity test
+asserts against. It runs the full 64-layer BF16 stack holding **one decoder layer resident at a
+time** — the whole model is 50 GiB against 31.8 GB of host RAM and a 12 GiB card, so
+`from_pretrained` cannot run and the Gemma method of hooking a loaded model is unavailable.
+
+```powershell
+# Prove the driver before trusting any number it produces
+python Qwen/qwen38_BF16/hf_qwen_layer_stream.py --self-test
+
+# Full 64-layer reference
+python Qwen/qwen38_BF16/hf_qwen_layer_stream.py --model Qwen/Qwen3.8-27B --output <weights-dir>/qwen/qwen38_ref.bin
+
+# 4-layer reference, pairing with the converter's --max-layers fixture
+python Qwen/qwen38_BF16/hf_qwen_layer_stream.py --model Qwen/Qwen3.8-27B --max-layers 4 --output <weights-dir>/qwen/qwen38_ref_l4.bin
+```
+
+Output is a MILA `.bin` — the format `PretrainedModelReader` already reads — holding the
+last-token hidden state after every layer, after the final norm, and the last-position logits.
+The Mila side is `Tests/Dnn/Models/QwenModel.Parity.Cuda.cpp`.
+
+> **Run `--self-test` first.** It builds a small random model, runs it both whole and streamed,
+> and requires bitwise agreement, plus a negative control that drops the causal mask and must
+> diverge. Every mistake a streamed driver makes is silent — `attention_mask=None` produces a
+> bidirectional layer rather than a causal one, and still returns a plausible hidden state.
 
 ---
 

@@ -136,6 +136,21 @@ namespace Mila::Data
         }
 
         /**
+         * @brief Load a Qwen 3.x tokenizer from the binary produced by Qwen/convert_tokenizer.py.
+         *
+         * Qwen uses GPT-2 style byte-level BPE with explicit merge ranks and Qwen's
+         * own split pattern -- notably one token per digit.
+         *
+         * @param path Path to the Qwen tokenizer binary.
+         * @return Shared tokenizer instance.
+         * @throws std::runtime_error on I/O or format errors.
+         */
+        static std::shared_ptr<BpeTokenizer> loadQwen( const std::filesystem::path& path )
+        {
+            return std::make_shared<BpeTokenizer>( BpeVocabulary::loadQwen( path ) );
+        }
+
+        /**
          * @brief Load a Mistral tokenizer.
          *
          * @note Not yet implemented. Provide a Mila binary produced by save() as a workaround.
@@ -367,9 +382,9 @@ namespace Mila::Data
          * Attempts to compile the Unicode pattern first. If std::regex rejects it
          * (no standard std::regex supports \p{L} / \p{N} -- Unicode property escapes are an
          * ECMAScript 2018 feature, and the grammar C++ adopted predates them), falls back to the
-         * ASCII-only approximation for the detected mode. Llama3Regex and Gpt2Regex
-         * each have a dedicated ASCII fallback; an unrecognised pattern that fails
-         * compilation is treated as a hard error.
+         * ASCII-only approximation for the detected mode. Gpt2Regex, Llama3Regex and
+         * Qwen3Regex each have a dedicated ASCII fallback; an unrecognised pattern
+         * that fails compilation is treated as a hard error.
          */
         void initializePreTokenization()
         {
@@ -403,6 +418,10 @@ namespace Mila::Data
                 else if ( mode == PreTokenizationMode::Llama3Regex )
                 {
                     fallback = LLAMA3_PRETOKENIZATION_PATTERN_ASCII_FALLBACK;
+                }
+                else if ( mode == PreTokenizationMode::Qwen3Regex )
+                {
+                    fallback = QWEN3_PRETOKENIZATION_PATTERN_ASCII_FALLBACK;
                 }
 
                 if ( !fallback )
