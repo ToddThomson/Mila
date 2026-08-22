@@ -1834,19 +1834,68 @@ is the strongest evidence so far that the Section 5 allocation is real rather th
   takes the 1024-row rung, and 1024 rows of a 27B geometry is what does not fit. 512 MiB fits
   the whole ladder to 16K; 32K remains out of reach, which is what Section 5 already says.
 
-#### What still bounds the context, and it is not the prediction
+#### What bounds the context: ~92 MB per layer that nothing predicts
 
-At 512 the prediction is 9.94 GiB and the load consumes **the entire 10.85 GiB free** on a
-display-attached card. At 2048 the prediction is 10.12 GiB and the load dies. So a ~0.9 GiB
-gap between what the model accounts for and what the process takes — the CUDA context, the
-cuBLASLt workspace, per-allocation rounding — is what stands between here and the 16K
-baseline, not the allocation. BACKLOG already carries that residual as unattributed on Gemma
-(1.015 GiB) and Llama (0.449); this is the third and largest sighting, and now it is
-load-bearing rather than cosmetic.
+**Corrected 2026-08-22, same day.** This section first called the gap "~0.9 GiB" and attributed
+it to the CUDA context and allocator rounding. That was an artefact of the instrument:
+`cudaMemGetInfo` sees only **dedicated** VRAM, so it reported "10.85 GiB consumed, 0 free" for
+a process that had in fact committed 11.21 GB dedicated **plus 8.53 GB shared**. Windows
+per-process counters (`\GPU Process Memory(pid_N*)\Dedicated Usage` and `\Shared Usage`) show
+the real figure, and on Windows they are the ones a fit decision must use.
 
-Two levers, in order of cheapness: run headless, since the desktop holds ~1.1 GiB of the
-card and Section 5 assumed 11.0-11.3 GiB usable rather than the 10.85 measured; and attribute
-the residual, which BACKLOG scopes as reading `MemoryAllocationStats::allocationCount`.
+Measured predicted-against-actual at 512 context:
+
+| | predicted | actual device-intended | excess |
+|---|---|---|---|
+| 4-layer packed fixture | 1.61 GiB | 2.33 GiB | 0.72 GiB |
+| full 64-layer artifact | 9.94 GiB | ~16.0 GiB | ~6.1 GiB |
+
+Two points, one line: **~92 MB per layer plus ~0.36 GiB fixed**. At 64 layers that is 5.7 GiB
+of the 6.1, so the per-layer term is the whole story.
+
+**92 MB is the size of one layer's own transients at chunk 512** — `fc_gate_up`'s output is
+[512 x 34816] BF16 = 35.7 MB, SwiGLU's is 17.8 MB, the DeltaNet projections are 4-6 MB each.
+Every layer holds its own set rather than sharing a pooled buffer, and `getRequiredMemory` does
+not count them.
+
+**So the fit blocker is not the Section 5 allocation, and not a residual.** The weights land at
+8.69 GiB exactly as budgeted; it is the transients around them that oversubscribe the card, and
+oversubscription is what makes WDDM page the weights and cost 5x on decode. One defect explains
+the 512-context cap and the decode rate together.
+
+#### Localized: the prediction promises an installation the build never performs
+
+Not a component under-reporting. `QwenTransformer::getRequiredMemory` (`Qwen.ixx:381`) hands
+every block a context carrying `.withInstalledOutput( context.isInferenceMode() )`, whose
+documented meaning is *"the parent installs the child's output buffer before calling build(), so
+the child skips self-allocating its output… Only prediction reads this."*
+
+Gemma sets that flag truthfully — its `onBuilding` really does `allocateBlockWorkspace` and
+`installSharedWorkspace`, which is why Gemma's Gate B can assert predicted == reported exactly.
+**Qwen copied the prediction line and not the installation.** `withInstalledOutput` appears
+nowhere else in `Qwen.ixx`.
+
+The asymmetry is visible in the built tree, per component at 512 context:
+
+| layer | kind | device state |
+|---|---|---|
+| 0, 1, 2 | DeltaNet | **138.2 MiB each** |
+| 3 | full attention | ~0 per component (plus the shared RoPE cache) |
+
+The attention block installs its children's outputs into `QwenAttentionBlockWorkspace`, so its
+components hold nothing and the flag's claim is true. The DeltaNet block does not, so every one
+of its components self-allocates: six separate [512 x 5120] stream buffers at 5 MiB each
+(`input_norm`, `post_attn_norm`, `res_1`, `res_2`, `fc_down`, `fc_out_proj`), `fc_gate_up` at 34
+MiB, SwiGLU at 17. At 48 DeltaNet layers that is **~6.5 GiB**, which is the measured excess.
+
+**Both fixes are needed and they are not alternatives.** Installing the DeltaNet outputs is the
+memory win — a second workspace struct, since those slots share nothing with the attention one.
+Adding Gemma's Gate B equality assert to Qwen is what stops a 60% under-prediction passing
+again; Chat's GPU FIT verdict reads that number, so a wrong prediction is worse than none.
+
+BACKLOG had the pooling half filed as "a memory optimization, sized by the prefill chunk". It is
+not an optimization — it is the release gate, and it explains the context cap and the decode
+paging as one defect.
 
 #### The packed model is coherent (2026-08-22)
 
@@ -1879,7 +1928,15 @@ widths before compensation, and this is far milder than that.
 and a divergence point against the FP4 oracle, not a reading. It establishes that the thing
 being measured is a working model.
 
-#### Decode is 4.7 tok/s, and the 47 tok/s ceiling is refuted (2026-08-22)
+#### Decode is 4.7 tok/s, and four fifths of that is WDDM paging (2026-08-22)
+
+> **Corrected the same day.** This section first recorded 4.7 tok/s as refuting the 47 tok/s
+> ceiling. It does not: the benchmark ran on a model that fills the card exactly, so most of
+> what it measured was the driver paging Mila's own weights to host memory. A VRAM-resident
+> measurement puts decode near **24 tok/s** — still under the ceiling, but by 2x rather than
+> 10x. The attribution below is what separated the two, and is kept because the method is
+> reusable; the original conclusion is not.
+
 
 Measured on the 4070 against the packed 27B, by subtracting an 8-token generation from a
 72-token one so the load and the prefill cancel exactly
@@ -1892,26 +1949,61 @@ Measured on the 4070 against the packed 27B, by subtracting an 8-token generatio
 | Card peak | 504 GB/s |
 | Section 5 ceiling | 47 tok/s |
 
-**Ten times under the ceiling, at 8.7% of the card's bandwidth.** Section 5 derives 47 tok/s
-from bytes moved per token, which assumes decode is bandwidth-bound. At model scale it is
-emphatically not, and this document already predicted that it would not be: the codebook GEMV
-was measured instruction-bound in Phase 1, and the ceiling was explicitly recorded as
-"unverified until they are measured against a DRAM-resident model rather than an L2-resident
-matrix". This is that measurement. **The ceiling should now be treated as refuted rather than
-unverified**, and Section 5's "even at half that ceiling the experiment is quality-limited,
-not speed-limited" no longer holds.
-
 The path is confirmed correct, not a fallback: `outer_size == 1` reaches `launchCodebookDecode`
-and the dedicated codebook GEMV, so this is what those kernels do at 8.69 GiB rather than
-evidence of a wrong dispatch.
+and the dedicated codebook GEMV.
 
-**What is NOT yet attributed** is which kernel spends the time. Two candidates and no
-measurement separating them: the codebook GEMVs, whose L2-resident figures (260-317 GB/s)
-overstate DRAM by an unknown factor; and the DeltaNet recurrent decode kernel, which runs on
-48 of the 64 layers and is one thread per value column, a shape whose occupancy nobody has
-looked at. Roughly 400 kernel launches per token at 0.53 ms average is far above launch
-overhead, so it is compute somewhere, not dispatch. Attribution needs per-kernel timing and
-is the next thing worth doing on the performance axis.
+**Per-kernel attribution** (nsys, 88 decode tokens). This answers the question of which kernel
+spends the time, and the answer is not the one this document expected:
+
+| kernel | share of decode | ms/token |
+|---|---|---|
+| cb4 codebook GEMV | 45% | 87 |
+| cb8 codebook GEMV | 27% | 51 |
+| FP4 GEMV | 23% | 45 |
+| **Gated DeltaNet recurrence** | **2.6%** | 5 |
+
+**The DeltaNet recurrent kernel is not a bottleneck at all**, despite running on 48 of the 64
+layers and being the one kernel here with no precedent in the tree. The three GEMVs are 95% of
+decode. That closes the suspicion this section previously carried.
+
+#### The variance was the finding, not the mean
+
+| kernel | median | mean | max |
+|---|---|---|---|
+| cb4 GEMV | 130 us | 434 us | 3.6 ms |
+| FP4 GEMV | **84 us** | 1411 us | **30.6 ms** |
+
+A 365x spread between median and max is not a compute characteristic; a compute-bound kernel
+has tight variance. It is the signature of residency thrashing — some invocations read VRAM,
+some read host memory across PCIe. The instrumentation had already printed the cause without
+its significance being noticed: **"load consumed 10.8457 GiB device, 0 GiB still free"**. The
+model fills the card exactly, leaving the desktop compositor nothing, so WDDM evicts Mila's
+own weights to make room and pages them back per kernel.
+
+**The control that settles it.** The 4-layer packed fixture runs the same kernels on the same
+policies at ~1.2 GiB resident, with 8.52 GiB still free — nothing can be evicted:
+
+| | per layer | 64-layer equivalent |
+|---|---|---|
+| 4-layer fixture, resident | 0.85 ms | ~54 ms/token, 18.4 tok/s |
+| full model, card full | ~3.3 ms | 213 ms/token, 4.7 tok/s |
+
+The extrapolation overstates, because dividing by layer count charges each layer a share of
+`lm_head` and then multiplies it back sixteenfold; backing that out puts a resident model near
+**24 tok/s**, which is independently where the nsys medians land (~41 ms/token). Two methods,
+one answer: **paging costs a factor of about five, and the kernels cost a factor of about two
+against the ceiling.**
+
+**What this means for Section 5's ceiling.** It is optimistic by roughly 2x, not refuted. The
+codebook GEMVs being instruction-bound is real and is what the remaining 2x is; the L2-resident
+Phase 1 figures did overstate DRAM, but by far less than the contaminated measurement implied.
+"Quality-limited, not speed-limited" survives at 24 tok/s in a way it does not at 4.7.
+
+**Method note worth keeping.** A decode benchmark on a model sized to fill the card measures
+the driver's pager, not the kernels. This is the same class of error as benchmarking an
+L2-resident matrix and reading it as DRAM bandwidth, in the opposite direction: one flatters,
+one penalises, and both are fixed by stating the residency of the thing being measured before
+believing the number.
 
 ---
 

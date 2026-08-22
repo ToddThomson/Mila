@@ -36,6 +36,11 @@
 
 import Mila;
 
+// Instantiating a CUDA component consumer-side reaches CudaGqaOp::build and CudaLinearOp,
+// which need ExecutionContext<Cuda> COMPLETE rather than merely reachable, and Mila.ixx
+// exports only IExecutionContext. Same import Qwen.Block.Cuda.cpp had to add.
+import Compute.ExecutionContext;
+
 namespace Mila::Tests::Dnn::Models
 {
     using namespace Mila::Dnn;
@@ -374,7 +379,29 @@ namespace Mila::Tests::Dnn::Models
         QwenModelConfig model_config( 512 );
         model_config.withPrecisionPlan();
 
+        // Predicted before, measured after: the two together are what say whether
+        // getRequiredMemory describes the allocation a load actually makes.
+        const DeploymentFootprint predicted =
+            QwenBf16::getDeploymentFootprint( fixture, model_config );
+
+        size_t free_before = 0;
+        size_t total_bytes = 0;
+        cudaMemGetInfo( &free_before, &total_bytes );
+
         auto model = QwenBf16::fromPretrained( fixture, model_config );
+
+        size_t free_after = 0;
+        cudaMemGetInfo( &free_after, &total_bytes );
+
+        const double gib = 1024.0 * 1024 * 1024;
+
+        std::cout << std::format(
+            "  4-layer packed: predicted {:.2f} GiB device, actually consumed {:.2f} GiB\n"
+            "  ({} layers, chunk {})\n",
+            predicted.memory.totalDeviceBytes() / gib,
+            ( free_before - free_after ) / gib,
+            static_cast<long long>( model->getNetworkConfig().getNumLayers() ),
+            static_cast<long long>( predicted.prefill.chunk_rows ) ) << std::flush;
 
         const std::vector<int32_t> prompt{ 9707, 11, 1879, 0 };
         std::vector<int32_t> produced;
@@ -391,6 +418,246 @@ namespace Mila::Tests::Dnn::Models
 
         EXPECT_NE( status, GenerateStatus::ContextOverflow );
         EXPECT_FALSE( produced.empty() );
+    }
+
+    // Gate B for Qwen, on the packed 4-layer fixture.
+    //
+    // Run on the FIXTURE rather than the full artifact deliberately: the 64-layer model
+    // oversubscribes the card, so WDDM backs part of it in system memory and cudaMemGetInfo
+    // -- which sees dedicated VRAM only -- reports a number that is not the allocation. At
+    // 4 layers everything is resident and the three figures are comparable.
+    //
+    // Gemma's equivalent asserts predicted == reported EXACTLY, on the reasoning that the
+    // prediction is an accounting of the same allocations getMemoryStats counts. Which of
+    // those two Qwen violates is the whole diagnostic:
+    //
+    //   predicted < reported   a component's getRequiredMemory disagrees with its own
+    //                          getMemoryStats -- findable by walking the tree.
+    //   predicted == reported  but both below consumed: the buffers are invisible to Mila's
+    //                          accounting altogether, i.e. allocated outside a component's
+    //                          reported state.
+    TEST_F( QwenPackedArtifactTests, DISABLED_GateB_PredictionAgainstActual )
+    {
+        const fs::path fixture =
+            fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_l4_2p9bit.safetensors";
+
+        if ( !fs::exists( fixture ) )
+        {
+            GTEST_SKIP() << "Packed 4-layer fixture not present at: " << fixture.string();
+        }
+
+        constexpr dim_t kContext = 512;
+        const double gib = 1024.0 * 1024 * 1024;
+
+        auto freeBytes = [] () -> std::size_t
+            {
+                std::size_t free_bytes = 0;
+                std::size_t total_bytes = 0;
+                cudaMemGetInfo( &free_bytes, &total_bytes );
+
+                return free_bytes;
+            };
+
+        cudaFree( nullptr );
+
+        QwenModelConfig model_config( kContext );
+        model_config.withPrecisionPlan();
+
+        const MemoryStats predicted =
+            QwenBf16::getRequiredMemory( fixture, model_config );
+
+        const std::size_t free_before = freeBytes();
+
+        auto model = QwenBf16::fromPretrained( fixture, model_config );
+
+        ASSERT_NE( model, nullptr );
+
+        const std::size_t consumed = free_before - freeBytes();
+        const MemoryStats reported = model->getMemoryStats();
+
+        std::cout << std::format(
+            "[gate B] Qwen 4-layer packed, context {}\n"
+            "  predicted (getRequiredMemory) {:.3f} GiB  (params {:.3f} / state {:.3f})\n"
+            "  reported  (getMemoryStats)    {:.3f} GiB  (params {:.3f} / state {:.3f})\n"
+            "  consumed  (cudaMemGetInfo)    {:.3f} GiB\n"
+            "  scratch high-water            {:.3f} GiB\n",
+            static_cast<long long>( kContext ),
+            predicted.totalDeviceBytes() / gib,
+            predicted.device_parameter_bytes / gib,
+            predicted.device_state_bytes / gib,
+            reported.totalDeviceBytes() / gib,
+            reported.device_parameter_bytes / gib,
+            reported.device_state_bytes / gib,
+            consumed / gib,
+            model->getScratchHighWaterBytes() / gib ) << std::flush;
+
+        EXPECT_EQ( predicted.device_parameter_bytes, reported.device_parameter_bytes );
+        EXPECT_EQ( predicted.device_state_bytes, reported.device_state_bytes );
+    }
+
+    // Where a layer's device state actually sits, component by component.
+    //
+    // Gate B says the prediction understates state by ~95 MB per layer while getMemoryStats
+    // sees it, so the bytes are held by some component that the block's getRequiredMemory
+    // mis-sizes. This prints the built tree's own accounting so the component can be named
+    // rather than reasoned about.
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_WhereTheLayerStateSits
+    TEST_F( QwenPackedArtifactTests, DISABLED_WhereTheLayerStateSits )
+    {
+        const fs::path fixture =
+            fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_l4_2p9bit.safetensors";
+
+        if ( !fs::exists( fixture ) )
+        {
+            GTEST_SKIP() << "Packed 4-layer fixture not present at: " << fixture.string();
+        }
+
+        // The transformer is built directly rather than loaded through QwenModel: only the
+        // STATE allocation is in question, and building allocates it without reading a
+        // single weight. Seconds instead of minutes, and no 5 GiB of I/O.
+        Serialization::PretrainedModelReader reader( fixture );
+        const QwenConfig network_config =
+            QwenBf16::configFromMetadata( reader.getPretrainedMetadata() );
+
+        using QwenPacked = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            QwenPrecisionPlan, Mila::Dnn::Quant::KvCache::NoKvCompression>;
+
+        QwenPacked network( "qwen", network_config, Device::Cuda( 0 ) );
+        network.build( BuildContext( shape_t{ 1, 512 }, RuntimeMode::Inference, false ) );
+
+        const double mib = 1024.0 * 1024;
+
+        for ( const auto& layer : network.getComponents() )
+        {
+            const MemoryStats layer_stats = layer->getMemoryStats();
+
+            if ( layer_stats.device_state_bytes < 1024 * 1024 )
+            {
+                continue;
+            }
+
+            // The block's own prediction for itself, against what it actually holds. Agreement
+            // puts the mis-sizing at the transformer level; disagreement puts it inside the
+            // block's getRequiredMemory.
+            MemoryStats layer_predicted;
+
+            try
+            {
+                layer_predicted = layer->getRequiredMemory(
+                    BuildContext( shape_t{ 1, 512, network_config.getModelDim() },
+                        RuntimeMode::Inference, false ) );
+            }
+            catch ( const std::exception& e )
+            {
+                std::cout << "      (self-prediction threw: " << e.what() << ")\n";
+            }
+
+            std::cout << std::format(
+                "\n  {} -- state {:.1f} MiB actual, {:.1f} MiB self-predicted\n",
+                layer->getName(), layer_stats.device_state_bytes / mib,
+                layer_predicted.device_state_bytes / mib );
+
+            const auto* composite =
+                dynamic_cast<const CompositeComponent<DeviceType::Cuda, TensorDataType::BF16>*>(
+                    layer.get() );
+
+            if ( composite == nullptr )
+            {
+                continue;
+            }
+
+            for ( const auto& child : composite->getComponents() )
+            {
+                const MemoryStats child_stats = child->getMemoryStats();
+
+                if ( child_stats.device_state_bytes >= 1024 * 1024 )
+                {
+                    std::cout << std::format( "      {:<44} {:>8.1f} MiB\n",
+                        child->getName(), child_stats.device_state_bytes / mib );
+                }
+            }
+        }
+
+        std::cout << std::flush;
+    }
+
+    // Decode cost per LAYER, on a model small enough to be genuinely VRAM-resident.
+    //
+    // The control for the full artifact's rate. The 4-layer packed fixture runs the same
+    // kernels on the same policies at ~1.2 GiB resident, where nothing can be evicted; the
+    // 64-layer model fills the card exactly and leaves the compositor nothing, which is the
+    // condition under which WDDM pages a process's own allocations out to host memory.
+    //
+    // If per-layer cost matches between the two, the GEMVs are simply slow. If the full
+    // model is several times worse per layer, its weights are not resident and the rate is
+    // measuring PCIe. Nothing else in the two runs differs.
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_DecodeRatePerLayer
+    TEST_F( QwenPackedArtifactTests, DISABLED_DecodeRatePerLayer )
+    {
+        const fs::path fixture =
+            fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_l4_2p9bit.safetensors";
+
+        if ( !fs::exists( fixture ) )
+        {
+            GTEST_SKIP() << "Packed 4-layer fixture not present at: " << fixture.string();
+        }
+
+        QwenModelConfig model_config( 512 );
+        model_config.withPrecisionPlan();
+
+        auto model = QwenBf16::fromPretrained( fixture, model_config );
+
+        size_t free_bytes = 0;
+        size_t total_bytes = 0;
+        cudaMemGetInfo( &free_bytes, &total_bytes );
+
+        const std::vector<int32_t> prompt{ 760, 6511, 314, 9338, 369 };
+
+        auto timeGeneration = [&]( int tokens ) -> double
+            {
+                std::vector<int32_t> produced;
+
+                GenerateParams params;
+                params.max_new_tokens = tokens;
+                params.sampling.temperature = 0.0f;
+
+                const auto start = std::chrono::steady_clock::now();
+
+                model->generate(
+                    prompt,
+                    [&]( int32_t token ) { produced.push_back( token ); },
+                    params,
+                    std::stop_token{} );
+
+                return std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - start ).count();
+            };
+
+        timeGeneration( 8 );
+
+        constexpr int kShort = 8;
+        constexpr int kLong = 72;
+
+        const double per_token =
+            ( timeGeneration( kLong ) - timeGeneration( kShort ) ) / ( kLong - kShort );
+
+        // lm_head runs once per token regardless of depth, so it is NOT divided out; the
+        // comparison is deliberately crude, because the effect being tested for is 5x.
+        const int layers = static_cast<int>( model->getNetworkConfig().getNumLayers() );
+
+        std::cout << std::format(
+            "  4-layer packed: {:.2f} ms/token over {} layers, {:.2f} ms/layer\n"
+            "  {:.2f} GiB still free after load (the 64-layer model leaves 0)\n"
+            "  extrapolated to 64 layers: {:.0f} ms/token, {:.1f} tok/s\n"
+            "  measured on the 64-layer model: 213.45 ms/token, 4.7 tok/s\n",
+            per_token * 1000.0, layers, per_token * 1000.0 / layers,
+            free_bytes / ( 1024.0 * 1024 * 1024 ),
+            per_token * 1000.0 / layers * 64, 1.0 / ( per_token / layers * 64 ) )
+            << std::flush;
+
+        EXPECT_GT( per_token, 0.0 );
     }
 
     // Decode rate on the packed model. DISABLED because it is a measurement:

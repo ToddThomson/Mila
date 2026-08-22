@@ -95,16 +95,20 @@ being a task list and needs a prune.
 - [ ] **Gate B has no unquantized case.** Both footprint suites test FP4 only, so `NoWeightQuant` —
   the path a store name without an `-fp4`/`-fp8` suffix takes — has never been checked against
   `cudaMemGetInfo`. Add `llama-3.2-3b-it` at BF16: ~6.3 GiB, fits the 12 GB card, no spill.
-- [~] **Attribute the Gate B residual — now load-bearing, not cosmetic.** Scratch is measured and is
-  *not* the answer (~230 MiB on both models, essentially model-independent), leaving 1.015 GiB
-  unattributed on Gemma and 0.449 on Llama. Third and largest sighting 2026-08-22: the packed
-  Qwen 27B predicts 9.94 GiB at 512 context and consumes the whole 10.85 GiB free, and at 2048
-  predicts 10.12 and dies — so a ~0.9 GiB gap, not the Section 5 allocation, is what stands
-  between it and its 16K baseline. Chat's GPU FIT verdict reads `device_parameter_bytes`, so it
-  would say "fits" and then die. Next and cheap: per-allocation rounding — read
-  `MemoryAllocationStats::allocationCount` (import `Compute.MemoryResourceTracker` directly;
-  `Mila.ixx:95` comments the re-export out) and divide. Noise floor ~50-70 MiB, so nothing
-  under ~0.1 GiB is signal. See `Specifications/Qwen3.8.md`, "Phase 5's load path".
+- [~] **Attribute the Gate B residual.** Scratch is measured and is *not* the answer (~230 MiB on
+  both models, essentially model-independent), leaving 1.015 GiB unattributed on Gemma and 0.449 on
+  Llama. The Qwen sighting that looked like a third instance turned out to be the un-pooled
+  per-layer transients above, which is a different and much larger defect — so this item is back to
+  Gemma and Llama alone, and the Qwen numbers should not be folded into it. Next and cheap:
+  per-allocation rounding — read `MemoryAllocationStats::allocationCount` (import
+  `Compute.MemoryResourceTracker` directly; `Mila.ixx:95` comments the re-export out) and divide.
+  Noise floor ~50-70 MiB, so nothing under ~0.1 GiB is signal.
+- [ ] **`cudaMemGetInfo` cannot see WDDM's shared allocation, so every VRAM measurement on Windows
+  understates.** It reported "10.85 GiB consumed, 0 free" for a process that had committed 11.21 GB
+  dedicated **plus 8.53 GB shared**. Anything that decides whether a model fits needs the
+  per-process counters instead: `Get-Counter "\GPU Process Memory(pid_N*)\Dedicated Usage"` and
+  `\Shared Usage`, which is what Task Manager reads. Worth a note in `MemoryFootprint.md`, since the
+  footprint work's whole premise is answering "does this fit" before loading.
 - [ ] **Leaf-level Gate A for `Rope` is still unwritten**, and must not be a naive predict-vs-build
   equality: `RopeCacheRegistry` keys on (theta, max_seq_len, head_dim) and only the first owner
   allocates, so the assertion is registry-order dependent. Transformer-level dedup is in place.
@@ -181,23 +185,39 @@ being a task list and needs a prune.
 - [ ] **[contributor]** Llama 3.2 1B/3B weight tying — the aliasing plumbing shipped; add
   `tie_word_embeddings_` + post-load aliasing + `getMemoryStats` correction to `LlamaTransformer`.
   See `Specifications/WeightTying.md` §6.
-- [ ] **Decode on the packed 27B is 4.7 tok/s, ten times under the Section 5 ceiling.**
-  Measured 2026-08-22 by subtraction on the real artifact: 213 ms/token, an implied 44 GB/s
-  against the 4070's 504. The ceiling assumed bandwidth-bound decode and is now refuted, not
-  merely unverified — this is the DRAM-resident measurement Phase 1 said was owed. The path is
-  confirmed correct (`outer_size == 1` reaches `launchCodebookDecode`), so it is the kernels.
-  **Attribution is the first step and does not exist**: the codebook GEMVs and the DeltaNet
-  recurrent decode kernel (48 of 64 layers, one thread per value column, occupancy unexamined)
-  are both candidates and nothing separates them. Per-kernel timing first, optimization second.
-  `DISABLED_DecodeRate` in `QwenModel.Load.Cuda.cpp` is the harness.
+- [ ] **The packed 27B leaves 0 bytes of VRAM free, and WDDM then pages its weights — a 5x
+  decode penalty.** Measured 2026-08-22: 4.7 tok/s on the full model against ~24 tok/s for the
+  same kernels VRAM-resident (nsys medians, and a 4-layer control at 0.85 ms/layer with 8.52 GiB
+  free). The per-invocation spread gives it away — the FP4 GEMV runs 84 us median against a
+  30.6 ms max. **A symptom, not a cause**: the un-pooled per-layer transients above are what
+  oversubscribe the card. Per-process counters read 11.21 GB dedicated plus 8.53 GB shared, of
+  which only 2.54 GB is the pinned embedding by design. Fix the transients and this goes away.
+- [ ] **The codebook decode GEMVs are ~2x off the Section 5 ceiling once residency is
+  controlled for.** ~24 tok/s VRAM-resident against a 47 tok/s bytes-per-token ceiling, with the
+  three GEMVs at 95% of decode time (cb4 45%, cb8 27%, FP4 23%). The Gated DeltaNet recurrence
+  is **2.6%** and is not a bottleneck, which retires the standing suspicion that it might be.
+  Phase 1 already found these kernels instruction-bound and named the fix — amortizing the
+  unpack across several output rows per thread, or bucketing activations by code — so this is
+  that work, now with a model-scale number to beat. `DISABLED_DecodeRate` and
+  `DISABLED_DecodeRatePerLayer` in `QwenModel.Load.Cuda.cpp` are the harnesses.
 - [ ] **DeltaNet prefill runs the recurrence sequentially — O(T) in sequence steps.** The chunked
   UT-transform formulation is what makes long-prompt prefill affordable on the 48 DeltaNet layers,
   and without it the 27B is not shippable at prefill. The recurrent kernel is the oracle it must be
   validated against, bitwise where fp32 allows. `Cuda/Operations/DeltaNet/Kernels/GatedDeltaRule.cu`.
-- [ ] **DeltaNet blocks self-allocate their transients; the attention blocks pool theirs.** Their
-  slots (key/value widths, per-head view, recurrent state) share nothing with
-  `QwenAttentionBlockWorkspace`, so this needs a SECOND workspace struct rather than a wider one.
-  Pure memory optimization, sized by the prefill chunk. `Qwen.ixx:onBuilding`, DeltaNet arm.
+- [ ] **[gate] `QwenTransformer::getRequiredMemory` promises an output installation
+  `QwenDeltaNetBlock` never performs — 138 MiB per DeltaNet layer, ~6.5 GiB on the 27B.**
+  `Qwen.ixx:381` passes `.withInstalledOutput( context.isInferenceMode() )` to every block, whose
+  documented meaning is "the parent installs this child's output before build(), so do not count
+  it". Gemma sets the same flag truthfully (`allocateBlockWorkspace` + `installSharedWorkspace` in
+  its `onBuilding`); Qwen copied the prediction line and not the installation, and
+  `withInstalledOutput` appears NOWHERE else in `Qwen.ixx`. Measured 2026-08-22 at 512 context:
+  each DeltaNet layer holds 138.2 MiB of self-allocated outputs (six separate [512 x 5120] stream
+  buffers at 5 MiB, `fc_gate_up` 34, SwiGLU 17) while the attention layer holds ~0 because its
+  outputs really are pooled. **This is why the 27B caps at 512 context and why WDDM then pages
+  weights for a 5x decode penalty — one defect, both symptoms.** Two fixes and they are not
+  alternatives: install/pool the DeltaNet outputs (a SECOND workspace struct — its slots share
+  nothing with `QwenAttentionBlockWorkspace`), and add Gemma's Gate B equality assert to Qwen so a
+  prediction that understates by 60% cannot pass again. Chat's GPU FIT reads that prediction.
 - [ ] **Prompt-prefix reuse is silently unavailable on any model with DeltaNet layers.**
   `QwenDeltaNetBlock::rewindKvCache` always returns false — correctly, since a recurrent state is a
   lossy summary that cannot be rolled back — and `QwenTransformer::rewindKvCache` ANDs that into a
