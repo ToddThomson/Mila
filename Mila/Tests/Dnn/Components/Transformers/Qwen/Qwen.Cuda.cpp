@@ -338,6 +338,33 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         EXPECT_EQ( predicted.device_gradient_bytes, actual.device_gradient_bytes ) << "gradients";
     }
 
+    /**
+     * @brief The same contract on the PUBLISHED geometry, which is where it was broken.
+     *
+     * The all-attention case above passed throughout, because it only ever exercised one
+     * block kind. The transformer handed every block a context saying "the parent installs
+     * your output" and then installed nothing into the DeltaNet ones, so their twenty
+     * component outputs were predicted at zero and allocated in full -- 138.2 MiB per layer
+     * on the 27B, ~6.5 GiB over 48 layers, which is what capped that model at 512 context
+     * and made WDDM page its weights (Qwen3.8.md section 8, Phase 5). A prediction that
+     * understates by 60% is worse than none: Chat's GPU FIT verdict reads it.
+     */
+    TEST_F( QwenTransformerCudaTests, GetRequiredMemory_MatchesBuiltFootprint_HybridInterleave )
+    {
+        const BuildContext context( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
+
+        QwenCuda predictor( "qwen", hybridConfig(), Device::Cuda( 0 ) );
+        const MemoryStats predicted = predictor.getRequiredMemory( context );
+
+        QwenCuda built( "qwen", hybridConfig(), Device::Cuda( 0 ) );
+        built.build( context );
+        const MemoryStats actual = built.getMemoryStats();
+
+        EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes ) << "parameters";
+        EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes ) << "state";
+        EXPECT_EQ( predicted.device_gradient_bytes, actual.device_gradient_bytes ) << "gradients";
+    }
+
     // Eight layers rather than four: with only one RoPE cache allocated per key, seven of
     // the eight per-layer reports must be subtracted. A short stack cannot tell a correct
     // deduplication from an off-by-one.

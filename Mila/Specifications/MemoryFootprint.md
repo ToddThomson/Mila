@@ -200,6 +200,21 @@ Note this makes the composite comparison in section 7 load-bearing rather than
 belt-and-braces. A block whose child list drifts from its context list produces a
 plausible number, not an obviously wrong one.
 
+**The flag has a second failure mode, and it is the expensive one.** `withInstalledOutput`
+is a *promise by the parent*, and nothing in the type system holds the parent to it.
+`QwenTransformer` passed it to every block while installing a workspace into only one of
+the two block kinds; the DeltaNet blocks predicted their twenty component outputs at zero
+and then allocated every one of them -- 138.2 MiB per layer, ~6.5 GiB across the 27B's 48
+DeltaNet layers. Unlike the double count, which overstates and merely refuses
+configurations that would fit, this *understates*, so the model loads and then
+oversubscribes the card: it capped the 27B at 512 context and made WDDM page the weights
+for a 5x decode penalty. It survived because Gate A only ever ran on an all-attention
+configuration, where one block kind and one workspace made the promise true by accident.
+
+The rule that follows: **a Gate A case is owed per BLOCK KIND, not per model.** A model
+whose stack is heterogeneous has as many pooling contracts as it has kinds, and a passing
+gate on one of them says nothing about the others.
+
 ---
 
 ## 5. Entry Point

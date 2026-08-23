@@ -17,9 +17,9 @@
  *  - The attention layers hold a KV cache that GROWS with context, and share the pooled
  *    workspace and the GQA transient this network owns.
  *  - The DeltaNet layers hold a fixed-size recurrent state plus a short convolution window,
- *    neither of which depends on context length, and self-allocate their transients. Their
- *    slots share nothing with the attention workspace's, so pooling them means a SECOND
- *    workspace struct rather than a wider one -- a memory optimization, still owed.
+ *    neither of which depends on context length. Their activation slots share no width with
+ *    the attention workspace's, so they pool through a SECOND workspace struct rather than a
+ *    wider one. Both are owned here and both are counted once, by this network.
  *
  * One consequence reaches the product rather than the code: `rewindKvCache` asks every layer,
  * and a DeltaNet layer always refuses, because a recurrent state is a lossy summary that
@@ -354,6 +354,7 @@ namespace Mila::Dnn
                 stats += child->getMemoryStats();
 
             stats.device_state_bytes += block_workspace_.deviceStorageBytes();
+            stats.device_state_bytes += deltanet_workspace_.deviceStorageBytes();
             stats.device_state_bytes += gqa_workspace_.deviceStorageBytes();
 
             // No weight-tying correction: the tables are untied, so nothing is shared and
@@ -418,6 +419,9 @@ namespace Mila::Dnn
             {
                 stats.device_state_bytes += blockWorkspaceBytes( B, prefill_chunk );
                 stats.device_state_bytes += gqaWorkspaceBytes( B, T, prefill_chunk );
+
+                if ( hasDeltaNetLayers() )
+                    stats.device_state_bytes += deltaNetWorkspaceBytes( B, prefill_chunk );
             }
 
             // RoPE cos/sin caches are process-wide, deduplicated by RopeCacheRegistry on
@@ -579,7 +583,12 @@ namespace Mila::Dnn
             token_embedding_->build( context );
 
             if ( context.isInferenceMode() )
+            {
                 allocateBlockWorkspace( B );
+
+                if ( hasDeltaNetLayers() )
+                    allocateDeltaNetWorkspace( B );
+            }
 
             layers_.clear();
             layers_.reserve( static_cast<size_t>( config_.getNumLayers() ) );
@@ -608,13 +617,13 @@ namespace Mila::Dnn
                 }
                 else
                 {
-                    // The DeltaNet block self-allocates. Its transients are shaped by the
-                    // DeltaNet geometry -- key/value widths, a per-head view, a recurrent
-                    // state -- and share nothing with the attention workspace's slots, so
-                    // pooling them would mean a second workspace struct rather than a
-                    // wider one. Qwen3.8.md section 8 already anticipates that; it is a
-                    // memory optimization, and it is not free to get wrong.
+                    // Its own workspace, not the attention one: the DeltaNet transients are
+                    // shaped by the mixer's geometry -- key/value widths, a per-head view --
+                    // and share no width with the attention block's slots.
                     auto block = this->template getComponentAs<DeltaNetBlockType>( blockName( i ) );
+
+                    if ( context.isInferenceMode() )
+                        block->installSharedWorkspace( deltanet_workspace_ );
 
                     block->build( block_context );
 
@@ -671,6 +680,10 @@ namespace Mila::Dnn
         std::shared_ptr<LmHeadLinearType> lm_head_{ nullptr };
 
         QwenAttentionBlockWorkspace<TDeviceType, TPrecision> block_workspace_{};
+
+        // The DeltaNet layers' pooled activation slots -- allocated only when the geometry
+        // actually has DeltaNet layers, so an all-attention configuration pays nothing.
+        QwenDeltaNetBlockWorkspace<TDeviceType, TPrecision> deltanet_workspace_{};
 
         // Shared GQA transient workspace -- inference only, owned here, shared across all
         // attention blocks (exactly one layer is live at a time on the sequential path).
@@ -794,10 +807,21 @@ namespace Mila::Dnn
             return widths;
         }
 
+        bool hasDeltaNetLayers() const noexcept
+        {
+            return config_.getNumDeltaNetLayers() > 0;
+        }
+
         std::size_t blockWorkspaceBytes( dim_t B, dim_t prefill_chunk ) const
         {
             return storageBytes<TPrecision>(
                 computeWorkspaceWidths().totalRowElements() * B * prefill_chunk );
+        }
+
+        std::size_t deltaNetWorkspaceBytes( dim_t B, dim_t prefill_chunk ) const
+        {
+            return storageBytes<TPrecision>(
+                qwenDeltaNetWorkspaceRowElements( config_ ) * B * prefill_chunk );
         }
 
         std::size_t gqaWorkspaceBytes( dim_t B, dim_t T_ctx, dim_t prefill_chunk ) const
@@ -842,7 +866,13 @@ namespace Mila::Dnn
             const dim_t attention_bytes =
                 B * NH * ( 2 * prefillScoreWidth( T_ctx ) + 2 * HD ) * precision_bytes;
 
-            return workspace_bytes + attention_bytes;
+            // The DeltaNet workspace scales with the chunk exactly as the attention one
+            // does, so it belongs in the cost the rung ladder is spending against.
+            const dim_t deltanet_bytes = hasDeltaNetLayers()
+                ? qwenDeltaNetWorkspaceRowElements( config_ ) * B * precision_bytes
+                : dim_t{ 0 };
+
+            return workspace_bytes + attention_bytes + deltanet_bytes;
         }
 
         /**
@@ -886,6 +916,13 @@ namespace Mila::Dnn
             block_workspace_ = makeQwenAttentionBlockWorkspace<TDeviceType, TPrecision>(
                 config_, this->getExecutionContext()->getDeviceId(), B, prefill_chunk_size_,
                 this->getName() + ".block_ws." );
+        }
+
+        void allocateDeltaNetWorkspace( dim_t B )
+        {
+            deltanet_workspace_ = makeQwenDeltaNetBlockWorkspace<TDeviceType, TPrecision>(
+                config_, this->getExecutionContext()->getDeviceId(), B, prefill_chunk_size_,
+                this->getName() + ".dn_ws." );
         }
 
         void allocateAndWireGqaWorkspace( dim_t B, dim_t T_ctx )

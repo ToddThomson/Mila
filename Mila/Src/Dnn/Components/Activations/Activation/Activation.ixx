@@ -238,6 +238,25 @@ namespace Mila::Dnn
         // Identification and Description
         // ====================================================================
 
+        /**
+         * @brief Install a shared output slot (activation pooling).
+         *
+         * Must be called before build(): onBuilding then skips output self-allocation
+         * after validating the slot's storage covers the build shape. forward() already
+         * re-views on a shape change, so a wider slot never leaks its geometry to callers.
+         * Mirrors Swiglu::installSharedOutput; self-allocation remains the default, and
+         * the slot is owned and memory-accounted by the installer.
+         */
+        void installSharedOutput( std::shared_ptr<TensorType> output )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error(
+                    "Activation '" + this->getName() + "': installSharedOutput must be called before build()" );
+
+            output_ = std::move( output );
+            output_installed_ = true;
+        }
+
         const ComponentType getType() const override
         {
             return ComponentType::Activation;
@@ -252,7 +271,8 @@ namespace Mila::Dnn
         {
             MemoryStats stats;
 
-            if ( output_ != nullptr )
+            // An installed shared output slot is owned and counted by the installer.
+            if ( output_ != nullptr && !output_installed_ )
             {
                 stats.device_state_bytes += output_->getStorageSize();
             }
@@ -267,9 +287,7 @@ namespace Mila::Dnn
         /**
          * @brief What onBuilding() would allocate for this context, without allocating.
          *
-         * Elementwise, so the output carries the input's shape exactly. This component has
-         * no installed-output path -- onBuilding always allocates its own -- so unlike the
-         * components that pool, there is no slot to discount here.
+         * Elementwise, so the output carries the input's shape exactly.
          *
          * See Specifications/MemoryFootprint.md.
          */
@@ -277,8 +295,12 @@ namespace Mila::Dnn
         {
             MemoryStats stats;
 
-            stats.device_state_bytes +=
-                storageBytes<TPrecision>( elementCount( context.inputShape() ) );
+            // An installed shared output slot is owned and counted by the installer.
+            if ( !output_installed_ && !context.hasInstalledOutput() )
+            {
+                stats.device_state_bytes +=
+                    storageBytes<TPrecision>( elementCount( context.inputShape() ) );
+            }
 
             if ( context.isTrainingMode() )
             {
@@ -314,7 +336,17 @@ namespace Mila::Dnn
 
             DeviceId dev_id = this->getExecutionContext()->getDeviceId();
 
-            output_ = std::make_unique<TensorType>( dev_id, input_shape, this->getName() + ".output" );
+            if ( output_installed_ )
+            {
+                if ( !output_ || output_->size() < elementCount( input_shape ) )
+                    throw std::invalid_argument(
+                        "Activation '" + this->getName() + "': installed shared output slot is smaller than the build shape requires" );
+            }
+            else
+            {
+                output_ = std::make_shared<TensorType>( dev_id, input_shape, this->getName() + ".output" );
+            }
+
             output_view_.emplace( output_->view( input_shape ) );
 
             if ( build_context.isTrainingMode() )
@@ -340,7 +372,10 @@ namespace Mila::Dnn
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
         std::shared_ptr<OpType> operation_{ nullptr };
 
-        std::unique_ptr<TensorType> output_{ nullptr };
+        // Self-allocated at build, or an installed shared slot (installSharedOutput)
+        // that the component views a prefix of.
+        std::shared_ptr<TensorType> output_{ nullptr };
+        bool output_installed_{ false };
         std::optional<TensorType> output_view_;
         std::unique_ptr<TensorType> input_grad_{ nullptr };
 

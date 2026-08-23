@@ -77,6 +77,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         }
 
         using ReferenceBlock = QwenDeltaNetBlock<DeviceType::Cuda, TensorDataType::FP32>;
+        using Workspace = QwenDeltaNetBlockWorkspace<DeviceType::Cuda, TensorDataType::FP32>;
 
         // The declaration the per-role mechanism exists to make readable.
         using PlannedBlock = QwenDeltaNetBlock<DeviceType::Cuda, TensorDataType::BF16, QwenPrecisionPlan>;
@@ -161,9 +162,13 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
          * multiplies a state by exp(g) every step, and a ramp over a large parameter count
          * puts the tail weights far enough from zero to saturate it.
          */
-        std::unique_ptr<ReferenceBlock> builtBlock( dim_t chunk )
+        std::unique_ptr<ReferenceBlock> builtBlock( dim_t chunk, const Workspace* workspace = nullptr )
         {
             auto block = std::make_unique<ReferenceBlock>( "delta_block", smallConfig(), Device::Cuda( 0 ) );
+
+            if ( workspace )
+                block->installSharedWorkspace( *workspace );
+
             block->build( BuildContext( shape_t{ batch_, chunk, kModelDim },
                 RuntimeMode::Inference ).withPrefillSize( chunk ) );
 
@@ -440,6 +445,112 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         for ( dim_t i = 0; i < first.size(); ++i )
         {
             EXPECT_NEAR( second.data()[ i ], first.data()[ i ], 1e-5f ) << "at index " << i;
+        }
+    }
+
+    // ====================================================================
+    // D. Activation pooling
+    //
+    // Every one of this block's twenty component outputs used to be self-allocated: 138.2
+    // MiB per layer on the 27B at chunk 512, ~6.5 GiB over 48 layers, which is what capped
+    // that model at 512 context and made WDDM page its weights. The three tests below cover
+    // the three ways pooling goes wrong -- a slot assigned to two live values, a slot the
+    // installer counts and the block counts again, and a prediction that promises an
+    // installation the build never performs.
+    // ====================================================================
+
+    /**
+     * @brief Pooling must not change a single output value.
+     *
+     * The failure it exists for is aliasing: `normed` feeds five projections, `z` has to
+     * survive from its projection to the output gate, and `res1` is read again at res_2.
+     * Give any of those a slot something else writes in between and the block still runs,
+     * still produces finite numbers, and is wrong.
+     */
+    TEST_F( QwenDeltaNetBlockCudaTests, PooledWorkspaceProducesTheSameOutput )
+    {
+        const shape_t shape{ batch_, seq_, kModelDim };
+
+        auto host_x = rampHost( shape, -0.4f, 0.013f );
+
+        auto self_allocated = builtBlock( seq_ );
+        auto device_a = toDevice( host_x );
+        auto& out_a_device = self_allocated->prefill( device_a, 0 );
+        self_allocated->synchronize();
+        auto out_a = toFloat( out_a_device );
+
+        auto workspace = makeQwenDeltaNetBlockWorkspace<DeviceType::Cuda, TensorDataType::FP32>(
+            smallConfig(), Device::Cuda( 0 ), batch_, seq_, "ws." );
+
+        auto pooled = builtBlock( seq_, &workspace );
+        auto device_b = toDevice( host_x );
+        auto& out_b_device = pooled->prefill( device_b, 0 );
+        pooled->synchronize();
+        auto out_b = toFloat( out_b_device );
+
+        // Same kernels over the same values in the same order, so this is exact up to the
+        // reduction order the buffers cannot change -- not a numerical-agreement tolerance.
+        for ( dim_t i = 0; i < out_a.size(); ++i )
+        {
+            EXPECT_NEAR( out_b.data()[ i ], out_a.data()[ i ], 1e-6f ) << "at index " << i;
+        }
+    }
+
+    /**
+     * @brief An installed slot is counted by the installer, and by nobody else.
+     */
+    TEST_F( QwenDeltaNetBlockCudaTests, PooledWorkspaceIsNotCountedTwice )
+    {
+        auto workspace = makeQwenDeltaNetBlockWorkspace<DeviceType::Cuda, TensorDataType::FP32>(
+            smallConfig(), Device::Cuda( 0 ), batch_, seq_, "ws." );
+
+        auto self_allocated = builtBlock( seq_ );
+        auto pooled = builtBlock( seq_, &workspace );
+
+        const auto self_state = self_allocated->getMemoryStats().device_state_bytes;
+        const auto pooled_state = pooled->getMemoryStats().device_state_bytes;
+
+        // What the block stops holding is exactly the workspace: the recurrent state and the
+        // convolution windows stay per-layer, so the difference is the slot set and nothing
+        // else.
+        EXPECT_EQ( self_state - pooled_state, workspace.deviceStorageBytes() );
+    }
+
+    /**
+     * @brief Gate A at block level, on the pooled path (MemoryFootprint.md 7).
+     *
+     * The defect this pins: QwenTransformer told every block "the parent installs your
+     * output" while installing nothing into the DeltaNet ones, so the prediction was short
+     * by the whole slot set. Prediction and build have to agree in BOTH positions of the
+     * flag, which is why this asserts twice rather than once.
+     */
+    TEST_F( QwenDeltaNetBlockCudaTests, GetRequiredMemoryMatchesTheBuiltFootprintEitherWay )
+    {
+        const BuildContext context =
+            BuildContext( shape_t{ batch_, seq_, kModelDim }, RuntimeMode::Inference )
+            .withPrefillSize( seq_ );
+
+        {
+            ReferenceBlock predictor( "delta_block", smallConfig(), Device::Cuda( 0 ) );
+            const MemoryStats predicted = predictor.getRequiredMemory( context );
+
+            auto built = builtBlock( seq_ );
+
+            EXPECT_EQ( predicted.device_state_bytes, built->getMemoryStats().device_state_bytes )
+                << "self-allocated";
+        }
+
+        {
+            ReferenceBlock predictor( "delta_block", smallConfig(), Device::Cuda( 0 ) );
+            const MemoryStats predicted =
+                predictor.getRequiredMemory( context.withInstalledOutput( true ) );
+
+            auto workspace = makeQwenDeltaNetBlockWorkspace<DeviceType::Cuda, TensorDataType::FP32>(
+                smallConfig(), Device::Cuda( 0 ), batch_, seq_, "ws." );
+            auto built = builtBlock( seq_, &workspace );
+
+            EXPECT_EQ( predicted.device_state_bytes, built->getMemoryStats().device_state_bytes )
+                << "pooled";
         }
     }
 }

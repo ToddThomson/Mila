@@ -2005,6 +2005,89 @@ L2-resident matrix and reading it as DRAM bandwidth, in the opposite direction: 
 one penalises, and both are fixed by stating the residency of the thing being measured before
 believing the number.
 
+#### Fixed: the DeltaNet block now pools, and the promise is enforced by a test
+
+`QwenDeltaNetBlockWorkspace` is the second workspace struct `QwenAttentionBlockWorkspace`'s
+comment anticipated — not a wider version of it, because a DeltaNet layer's slots are shaped
+by the mixer's own geometry (fused `[query|key]`, the value stream, two per-head gating
+scalars) and share no width with the attention block's beyond the residual stream. It carries
+**twenty component output slots plus the q/k split scratch**, allocated once by
+`QwenTransformer` and viewed by every DeltaNet layer, on the same sequential-execution
+argument the attention workspace makes.
+
+Three aliasing constraints decide the slot count, and each is a slot that could not be
+shared: `normed` is read by all five input projections, `z` survives from its projection to
+the output gate several stages later, and `res1` is read again at `res_2`. The block's own
+input is the previous layer's `stream` slot and is last read at `res_1`, mid-block, before
+`res_2` overwrites it — the same argument the attention workspace records.
+
+One component had to gain the capability: **`Activation` had no `installSharedOutput`**, so
+the two SiLU stages after the convolutions could not pool. It is now the ninth component to
+carry the pattern, mirroring `Swiglu` exactly. `Activation` is a child of no other block in
+the tree, so nothing else changes behaviour.
+
+Three things are new in the row-cost model and the prediction, and they must move together
+or Gate A separates them: the workspace is counted by `QwenTransformer::getMemoryStats`,
+predicted by `deltaNetWorkspaceBytes`, and charged per chunk row by
+`computeChunkRowCostBytes` — the last is what stops the rung ladder from choosing a chunk it
+cannot afford. All three are gated on `getNumDeltaNetLayers() > 0`, so an all-attention
+configuration allocates and predicts nothing.
+
+**What now enforces it.** The gap survived because Gate A only ever ran on an all-attention
+configuration, where one block kind and one workspace made the promise true by accident.
+`GetRequiredMemory_MatchesBuiltFootprint_HybridInterleave` runs the same equality on the
+published 3:1 interleave, and three block-level cases pin the contract where it lives:
+pooled output equals self-allocated output value for value (the aliasing test), the installed
+slot set is counted by the installer and nobody else, and prediction equals build in **both**
+positions of `withInstalledOutput`. The general rule is now recorded in
+`MemoryFootprint.md` section 4.5: **a Gate A case is owed per block kind, not per model.**
+
+#### Measured on the 27B: decode 4.7 -> 33.7 tok/s, and the spill is gone (2026-08-22)
+
+Same artifact, same card, same `DISABLED_DecodeRate` subtraction. Two runs agreeing to 0.1%:
+
+| | before | after |
+|---|---|---|
+| Decode | 213.45 ms/token, **4.7 tok/s** | 29.7 ms/token, **33.7 tok/s** |
+| Implied weight bandwidth | 44 GB/s | **314 GB/s** (4070 peak 504) |
+| Against Section 5's 47 tok/s ceiling | 10x off | **1.4x off** |
+
+The per-process counters say why, and they are the instrument that matters here because
+`cudaMemGetInfo` cannot see WDDM's shared allocation:
+
+| | before | after |
+|---|---|---|
+| Dedicated | 11.21 GB | 10.58 GB |
+| Shared | 8.53 GB | **2.94 GB** |
+| of which the pinned embedding, by design | 2.54 GB | 2.54 GB |
+| **Unintended spill** | **~5.99 GB** | **~0.40 GB** |
+
+**This retires the "kernels are 2x off the ceiling" reading as well.** That estimate came
+from the 4-layer resident control extrapolated to 64 layers, which gives 18.9 tok/s — and
+the extrapolation *understates*, because it charges each of four layers a share of `lm_head`
+and then multiplies it back sixteenfold. The real resident model is 33.7, so what remains
+between the kernels and the ceiling is 1.4x, not 2x. The three GEMVs being instruction-bound
+is still the right target; it is a smaller prize than it looked.
+
+The footprint ladder moves with it — `DISABLED_FootprintAcrossContexts` against 10.85 GiB
+free:
+
+| context | 512 | 2048 | 4096 | 8192 | 16384 | 32768 |
+|---|---|---|---|---|---|---|
+| device GiB | 9.42 | 9.41 | 9.61 | 9.74 | 10.27 | 11.43 |
+| chunk rows | 512 | 256 | 256 | 64 | 64 | 64 |
+
+**16K now fits where the model previously capped at 512.** 32K still does not, which is what
+Section 5 already says: the stretch needs the FP8 KV policy, not a bigger activation budget.
+
+One caution on reading that table against the pre-fix one. The prediction was never what
+oversubscribed the card — the *allocation* was — so the ladder is not a before/after of the
+same quantity. The prediction fell 0.52 GiB at 512 for a reason worth stating, because it is
+the whole shape of the defect in one line: the three things the false pooled flag did NOT
+cover were counted per layer and are now counted once (the two `Activation` outputs at
+0.47 GiB and the q/k split scratch at 0.19 GiB), against 0.14 GiB added for the shared
+workspace. Everything else the prediction omitted entirely, and the card paid for it anyway.
+
 ---
 
 ## 9. Open Questions

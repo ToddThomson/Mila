@@ -585,13 +585,17 @@ namespace Mila::Tests::Dnn::Models
     // Decode cost per LAYER, on a model small enough to be genuinely VRAM-resident.
     //
     // The control for the full artifact's rate. The 4-layer packed fixture runs the same
-    // kernels on the same policies at ~1.2 GiB resident, where nothing can be evicted; the
-    // 64-layer model fills the card exactly and leaves the compositor nothing, which is the
-    // condition under which WDDM pages a process's own allocations out to host memory.
+    // kernels on the same policies at ~1.2 GiB resident, where nothing can be evicted.
     //
     // If per-layer cost matches between the two, the GEMVs are simply slow. If the full
     // model is several times worse per layer, its weights are not resident and the rate is
     // measuring PCIe. Nothing else in the two runs differs.
+    //
+    // That is how the residency defect was found and it is what settled it: the full model
+    // read 4.7 tok/s against this control's 18.9, and once the DeltaNet activations were
+    // pooled it reads 33.7. The extrapolation below UNDERSTATES for a known reason -- it
+    // charges each of these four layers a share of lm_head and then multiplies it back
+    // sixteenfold -- so the full model coming in faster than the control is expected.
     //   MilaTests --gtest_also_run_disabled_tests
     //       --gtest_filter=QwenPackedArtifactTests.DISABLED_DecodeRatePerLayer
     TEST_F( QwenPackedArtifactTests, DISABLED_DecodeRatePerLayer )
@@ -649,9 +653,9 @@ namespace Mila::Tests::Dnn::Models
 
         std::cout << std::format(
             "  4-layer packed: {:.2f} ms/token over {} layers, {:.2f} ms/layer\n"
-            "  {:.2f} GiB still free after load (the 64-layer model leaves 0)\n"
-            "  extrapolated to 64 layers: {:.0f} ms/token, {:.1f} tok/s\n"
-            "  measured on the 64-layer model: 213.45 ms/token, 4.7 tok/s\n",
+            "  {:.2f} GiB still free after load\n"
+            "  extrapolated to 64 layers: {:.0f} ms/token, {:.1f} tok/s (understates -- see above)\n"
+            "  measured on the 64-layer model: 29.7 ms/token, 33.7 tok/s\n",
             per_token * 1000.0, layers, per_token * 1000.0 / layers,
             free_bytes / ( 1024.0 * 1024 * 1024 ),
             per_token * 1000.0 / layers * 64, 1.0 / ( per_token / layers * 64 ) )

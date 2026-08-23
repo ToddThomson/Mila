@@ -98,6 +98,157 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::Weight;
 
     /**
+     * @brief Transformer-owned shared activation workspace for QwenDeltaNetBlock (pooling).
+     *
+     * The SECOND workspace struct QwenAttentionBlockWorkspace's comment anticipates. Not a
+     * wider version of it: a DeltaNet layer's slots are shaped by the mixer's own geometry
+     * -- fused [query|key], the value stream, two per-head gating scalars -- and share no
+     * width with the attention block's beyond the residual stream itself.
+     *
+     * One slot set serves every DeltaNet layer, because inference is strictly sequential and
+     * exactly one block is live at a time. Slots are sized [B, chunk, width] and components
+     * view prefixes of them. Aliasing is the same argument the attention workspace makes and
+     * it has three live points here: `normed` is read by all five input projections, `z`
+     * survives from its projection to the output gate, and `res1` is read again at res_2 --
+     * so each of those is its own slot, and `stream` (the block's own input, and its output)
+     * is only overwritten at block end.
+     *
+     * Without this, every DeltaNet layer self-allocated its outputs: 138.2 MiB per layer on
+     * the 27B at chunk 512, ~6.5 GiB over 48 layers, which is what capped the model at 512
+     * context and made WDDM page its weights (Qwen3.8.md section 8, Phase 5).
+     */
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    struct QwenDeltaNetBlockWorkspace
+    {
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using TensorType = Tensor<TPrecision, MR>;
+
+        // Block-owned split scratch: the q and k halves of the convolved [query|key] stream.
+        std::shared_ptr<TensorType> q;
+        std::shared_ptr<TensorType> k;
+
+        // Component output slots, one per graph position (prefill order).
+        std::shared_ptr<TensorType> normed;       // input_norm out     [B, chunk, model_dim]
+        std::shared_ptr<TensorType> qk;           // fc_in_proj_qk out  [B, chunk, qk_width]
+        std::shared_ptr<TensorType> v;            // fc_in_proj_v out   [B, chunk, value_width]
+        std::shared_ptr<TensorType> z;            // fc_in_proj_z out   [B, chunk, value_width]
+        std::shared_ptr<TensorType> a;            // fc_in_proj_a out   [B, chunk, gating_width]
+        std::shared_ptr<TensorType> b;            // fc_in_proj_b out   [B, chunk, gating_width]
+        std::shared_ptr<TensorType> conv_qk;      // conv_qk out        [B, chunk, qk_width]
+        std::shared_ptr<TensorType> conv_v;       // conv_v out         [B, chunk, value_width]
+        std::shared_ptr<TensorType> act_qk;       // conv_act_qk out    [B, chunk, qk_width]
+        std::shared_ptr<TensorType> act_v;        // conv_act_v out     [B, chunk, value_width]
+        std::shared_ptr<TensorType> core;         // delta_rule out     [B, chunk, value_width]
+        std::shared_ptr<TensorType> core_normed;  // norm_gate out      [B, chunk, value_width]
+        std::shared_ptr<TensorType> gated;        // output_gate out    [B, chunk, value_width]
+        std::shared_ptr<TensorType> mixed;        // fc_out_proj out    [B, chunk, model_dim]
+        std::shared_ptr<TensorType> res1;         // res_1 out          [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_in;       // post_attn_norm out [B, chunk, model_dim]
+        std::shared_ptr<TensorType> gate_up;      // fc_gate_up out     [B, chunk, 2 * hidden]
+        std::shared_ptr<TensorType> ffn_act;      // swiglu out         [B, chunk, hidden_dim]
+        std::shared_ptr<TensorType> ffn_down;     // fc_down out        [B, chunk, model_dim]
+        std::shared_ptr<TensorType> stream;       // res_2 out          [B, chunk, model_dim]
+
+        /// Total device bytes held, for memory accounting.
+        std::size_t deviceStorageBytes() const
+        {
+            std::size_t total = 0;
+
+            for ( const auto* t : { q.get(), k.get(), normed.get(), qk.get(), v.get(), z.get(),
+                                    a.get(), b.get(), conv_qk.get(), conv_v.get(), act_qk.get(),
+                                    act_v.get(), core.get(), core_normed.get(), gated.get(),
+                                    mixed.get(), res1.get(), ffn_in.get(), gate_up.get(),
+                                    ffn_act.get(), ffn_down.get(), stream.get() } )
+            {
+                if ( t )
+                    total += t->getStorageSize();
+            }
+
+            return total;
+        }
+    };
+
+    /**
+     * @brief Sum of the workspace slot widths, in elements per [B, chunk] row.
+     *
+     * Shared by the allocation and by the transformer's prefill row-cost model, so the two
+     * cannot drift -- the same reason the attention block's widths live in one place.
+     */
+    export inline dim_t qwenDeltaNetWorkspaceRowElements( const QwenConfig& config )
+    {
+        const dim_t qk_width = config.getDeltaNetQueryKeyWidth();
+        const dim_t value_width = config.getDeltaNetValueWidth();
+
+        // normed, mixed, res1, ffn_in, ffn_down, stream; qk, conv_qk, act_qk; q, k;
+        // v, z, conv_v, act_v, core, core_normed, gated; a, b; gate_up (2h) + ffn_act (h).
+        return 6 * config.getModelDim()
+            + 3 * qk_width
+            + 2 * config.getDeltaNetKeyWidth()
+            + 7 * value_width
+            + 2 * config.getDeltaNetGatingWidth()
+            + 3 * config.getHiddenDimension();
+    }
+
+    /**
+     * @brief Allocate the shared DeltaNet-block workspace.
+     *
+     * Lives beside the struct rather than inside QwenTransformer for the reason its
+     * attention counterpart does: a layer-streamed harness drives one block at a time and
+     * needs the identical slot geometry, and a second copy of these widths would agree
+     * until the first time one of them changed.
+     */
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    QwenDeltaNetBlockWorkspace<TDeviceType, TPrecision> makeQwenDeltaNetBlockWorkspace(
+        const QwenConfig& config, DeviceId device, dim_t B, dim_t prefill_chunk,
+        const std::string& name_prefix )
+    {
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using TensorType = Tensor<TPrecision, MR>;
+
+        const dim_t model_dim = config.getModelDim();
+        const dim_t hidden_dim = config.getHiddenDimension();
+        const dim_t qk_width = config.getDeltaNetQueryKeyWidth();
+        const dim_t key_width = config.getDeltaNetKeyWidth();
+        const dim_t value_width = config.getDeltaNetValueWidth();
+        const dim_t gating_width = config.getDeltaNetGatingWidth();
+
+        auto slot = [&]( dim_t width, const char* name )
+        {
+            return std::make_shared<TensorType>(
+                device, shape_t{ B, prefill_chunk, width }, name_prefix + name );
+        };
+
+        QwenDeltaNetBlockWorkspace<TDeviceType, TPrecision> workspace;
+
+        workspace.q = slot( key_width, "q" );
+        workspace.k = slot( key_width, "k" );
+        workspace.normed = slot( model_dim, "normed" );
+        workspace.qk = slot( qk_width, "qk" );
+        workspace.v = slot( value_width, "v" );
+        workspace.z = slot( value_width, "z" );
+        workspace.a = slot( gating_width, "a" );
+        workspace.b = slot( gating_width, "b" );
+        workspace.conv_qk = slot( qk_width, "conv_qk" );
+        workspace.conv_v = slot( value_width, "conv_v" );
+        workspace.act_qk = slot( qk_width, "act_qk" );
+        workspace.act_v = slot( value_width, "act_v" );
+        workspace.core = slot( value_width, "core" );
+        workspace.core_normed = slot( value_width, "core_normed" );
+        workspace.gated = slot( value_width, "gated" );
+        workspace.mixed = slot( model_dim, "mixed" );
+        workspace.res1 = slot( model_dim, "res1" );
+        workspace.ffn_in = slot( model_dim, "ffn_in" );
+        workspace.gate_up = slot( 2 * hidden_dim, "gate_up" );
+        workspace.ffn_act = slot( hidden_dim, "ffn_act" );
+        workspace.ffn_down = slot( model_dim, "ffn_down" );
+        workspace.stream = slot( model_dim, "stream" );
+
+        return workspace;
+    }
+
+    /**
      * @brief One Gated DeltaNet decoder block.
      *
      * @tparam TWeightPlan A precision plan, or a bare policy meaning "uniform". Lifted
@@ -168,17 +319,11 @@ namespace Mila::Dnn
         // Geometry
         // ====================================================================
 
-        dim_t queryKeyWidth() const noexcept
-        {
-            return 2 * config_.getLinearNumKeyHeads() * config_.getLinearHeadDim();
-        }
+        dim_t queryKeyWidth() const noexcept { return config_.getDeltaNetQueryKeyWidth(); }
 
-        dim_t valueWidth() const noexcept
-        {
-            return config_.getLinearNumValueHeads() * config_.getLinearHeadDim();
-        }
+        dim_t valueWidth() const noexcept { return config_.getDeltaNetValueWidth(); }
 
-        dim_t gatingWidth() const noexcept { return config_.getLinearNumValueHeads(); }
+        dim_t gatingWidth() const noexcept { return config_.getDeltaNetGatingWidth(); }
 
         // ====================================================================
         // IDecoderLayer -- inference path
@@ -250,6 +395,26 @@ namespace Mila::Dnn
             return false;
         }
 
+        /**
+         * @brief Install the transformer-owned shared activation workspace (pooling).
+         *
+         * Must be called before build(); onBuilding then routes each slot into the matching
+         * child via installSharedOutput and keeps the split scratch for the block's own q/k
+         * views. Self-allocation remains the default for standalone blocks (tests, and the
+         * layer-streamed parity harness).
+         */
+        void installSharedWorkspace( const QwenDeltaNetBlockWorkspace<TDeviceType, TPrecision>& workspace )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error(
+                    "QwenDeltaNetBlock::installSharedWorkspace: must be called before build()" );
+
+            workspace_ = workspace;
+            q_ = workspace_.q;
+            k_ = workspace_.k;
+            workspace_installed_ = true;
+        }
+
         // ====================================================================
         // Component interface
         // ====================================================================
@@ -266,6 +431,17 @@ namespace Mila::Dnn
             for ( const auto& child : this->getComponents() )
                 stats += child->getMemoryStats();
 
+            // Installed shared workspace tensors are owned and counted once by the
+            // transformer (the no-double-count rule).
+            if ( !workspace_installed_ )
+            {
+                for ( auto* t : { q_.get(), k_.get() } )
+                {
+                    if ( t )
+                        stats.device_state_bytes += t->getStorageSize();
+                }
+            }
+
             return stats;
         }
 
@@ -278,9 +454,17 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
+            // workspace_installed_ is still false here: the transformer calls
+            // installSharedWorkspace between constructing this block and building it, and
+            // states its intent through the context instead. Without this every pooled slot
+            // is counted twice -- and before the DeltaNet workspace existed, the flag
+            // arrived true while nothing was installed, which understated a 27B build by
+            // ~6.5 GiB (Qwen3.8.md section 8, Phase 5).
+            const bool pooled = workspace_installed_ || context.hasInstalledOutput();
+
             auto required = [&]( const auto& component, const BuildContext& child_context )
             {
-                return component->getRequiredMemory( child_context );
+                return component->getRequiredMemory( child_context.withInstalledOutput( pooled ) );
             };
 
             stats += required( this->template getComponentAs<RmsNormType>( n + ".input_norm" ), contexts.stream );
@@ -304,8 +488,13 @@ namespace Mila::Dnn
             stats += required( this->template getComponentAs<FeedForwardDownType>( n + ".fc_down" ), contexts.hidden );
             stats += required( this->template getComponentAs<ResidualType>( n + ".res_2" ), contexts.stream );
 
-            stats.device_state_bytes += storageBytes<TPrecision>(
-                contexts.batch * contexts.chunk * (config_.getLinearNumKeyHeads() * config_.getLinearHeadDim()) * 2 );
+            // Split scratch (q and k). An installed workspace is owned and counted by the
+            // transformer.
+            if ( !pooled )
+            {
+                stats.device_state_bytes += storageBytes<TPrecision>(
+                    2 * contexts.batch * contexts.chunk * config_.getDeltaNetKeyWidth() );
+            }
 
             return stats;
         }
@@ -369,73 +558,113 @@ namespace Mila::Dnn
             const BlockContexts contexts = resolveBlockContexts( context );
             const std::string n = this->getName();
 
+            // With an installed workspace, route each graph position's slot into its
+            // component before build so the component skips output self-allocation.
+            auto install = [&]( auto& component, const std::shared_ptr<TensorType>& slot )
+            {
+                if ( workspace_installed_ )
+                    component->installSharedOutput( slot );
+            };
+
             input_norm_ = this->template getComponentAs<RmsNormType>( n + ".input_norm" );
+            install( input_norm_, workspace_.normed );
             input_norm_->build( contexts.stream );
 
             qk_proj_ = this->template getComponentAs<QueryKeyProjectionType>( n + ".fc_in_proj_qk" );
+            install( qk_proj_, workspace_.qk );
             qk_proj_->build( contexts.stream );
 
             v_proj_ = this->template getComponentAs<ValueProjectionType>( n + ".fc_in_proj_v" );
+            install( v_proj_, workspace_.v );
             v_proj_->build( contexts.stream );
 
             z_proj_ = this->template getComponentAs<GateProjectionType>( n + ".fc_in_proj_z" );
+            install( z_proj_, workspace_.z );
             z_proj_->build( contexts.stream );
 
             a_proj_ = this->template getComponentAs<GatingProjectionType>( n + ".fc_in_proj_a" );
+            install( a_proj_, workspace_.a );
             a_proj_->build( contexts.stream );
 
             b_proj_ = this->template getComponentAs<GatingProjectionType>( n + ".fc_in_proj_b" );
+            install( b_proj_, workspace_.b );
             b_proj_->build( contexts.stream );
 
             conv_qk_ = this->template getComponentAs<ConvType>( n + ".conv_qk" );
+            install( conv_qk_, workspace_.conv_qk );
             conv_qk_->build( contexts.query_key );
 
             conv_v_ = this->template getComponentAs<ConvType>( n + ".conv_v" );
+            install( conv_v_, workspace_.conv_v );
             conv_v_->build( contexts.value );
 
             conv_act_qk_ = this->template getComponentAs<ConvActivationType>( n + ".conv_act_qk" );
+            install( conv_act_qk_, workspace_.act_qk );
             conv_act_qk_->build( contexts.query_key );
 
             conv_act_v_ = this->template getComponentAs<ConvActivationType>( n + ".conv_act_v" );
+            install( conv_act_v_, workspace_.act_v );
             conv_act_v_->build( contexts.value );
 
             delta_rule_ = this->template getComponentAs<DeltaRuleType>( n + ".delta_rule" );
+            install( delta_rule_, workspace_.core );
             delta_rule_->build( contexts.value );
 
             norm_gate_ = this->template getComponentAs<RmsNormType>( n + ".norm_gate" );
+            install( norm_gate_, workspace_.core_normed );
             norm_gate_->build( contexts.per_head );
 
             output_gate_ = this->template getComponentAs<OutputGateType>( n + ".output_gate" );
+            install( output_gate_, workspace_.gated );
             output_gate_->build( contexts.value );
 
             out_proj_ = this->template getComponentAs<OutputProjectionType>( n + ".fc_out_proj" );
+            install( out_proj_, workspace_.mixed );
             out_proj_->build( contexts.value );
 
             res1_ = this->template getComponentAs<ResidualType>( n + ".res_1" );
+            install( res1_, workspace_.res1 );
             res1_->build( contexts.stream );
 
             post_attn_norm_ = this->template getComponentAs<RmsNormType>( n + ".post_attn_norm" );
+            install( post_attn_norm_, workspace_.ffn_in );
             post_attn_norm_->build( contexts.stream );
 
             fc_gate_up_ = this->template getComponentAs<FeedForwardGateUpType>( n + ".fc_gate_up" );
+            install( fc_gate_up_, workspace_.gate_up );
             fc_gate_up_->build( contexts.stream );
 
             swiglu_ = this->template getComponentAs<SwigluType>( n + ".swiglu" );
+            install( swiglu_, workspace_.ffn_act );
             swiglu_->build( contexts.gate_up );
 
             fc_down_ = this->template getComponentAs<FeedForwardDownType>( n + ".fc_down" );
+            install( fc_down_, workspace_.ffn_down );
             fc_down_->build( contexts.hidden );
 
             res2_ = this->template getComponentAs<ResidualType>( n + ".res_2" );
+            install( res2_, workspace_.stream );
             res2_->build( contexts.stream );
 
-            auto device = this->getExecutionContext()->getDeviceId();
-            const dim_t head_width = config_.getLinearNumKeyHeads() * config_.getLinearHeadDim();
+            const dim_t key_width = config_.getDeltaNetKeyWidth();
 
-            q_ = std::make_shared<TensorType>(
-                device, shape_t{ contexts.batch, contexts.chunk, head_width }, n + ".q" );
-            k_ = std::make_shared<TensorType>(
-                device, shape_t{ contexts.batch, contexts.chunk, head_width }, n + ".k" );
+            if ( workspace_installed_ )
+            {
+                const dim_t needed = contexts.batch * contexts.chunk * key_width;
+
+                if ( !q_ || q_->size() < needed || !k_ || k_->size() < needed )
+                    throw std::invalid_argument( std::format(
+                        "QwenDeltaNetBlock '{}': installed shared scratch is smaller than the "
+                        "block geometry requires", n ) );
+            }
+            else
+            {
+                auto device = this->getExecutionContext()->getDeviceId();
+                const shape_t split_shape{ contexts.batch, contexts.chunk, key_width };
+
+                q_ = std::make_shared<TensorType>( device, split_shape, n + ".q" );
+                k_ = std::make_shared<TensorType>( device, split_shape, n + ".k" );
+            }
         }
 
         void onTrainingModeChanging( TrainingMode training_mode ) override
@@ -469,9 +698,14 @@ namespace Mila::Dnn
         std::shared_ptr<FeedForwardDownType> fc_down_{ nullptr };
         std::shared_ptr<ResidualType> res2_{ nullptr };
 
-        // The q/k split of the convolved query-key stream.
+        // The q/k split of the convolved query-key stream: self-allocated at build, or the
+        // transformer workspace's pair (installSharedWorkspace) which every layer views a
+        // prefix of.
         std::shared_ptr<TensorType> q_{ nullptr };
         std::shared_ptr<TensorType> k_{ nullptr };
+
+        QwenDeltaNetBlockWorkspace<TDeviceType, TPrecision> workspace_{};
+        bool workspace_installed_{ false };
 
         TensorType& run( const TensorType& input, dim_t B, dim_t T, dim_t position, bool is_decode )
         {

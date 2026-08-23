@@ -367,6 +367,31 @@ namespace Mila::Dnn
             return getQProjectionWidth() + 2 * getKVProjectionWidth();
         }
 
+        /// DeltaNet key (and query) stream width = linear_num_key_heads * linear_head_dim.
+        dim_t getDeltaNetKeyWidth() const noexcept
+        {
+            return linear_num_key_heads_ * linear_head_dim_;
+        }
+
+        /// Fused DeltaNet [query|key] projection width -- twice the key width.
+        dim_t getDeltaNetQueryKeyWidth() const noexcept
+        {
+            return 2 * getDeltaNetKeyWidth();
+        }
+
+        /// DeltaNet value stream width = linear_num_value_heads * linear_head_dim. Also the
+        /// width of z, of the mixer output, and of the gated result.
+        dim_t getDeltaNetValueWidth() const noexcept
+        {
+            return linear_num_value_heads_ * linear_head_dim_;
+        }
+
+        /// DeltaNet gating width -- one scalar per value head, for each of a and b.
+        dim_t getDeltaNetGatingWidth() const noexcept
+        {
+            return linear_num_value_heads_;
+        }
+
         // ====================================================================
         // Per-layer kind (the 3 DeltaNet : 1 full-attention interleave)
         // ====================================================================
