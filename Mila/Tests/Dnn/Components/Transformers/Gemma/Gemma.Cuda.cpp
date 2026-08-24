@@ -5,7 +5,7 @@
  * GemmaTransformer is the Gemma 4 decoder-only language network:
  *   TokenEmbedding -> N x GemmaBlock (heterogeneous local/global) -> RmsNorm -> lm_head
  *
- * Like LlamaTransformer it is a LanguageNetwork, but INFERENCE-ONLY: forward()/
+ * Like LlamaTransformer it is a LanguageModelNetwork, but INFERENCE-ONLY: forward()/
  * backward() throw, and generation is driven by prefill()/decode(). This suite tests
  * the GemmaTransformer DELTA over the base: construction/validation, the rank-2
  * [B, T] build contract, the inference-only contract, the heterogeneous layer list

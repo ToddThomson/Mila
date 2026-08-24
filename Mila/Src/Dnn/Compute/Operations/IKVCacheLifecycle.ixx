@@ -1,5 +1,5 @@
 /**
- * @file IKVCacheLifecycle.ixx
+ * @file IKvCacheLifecycle.ixx
  * @brief Interface for operations that own and manage a KV cache.
  */
 
@@ -17,7 +17,7 @@ namespace Mila::Dnn::Compute
      * Implemented by attention operations (GQA, MHA) that allocate and
      * maintain key/value caches across autoregressive decode steps.
      * This concern is orthogonal to positional dispatch -- an operation
-     * may implement both IPositionalUnaryOp and IKVCacheLifecycle.
+     * may implement both IPositionalUnaryOp and IKvCacheLifecycle.
      */
     export struct IKvCacheLifecycle
     {

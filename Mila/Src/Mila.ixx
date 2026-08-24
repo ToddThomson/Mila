@@ -156,7 +156,7 @@ export import Dnn.NetworkFactory;
 // Dnn - Core Model
 // ============================================================================
 export import Dnn.Model;
-export import Dnn.LanguageNetwork;
+export import Dnn.LanguageModelNetwork;
 export import Dnn.LanguageModel;
 export import Dnn.SamplingParams;
 export import Dnn.GenerateParams;
@@ -244,14 +244,14 @@ export import Dnn.Components.GptBlock;
 export import Dnn.Components.GptTransformer;
 export import Dnn.Components.LlamaTransformer;
 export import Dnn.Components.GemmaConfig;
-export import Dnn.Components.IDecoderLayer;
+export import Dnn.Components.ITransformerBlock;
 export import Dnn.Components.GemmaBlock;
 export import Dnn.Components.GemmaTransformer;
 export import Dnn.Components.GemmaProtocol;
 
 export import Dnn.Components.QwenPrecisionPlan;
 export import Dnn.Components.QwenConfig;
-export import Dnn.Components.QwenBlock;
+export import Dnn.Components.QwenAttentionBlock;
 export import Dnn.Components.QwenDeltaNetBlock;
 export import Dnn.Components.QwenTransformer;
 

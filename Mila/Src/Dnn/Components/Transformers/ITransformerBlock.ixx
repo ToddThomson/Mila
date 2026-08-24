@@ -1,23 +1,23 @@
 /**
- * @file IDecoderLayer.ixx
- * @brief Virtual inference interface for a heterogeneous decoder layer list.
+ * @file ITransformerBlock.ixx
+ * @brief Virtual inference interface for a heterogeneous transformer block list.
  *
- * Gemma interleaves two structurally different block types (local sliding and
- * global full attention), so its transformer cannot hold a homogeneous
- * vector<Block> the way GptTransformer / LlamaTransformer do. Both GemmaBlock
- * instantiations implement this interface; the transformer drives the layer list
- * polymorphically (one virtual call per layer per token step -- negligible against
- * the per-layer GEMMs). See Specifications/Gemma.md section 8.
+ * A transformer whose stack interleaves structurally different block kinds cannot hold a
+ * homogeneous vector<Block> the way GptTransformer / LlamaTransformer do, so it drives its
+ * layer list through this interface -- one virtual call per layer per token step, negligible
+ * against the per-layer GEMMs. Implemented by both GemmaBlock instantiations (local sliding /
+ * global full attention) and by both Qwen block kinds (attention / DeltaNet); see
+ * Specifications/Gemma.md section 8 and Specifications/Qwen3.8.md section 8.
  *
- * Inference-only: Gemma is an inference target, so the interface exposes the
- * prefill/decode KV-cache path and the shared-GQA-workspace wiring, not training
- * forward/backward (those remain on the concrete CompositeComponent if ever needed).
+ * Inference-only: the interface exposes the prefill/decode KV-cache path and the shared GQA
+ * workspace wiring, not training forward/backward (those remain on the concrete
+ * CompositeComponent if ever needed).
  */
 
 module;
 #include <memory>
 
-export module Dnn.Components.IDecoderLayer;
+export module Dnn.Components.ITransformerBlock;
 
 import Dnn.Tensor;
 import Dnn.TensorTypes;
@@ -32,19 +32,19 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Compute;
 
     /**
-     * @brief Polymorphic inference interface for one decoder layer.
+     * @brief Polymorphic inference interface for one transformer block.
      *
      * @tparam TDeviceType Compile-time device.
-     * @tparam TPrecision  Activation/compute precision (must match across the layer list).
+     * @tparam TPrecision  Activation/compute precision (must match across the block list).
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
-    class IDecoderLayer
+    class ITransformerBlock
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TPrecision, MR>;
 
-        virtual ~IDecoderLayer() = default;
+        virtual ~ITransformerBlock() = default;
 
         /**
          * @brief Chunked prefill: process [B, T_chunk, model_dim] at an absolute offset.
@@ -68,12 +68,12 @@ namespace Mila::Dnn
         /**
          * @brief True when the block's attention supports the KV-cache inference path.
          */
-        virtual bool supportsKVCache() const noexcept = 0;
+        virtual bool supportsKvCache() const noexcept = 0;
 
         /**
          * @brief Reset the KV cache (new generation session).
          */
-        virtual void resetKVCache() = 0;
+        virtual void resetKvCache() = 0;
 
         /**
          * @brief Rewind the KV cache fill position for prompt-prefix reuse.

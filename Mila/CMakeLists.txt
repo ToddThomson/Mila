@@ -384,6 +384,8 @@ PUBLIC
         "Src/Dnn/Components/Normalization/NormType.ixx"
         "Src/Dnn/Components/Encodings/EncodingType.ixx"
         
+        "Src/Dnn/Components/Transformers/ITransformerBlock.ixx"
+
         "Src/Dnn/Components/Transformers/Gpt/GptTransformer.ixx"
         
         "Src/Dnn/Components/Transformers/Gpt/Gpt.Config.ixx"
@@ -393,14 +395,14 @@ PUBLIC
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Presets.ixx"
 
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Config.ixx"
-        "Src/Dnn/Components/Transformers/Gemma/IDecoderLayer.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.Workspace.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx"
 
         "Src/Dnn/Components/Transformers/Qwen/Qwen.PrecisionPlan.ixx"
         "Src/Dnn/Components/Transformers/Qwen/Qwen.Config.ixx"
-        "Src/Dnn/Components/Transformers/Qwen/Qwen.Block.ixx"
+        "Src/Dnn/Components/Transformers/Qwen/Qwen.AttentionBlock.ixx"
         "Src/Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.ixx"
         "Src/Dnn/Components/Transformers/Qwen/Qwen.ixx"
 
@@ -431,7 +433,7 @@ PUBLIC
         "Src/Dnn/Serialization/PretrainedReader.ixx"
         "Src/Dnn/Serialization/Serializer.ixx"
         
-        "Src/Dnn/Compute/Operations/IKVCacheLifecycle.ixx"
+        "Src/Dnn/Compute/Operations/IKvCacheLifecycle.ixx"
         
         # The one runtime-to-compile-time quantization bridge, imported by the models below.
         "Src/Dnn/Models/QuantizationDispatch.ixx"
@@ -451,7 +453,7 @@ PUBLIC
         "Src/Dnn/Core/Component.MemoryStats.ixx"
         "Src/Dnn/Core/Model.RuntimeMode.ixx"
         "Src/Dnn/Core/Model.ixx"
-        "Src/Dnn/Core/LanguageNetwork.ixx"
+        "Src/Dnn/Core/LanguageModelNetwork.ixx"
         "Src/Dnn/Core/LanguageModel.ixx"
         "Src/Dnn/Core/Component.TrainingMode.ixx"
         "Src/Dnn/Compute/Operations/IPositionalPairedOp.ixx"

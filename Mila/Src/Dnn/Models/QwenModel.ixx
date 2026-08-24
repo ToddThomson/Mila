@@ -49,7 +49,7 @@ export module Dnn.Models.QwenModel;
 import Dnn.Models.QwenModelConfig;
 import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
-import Dnn.LanguageNetwork;
+import Dnn.LanguageModelNetwork;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Tensor;
@@ -326,7 +326,7 @@ namespace Mila::Dnn
             // and starts the convolution window cold, so this call is also what makes the
             // generation independent of whatever ran before it. No prefix reuse exists here
             // -- see the file header.
-            auto& logits = this->getLanguageNetwork().prefill( prefill_input );
+            auto& logits = this->getNetwork().prefill( prefill_input );
 
             // Decode-ahead pipeline: the sampler runs on the network stream (ordered after
             // the forward that produced the logits) and writes the sampled token into
@@ -345,7 +345,7 @@ namespace Mila::Dnn
                 if ( stop.stop_requested() )
                 {
                     // Drain the in-flight sampling step so nothing runs past return.
-                    this->getLanguageNetwork().synchronize();
+                    this->getNetwork().synchronize();
 
                     return GenerateStatus::ClientCancelled;
                 }
@@ -359,7 +359,7 @@ namespace Mila::Dnn
                 TensorType* decode_logits = nullptr;
 
                 if ( more_steps_allowed && cache_has_room )
-                    decode_logits = &this->getLanguageNetwork().decode( decode_token_device_, position );
+                    decode_logits = &this->getNetwork().decode( decode_token_device_, position );
 
                 const int32_t token = this->awaitSampledToken();
 
@@ -369,7 +369,7 @@ namespace Mila::Dnn
                 if ( stop_ids.contains( token ) )
                 {
                     // The ahead-decode of the stop token may still be in flight.
-                    this->getLanguageNetwork().synchronize();
+                    this->getNetwork().synchronize();
 
                     return GenerateStatus::Success;
                 }
@@ -408,7 +408,7 @@ namespace Mila::Dnn
     private:
 
         explicit QwenModel(
-            std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
+            std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             const QwenConfig& config,
             const QwenModelConfig& model_config,
             const PretrainedMetadata& source_metadata,

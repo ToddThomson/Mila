@@ -109,6 +109,17 @@ being a task list and needs a prune.
   per-process counters instead: `Get-Counter "\GPU Process Memory(pid_N*)\Dedicated Usage"` and
   `\Shared Usage`, which is what Task Manager reads. Worth a note in `MemoryFootprint.md`, since the
   footprint work's whole premise is answering "does this fit" before loading.
+- [ ] **DECISION OWED — `BuildContext::withInstalledOutput` is an unenforced promise
+  (`Component.BuildContext.ixx:208`).** The pooling predicate is authored three times in `Qwen.ixx`
+  (`:382`, `:602`, `:626`) and the ~6.5 GiB DeltaNet understatement was one site existing while
+  another did not. Root cause: the workspace factories fuse describing the slot set with allocating
+  it, forcing prediction ahead of installation. Proposed split — bind unallocated pre-build,
+  materialize in `build()` — written up in `MemoryFootprint.md` s4.5; direction not settled.
+- [ ] **Gemma owes a block-level Gate A case, per the per-block-kind rule in `MemoryFootprint.md`
+  s4.5.** `Gemma.Block.Cuda.cpp` calls `getRequiredMemory` nowhere; the local and global kinds share
+  one max-geometry workspace and neither has a predict-vs-build case. Qwen has both. Blocked on an
+  exported `makeGemmaBlockWorkspace` — Gemma builds its workspace inside the private
+  `GemmaTransformer::allocateBlockWorkspace` (`Gemma.ixx:1110`), so no test can construct one.
 - [ ] **Leaf-level Gate A for `Rope` is still unwritten**, and must not be a naive predict-vs-build
   equality: `RopeCacheRegistry` keys on (theta, max_seq_len, head_dim) and only the first owner
   allocates, so the assertion is registry-order dependent. Transformer-level dedup is in place.

@@ -20,7 +20,7 @@ eight-parameter template, and both compile. Only one of them demonstrates anythi
 plan struct (Section 6) is a requirement, not a preference.
 
 Investigation collapsed most of Qwen3.8's deltas onto **existing seams**. The 48:16
-heterogeneous layer list rides `IDecoderLayer` unmodified (Section 7). The full-attention
+heterogeneous layer list rides `ITransformerBlock` unmodified (Section 7). The full-attention
 layers ride the existing GQA op from config, wrapped by one small new mechanism: the
 `attn_output_gate` (Section 2). The genuinely new pieces are four: the **Gated DeltaNet
 sequence mixer** with no precedent in the tree, **sub-4-bit weight storage**
@@ -307,18 +307,18 @@ to a full table.
 
 ---
 
-## 7. `IDecoderLayer` Fit (verified 2026-08-16)
+## 7. `ITransformerBlock` Fit (verified 2026-08-16)
 
-The heterogeneous layer list needs no new mechanism. `IDecoderLayer` was introduced for
+The heterogeneous layer list needs no new mechanism. `ITransformerBlock` was introduced for
 Gemma's two block types and takes DeltaNet with **five of six methods unmodified**.
 
 | Method | Fit | Note |
 |---|---|---|
 | `prefill(input, position_offset)` | Fits | Chunked-parallel delta rule. `position_offset` is unused — linear layers carry no RoPE. Cross-chunk state is member data, exactly as the KV cache is. |
 | `decode(input, position)` | Fits | The O(1) recurrent update. `position` unused. |
-| `resetKVCache()` | Fits | Zeroes the recurrent state and the convolution ring. The transformer loops it over every layer unconditionally, so nothing gates it away. Misnamed for this layer, semantically exact. |
+| `resetKvCache()` | Fits | Zeroes the recurrent state and the convolution ring. The transformer loops it over every layer unconditionally, so nothing gates it away. Misnamed for this layer, semantically exact. |
 | `rewindKvCache(position)` | Fits | Returns `false`. The interface already anticipated refusal: the transformer ANDs results across layers and documents all-or-nothing, because a bounded sliding-window ring can already refuse. |
-| `supportsKVCache()` | Harmless | Conflates "holds a per-token cache" with "holds resettable sequence state". Every call site in the tree is a `toString()` diagnostic or a test, so there is no behavioural consequence. |
+| `supportsKvCache()` | Harmless | Conflates "holds a per-token cache" with "holds resettable sequence state". Every call site in the tree is a `toString()` diagnostic or a test, so there is no behavioural consequence. |
 | `setState(const GqaState&)` | **Does not fit** | A concrete GQA workspace — seven `ITensor*`, `q_permute`/`preatt`/`att`/`v_out` plus decode variants — in an otherwise generic interface. A DeltaNet block uses none of them and needs entirely different scratch: chunk-parallel delta-rule buffers, convolution staging, gate buffers. |
 
 The single failure is a concrete type where a generic one belonged, not a structural mismatch.
@@ -450,7 +450,7 @@ exists to demonstrate.
 > interleaves global and sliding-window layers, so it already solves the problem Qwen has — a
 > transformer holding heterogeneous layer kinds (Qwen interleaves 3 linear : 1 full,
 > `full_attention_interval: 4`). Copy the transformer-level list, where `GemmaTransformer` builds
-> two block types and stores both as `IDecoderLayer*`. Do **not** copy Gemma's `bool kGlobal`
+> two block types and stores both as `ITransformerBlock*`. Do **not** copy Gemma's `bool kGlobal`
 > flag: that is right for one mixer with two geometries, and Qwen has two different mixers.
 > Llama is a uniform stack and teaches nothing here. This is reading Gemma, not editing it.
 
@@ -1092,7 +1092,7 @@ using QwenAttentionLayer = QwenAttentionBlock<DeviceType::Cuda, TensorDataType::
 ```
 
 Built as a family, the way the tree builds every family: `Components/Transformers/Qwen/` holds
-`Qwen.PrecisionPlan.ixx` (the Section 5 table as types), `Qwen.Config.ixx`, `Qwen.Block.ixx`
+`Qwen.PrecisionPlan.ixx` (the Section 5 table as types), `Qwen.Config.ixx`, `Qwen.AttentionBlock.ixx`
 and `Qwen.ixx`; the output gate is a component of its own under
 `Components/Attention/OutputGate/`. Suite green at 1681 passed / 1 pre-existing skip.
 
@@ -1500,7 +1500,7 @@ rounding is fixed.
 
 Four private `QwenTransformer` members held the workspace sizing, so a harness would either
 duplicate them or reach inside. Instead `makeQwenAttentionBlockWorkspace()`, `QwenGqaWorkspace`
-and `makeQwenGqaWorkspace()` now live in `Qwen.Block.ixx` beside the struct they fill, and the
+and `makeQwenGqaWorkspace()` now live in `Qwen.AttentionBlock.ixx` beside the struct they fill, and the
 transformer calls them — one source, no duplication. `QwenModel::configFromMetadata` moved from
 private to public so the harness builds blocks from the geometry a real load would use. All 73
 Qwen tests stayed green across the change.

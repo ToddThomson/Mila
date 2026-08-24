@@ -159,15 +159,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error(
-                    "CudaGroupedQueryAttentionOp::initializeKVCache requires build() first" );
+                    "CudaGroupedQueryAttentionOp::initializeKvCache requires build() first" );
 
             if ( batch_size != B_ )
                 throw std::invalid_argument(
-                    "CudaGroupedQueryAttentionOp::initializeKVCache batch size mismatch" );
+                    "CudaGroupedQueryAttentionOp::initializeKvCache batch size mismatch" );
 
             if ( max_sequence_length <= 0 || max_sequence_length > T_ )
                 throw std::invalid_argument(
-                    "CudaGroupedQueryAttentionOp::initializeKVCache max_sequence_length out of range" );
+                    "CudaGroupedQueryAttentionOp::initializeKvCache max_sequence_length out of range" );
 
             active_max_seq_len_ = narrowToKernelIndex( max_sequence_length );
             cached_seq_len_ = 0;
@@ -207,7 +207,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             ITensor& output,
             dim_t position_offset ) override
         {
-            ensureKVCacheEnabled();
+            ensureKvCacheEnabled();
 
             prefill_optimized( q, k, v, output, narrowToKernelIndex( position_offset ) );
         }
@@ -217,7 +217,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             ITensor& output,
             dim_t position ) override
         {
-            ensureKVCacheEnabled();
+            ensureKvCacheEnabled();
 
             decode_optimized( q, k, v, output, narrowToKernelIndex( position ) );
         }
@@ -573,7 +573,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             }
         }
 
-        void ensureKVCacheEnabled() const
+        void ensureKvCacheEnabled() const
         {
             if ( !kv_cache_enabled_ )
                 throw std::runtime_error(

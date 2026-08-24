@@ -5,7 +5,7 @@
  * GptTransformer is the GPT-2 decoder-only language network:
  *   Lpe (token + positional embedding) -> N x GptBlock -> final LayerNorm -> lm_head (Linear)
  *
- * This tests the GptTransformer DELTA over the LanguageNetwork base: construction/
+ * This tests the GptTransformer DELTA over the LanguageModelNetwork base: construction/
  * validation, the rank-2 [B, T] build contract, the RuntimeMode/TrainingMode axis,
  * forward producing finite logits of shape [B, T, vocab], and the backward
  * preconditions. The constituent components (Lpe, GptBlock, LayerNorm, Linear) are

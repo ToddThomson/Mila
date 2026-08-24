@@ -1,5 +1,5 @@
 /**
- * @file Qwen.Block.ixx
+ * @file Qwen.AttentionBlock.ixx
  * @brief Qwen 3.8 full-attention decoder block (inference: prefill + decode).
  *
  * One of the two block kinds in the 3:1 interleave. The other, QwenDeltaNetBlock, is a
@@ -30,7 +30,7 @@
  * A plan that omits a role this block builds fails the requires-clause below, naming the
  * block -- rather than silently falling back to some default precision.
  *
- * Inference-only, like the Gemma blocks: implements IDecoderLayer's prefill/decode, not
+ * Inference-only, like the Gemma blocks: implements ITransformerBlock's prefill/decode, not
  * Component forward/backward.
  *
  * WEIGHT LAYOUT CONTRACT. `fc_qkv_proj` is fused as [query | gate | key | value], with query
@@ -55,10 +55,10 @@ module;
 #include <optional>
 #include <type_traits>
 
-export module Dnn.Components.QwenBlock;
+export module Dnn.Components.QwenAttentionBlock;
 
 export import Dnn.Components.QwenConfig;
-export import Dnn.Components.IDecoderLayer;
+export import Dnn.Components.ITransformerBlock;
 
 import Dnn.ITensor;
 import Dnn.Tensor;
@@ -109,7 +109,7 @@ namespace Mila::Dnn
      *
      * The DeltaNet block will need a DIFFERENT workspace (chunk-parallel delta-rule buffers,
      * convolution staging), which is exactly the mismatch section 7 records against
-     * IDecoderLayer's concrete GqaState. Keeping this struct per-block-kind rather than
+     * ITransformerBlock's concrete GqaState. Keeping this struct per-block-kind rather than
      * per-family is what leaves room for that.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
@@ -317,9 +317,7 @@ namespace Mila::Dnn
         typename TWeightPlan = NoWeightQuant, KvCachePolicy TKvPolicy = NoKvCompression>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
               && DecoderPrecisionPlan<PrecisionPlanFor<TWeightPlan>>
-    class QwenAttentionBlock
-        : public CompositeComponent<TDeviceType, TPrecision>,
-          public IDecoderLayer<TDeviceType, TPrecision>
+    class QwenAttentionBlock : public CompositeComponent<TDeviceType, TPrecision>, public ITransformerBlock<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
@@ -392,7 +390,7 @@ namespace Mila::Dnn
         dim_t packedQKVWidth() const noexcept { return config_.getPackedQKVWidth(); }
 
         // ====================================================================
-        // IDecoderLayer -- inference path
+        // ITransformerBlock -- inference path
         // ====================================================================
 
         TensorType& prefill( const TensorType& input, dim_t position_offset ) override
@@ -441,15 +439,15 @@ namespace Mila::Dnn
                 attn_->setUseFlashDecode( enabled );
         }
 
-        bool supportsKVCache() const noexcept override
+        bool supportsKvCache() const noexcept override
         {
-            return attn_ && attn_->supportsKVCache();
+            return attn_ && attn_->supportsKvCache();
         }
 
-        void resetKVCache() override
+        void resetKvCache() override
         {
             if ( attn_ )
-                attn_->resetKVCache();
+                attn_->resetKvCache();
         }
 
         bool rewindKvCache( dim_t position ) override

@@ -14,7 +14,7 @@
  *    projection -- V = v_norm(k_proj), distinct from K = RoPE(k_norm(k_proj)).
  *  - Attention scale 1.0 (QK-norm controls magnitude; GqaConfig::withAttentionScale).
  *
- * Inference-only (Gemma is an inference target): implements IDecoderLayer's prefill/decode;
+ * Inference-only (Gemma is an inference target): implements ITransformerBlock's prefill/decode;
  * no training forward/backward. Gemma RMSNorm is x_norm * (1 + weight) (HF Gemma3RMSNorm): the
  * converter writes the weights RAW (zero-centered) and the +1 is applied at the kernel via
  * RmsNormConfig::withUnitOffset(1.0) on every norm -- so the stored weights stay identical to the
@@ -41,8 +41,10 @@ module;
 
 export module Dnn.Components.GemmaBlock;
 
+export import :Workspace;
+
 export import Dnn.Components.GemmaConfig;
-export import Dnn.Components.IDecoderLayer;
+export import Dnn.Components.ITransformerBlock;
 
 import Dnn.ITensor;
 import Dnn.Tensor;
@@ -87,56 +89,12 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::KvCache;
 
     /**
-     * @brief Transformer-owned shared activation workspace for GemmaBlock (pooling).
-     *
-     * One slot per block-graph position, shared by every layer: the inference path
-     * is strictly sequential, so exactly one block is live at a time and 47/48 of
-     * per-layer retained activations are never read again. Slots are sized
-     * [B, chunk, max(local, global) width]; components view prefixes (the GQA
-     * workspace max-geometry convention). The single stream slot is alias-safe:
-     * a block's input is last read at res_1 (mid-block) and only overwritten by
-     * its own res_2 at block end.
-     */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision>
-        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    struct GemmaBlockWorkspace
-    {
-        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using TensorType = Tensor<TPrecision, MR>;
-
-        // Block-owned split scratch (written by split, read by the QK/V norms,
-        // RoPE, and -- on global K=V layers -- v_norm reading the raw k projection).
-        std::shared_ptr<TensorType> q;
-        std::shared_ptr<TensorType> k;
-        std::shared_ptr<TensorType> v;
-
-        // Component output slots, one per graph position (prefill order).
-        std::shared_ptr<TensorType> normed;      // input_norm out       [B, chunk, model_dim]
-        std::shared_ptr<TensorType> qkv;         // qkv_proj out         [B, chunk, max packed QKV width]
-        std::shared_ptr<TensorType> q_normed;    // q_norm out           [B, chunk, NH * max head_dim]
-        std::shared_ptr<TensorType> k_normed;    // k_norm out           [B, chunk, max KV width]
-        std::shared_ptr<TensorType> v_normed;    // v_norm out           [B, chunk, max KV width]
-        std::shared_ptr<TensorType> attn;        // gqa prefill out      [B, chunk, NH * max head_dim]
-        std::shared_ptr<TensorType> o;           // o_proj out           [B, chunk, model_dim]
-        std::shared_ptr<TensorType> o_normed;    // post_attn_norm out   [B, chunk, model_dim]
-        std::shared_ptr<TensorType> res1;        // res_1 out            [B, chunk, model_dim]
-        std::shared_ptr<TensorType> ffn_in;      // pre_ffn_norm out     [B, chunk, model_dim]
-        std::shared_ptr<TensorType> gate_up;     // fc_gate_up out       [B, chunk, 2 * hidden_dim]
-        std::shared_ptr<TensorType> ffn_act;     // geglu out            [B, chunk, hidden_dim]
-        std::shared_ptr<TensorType> ffn_down;    // fc_down out          [B, chunk, model_dim]
-        std::shared_ptr<TensorType> ffn_normed;  // post_ffn_norm out    [B, chunk, model_dim]
-        std::shared_ptr<TensorType> stream;      // res_2 out            [B, chunk, model_dim]
-    };
-
-    /**
      * @brief One Gemma 4 decoder block; kGlobal selects the global (full-attention) geometry.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision, bool kGlobal,
         WeightQuantPolicy TWeightQuant = NoWeightQuant, KvCachePolicy TKvPolicy = NoKvCompression>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class GemmaBlock
-        : public CompositeComponent<TDeviceType, TPrecision>,
-          public IDecoderLayer<TDeviceType, TPrecision>
+    class GemmaBlock : public CompositeComponent<TDeviceType, TPrecision>, public ITransformerBlock<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
@@ -191,7 +149,7 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // IDecoderLayer -- inference path
+        // ITransformerBlock -- inference path
         // ====================================================================
 
         TensorType& prefill( const TensorType& input, dim_t position_offset ) override
@@ -381,15 +339,15 @@ namespace Mila::Dnn
                 attn_->setUseFlashDecode( enabled );
         }
 
-        bool supportsKVCache() const noexcept override
+        bool supportsKvCache() const noexcept override
         {
-            return attn_ && attn_->supportsKVCache();
+            return attn_ && attn_->supportsKvCache();
         }
 
-        void resetKVCache() override
+        void resetKvCache() override
         {
             if ( attn_ )
-                attn_->resetKVCache();
+                attn_->resetKvCache();
         }
 
         bool rewindKvCache( dim_t position ) override
@@ -418,6 +376,7 @@ namespace Mila::Dnn
             q_ = workspace_.q;
             k_ = workspace_.k;
             v_ = workspace_.v;
+
             workspace_installed_ = true;
         }
 

@@ -4,7 +4,7 @@
  *
  * The heterogeneous layer list is copied from GemmaTransformer, which is the one structure
  * in the tree that already solves this problem: build two block types, store both as
- * IDecoderLayer*, and drive them polymorphically (one virtual call per layer per token step,
+ * ITransformerBlock*, and drive them polymorphically (one virtual call per layer per token step,
  * negligible against the per-layer GEMMs). What is NOT copied is Gemma's `bool kGlobal`
  * flag: that is right for one mixer at two geometries, and Qwen's two kinds are different
  * mixers (Specifications/Qwen3.8.md section 8, Phase 2 revision).
@@ -57,10 +57,10 @@ module;
 export module Dnn.Components.QwenTransformer;
 
 import Dnn.Components.QwenConfig;
-import Dnn.Components.QwenBlock;
+import Dnn.Components.QwenAttentionBlock;
 import Dnn.Components.QwenDeltaNetBlock;
 import Dnn.Components.QwenPrecisionPlan;
-import Dnn.Components.IDecoderLayer;
+import Dnn.Components.ITransformerBlock;
 
 import Dnn.Tensor;
 import Dnn.ITensor;
@@ -68,7 +68,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Logging.Logger;
-import Dnn.LanguageNetwork;
+import Dnn.LanguageModelNetwork;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.ModelType;
@@ -145,11 +145,11 @@ namespace Mila::Dnn
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
               && EmbeddingPrecisionRole<PrecisionPlanFor<TWeightPlan>>
               && LanguageModelHeadRole<PrecisionPlanFor<TWeightPlan>>
-    class QwenTransformer : public LanguageNetwork<TDeviceType, TPrecision>
+    class QwenTransformer : public LanguageModelNetwork<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using NetworkBase = LanguageNetwork<TDeviceType, TPrecision>;
+        using NetworkBase = LanguageModelNetwork<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
 
         using PrecisionPlan = PrecisionPlanFor<TWeightPlan>;
@@ -176,7 +176,7 @@ namespace Mila::Dnn
 
         using AttentionBlockType = QwenAttentionBlock<TDeviceType, TPrecision, TWeightPlan, TKvCachePolicy>;
         using DeltaNetBlockType = QwenDeltaNetBlock<TDeviceType, TPrecision, TWeightPlan>;
-        using DecoderLayerType = IDecoderLayer<TDeviceType, TPrecision>;
+        using TransformerBlockType = ITransformerBlock<TDeviceType, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
@@ -270,9 +270,9 @@ namespace Mila::Dnn
 
                 int layer_index = 0;
 
-                for ( auto* layer : layers_ )
+                for ( auto* block : blocks_ )
                 {
-                    auto& block_out = layer->prefill( *block_input, offset );
+                    auto& block_out = block->prefill( *block_input, offset );
                     block_input = &block_out;
 
                     if ( stage_probe_ )
@@ -307,9 +307,9 @@ namespace Mila::Dnn
 
             TensorType* block_input = &token_embedding_->forward( input );
 
-            for ( auto* layer : layers_ )
+            for ( auto* block : blocks_ )
             {
-                auto& block_out = layer->decode( *block_input, position );
+                auto& block_out = block->decode( *block_input, position );
                 block_input = &block_out;
             }
 
@@ -323,10 +323,10 @@ namespace Mila::Dnn
         // KV-cache orchestration
         // ====================================================================
 
-        void resetKVCache()
+        void resetKvCache()
         {
-            for ( auto* layer : layers_ )
-                layer->resetKVCache();
+            for ( auto* block : blocks_ )
+                block->resetKvCache();
         }
 
         /**
@@ -336,8 +336,8 @@ namespace Mila::Dnn
         {
             bool all_accepted = true;
 
-            for ( auto* layer : layers_ )
-                all_accepted = layer->rewindKvCache( position ) && all_accepted;
+            for ( auto* block : blocks_ )
+                all_accepted = block->rewindKvCache( position ) && all_accepted;
 
             return all_accepted;
         }
@@ -590,8 +590,8 @@ namespace Mila::Dnn
                     allocateDeltaNetWorkspace( B );
             }
 
-            layers_.clear();
-            layers_.reserve( static_cast<size_t>( config_.getNumLayers() ) );
+            blocks_.clear();
+            blocks_.reserve( static_cast<size_t>( config_.getNumLayers() ) );
 
             for ( dim_t i = 0; i < config_.getNumLayers(); ++i )
             {
@@ -613,7 +613,7 @@ namespace Mila::Dnn
                         block->setUseFlashDecode( true );
                     }
 
-                    layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
+                    blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
                 }
                 else
                 {
@@ -627,7 +627,7 @@ namespace Mila::Dnn
 
                     block->build( block_context );
 
-                    layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
+                    blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
                 }
             }
 
@@ -672,10 +672,10 @@ namespace Mila::Dnn
 
         std::shared_ptr<TokenEmbeddingType> token_embedding_{ nullptr };
         // Non-owning, polymorphic view of the layer list; the concrete blocks are owned by
-        // the component tree (addComponent). Valid after build. Held as IDecoderLayer* even
+        // the component tree (addComponent). Valid after build. Held as ITransformerBlock* even
         // though every element is an attention block today -- that is what the DeltaNet block
         // slots into without touching the loops.
-        std::vector<DecoderLayerType*> layers_;
+        std::vector<TransformerBlockType*> blocks_;
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
         std::shared_ptr<LmHeadLinearType> lm_head_{ nullptr };
 
@@ -712,7 +712,7 @@ namespace Mila::Dnn
                 std::make_shared<TokenEmbeddingType>( this->getName() + ".temb", embedding_config ) );
 
             // The heterogeneous layer list: three DeltaNet layers per full-attention layer
-            // at the published interval of 4. Both kinds are stored as IDecoderLayer* and
+            // at the published interval of 4. Both kinds are stored as ITransformerBlock* and
             // driven polymorphically.
             for ( dim_t i = 0; i < config_.getNumLayers(); ++i )
             {
@@ -937,8 +937,8 @@ namespace Mila::Dnn
 
             const GqaState gqa_state = gqa_workspace_.state();
 
-            for ( auto* layer : layers_ )
-                layer->setState( gqa_state );
+            for ( auto* block : blocks_ )
+                block->setState( gqa_state );
         }
 
         // ====================================================================

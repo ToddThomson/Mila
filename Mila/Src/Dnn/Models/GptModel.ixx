@@ -36,7 +36,7 @@ module;
 export module Dnn.Models.GptModel;
 
 import Dnn.LanguageModel;
-import Dnn.LanguageNetwork;
+import Dnn.LanguageModelNetwork;
 import Dnn.GenerateParams;
 import Dnn.GenerateStatus;
 import Dnn.Tensor;
@@ -299,8 +299,8 @@ namespace Mila::Dnn
             const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
 
             auto prefill_input = makeTokenTensor( prompt_tokens );
-            auto& logits = this->getLanguageNetwork().prefill( prefill_input );
-            this->getLanguageNetwork().synchronize();
+            auto& logits = this->getNetwork().prefill( prefill_input );
+            this->getNetwork().synchronize();
 
             int32_t next_token = sampleFromLogits(
                 logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
@@ -327,8 +327,8 @@ namespace Mila::Dnn
                     return GenerateStatus::ContextOverflow;
 
                 auto decode_input = makeTokenTensor( std::vector{ next_token } );
-                auto& decode_logits = this->getLanguageNetwork().decode( decode_input, position );
-                this->getLanguageNetwork().synchronize();
+                auto& decode_logits = this->getNetwork().decode( decode_input, position );
+                this->getNetwork().synchronize();
 
                 next_token = sampleFromLogits(
                     decode_logits, 0, params.sampling.temperature, params.sampling.top_k, rng );

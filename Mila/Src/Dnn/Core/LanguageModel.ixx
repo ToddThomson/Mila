@@ -23,7 +23,7 @@ module;
 export module Dnn.LanguageModel;
 
 import Dnn.Model;
-import Dnn.LanguageNetwork;
+import Dnn.LanguageModelNetwork;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
@@ -133,7 +133,7 @@ namespace Mila::Dnn
                 Serialization::kMilaQuantizationMetadataKey,
                 weightQuantizationName( weight_quantization_ ) );
 
-            const auto& network = this->getLanguageNetwork();
+            const auto& network = this->getNetwork();
 
             // Empty prefix: the root's own name is dropped so tensors land under
             // "tf_layer_0.qkv_proj.weight", the vocabulary loadParameters() reads back.
@@ -179,7 +179,7 @@ namespace Mila::Dnn
          * declares nothing.
          */
         explicit LanguageModel(
-            std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
+            std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             RuntimeMode runtime_mode,
             Serialization::PretrainedMetadata source_metadata = {},
             WeightQuantization weight_quantization = WeightQuantization::None )
@@ -254,14 +254,14 @@ namespace Mila::Dnn
         // Network accessor
         // ====================================================================
 
-        LanguageNetwork<TDeviceType, TPrecision>& getLanguageNetwork() noexcept
+        LanguageModelNetwork<TDeviceType, TPrecision>& getNetwork() noexcept
         {
-            return static_cast<LanguageNetwork<TDeviceType, TPrecision>&>( *this->network_ );
+            return static_cast<LanguageModelNetwork<TDeviceType, TPrecision>&>( *this->network_ );
         }
 
-        const LanguageNetwork<TDeviceType, TPrecision>& getLanguageNetwork() const noexcept
+        const LanguageModelNetwork<TDeviceType, TPrecision>& getNetwork() const noexcept
         {
-            return static_cast<const LanguageNetwork<TDeviceType, TPrecision>&>( *this->network_ );
+            return static_cast<const LanguageModelNetwork<TDeviceType, TPrecision>&>( *this->network_ );
         }
 
         // ====================================================================
@@ -322,7 +322,7 @@ namespace Mila::Dnn
                     .withFinalLogitSoftcap( this->finalLogitSoftcap() );
 
                 token_sampler_ = std::make_unique<TokenSampler<TDeviceType, TPrecision>>(
-                    this->getLanguageNetwork().getExecutionContext(), config );
+                    this->getNetwork().getExecutionContext(), config );
             }
         }
 

@@ -9,7 +9,7 @@
  *    full-attention (global) blocks 5:1 over 48 layers (final layer global), and
  *    the two are distinct GemmaBlock instantiations (kGlobal false/true) that
  *    differ in head_dim / KV-head count / K=V / window / RoPE. The transformer
- *    drives them polymorphically through IDecoderLayer (one virtual call per layer
+ *    drives them polymorphically through ITransformerBlock (one virtual call per layer
  *    per token step, negligible against the per-layer GEMMs). See Gemma.md section 8.
  *
  *  - One shared GQA transient workspace serves both geometries. CudaGqaOp::setState
@@ -49,7 +49,7 @@ export module Dnn.Components.GemmaTransformer;
 
 import Dnn.Components.GemmaConfig;
 import Dnn.Components.GemmaBlock;
-import Dnn.Components.IDecoderLayer;
+import Dnn.Components.ITransformerBlock;
 
 import Dnn.Tensor;
 import Dnn.ITensor;
@@ -57,7 +57,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Logging.Logger;
-import Dnn.LanguageNetwork;
+import Dnn.LanguageModelNetwork;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.ModelType;
@@ -137,11 +137,11 @@ namespace Mila::Dnn
     export template<DeviceType TDeviceType, TensorDataType TPrecision,
         WeightQuantPolicy TWeightQuantization = NoWeightQuant, KvCachePolicy TKvCachePolicy = NoKvCompression>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class GemmaTransformer : public LanguageNetwork<TDeviceType, TPrecision>
+    class GemmaTransformer : public LanguageModelNetwork<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using NetworkBase = LanguageNetwork<TDeviceType, TPrecision>;
+        using NetworkBase = LanguageModelNetwork<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
 
         // D4 Design B: weight-quantized bodies (FP4/FP8) convert the tied
@@ -149,8 +149,7 @@ namespace Mila::Dnn
         // one FP32 scale tensor read by both consumers. The NoWeightQuant body keeps
         // the BF16 table and head, preserving the exact HF token-parity oracle in
         // the reference configuration.
-        using TableQuantizationPolicy = std::conditional_t<
-            TWeightQuantization::kIsQuantized, PerChannelFp8<>, NoWeightQuant>;
+        using TableQuantizationPolicy = std::conditional_t<TWeightQuantization::kIsQuantized, PerChannelFp8<>, NoWeightQuant>;
 
         using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision, TableQuantizationPolicy>;
         using LmHeadLinearType = Linear<TDeviceType, TPrecision, TableQuantizationPolicy>;
@@ -159,9 +158,9 @@ namespace Mila::Dnn
         // bounded window, so their KV cache can be a ring (SlidingWindowKvCache.md D4).
         // GLOBAL (full-attention) layers attend the entire context and therefore always
         // use the full-context cache (NoKvCompression), regardless of the sliding policy.
-        using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, false, TWeightQuantization, TKvCachePolicy>;
-        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, true, TWeightQuantization, NoKvCompression>;
-        using DecoderLayerType = IDecoderLayer<TDeviceType, TPrecision>;
+        using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ false, TWeightQuantization, TKvCachePolicy>;
+        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ true, TWeightQuantization, NoKvCompression>;
+        using TransformerBlockType = ITransformerBlock<TDeviceType, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
@@ -210,6 +209,7 @@ namespace Mila::Dnn
          */
         void setStageProbe( typename NetworkBase::StageProbe probe ) override
         {
+            // REVIEW: This diagnostic only and has been added as a public API method.
             stage_probe_ = std::move( probe );
         }
 
@@ -258,9 +258,9 @@ namespace Mila::Dnn
 
                 int layer_index = 0;
 
-                for ( auto* layer : layers_ )
+                for ( auto* block : blocks_ )
                 {
-                    auto& block_out = layer->prefill( *block_input, offset );
+                    auto& block_out = block->prefill( *block_input, offset );
                     block_input = &block_out;
 
                     if ( stage_probe_ )
@@ -294,9 +294,9 @@ namespace Mila::Dnn
 
             TensorType* block_input = &token_embedding_->forward( input );
 
-            for ( auto* layer : layers_ )
+            for ( auto* block : blocks_ )
             {
-                auto& block_out = layer->decode( *block_input, position );
+                auto& block_out = block->decode( *block_input, position );
                 block_input = &block_out;
             }
 
@@ -310,10 +310,10 @@ namespace Mila::Dnn
         // KV-cache orchestration
         // ====================================================================
 
-        void resetKVCache()
+        void resetKvCache()
         {
-            for ( auto* layer : layers_ )
-                layer->resetKVCache();
+            for ( auto* block : blocks_ )
+                block->resetKvCache();
         }
 
         /**
@@ -328,8 +328,8 @@ namespace Mila::Dnn
         {
             bool all_accepted = true;
 
-            for ( auto* layer : layers_ )
-                all_accepted = layer->rewindKvCache( position ) && all_accepted;
+            for ( auto* block : blocks_ )
+                all_accepted = block->rewindKvCache( position ) && all_accepted;
 
             return all_accepted;
         }
@@ -680,8 +680,8 @@ namespace Mila::Dnn
             if ( context.isInferenceMode() )
                 allocateBlockWorkspace( B );
 
-            layers_.clear();
-            layers_.reserve( static_cast<size_t>(config_.getNumLayers()) );
+            blocks_.clear();
+            blocks_.reserve( static_cast<size_t>(config_.getNumLayers()) );
 
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
@@ -709,7 +709,7 @@ namespace Mila::Dnn
                         block->setUseFlashDecode( true );
                     }
 
-                    layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
+                    blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
                 }
                 else
                 {
@@ -732,7 +732,7 @@ namespace Mila::Dnn
                         block->setUseFlashDecode( true );
                     }
 
-                    layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
+                    blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
                 }
             }
 
@@ -804,7 +804,7 @@ namespace Mila::Dnn
         std::shared_ptr<TokenEmbeddingType> token_embedding_{ nullptr };
         // Non-owning, polymorphic view of the heterogeneous block list; the concrete
         // blocks are owned by the component tree (addComponent). Valid after build.
-        std::vector<DecoderLayerType*> layers_;
+        std::vector<TransformerBlockType*> blocks_;
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
         std::shared_ptr<LmHeadLinearType> lm_head_{ nullptr };
 
@@ -1186,8 +1186,8 @@ namespace Mila::Dnn
             gqa_state.att_decode = gqa_att_decode_.get();
             gqa_state.v_out_decode = gqa_v_out_decode_.get();
 
-            for ( auto* layer : layers_ )
-                layer->setState( gqa_state );
+            for ( auto* block : blocks_ )
+                block->setState( gqa_state );
         }
 
         // ====================================================================

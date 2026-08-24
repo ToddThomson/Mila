@@ -12,7 +12,7 @@
  * this suite writes. That property is the whole point of the phase and is what is
  * asserted here.
  *
- * The model deliberately exposes no parameter accessor -- getLanguageNetwork() is
+ * The model deliberately exposes no parameter accessor -- getNetwork() is
  * protected -- so weight fidelity is asserted by comparing ARCHIVES rather than
  * tensors: load a checkpoint, write one back out, and require the two to agree blob
  * for blob. That uses only the public API and is a stronger statement than reading

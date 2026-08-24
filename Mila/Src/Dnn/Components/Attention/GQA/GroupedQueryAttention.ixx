@@ -62,15 +62,15 @@ namespace Mila::Dnn
      * must accept this layout and produce the output above.
      *
      * KV-cache inference is an optional backend capability. After build(),
-     * supportsKVCache() indicates whether the underlying operation implements
-     * both IPositionalUnaryOp (prefill/decode dispatch) and IKVCacheLifecycle
+     * supportsKvCache() indicates whether the underlying operation implements
+     * both IPositionalUnaryOp (prefill/decode dispatch) and IKvCacheLifecycle
      * (cache init/reset). Both pointers are resolved once at build time.
      *
-     * The cache self-initializes on the first prefill/forward; resetKVCache() is
+     * The cache self-initializes on the first prefill/forward; resetKvCache() is
      * the public hook the owning decoder layer / transformer drives to start a new
      * generation session.
      *
-     * REVIEW: resetKVCache() is public (initialization stays internal to prefill).
+     * REVIEW: resetKvCache() is public (initialization stays internal to prefill).
      * When TransformerBase<> is introduced as the common base for GptTransformer,
      * LlamaTransformer, MistralTransformer etc., revisit whether it should
      * become private with 'friend class TransformerBase<TDeviceType, TPrecision>'
@@ -313,12 +313,12 @@ namespace Mila::Dnn
 
         /**
          * @brief Returns true when the underlying operation implements both
-         * IPositionalUnaryOp and IKVCacheLifecycle.
+         * IPositionalUnaryOp and IKvCacheLifecycle.
          *
          * Resolved once at build time. CPU backends return false; CUDA backends
          * return true when CudaGroupedQueryAttentionOp is in use.
          */
-        bool supportsKVCache() const noexcept
+        bool supportsKvCache() const noexcept
         {
             return kv_cache_op_ != nullptr && positional_op_ != nullptr;
         }
@@ -373,7 +373,7 @@ namespace Mila::Dnn
          * sequence. A no-op on backends without KV-cache support, and harmless
          * when no decode session is active.
          */
-        void resetKVCache()
+        void resetKvCache()
         {
             if ( kv_cache_op_ && cache_initialized_ )
             {
@@ -385,7 +385,7 @@ namespace Mila::Dnn
 
         /**
          * @brief Rewind the cache fill position for prompt-prefix reuse
-         * (PromptCaching.md). Unlike resetKVCache() the cache session stays live:
+         * (PromptCaching.md). Unlike resetKvCache() the cache session stays live:
          * initialization state and device contents are untouched, and positions
          * [0, position) remain valid for a subsequent prefillFrom.
          *
@@ -545,7 +545,7 @@ namespace Mila::Dnn
             oss << "Num KV heads: " << config_.getNumKvHeads() << "\n";
             oss << "Head size: " << head_dim << "\n";
             oss << "Group size (Q heads per KV head): " << group_size << "\n";
-            oss << "Decode path: " << (supportsKVCache() ? "KV cache (fast)" : "fallback (forward)") << "\n";
+            oss << "Decode path: " << (supportsKvCache() ? "KV cache (fast)" : "fallback (forward)") << "\n";
             oss << "Parameter count: " << parameterCount() << "\n";
 
             return oss.str();

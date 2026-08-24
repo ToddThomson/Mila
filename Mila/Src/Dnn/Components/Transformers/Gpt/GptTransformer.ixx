@@ -34,7 +34,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.LanguageNetwork;
+import Dnn.LanguageModelNetwork;
 import Dnn.Components.Linear;
 import Dnn.Components.LayerNorm;
 import Dnn.Components.Lpe;
@@ -74,11 +74,11 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class GptTransformer : public LanguageNetwork<TDeviceType, TPrecision>
+    class GptTransformer : public LanguageModelNetwork<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using NetworkBase = LanguageNetwork<TDeviceType, TPrecision>;
+        using NetworkBase = LanguageModelNetwork<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using LinearType = Linear<TDeviceType, TPrecision>;
         using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
@@ -391,7 +391,7 @@ namespace Mila::Dnn
          *
          * Precondition: forward() must have been called at least once (prefill)
          * before decode() is called. Attention internally manages cache state --
-         * no explicit initializeKVCache / resetKVCache needed here.
+         * no explicit initializeKvCache / resetKvCache needed here.
          *
          * Calling forward() again after decode() steps automatically resets
          * the KV cache and begins a new prefill session.

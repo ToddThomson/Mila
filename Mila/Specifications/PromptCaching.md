@@ -114,12 +114,12 @@ Unbounded one-liner for `IKvCacheLifecycle` parity.
 ### 4.4 Delegation chain (Gemma)
 
 `GroupedQueryAttention::rewindKvCache` (keeps the cache session live — unlike
-`resetKVCache` it does NOT clear `cache_initialized_`) -> `IDecoderLayer` /
+`resetKvCache` it does NOT clear `cache_initialized_`) -> `ITransformerBlock` /
 `GemmaBlock::rewindKvCache` -> `GemmaTransformer::rewindKvCache` (AND across the
 heterogeneous layer list; all-or-nothing from the caller's perspective — a refused or
 partial rewind needs no cleanup because a full prefill positionally overwrites).
 
-### 4.5 `LanguageNetwork` base
+### 4.5 `LanguageModelNetwork` base
 
 Two non-pure virtuals with safe defaults so Llama/Gpt compile untouched:
 `prefillFrom(input, start_offset)` (default: throws) and `rewindKvCache(position)`
@@ -160,7 +160,7 @@ cancellation, context overflow) leave history == cache contents. A cache hit log
 ## 6. Scope and Follow-ups
 
 - **Shipped**: Gemma chain (CudaGqaOp both axes, CudaMhaOp parity, GQA component,
-  IDecoderLayer/GemmaBlock, GemmaTransformer, GemmaModel).
+  ITransformerBlock/GemmaBlock, GemmaTransformer, GemmaModel).
 - **Follow-up (BACKLOG)**: Llama chain mirror (`LlamaBlock`/`LlamaTransformer`/
   `LlamaModel` — mechanical; the op layer is already done since Llama uses CudaGqaOp).
 - **Deferred**: multi-session paged caching; the harness-level `GenerateSession`

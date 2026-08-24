@@ -81,7 +81,7 @@ namespace Mila::Tests::Dnn::Models
             TokenEmbedding<DeviceType::Cuda, TensorDataType::INT32, kPrecision, NoWeightQuant>;
         using RmsNormType = RmsNorm<DeviceType::Cuda, kPrecision>;
         using HeadType = Linear<DeviceType::Cuda, kPrecision>;
-        using DecoderLayer = IDecoderLayer<DeviceType::Cuda, kPrecision>;
+        using DecoderLayer = ITransformerBlock<DeviceType::Cuda, kPrecision>;
         using ComponentType = Component<DeviceType::Cuda, kPrecision>;
         using CompositeType = CompositeComponent<DeviceType::Cuda, kPrecision>;
 
@@ -539,7 +539,7 @@ namespace Mila::Tests::Dnn::Models
             const std::vector<std::pair<const char*, const DeviceTensor*>> pairs = {
                 { "input_norm",     stage_workspace.normed.get() },
                 // The q_norm/k_norm slots hold POST-RoPE values: the block takes a view over
-                // them and rotates in place (Qwen.Block.ixx:829). Comparing them against the
+                // them and rotates in place (Qwen.AttentionBlock.ixx:829). Comparing them against the
                 // reference's q_norm hook reports ~36% divergence that is entirely the
                 // rotation, so the reference captures q_roped/k_roped instead.
                 { "q_roped",        stage_workspace.q_normed.get() },

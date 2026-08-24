@@ -15,7 +15,6 @@ module;
 #include <cstdint>
 #include <format>
 #include <optional>
-// #include <filesystem>
 #include <algorithm>
 
 export module Dnn.Components.LlamaTransformer;
@@ -28,7 +27,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.LanguageNetwork;
+import Dnn.LanguageModelNetwork;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.ModelType;
@@ -53,9 +52,6 @@ import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
 import Serialization.PretrainedReader;
 import Serialization.Tensor;
-
-// import Compute.LinearOpTraits;
-// import Compute.CudaLinearOpTraits;
 
 namespace Mila::Dnn
 {
@@ -140,11 +136,11 @@ namespace Mila::Dnn
     export template<DeviceType TDeviceType, TensorDataType TPrecision,
         WeightQuantPolicy TWeightQuantization = NoWeightQuant, KvCachePolicy TKvCachePolicy = NoKvCompression>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class LlamaTransformer : public LanguageNetwork<TDeviceType, TPrecision>
+    class LlamaTransformer : public LanguageModelNetwork<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using NetworkBase = LanguageNetwork<TDeviceType, TPrecision>;
+        using NetworkBase = LanguageModelNetwork<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision>;
         using LinearType = Linear<TDeviceType, TPrecision, TWeightQuantization>;

@@ -385,16 +385,6 @@ namespace Mila::Dnn
             return child_components_;
         }
 
-        ///**
-        // * @brief Get the named child components map.
-        // *
-        // * @return Map of names to child component pointers
-        // */
-        //const std::unordered_map<std::string, ComponentPtr>& getNamedComponents() const
-        //{
-        //    return child_component_map_;
-        //}
-
         /**
          * @brief Remove a child component by name.
          *

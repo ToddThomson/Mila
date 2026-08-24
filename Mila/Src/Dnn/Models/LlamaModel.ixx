@@ -32,7 +32,7 @@ import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
 import Dnn.GenerateParams;
 import Dnn.GenerateStatus;
-import Dnn.LanguageNetwork;
+import Dnn.LanguageModelNetwork;
 import Dnn.Models.QuantizationDispatch;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
@@ -279,8 +279,8 @@ namespace Mila::Dnn
         void profilePrefill( const std::vector<int32_t>& token_ids )
         {
             auto input = makeTokenTensor( token_ids );
-            this->getLanguageNetwork().prefill( input );
-            this->getLanguageNetwork().synchronize();
+            this->getNetwork().prefill( input );
+            this->getNetwork().synchronize();
         }
 
     protected:
@@ -337,8 +337,8 @@ namespace Mila::Dnn
 
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
-            auto& logits = this->getLanguageNetwork().prefill( prefill_input );
-            this->getLanguageNetwork().synchronize();
+            auto& logits = this->getNetwork().prefill( prefill_input );
+            this->getNetwork().synchronize();
 
             int32_t next_token = sampleFromLogits(
                 logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
@@ -366,8 +366,8 @@ namespace Mila::Dnn
                 decode_token_staging_.data()[ 0 ] = next_token;
                 copy( decode_token_staging_, decode_token_device_ );
 
-                auto& decode_logits = this->getLanguageNetwork().decode( decode_token_device_, position );
-                this->getLanguageNetwork().synchronize();
+                auto& decode_logits = this->getNetwork().decode( decode_token_device_, position );
+                this->getNetwork().synchronize();
 
                 next_token = sampleFromLogits(
                     decode_logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
@@ -412,7 +412,7 @@ namespace Mila::Dnn
     private:
 
         explicit LlamaModel(
-            std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
+            std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             const LlamaConfig& config,
             int64_t context_length,
             RuntimeMode runtime_mode,

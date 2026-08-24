@@ -6,7 +6,7 @@
  * decoder-only language network:
  *   Lpe (token + positional embedding) -> N x GptBlock -> final LayerNorm -> lm_head
  *
- * Covers the GptTransformer DELTA over the LanguageNetwork base: construction/
+ * Covers the GptTransformer DELTA over the LanguageModelNetwork base: construction/
  * validation, the rank-2 [B, T] build contract, the RuntimeMode/TrainingMode axis,
  * forward producing finite logits of shape [B, T, vocab], the component graph, and
  * backward. Unlike the Llama CUDA path, the GPT-2 CUDA forward/backward kernels are

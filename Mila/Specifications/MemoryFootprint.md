@@ -213,7 +213,56 @@ configuration, where one block kind and one workspace made the promise true by a
 
 The rule that follows: **a Gate A case is owed per BLOCK KIND, not per model.** A model
 whose stack is heterogeneous has as many pooling contracts as it has kinds, and a passing
-gate on one of them says nothing about the others.
+gate on one of them says nothing about the others. That rule survives whatever replaces
+the flag -- it is about heterogeneous stacks, not about how installation is signalled.
+
+**PROPOSED, NOT DECIDED -- remove the flag by splitting binding from allocation.**
+
+The account above stops one level short of the cause. The parent is not computing anything
+unknowable when it calls `withInstalledOutput`: the pooling predicate is `isInferenceMode()`,
+the same expression that guards the install twenty lines later. `QwenTransformer` writes it
+three times -- onto the block context (`Qwen.ixx:382`) and once per block kind at the install
+(`:602`, `:626`) -- and the ~6.5 GiB understatement above was the first site existing while
+the third did not. One concept, three authorings, nothing tying them together.
+
+Why the value has to travel at all is the deeper fact. `makeQwenDeltaNetBlockWorkspace()` does
+two things in one call: it **describes** the slot set, and it **allocates** it. The description
+is pure -- `(config, device, B, chunk, name_prefix)` in, a fixed set of named shapes out. The
+allocation is what makes the call impossible before the fit is known. From that fusion
+everything else follows: prediction must precede allocation, allocation *is* installation,
+so prediction precedes installation, so `output_installed_` is false at prediction time, so a
+parallel intent channel must exist.
+
+The proposal is to split the two:
+
+- the workspace factory returns slots **described and unallocated** -- shapes and names, no
+  device memory, consistent with the rule that construction allocates nothing;
+- `installSharedWorkspace` moves ahead of prediction and binds slot to child, setting
+  `output_installed_` as a **fact**, per slot;
+- `build()` materializes. `onBuilding` already validates that an installed slot covers the
+  build shape (`Linear.ixx:978`); it would allocate there rather than find memory waiting.
+
+What that deletes: `withInstalledOutput` / `hasInstalledOutput` and the `installed_output_`
+field (`Component.BuildContext.ixx:208`, `:219`); the `pooled` disjunction and re-stamping
+lambda in all three block predictors (`Gemma.Block.ixx:476`, `Qwen.AttentionBlock.ixx:530`,
+`Qwen.DeltaNetBlock.ixx:463`); and the duplicated predicate, leaving the install calls as the
+sole statement of the pooling decision. Every leaf's
+`!output_installed_ && !context.hasInstalledOutput()` collapses to `!output_installed_` --
+the same expression `getMemoryStats` already uses, so prediction and measurement read one
+source instead of two.
+
+It also removes a constraint the single bool cannot express. The flag is one value over a
+block's entire child set: the predictors stamp `pooled` onto every child unconditionally,
+which is sound only while a workspace covers every slot the block would otherwise
+self-allocate. A partial workspace understates, silently, in the expensive direction --
+the Qwen failure mode again, reachable without anyone breaking a promise. Binding per slot
+makes a partial workspace expressible and correct.
+
+The cost is a contract change to `installSharedWorkspace` and `onBuilding` across every
+pooled component, plus a split of each workspace factory. The argument for paying it is that
+the alternatives -- collapsing the predicate to one site, or asserting post-build that a
+declared installation happened -- both leave the promise in place and rely on convention to
+keep it true.
 
 ---
 

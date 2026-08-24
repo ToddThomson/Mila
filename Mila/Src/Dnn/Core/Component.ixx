@@ -172,8 +172,7 @@ namespace Mila::Dnn
          * an always-compiled core module, which a CPU-only build cannot satisfy -- the
          * backend axis belongs in DeviceTypeTraits, which is itself backend-gated.
          */
-        using HostStagingMemoryResource =
-            typename DeviceTypeTraits<TDeviceType>::host_staging_memory_resource;
+        using HostStagingMemoryResource = typename DeviceTypeTraits<TDeviceType>::host_staging_memory_resource;
 
     public:
 
@@ -311,21 +310,6 @@ namespace Mila::Dnn
 
             return training_mode_;
         }
-
-        // REVIEW: Ambiguous and does not add value
-        ///**
-        // * @brief Convenience accessor -- true if currently in Eval mode.
-        // *
-        // * Equivalent to getTrainingMode() == TrainingMode::Eval.
-        // * Valid for both RuntimeMode::Inference and RuntimeMode::Training
-        // * built components.
-        // *
-        // * @return true if in Eval mode.
-        // */
-        //bool isEvalMode() const noexcept
-        //{
-        //    return getTrainingMode() == TrainingMode::Eval;
-        //}
 
         RuntimeMode getRuntimeMode() const noexcept
         {
@@ -700,6 +684,8 @@ namespace Mila::Dnn
          */
         virtual void requireSerializableParameters() const
         {
+            // REVIEW: This is currently a base class only method that either throws or doesn't!
+
             if ( parameterCount() > 0 && getParameterNames().empty() )
             {
                 throw std::runtime_error(
@@ -734,6 +720,7 @@ namespace Mila::Dnn
     protected:
 
         // REVIEW: Does build_config_ need to be protected given our new access methods?
+
         /**
          * @brief The BuildContext stored at build time.
          *
@@ -751,10 +738,6 @@ namespace Mila::Dnn
          * after isBuilt() returns true.
          */
         BuildContext build_context_{ shape_t{ 1 }, RuntimeMode::Training };
-
-        // ====================================================================
-        // Execution Context
-        // ====================================================================
 
         /**
          * @brief Set the execution context for this component.

@@ -393,16 +393,16 @@ namespace Mila::Dnn
         // KV cache
         // ====================================================================
 
-        bool supportsKVCache() const noexcept
+        bool supportsKvCache() const noexcept
         {
-            return attn_ && attn_->supportsKVCache();
+            return attn_ && attn_->supportsKvCache();
         }
 
-        void resetKVCache()
+        void resetKvCache()
         {
             if ( attn_ )
             {
-                attn_->resetKVCache();
+                attn_->resetKvCache();
             }
         }
 

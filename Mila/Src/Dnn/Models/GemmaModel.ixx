@@ -33,7 +33,7 @@ export module Dnn.Models.GemmaModel;
 import Dnn.Models.GemmaModelConfig;
 import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
-import Dnn.LanguageNetwork;
+import Dnn.LanguageModelNetwork;
 import Dnn.Models.QuantizationDispatch;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
@@ -286,8 +286,8 @@ namespace Mila::Dnn
         void profilePrefill( const std::vector<int32_t>& token_ids )
         {
             auto input = makeTokenTensor( token_ids );
-            this->getLanguageNetwork().prefill( input );
-            this->getLanguageNetwork().synchronize();
+            this->getNetwork().prefill( input );
+            this->getNetwork().synchronize();
         }
 
         /**
@@ -312,7 +312,7 @@ namespace Mila::Dnn
             // does.
             std::string stages;
 
-            this->getLanguageNetwork().setStageProbe(
+            this->getNetwork().setStageProbe(
                 [&]( std::string_view stage, const TensorType& value )
                 {
                     const auto summary = summarizeActivation( value );
@@ -330,17 +330,17 @@ namespace Mila::Dnn
                     }
                 } );
 
-            auto& logits = this->getLanguageNetwork().prefill( input );
-            this->getLanguageNetwork().synchronize();
+            auto& logits = this->getNetwork().prefill( input );
+            this->getNetwork().synchronize();
 
-            this->getLanguageNetwork().setStageProbe( {} );
+            this->getNetwork().setStageProbe( {} );
 
             // StagingMR is the class alias: pinned on CUDA, because every reduced precision
             // Mila serves in is is_device_only and a CpuMemoryResource tensor of TPrecision
             // is not a valid template-id.
             Tensor<TPrecision, StagingMR> staged( this->getDeviceId(), logits.shape() );
             copy( logits, staged );
-            this->getLanguageNetwork().synchronize();
+            this->getNetwork().synchronize();
 
             const auto* bytes = static_cast<const uint8_t*>( staged.rawData() );
             const size_t total_bytes = staged.getStorageSize();
@@ -417,7 +417,7 @@ namespace Mila::Dnn
         {
             Tensor<TPrecision, StagingMR> staged( this->getDeviceId(), value.shape() );
             copy( value, staged );
-            this->getLanguageNetwork().synchronize();
+            this->getNetwork().synchronize();
 
             const auto* bytes = static_cast<const uint8_t*>( staged.rawData() );
             const dim_t count = staged.size();
@@ -504,11 +504,11 @@ namespace Mila::Dnn
             const int64_t reuse = std::min( common, seq_len - 1 );
 
             const bool reused = reuse > 0
-                && this->getLanguageNetwork().rewindKvCache( reuse );
+                && this->getNetwork().rewindKvCache( reuse );
 
             auto& logits = reused
-                ? this->getLanguageNetwork().prefillFrom( prefill_input, reuse )
-                : this->getLanguageNetwork().prefill( prefill_input );
+                ? this->getNetwork().prefillFrom( prefill_input, reuse )
+                : this->getNetwork().prefill( prefill_input );
 
             if ( reused )
                 Logging::Logger::info( std::format(
@@ -542,7 +542,7 @@ namespace Mila::Dnn
                 if ( stop.stop_requested() )
                 {
                     // Drain the in-flight sampling step so nothing runs past return.
-                    this->getLanguageNetwork().synchronize();
+                    this->getNetwork().synchronize();
                     return GenerateStatus::ClientCancelled;
                 }
 
@@ -555,7 +555,7 @@ namespace Mila::Dnn
                 TensorType* decode_logits = nullptr;
 
                 if ( more_steps_allowed && cache_has_room )
-                    decode_logits = &this->getLanguageNetwork().decode( decode_token_device_, position );
+                    decode_logits = &this->getNetwork().decode( decode_token_device_, position );
 
                 const int32_t token = this->awaitSampledToken();
 
@@ -571,7 +571,7 @@ namespace Mila::Dnn
                 if ( stop_ids.contains( token ) )
                 {
                     // The ahead-decode of the stop token may still be in flight.
-                    this->getLanguageNetwork().synchronize();
+                    this->getNetwork().synchronize();
                     return GenerateStatus::Success;
                 }
 
@@ -611,7 +611,7 @@ namespace Mila::Dnn
     private:
 
         explicit GemmaModel(
-            std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
+            std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             const GemmaConfig& config,
             const GemmaModelConfig& model_config,
             const PretrainedMetadata& source_metadata,

@@ -40,7 +40,7 @@
  * channel ever reads another, and two convolutions over a partition of the channels compute
  * what one convolution over all of them computes.
  *
- * Inference-only, like the other blocks: implements IDecoderLayer, not forward/backward.
+ * Inference-only, like the other blocks: implements ITransformerBlock, not forward/backward.
  */
 
 module;
@@ -56,7 +56,7 @@ module;
 export module Dnn.Components.QwenDeltaNetBlock;
 
 export import Dnn.Components.QwenConfig;
-export import Dnn.Components.IDecoderLayer;
+export import Dnn.Components.ITransformerBlock;
 
 import Dnn.ITensor;
 import Dnn.Tensor;
@@ -261,9 +261,7 @@ namespace Mila::Dnn
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
               && FeedForwardPrecisionRoles<QwenPrecisionPlanFor<TWeightPlan>>
               && DeltaNetPrecisionRoles<QwenPrecisionPlanFor<TWeightPlan>>
-    class QwenDeltaNetBlock
-        : public CompositeComponent<TDeviceType, TPrecision>,
-          public IDecoderLayer<TDeviceType, TPrecision>
+    class QwenDeltaNetBlock : public CompositeComponent<TDeviceType, TPrecision>, public ITransformerBlock<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
@@ -326,7 +324,7 @@ namespace Mila::Dnn
         dim_t gatingWidth() const noexcept { return config_.getDeltaNetGatingWidth(); }
 
         // ====================================================================
-        // IDecoderLayer -- inference path
+        // ITransformerBlock -- inference path
         // ====================================================================
 
         TensorType& prefill( const TensorType& input, dim_t position_offset ) override
@@ -363,13 +361,13 @@ namespace Mila::Dnn
          * Not a limitation being reported -- a different mechanism. The state is already
          * fixed-size and always live; there is no cache path to support or refuse.
          */
-        bool supportsKVCache() const noexcept override
+        bool supportsKvCache() const noexcept override
         {
             return false;
         }
 
         /// Start a new generation session: drop the recurrent state and the conv window.
-        void resetKVCache() override
+        void resetKvCache() override
         {
             if ( delta_rule_ )
                 delta_rule_->resetState();

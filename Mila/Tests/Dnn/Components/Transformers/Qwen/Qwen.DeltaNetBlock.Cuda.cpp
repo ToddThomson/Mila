@@ -289,7 +289,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
     {
         auto block = builtBlock( seq_ );
 
-        EXPECT_FALSE( block->supportsKVCache() );
+        EXPECT_FALSE( block->supportsKvCache() );
     }
 
     TEST_F( QwenDeltaNetBlockCudaTests, RefusesToRewind )
@@ -424,7 +424,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         EXPECT_EQ( second.shape()[ 2 ], kModelDim );
     }
 
-    TEST_F( QwenDeltaNetBlockCudaTests, ResetKVCacheClearsBothCarriedStates )
+    TEST_F( QwenDeltaNetBlockCudaTests, ResetKvCacheClearsBothCarriedStates )
     {
         const shape_t shape{ batch_, seq_, kModelDim };
 
@@ -436,7 +436,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         block->synchronize();
         auto first = toFloat( first_device );
 
-        block->resetKVCache();
+        block->resetKvCache();
 
         auto& second_device = block->prefill( device_x, 0 );
         block->synchronize();
