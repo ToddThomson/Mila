@@ -239,6 +239,8 @@ namespace Mila::Dnn
             // Default 1.0 (identity) until loaded; without it the residual stream blows up ~18x.
             scale( res2, layer_scalar_, res2, this->getExecutionContext() );
 
+            this->publish( ComputePass::Prefill, "output", res2 );
+
             return res2;
         }
 
@@ -310,6 +312,8 @@ namespace Mila::Dnn
 
             // Gemma 4 Unified per-layer learned output scale (see prefill).
             scale( res2, layer_scalar_, res2, this->getExecutionContext() );
+
+            this->publish( ComputePass::Decode, "output", res2 );
 
             return res2;
         }
@@ -387,6 +391,11 @@ namespace Mila::Dnn
         const ComponentType getType() const override
         {
             return ComponentType::Transformer;
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Prefill, ComputePass::Decode } } };
         }
 
         MemoryStats getMemoryStats() const override

@@ -180,6 +180,8 @@ namespace Mila::Dnn
 
             forward_executed_ = this->isTrainingMode();
 
+            this->publish( ComputePass::Forward, "output", res2_out );
+
             return res2_out;
         }
 
@@ -280,6 +282,8 @@ namespace Mila::Dnn
             auto& res2_out = res2_->forward( res1_out, ffn_out );
             this->getExecutionContext()->synchronize();
 
+            this->publish( ComputePass::Decode, "output", res2_out );
+
             return res2_out;
         }
 
@@ -359,6 +363,11 @@ namespace Mila::Dnn
         const ComponentType getType() const override
         {
             return ComponentType::Transformer;
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward, ComputePass::Decode } } };
         }
 
         MemoryStats getMemoryStats() const override

@@ -401,7 +401,11 @@ namespace Mila::Dnn
             const int64_t B = input.shape()[ 0 ];
             const int64_t T = input.shape()[ 1 ];
 
-            return run( input, B, T, position_offset, /*is_decode*/ false );
+            auto& output = run( input, B, T, position_offset, /*is_decode*/ false );
+
+            this->publish( ComputePass::Prefill, "output", output );
+
+            return output;
         }
 
         TensorType& decode( const TensorType& input, dim_t position ) override
@@ -411,7 +415,11 @@ namespace Mila::Dnn
 
             const int64_t B = input.shape()[ 0 ];
 
-            return run( input, B, 1, position, /*is_decode*/ true );
+            auto& output = run( input, B, 1, position, /*is_decode*/ true );
+
+            this->publish( ComputePass::Decode, "output", output );
+
+            return output;
         }
 
         void setState( const GqaState& state ) override
@@ -484,6 +492,11 @@ namespace Mila::Dnn
         const ComponentType getType() const override
         {
             return ComponentType::Transformer;
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Prefill, ComputePass::Decode } } };
         }
 
         MemoryStats getMemoryStats() const override

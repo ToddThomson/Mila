@@ -332,7 +332,11 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "QwenDeltaNetBlock::prefill: must be built before prefill()." );
 
-            return run( input, input.shape()[ 0 ], input.shape()[ 1 ], position_offset, false );
+            auto& output = run( input, input.shape()[ 0 ], input.shape()[ 1 ], position_offset, false );
+
+            this->publish( ComputePass::Prefill, "output", output );
+
+            return output;
         }
 
         TensorType& decode( const TensorType& input, dim_t position ) override
@@ -340,7 +344,11 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "QwenDeltaNetBlock::decode: must be built before decode()." );
 
-            return run( input, input.shape()[ 0 ], 1, position, true );
+            auto& output = run( input, input.shape()[ 0 ], 1, position, true );
+
+            this->publish( ComputePass::Decode, "output", output );
+
+            return output;
         }
 
         /**
@@ -420,6 +428,11 @@ namespace Mila::Dnn
         const ComponentType getType() const override
         {
             return ComponentType::Transformer;
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Prefill, ComputePass::Decode } } };
         }
 
         MemoryStats getMemoryStats() const override

@@ -23,23 +23,53 @@ being a task list and needs a prune.
 
 ### Models
 
-- [ ] **Make activation probing a library feature, not harness scaffolding.** The Qwen Phase 4
-  work localized a rotary defect to one stage by comparing intermediates against a reference, and
-  every piece of that was built outside `Mila/Src`. A consumer debugging their own model cannot
-  do it. What exists: `LanguageNetwork::setStageProbe` (`LanguageNetwork.ixx:101`) fires per
-  LAYER, and `GemmaModel::fingerprintPrefill` uses it only to find the first NaN. What the
-  investigation actually needed, in order of value:
-  - **Intra-block stages.** The attention block's intermediates were only reachable because the
-    harness owns `QwenAttentionBlockWorkspace`; a model-driven run has no access. DeltaNet blocks
-    self-allocate, so they have none at all — a whole block kind is opaque.
-  - **A probe that can be attached per component**, not just per layer, and that names the stage.
-  - **A comparison target.** The reference arrived as a MILA container, which
-    `PretrainedModelReader` already reads — a reusable "compare activations against this file"
-    path would turn a bespoke test into a tool.
-  Design constraint learned the hard way: a probe must not change what it observes. Reading a
-  workspace slot after `prefill()` returns is safe only because exactly one block is live; a
-  general hook has to state its own lifetime. See `Specifications/Qwen3.8.md` for how the
-  bracketing actually ran, and `Tests/Dnn/Models/QwenModel.Parity.Cuda.cpp` for the shape.
+- [ ] **Observability — carved into v0.20.** A consumer holding a `LanguageModel` cannot reach a
+  composition tree that is otherwise fully public, so every activation investigation in this repo
+  was built as scaffolding outside `Mila/Src`. Design of record is `Specifications/Observability.md`;
+  it supersedes the requirements this item used to carry and names its own boundary.
+  The cost question is **settled**: an unattached publication check is not measurable on
+  `Gelu::forward` (spec section 7, measured 2026-08-25), so the runtime design stands and no
+  compile-time gate is needed. Still owed once instrumentation is real: the section 10 criterion
+  of no movement in decode tok/s on the 27B at 16K.
+- [ ] **`setStageProbe` is undesigned public API and becomes a consumer of the above.**
+  `LanguageModelNetwork.ixx:143`'s default accepts a probe and never fires it, so on Llama and Gpt
+  "not instrumented" and "clean" are indistinguishable — a false negative in a NaN detector. Its one
+  consumer reaches it through `if constexpr ( requires { ... } )`, so a signature change silently
+  stops the probing. `TransformerApiReadiness.md` item 6.
+- [ ] **A test crashes with an illegal memory access when BOTH GPUs are visible, and passes when
+  either one is pinned alone.** `GemmaFootprintCudaTests.GetRequiredMemory_BoundsActualConsumption`
+  dies in `cudaStreamSynchronize` with no `CUDA_VISIBLE_DEVICES` set (reproduced 4x, and on the
+  committed tree, so it is not caused by uncommitted work). Pinning `CUDA_VISIBLE_DEVICES` to the
+  4070 passes; pinning it to the 5060 Ti passes. So it is not architecture — the mere presence of a
+  second visible device changes behaviour, which points at a device-selection defect: something
+  allocates on one device and launches on another. The rest of the suite is unaffected (1778 pass
+  with both visible, excluding this test). Prime suspects are the test's `cudaFree( nullptr )`
+  context priming and `freeDeviceBytes()`/`cudaMemGetInfo`, which read the CURRENT device rather
+  than the model's. Ties to the filed gap that nothing in the tree can select a GPU.
+  `Mila/Tests/Dnn/Models/GemmaModel.Footprint.Cuda.cpp:197`.
+- [ ] **`ExecutionContextFactory.ixx:30-33` uses `#ifdef MILA_HAS_CUDA` inside the module purview.**
+  The guard sits in the exported `createExecutionContext` body, not in the global module fragment,
+  which is the preprocessor-in-module-code pattern the tree rules out; the CUDA arm belongs in a
+  partition or a CMake-selected unit. Found while confirming the factory allocates a fresh context
+  per call.
+- [ ] **"One context, one model tree" is an accident, and observability would make it load-bearing.**
+  Two models cannot share an `IExecutionContext` today — the factory always allocates
+  (`ExecutionContextFactory.ixx:23`), every transformer mints its own, and
+  `Component::setExecutionContext` is protected and throws when already set (`Component.ixx:765`,
+  `:779`). Nothing forbids a future overload accepting a context, which is a reasonable
+  optimization and would silently become a cross-model observation leak. State the contract on
+  `setExecutionContext`. `Specifications/Observability.md` 6.3.
+- [ ] **`Component` documents a compute contract it does not declare.** `Component.ixx:132-133`
+  teaches the lifecycle as "`forward()` requires `build()` to have completed" and "`backward()`
+  requires `isTrainingMode() == true`", and `:728` names both again, but the base declares neither
+  — nor does `CompositeComponent` or `Network`. A reader is given rules anchored to methods that
+  are not on the type. Correct the documentation to describe the concrete methods it means.
+- [ ] **`Component` carries training's bookkeeping without training's act.** `zeroGradients()`
+  (`:362`) and `getGradients()` (`:718`) are on the base; `backward` is not. It fails the way
+  `setStageProbe` does: `Linear::getGradients()` returns empty when gradients were never allocated
+  (`Linear.ixx:524`), so "inference-only" and "training, nothing accumulated yet" are
+  indistinguishable to a caller. `TransformerApiReadiness.md` item 8 made this argument at network
+  level only; the same asymmetry sits one level down.
 
 - [ ] **`GemmaConfig::getRotaryDimForLayer()` is dead library code.** Its only callers are two
   assertions in `Gemma.Config.cpp:183,198`; the block reaches the same value through
@@ -343,6 +373,30 @@ being a task list and needs a prune.
 
 ### Production Hardening
 
+- [ ] **Nothing in the tree can produce a logit at any position but the last, so corpus perplexity —
+  the Phase 5 quality gate — has no path to a number.** All four transformers slice the final position
+  before the head (`Qwen.ixx:293`, `Gemma.ixx:279`, `Llama.ixx:239`, `GptTransformer.ixx:365`) and build
+  `final_rmsnorm`/`lm_head` at T=1 (`Qwen.ixx:574`). Teacher-forced log-likelihood needs every position,
+  and at Qwen's 248320 vocab one BF16 logit row is 0.474 MiB, so the head must be evaluated in bounded
+  sub-chunks inside the prefill loop, which overwrites the block output each chunk. Head width becomes
+  an explicit build parameter carried into `getRequiredMemory`; observability does not remove this and
+  no hook substitutes for it. `Qwen3.8.md:398`, `Observability.md` section 9.
+- [ ] **A logit row is priced two ways and the head-width budget depends on which is right.**
+  `LmHeadLinearType` is `Linear<TDeviceType, TPrecision, ...>` (`Qwen.ixx:174`), making the row BF16 at
+  0.474 MiB, while the comment at `Qwen.ixx:290` prices it FP32 at 0.95 MiB. Confirm before any width
+  default is chosen; one of the two is wrong.
+- [ ] **`Qwen3.8.md` section 8 gates the 16 GiB oracle on token-for-token cross-arch agreement, which
+  cannot pass at any precision.** Measured on Llama 3.2 3B greedy, Ada vs Blackwell: BF16, FP8 and FP4
+  all fork, at a token index set by the prompt rather than the precision. Each card is deterministic
+  run-to-run — this is FP non-associativity between two architectures, not a defect. Restate the gate
+  as teacher-forced (perplexity never samples, so it never hits this).
+- [ ] **No Llama parity test exists** — only Gemma and Qwen have one, and Qwen's needs the 27B
+  artifacts. So the cheapest model that fits both cards cannot be checked against an FP32 reference,
+  which is what would prove neither architecture sits systematically further from ground truth.
+  `Mila/Tests/Dnn/Models/` has the two existing parity tests to copy.
+- [ ] **Every FP4/FP8 perf number in the tree is Ada-at-x16, and the 4070 now sits on a chipset Gen4
+  x4 link.** No baseline was captured before the move, so the published figures carry an unmeasured
+  link change. Re-measure before any of them is quoted again.
 - [ ] **`PerGroupFp4` carries FP32 scales, and the offline tooling simulates FP16 ones.**
   `Policies.ixx:112` sets `kScaleDtype = FP32`; `formats.py`'s `fake_fp4_e2m1` rounds the
   scale through FP16, because Qwen3.8.md section 5 budgets FP4 at 4.125 bits — 4 + 16/128 —
@@ -574,10 +628,11 @@ being a task list and needs a prune.
   for the GPU that built it — and `native` does not resolve on the GPU-less builder a publish job runs
   on. The publish pipeline must set the portable list explicitly; the failure it otherwise ships is
   already in `Docker/README.md`'s troubleshooting section.
-- [ ] **The portable arch list stops before Blackwell.** `Mila/CMakeLists.txt:19` is `75;80;86;89;90`
-  — Turing through Hopper, no `120` — so a published image built with the default excludes every RTX
-  50-series card. Decide before the first push: add `120` and pay the build time and image size, or
-  state the exclusion on the Docker Hub Overview, which is the channel that owns what the image needs.
+- [ ] **The published wheel still stops before Blackwell.** The library default now carries `120`
+  (`Mila/CMakeLists.txt:24`) and the runtime image always did, but the `x64-wheel` and `linux-wheel`
+  presets pin their own `75;80;86;89;90` (`CMakePresets.json:183-184`, `:214-215`), so a `mila-llm`
+  install on an RTX 50-series card JITs from sm_90 PTX at first launch. Adding `120` costs one more
+  full CUDA compile per wheel and a larger artifact; the alternative is saying so on the PyPI page.
 - [ ] **`Docker/build-mis.sh:76` looks broken on the current image, by the defect that just failed
   the runtime build.** It runs `pip install --no-deps -e Mila/Bindings/Package` under the container's
   Python 3.14, and `mila-llm`'s `requires-python` is `>=3.12,<3.14`; `--no-deps` does not suppress
@@ -887,6 +942,10 @@ being a task list and needs a prune.
 
 ### Product Family — Adaptor Validation
 
+- [ ] **Chat cannot choose a GPU.** `ChatConfig` has no device field and the runtime's device string
+  is always resolved as `CUDA:0`, so on the two-card rig the only way to reach the second GPU is
+  `CUDA_VISIBLE_DEVICES=1` in the environment. The library already names devices `CUDA:N`
+  (`CudaDevice.ixx:88`); the gap is that no adaptor setting reaches it.
 - [ ] **`ToolCallParser::parse` routes ANY response containing `[` into the tool-call parser** —
   `Chat.ToolCallParser.ixx:63` uses `response.find( '[' )` where the class's own doc comment at `:35`
   says "Leading `[`" and the nested `parseTagged` path at `:109` tests it correctly. Found on an

@@ -142,10 +142,14 @@ namespace Mila::Dnn
             // result; always return the shape-adjusted view in that case.
             if ( !output_installed_ && input_shape == leading_shape_ )
             {
+                this->publish( ComputePass::Forward, "output", *output_ );
+
                 return *output_;
             }
 
             output_view_ = std::make_unique<TensorType>( output_->view( input_shape ) );
+
+            this->publish( ComputePass::Forward, "output", *output_view_ );
 
             return *output_view_;
         }
@@ -308,11 +312,28 @@ namespace Mila::Dnn
             output_installed_ = true;
         }
 
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            if ( output_ == nullptr )
+            {
+                return {};
+            }
+
+            return { output_.get() };
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward } } };
+        }
+
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;
 
-            // An installed shared output slot is owned and counted by the installer.
+            // An installed shared output slot is owned and counted by the installer -- so
+            // getOutputs() reports a tensor this does not, which is correct for both: one
+            // asks what is produced, the other what is owned.
             if ( output_ != nullptr && !output_installed_ )
             {
                 stats.device_state_bytes += output_->getStorageSize();

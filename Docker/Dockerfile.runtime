@@ -63,13 +63,13 @@ ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 # publish job builds on a GPU-less runner where native does not resolve, and an image is
 # pulled by hardware the builder never saw.
 #
-# The list is deliberately NOT the library's portable 75;80;86;89;90. Every model Mila
-# publishes is FP4, and FP8/FP4 need SM 8.9 or newer, so shipping Turing and Ampere
-# kernels would advertise cards that cannot run anything in the store. Ada (89) is the
-# validated target, Hopper (90) is the datacenter neighbour it costs little to keep, and
-# Blackwell (120) is the consumer generation that the library's own portable list still
-# omits. Each entry is a full compile of the CUDA sources -- this is the dominant build
-# time, and the one number to change if the compatibility promise changes.
+# The list is deliberately NARROWER than the library's portable 75;80;86;89;90;120. Every
+# model Mila publishes is FP4, and FP8/FP4 need SM 8.9 or newer, so shipping Turing and
+# Ampere kernels would advertise cards that cannot run anything in the store. Ada (89) is
+# the validated target, Hopper (90) is the datacenter neighbour it costs little to keep,
+# and Blackwell (120) is the consumer generation. Each entry is a full compile of the CUDA
+# sources -- this is the dominant build time, and the one number to change if the
+# compatibility promise changes.
 ARG MILA_IMAGE_CUDA_ARCHITECTURES="89;90;120"
 
 # Parallelism here is a MEMORY limit, not a core count: the heaviest module TUs cost

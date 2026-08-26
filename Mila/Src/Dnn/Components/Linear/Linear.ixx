@@ -192,6 +192,8 @@ namespace Mila::Dnn
                 result = output_view_.get();
             }
 
+            this->publish( ComputePass::Forward, "output", *result );
+
             return *result;
         }
 
@@ -778,6 +780,21 @@ namespace Mila::Dnn
 
             output_ = std::move( output );
             output_installed_ = true;
+        }
+
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            if ( output_ == nullptr )
+            {
+                return {};
+            }
+
+            return { output_.get() };
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward } } };
         }
 
         MemoryStats getMemoryStats() const override

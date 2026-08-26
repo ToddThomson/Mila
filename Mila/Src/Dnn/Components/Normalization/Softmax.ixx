@@ -157,6 +157,10 @@ namespace Mila::Dnn
             }
 
             operation_->forward( input, output );
+
+            // The buffer belongs to the caller, so getOutputs() has nothing to report between
+            // calls -- but the value that flowed out of this component is still observable.
+            this->publish( ComputePass::Forward, "output", output );
         }
 
         /**
@@ -276,6 +280,11 @@ namespace Mila::Dnn
         DeviceId getDeviceId() const override
         {
             return this->getExecutionContext()->getDeviceId();
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward } } };
         }
 
         MemoryStats getMemoryStats() const override

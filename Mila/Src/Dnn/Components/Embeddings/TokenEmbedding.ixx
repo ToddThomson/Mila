@@ -224,6 +224,8 @@ namespace Mila::Dnn
                 scale( *current_output_view_, config_.getEmbeddingScale(), *current_output_view_,
                     this->getExecutionContext() );
 
+            this->publish( ComputePass::Forward, "output", *current_output_view_ );
+
             return *current_output_view_;
         }
 
@@ -492,6 +494,21 @@ namespace Mila::Dnn
         int64_t getEmbeddingDim() const noexcept
         {
             return config_.getEmbeddingDim();
+        }
+
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            if ( output_ == nullptr )
+            {
+                return {};
+            }
+
+            return { output_.get() };
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward } } };
         }
 
         MemoryStats getMemoryStats() const override

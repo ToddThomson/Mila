@@ -156,7 +156,11 @@ namespace Mila::Dnn
 
             operation_->forward( input, *owned_output_ );
 
-            return resolveOutputView( input.shape() );
+            auto& output = resolveOutputView( input.shape() );
+
+            this->publish( ComputePass::Forward, "output", output );
+
+            return output;
         }
 
         /**
@@ -219,13 +223,19 @@ namespace Mila::Dnn
                 positional_op_->decode( input, *owned_decode_output_, position );
                 decode_active_ = true;
 
+                this->publish( ComputePass::Decode, "output", *owned_decode_output_ );
+
                 return *owned_decode_output_;
             }
 
             // Fallback -- CpuMultiHeadAttentionOp or cache not yet initialized.
             operation_->forward( input, *owned_output_ );
 
-            return resolveOutputView( input.shape() );
+            auto& output = resolveOutputView( input.shape() );
+
+            this->publish( ComputePass::Decode, "output", output );
+
+            return output;
         }
 
         /**
@@ -287,6 +297,28 @@ namespace Mila::Dnn
         dim_t parameterCount() const override
         {
             return 0;
+        }
+
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            std::vector<const ITensor*> outputs;
+
+            if ( owned_output_ != nullptr )
+            {
+                outputs.push_back( owned_output_.get() );
+            }
+
+            if ( owned_decode_output_ != nullptr )
+            {
+                outputs.push_back( owned_decode_output_.get() );
+            }
+
+            return outputs;
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward, ComputePass::Decode } } };
         }
 
         MemoryStats getMemoryStats() const override

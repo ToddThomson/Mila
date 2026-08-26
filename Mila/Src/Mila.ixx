@@ -56,6 +56,7 @@ export import Compute.OperationType;
 // ====================================================================
 // Compute - Execution Context
 // ====================================================================
+export import Compute.Observation;
 export import Compute.IExecutionContext;
 export import Compute.ExecutionContextFactory;
 

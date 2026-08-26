@@ -189,7 +189,11 @@ namespace Mila::Dnn
             }
 
             operation_->forward( input, *output_view_ );
-            
+
+            // The live narrowed view, never the built ceiling in output_ -- a wider earlier
+            // call leaves stale values in its tail.
+            this->publish( ComputePass::Forward, "output", *output_view_ );
+
             return *output_view_;
         }
 
@@ -420,6 +424,21 @@ namespace Mila::Dnn
         DeviceId getDeviceId() const override
         {
             return this->getExecutionContext()->getDeviceId();
+        }
+
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            if ( output_ == nullptr )
+            {
+                return {};
+            }
+
+            return { output_.get() };
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward } } };
         }
 
         /**

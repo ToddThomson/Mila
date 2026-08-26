@@ -532,11 +532,6 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-        IExecutionContext* getExecutionContext() const
-        {
-            return NetworkBase::getExecutionContext();
-        }
-
         /**
          * @brief Initialize this transformer's components from a GPT-2 checkpoint.
          *

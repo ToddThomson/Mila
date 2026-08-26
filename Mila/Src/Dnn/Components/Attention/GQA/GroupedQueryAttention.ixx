@@ -184,6 +184,9 @@ namespace Mila::Dnn
             }
 
             operation_->forward( input, *output_view_ );
+
+            this->publish( ComputePass::Forward, "output", *output_view_ );
+
             return *output_view_;
         }
 
@@ -257,7 +260,9 @@ namespace Mila::Dnn
             }
 
             positional_op_->prefill( q, k, v, *output_view_, position_offset );
-            
+
+            this->publish( ComputePass::Prefill, "output", *output_view_ );
+
             return *output_view_;
         }
 
@@ -290,6 +295,8 @@ namespace Mila::Dnn
             {
                 positional_op_->decode( q, k, v, *decode_output_, position_offset );
                 decode_active_ = true;
+
+                this->publish( ComputePass::Decode, "output", *decode_output_ );
 
                 return *decode_output_;
             }
@@ -510,6 +517,29 @@ namespace Mila::Dnn
             }
 
             return stats;
+        }
+
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            std::vector<const ITensor*> outputs;
+
+            if ( output_ != nullptr )
+            {
+                outputs.push_back( output_.get() );
+            }
+
+            if ( decode_output_ != nullptr )
+            {
+                outputs.push_back( decode_output_.get() );
+            }
+
+            return outputs;
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output",
+                ComputePassMask{ ComputePass::Forward, ComputePass::Prefill, ComputePass::Decode } } };
         }
 
         MemoryStats getMemoryStats() const override

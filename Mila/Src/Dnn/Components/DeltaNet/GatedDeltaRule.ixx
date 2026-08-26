@@ -116,21 +116,11 @@ namespace Mila::Dnn
         TensorType& forward( const TensorType& q, const TensorType& k, const TensorType& v,
             const TensorType& a, const TensorType& b )
         {
-            if ( !this->isBuilt() )
-            {
-                throw std::runtime_error( "GatedDeltaRule::forward: must be built before use." );
-            }
+            auto& output = run( q, k, v, a, b );
 
-            const auto& v_shape = v.shape();
+            this->publish( ComputePass::Forward, "output", output );
 
-            if ( output_view_->shape() != v_shape )
-            {
-                output_view_.emplace( output_->view( v_shape ) );
-            }
-
-            operation_->forward( q, k, v, a, b, *state_, *output_view_ );
-
-            return *output_view_;
+            return output;
         }
 
         TensorType& prefill( const TensorType& q, const TensorType& k, const TensorType& v,
@@ -141,13 +131,21 @@ namespace Mila::Dnn
                 resetState();
             }
 
-            return forward( q, k, v, a, b );
+            auto& output = run( q, k, v, a, b );
+
+            this->publish( ComputePass::Prefill, "output", output );
+
+            return output;
         }
 
         TensorType& decode( const TensorType& q, const TensorType& k, const TensorType& v,
             const TensorType& a, const TensorType& b, dim_t /*position*/ )
         {
-            return forward( q, k, v, a, b );
+            auto& output = run( q, k, v, a, b );
+
+            this->publish( ComputePass::Decode, "output", output );
+
+            return output;
         }
 
         /// Zero the recurrent state. The next chunk starts a fresh sequence.
@@ -283,6 +281,22 @@ namespace Mila::Dnn
         const ComponentType getType() const override
         {
             return ComponentType::GatedDeltaRule;
+        }
+
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            if ( output_ == nullptr )
+            {
+                return {};
+            }
+
+            return { output_.get() };
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output",
+                ComputePassMask{ ComputePass::Forward, ComputePass::Prefill, ComputePass::Decode } } };
         }
 
         MemoryStats getMemoryStats() const override
@@ -426,6 +440,33 @@ namespace Mila::Dnn
         }
 
     private:
+
+        /**
+         * @brief The recurrence itself, shared by forward, prefill and decode.
+         *
+         * Separate so each entry point can publish under its own compute pass; the three
+         * differ only in state handling and in what they report, not in the work.
+         */
+        TensorType& run( const TensorType& q, const TensorType& k, const TensorType& v,
+            const TensorType& a, const TensorType& b )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "GatedDeltaRule: must be built before use." );
+            }
+
+            const auto& v_shape = v.shape();
+
+            if ( output_view_->shape() != v_shape )
+            {
+                output_view_.emplace( output_->view( v_shape ) );
+            }
+
+            operation_->forward( q, k, v, a, b, *state_, *output_view_ );
+
+            return *output_view_;
+        }
+
         using OpType = typename OperationTraits<OperationType::GatedDeltaRuleOp, TDeviceType, TPrecision>::type;
 
         GatedDeltaRuleConfig config_;

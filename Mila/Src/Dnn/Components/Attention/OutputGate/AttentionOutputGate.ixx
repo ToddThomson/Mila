@@ -146,6 +146,8 @@ namespace Mila::Dnn
 
             multiply( *output_view_, value, *output_view_, this->getExecutionContext() );
 
+            this->publish( ComputePass::Forward, "output", *output_view_ );
+
             return *output_view_;
         }
 
@@ -204,6 +206,21 @@ namespace Mila::Dnn
 
             output_ = std::move( output );
             output_installed_ = true;
+        }
+
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            if ( output_ == nullptr )
+            {
+                return {};
+            }
+
+            return { output_.get() };
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward } } };
         }
 
         MemoryStats getMemoryStats() const override

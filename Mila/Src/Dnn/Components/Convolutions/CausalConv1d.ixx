@@ -105,7 +105,11 @@ namespace Mila::Dnn
          */
         TensorType& prefill( const TensorType& input, dim_t position_offset )
         {
-            return run( input, position_offset > 0 );
+            auto& output = run( input, position_offset > 0 );
+
+            this->publish( ComputePass::Prefill, "output", output );
+
+            return output;
         }
 
         /**
@@ -118,7 +122,11 @@ namespace Mila::Dnn
          */
         TensorType& decode( const TensorType& input, dim_t /*position*/ )
         {
-            return run( input, /*use_state*/ true );
+            auto& output = run( input, /*use_state*/ true );
+
+            this->publish( ComputePass::Decode, "output", output );
+
+            return output;
         }
 
         /// Drop the retained rows. The next prefill starts a fresh sequence.
@@ -271,6 +279,21 @@ namespace Mila::Dnn
         const ComponentType getType() const override
         {
             return ComponentType::CausalConv1d;
+        }
+
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            if ( output_ == nullptr )
+            {
+                return {};
+            }
+
+            return { output_.get() };
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Prefill, ComputePass::Decode } } };
         }
 
         MemoryStats getMemoryStats() const override

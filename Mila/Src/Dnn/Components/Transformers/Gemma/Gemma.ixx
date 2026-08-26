@@ -579,11 +579,6 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-        IExecutionContext* getExecutionContext() const
-        {
-            return NetworkBase::getExecutionContext();
-        }
-
         void loadParameters( PretrainedModelReader& reader )
         {
             tie_word_embeddings_ = reader.getPretrainedMetadata().tie_word_embeddings;

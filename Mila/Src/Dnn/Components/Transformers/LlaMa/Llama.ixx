@@ -496,11 +496,6 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-        IExecutionContext* getExecutionContext() const
-        {
-            return NetworkBase::getExecutionContext();
-        }
-
         void loadParameters( PretrainedModelReader& reader )
         {
             const int device_index = this->getExecutionContext()->getDeviceId().index;

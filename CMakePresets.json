@@ -100,6 +100,26 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
     {
+      "name": "x64-release-ada",
+      "displayName": "x64 Release (single arch: Ada sm_89 - the RTX 4070)",
+      "description": "x64-release pinned to ONE architecture for fast iteration on the Ada card. The default builds the full portable list (75;80;86;89;90;120) and every entry is a complete compile of the CUDA sources, so pinning is the difference between a six-arch fat binary and the one cubin this rig runs. Use for day-to-day work on the 4070; use x64-release before believing anything about portability.",
+      "inherits": "x64-release",
+      "cacheVariables": {
+        "CMAKE_CUDA_ARCHITECTURES": "89",
+        "MILA_LIBRARY_CUDA_ARCHITECTURES": "89"
+      }
+    },
+    {
+      "name": "x64-release-blackwell",
+      "displayName": "x64 Release (single arch: Blackwell sm_120 - the RTX 5060 Ti)",
+      "description": "The x64-release-ada counterpart for the Blackwell card. Pinning to 120 also makes the build PROVE it targeted sm_120: a binary from the portable list runs on Blackwell either way, natively or by JIT from sm_90 PTX, and the two are indistinguishable at the prompt. Anything measured on the 5060 Ti and called a Blackwell number should come from this preset. Requires CUDA 13.x; nothing in Mila emits sm_120 instructions yet.",
+      "inherits": "x64-release",
+      "cacheVariables": {
+        "CMAKE_CUDA_ARCHITECTURES": "120",
+        "MILA_LIBRARY_CUDA_ARCHITECTURES": "120"
+      }
+    },
+    {
       "name": "x64-profile",
       "displayName": "x64 Profile",
       "description": "Target Windows (64-bit). Optimized build with device line info for Nsight profiling. (RelWithDebInfo)",

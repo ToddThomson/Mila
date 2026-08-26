@@ -11,12 +11,17 @@ add_library( Mila STATIC )
 # CUDA architectures the Mila library target is compiled for. The default is a
 # portable fat binary spanning every supported arch, so a find_package consumer's
 # Mila.lib runs on any of them. This is a target property, so it overrides any global
-# CMAKE_CUDA_ARCHITECTURES -- which is why the library always built all five arches
+# CMAKE_CUDA_ARCHITECTURES -- which is why the library always builds the whole list
 # regardless of a caller's -DCMAKE_CUDA_ARCHITECTURES. A local build that targets one
 # known GPU (the devcontainer/WSL convenience path, or any single-card dev build) can
 # pin a single arch for a much faster build via -DMILA_LIBRARY_CUDA_ARCHITECTURES=89.
 # Opt-in: the default is unchanged, so releases and packaged consumers stay portable.
-set(MILA_LIBRARY_CUDA_ARCHITECTURES "75;80;86;89;90" CACHE STRING
+#
+# 120 is Blackwell consumer (RTX 50-series). It is listed so those cards get native
+# cubin rather than a PTX JIT from 90 at first launch; nothing in Mila uses sm_120
+# instructions yet. Each added arch costs .cu compile time, so pin a single arch when
+# iterating on one card.
+set(MILA_LIBRARY_CUDA_ARCHITECTURES "75;80;86;89;90;120" CACHE STRING
     "CUDA architectures for the Mila library target (default: portable fat binary)")
 
 set_target_properties( Mila PROPERTIES
@@ -267,6 +272,7 @@ PUBLIC
         "Src/Dnn/Compute/DeviceId.ixx"
 
         "Src/Dnn/Compute/ExecutionContext.Template.ixx"
+        "Src/Dnn/Compute/Observation.ixx"
         "Src/Dnn/Compute/ExecutionContext.ixx"
         "Src/Dnn/Compute/IExecutionContext.ixx"
         "Src/Dnn/Compute/ExecutionContextFactory.ixx"
