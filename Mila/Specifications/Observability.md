@@ -466,10 +466,11 @@ So item 9 additionally needs **head width as an explicit build parameter, carrie
 here, and it survives all of them unchanged. Qwen has already paid twice for memory that a
 build consumed and a prediction did not name; an unpredicted head buffer would be the third.
 
-One number to settle before choosing a default width: `LmHeadLinearType` is
-`Linear<TDeviceType, TPrecision, ...>` (`Qwen.ixx:174`), which makes a logit row BF16 —
-248320 x 2 = 0.474 MiB. The comment at `Qwen.ixx:290` prices the same row at FP32, 0.95 MiB.
-The whole width budget is sized against this, and the two disagree by a factor of two.
+The number the width budget is sized against is **0.474 MiB per row**: `LmHeadLinearType` is
+`Linear<TDeviceType, TPrecision, ...>` (`Qwen.ixx:174`) and `Linear::TensorType` is
+`Tensor<TComputePrecision, MR>`, so the row is BF16 — 248320 x 2. Nothing downstream upcasts
+it; the sampler reduces the BF16 row on device. An earlier comment at `Qwen.ixx:290` priced
+the same row at FP32 and has been corrected.
 
 ## 10. Boundary
 
@@ -493,10 +494,44 @@ through compute* is what stops this becoming a general event bus.
 
 ## 11. Open decisions and rejected alternatives
 
-- **Naming.** `publishActivation` / `getObservableStages` / `describe` are placeholders.
-- **Path matching.** Exact paths only, or patterns. `findComponent` already does exact.
-  Interacts with 6.3's filter-at-attach rule: patterns are resolved once, so their cost lands
-  at attachment rather than on every publication.
+- ~~**Naming.**~~ **Settled by what shipped.** `+25` landed `publish` and
+  `getObservableStages`; the walk is `observe`, which is what this document already called it.
+  `describe` was never built and is not needed by any consumer.
+- ~~**Path matching.**~~ **Decided: glob with `*`** (2026-08-26). Resolved once by
+  `CompositeComponent::observe`, so publication still matches nothing at run time and 6.3's
+  filter-at-attach rule holds. Deliberately not regular expressions: `*` covers every pattern
+  the three named consumers need -- one component (`"*.lm_head"`), a family of layers
+  (`"*.blk_*"`), the whole tree (`"*"`) -- and a richer syntax would be a vocabulary to learn
+  for no consumer that exists. `findComponent`'s exact resolution is untouched and still
+  serves parameter loading.
+
+### 11.2 The walk, and why it landed late (2026-08-26)
+
+`observe( pattern, passes, sink )` on `CompositeComponent`, forwarded by `LanguageModel`
+alongside `stopObserving()` and `componentPaths()`. It returns the **match count**, and that
+return is load-bearing: a pattern matching nothing is, downstream, indistinguishable from a
+run with nothing to report -- the same false negative this document criticizes `setStageProbe`
+for (6.x, 10).
+
+**What its absence cost, recorded because the failure is instructive.** Publication shipped in
+`+25` without this walk. The first real consumer -- the Qwen 3.8 item 9 gate, which wanted
+last-position logits -- could not reach `lm_head` from outside the model, because the network
+sits behind a protected accessor. It bolted a `LanguageModel::lastPositionLogits` onto the
+model instead: a second door beside the missing one, narrower, answering exactly one question
+where the walk answers all of them. **The accessor has been deleted.** The gate now reads its
+logits by observing `"*.lm_head"` and taking the first publication of a `generate()` call,
+which is the prefill's, and it reproduces every number the accessor produced to four decimal
+places.
+
+The lesson is about sequencing, not design: a mechanism without its door does not get used,
+it gets routed around. Ship the attach path with the publication next time.
+
+**Reading VALUES from a published tensor needs the concrete type back.** The sink receives
+`const ITensor&`, whose `rawData()` is type-erased, so a consumer that wants numbers rather
+than shapes does a `dynamic_cast` to `Tensor<TPrecision, MR>` and its own `toHost`. That works
+and is what both consumers do, but it means every value-reading sink has to name the model's
+compute precision. Whether observation should offer a typed convenience is a v0.21 question;
+the capability is present either way.
 - ~~**Does a component's signature become part of its contract?**~~ **Decided: deferred to
   v0.21** — see 11.1, which also corrects the failure history originally cited for it.
 - **`ROADMAP.md`.** v0.20 currently reads as a hardening release. A headline model plus a new

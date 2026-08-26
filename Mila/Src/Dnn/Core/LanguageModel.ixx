@@ -8,6 +8,7 @@
  */
 module;
 #include <vector>
+#include <algorithm>
 #include <span>
 #include <unordered_set>
 #include <memory>
@@ -25,6 +26,7 @@ export module Dnn.LanguageModel;
 import Dnn.Model;
 import Dnn.LanguageModelNetwork;
 import Dnn.Tensor;
+import Dnn.TensorOps;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
@@ -34,7 +36,10 @@ import Dnn.SamplingParams;
 import Dnn.GenerateStatus;
 import Dnn.Samplers.TokenSampler;
 import Dnn.Samplers.SamplingConfig;
+import Compute.Device;
 import Compute.DeviceType;
+import Compute.Observation;
+import Compute.CpuMemoryResource;
 import Compute.DeviceTypeTraits;
 import Dnn.LanguageModelConfig;
 import Serialization.SafeTensors;
@@ -87,6 +92,58 @@ namespace Mila::Dnn
             std::stop_token stop = {} )
         {
             return onGenerating( prompt_tokens, on_token, params, stop );
+        }
+
+        // ====================================================================
+        // Observation
+        // ====================================================================
+
+        /**
+         * @brief Watch activations flowing through matching components on matching passes.
+         *
+         * The consumer's door onto observation. Every component already publishes on every
+         * inference pass, but publication is gated per component and the network is behind a
+         * protected accessor, so without this a caller cannot reach in -- which is how the
+         * first consumer ended up with a purpose-built accessor bolted onto this class
+         * instead of using the machinery that was already there.
+         *
+         * `pattern` is a component path with `*` matching any run of characters. What the
+         * paths are is answerable: see componentPaths().
+         *
+         * @code
+         * model->observe( "*.lm_head", ComputePassMask::inference(),
+         *     []( std::string_view path, ComputePass pass, std::string_view stage,
+         *         const ITensor& value )
+         *     {
+         *         // BORROWED and stream-ordered -- copy it here or synchronize yourself.
+         *     } );
+         * @endcode
+         *
+         * The tensor handed to the sink is borrowed for the duration of the call and ordered
+         * on the publishing component's stream, not valid on the host. Publication never
+         * synchronizes, because synchronizing is the clearest way for a probe to change what
+         * it is observing.
+         *
+         * @return How many components matched. **Check it** -- zero means nothing will
+         *         publish, and downstream that is indistinguishable from a clean run.
+         */
+        size_t observe( std::string_view pattern,
+            Compute::ComputePassMask passes,
+            Compute::ActivationObserver sink )
+        {
+            return this->getNetwork().observe( pattern, passes, std::move( sink ) );
+        }
+
+        /// Detach every observer and clear the sink. A probe that outlives its question costs.
+        void stopObserving()
+        {
+            this->getNetwork().stopObserving();
+        }
+
+        /// Every observable component path, for choosing a pattern or diagnosing a zero.
+        std::vector<std::string> componentPaths() const
+        {
+            return this->getNetwork().componentPaths();
         }
 
         /**

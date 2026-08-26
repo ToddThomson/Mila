@@ -226,6 +226,36 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Teacher-forced log-likelihood of a token sequence -- the perplexity path.
+         *
+         * Reports the probability the model assigned to each token given the ones before it.
+         * Nothing is sampled, so the result depends only on the model and the text, which is
+         * what makes it comparable between two quantizations of the same weights.
+         *
+         * Perplexity over a corpus is exp( -total_log_probability / scored_positions ) after
+         * summing several of these. Segment the corpus and sum, rather than averaging each
+         * segment, or a short segment weighs as much as a long one.
+         *
+         * Needs a deployment built with withLanguageModelHeadPositions() above 1 to run at a
+         * sensible rate; at the default of 1 it works and costs one head pass per token.
+         *
+         * @param tokens A single sequence, at least 2 tokens, no longer than contextLength().
+         */
+        SequenceLogLikelihood scoreTokens( const std::vector<int32_t>& tokens )
+        {
+            if ( tokens.size() > static_cast<size_t>( contextLength() ) )
+            {
+                throw std::invalid_argument( std::format(
+                    "QwenModel::scoreTokens: sequence of {} tokens exceeds the context length {}",
+                    tokens.size(), contextLength() ) );
+            }
+
+            auto device_tokens = makeTokenTensor( tokens );
+
+            return this->getNetwork().scoreTokens( device_tokens );
+        }
+
+        /**
          * @brief False, always: this stack cannot reuse a prompt prefix.
          *
          * Stated as a model property rather than left for a caller to discover through a
@@ -449,9 +479,16 @@ namespace Mila::Dnn
          * two this family invented. Routing Qwen through it would either widen a shared table
          * with a family's types or silently build the wrong body.
          *
-         * Only two plans are reachable, and that is the point rather than a limitation: the
-         * uniform FP4/FP8 modes are not "Qwen at lower precision", they are a different
-         * allocation than the one this chassis is designed around, and no artifact carries them.
+         * Three plans are reachable, and the third is a measurement rather than a deployment.
+         * Uniform FP4 is not "Qwen at lower precision" in any sense the chassis is designed
+         * around -- it spends 4.125 bits everywhere, 12.31 GiB of weights, and does not fit
+         * the 12 GiB target card. It exists because Section 5's exit criterion is a RATIO:
+         * the 2.82-bit allocation has to be measured against a near-lossless build of the
+         * same weights on the same corpus, and that oracle is what the 16 GiB card is for
+         * (Qwen3.8.md, "The 16 GiB oracle"). It loads from the reference BF16 blob and
+         * quantizes on the way in, so no artifact needs to carry it.
+         *
+         * Uniform FP8 stays refused. Nothing measures against it and it fits no card here.
          */
         template<typename TResult, typename TAction>
         static TResult dispatchQwenWeightPlan(
@@ -463,6 +500,18 @@ namespace Mila::Dnn
             {
                 case WeightQuantization::None:
                     return action.template operator()<QwenReferencePrecisionPlan>();
+
+                case WeightQuantization::FP4:
+                    if constexpr ( TPrecision == TensorDataType::BF16 )
+                    {
+                        return action.template operator()<QwenOraclePrecisionPlan>();
+                    }
+                    else
+                    {
+                        throw std::runtime_error( std::format(
+                            "{}: the FP4 oracle quantizes BF16 weights on load and requires "
+                            "BF16 compute precision", caller ) );
+                    }
 
                 case WeightQuantization::Plan:
                     if constexpr ( TPrecision == TensorDataType::BF16 )
@@ -478,9 +527,10 @@ namespace Mila::Dnn
 
                 default:
                     throw std::runtime_error( std::format(
-                        "{}: this chassis loads Qwen at reference precision or under its own "
-                        "per-role plan. A uniform FP4/FP8 body is a different allocation than "
-                        "Section 5's, and no artifact carries it", caller ) );
+                        "{}: this chassis loads Qwen at reference precision, under its own "
+                        "per-role plan, or at uniform FP4 as the Section 5 oracle. A uniform "
+                        "FP8 body is a different allocation than Section 5's, nothing measures "
+                        "against it, and no artifact carries it", caller ) );
             }
         }
 
@@ -500,6 +550,12 @@ namespace Mila::Dnn
             const auto& metadata = reader.getPretrainedMetadata();
 
             QwenConfig network_config = configFromMetadata( metadata );
+
+            // A deployment choice rather than checkpoint geometry, so it is applied AFTER the
+            // metadata: the artifact says how wide the vocabulary is, the caller says how many
+            // rows of it this deployment needs at once.
+            network_config.withLanguageModelHeadPositions(
+                model_config.getLanguageModelHeadPositions() );
 
             validateArtifact( "QwenModel::fromPretrained", path, reader, model_config,
                 network_config );
@@ -544,6 +600,12 @@ namespace Mila::Dnn
             const auto& metadata = reader.getPretrainedMetadata();
 
             QwenConfig network_config = configFromMetadata( metadata );
+
+            // A deployment choice rather than checkpoint geometry, so it is applied AFTER the
+            // metadata: the artifact says how wide the vocabulary is, the caller says how many
+            // rows of it this deployment needs at once.
+            network_config.withLanguageModelHeadPositions(
+                model_config.getLanguageModelHeadPositions() );
 
             validateArtifact( "QwenModel::getDeploymentFootprint", path, reader, model_config,
                 network_config );
@@ -615,16 +677,27 @@ namespace Mila::Dnn
             // blob decoded through a codebook, produce a model that loads and runs and is
             // wrong. An empty string means an unquantized artifact -- the reader normalizes
             // the writer's "none" to empty -- so the two spellings compare as one.
+            //
+            // The one asymmetry is deliberate: a BF16 artifact IS a valid source for a
+            // derivable format, because the load computes those scales from the weights --
+            // which is what this family already does for its attention and head projections
+            // inside the packed artifact. Refusing it would put the Phase 5 FP4 oracle
+            // (uniform PerGroupFp4 over the reference blob) behind a repack that could only
+            // reproduce what the load does anyway. A quantized artifact must still match
+            // exactly, in either direction.
             const std::string& artifact_quantization = reader.getWeightQuantization();
-            const std::string requested =
-                weightQuantizationName( model_config.getWeightQuantization() );
+            const WeightQuantization requested_quantization = model_config.getWeightQuantization();
+            const std::string requested = weightQuantizationName( requested_quantization );
 
             const bool artifact_is_quantized = !artifact_quantization.empty();
-            const bool build_is_quantized =
-                model_config.getWeightQuantization() != WeightQuantization::None;
+            const bool build_is_quantized = requested_quantization != WeightQuantization::None;
 
-            if ( artifact_is_quantized != build_is_quantized
-                || ( artifact_is_quantized && artifact_quantization != requested ) )
+            const bool quantizes_on_load = !artifact_is_quantized
+                && isDerivableFromReferenceWeights( requested_quantization );
+
+            if ( !quantizes_on_load
+                && ( artifact_is_quantized != build_is_quantized
+                    || ( artifact_is_quantized && artifact_quantization != requested ) ) )
             {
                 throw std::runtime_error( std::format(
                     "{}: artifact '{}' is stored as '{}' but this load requested '{}'. A "

@@ -610,6 +610,149 @@ namespace Mila::Tests::Dnn::Quantization
             200, 512, 8, 20260904u, 70u * 1024, 80, 40 );
     }
 
+    namespace
+    {
+        /**
+         * @brief The same claim on the W4A8-FP8 prefill, which is a DIFFERENT striped path.
+         *
+         * FP4 does not reach runStagedPrefill: with kUseFp8ActivationPrefill on it takes the
+         * W4A8 path, which expands to FP8 rather than BF16 and had its own unstriped
+         * expansion of the whole weight matrix until 2026-08-26. The language-model head is
+         * the shape that made that fatal -- 248320 x 5120 is 1212.5 MiB of staging asked for
+         * whatever the row count -- and it went unseen because prefill evaluates the head at
+         * exactly one position, which takes the decode matvec and never arrives here.
+         *
+         * Bitwise, not a tolerance, for the reason the codebook version gives: each output
+         * channel is a dot product over exactly one strip and is never summed across strips,
+         * so striping may move where the expanded weights live and must not touch the
+         * arithmetic. A tolerance would also pass on a version that split the CONTRACTION,
+         * which is the mistake this shape of striping exists to avoid.
+         *
+         * Weights are quantized by the op's own kernel rather than packed here: the nibble
+         * order and scale convention are defined only by that kernel, and a second definition
+         * in a test would be a second thing to keep right.
+         */
+        void runFp8StripedPrefillMatchesUnstriped(
+            dim_t rows, dim_t columns, unsigned seed,
+            std::size_t stagingCap, dim_t expectedStripRows, dim_t expectedTrailingRows )
+        {
+            using Fp4Policy = PerGroupFp4<128>;
+            using Fp4Op = CudaLinearOp<TensorDataType::BF16, Fp4Policy>;
+
+            constexpr dim_t kGroupSize = Fp4Policy::kQuantizationGroupSize;
+            constexpr dim_t kBatchRows = 16;
+
+            auto context = makeContextOrSkip();
+
+            if ( context == nullptr )
+                GTEST_SKIP() << "CUDA device not available";
+
+            std::mt19937 generator( seed );
+            std::normal_distribution<float> distribution( 0.0f, 1.0f );
+
+            std::vector<std::uint16_t> weight_bits(
+                static_cast<std::size_t>( rows ) * static_cast<std::size_t>( columns ) );
+
+            for ( auto& bits : weight_bits )
+            {
+                bits = static_cast<std::uint16_t>(
+                    std::bit_cast<std::uint32_t>( distribution( generator ) ) >> 16 );
+            }
+
+            const std::size_t weight_bytes = weight_bits.size() * sizeof( std::uint16_t );
+
+            HostFp32 host_input( Device::Cpu(), shape_t{ kBatchRows, columns } );
+
+            for ( dim_t m = 0; m < kBatchRows; ++m )
+                for ( dim_t k = 0; k < columns; ++k )
+                    host_input.data()[ m * columns + k ] = distribution( generator );
+
+            DeviceBf16 batch_input( Device::Cuda( 0 ), shape_t{ kBatchRows, columns } );
+            copy( host_input, batch_input, context.get() );
+            context->synchronize();
+
+            const auto runWithCap = [&]( std::size_t cap, dim_t* stripRows, dim_t* trailingRows )
+            {
+                LinearConfig config( columns, rows );
+                config.withBias( false );
+
+                Tensor<TensorDataType::UINT8, CudaDeviceMemoryResource> packed(
+                    Device::Cuda( 0 ), shape_t{ rows, columns / 2 } );
+                Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> scales(
+                    Device::Cuda( 0 ), shape_t{ rows, columns / kGroupSize } );
+
+                Fp4Op op( context.get(), config, cap );
+
+                op.setParameters( &packed, nullptr );
+                op.setWeightScales( &scales );
+                op.build( BuildContext( shape_t{ kBatchRows, columns }, RuntimeMode::Inference, false ) );
+
+                *stripRows = op.getStripRows();
+                *trailingRows = op.getTrailingStripRows();
+
+                // After build, as Linear does it: quantize() writes the packed codes, the
+                // group scales AND the static FP8 weight scale the plan's A_SCALE points at.
+                Serialization::TensorMetadata meta{
+                    TensorDataType::BF16, shape_t{ rows, columns }, weight_bytes };
+                Serialization::TensorBlobView blob( meta, weight_bits.data(), weight_bytes );
+
+                op.quantize( blob, packed, scales, shape_t{ rows, columns } );
+                context->synchronize();
+
+                DeviceBf16 batch_output( Device::Cuda( 0 ), shape_t{ kBatchRows, rows } );
+                op.forward( batch_input, batch_output );
+                context->synchronize();
+
+                auto host = toHost<TensorDataType::FP32>( batch_output, context.get() );
+                context->synchronize();
+
+                return std::vector<float>( host.data(),
+                    host.data() + static_cast<std::size_t>( kBatchRows * rows ) );
+            };
+
+            dim_t wholeStrip = 0, wholeTrailing = 0;
+            const std::vector<float> unstriped =
+                runWithCap( std::size_t( 1 ) << 40, &wholeStrip, &wholeTrailing );
+
+            EXPECT_EQ( wholeStrip, rows ) << "a cap this large must not stripe at all";
+
+            dim_t stripRows = 0, trailingRows = 0;
+            const std::vector<float> striped = runWithCap( stagingCap, &stripRows, &trailingRows );
+
+            EXPECT_EQ( stripRows, expectedStripRows );
+            EXPECT_EQ( trailingRows, expectedTrailingRows );
+            ASSERT_GT( rows, stripRows ) << "the cap must actually force more than one strip";
+
+            ASSERT_EQ( unstriped.size(), striped.size() );
+
+            for ( dim_t m = 0; m < kBatchRows; ++m )
+                for ( dim_t row = 0; row < rows; ++row )
+                {
+                    const std::size_t index = static_cast<std::size_t>( m * rows + row );
+
+                    EXPECT_EQ( std::bit_cast<std::uint32_t>( striped[ index ] ),
+                        std::bit_cast<std::uint32_t>( unstriped[ index ] ) )
+                        << "batch row " << m << ", output " << row
+                        << " (strip " << ( row / stripRows ) << ")";
+                }
+        }
+    }
+
+    // 256 x 512 is 256 KiB staged whole in BF16 accounting; a 70 KiB cap asks for four
+    // strips and divides evenly.
+    TEST( CodebookLinearOpCuda, Fp4StripedFp8PrefillMatchesUnstriped )
+    {
+        runFp8StripedPrefillMatchesUnstriped( 256, 512, 20260905u, 70u * 1024, 64, 64 );
+    }
+
+    // 208 rows over strips of 80 leaves a trailing 48 -- the case needing its own plan and a
+    // shorter final expansion, and the one where an output_row_stride mistake shows up as
+    // channels written to the wrong columns rather than as a crash.
+    TEST( CodebookLinearOpCuda, Fp4StripedFp8PrefillHandlesARaggedTrailingStrip )
+    {
+        runFp8StripedPrefillMatchesUnstriped( 208, 512, 20260906u, 70u * 1024, 80, 48 );
+    }
+
     TEST( CodebookLinearOpCuda, TwoBitPrefillAndDecodeMatchCodec )
     {
         runPrefillAndDecodeAgainstCodec<PerGroupCodebook2<32>>( 256, 512, 4, 20260825u );

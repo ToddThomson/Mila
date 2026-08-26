@@ -269,9 +269,9 @@ speed-limited, which is why margin goes to bits rather than to bandwidth tricks.
 
 Two implementation constraints follow directly and are easy to get wrong:
 
-1. **Prefill must compute logits for the last position only.** At 248,320 vocabulary a single
-   FP32 logit row is 0.95 MiB; a 512-token chunk that materialized all of them would allocate
-   0.48 GiB.
+1. **Prefill must compute logits for the last position only.** The head emits the compute
+   precision, so at 248,320 vocabulary a single BF16 logit row is 0.474 MiB; a 512-token chunk
+   that materialized all of them would allocate 0.237 GiB.
 2. **The FFN must never expand a whole weight matrix to BF16 at once.** Dequantizing one
    5120x17408 matrix is 170 MiB, against the 461 MiB this section allots to all activations
    and scratch. Either the fused tile-load path or a **striped** two-phase pass satisfies
@@ -402,6 +402,167 @@ Ordered by dependency, not priority. Nothing here is scheduled.
    position, which is exactly what the Section 5 prefill constraint forbids materializing at
    once, so the evaluation accumulates log-likelihood chunk by chunk. Independently useful
    for Gemma and Llama.
+   *Built on Qwen:* `LanguageModelNetwork::scoreTokens` returns a `SequenceLogLikelihood`
+   (summed log-probability plus the count of scored positions, reported separately so a
+   corpus divides once). `QwenTransformer` implements it by evaluating the head in windows of
+   `QwenConfig::withLanguageModelHeadPositions` rows inside the prefill chunk loop, reducing
+   each window before the next overwrites it. The width defaults to 1 -- the one row
+   generation reads -- and `resolveLanguageModelHeadPositions` bounds it by the prefill chunk
+   for both `build()` and `getRequiredMemory()`, so a scoring build cannot allocate a head the
+   prediction never named. It is a run capacity and deliberately absent from `toMetadata()`.
+   The oracle is the generation path itself: scoring position p must equal what a prefill of
+   tokens[0..p] says about token p+1, which is what pins the target alignment.
+   **The gate is measured and PASSES** (2026-08-25). `DISABLED_QualityGateAcrossContextLengths`
+   runs both arms at three context lengths over the same ~31,650 positions of wikitext-2 test,
+   head width 1, each cell its own deployment, all six on the 5060 Ti pinned by UUID:
+
+   | Context | Oracle 4.125 b | Plan 2.82 b | Ratio |
+   |---------|----------------|-------------|-------|
+   | 4096    | 6.439          | 7.089       | 1.101 |
+   | 8192    | 6.126          | 6.704       | 1.094 |
+   | 16384   | 5.686          | 6.478       | **1.139** |
+
+   **1.139 at 16K against a threshold of 1.25** set before this table was read. A separate
+   1024-token run measured 1.137 (6.606 / 7.513) over a different, shorter span of the corpus,
+   so its absolute figures do not belong in the table -- but its ratio says the same thing.
+   Across 1024 to 16384 the ratio is flat at 1.09-1.14: **the gap does not widen with context**,
+   which was the specific failure this sweep existed to catch.
+
+   Two readings the table earns beyond the pass:
+
+   - **Both arms improve with context** -- the oracle from 6.439 to 5.686, the plan from 7.089
+     to 6.478. Long-context prediction is working on both, which is a load-bearing sanity check
+     on the DeltaNet stack independent of quantization.
+   - **The quantized arm captures about half the benefit of the extra context.** From 8K to
+     16K the oracle improves 7.2% and the plan 3.4%, which is why the ratio ticks up at the
+     last row. Mild, non-monotonic (4K to 8K moved the other way), and well inside the
+     threshold -- but it is the compounding signature the recurrent layers make plausible, and
+     it points the same way at every larger context. **Re-run this gate before any 32K claim.**
+
+   Cost of record: 33 minutes for six loads and ~190,000 scored positions.
+
+   **The other two criteria** (`DISABLED_DivergenceAgainstTheOracle`, both arms, one card,
+   greedy, six fixed prompts, 128-token budget):
+
+   | Prompt                        | Diverges at | KL(oracle\|\|plan) | Top-1 |
+   |-------------------------------|-------------|--------------------|-------|
+   | The capital of France is      | 38          | 0.1463             | same  |
+   | In 1969, humans first walked  | 1           | 0.1609             | same  |
+   | def fibonacci(n):             | 28          | 0.2957             | same  |
+   | list vs tuple in Python       | 1           | 0.0157             | same  |
+   | Once upon a time...           | 0           | 0.5494             | DIFF  |
+   | Summarize in one sentence     | >=9 (to EOS)| 0.0066             | same  |
+
+   Mean KL **0.196 nats**, top-1 agreement 5 of 6.
+
+   **The logit divergence is the informative half, and it corroborates the perplexity gate.**
+   0.196 nats against the 0.130 that ln(1.139) implies is the same order from an independent
+   measurement. The two prompts where the arms behave most differently are narrative (0.549,
+   and the only top-1 disagreement) and code (0.296) -- the first because creative
+   continuation is a field of near-ties where any perturbation flips the argmax, the second
+   because code is the prompt class where the plan is furthest from the oracle while still
+   agreeing on the next token.
+
+   **The divergence index is descriptive only, and is REPLACED as evidence by trajectory
+   cost.** A bare index cannot discriminate: greedy decoding is chaotic, and this project has
+   already measured two *same-precision* builds forking the same way (Llama 3.2 3B, Ada
+   against Blackwell: BF16, FP8 and FP4 all fork, at a token index set by the prompt rather
+   than the precision). The criterion is now: **take each arm's greedy continuation, score
+   both teacher-forced under the ORACLE over the same token count, and report what the plan's
+   road gives up in nats per token.** The prompt is common to both and cancels.
+
+   | Prompt                        | Forks at | KL(o\|\|p) | Plan cost/token |
+   |-------------------------------|----------|------------|-----------------|
+   | The capital of France is      | 38       | 0.1463     | 0.0517          |
+   | In 1969, humans first walked  | 1        | 0.1609     | **-0.0508**     |
+   | def fibonacci(n):             | 28       | 0.2957     | 0.1643          |
+   | list vs tuple in Python       | 1        | 0.0157     | 0.2582          |
+   | Once upon a time...           | 0        | 0.5494     | 0.2540          |
+   | Summarize in one sentence     | >=9      | 0.0066     | 0.0000          |
+
+   **Mean trajectory cost 0.1129 nats/token.** Two rows make the case for the change on their
+   own: *"In 1969"* and *"list vs tuple"* both fork at token 1, and one costs **-0.051** while
+   the other costs **+0.258**. Identical index, opposite meaning. The negative is not an
+   error -- greedy is locally, not globally, optimal, so the plan's road can lead somewhere the
+   oracle scores above its own continuation, and when it does the fork was noise. Only the
+   MEAN is asserted non-negative for that reason. *"Summarize"* costs exactly zero: both arms
+   produced the same nine tokens to EOS.
+
+   **Three independent measurements now agree**: 0.130 nats implied by the perplexity ratio
+   over ~31,650 positions, 0.113 from generated trajectories, and 0.196 from KL at the prompt
+   boundary. The first two are the same kind of quantity and land within 15% of each other.
+   The KL is the outlier and the reason is visible in the table -- it reads a single position
+   right after a short prompt, where context is thinnest. Note it also does not track the
+   trajectory cost per prompt: *"list vs tuple"* has the LOWEST KL and the HIGHEST cost. Strong
+   agreement about the next token does not imply the road stays close, which is the second
+   argument for measuring trajectories rather than positions.
+
+   **What this rules out.** Cost per generated token (0.113) does not exceed what per-token
+   prediction predicts (0.130), so quantization damage does not compound along a 128-token
+   greedy generation beyond the per-token rate. That is direct evidence against the runaway
+   the 48 recurrent layers make plausible -- at this length.
+
+   The test split is load-bearing: the packer calibrates on `wiki.train.raw`, so scoring on
+   that text would measure memorization of the calibration set. The protocol -- segmentation,
+   head width, corpus -- is part of the measurement, and so is the card: the two GPUs disagree
+   in the last digits (7.506 on the 4070, 7.513 on the 5060 Ti), which is float
+   non-associativity between architectures and not a defect, so a ratio built from two cards
+   is not a measurement. The figures are tokenizer-dependent and comparable only to another
+   Mila run under this protocol.
+
+   The FP4 oracle needed one loader change to become reachable: `dispatchQwenWeightPlan` had
+   refused every uniform mode, and `validateArtifact` had refused a BF16 artifact for any
+   quantized build. The second refusal was too broad -- FP4 and FP8 are DERIVED from the
+   weights at load, which this family already does for its own attention and head projections,
+   while a plan's codebooks are FITTED offline and genuinely cannot be recovered. The oracle
+   now loads from the reference blob with no repack.
+
+   *Still open:* the head runs at width 1 only (see below); the reduction is on the host and
+   dominates a corpus run; and the other three families still build their heads at T=1, so
+   only Qwen can be scored.
+
+   **The head could not be evaluated at more than one position until 2026-08-26, and the
+   reason is worth keeping.** At `outer_size > 1` a `PerGroupFp4` Linear takes the W4A8-FP8
+   prefill path, which upcast the whole weight matrix into scratch unstriped: for the head,
+   248320 x 5120 = 1212.5 MiB asked for whether the caller wanted 8 output rows or 512. It did
+   not fit beside the model and aborted with no diagnostic. This was the Section 5 constraint
+   above being broken -- by the head rather than the FFN the constraint was written for, and
+   invisibly, because prefill evaluates the head at exactly one position, which takes the
+   decode matvec and never reaches that path. Teacher-forced scoring was the first caller to
+   ask for more.
+
+   **Fixed by capping every packed format's staging at 256 MiB and striping the W4A8 path**,
+   which `runStagedPrefill` already did for the codebook and FP8 per-channel policies. The cap
+   is a no-op for every shape previously measured -- the 27B's feed-forward matrices are
+   178 MiB and still expand in one pass -- and forces the head into ten strips. Striping the
+   FP8 path additionally needed `build_fp8_prefill_plan` to accept an output row stride;
+   `build_linear_plan` rejects that parameter on its own quantized branch reasoning that C is
+   column-major, which does not follow, since column-major C carries a leading dimension as
+   naturally as row-major. Pinned bitwise, striped against unstriped, including a ragged
+   trailing strip.
+
+   The head now runs at width 64: perplexity 7.515 against 7.513 at width 1, and 220
+   positions/s against 156 -- only 1.4x, because the head was never what scoring spends its
+   time on.
+
+   **Where it does go, measured** (`DISABLED_ScoringCostBreakdown`, packed 27B, 7443 positions,
+   baseline = a one-token generate over the same segment):
+
+   | Component                          | Time   | Share |
+   |------------------------------------|--------|-------|
+   | Model forward (prefill)            | 23.2 s | 68%   |
+   | Everything scoring adds            | 11.0 s | 32%   |
+
+   Within that 11 s the transfer is not a factor -- 3.7 GB of logit rows is about 0.3 s -- and
+   the host `exp` loop is essentially all of it, its 9.2 s prediction landing on 11.0 s
+   measured. **So a device-side reduction is capped at 1.45x and is not worth building.** The
+   cheap version, parallelising the host loop across cores, captures most of the same 11 s in
+   a few lines with no kernel and no numerics risk.
+
+   The number that matters more is the 68%: scoring is dominated by prefill, and prefill on
+   this model still runs the DeltaNet recurrence sequentially because the chunked UT-transform
+   kernel does not exist. That one kernel owns two thirds of every scoring run, on top of
+   being what Section 8 item 5 says the 27B is not shippable without.
 
 ### Phasing
 
@@ -472,6 +633,29 @@ rate measured against the 47 tok/s ceiling, and quality measured against the 16 
 oracle below — corpus perplexity ratio, the divergence point of matched greedy generations,
 and last-position logit divergence on a fixed prompt set. The Section 9 quality question
 gets its first real answer here, and only here.
+
+**The perplexity threshold: the ratio must stay under 1.25 at 16K**, the context length the
+model is sold at, on the wikitext-2 test split under the protocol item 9 defines. Two things
+about how that number was chosen, because a gate settled after the fact is not a gate:
+
+- **It was written down before the sweep that tests it was read.** The 1024-token ratio
+  (1.137) was known; whether the gap widens with context was not, and widening is the failure
+  this threshold exists to catch. 1.25 leaves the measured 1024 figure roughly half its
+  distance to the line, so a gap that grows by half again with context still passes and one
+  that doubles does not.
+- **It is a ratio against FP4, not against BF16**, because a BF16 27B fits no card here. FP4
+  is not free, so the true distance from reference precision is larger than any number this
+  gate reports. Do not quote the ratio as the cost of quantization; it is the cost of the last
+  1.3 bits.
+
+Failing it does not condemn the allocation — Section 9's first lever is recalibrating on
+prose plus code rather than wikitext alone, and a re-pack is 50 minutes. It condemns
+*shipping* the allocation unexamined, which is the whole point of writing a number down.
+
+**Perplexity is the floor of this gate, not its ceiling.** It is prose next-token accuracy,
+which is the property a quantized model keeps longest; instruction-following, tool calls and
+long-horizon coherence degrade earlier and are not measured here (the Phase 0 caveats say the
+same). A pass on 1.25 licenses "the allocation is sound", never "the model is undamaged".
 
 **Phase 6 — stretch** (item 7 plus margin). FP8 KV cache; spend the freed margin per
 Section 9 — bits or 32K; snapshot/restore prompt caching, recorded in `PromptCaching.md`.

@@ -119,6 +119,41 @@ namespace Mila::Dnn
      */
     export using QwenReferencePrecisionPlan = QwenUniformPrecisionPlan<NoWeightQuant>;
 
+    /**
+     * @brief The Section 5 oracle: FP4 across the body, everything else as the plan has it.
+     *
+     * The near-lossless arm of the Phase 5 quality gate. 4.125 bits everywhere the plan
+     * quantizes, 12.31 GiB of weights -- past the 12 GiB target card and onto the 16 GiB one,
+     * which is what that card is for ("The 16 GiB oracle").
+     *
+     * NOT `QwenUniformPrecisionPlan<PerGroupFp4<128>>`, and the difference is the point. A
+     * true uniform lift would also quantize the two roles the plan deliberately leaves alone,
+     * and both refuse: `TokenEmbedding` static-asserts that a table policy is per-channel and
+     * that a host-resident table is stored at compute precision. Those refusals are correct
+     * -- the table is a gather over PCIe, never a multiply -- and the measurement wants them
+     * anyway. Two arms that differ in their embedding AND their body do not attribute a
+     * perplexity gap to either.
+     *
+     * DeltaNetGating stays BF16 for the same reason it does in the plan: error in the forget
+     * gate compounds exponentially over the sequence, so quantizing 0.1% of the parameters
+     * would put the oracle's own quality in question.
+     */
+    export struct QwenOraclePrecisionPlan
+    {
+        using QkvProjection = PerGroupFp4<128>;
+        using OutputProjection = PerGroupFp4<128>;
+
+        using FeedForwardGateUp = PerGroupFp4<128>;
+        using FeedForwardDown = PerGroupFp4<128>;
+
+        using DeltaNetQueryKey = PerGroupFp4<128>;
+        using DeltaNetValueGateOutput = PerGroupFp4<128>;
+        using DeltaNetGating = NoWeightQuant;
+
+        using EmbeddingTable = NoWeightQuant;
+        using LanguageModelHead = PerGroupFp4<128>;
+    };
+
     namespace QwenPlanDetail
     {
         // Bool selector rather than a constrained partial specialization, for the reason
@@ -167,4 +202,9 @@ namespace Mila::Dnn
     static_assert( DeltaNetPrecisionRoles<QwenReferencePrecisionPlan> );
     static_assert( EmbeddingPrecisionRole<QwenReferencePrecisionPlan> );
     static_assert( LanguageModelHeadRole<QwenReferencePrecisionPlan> );
+
+    static_assert( DecoderPrecisionPlan<QwenOraclePrecisionPlan> );
+    static_assert( DeltaNetPrecisionRoles<QwenOraclePrecisionPlan> );
+    static_assert( EmbeddingPrecisionRole<QwenOraclePrecisionPlan> );
+    static_assert( LanguageModelHeadRole<QwenOraclePrecisionPlan> );
 }

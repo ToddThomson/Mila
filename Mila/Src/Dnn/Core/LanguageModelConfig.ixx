@@ -134,6 +134,28 @@ namespace Mila::Dnn
         }
     }
 
+    /**
+     * @brief True when a load can derive this format from reference weights.
+     *
+     * The distinction the artifact check turns on. FP4 and FP8 are computed from the weights
+     * at load time -- absmax scales and a format-defined level table -- so a BF16 artifact is
+     * a legitimate source for them, and every family already relies on that: Qwen's own
+     * packed artifact carries codebook tensors only and quantizes its attention and head
+     * projections on load (Qwen3.8.md section 8).
+     *
+     * A plan's codebooks are the opposite case. They are FITTED offline against calibration
+     * data, so nothing in a BF16 tensor recovers them and the artifact must carry them.
+     *
+     * Refusing both alike would be the safe-looking answer and the wrong one: it would make a
+     * uniform FP4 build of any family unreachable without a repack that adds nothing, which
+     * is exactly what the Phase 5 FP4 oracle needs to load.
+     */
+    export inline bool isDerivableFromReferenceWeights( WeightQuantization quantization )
+    {
+        return quantization == WeightQuantization::FP4
+            || quantization == WeightQuantization::FP8;
+    }
+
     // =========================================================================
     // KvCacheCompression
     // =========================================================================
@@ -215,6 +237,34 @@ namespace Mila::Dnn
             }
 
             context_length_ = context_length;
+            return static_cast<TDerived&>(*this);
+        }
+
+        /**
+         * @brief Positions the language-model head evaluates per pass. Default 1.
+         *
+         * Generation reads a logit only at the final position, which is what the default
+         * pays for. Teacher-forced scoring needs one at every position, and a whole prefill
+         * chunk of logit rows does not fit -- at a 248,320 vocabulary a BF16 row is
+         * 0.474 MiB -- so a scoring deployment raises this to the number of rows it can
+         * afford and the head is evaluated in windows of that width.
+         *
+         * Sizes buffers at build time exactly as withContextLength does, and like it,
+         * describes the deployment rather than the checkpoint. Families that have not
+         * implemented scoring ignore it.
+         *
+         * @param positions  Head width in positions. Must be > 0.
+         * @throws std::invalid_argument if positions is zero.
+         */
+        TDerived& withLanguageModelHeadPositions( dim_t positions )
+        {
+            if ( positions <= 0 )
+            {
+                throw std::invalid_argument(
+                    "LanguageModelConfig: language_model_head_positions must be greater than zero" );
+            }
+
+            language_model_head_positions_ = positions;
             return static_cast<TDerived&>(*this);
         }
 
@@ -324,6 +374,11 @@ namespace Mila::Dnn
             return context_length_;
         }
 
+        dim_t getLanguageModelHeadPositions() const noexcept
+        {
+            return language_model_head_positions_;
+        }
+
         WeightQuantization getWeightQuantization() const noexcept
         {
             return weight_quantization_;
@@ -372,7 +427,8 @@ namespace Mila::Dnn
             result += "  context_length:      " + std::to_string( context_length_ ) + "\n";
             result += "  weight_quantization: " + weightQuantStr( weight_quantization_ ) + "\n";
             result += "  kv_cache_compression:" + kvCacheStr( kv_cache_compression_ ) + "\n";
-            
+            result += "  lm_head_positions:   " + std::to_string( language_model_head_positions_ ) + "\n";
+
             return result;
         }
 
@@ -385,5 +441,8 @@ namespace Mila::Dnn
         dim_t              context_length_{ 0 };
         WeightQuantization weight_quantization_{ WeightQuantization::None };
         KvCacheCompression kv_cache_compression_{ KvCacheCompression::None };
+
+        // 1 is what generation reads; only a scoring deployment raises it.
+        dim_t              language_model_head_positions_{ 1 };
     };
 }

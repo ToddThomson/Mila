@@ -217,14 +217,26 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * the output channels in strips instead, which is bit-identical (see
          * runStagedPrefill) and costs about 1.2x at six strips.
          *
-         * Only the codebook formats set a real cap today. FP8 and FP4 keep the unlimited
-         * default, so their prefill is byte-for-byte what it was before these paths were
-         * merged -- capping them is a VRAM-for-throughput trade that has not been measured
-         * on their shapes yet, and is now this one constant rather than a second operation.
+         * FP8 and FP4 were left UNBOUNDED on the reasoning that capping them was an
+         * unmeasured VRAM-for-throughput trade. That reasoning held only because nobody had
+         * run the one matrix big enough to break it. **The language-model head is that
+         * matrix**: at Qwen 3.8's 248320 x 5120 an unstriped expansion is 1212.5 MiB of FP8
+         * staging -- asked for whether the caller wants 8 output rows or 512 -- which does not
+         * fit beside the model and aborts. It went unseen because prefill evaluates the head
+         * at exactly one position, which takes the decode matvec and never reaches here;
+         * teacher-forced scoring was the first caller to ask for more (Qwen3.8.md section 8).
+         *
+         * So every packed format is capped now. 256 MiB is chosen to be a no-op for every
+         * shape already measured -- the 27B's feed-forward matrices are 178 MiB and still
+         * expand in one pass, bit-identical to before -- while forcing the head to walk its
+         * output channels in strips. A cap that changes no working shape and fixes the broken
+         * one is not a trade.
+         *
+         * The budget is accounted in BF16 bytes whatever the staging dtype actually is, so
+         * the FP8 paths come in at half their allowance. Conservative in the safe direction.
          */
-        static constexpr std::size_t kUnboundedStaging = ~static_cast<std::size_t>( 0 );
         static constexpr std::size_t kMaxStagingBytes =
-            kIsCodebookWeight ? 32ull * 1024 * 1024 : kUnboundedStaging;
+            kIsCodebookWeight ? 32ull * 1024 * 1024 : 256ull * 1024 * 1024;
 
         /// Strip widths are tensor-core tile aligned along N so cuBLASLt is not handed a ragged shape.
         static constexpr int kStripAlignment = 16;
@@ -632,7 +644,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 weight_group_size_ = TWeightQuant::kQuantizationGroupSize;
             }
 
-            if constexpr ( kUsesStagedPrefill )
+            if constexpr ( kUsesStagedPrefill || kUseFp8ActivationPrefillPath )
             {
                 planStripWidths();
             }
@@ -778,7 +790,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         const int plan_rows =
                             fp8_forward_plan_cache_.bucketFor( static_cast<int>( outer_size ) );
 
-                        const size_t weight_fp8_bytes = static_cast<size_t>( out_features_ )
+                        // ONE STRIP of output channels, not the whole matrix. Unstriped, the
+                        // head asks for 1212.5 MiB here regardless of how many rows the
+                        // caller wants -- see kMaxStagingBytes.
+                        const size_t weight_fp8_bytes = static_cast<size_t>( strip_rows_ )
                             * static_cast<size_t>( cached_in_features_ );
                         const size_t weight_fp8_bytes_aligned =
                             ( weight_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
@@ -796,15 +811,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         auto* activation_token_scales = reinterpret_cast<float*>(
                             scratch + weight_fp8_bytes_aligned + activation_fp8_bytes_aligned );
 
-                        cuda_fp4_dequantize_to_fp8(
-                            weight_fp8,
-                            weight_,
-                            weight_scales_,
-                            weight_fp8_scale_,
-                            out_features_, cached_in_features_,
-                            weight_group_size_,
-                            stream );
-
+                        // Once for the pass: the activation quantization does not depend on
+                        // which output channels are being computed.
                         cuda_quantize_bf16_to_fp8_per_token(
                             activation_fp8,
                             activation_token_scales,
@@ -815,18 +823,46 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         const float alpha = 1.0f;
                         const float beta  = 0.0f;
 
-                        execute_fp8_prefill_plan<TComputePrecision>(
-                            cached_cublaslt_handle_,
-                            fp8_forward_plan_cache_.get( outer_size ),
-                            &alpha,
-                            weight_fp8,
-                            activation_fp8,
-                            &beta,
-                            output_ptr,
-                            stream,
-                            context_->getCublasLtWorkspace(),
-                            context_->getCublasLtWorkspaceSize() );
+                        for ( int begin = 0; begin < out_features_; begin += strip_rows_ )
+                        {
+                            const int rows = std::min( strip_rows_, out_features_ - begin );
 
+                            // The expansion kernel addresses its planes relative to row 0 of
+                            // the pointers it is handed, so a strip needs only the row offset
+                            // folded in and its own row count -- the same property
+                            // dequantizeStrip relies on for the BF16 formats.
+                            cuda_fp4_dequantize_to_fp8(
+                                weight_fp8,
+                                weight_ + static_cast<ptrdiff_t>( begin )
+                                    * ( cached_in_features_ / kElementsPerStorageByte ),
+                                weight_scales_ + static_cast<ptrdiff_t>( begin )
+                                    * ( cached_in_features_ / weight_group_size_ ),
+                                weight_fp8_scale_,
+                                rows, cached_in_features_,
+                                weight_group_size_,
+                                stream );
+
+                            const auto& cache = ( rows != strip_rows_ )
+                                ? fp8_trailing_plan_cache_ : fp8_forward_plan_cache_;
+
+                            // output_ptr + begin with the plan's ldc set to out_features_:
+                            // column-major C with a leading dimension writes this strip's
+                            // channels into their columns of the full row-major output.
+                            execute_fp8_prefill_plan<TComputePrecision>(
+                                cached_cublaslt_handle_,
+                                cache.get( outer_size ),
+                                &alpha,
+                                weight_fp8,
+                                activation_fp8,
+                                &beta,
+                                output_ptr + begin,
+                                stream,
+                                context_->getCublasLtWorkspace(),
+                                context_->getCublasLtWorkspaceSize() );
+                        }
+
+                        // After every strip: the per-token scales and the bias apply to the
+                        // whole output row, not to one strip of it.
                         cuda_fp8_apply_per_token_scales(
                             output_ptr,
                             activation_token_scales,
@@ -1140,6 +1176,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         using Fp8LinearPlan = CublasLtLinearPlan<TComputePrecision, TensorDataType::FP8_E4M3>;
         std::conditional_t<kUseFp8ActivationPrefillPath,
             CublasLtPlanCache<Fp8LinearPlan>, std::monostate> fp8_forward_plan_cache_;
+
+        // The narrower last strip, when out_features_ is not a whole number of them. Mirrors
+        // trailing_plan_cache_ on the BF16-staged path; a copy of the forward cache when the
+        // strips come out even, so the forward loop can select without a special case.
+        std::conditional_t<kUseFp8ActivationPrefillPath,
+            CublasLtPlanCache<Fp8LinearPlan>, std::monostate> fp8_trailing_plan_cache_;
 
         CublasLtPlanCache<CublasLtMatMulPlan<ComputeType>> backward_input_plan_cache_;
         CublasLtMatMulPlan<ComputeType> backward_weight_plan_;
@@ -1508,22 +1550,36 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     // applied post-GEMM (Ada cuBLASLt accepts only per-tensor scale pointers).
                     ensureFp8ScaleScalarsAllocated();
 
-                    fp8_forward_plan_cache_ = CublasLtPlanCache<Fp8LinearPlan>(
-                        cached_outer_size_,
-                        [&]( int bucket )
+                    // One plan per strip width. The output_row_stride argument is what makes a
+                    // strip addressable: without it every plan would write its channels to
+                    // column 0 of the output.
+                    auto makeFp8Cache = [&]( int strip_rows )
                         {
-                            return build_fp8_prefill_plan<TComputePrecision>(
-                                cached_cublaslt_handle_,
-                                bucket,
-                                cached_in_features_,
-                                out_features_,
-                                activation_fp8_unit_scale_,
-                                weight_fp8_scale_ );
-                        } );
+                            return CublasLtPlanCache<Fp8LinearPlan>(
+                                cached_outer_size_,
+                                [&, strip_rows]( int bucket )
+                                {
+                                    return build_fp8_prefill_plan<TComputePrecision>(
+                                        cached_cublaslt_handle_,
+                                        bucket,
+                                        cached_in_features_,
+                                        strip_rows,
+                                        activation_fp8_unit_scale_,
+                                        weight_fp8_scale_,
+                                        out_features_ );
+                                } );
+                        };
+
+                    fp8_forward_plan_cache_ = makeFp8Cache( strip_rows_ );
+                    fp8_trailing_plan_cache_ = ( trailing_strip_rows_ != strip_rows_ )
+                        ? makeFp8Cache( trailing_strip_rows_ )
+                        : makeFp8Cache( strip_rows_ );
 
                     Logging::Logger::info( std::format(
-                        "CudaLinearOp: FP4->FP8 upcast + FP8xFP8 cuBLASLt GEMM (W4A8) -- {} in -> {} out (group_size={})",
-                        cached_in_features_, out_features_, weight_group_size_ ) );
+                        "CudaLinearOp: FP4->FP8 upcast + FP8xFP8 cuBLASLt GEMM (W4A8) -- {} in -> {} out "
+                        "(group_size={}, strip={}{})",
+                        cached_in_features_, out_features_, weight_group_size_, strip_rows_,
+                        ( strip_rows_ == out_features_ ) ? ", single pass" : "" ) );
 
                     return;
                 }

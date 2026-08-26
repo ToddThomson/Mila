@@ -25,6 +25,28 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Compute;
 
     /**
+     * @brief Teacher-forced log-likelihood of a token sequence under a model.
+     *
+     * The two fields are reported separately rather than pre-averaged because the caller
+     * usually sums several sequences before dividing: perplexity over a corpus is
+     * exp( -total_log_probability / total_scored_positions ), and averaging per sequence
+     * first would weight a short sequence like a long one.
+     *
+     * Accumulated in double. Per-position log-probabilities are small negative numbers and a
+     * corpus contributes tens of thousands of them, so the running total is where precision
+     * is actually at risk -- not in any single term.
+     */
+    export struct SequenceLogLikelihood
+    {
+        /// Summed natural log of the probability the model assigned to each actual next token.
+        double total_log_probability{ 0.0 };
+
+        /// Positions that contributed. One less than the sequence length: the first token has
+        /// no preceding context, so nothing predicts it.
+        dim_t scored_positions{ 0 };
+    };
+
+    /**
      * @brief The type erasure boundary between a language model and its transformer.
      *
      * A concrete transformer is templated on its weight-quantization and KV-cache policies,
@@ -189,6 +211,33 @@ namespace Mila::Dnn
          * reuse capability); a full prefill positionally overwrites regardless,
          * so a refused or partial rewind never needs cleanup.
          */
+        /**
+         * @brief Teacher-forced scoring: how well the model predicted a sequence it is given.
+         *
+         * Runs the sequence through the prefill path and, at every position, reads the
+         * probability the model assigned to the token that actually came next. Nothing is
+         * sampled and nothing is generated, so the result is a property of the model and the
+         * text alone -- which is what makes it usable as a quality measure between two
+         * quantizations of the same weights.
+         *
+         * Distinct from prefill() rather than an option on it: prefill returns logits for one
+         * position and its callers sample that row, so widening what prefill returns would
+         * silently move which row a sampler reads.
+         *
+         * Requires a head built wide enough to evaluate more than the final position -- see
+         * the family's head-width configuration. Implemented by QwenTransformer; the other
+         * families throw until their heads take a width.
+         *
+         * @param input Token indices [1, T], T >= 2. Batching is not supported: the targets
+         *              are the sequence's own next tokens, so two sequences in one call would
+         *              need per-row lengths the shape cannot carry.
+         */
+        virtual SequenceLogLikelihood scoreTokens( const TokenIndexType& input )
+        {
+            ( void )input;
+            throw std::logic_error( "LanguageModelNetwork::scoreTokens: not supported by this network" );
+        }
+
         virtual bool rewindKvCache( dim_t position )
         {
             // NOTE: there is deliberately no resetKvCache counterpart. Starting a prefill at

@@ -23,10 +23,16 @@
 #include <gtest/gtest.h>
 #include <cuda_runtime.h>
 #include <filesystem>
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <chrono>
 #include <cstdint>
 #include <format>
+// C stdio rather than <fstream>: including any input-stream header in a TU that does
+// `import Mila;` leaves std::basic_istream::sentry incomplete, and the failure surfaces
+// inside <istream> rather than at the include.
+#include <cstdio>
 #include <iostream>
 #include <memory>
 #include <set>
@@ -264,6 +270,394 @@ namespace Mila::Tests::Dnn::Models
             {
                 GTEST_SKIP() << "Packed Qwen artifact not present at: " << artifact_.string();
             }
+        }
+
+        /**
+         * @brief Tokenize the held-out corpus. Empty when the corpus or tokenizer is absent.
+         *
+         * wikitext-2 TEST, and the split matters: the packer calibrates on wiki.train.raw, so
+         * scoring the model on that text would measure how well it memorized its own
+         * calibration set. The corpus directory is gitignored -- a download, not a repository
+         * artifact -- hence the Shakespeare fallback and the empty return.
+         */
+        std::vector<int32_t> loadCorpusTokens( dim_t token_budget, dim_t context_length,
+            fs::path& corpus_path )
+        {
+            const fs::path tokenizer_path =
+                fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_tokenizer.bin";
+
+            if ( !fs::exists( tokenizer_path ) )
+            {
+                return {};
+            }
+
+            const fs::path repository_root = fs::path( TEST_DATA_DIR ).parent_path();
+
+            const fs::path candidates[] = {
+                repository_root / "Mila" / "Tools" / "Quantization" / "corpus" / "wiki.test.raw",
+                fs::path( TEST_DATA_DIR ) / "datasets" / "Shakespeare" / "raw" / "TinyShakespeare.txt"
+            };
+
+            corpus_path.clear();
+
+            for ( const fs::path& candidate : candidates )
+            {
+                if ( fs::exists( candidate ) )
+                {
+                    corpus_path = candidate;
+                    break;
+                }
+            }
+
+            if ( corpus_path.empty() )
+            {
+                return {};
+            }
+
+            std::FILE* corpus_file = std::fopen( corpus_path.string().c_str(), "rb" );
+
+            if ( corpus_file == nullptr )
+            {
+                return {};
+            }
+
+            // Four characters per token is a deliberate over-read: encoding more text than the
+            // budget needs and truncating is correct, while under-reading would silently score
+            // fewer positions than asked for.
+            std::string text( static_cast<size_t>( token_budget ) * 4, '\0' );
+            const size_t characters_read = std::fread( text.data(), 1, text.size(), corpus_file );
+            std::fclose( corpus_file );
+
+            text.resize( characters_read );
+
+            auto tokenizer = Mila::Data::BpeTokenizer::loadQwen( tokenizer_path );
+            auto tokens = tokenizer->encode( text );
+
+            if ( tokens.size() <= static_cast<size_t>( context_length ) )
+            {
+                return {};
+            }
+
+            if ( tokens.size() > static_cast<size_t>( token_budget ) )
+            {
+                tokens.resize( static_cast<size_t>( token_budget ) );
+            }
+
+            return tokens;
+        }
+
+        /// One arm of the gate at one segment length.
+        struct ArmResult
+        {
+            double perplexity{ 0.0 };
+            double mean_negative_log_probability{ 0.0 };
+            dim_t  scored_positions{ 0 };
+            double elapsed_seconds{ 0.0 };
+        };
+
+        /**
+         * @brief Score a token stream under one deployment.
+         *
+         * Shared by both arms so the protocol cannot drift between them: the comparison is
+         * only meaningful if segmentation, head width and corpus are identical and the
+         * allocation is the only difference.
+         */
+        ArmResult scoreCorpus( const fs::path& artifact, const QwenModelConfig& model_config,
+            const std::vector<int32_t>& tokens, dim_t context_length )
+        {
+            // Announced because the oracle arm reads a 50 GiB blob and is otherwise silent
+            // for half a minute before any progress is visible.
+            std::cout << "  loading " << artifact.filename().string()
+                << " at context " << context_length << " ...\n" << std::flush;
+
+            auto model = QwenBf16::fromPretrained( artifact, model_config );
+
+            SequenceLogLikelihood total;
+
+            const auto start = std::chrono::steady_clock::now();
+
+            for ( size_t offset = 0; offset + 1 < tokens.size(); offset += context_length )
+            {
+                const size_t length =
+                    std::min<size_t>( static_cast<size_t>( context_length ), tokens.size() - offset );
+
+                // A one-token tail scores nothing and cannot be scored -- scoreTokens needs
+                // two. Dropping it costs one position of a segment's worth.
+                if ( length < 2 )
+                {
+                    break;
+                }
+
+                const std::vector<int32_t> segment(
+                    tokens.begin() + static_cast<std::ptrdiff_t>( offset ),
+                    tokens.begin() + static_cast<std::ptrdiff_t>( offset + length ) );
+
+                const SequenceLogLikelihood scored = model->scoreTokens( segment );
+
+                total.total_log_probability += scored.total_log_probability;
+                total.scored_positions += scored.scored_positions;
+            }
+
+            ArmResult result;
+
+            result.elapsed_seconds =
+                std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
+            result.scored_positions = total.scored_positions;
+
+            if ( total.scored_positions > 0 )
+            {
+                result.mean_negative_log_probability =
+                    -total.total_log_probability / static_cast<double>( total.scored_positions );
+                result.perplexity = std::exp( result.mean_negative_log_probability );
+            }
+
+            return result;
+        }
+
+        /// One arm's response to the whole prompt set, from a single load.
+        /**
+         * @brief What the reference thinks of two roads taken from the same prompt.
+         *
+         * Both continuations scored teacher-forced under the ORACLE, over the same number of
+         * tokens. The prompt's own positions contribute identically to each and cancel in the
+         * difference, so what survives is exactly the continuation.
+         */
+        struct TrajectoryComparison
+        {
+            double oracle_path_log_probability{ 0.0 };
+            double plan_path_log_probability{ 0.0 };
+            dim_t  compared_tokens{ 0 };
+
+            /// Nats per token the plan's road gives up, judged by the oracle.
+            double costPerToken() const
+            {
+                return compared_tokens > 0
+                    ? ( oracle_path_log_probability - plan_path_log_probability )
+                        / static_cast<double>( compared_tokens )
+                    : 0.0;
+            }
+        };
+
+        struct ArmOutcome
+        {
+            std::vector<std::vector<int32_t>> generated;
+            std::vector<std::vector<float>> last_logits;
+
+            /// Filled only on the arm that also scores, which must be the oracle.
+            std::vector<TrajectoryComparison> trajectories;
+        };
+
+        /**
+         * @brief Greedy-generate and capture the final logit row for every prompt, one load.
+         *
+         * Order matters: the logits are read AFTER the generation for that prompt, so the
+         * prefill they come from is a fresh one over the prompt alone. Reading them first
+         * would be equivalent here -- prefill always starts at position zero and zeroes the
+         * recurrent state -- but relying on that silently is how a state-carrying bug hides.
+         */
+        ArmOutcome runPromptSet( std::string_view label, const fs::path& artifact,
+            const QwenModelConfig& model_config,
+            const std::vector<std::vector<int32_t>>& prompts, int generated_tokens,
+            const std::vector<std::vector<int32_t>>& other_arm_continuations = {} )
+        {
+            std::cout << "  loading " << artifact.filename().string()
+                << " for " << label << " ...\n" << std::flush;
+
+            auto model = QwenBf16::fromPretrained( artifact, model_config );
+
+            // The logit row comes from OBSERVATION rather than a purpose-built accessor: the
+            // head already publishes its output on every pass, and the first publication of a
+            // generate() call is the prefill's -- the distribution over what follows the
+            // prompt, before a single token has been sampled. Every later publication is a
+            // decode step, so `capturing` closes the gate after the first.
+            using DeviceLogits = Tensor<TensorDataType::BF16,
+                typename DeviceTypeTraits<DeviceType::Cuda>::memory_resource>;
+
+            std::vector<float> captured;
+            bool capturing = false;
+
+            const size_t observed = model->observe( "*.lm_head", ComputePassMask::inference(),
+                [&]( std::string_view, ComputePass, std::string_view stage, const ITensor& value )
+                {
+                    if ( !capturing || stage != "output" )
+                    {
+                        return;
+                    }
+
+                    const auto* typed = dynamic_cast<const DeviceLogits*>( &value );
+
+                    if ( typed == nullptr )
+                    {
+                        return;
+                    }
+
+                    auto host = toHost<TensorDataType::FP32>( *typed );
+
+                    captured.assign( host.data(), host.data() + host.size() );
+                    capturing = false;
+                } );
+
+            EXPECT_EQ( observed, 1u ) << "the head was not selected, so no logits will arrive";
+
+            ArmOutcome outcome;
+
+            for ( size_t index = 0; index < prompts.size(); ++index )
+            {
+                const std::vector<int32_t>& prompt = prompts[ index ];
+
+                std::vector<int32_t> produced;
+
+                GenerateParams params;
+                params.max_new_tokens = generated_tokens;
+                params.sampling.temperature = 0.0f;
+
+                captured.clear();
+                capturing = true;
+
+                const GenerateStatus status = model->generate(
+                    prompt,
+                    [&]( int32_t token ) { produced.push_back( token ); },
+                    params,
+                    std::stop_token{} );
+
+                // A run that stopped early is still comparable -- both arms may hit EOS at
+                // different points, and where they do IS the divergence -- but a context
+                // overflow would mean the harness, not the model, ended it.
+                EXPECT_NE( status, GenerateStatus::ContextOverflow );
+
+                EXPECT_FALSE( captured.empty() ) << "the head published nothing for this prompt";
+
+                outcome.last_logits.push_back( captured );
+
+                if ( index < other_arm_continuations.size() )
+                {
+                    outcome.trajectories.push_back( compareTrajectories(
+                        *model, prompt, produced, other_arm_continuations[ index ] ) );
+                }
+
+                outcome.generated.push_back( std::move( produced ) );
+            }
+
+            // The sink captures locals by reference; detaching before they leave scope is the
+            // discipline even though the model is about to be destroyed with its context.
+            model->stopObserving();
+
+            return outcome;
+        }
+
+        /**
+         * @brief Score both arms' continuations under `oracle` and report what the plan gives up.
+         *
+         * This is the criterion that replaces a bare divergence index. Where two greedy runs
+         * part is chaotic -- one near-tie flips the argmax and they never re-converge, which
+         * two builds of the SAME precision already do (Qwen3.8.md section 8). What is not
+         * chaotic is whether the road the plan took is worse, and the reference model is the
+         * only thing entitled to judge that.
+         *
+         * Truncated to the shorter continuation so both are scored over the same number of
+         * tokens; the prompt is common to both and cancels.
+         *
+         * The result should be POSITIVE: the oracle's own greedy path is locally optimal under
+         * the oracle, so anything else should score no better. A negative value would say the
+         * plan found a road the reference likes MORE than its own -- which greedy decoding
+         * does not forbid, and which would be strong evidence the divergence is noise rather
+         * than damage. Either way the sign is a check on the measurement.
+         */
+        TrajectoryComparison compareTrajectories( QwenBf16& oracle,
+            const std::vector<int32_t>& prompt,
+            const std::vector<int32_t>& oracle_continuation,
+            const std::vector<int32_t>& plan_continuation )
+        {
+            TrajectoryComparison comparison;
+
+            const size_t length =
+                std::min( oracle_continuation.size(), plan_continuation.size() );
+
+            if ( length == 0 )
+            {
+                return comparison;
+            }
+
+            auto scorePath = [&]( const std::vector<int32_t>& continuation )
+                {
+                    std::vector<int32_t> sequence = prompt;
+
+                    sequence.insert( sequence.end(), continuation.begin(),
+                        continuation.begin() + static_cast<std::ptrdiff_t>( length ) );
+
+                    return oracle.scoreTokens( sequence ).total_log_probability;
+                };
+
+            comparison.oracle_path_log_probability = scorePath( oracle_continuation );
+            comparison.plan_path_log_probability = scorePath( plan_continuation );
+            comparison.compared_tokens = static_cast<dim_t>( length );
+
+            return comparison;
+        }
+
+        /// Index of the largest logit.
+        static size_t argMax( const std::vector<float>& logits )
+        {
+            return static_cast<size_t>(
+                std::distance( logits.begin(), std::max_element( logits.begin(), logits.end() ) ) );
+        }
+
+        /**
+         * @brief KL( softmax(left) || softmax(right) ) in nats, accumulated in double.
+         *
+         * Asymmetric on purpose and in this order: it weighs each disagreement by how much
+         * probability the ORACLE put there, which is the question being asked -- what does
+         * using the quantized distribution cost, judged against the reference. The reverse
+         * direction would let the plan's own confident mistakes dominate.
+         */
+        static double klDivergence( const std::vector<float>& left, const std::vector<float>& right )
+        {
+            const float left_max = *std::max_element( left.begin(), left.end() );
+            const float right_max = *std::max_element( right.begin(), right.end() );
+
+            double left_sum = 0.0;
+            double right_sum = 0.0;
+
+            for ( size_t i = 0; i < left.size(); ++i )
+            {
+                left_sum += std::exp( static_cast<double>( left[ i ] - left_max ) );
+                right_sum += std::exp( static_cast<double>( right[ i ] - right_max ) );
+            }
+
+            const double left_log_normalizer = std::log( left_sum );
+            const double right_log_normalizer = std::log( right_sum );
+
+            double divergence = 0.0;
+
+            for ( size_t i = 0; i < left.size(); ++i )
+            {
+                const double left_log_probability =
+                    static_cast<double>( left[ i ] - left_max ) - left_log_normalizer;
+                const double right_log_probability =
+                    static_cast<double>( right[ i ] - right_max ) - right_log_normalizer;
+
+                divergence += std::exp( left_log_probability )
+                    * ( left_log_probability - right_log_probability );
+            }
+
+            return divergence;
+        }
+
+        void reportArm( std::string_view label, const fs::path& corpus_path,
+            dim_t context_length, dim_t head_positions, const ArmResult& result )
+        {
+            std::cout << std::format(
+                "  arm: {}\n"
+                "  corpus: {}\n"
+                "  protocol: non-overlapping segments of {} tokens, teacher-forced, head width {}\n"
+                "  scored positions: {}\n"
+                "  mean negative log-likelihood: {:.4f} nats/token\n"
+                "  PERPLEXITY: {:.3f}\n"
+                "  elapsed: {:.1f} s ({:.1f} positions/s)\n",
+                label, corpus_path.filename().string(), context_length, head_positions,
+                result.scored_positions, result.mean_negative_log_probability,
+                result.perplexity, result.elapsed_seconds,
+                result.scored_positions / result.elapsed_seconds ) << std::flush;
         }
 
         fs::path artifact_;
@@ -933,5 +1327,497 @@ namespace Mila::Tests::Dnn::Models
             EXPECT_GE( token, 0 );
             EXPECT_LT( token, vocabulary_size );
         }
+    }
+
+    // ====================================================================
+    // Corpus perplexity -- the Phase 5 quality gate (Qwen3.8.md section 8, item 9)
+    //
+    // Perplexity is only comparable between runs that used the SAME protocol, so this one
+    // states its own and the printed line repeats it. The protocol here:
+    //
+    //   - the corpus is tokenized once, as one stream;
+    //   - the stream is cut into NON-OVERLAPPING segments of the deployment context length;
+    //   - each segment is scored independently, from a cold cache and a zeroed recurrent
+    //     state, and the log-probabilities are summed across segments;
+    //   - the first token of each segment scores nothing, having no context, so a segment of
+    //     N tokens contributes N-1 positions;
+    //   - perplexity is exp( -total / positions ).
+    //
+    // Non-overlapping segments are the cheap protocol, not the flattering one: every segment
+    // spends its early positions predicting from almost no context, which a sliding window
+    // would avoid. It reads slightly worse than a sliding-window number on the same text and
+    // is what both arms of a quantization comparison must use.
+    // ====================================================================
+
+    // A measurement, so DISABLED:
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_CorpusPerplexity
+    TEST_F( QwenPackedArtifactTests, DISABLED_CorpusPerplexity )
+    {
+        // Cost is linear in scored positions: the head runs once per token and the reduction
+        // is on the host, together about 190 positions/s. 16K tokens is ~90 seconds and is
+        // far more than enough to separate two quantizations, whose perplexities differ by
+        // percent. The whole wikitext-2 test split is ~300K tokens, so a full-corpus number
+        // is ~26 minutes at this rate -- worth it for a published figure, not for iteration.
+        constexpr dim_t kTokenBudget = 16384;
+        constexpr dim_t kContextLength = 1024;
+
+        // 64 rows per head pass. This was 1 until the W4A8-FP8 prefill path learned to
+        // stripe its weight expansion: unstriped it asked for 1212.5 MiB of staging for the
+        // head whatever the row count, which did not fit beside the model and aborted.
+        constexpr dim_t kHeadPositions = 64;
+
+        fs::path corpus_path;
+        const std::vector<int32_t> tokens = loadCorpusTokens( kTokenBudget, kContextLength, corpus_path );
+
+        if ( tokens.empty() )
+        {
+            GTEST_SKIP() << "No corpus or tokenizer available";
+        }
+
+        QwenModelConfig model_config( kContextLength );
+        model_config.withPrecisionPlan()
+            .withLanguageModelHeadPositions( kHeadPositions );
+
+        const ArmResult result = scoreCorpus( artifact_, model_config, tokens, kContextLength );
+
+        reportArm( "Section 5 plan, 2.82 bits", corpus_path, kContextLength, kHeadPositions, result );
+
+        EXPECT_GT( result.perplexity, 1.0 );
+    }
+
+    // The other arm of the gate. DISABLED, and slower than the one above: it reads the
+    // 50 GiB reference blob and quantizes on the way in.
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_CorpusPerplexityFp4Oracle
+    //
+    // Uniform FP4 over the same weights -- 4.125 bits everywhere the plan quantizes, 12.31
+    // GiB, which needs the 16 GiB card. Section 5's exit criterion is the RATIO of this to
+    // the packed number, so the two must be read together and under one protocol: same
+    // corpus, same segment length, same head width. Only the allocation differs.
+    //
+    // RUN BOTH ARMS ON ONE CARD, pinned by UUID. CUDA's device 0 is NOT nvidia-smi's: this
+    // rig reports the 5060 Ti at nvidia-smi index 0 while CUDA orders the 4070 first, so the
+    // default DeviceId{ Cuda, 0 } lands on the 12 GiB card and 12.31 GiB of weights aborts
+    // there. Set CUDA_VISIBLE_DEVICES to the 16 GiB card's UUID. The two cards also disagree
+    // in the last digits -- the packed arm measured 7.506 unpinned and 7.513 on the 5060 Ti,
+    // which is float non-associativity between architectures, not a defect -- so a ratio
+    // built from two different cards is not a measurement.
+    TEST_F( QwenPackedArtifactTests, DISABLED_CorpusPerplexityFp4Oracle )
+    {
+        constexpr dim_t kTokenBudget = 16384;
+        constexpr dim_t kContextLength = 1024;
+        constexpr dim_t kHeadPositions = 1;
+
+        const fs::path reference_blob =
+            fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_bf16.bin";
+
+        if ( !fs::exists( reference_blob ) )
+        {
+            GTEST_SKIP() << "Reference BF16 blob not present at: " << reference_blob.string();
+        }
+
+        fs::path corpus_path;
+        const std::vector<int32_t> tokens = loadCorpusTokens( kTokenBudget, kContextLength, corpus_path );
+
+        if ( tokens.empty() )
+        {
+            GTEST_SKIP() << "No corpus or tokenizer available";
+        }
+
+        QwenModelConfig model_config( kContextLength );
+        model_config.withWeightQuantization( WeightQuantization::FP4 )
+            .withLanguageModelHeadPositions( kHeadPositions );
+
+        const ArmResult result = scoreCorpus( reference_blob, model_config, tokens, kContextLength );
+
+        reportArm( "FP4 oracle, 4.125 bits", corpus_path, kContextLength, kHeadPositions, result );
+
+        EXPECT_GT( result.perplexity, 1.0 );
+    }
+
+    // ====================================================================
+    // The gate itself: both arms, three context lengths.
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_QualityGateAcrossContextLengths
+    //
+    // A ratio at one segment length is not the claim the model makes. 48 of the 64 layers
+    // carry a recurrent state, which is where quantization error compounds ALONG a sequence
+    // rather than across parameters, so a gap measured at 1024 tokens says nothing about the
+    // 16K context this model is sold on. This sweep is what separates "the allocation is
+    // sound" from "the allocation is sound at the length we happened to measure".
+    //
+    // Each cell is its own deployment: the context length sizes the KV cache and the prefill
+    // chunk, so scoring 4K segments inside a 16K build would measure a deployment nobody
+    // runs. Six loads, and they are cheap against the scoring.
+    //
+    // PIN THE CARD. Both arms must share one GPU (see the note above), and the oracle needs
+    // the 16 GiB one -- 12.31 GiB of weights plus a 16K KV cache is close to its ceiling, so
+    // the last row is the one that may not fit. Rows print as they complete, ascending, so a
+    // failure at 16K still leaves 4K and 8K on the record.
+    // ====================================================================
+    TEST_F( QwenPackedArtifactTests, DISABLED_QualityGateAcrossContextLengths )
+    {
+        // Above every segment length, so each row scores the same span of the same corpus
+        // and only the segmentation differs.
+        constexpr dim_t kTokenBudget = 32768;
+        constexpr dim_t kHeadPositions = 1;
+        constexpr dim_t kSegmentLengths[] = { 4096, 8192, 16384 };
+
+        const fs::path reference_blob =
+            fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_bf16.bin";
+
+        if ( !fs::exists( reference_blob ) )
+        {
+            GTEST_SKIP() << "Reference BF16 blob not present at: " << reference_blob.string();
+        }
+
+        std::cout << "\n  context | oracle 4.125b | plan 2.82b | ratio | positions\n"
+                  << "  --------+---------------+------------+-------+----------\n" << std::flush;
+
+        for ( const dim_t context_length : kSegmentLengths )
+        {
+            fs::path corpus_path;
+            const std::vector<int32_t> tokens =
+                loadCorpusTokens( kTokenBudget, context_length, corpus_path );
+
+            if ( tokens.empty() )
+            {
+                GTEST_SKIP() << "No corpus or tokenizer available";
+            }
+
+            QwenModelConfig oracle_config( context_length );
+            oracle_config.withWeightQuantization( WeightQuantization::FP4 )
+                .withLanguageModelHeadPositions( kHeadPositions );
+
+            const ArmResult oracle = scoreCorpus( reference_blob, oracle_config, tokens, context_length );
+
+            QwenModelConfig packed_config( context_length );
+            packed_config.withPrecisionPlan()
+                .withLanguageModelHeadPositions( kHeadPositions );
+
+            const ArmResult packed = scoreCorpus( artifact_, packed_config, tokens, context_length );
+
+            ASSERT_GT( oracle.scored_positions, 0 );
+            ASSERT_GT( packed.scored_positions, 0 );
+            ASSERT_EQ( oracle.scored_positions, packed.scored_positions )
+                << "the two arms scored different positions, so the ratio compares nothing";
+
+            std::cout << std::format(
+                "  {:>7} | {:>13.3f} | {:>10.3f} | {:>5.3f} | {:>9}\n",
+                context_length, oracle.perplexity, packed.perplexity,
+                packed.perplexity / oracle.perplexity, packed.scored_positions ) << std::flush;
+
+            EXPECT_GT( packed.perplexity, oracle.perplexity )
+                << "fewer bits scoring BETTER is a defect in the measurement, not a result";
+        }
+    }
+
+    // ====================================================================
+    // Section 5's other two quality criteria: divergence point and logit divergence.
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_DivergenceAgainstTheOracle
+    //
+    // Perplexity is prose next-token accuracy averaged over tens of thousands of positions,
+    // which is the property a quantized model keeps longest. These two read what it cannot:
+    //
+    //   - DIVERGENCE POINT: how many tokens of matched greedy generation the two arms agree
+    //     on before they part. Averaging cannot see this. Two models with the same perplexity
+    //     can fork at token 3 or track each other for a hundred, and for anything agentic --
+    //     a tool call, a JSON body, a chain of reasoning -- that difference is the product.
+    //   - LOGIT DIVERGENCE: how far apart the two distributions are at a fixed position,
+    //     as KL( oracle || plan ) in nats. The sampled token says only which side of a
+    //     boundary the argmax fell on; the KL says whether the model was nearly indifferent
+    //     or confidently disagreed.
+    //
+    // The KL doubles as a cross-check on the perplexity gate. ln( 1.139 ) = 0.130 nats is the
+    // mean log-probability the plan gives up per token, so a mean KL in that neighbourhood
+    // means two independent measurements agree; a mean KL far below it would say the gap
+    // lives somewhere the prompt set is not looking.
+    //
+    // Both arms, one card, greedy (temperature 0). Two loads, shared.
+    // ====================================================================
+    TEST_F( QwenPackedArtifactTests, DISABLED_DivergenceAgainstTheOracle )
+    {
+        constexpr dim_t kContextLength = 1024;
+        constexpr int kGeneratedTokens = 128;
+
+        // Fixed and stated, because a divergence point means nothing without the prompt that
+        // produced it. Chosen to spread across what the model is actually asked to do rather
+        // than to flatter: recall, code, exposition, narrative and an instruction.
+        const std::vector<std::string> prompts = {
+            "The capital of France is",
+            "In 1969, humans first walked on the",
+            "def fibonacci(n):\n    ",
+            "The main difference between a list and a tuple in Python is",
+            "Once upon a time, in a village at the edge of the forest,",
+            "Summarize in one sentence: the committee met on Tuesday and approved the budget."
+        };
+
+        const fs::path tokenizer_path =
+            fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_tokenizer.bin";
+        const fs::path reference_blob =
+            fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_bf16.bin";
+
+        if ( !fs::exists( tokenizer_path ) || !fs::exists( reference_blob ) )
+        {
+            GTEST_SKIP() << "Tokenizer or reference blob not present";
+        }
+
+        auto tokenizer = Mila::Data::BpeTokenizer::loadQwen( tokenizer_path );
+
+        std::vector<std::vector<int32_t>> encoded;
+
+        for ( const std::string& prompt : prompts )
+        {
+            encoded.push_back( tokenizer->encode( prompt ) );
+        }
+
+        QwenModelConfig oracle_config( kContextLength );
+        oracle_config.withWeightQuantization( WeightQuantization::FP4 );
+
+        QwenModelConfig packed_config( kContextLength );
+        packed_config.withPrecisionPlan();
+
+        // The PLAN loads first and the ORACLE second, which is not arbitrary: the oracle is
+        // the only model entitled to judge either road, so it has to still be resident when
+        // the trajectories are scored. Loading it last lets one load both generate its own
+        // continuations and score the plan's -- two loads rather than three.
+        const ArmOutcome packed =
+            runPromptSet( "Section 5 plan", artifact_, packed_config, encoded, kGeneratedTokens );
+
+        const ArmOutcome oracle = runPromptSet( "FP4 oracle", reference_blob, oracle_config,
+            encoded, kGeneratedTokens, packed.generated );
+
+        ASSERT_EQ( oracle.generated.size(), prompts.size() );
+        ASSERT_EQ( packed.generated.size(), prompts.size() );
+        ASSERT_EQ( oracle.trajectories.size(), prompts.size() );
+
+        std::cout << "\n  prompt                          | forks at | KL(o||p) | top-1 | plan cost/tok\n"
+                  <<   "  --------------------------------+----------+----------+-------+--------------\n"
+                  << std::flush;
+
+        double summed_kl = 0.0;
+        double summed_trajectory_cost = 0.0;
+        int top1_agreements = 0;
+        int never_diverged = 0;
+
+        for ( size_t index = 0; index < prompts.size(); ++index )
+        {
+            const std::vector<int32_t>& left = oracle.generated[ index ];
+            const std::vector<int32_t>& right = packed.generated[ index ];
+
+            const size_t compared = std::min( left.size(), right.size() );
+
+            size_t divergence = compared;
+
+            for ( size_t position = 0; position < compared; ++position )
+            {
+                if ( left[ position ] != right[ position ] )
+                {
+                    divergence = position;
+                    break;
+                }
+            }
+
+            const bool diverged = divergence < compared;
+
+            if ( !diverged )
+            {
+                ++never_diverged;
+            }
+
+            const double kl = klDivergence( oracle.last_logits[ index ], packed.last_logits[ index ] );
+            summed_kl += kl;
+
+            const bool same_top1 =
+                argMax( oracle.last_logits[ index ] ) == argMax( packed.last_logits[ index ] );
+
+            if ( same_top1 )
+            {
+                ++top1_agreements;
+            }
+
+            std::string label = prompts[ index ];
+
+            if ( label.size() > 31 )
+            {
+                label = label.substr( 0, 28 ) + "...";
+            }
+
+            std::replace( label.begin(), label.end(), '\n', ' ' );
+
+            const double trajectory_cost = oracle.trajectories[ index ].costPerToken();
+            summed_trajectory_cost += trajectory_cost;
+
+            std::cout << std::format( "  {:<31} | {:>8} | {:>8.4f} | {:<5} | {:>13.4f}\n",
+                label,
+                diverged ? std::to_string( divergence ) : std::format( ">={}", compared ),
+                kl, same_top1 ? "same" : "DIFF", trajectory_cost ) << std::flush;
+        }
+
+        const double mean_kl = summed_kl / static_cast<double>( prompts.size() );
+        const double mean_trajectory_cost =
+            summed_trajectory_cost / static_cast<double>( prompts.size() );
+
+        std::cout << std::format(
+            "\n  mean trajectory cost: {:.4f} nats/token -- what the plan's road gives up,\n"
+            "                        judged by the oracle. THIS is the discriminating number.\n"
+            "  mean KL at the prompt: {:.4f} nats\n"
+            "  perplexity gate implies: {:.4f} nats  (ln 1.139)\n"
+            "  top-1 agreement: {} of {}\n"
+            "  generations that never forked within {} tokens: {} of {}\n",
+            mean_trajectory_cost, mean_kl, std::log( 1.139 ),
+            top1_agreements, prompts.size(),
+            kGeneratedTokens, never_diverged, prompts.size() ) << std::flush;
+
+        // The two arms are different models; identical output everywhere would mean the
+        // harness loaded one model twice, which is the failure that would make every number
+        // above meaningless.
+        EXPECT_GT( summed_kl, 0.0 )
+            << "the arms are indistinguishable -- did both loads resolve to the same weights?";
+
+        // The oracle's own greedy path is locally optimal under the oracle, so the plan's
+        // road should score no better. Negative would not be a bug in the model -- greedy is
+        // not globally optimal -- but it would mean the divergence is at noise level, which
+        // is a different conclusion and must not pass unnoticed.
+        EXPECT_GE( mean_trajectory_cost, 0.0 )
+            << "the plan's road scores BETTER under the oracle than the oracle's own -- "
+               "read this as the fork being noise, not as the plan being better";
+    }
+
+    // ====================================================================
+    // Where scoring's time actually goes.
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_ScoringCostBreakdown
+    //
+    // Widening the head from 1 position to 64 bought only 1.4x, which says the head was never
+    // what scoring spends its time on. This separates the two things that could be: the model
+    // forward itself, which no amount of optimizing the scoring path can remove, and the
+    // per-position overhead scoring adds on top of it -- the head passes, the device-to-host
+    // transfer of each logit row, and the host-side log-probability reduction.
+    //
+    // The baseline is a one-token generate() over the same segment. That is a full prefill
+    // plus a single decode step, and it is the closest thing to a prefill-only measurement
+    // the public surface offers; the one decode step is noise against a 1023-token prefill.
+    //
+    // What the answer decides: whether a device-side reduction is worth building. If the
+    // overhead is small against the forward, it is not, whatever the arithmetic below says
+    // about exp() calls.
+    // ====================================================================
+    TEST_F( QwenPackedArtifactTests, DISABLED_ScoringCostBreakdown )
+    {
+        constexpr dim_t kContextLength = 1024;
+
+        // One short of the context so the baseline's single decode step has somewhere to go.
+        constexpr dim_t kSegmentLength = 1023;
+        constexpr dim_t kTokenBudget = 8192;
+        constexpr dim_t kHeadPositions = 64;
+
+        fs::path corpus_path;
+        const std::vector<int32_t> tokens =
+            loadCorpusTokens( kTokenBudget, kSegmentLength, corpus_path );
+
+        if ( tokens.empty() )
+        {
+            GTEST_SKIP() << "No corpus or tokenizer available";
+        }
+
+        QwenModelConfig model_config( kContextLength );
+        model_config.withPrecisionPlan()
+            .withLanguageModelHeadPositions( kHeadPositions );
+
+        std::cout << "  loading " << artifact_.filename().string() << " ...\n" << std::flush;
+
+        auto model = QwenBf16::fromPretrained( artifact_, model_config );
+
+        std::vector<std::vector<int32_t>> segments;
+
+        for ( size_t offset = 0; offset + 1 < tokens.size(); offset += kSegmentLength )
+        {
+            const size_t length =
+                std::min<size_t>( static_cast<size_t>( kSegmentLength ), tokens.size() - offset );
+
+            if ( length < 2 )
+            {
+                break;
+            }
+
+            segments.emplace_back(
+                tokens.begin() + static_cast<std::ptrdiff_t>( offset ),
+                tokens.begin() + static_cast<std::ptrdiff_t>( offset + length ) );
+        }
+
+        ASSERT_FALSE( segments.empty() );
+
+        // Warm: the first pass of either kind pays lazy cuBLASLt plan selection and
+        // first-touch paging, and charging that to whichever ran first would invent a
+        // difference between them.
+        {
+            GenerateParams warm_params;
+            warm_params.max_new_tokens = 1;
+            warm_params.sampling.temperature = 0.0f;
+
+            (void)model->generate( segments.front(), []( int32_t ) {}, warm_params,
+                std::stop_token{} );
+            (void)model->scoreTokens( segments.front() );
+        }
+
+        double forward_seconds = 0.0;
+        double scoring_seconds = 0.0;
+        dim_t scored_positions = 0;
+
+        for ( const std::vector<int32_t>& segment : segments )
+        {
+            GenerateParams params;
+            params.max_new_tokens = 1;
+            params.sampling.temperature = 0.0f;
+
+            const auto forward_start = std::chrono::steady_clock::now();
+
+            (void)model->generate( segment, []( int32_t ) {}, params, std::stop_token{} );
+
+            forward_seconds += std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - forward_start ).count();
+
+            const auto scoring_start = std::chrono::steady_clock::now();
+
+            const SequenceLogLikelihood scored = model->scoreTokens( segment );
+
+            scoring_seconds += std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - scoring_start ).count();
+
+            scored_positions += scored.scored_positions;
+        }
+
+        ASSERT_GT( scored_positions, 0 );
+
+        const double overhead_seconds = scoring_seconds - forward_seconds;
+        const double vocabulary = static_cast<double>( model->getNetworkConfig().getVocabSize() );
+
+        // What the transfer alone could possibly cost, so it can be ruled in or out rather
+        // than assumed. BF16 on the wire, converted host-side.
+        const double transferred_gigabytes =
+            static_cast<double>( scored_positions ) * vocabulary * 2.0 / 1e9;
+
+        std::cout << std::format(
+            "\n  segments: {} of {} tokens; scored positions: {}\n"
+            "  model forward (prefill baseline): {:.1f} s\n"
+            "  scoring (forward + head + transfer + host reduction): {:.1f} s\n"
+            "  scoring OVERHEAD: {:.1f} s  ({:.0f}% of scoring, {:.0f} us/position)\n"
+            "\n"
+            "  of that overhead, what the parts could be:\n"
+            "    logit rows transferred: {:.1f} GB -> ~{:.1f} s at 12 GB/s\n"
+            "    host exp() calls: {:.2f} billion -> ~{:.1f} s at 5 ns each\n",
+            segments.size(), kSegmentLength, scored_positions,
+            forward_seconds, scoring_seconds,
+            overhead_seconds, 100.0 * overhead_seconds / scoring_seconds,
+            1e6 * overhead_seconds / static_cast<double>( scored_positions ),
+            transferred_gigabytes, transferred_gigabytes / 12.0,
+            static_cast<double>( scored_positions ) * vocabulary / 1e9,
+            static_cast<double>( scored_positions ) * vocabulary * 5e-9 ) << std::flush;
+
+        EXPECT_GT( scoring_seconds, forward_seconds )
+            << "scoring cannot be cheaper than the forward it contains";
     }
 }

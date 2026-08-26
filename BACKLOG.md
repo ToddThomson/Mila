@@ -362,18 +362,57 @@ being a task list and needs a prune.
 
 ### Production Hardening
 
-- [ ] **Nothing in the tree can produce a logit at any position but the last, so corpus perplexity —
-  the Phase 5 quality gate — has no path to a number.** All four transformers slice the final position
-  before the head (`Qwen.ixx:293`, `Gemma.ixx:279`, `Llama.ixx:239`, `GptTransformer.ixx:365`) and build
-  `final_rmsnorm`/`lm_head` at T=1 (`Qwen.ixx:574`). Teacher-forced log-likelihood needs every position,
-  and at Qwen's 248320 vocab one BF16 logit row is 0.474 MiB, so the head must be evaluated in bounded
-  sub-chunks inside the prefill loop, which overwrites the block output each chunk. Head width becomes
-  an explicit build parameter carried into `getRequiredMemory`; observability does not remove this and
-  no hook substitutes for it. `Qwen3.8.md:398`, `Observability.md` section 9.
-- [ ] **A logit row is priced two ways and the head-width budget depends on which is right.**
-  `LmHeadLinearType` is `Linear<TDeviceType, TPrecision, ...>` (`Qwen.ixx:174`), making the row BF16 at
-  0.474 MiB, while the comment at `Qwen.ixx:290` prices it FP32 at 0.95 MiB. Confirm before any width
-  default is chosen; one of the two is wrong.
+- [ ] **Phase 5's perplexity gate PASSES — ratio 1.139 at 16K against a pre-registered 1.25.**
+  `DISABLED_QualityGateAcrossContextLengths`, both arms at 4096/8192/16384 over the same ~31,650
+  positions of wikitext-2 test, one card pinned by UUID. The ratio is flat across 1024-16384
+  (1.09-1.14), so the gap does not widen with context. Full table and the two caveats in
+  `Qwen3.8.md` section 8 item 9. **Watch item:** from 8K to 16K the oracle improves 7.2% and the
+  plan only 3.4% — the quantized arm captures about half the benefit of extra context, which is the
+  compounding signature the recurrent layers make plausible. Re-run before any 32K claim.
+- [ ] **A value-reading observation sink has to name the model's compute precision.** The sink gets
+  `const ITensor&`, whose `rawData()` is type-erased, so anything wanting numbers rather than shapes
+  does a `dynamic_cast` to `Tensor<TPrecision, MR>` then its own `toHost`. Both consumers now do
+  this. It works; whether observation should offer a typed convenience is open, and `Observability.md`
+  11.2 parks it for v0.21.
+- [ ] **All three Phase 5 quality criteria are measured and consistent; the prompt set is now the
+  weak link.** Six prompts is enough to show trajectory cost and fork index are decoupled, not
+  enough to put a threshold on the mean (0.1129 nats/token) the way 1.25 sits on the perplexity
+  ratio. Widening it is cheap — two loads and ~18 s per six prompts — and the classes that
+  matter for this model's use are underrepresented: one code prompt, no tool call, no multi-turn,
+  no long-context prompt. `DISABLED_DivergenceAgainstTheOracle`.
+- [ ] **CUDA's device 0 is not nvidia-smi's, and the default `DeviceId{ Cuda, 0 }` picks the 12 GiB
+  card.** nvidia-smi reports the 5060 Ti at index 0; CUDA orders the 4070 first, so any load sized
+  for the 16 GiB card aborts by default — the FP4 oracle's 12.31 GiB did, with no diagnostic, in
+  about two seconds. Every measurement that must land on a specific card has to pin
+  `CUDA_VISIBLE_DEVICES` to its UUID. Worth a note wherever `fromPretrained`'s default device is
+  documented, since the failure looks like a model defect rather than a device choice.
+- [ ] **The head's two paths do not agree to the last digit, so a perplexity comparison must fix the
+  width.** Same artifact and corpus: width 1 (decode matvec) gives 7.513, width 64 (W4A8-FP8 GEMM)
+  gives 7.515. Small, but head width is part of the measurement protocol rather than a free
+  performance knob — both arms of a quantization comparison must use the same one.
+- [ ] **Scoring speed is a PREFILL problem, not a reduction problem — measured, so do not build the
+  device-side reduction.** `DISABLED_ScoringCostBreakdown` on the packed 27B: model forward 23.2 s,
+  scoring 34.2 s, so the forward is **68%** and everything scoring adds is 32%. A perfect device-side
+  reduction is therefore capped at **1.45x** by Amdahl, permanently. The transfer is not a factor
+  either (3.7 GB, ~0.3 s) — the host `exp` loop is essentially the whole 11 s overhead, matching its
+  9.2 s prediction. **If scoring speed is ever wanted, parallelise the host loop across cores** —
+  the rows are independent, it is a few lines, and it captures most of the same 11 s with no kernel,
+  no dead-code revival and no numerics risk. The real lever is the chunked UT-transform prefill
+  kernel already filed below: it owns the 68%.
+- [ ] **Only Qwen can be scored.** Gemma, Llama and GPT-2 build their heads at T=1 with no width
+  parameter (`Gemma.ixx:279`, `Llama.ixx:239`, `GptTransformer.ixx:365`), so `scoreTokens` throws the
+  base's `logic_error`. The gate wants Gemma and Llama too, and each needs the same two pieces: a head
+  width in its config, and the window loop.
+- [ ] **`SoftmaxCrossEntropy` has never been compiled, and its CUDA dispatch promises a BF16 it
+  cannot deliver.** Its only test is commented out of the build (`Mila/Tests/CMakeLists.txt:276`) and
+  is written against a 3-parameter component that now takes 2, so nothing instantiates the template.
+  `OperationTraits.Cuda.ixx:422` maps `<CrossEntropyOp, Cuda, BF16>` to a type whose
+  `cuda_softmax_crossentropy_impl<__nv_bfloat16>` has no specialization — a hard compile error the
+  moment anything uses it — while the `half` specialization is a silent empty stub
+  (`CudaSoftmaxCrossEntropyOp.ixx:99`). Two more things to check when reviving: the block kernel
+  (vocab >= 1024) has never run, and its final `__shfl_sync` broadcasts each warp's own lane 0 while
+  only warp 0 holds the reduction, which on inspection gives warps 1+ `-INFINITY` for the max; and
+  the op writes losses in the logits' dtype, which is the wrong precision for accumulating them.
 - [ ] **`Qwen3.8.md` section 8 gates the 16 GiB oracle on token-for-token cross-arch agreement, which
   cannot pass at any precision.** Measured on Llama 3.2 3B greedy, Ada vs Blackwell: BF16, FP8 and FP4
   all fork, at a token index set by the prompt rather than the precision. Each card is deterministic

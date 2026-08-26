@@ -30,6 +30,7 @@ import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Metadata;
 import Serialization.Mode;
@@ -383,6 +384,90 @@ namespace Mila::Dnn
         const std::vector<ComponentPtr>& getComponents() const
         {
             return child_components_;
+        }
+
+        // ====================================================================
+        // Observation
+        // ====================================================================
+
+        /**
+         * @brief Attach `sink` to every component in this subtree whose path matches.
+         *
+         * The door onto the publication machinery. Every component publishes its activations
+         * on every inference pass, but publication is gated per component by
+         * setObservedPasses and routed through one observer on the execution context -- so
+         * without this walk a caller has to reach each component by hand, which is what
+         * pushed the first consumer into bolting a narrow accessor onto the model instead.
+         *
+         * `pattern` is a component path with `*` matching any run of characters:
+         *
+         *     "qwen.lm_head"   one component
+         *     "qwen.blk_*"     every block, but not their children
+         *     "qwen.blk_*.*"   every block's immediate children
+         *     "*"              the whole subtree
+         *
+         * Resolved ONCE, here. Matching cost lands at attachment and never on a publication,
+         * which is what makes a whole-tree pattern affordable during a real run.
+         *
+         * **The sink is per execution context, so the most recent one wins** -- that is the
+         * context's design, not a limitation of this walk. Attach once with one sink and route
+         * inside it on the `path` argument; a second call with a different sink silently
+         * redirects the first pattern's components too. Passes, by contrast, accumulate: two
+         * calls with different patterns leave both sets of components observing.
+         *
+         * @return How many components matched. **Zero means nothing will ever publish** --
+         *         check it. A pattern that matches nothing is indistinguishable, downstream,
+         *         from a model that produced nothing worth reporting, and that false negative
+         *         is exactly what a NaN hunt must not have.
+         */
+        size_t observe( std::string_view pattern,
+            Compute::ComputePassMask passes,
+            Compute::ActivationObserver sink )
+        {
+            auto* context = this->getExecutionContext();
+
+            if ( context == nullptr )
+            {
+                throw std::runtime_error(
+                    "CompositeComponent::observe: no execution context, so there is nowhere to "
+                    "install the observer. Build the network first." );
+            }
+
+            context->setActivationObserver( std::move( sink ) );
+
+            return applyObservedPasses( *this, pattern, passes );
+        }
+
+        /**
+         * @brief Detach every observer in this subtree and clear the shared sink.
+         *
+         * Necessary rather than tidy: an observer left attached keeps firing on every pass of
+         * every subsequent run, and a probe that outlives its question is both a cost and a
+         * source of confusing output.
+         */
+        void stopObserving()
+        {
+            applyObservedPasses( *this, "*", Compute::ComputePassMask{} );
+
+            if ( auto* context = this->getExecutionContext(); context != nullptr )
+            {
+                context->setActivationObserver( {} );
+            }
+        }
+
+        /**
+         * @brief Every component path in this subtree, in traversal order.
+         *
+         * The structural view: what is there to observe, before deciding what to observe. Also
+         * what makes a zero from observe() diagnosable rather than merely disappointing.
+         */
+        std::vector<std::string> componentPaths() const
+        {
+            std::vector<std::string> paths;
+
+            collectPaths( *this, paths );
+
+            return paths;
         }
 
         /**
@@ -856,6 +941,120 @@ namespace Mila::Dnn
         }
 
     private:
+
+        /**
+         * @brief Glob match, where `*` stands for any run of characters including none.
+         *
+         * Deliberately not a regular expression. `*` covers every pattern the observation
+         * consumers need -- one component, one layer's children, a whole family of layers,
+         * the entire tree -- and a fuller syntax would be a vocabulary to learn and to
+         * document for no consumer that exists.
+         *
+         * Iterative with backtracking rather than recursive: component paths are short, but a
+         * pattern is caller-supplied and a recursive matcher's depth is driven by the input.
+         */
+        static bool matchesPath( std::string_view pattern, std::string_view path ) noexcept
+        {
+            size_t pattern_index = 0;
+            size_t path_index = 0;
+            size_t star_index = std::string_view::npos;
+            size_t path_resume = 0;
+
+            while ( path_index < path.size() )
+            {
+                if ( pattern_index < pattern.size() && pattern[ pattern_index ] == '*' )
+                {
+                    star_index = pattern_index;
+                    path_resume = path_index;
+                    ++pattern_index;
+                }
+                else if ( pattern_index < pattern.size()
+                    && pattern[ pattern_index ] == path[ path_index ] )
+                {
+                    ++pattern_index;
+                    ++path_index;
+                }
+                else if ( star_index != std::string_view::npos )
+                {
+                    // The last star was too greedy: give it one more character and retry.
+                    pattern_index = star_index + 1;
+                    ++path_resume;
+                    path_index = path_resume;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            while ( pattern_index < pattern.size() && pattern[ pattern_index ] == '*' )
+            {
+                ++pattern_index;
+            }
+
+            return pattern_index == pattern.size();
+        }
+
+        /**
+         * @brief Set `passes` on every component at or below `root` whose path matches.
+         *
+         * Visits the composite itself as well as its descendants: a composite publishes its
+         * own output, and a pattern naming a block should observe that block rather than only
+         * the leaves inside it.
+         */
+        static size_t applyObservedPasses( const CompositeComponent& root,
+            std::string_view pattern, Compute::ComputePassMask passes )
+        {
+            size_t matched = 0;
+
+            if ( matchesPath( pattern, root.getName() ) )
+            {
+                const_cast<CompositeComponent&>( root ).setObservedPasses( passes );
+                ++matched;
+            }
+
+            for ( const auto& child : root.child_components_ )
+            {
+                if ( !child )
+                {
+                    continue;
+                }
+
+                if ( auto composite = std::dynamic_pointer_cast<CompositeComponent>( child ) )
+                {
+                    matched += applyObservedPasses( *composite, pattern, passes );
+                }
+                else if ( matchesPath( pattern, child->getName() ) )
+                {
+                    child->setObservedPasses( passes );
+                    ++matched;
+                }
+            }
+
+            return matched;
+        }
+
+        static void collectPaths( const CompositeComponent& root, std::vector<std::string>& paths )
+        {
+            paths.push_back( root.getName() );
+
+            for ( const auto& child : root.child_components_ )
+            {
+                if ( !child )
+                {
+                    continue;
+                }
+
+                if ( auto composite = std::dynamic_pointer_cast<const CompositeComponent>( child ) )
+                {
+                    collectPaths( *composite, paths );
+                }
+                else
+                {
+                    paths.push_back( child->getName() );
+                }
+            }
+        }
 
         /**
          * @brief Build a child's flat prefix from this composite's.

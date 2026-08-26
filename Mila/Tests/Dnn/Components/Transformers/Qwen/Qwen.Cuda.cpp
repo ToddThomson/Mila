@@ -20,6 +20,8 @@
 
 #include <gtest/gtest.h>
 #include <cmath>
+#include <algorithm>
+#include <set>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -90,6 +92,23 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
             return net;
         }
 
+        /**
+         * @brief Footprint of a network built alone, then destroyed.
+         *
+         * Comparing two footprints requires this: the RoPE cos/sin cache is process-wide and
+         * refcounted by RopeCacheRegistry, so a second network built while the first is still
+         * alive finds the cache present and reports a smaller total than the same network
+         * built by itself. Holding both and subtracting compares a first build against a
+         * second one.
+         */
+        MemoryStats builtFootprint( const QwenConfig& config, const BuildContext& context )
+        {
+            QwenCuda net( "qwen", config, Device::Cuda( 0 ) );
+            net.build( context );
+
+            return net.getMemoryStats();
+        }
+
         QwenCuda::TokenIndexType makeTokens( dim_t batch, dim_t seq )
         {
             TokenTensor host( Device::Cpu(), shape_t{ batch, seq } );
@@ -104,6 +123,68 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
             copy( host, device_tokens );
 
             return device_tokens;
+        }
+
+        /// log( softmax( row )[ target ] ), in double, from a host FP32 logit row.
+        static double hostLogProbability( const float* row, dim_t vocab_size, int32_t target )
+        {
+            float max_logit = row[ 0 ];
+
+            for ( dim_t v = 1; v < vocab_size; ++v )
+            {
+                max_logit = std::fmax( max_logit, row[ v ] );
+            }
+
+            double sum_exponentials = 0.0;
+
+            for ( dim_t v = 0; v < vocab_size; ++v )
+            {
+                sum_exponentials += std::exp( static_cast<double>( row[ v ] - max_logit ) );
+            }
+
+            return static_cast<double>( row[ target ] - max_logit ) - std::log( sum_exponentials );
+        }
+
+        void expectScoreMatchesPrefillOracle( dim_t head_positions, dim_t sequence_length )
+        {
+            const QwenConfig config =
+                allAttentionConfig().withLanguageModelHeadPositions( head_positions );
+
+            auto net = builtNet( config, 1, sequence_length, /*initialize_parameters*/ true );
+
+            auto device_tokens = makeTokens( 1, sequence_length );
+            auto host_tokens = toHost<TensorDataType::INT32>( device_tokens );
+
+            const auto scored = net->scoreTokens( device_tokens );
+
+            EXPECT_EQ( scored.scored_positions, sequence_length - 1 )
+                << "every position but the last predicts a following token";
+
+            double expected_total = 0.0;
+
+            for ( dim_t position = 0; position + 1 < sequence_length; ++position )
+            {
+                auto prefix = device_tokens.view( shape_t{ 1, position + 1 }, 0 );
+                auto& logits = net->prefill( prefix );
+
+                HostTensor host_logits( Device::Cpu(), logits.shape() );
+                copy( logits, host_logits );
+                net->synchronize();
+
+                expected_total += hostLogProbability(
+                    host_logits.data(), kVocab, host_tokens.data()[ position + 1 ] );
+            }
+
+            EXPECT_NEAR( scored.total_log_probability, expected_total, 1e-3 );
+
+            // A model assigning every token equal probability would score exactly this.
+            // Landing on it means the logits were flat -- the signature of a build that
+            // never filled its parameters, which would make the comparison above vacuous.
+            const double uniform_total = -std::log( static_cast<double>( kVocab ) )
+                * static_cast<double>( sequence_length - 1 );
+
+            EXPECT_GT( std::abs( scored.total_log_probability - uniform_total ), 1e-6 )
+                << "scores are indistinguishable from a uniform model; parameters may be zero";
         }
 
         static bool allFinite( const HostTensor& t )
@@ -314,6 +395,154 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
     }
 
     // ====================================================================
+    // D2. Teacher-forced scoring (Qwen3.8.md section 8 item 9)
+    //
+    // The oracle is the generation path itself: scoring position p must report exactly what
+    // a prefill of tokens[0..p] says about token p+1. That makes the test independent of
+    // the model's values -- it compares two ways of reaching the same logit row -- and it is
+    // what catches an off-by-one in the target alignment, which is the defect this code is
+    // most likely to have and the one a plausible-looking perplexity would hide.
+    //
+    // Parameters MUST be initialized. On zero weights every logit row is identical, every
+    // position scores -log(vocab), and the comparison below passes without proving anything.
+    // ====================================================================
+
+    TEST_F( QwenTransformerCudaTests, ScoreTokens_MatchesPrefillOracle_OneRowAtATime )
+    {
+        expectScoreMatchesPrefillOracle( /*head_positions*/ 1, /*sequence_length*/ 8 );
+    }
+
+    // Three does not divide eight, so the final window is partial -- the case where a window
+    // loop most often reads a row it should not or skips one it should.
+    TEST_F( QwenTransformerCudaTests, ScoreTokens_MatchesPrefillOracle_PartialFinalWindow )
+    {
+        expectScoreMatchesPrefillOracle( /*head_positions*/ 3, /*sequence_length*/ 8 );
+    }
+
+    // ====================================================================
+    // D3. The observation attach walk (Observability.md 6, 11)
+    //
+    // Publication shipped without a door: every component publishes, but selection is
+    // per-component and the tree is behind a protected accessor, so the first consumer that
+    // wanted logits bolted a purpose-built accessor onto LanguageModel instead. These pin the
+    // walk that replaced it. They run on the tiny in-tree model, not an artifact, because the
+    // behaviour under test is resolution and gating -- neither needs real weights.
+    // ====================================================================
+
+    TEST_F( QwenTransformerCudaTests, Observe_ResolvesAPatternOnceAndReportsTheMatchCount )
+    {
+        auto net = builtNet( allAttentionConfig(), batch_, seq_ );
+
+        const auto paths = net->componentPaths();
+
+        ASSERT_FALSE( paths.empty() );
+
+        // The head is one component; the pattern names it without the caller knowing the
+        // network's own name.
+        const size_t head_matches = net->observe( "*.lm_head",
+            ComputePassMask::inference(), []( std::string_view, ComputePass,
+                std::string_view, const ITensor& ) {} );
+
+        EXPECT_EQ( head_matches, 1u );
+
+        // A pattern that matches nothing must SAY so. Downstream a silent zero is
+        // indistinguishable from a run with nothing to report, which is the false negative a
+        // NaN hunt cannot afford.
+        const size_t absent = net->observe( "*.no_such_component",
+            ComputePassMask::inference(), []( std::string_view, ComputePass,
+                std::string_view, const ITensor& ) {} );
+
+        EXPECT_EQ( absent, 0u );
+
+        // The whole subtree, which is what a fingerprint pass wants.
+        const size_t everything = net->observe( "*", ComputePassMask::inference(),
+            []( std::string_view, ComputePass, std::string_view, const ITensor& ) {} );
+
+        EXPECT_EQ( everything, paths.size() );
+
+        net->stopObserving();
+    }
+
+    TEST_F( QwenTransformerCudaTests, Observe_DeliversOnlyTheSelectedComponents )
+    {
+        auto net = builtNet( allAttentionConfig(), batch_, seq_, /*initialize_parameters*/ true );
+
+        std::set<std::string> publishers;
+
+        const size_t matched = net->observe( "*.lm_head", ComputePassMask::inference(),
+            [&publishers]( std::string_view path, ComputePass, std::string_view,
+                const ITensor& )
+            {
+                publishers.insert( std::string( path ) );
+            } );
+
+        ASSERT_EQ( matched, 1u );
+
+        auto tokens = makeTokens( batch_, seq_ );
+        (void)net->prefill( tokens );
+        net->synchronize();
+
+        ASSERT_EQ( publishers.size(), 1u )
+            << "a selected pattern must publish from exactly the components it matched";
+        EXPECT_TRUE( publishers.begin()->ends_with( ".lm_head" ) );
+
+        // Detaching has to actually stop it. An observer that outlives its question keeps
+        // firing on every later pass, which costs and confuses.
+        net->stopObserving();
+        publishers.clear();
+
+        (void)net->prefill( tokens );
+        net->synchronize();
+
+        EXPECT_TRUE( publishers.empty() ) << "stopObserving left the sink attached";
+    }
+
+    // The published tensor is the one the caller actually wanted: reading its VALUES is the
+    // whole point, and doing so needs the concrete tensor type back out of the ITensor.
+    TEST_F( QwenTransformerCudaTests, Observe_PublishesReadableLogitsFromTheHead )
+    {
+        using DeviceTensor = Tensor<TensorDataType::FP32,
+            typename DeviceTypeTraits<DeviceType::Cuda>::memory_resource>;
+
+        auto net = builtNet( allAttentionConfig(), batch_, seq_, /*initialize_parameters*/ true );
+
+        std::vector<float> logits;
+
+        const size_t matched = net->observe( "*.lm_head", ComputePassMask::inference(),
+            [&logits]( std::string_view, ComputePass, std::string_view stage,
+                const ITensor& value )
+            {
+                if ( stage != "output" )
+                {
+                    return;
+                }
+
+                const auto* typed = dynamic_cast<const DeviceTensor*>( &value );
+
+                if ( typed == nullptr )
+                {
+                    return;
+                }
+
+                auto host = toHost<TensorDataType::FP32>( *typed );
+
+                logits.assign( host.data(), host.data() + host.size() );
+            } );
+
+        ASSERT_EQ( matched, 1u );
+
+        auto tokens = makeTokens( batch_, seq_ );
+        (void)net->prefill( tokens );
+        net->synchronize();
+
+        ASSERT_EQ( logits.size(), static_cast<size_t>( batch_ * kVocab ) );
+        EXPECT_TRUE( std::all_of( logits.begin(), logits.end(),
+            []( float value ) { return std::isfinite( value ); } ) );
+
+        net->stopObserving();
+    }
+
+    // ====================================================================
     // E. Required-memory contract (MemoryFootprint.md 7, Gate A)
     //
     // Load-bearing rather than belt-and-braces: a block derives five build contexts and
@@ -380,6 +609,65 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         const MemoryStats actual = built.getMemoryStats();
 
         EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes );
+    }
+
+    /**
+     * @brief A widened language-model head is predicted at the width it is built at.
+     *
+     * The head is one row wide for generation, and teacher-forced scoring needs a logit at
+     * every position, so the width is a config capacity. It reaches build() and
+     * getRequiredMemory() through one resolver precisely so a scoring build cannot allocate
+     * a head the prediction never named -- the failure Qwen has already paid for twice, and
+     * the one Chat's GPU FIT verdict would report wrongly.
+     *
+     * The inequality is what keeps this non-vacuous: a knob ignored by both paths would
+     * satisfy the equalities and fail here.
+     */
+    TEST_F( QwenTransformerCudaTests, GetRequiredMemory_MatchesBuiltFootprint_WidenedLanguageModelHead )
+    {
+        const BuildContext context( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
+
+        const QwenConfig widened = allAttentionConfig().withLanguageModelHeadPositions( seq_ );
+
+        QwenCuda predictor( "qwen", widened, Device::Cuda( 0 ) );
+        const MemoryStats predicted = predictor.getRequiredMemory( context );
+
+        const MemoryStats actual = builtFootprint( widened, context );
+
+        EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes ) << "parameters";
+        EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes ) << "state";
+        EXPECT_EQ( predicted.device_gradient_bytes, actual.device_gradient_bytes ) << "gradients";
+
+        EXPECT_GT( actual.device_state_bytes,
+            builtFootprint( allAttentionConfig(), context ).device_state_bytes )
+            << "a wider head must cost more state than the one-row default";
+    }
+
+    /**
+     * @brief A width above what a prefill pass supplies resolves to the pass, not the request.
+     *
+     * The head reads the block stack's output, and a pass produces at most prefill_chunk rows
+     * of it, so rows beyond that name nothing. At seq_ below the chunk floor the whole context
+     * is one chunk, which makes the bound exactly seq_ and the two configurations below
+     * indistinguishable in footprint.
+     */
+    TEST_F( QwenTransformerCudaTests, LanguageModelHeadPositions_ClampToWhatAPrefillPassSupplies )
+    {
+        const BuildContext context( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
+
+        const QwenConfig at_bound = allAttentionConfig().withLanguageModelHeadPositions( seq_ );
+        const QwenConfig above_bound = allAttentionConfig().withLanguageModelHeadPositions( seq_ + 100 );
+
+        const MemoryStats bounded = builtFootprint( at_bound, context );
+        const MemoryStats over = builtFootprint( above_bound, context );
+
+        EXPECT_EQ( over.device_state_bytes, bounded.device_state_bytes );
+
+        QwenCuda over_predictor( "qwen", above_bound, Device::Cuda( 0 ) );
+
+        EXPECT_EQ( over_predictor.getRequiredMemory( context ).device_state_bytes,
+            over.device_state_bytes )
+            << "prediction must clamp exactly as the build does";
     }
 
     // ====================================================================

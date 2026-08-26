@@ -52,6 +52,10 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         EXPECT_TRUE( config.hasAttentionOutputGate() );
         EXPECT_FALSE( config.getTieWordEmbeddings() );
 
+        // Generation reads one logit row, so the head costs one row until a scoring caller
+        // asks for more.
+        EXPECT_EQ( config.getLanguageModelHeadPositions(), 1 );
+
         EXPECT_NO_THROW( config.validate() );
     }
 
@@ -209,6 +213,12 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
 
+    TEST( QwenConfig, RejectsANonPositiveLanguageModelHeadWidth )
+    {
+        EXPECT_THROW( QwenConfig( kModelDim, kLayers ).withLanguageModelHeadPositions( 0 ),
+            std::invalid_argument );
+    }
+
     // ====================================================================
     // Serialization round trip
     // ====================================================================
@@ -250,5 +260,22 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         EXPECT_EQ( restored.getPackedQKVWidth(), source.getPackedQKVWidth() );
 
         EXPECT_NO_THROW( restored.validate() );
+    }
+
+    /**
+     * @brief The head width describes the run, so a checkpoint does not carry it.
+     *
+     * Every other member here is published geometry and must survive the round trip. This one
+     * is a buffer capacity the caller chooses, and restoring it from an artifact would let a
+     * checkpoint written by a scoring run silently widen a generation build's head.
+     */
+    TEST( QwenConfig, MetadataDoesNotCarryTheLanguageModelHeadWidth )
+    {
+        QwenConfig source = QwenConfig( 1024, 12 ).withLanguageModelHeadPositions( 64 );
+
+        QwenConfig restored( 1, 1 );
+        restored.fromMetadata( source.toMetadata() );
+
+        EXPECT_EQ( restored.getLanguageModelHeadPositions(), 1 );
     }
 }

@@ -235,6 +235,32 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        /**
+         * @brief Positions the language-model head evaluates per pass. Default 1.
+         *
+         * Generation needs a logit only at the last position, and at 248,320 vocabulary a
+         * BF16 logit row costs 0.474 MiB, so the head is built one row wide and the default
+         * pays for exactly that row. Teacher-forced scoring needs a logit at EVERY position,
+         * which cannot be materialized for a whole prefill chunk at once, so a scoring caller
+         * raises this to the number of rows it can afford and the head is evaluated in
+         * sub-chunks of that width.
+         *
+         * This is a run capacity, not published geometry -- it sizes buffers the way
+         * withMaxSequenceLength does, and unlike that bound it describes no property of the
+         * checkpoint, so it is deliberately absent from toMetadata().
+         */
+        template <typename Self>
+        decltype(auto) withLanguageModelHeadPositions( this Self&& self, dim_t positions )
+        {
+            if ( positions <= 0 )
+            {
+                throw std::invalid_argument( "QwenConfig: language_model_head_positions must be > 0" );
+            }
+
+            self.language_model_head_positions_ = positions;
+            return std::forward<Self>( self );
+        }
+
         // ---- Gated DeltaNet geometry (consumed at Phase 3) -------------------
 
         template <typename Self>
@@ -308,6 +334,7 @@ namespace Mila::Dnn
         bool hasAttentionOutputGate() const noexcept { return attention_output_gate_; }
         dim_t getFullAttentionInterval() const noexcept { return full_attention_interval_; }
         bool getTieWordEmbeddings() const noexcept { return tie_word_embeddings_; }
+        dim_t getLanguageModelHeadPositions() const noexcept { return language_model_head_positions_; }
 
         dim_t getLinearNumKeyHeads() const noexcept { return linear_num_key_heads_; }
         dim_t getLinearNumValueHeads() const noexcept { return linear_num_value_heads_; }
@@ -510,6 +537,11 @@ namespace Mila::Dnn
             {
                 throw std::invalid_argument( "QwenConfig: linear_conv_kernel_dim must be > 0" );
             }
+
+            if ( language_model_head_positions_ <= 0 )
+            {
+                throw std::invalid_argument( "QwenConfig: language_model_head_positions must be > 0" );
+            }
         }
 
         // ====================================================================
@@ -657,6 +689,7 @@ namespace Mila::Dnn
             oss << "  Rotary dim: " << getRotaryDim() << " of " << head_dim_ << "\n";
             oss << "  Full attention interval: " << full_attention_interval_ << "\n";
             oss << "  Tie Word Embeddings: " << (tie_word_embeddings_ ? "Yes" : "No") << "\n";
+            oss << "  LM Head Positions: " << language_model_head_positions_ << "\n";
             oss << "  DeltaNet: " << linear_num_key_heads_ << " key heads, "
                 << linear_num_value_heads_ << " value heads, head_dim " << linear_head_dim_
                 << ", conv kernel " << linear_conv_kernel_dim_ << "\n";
@@ -679,6 +712,10 @@ namespace Mila::Dnn
         float partial_rotary_factor_ = 0.25f;  // 64 of head_dim 256
         dim_t full_attention_interval_ = 4;    // 3 DeltaNet : 1 full attention
         bool  tie_word_embeddings_ = false;    // UNTIED: two full-size tables
+
+        // A run capacity rather than published geometry: 1 is what generation needs, and a
+        // scoring caller raises it. Not serialized -- it describes the run, not the model.
+        dim_t language_model_head_positions_ = 1;
 
         // Gated DeltaNet geometry. Present from the start because it is part of the
         // published config and the transformer must know which layers are which; the
