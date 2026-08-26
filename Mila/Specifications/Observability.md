@@ -534,9 +534,11 @@ compute precision. Whether observation should offer a typed convenience is a v0.
 the capability is present either way.
 - ~~**Does a component's signature become part of its contract?**~~ **Decided: deferred to
   v0.21** — see 11.1, which also corrects the failure history originally cited for it.
-- **`ROADMAP.md`.** v0.20 currently reads as a hardening release. A headline model plus a new
-  observability surface is a different narrative, and the rewrite belongs with this carve-in
-  rather than after it.
+- ~~**`ROADMAP.md`.**~~ **Done 2026-08-26.** v0.20 read as a hardening release; it now states the
+  pair — a 27B model at 2.82 bits on a 12 GB card *that you can open and read* — and observability
+  is a theme of its own with its own success criteria, joined to a matching BACKLOG bucket. The
+  rewrite also corrected the Future tail, which still described Qwen as an unbuilt third
+  architecture family.
 
 ### 11.1 The component signature — DEFERRED to v0.21 (decided 2026-08-25)
 

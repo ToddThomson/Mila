@@ -47,6 +47,11 @@ import Mila;
 // exports only IExecutionContext. Same import Qwen.Block.Cuda.cpp had to add.
 import Compute.ExecutionContext;
 
+// After the import: the helpers name GenerateParams. Every std header they need is already
+// included above, so their own includes are no-ops in this TU -- which is what keeps this
+// clear of import Mila poisoning std headers first seen after it.
+#include "Common/GenerationRates.h"
+
 namespace Mila::Tests::Dnn::Models
 {
     using namespace Mila::Dnn;
@@ -1078,6 +1083,130 @@ namespace Mila::Tests::Dnn::Models
                "measurements is not measuring what it says";
     }
 
+    using Mila::Tests::Common::decodeSecondsPerToken;
+    using Mila::Tests::Common::prefillSecondsPerToken;
+
+    // Prefill rate on the FULL 64-layer artifact. DISABLED because it is a measurement:
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_PrefillRate
+    //
+    // The sibling above reports prefill on the 4-layer fixture, which carries the same 3:1
+    // interleave and so carries SHARES faithfully -- but not rates. Sixteen times four layers
+    // is not this model: the fixture is 1.2 GiB with nothing to evict and never walks down the
+    // chunk ladder, where the full artifact is 8.69 GiB resident and its chunk is chosen
+    // against what the KV cache leaves. A prefill tok/s for the 27B has to come from the 27B.
+    //
+    // Timed by SUBTRACTION between two prompt lengths at max_new_tokens = 1, so the 15 GiB
+    // load, the single decode step and the head all cancel.
+    TEST_F( QwenPackedArtifactTests, DISABLED_PrefillRate )
+    {
+        constexpr dim_t kContextLength = 4096;
+        constexpr dim_t kLongPrompt = 2048;
+        constexpr dim_t kShortPrompt = 128;
+
+        QwenModelConfig model_config( kContextLength );
+        model_config.withPrecisionPlan();
+
+        auto model = QwenBf16::fromPretrained( artifact_, model_config );
+
+        const double per_token_seconds =
+            prefillSecondsPerToken( model, kLongPrompt, kShortPrompt );
+
+        std::cout << std::format(
+            "\n  packed 2.82-bit 27B, 64 layers, context {}, prompts {} vs {}\n"
+            "  PREFILL: {:.2f} ms/token, {:.0f} tok/s\n",
+            kContextLength, kLongPrompt, kShortPrompt,
+            per_token_seconds * 1000.0, 1.0 / per_token_seconds ) << std::flush;
+
+        EXPECT_GT( per_token_seconds, 0.0 );
+    }
+
+    // ====================================================================
+    // The SAME two rates on the FP4 arm, which is a different card as well as a different
+    // bit width -- 12.31 GiB of weights does not fit the 4070, so this pair must run on the
+    // 16 GiB 5060 Ti and the comparison against the packed arm CONFOUNDS bits with
+    // architecture. That is not a flaw to be corrected here: the two are different
+    // DEPLOYMENTS, and which one a user should run is the question being asked. It only
+    // means neither number may be quoted as the cost of a bit width.
+    //
+    // PIN THE CARD BY UUID -- CUDA's device 0 is the 4070 on this rig, and 12.31 GiB aborts
+    // there in two seconds with no diagnostic:
+    //   set CUDA_VISIBLE_DEVICES=GPU-9a81c7d1-9db2-16b3-c256-2f991ec2a22c
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_PrefillRateFp4Oracle
+    //
+    // The FP4 arm loads the 50.10 GiB BF16 blob and quantizes on the way in, so the load is
+    // minutes rather than seconds. The subtraction cancels it either way.
+    // ====================================================================
+    TEST_F( QwenPackedArtifactTests, DISABLED_PrefillRateFp4Oracle )
+    {
+        constexpr dim_t kContextLength = 4096;
+        constexpr dim_t kLongPrompt = 2048;
+        constexpr dim_t kShortPrompt = 128;
+
+        const fs::path reference_blob =
+            fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_bf16.bin";
+
+        if ( !fs::exists( reference_blob ) )
+        {
+            GTEST_SKIP() << "Reference BF16 blob not present at: " << reference_blob.string();
+        }
+
+        QwenModelConfig model_config( kContextLength );
+        model_config.withWeightQuantization( WeightQuantization::FP4 );
+
+        auto model = QwenBf16::fromPretrained( reference_blob, model_config );
+
+        const double per_token_seconds =
+            prefillSecondsPerToken( model, kLongPrompt, kShortPrompt );
+
+        std::cout << std::format(
+            "\n  FP4 oracle 27B (4.125 bits), 64 layers, context {}, prompts {} vs {}\n"
+            "  PREFILL: {:.2f} ms/token, {:.0f} tok/s\n",
+            kContextLength, kLongPrompt, kShortPrompt,
+            per_token_seconds * 1000.0, 1.0 / per_token_seconds ) << std::flush;
+
+        EXPECT_GT( per_token_seconds, 0.0 );
+    }
+
+    TEST_F( QwenPackedArtifactTests, DISABLED_DecodeRateFp4Oracle )
+    {
+        constexpr dim_t kContextLength = 512;
+        constexpr int kShort = 8;
+        constexpr int kLong = 72;
+
+        const fs::path reference_blob =
+            fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_bf16.bin";
+
+        if ( !fs::exists( reference_blob ) )
+        {
+            GTEST_SKIP() << "Reference BF16 blob not present at: " << reference_blob.string();
+        }
+
+        QwenModelConfig model_config( kContextLength );
+        model_config.withWeightQuantization( WeightQuantization::FP4 );
+
+        auto model = QwenBf16::fromPretrained( reference_blob, model_config );
+
+        const std::vector<int32_t> prompt{ 760, 6511, 314, 9338, 369 };
+        const double per_token = decodeSecondsPerToken( model, prompt, kLong, kShort );
+
+        // 12.31 GiB against the packed arm's 8.69: decode reads every weight once per token,
+        // so the bit width sets the floor and the card's bandwidth sets the rate.
+        const double weight_gib = 12.31;
+        const double achieved_gb_per_second =
+            ( weight_gib * 1024 * 1024 * 1024 ) / per_token / 1e9;
+
+        std::cout << std::format(
+            "\n  FP4 oracle 27B (4.125 bits), 64 layers, context {}\n"
+            "  DECODE: {:.2f} ms/token, {:.1f} tok/s\n"
+            "  implied weight bandwidth: {:.0f} GB/s (RTX 5060 Ti peak 448)\n",
+            kContextLength, per_token * 1000.0, 1.0 / per_token,
+            achieved_gb_per_second ) << std::flush;
+
+        EXPECT_GT( per_token, 0.0 );
+    }
+
     // Decode cost per LAYER, on a model small enough to be genuinely VRAM-resident.
     //
     // The control for the full artifact's rate. The 4-layer packed fixture runs the same
@@ -1182,41 +1311,10 @@ namespace Mila::Tests::Dnn::Models
 
         const std::vector<int32_t> prompt{ 760, 6511, 314, 9338, 369 };
 
-        auto timeGeneration = [&]( int tokens ) -> double
-            {
-                std::vector<int32_t> produced;
-
-                GenerateParams params;
-                params.max_new_tokens = tokens;
-                params.sampling.temperature = 0.0f;
-
-                const auto start = std::chrono::steady_clock::now();
-
-                const GenerateStatus status = model->generate(
-                    prompt,
-                    [&]( int32_t token ) { produced.push_back( token ); },
-                    params,
-                    std::stop_token{} );
-
-                const auto elapsed = std::chrono::steady_clock::now() - start;
-
-                EXPECT_EQ( static_cast<int>( produced.size() ), tokens )
-                    << "generation stopped early (" << to_string( status )
-                    << "), which breaks the subtraction";
-
-                return std::chrono::duration<double>( elapsed ).count();
-            };
-
-        // Warm: the first generation pays for lazy cuBLASLt setup and first-touch paging.
-        timeGeneration( 8 );
-
         constexpr int kShort = 8;
         constexpr int kLong = 72;
 
-        const double short_seconds = timeGeneration( kShort );
-        const double long_seconds = timeGeneration( kLong );
-
-        const double per_token = ( long_seconds - short_seconds ) / ( kLong - kShort );
+        const double per_token = decodeSecondsPerToken( model, prompt, kLong, kShort );
         const double tokens_per_second = 1.0 / per_token;
 
         // Section 5 derives its ceiling from bytes moved per token, so the achieved

@@ -613,6 +613,134 @@ namespace Mila::Tests::Dnn::Quantization
     namespace
     {
         /**
+         * @brief Every staged weight, element by element, against the host codec.
+         *
+         * The tests above compare the dequantize kernel against ITSELF under two staging
+         * caps, so a rewrite that is uniformly wrong passes them both; the ones against the
+         * codec compare after a GEMM under a tolerance budget. Neither pins the value the
+         * kernel actually writes, which is what any change to its addressing or access width
+         * has to preserve exactly.
+         *
+         * The staging buffer has no accessor and should not grow one. An IDENTITY activation
+         * matrix reads it out instead: output[m][oc] is then the dot product of row m of I
+         * with staged row oc, which is staging[oc][m] and nothing else. Every product is
+         * 1.0 * w or 0.0 * w and the sum has one non-zero term, so BF16 carries the readout
+         * exactly -- the comparison can be bitwise, and it runs through the real forward,
+         * striping and trailing strip included.
+         */
+        template<typename TPolicy>
+        void runStagingMatchesHostCodec(
+            dim_t rows, dim_t columns, int entries, unsigned seed, std::size_t stagingCap )
+        {
+            constexpr dim_t kGroupSize = TPolicy::kQuantizationGroupSize;
+
+            auto context = makeContextOrSkip();
+
+            if ( context == nullptr )
+                GTEST_SKIP() << "CUDA device not available";
+
+            const PackedTensor packed =
+                makePackedTensor( rows, columns, kGroupSize, entries, seed );
+
+            std::vector<float> dequantized( static_cast<std::size_t>( rows * columns ) );
+            dequantizeCodes( packed.codes.data(), packed.scaleBits.data(), packed.codebook.data(),
+                rows, columns, kGroupSize, dequantized.data() );
+
+            HostFp32 host_identity( Device::Cpu(), shape_t{ columns, columns } );
+
+            for ( dim_t m = 0; m < columns; ++m )
+                for ( dim_t k = 0; k < columns; ++k )
+                    host_identity.data()[m * columns + k] = ( m == k ) ? 1.0f : 0.0f;
+
+            DeviceBf16 device_identity( Device::Cuda( 0 ), shape_t{ columns, columns } );
+            copy( host_identity, device_identity, context.get() );
+            context->synchronize();
+
+            LinearConfig config( columns, rows );
+            config.withBias( false );
+
+            CodebookOpFor<TPolicy> op( context.get(), config, stagingCap );
+            auto tensors = uploadWeights<TPolicy>( packed, rows, columns );
+            bindWeights<TPolicy>( op, tensors );
+            op.build( BuildContext( shape_t{ columns, columns }, RuntimeMode::Inference, false ) );
+
+            ASSERT_TRUE( op.isBuilt() );
+
+            DeviceBf16 device_output( Device::Cuda( 0 ), shape_t{ columns, rows } );
+            op.forward( device_identity, device_output );
+            context->synchronize();
+
+            auto host_output = toHost<TensorDataType::FP32>( device_output, context.get() );
+            context->synchronize();
+
+            int mismatches = 0;
+
+            for ( dim_t oc = 0; oc < rows; ++oc )
+                for ( dim_t c = 0; c < columns; ++c )
+                {
+                    const float expected = roundThroughBf16(
+                        dequantized[static_cast<std::size_t>( oc * columns + c )] );
+                    const float actual =
+                        host_output.data()[static_cast<std::size_t>( c * rows + oc )];
+
+                    if ( std::bit_cast<std::uint32_t>( actual )
+                        != std::bit_cast<std::uint32_t>( expected ) )
+                    {
+                        // A wrong ADDRESSING scheme misses nearly every element, so the
+                        // first few localize it and the count says which kind of wrong.
+                        if ( ++mismatches <= 8 )
+                        {
+                            ADD_FAILURE() << "staged weight [" << oc << "][" << c << "]: got "
+                                << actual << ", codec says " << expected
+                                << " (group " << ( c / kGroupSize ) << ")";
+                        }
+                    }
+                }
+
+            EXPECT_EQ( mismatches, 0 ) << mismatches << " of " << ( rows * columns )
+                << " staged weights differ from the codec";
+        }
+    }
+
+    // Group 32 and 64 are what the Qwen precision plan actually deploys; 128 is the third
+    // size the packed layout admits and the one a group-size switch is most likely to drop.
+    // 512 columns keeps the identity readout at 512x512.
+    TEST( CodebookLinearOpCuda, TwoBitGroup32StagingMatchesHostCodec )
+    {
+        runStagingMatchesHostCodec<PerGroupCodebook2<32>>(
+            256, 512, 4, 20260826u, std::size_t( 1 ) << 40 );
+    }
+
+    TEST( CodebookLinearOpCuda, TwoBitGroup64StagingMatchesHostCodec )
+    {
+        runStagingMatchesHostCodec<PerGroupCodebook2<64>>(
+            256, 512, 4, 20260827u, std::size_t( 1 ) << 40 );
+    }
+
+    TEST( CodebookLinearOpCuda, ThreeBitGroup64StagingMatchesHostCodec )
+    {
+        runStagingMatchesHostCodec<PerGroupCodebook3<64>>(
+            256, 512, 8, 20260828u, std::size_t( 1 ) << 40 );
+    }
+
+    TEST( CodebookLinearOpCuda, ThreeBitGroup128StagingMatchesHostCodec )
+    {
+        runStagingMatchesHostCodec<PerGroupCodebook3<128>>(
+            256, 512, 8, 20260829u, std::size_t( 1 ) << 40 );
+    }
+
+    // A ragged trailing strip is where a block-per-output-row grid is most likely to walk
+    // off its strip: 200 rows over strips of 80 leaves 40, and the kernel is handed a row
+    // count that is not the one its plan cache was built at.
+    TEST( CodebookLinearOpCuda, ThreeBitStagingMatchesHostCodecAcrossARaggedStrip )
+    {
+        runStagingMatchesHostCodec<PerGroupCodebook3<64>>(
+            200, 512, 8, 20260830u, 70u * 1024 );
+    }
+
+    namespace
+    {
+        /**
          * @brief The same claim on the W4A8-FP8 prefill, which is a DIFFERENT striped path.
          *
          * FP4 does not reach runStagedPrefill: with kUseFp8ActivationPrefill on it takes the

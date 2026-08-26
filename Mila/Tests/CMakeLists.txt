@@ -226,6 +226,9 @@ if(MILA_ENABLE_CUDA)
         # Gate B: the reported footprint against cudaMemGetInfo. Both skip without a real
         # checkpoint, so neither runs in CI -- see Specifications/MemoryFootprint.md 7.
         "Dnn/Models/GemmaModel.Footprint.Cuda.cpp"
+        # Rates, all DISABLED: they exist so Qwen's have a comparator on the same card by
+        # the same subtraction. Common/GenerationRates.h is the one implementation.
+        "Dnn/Models/GemmaModel.Rates.Cuda.cpp"
         "Dnn/Models/LlamaModel.Footprint.Cuda.cpp"
         # Qwen against a TRUNCATED real artifact -- the full 27B is 50 GiB at BF16 and fits
         # no card here, so 4 layers (both block kinds) is what can be exercised. Skips

@@ -23,31 +23,11 @@ being a task list and needs a prune.
 
 ### Models
 
-- [ ] **Observability — carved into v0.20.** A consumer holding a `LanguageModel` cannot reach a
-  composition tree that is otherwise fully public, so every activation investigation in this repo
-  was built as scaffolding outside `Mila/Src`. Design of record is `Specifications/Observability.md`;
-  it supersedes the requirements this item used to carry and names its own boundary.
-  The cost question is **settled**: an unattached publication check is not measurable on
-  `Gelu::forward` (spec section 7, measured 2026-08-25), so the runtime design stands and no
-  compile-time gate is needed. Still owed once instrumentation is real: the section 10 criterion
-  of no movement in decode tok/s on the 27B at 16K.
-- [ ] **`setStageProbe` is undesigned public API and becomes a consumer of the above.**
-  `LanguageModelNetwork.ixx:143`'s default accepts a probe and never fires it, so on Llama and Gpt
-  "not instrumented" and "clean" are indistinguishable — a false negative in a NaN detector. Its one
-  consumer reaches it through `if constexpr ( requires { ... } )`, so a signature change silently
-  stops the probing. `TransformerApiReadiness.md` item 6.
 - [ ] **`ExecutionContextFactory.ixx:30-33` uses `#ifdef MILA_HAS_CUDA` inside the module purview.**
   The guard sits in the exported `createExecutionContext` body, not in the global module fragment,
   which is the preprocessor-in-module-code pattern the tree rules out; the CUDA arm belongs in a
   partition or a CMake-selected unit. Found while confirming the factory allocates a fresh context
   per call.
-- [ ] **"One context, one model tree" is an accident, and observability would make it load-bearing.**
-  Two models cannot share an `IExecutionContext` today — the factory always allocates
-  (`ExecutionContextFactory.ixx:23`), every transformer mints its own, and
-  `Component::setExecutionContext` is protected and throws when already set (`Component.ixx:765`,
-  `:779`). Nothing forbids a future overload accepting a context, which is a reasonable
-  optimization and would silently become a cross-model observation leak. State the contract on
-  `setExecutionContext`. `Specifications/Observability.md` 6.3.
 - [ ] **`Component` documents a compute contract it does not declare.** `Component.ixx:132-133`
   teaches the lifecycle as "`forward()` requires `build()` to have completed" and "`backward()`
   requires `isTrainingMode() == true`", and `:728` names both again, but the base declares neither
@@ -215,26 +195,50 @@ being a task list and needs a prune.
 - [ ] **[contributor]** Llama 3.2 1B/3B weight tying — the aliasing plumbing shipped; add
   `tie_word_embeddings_` + post-load aliasing + `getMemoryStats` correction to `LlamaTransformer`.
   See `Specifications/WeightTying.md` §6.
-- [ ] **The codebook decode GEMVs are 1.4x off the Section 5 ceiling.** 33.7 tok/s measured on
-  the packed 27B, fully resident, against a 47 tok/s bytes-per-token ceiling — 314 GB/s of the
-  4070's 504. The three GEMVs were 95% of decode time before the residency fix (cb4 45%, cb8
-  27%, FP4 23%) and the attribution is owed a re-run at the new rate. Phase 1 already found
-  these kernels instruction-bound and named the fix — amortizing the unpack across several
-  output rows per thread, or bucketing activations by code. `DISABLED_DecodeRate` in
-  `QwenModel.Load.Cuda.cpp` is the harness.
-- [ ] **Tensor cores for the DeltaNet chunked kernel — PRICE IT FIRST, against 13% of prefill.**
+- [ ] **The codebook decode GEMVs sustain 56.7% of peak where the FP4 kernels sustain 68.8% —
+  worth 37.2 tok/s instead of 30.7.** Measured against the FP4 oracle on 2026-08-26: the packed
+  arm's 1.42x bit-width advantage in bytes per token delivers only 1.32x because of that gap.
+  The three GEMVs were 95% of decode time before the residency fix (cb4 45%, cb8 27%, FP4 23%)
+  and the attribution is owed a re-run at the new rate. Phase 1 already found these kernels
+  instruction-bound and named the fix — amortizing the unpack across several output rows per
+  thread, or bucketing activations by code. `DISABLED_DecodeRate` /
+  `DISABLED_DecodeRateFp4Oracle` in `QwenModel.Load.Cuda.cpp` are the harnesses.
+- [ ] **The codebook prefill stages to BF16 and runs a BF16 GEMM; Gemma stages to FP8 and runs
+  the sm89 FP8 tensor GEMM.** Measured 2026-08-26 on one card: Gemma 4 12B FP4 prefills at 2482
+  tok/s against Qwen 27B's 621, and only 2.25x of that 4.00x is parameter count. Gemma's
+  projections are 41% `sm89_xmma_gemm_e4m3bf16` fed by `dequantize_fp4_to_fp8` at ONE byte per
+  weight; Qwen's are a BF16 GEMM fed at TWO. The W4A8-FP8 path already exists and Qwen's own
+  lm_head takes it (`kUseFp8ActivationPrefillPath`) — the codebook policies do not. Gate it on
+  numerics first: e4m3 carries 3 mantissa bits against BF16's 7, over codes that are already
+  2.82 bits. NOT the fused codebook GEMM, which was priced and lost to striping.
+- [ ] **Qwen's prefill materializes score rows where Gemma's rings.** Gemma spends 19.1% of
+  prefill in `prefill_softmax_ring_bf16_kernel` and Qwen 100% of its attention in
+  `prefill_softmax_bf16_kernel` plus a permute/unpermute pair. Whether the ring kernel is
+  reachable from Qwen's 16 full-attention layers has not been checked.
+- [ ] **The codebook prefill loses 1.54x to FP4's fused GEMM, and that is now the whole gap.**
+  620 tok/s against the oracle's 957 at context 4096, after the dequantize port already took the
+  packed arm 1.63x. The staged path expands to BF16 and runs a separate cuBLASLt GEMM where FP4
+  runs one fused W4A16 kernel. A fused codebook GEMM was priced and LOST to striping in 2026-08
+  — that pricing predates the port and the comparator, so it is worth re-deriving before it is
+  quoted again. `Qwen3.8.md` section 8.
+- [ ] **Tensor cores for the DeltaNet chunked kernel — PRICE IT FIRST, against 14.5% of prefill.**
   The chunked kernel shipped at 1.10x; its triangles and state update are matmul-shaped and only
-  reachable from that form. The mixer is 13.0% of prefill, so the whole remaining prize is ~12%.
+  reachable from that form. The mixer is 14.5% of prefill since the dequantize port made prefill
+  1.63x faster, so the whole remaining prize is ~13%.
   `Cuda/Operations/DeltaNet/Kernels/GatedDeltaRule.cu`, measurements in `Qwen3.8.md` section 8.
-- [ ] **Prefill's real cost is the quantized projections, and nothing has profiled them.** The
-  four-layer fixture runs 103.8 us/token of prefill with the mixers accounting for 13 of it; the
-  rest is unexamined. That is where a prefill win is, if there is one.
-  `QwenPackedArtifactTests.DISABLED_PrefillShareOfTheDeltaNetMixer` is the harness.
-- [ ] **Prompt-prefix reuse is silently unavailable on any model with DeltaNet layers.**
-  `QwenDeltaNetBlock::rewindKvCache` always returns false — correctly, since a recurrent state is a
-  lossy summary that cannot be rolled back — and `QwenTransformer::rewindKvCache` ANDs that into a
-  whole-stack refusal. Chat and MIS need to report this as a model property, not retry.
-  The block-level mechanism now exists (`snapshotState`/`restoreState`, ~150 MiB per prefix).
+- [ ] **`cuda_fp4a16_gemm` and `cuda_fp4_dequantize_to_bf16` fall through to a SILENT no-op on an
+  unsupported group size.** Both switch on `group_size` with `default: break`
+  (`CudaW4A16Gemm.cu:398`, `:428`), so a size outside {64, 128} launches nothing and leaves the
+  staging buffer holding the previous strip — wrong logits, no error, no failure. The codebook
+  launcher now throws instead (`CodebookDequantize.cu`); make these match. Only reachable by
+  adding a `PerGroupFp4<N>` policy, which is why it has never fired.
+- [ ] **The staging dequantize is per-CHUNK, so the rung ladder multiplies it.** A 1024-token
+  prefill at chunk 512 runs the kernel exactly twice as often as a 64-token one — every chunk
+  re-dequantizes every weight in the stack. The cost is fixed per chunk and per layer, so it
+  grows as `kQwenPrefillChunkRungs` walks down under memory pressure at long context. The full
+  artifact now has a rate — 620 tok/s prefill at context 4096 (`DISABLED_PrefillRate`) — but
+  nothing has measured it ACROSS the ladder, which is where the multiplication shows up.
+  `Qwen.ixx:110`.
 - [ ] **Whole-model prefix caching for Qwen must combine TWO mechanisms, and nothing does yet.**
   The 48 DeltaNet layers need the new snapshot/restore copy; the 16 attention layers need the
   existing positional rewind. Deliberately left to Phase 6 because it is a policy question —
@@ -256,6 +260,31 @@ being a task list and needs a prune.
   `parseMetadataJSON` extracts `norm_epsilon` (Gemma and the packer both emit that). Harmless today
   only because `LlamaModel::configFromMetadata` does not read the epsilon at all — it takes
   `LlamaConfig`'s default. `Tools/Converters/Llama/convert_weights.py:188`.
+
+### Observability
+
+- [ ] **[gate] The section 10 cost criterion is unmet: no decode tok/s movement on the 27B at 16K.**
+  The cost question was settled in isolation — an unattached publication check is not measurable on
+  `Gelu::forward` (`Observability.md` 7) — but that was a single component before instrumentation
+  was real. It now is, across every component, and the whole-model figure is what the criterion
+  names. `QwenPackedArtifactTests.DISABLED_DecodeRate` is the harness.
+- [ ] **`setStageProbe` is undesigned public API that observability supersedes.**
+  `LanguageModelNetwork.ixx:143`'s default accepts a probe and never fires it, so on Llama and Gpt
+  "not instrumented" and "clean" are indistinguishable — a false negative in a NaN detector. Its one
+  consumer reaches it through `if constexpr ( requires { ... } )`, so a signature change silently
+  stops the probing. `TransformerApiReadiness.md` item 6.
+- [ ] **"One context, one model tree" is an accident, and observability makes it load-bearing.**
+  Two models cannot share an `IExecutionContext` today — the factory always allocates
+  (`ExecutionContextFactory.ixx:23`), every transformer mints its own, and
+  `Component::setExecutionContext` is protected and throws when already set (`Component.ixx:765`,
+  `:779`). Nothing forbids a future overload accepting a context, which is a reasonable
+  optimization and would silently become a cross-model observation leak. State the contract on
+  `setExecutionContext`. `Specifications/Observability.md` 6.3.
+- [ ] **A value-reading sink has to name the model's compute precision.** The sink gets
+  `const ITensor&`, whose `rawData()` is type-erased, so anything wanting numbers rather than shapes
+  does a `dynamic_cast` to `Tensor<TPrecision, MR>` then its own `toHost`. Both consumers now do
+  this. It works; whether observation should offer a typed convenience is open, and `Observability.md`
+  11.2 parks it for v0.21.
 
 ### Test Suite Revival
 
@@ -378,11 +407,6 @@ being a task list and needs a prune.
   `Qwen3.8.md` section 8 item 9. **Watch item:** from 8K to 16K the oracle improves 7.2% and the
   plan only 3.4% — the quantized arm captures about half the benefit of extra context, which is the
   compounding signature the recurrent layers make plausible. Re-run before any 32K claim.
-- [ ] **A value-reading observation sink has to name the model's compute precision.** The sink gets
-  `const ITensor&`, whose `rawData()` is type-erased, so anything wanting numbers rather than shapes
-  does a `dynamic_cast` to `Tensor<TPrecision, MR>` then its own `toHost`. Both consumers now do
-  this. It works; whether observation should offer a typed convenience is open, and `Observability.md`
-  11.2 parks it for v0.21.
 - [ ] **All three Phase 5 quality criteria are measured and consistent; the prompt set is now the
   weak link.** Six prompts is enough to show trajectory cost and fork index are decoupled, not
   enough to put a threshold on the mean (0.1129 nats/token) the way 1.25 sits on the perplexity
@@ -980,6 +1004,16 @@ being a task list and needs a prune.
 
 ### Product Family — Adaptor Validation
 
+- [ ] **[gate] No adaptor reaches Qwen 3.8 — nothing in `Mila/Adaptors` names it.** The model ships
+  with the release and is loadable only from the test suite, which by this workstream's own rule is a
+  defect in the demonstration. Chat first, per the ROADMAP criterion: selectable by name, footprint
+  reported before the load, on the same terms as any other model.
+- [ ] **Prompt-prefix reuse is unavailable on any model with DeltaNet layers, and the refusal is
+  silent.** `QwenDeltaNetBlock::rewindKvCache` always returns false — correctly, since a recurrent
+  state is a lossy summary that cannot be rolled back — and `QwenTransformer::rewindKvCache` ANDs that
+  into a whole-stack refusal. Chat and MIS need to report it as a model property and plan around it,
+  not retry. The block-level mechanism exists (`snapshotState`/`restoreState`, ~150 MiB per prefix)
+  and a whole-model policy that combines it with the attention layers' positional rewind does not.
 - [ ] **Chat cannot choose a GPU.** `ChatConfig` has no device field and the runtime's device string
   is always resolved as `CUDA:0`, so on the two-card rig the only way to reach the second GPU is
   `CUDA_VISIBLE_DEVICES=1` in the environment. The library already names devices `CUDA:N`

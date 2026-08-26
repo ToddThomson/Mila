@@ -2388,6 +2388,211 @@ policy — how many prefixes to hold in the 31.8 GB of host RAM, and eviction.
 for the DeltaNet layers, the existing positional rewind for the 16 attention layers — and
 choosing how belongs with Phase 6's caching policy, not with the mechanism.
 
+### Where prefill actually goes: the dequantize costs more than the GEMM (2026-08-26)
+
+The section above named the quantized projections as prefill's real cost without measuring
+them. They are measured now, by Nsight Systems over one run of
+`DISABLED_PrefillShareOfTheDeltaNetMixer`, with kernel time attributed to the timed 1024-token
+generate alone (the run boundaries are the three `argmax_kernel` launches). GPU busy is 137.3 ms
+in a 139.9 ms span, so prefill is GPU-bound and a kernel breakdown is the whole story:
+
+| kernel | ms | share of prefill |
+|---|---|---|
+| `ampere_bf16_s1688gemm_bf16_128x128` (cuBLASLt, the staged GEMM) | 52.6 | 38.3% |
+| `codebook_dequantize_to_bf16_kernel<4>` | 34.1 | 24.8% |
+| `codebook_dequantize_to_bf16_kernel<8>` | 25.4 | 18.5% |
+| `gated_delta_rule_chunked_kernel` | 13.5 | 9.9% |
+| everything else (norms, RoPE, conv, SwiGLU, softmax, residuals) | 11.7 | 8.5% |
+
+The quantized projections are **81.6% of prefill**, and the mixer share re-derives independently
+at 9.9% here against the 13% the subtraction harness reports — the same conclusion by a second
+method.
+
+**Phase 1 is the half that costs more.** Dequantizing into the staging buffer is 43.3% of
+prefill against the GEMM's 38.3%. `CodebookDequantize.cu:19` states the design premise —
+"this kernel runs once per forward against a GEMM that costs far more, so clarity wins over
+packing tricks." That premise is now false by measurement. **The two-phase design is not what
+broke it**: at its memory roof the staging write would be roughly 14% on top of the GEMM,
+which is what the premise assumed. The implementation is what broke it.
+
+**The kernel is 7x off its own roof.** Nsight Compute on one `<8>` strip (10.49M elements):
+
+| | |
+|---|---|
+| Payload | 21.0 MB stored + ~4.1 MB read (3 bits/element + one FP16 scale per 128) |
+| Roof at the 4070's 504 GB/s | ~50 us |
+| Measured | **349 us**, DRAM at **10.2% of peak** |
+| Issue active | 33.8% |
+| ALU vs FMA pipe | **26.5% against 10.9%** — address arithmetic, not mathematics |
+| L1 load sectors | 3,604,480, i.e. **11 bytes of L1 traffic per element** for 3 bits of code |
+| Long-scoreboard stall | 0.50 per warp-active |
+
+Four causes, all inside the grid-stride body at `CodebookDequantize.cu:41`, and each has a
+named fix that the decode GEMV already applies:
+
+- **A 64-bit `index / C` and `index - oc * C` per element** (`:44`, `:45`). Integer division at
+  64 bits is a software sequence, and it is the whole ALU-over-FMA reading. A 2D grid, or one
+  row/column pair derived once in 32-bit outside the loop, removes it.
+- **Byte-granularity plane loads** (`:47`, `:53`). Four threads share one byte of the two-bit
+  plane and eight share one byte of the one-bit plane, which is where 11 bytes per element of L1
+  traffic comes from. One `uint32_t` covers 16 elements of the two-bit plane.
+- **The scale is reloaded per element** (`:57`) although one FP16 scale serves `group_size` =
+  128 consecutive elements.
+- **Two-byte stores** (`:60`), where a `uint4` would carry eight elements.
+
+**None of this changes a bit of the output** — same codebook, same scale, same
+`__float2bfloat16` rounding, only addressing and access width — so the existing equivalence
+tests are the whole gate and no parity re-run is owed.
+
+**And the target shape is already in the tree.** `CodebookDequantize.cu:4` says it "mirrors
+`cuda_fp4_dequantize_to_bf16` in structure so the prefill branch of the codebook op is the
+proven shape rather than a new one." It does not. `dequantize_fp4_to_bf16_kernel`
+(`CudaW4A16Gemm.cu:209`) runs **one block per output channel**, so the row is `blockIdx.x` and
+there is no division of any width; its scale index divides by a template constant, which is a
+shift; and it stores `__nv_bfloat162`. The codebook kernel took one thread per element with a
+64-bit divide instead — a different shape, in exactly the three places that cost the 7x. This
+is a port of a proven kernel, not a design.
+
+**What it is worth.** At the roof, 59.4 ms of dequantize becomes ~8.5 ms and prefill goes
+137 -> 86 ms, **1.6x**; prefill is 68% of a scoring run, so ~1.35x end to end. Even a
+conservative 3x on the kernel is 1.4x on prefill. Set against the remaining DeltaNet lever —
+tensor cores for a mixer worth at most 12% — this is the larger prize and by far the cheaper
+build.
+
+#### Built, and it landed on the prediction (2026-08-26)
+
+The port is in. Same card, same build, `attrib.py` over a fresh `nsys` capture, direction
+stated before the run:
+
+| | before | after | |
+|---|---|---|---|
+| One `<8>` strip (2048 x 5120) | 349 us | **27.3 us** | 12.8x |
+| ... DRAM throughput | 10.2% of peak | **54.9%** | |
+| ... L1 load sectors | 3,604,480 | **147,456** | 24.4x |
+| Dequantize, whole long prefill | 59.4 ms | **10.6 ms** | 5.6x |
+| ... share of prefill | 43.3% | **12.6%** | |
+| Prefill, GPU busy | 137.3 ms | **84.3 ms** | **1.63x** |
+| Prefill, wall clock | 107.7 us/token | **73.2 us/token** | **1.47x** |
+
+The GEMM is unmoved (52.6 -> 50.4 ms, inside clock variance), which is the check that the win
+came from where it was attributed and not from a faster card that hour.
+
+**The 3-bit kernel gained twice what the 2-bit one did** — 9.0x against 4.4x. It had two byte
+plane loads rather than one and an eight-entry select chain rather than four, so it carried
+more of every defect.
+
+**The ~50 us roof quoted above was too conservative, for an instructive reason.** It charged
+the whole 21 MB BF16 staging write to DRAM. Measured, DRAM sees 3.1 MB of it: the staging
+buffer is rewritten every strip and the GEMM consumes it out of L2 before it is evicted. The
+two-phase design is therefore cheaper than a bytes-moved argument predicts, which is a point in
+its favour that neither this document nor `CodebookDequantize.cu` had made.
+
+**What is left is small and inherent.** ALU still outruns FMA, 36% against 6.7% — but that is
+now bit extraction and shuffles, which is what unpacking a 3-bit code IS, not address
+arithmetic. At 55% of DRAM peak and 12.6% of prefill, a perfect kernel from here is worth
+another 12%. **The next prefill question is the per-chunk cost below, not this kernel.**
+
+#### The rates on the 64-layer artifact (2026-08-26)
+
+Everything above is the four-layer fixture. The full packed 27B on the 4070, measured by the
+same subtraction, is:
+
+| | ms/token | tok/s | context |
+|---|---|---|---|
+| Prefill (`DISABLED_PrefillRate`, prompts 2048 vs 128) | 1.61 | **620** | 4096 |
+| Decode (`DISABLED_DecodeRate`, 72 vs 8 tokens) | 32.58 | **30.7** | 512 |
+
+A 2048-token prompt is 3.38 s of wall clock.
+
+**The fixture carries SHARES but not RATES, and the gap is 38%.** Sixteen times the fixture's
+73.2 us/token predicts 854 tok/s; the model does 620. The fixture is 1.2 GiB with nothing to
+evict, runs at context 1152 rather than 4096, and never walks down the chunk ladder. Quote it
+for attribution, never for a rate.
+
+The decode figure reads against 33.7 recorded on 2026-08-22 on the same harness and card;
+decode does not reach the dequantize kernel at all, so the spread is the ~12% clock variance
+this document has already had to account for elsewhere.
+
+#### The two deployments win opposite halves (2026-08-26)
+
+The packed arm against the FP4 oracle, each on the card it actually runs on:
+
+| | packed 2.82-bit | FP4 oracle | |
+|---|---|---|---|
+| card | 4070, 12 GiB, 504 GB/s | 5060 Ti, 16 GiB, 448 GB/s | |
+| device weights | 8.69 GiB | 12.31 GiB | |
+| Prefill, context 4096 | 1.61 ms/token, **620 tok/s** | 1.05 ms/token, **957 tok/s** | FP4 **1.54x** |
+| Decode, context 512 | 32.58 ms/token, **30.7 tok/s** | 42.95 ms/token, **23.3 tok/s** | packed **1.32x** |
+| Decode, achieved fraction of peak | **56.7%** | **68.8%** | |
+
+**This comparison CONFOUNDS bits with architecture and cannot be un-confounded on this rig.**
+12.31 GiB of FP4 weights does not fit the 4070, so the oracle has to run on Blackwell. These are
+two deployments, and which one to run is a real question; neither number is the cost of a bit
+width.
+
+**Decode.** 1.42x fewer bytes per token should be worth 1.42x and delivers 1.32x. The whole
+difference is kernel efficiency: the codebook GEMVs sustain 56.7% of their card's bandwidth
+where the FP4 kernels sustain 68.8% of theirs. **At FP4's efficiency the packed arm would
+decode at 37.2 tok/s.** That is the standing "1.4x off the Section 5 ceiling" item, now with a
+comparator rather than a derivation behind it.
+
+**Prefill.** FP4 wins by 1.54x even after the dequantize port took the packed arm 1.63x. It
+runs a fused W4A16 GEMM; the codebook path expands to BF16 and then runs a separate cuBLASLt
+GEMM. Two-phase staging is what makes sub-4-bit reachable at all, and this is its price.
+
+#### Against Gemma 4 12B on the same card, and where the 4x goes (2026-08-26)
+
+The 12B chassis is the comparator that says how much of the 27B's cost is size and how much is
+this design. Both on the 4070, same subtraction, same build:
+
+| | Gemma 4 12B FP4 | Qwen 27B 2.82-bit | |
+|---|---|---|---|
+| device weights | 6.33 GiB | 8.69 GiB | |
+| Prefill, context 4096 | 0.40 ms/token, **2482 tok/s** | 1.61 ms/token, **621 tok/s** | **4.00x** |
+| Decode, context 512 | 21.78 ms/token, **45.9 tok/s** | 32.58 ms/token, **30.7 tok/s** | **1.50x** |
+| Decode achieved bandwidth | 312 GB/s, 62% of peak | 286 GB/s, 56.7% | |
+
+**Decode's gap is entirely bytes, and closes to the last digit.** 1.373x more bytes per token
+times 1.09x less achieved bandwidth is 1.50. **There is no architectural penalty in DeltaNet
+decode** — a rank-1 state update costs nothing worth naming, and three quarters of the gap is
+simply 27B against 12B.
+
+**Prefill's 4.00x is 2.25x of parameters and 1.78x of structure**, and the traces name the
+structure:
+
+| Gemma prefill | Qwen prefill |
+|---|---|
+| `sm89_xmma_gemm_e4m3bf16`, **FP8 tensor GEMM**, 41.0% | `ampere_bf16_s1688gemm`, **BF16 GEMM**, 38.3% |
+| `dequantize_fp4_to_fp8`, **1 byte/weight**, 10.9% | codebook to BF16, **2 bytes/weight**, 12.6% |
+| `prefill_softmax_ring`, non-materializing, 19.1% | `prefill_softmax` + permute/unpermute |
+| no recurrence | DeltaNet mixer, 14.5% |
+
+The first row is the largest single item: on sm89 the FP8 tensor path runs at roughly twice
+BF16, and it stages half the bytes to get there. **That path already exists and Qwen's own
+lm_head takes it** — only the codebook policies do not. Gated on numerics, not machinery.
+
+**A method defect this comparison exposed.** Gemma's first prefill measurement read **-0.04
+ms/token**: it has prompt-prefix reuse, the warm-up and both timed prompts shared a prefix, and
+nothing re-prefilled. Qwen never showed it because `QwenDeltaNetBlock::rewindKvCache` always
+refuses. `Tests/Common/GenerationRates.h` now salts all three prompts so none is a prefix of
+another; Qwen re-measured at 621 against 620, confirming the change is neutral where reuse is
+absent. **Any rate harness on a chassis that caches prefixes has this bug until it is salted.**
+
+**The gate that made this safe is new and was validated as a negative first.**
+`CodebookLinearOpCuda.*StagingMatchesHostCodec` reads the staging buffer through an IDENTITY
+activation matrix — every product is `1.0 * w`, so the readout is exact — and compares every
+staged weight bitwise against the host codec, at group sizes 32, 64 and 128 and across a ragged
+trailing strip. Against a deliberately broken shift in the old kernel it failed 73,760 of
+131,072 elements; against the port it passes, as do all 1810 suite tests.
+
+**A second finding, structural: the dequantize is per-CHUNK, not per-token.** The 1024-token
+prompt runs 124 and 60 launches of the two kernels; the 64-token prompt runs exactly 62 and 30.
+Two chunks against one, so the resolved chunk is 512 and **every chunk re-dequantizes every
+weight in the stack**. The cost is fixed per chunk and per layer, which means it multiplies as
+`kQwenPrefillChunkRungs` (`Qwen.ixx:110`) walks down under memory pressure — the four-layer
+fixture at context 1152 never takes that walk, and prefill on the full 64-layer artifact at a
+real context has still not been measured.
+
 ---
 
 ## 9. Open Questions
