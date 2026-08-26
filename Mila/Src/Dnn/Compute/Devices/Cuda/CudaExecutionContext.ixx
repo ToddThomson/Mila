@@ -365,6 +365,23 @@ namespace Mila::Dnn::Compute
 
         void initializeResources()
         {
+            // A CUDA stream belongs to whichever device is current when it is created, and
+            // nothing guarantees that is this context's device -- device enumeration leaves
+            // the last probed device current, so on a multi-GPU host a context for device 0
+            // would otherwise get a stream on the last device. Its memory resources bind
+            // correctly on every allocation, so the two would disagree and every launch
+            // would read pointers belonging to another device. Invisible with one GPU
+            // visible, an illegal memory access with two.
+            cudaError_t bind_error = cudaSetDevice( device_id_.index );
+
+            if ( bind_error != cudaSuccess )
+            {
+                throw std::runtime_error(
+                    std::format( "Failed to select CUDA device {} for this context: {}",
+                        device_id_.index, cudaGetErrorString( bind_error ) )
+                );
+            }
+
             cudaError_t error = cudaStreamCreateWithFlags( &stream_, cudaStreamDefault );
 
             if ( error != cudaSuccess )

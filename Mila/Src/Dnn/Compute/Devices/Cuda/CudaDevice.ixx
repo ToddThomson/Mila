@@ -421,13 +421,28 @@ namespace Mila::Dnn::Compute
                     return false;
                 }
 
+                // Probing usability must not disturb global state. Every query above takes a
+                // device id and binds nothing, so the only reason to touch the current device
+                // is to prove it can be selected -- restore it afterwards, or enumeration
+                // leaves the LAST probed device current and every context built later
+                // inherits the wrong one. cudaDeviceReset() used to follow this and was
+                // worse: it destroys the device context, including any stream or allocation
+                // already living on it.
+                int previous_device = 0;
+
+                if ( cudaGetDevice( &previous_device ) != cudaSuccess )
+                {
+                    return false;
+                }
+
                 cudaError_t setError = cudaSetDevice( deviceId );
+
                 if ( setError != cudaSuccess )
                 {
                     return false;
                 }
 
-                cudaDeviceReset();
+                cudaSetDevice( previous_device );
 
                 return true;
             }

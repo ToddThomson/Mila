@@ -36,17 +36,6 @@ being a task list and needs a prune.
   "not instrumented" and "clean" are indistinguishable — a false negative in a NaN detector. Its one
   consumer reaches it through `if constexpr ( requires { ... } )`, so a signature change silently
   stops the probing. `TransformerApiReadiness.md` item 6.
-- [ ] **A test crashes with an illegal memory access when BOTH GPUs are visible, and passes when
-  either one is pinned alone.** `GemmaFootprintCudaTests.GetRequiredMemory_BoundsActualConsumption`
-  dies in `cudaStreamSynchronize` with no `CUDA_VISIBLE_DEVICES` set (reproduced 4x, and on the
-  committed tree, so it is not caused by uncommitted work). Pinning `CUDA_VISIBLE_DEVICES` to the
-  4070 passes; pinning it to the 5060 Ti passes. So it is not architecture — the mere presence of a
-  second visible device changes behaviour, which points at a device-selection defect: something
-  allocates on one device and launches on another. The rest of the suite is unaffected (1778 pass
-  with both visible, excluding this test). Prime suspects are the test's `cudaFree( nullptr )`
-  context priming and `freeDeviceBytes()`/`cudaMemGetInfo`, which read the CURRENT device rather
-  than the model's. Ties to the filed gap that nothing in the tree can select a GPU.
-  `Mila/Tests/Dnn/Models/GemmaModel.Footprint.Cuda.cpp:197`.
 - [ ] **`ExecutionContextFactory.ixx:30-33` uses `#ifdef MILA_HAS_CUDA` inside the module purview.**
   The guard sits in the exported `createExecutionContext` body, not in the global module fragment,
   which is the preprocessor-in-module-code pattern the tree rules out; the CUDA arm belongs in a
