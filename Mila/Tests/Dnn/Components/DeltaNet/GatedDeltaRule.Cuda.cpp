@@ -16,8 +16,12 @@
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <format>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -36,6 +40,9 @@ namespace Mila::Tests::Dnn::Components::DeltaNet
         {
             static constexpr TensorDataType value = TensorDataType::FP32;
             static constexpr float atol = 1e-5f;
+            // Chunked against recurrent: the same terms in a different summation order,
+            // so the bar is float reassociation over the chunk, not the oracle's 1e-5.
+            static constexpr float chunked_atol = 1e-4f;
             static constexpr const char* name = "Fp32";
         };
 
@@ -45,6 +52,9 @@ namespace Mila::Tests::Dnn::Components::DeltaNet
             // The recurrence accumulates in FP32 but q/k/v/a/b arrive BF16, so the input
             // rounding propagates through every step. Loose by design.
             static constexpr float atol = 2e-2f;
+            // Both arms round the same inputs and carry the same FP32 state, so the only
+            // extra term against Fp32's bar is BF16 rounding of the stored output.
+            static constexpr float chunked_atol = 1e-2f;
             static constexpr const char* name = "Bf16";
         };
 
@@ -355,6 +365,215 @@ namespace Mila::Tests::Dnn::Components::DeltaNet
     }
 
     // ====================================================================
+    // C2. The chunked prefill kernel, against the recurrent one
+    //
+    // Past 32 steps the launcher takes the chunked (UT-transform) kernel; at or below it,
+    // and at every decode step, the sequential recurrence. So the tests above pin the
+    // recurrent form against the Python oracle, and these pin the chunked form against the
+    // recurrent form -- which is Phase 3's exit criterion stated as a test.
+    //
+    // The two are NOT bit-identical and cannot be: the chunked form sums the same terms in
+    // a different order. FP32 is checked at 1e-4 rather than the 1e-5 the oracle tests use.
+    // ====================================================================
+    namespace
+    {
+        constexpr dim_t kChunkThreshold = 32;
+
+        /// Bounded and non-repeating across the width, so no two heads see the same signal.
+        float syntheticValue( dim_t index, int seed )
+        {
+            const dim_t step = (index * 37 + static_cast<dim_t>( seed ) * 101) % 211;
+
+            return static_cast<float>( step ) / 105.0f - 1.0f;
+        }
+    }
+
+    template<typename TPrecisionTag>
+    class ChunkedGatedDeltaRuleCudaTests : public GatedDeltaRuleCudaTests<TPrecisionTag>
+    {
+    protected:
+        using Base = GatedDeltaRuleCudaTests<TPrecisionTag>;
+        using DeviceTensor = typename Base::DeviceTensor;
+        using HostFp32 = typename Base::HostFp32;
+
+        HostFp32 synthetic( dim_t steps, dim_t width, int seed )
+        {
+            HostFp32 host( Device::Cpu(), shape_t{ kBatch, steps, width } );
+
+            for ( dim_t i = 0; i < host.size(); ++i )
+            {
+                host.data()[ i ] = syntheticValue( i, seed );
+            }
+
+            return host;
+        }
+
+        /// The whole sequence through one call -- chunked when steps clears the threshold.
+        std::vector<float> wholeSequence( dim_t steps,
+            const HostFp32& q, const HostFp32& k, const HostFp32& v,
+            const HostFp32& a, const HostFp32& b )
+        {
+            auto rule = this->builtRule( steps );
+
+            auto& device_out = rule->prefill(
+                this->toDevice( q ), this->toDevice( k ), this->toDevice( v ),
+                this->toDevice( a ), this->toDevice( b ), 0 );
+
+            rule->synchronize();
+
+            auto host = this->toFloat( device_out );
+
+            return std::vector<float>( host.data(), host.data() + steps * kValueWidth );
+        }
+
+        /// The same sequence one token at a time -- always the recurrent kernel.
+        std::vector<float> tokenByToken( dim_t steps,
+            const HostFp32& q, const HostFp32& k, const HostFp32& v,
+            const HostFp32& a, const HostFp32& b )
+        {
+            auto rule = this->builtRule( 1 );
+
+            std::vector<float> collected;
+            collected.reserve( static_cast<size_t>( steps * kValueWidth ) );
+
+            for ( dim_t t = 0; t < steps; ++t )
+            {
+                auto q_step = this->toDevice( this->hostSlice( q.data(), kKeyWidth, t, 1 ) );
+                auto k_step = this->toDevice( this->hostSlice( k.data(), kKeyWidth, t, 1 ) );
+                auto v_step = this->toDevice( this->hostSlice( v.data(), kValueWidth, t, 1 ) );
+                auto a_step = this->toDevice( this->hostSlice( a.data(), kValueHeads, t, 1 ) );
+                auto b_step = this->toDevice( this->hostSlice( b.data(), kValueHeads, t, 1 ) );
+
+                auto& device_out = (t == 0)
+                    ? rule->prefill( q_step, k_step, v_step, a_step, b_step, 0 )
+                    : rule->decode( q_step, k_step, v_step, a_step, b_step, t );
+
+                rule->synchronize();
+
+                auto host = this->toFloat( device_out );
+                collected.insert( collected.end(), host.data(), host.data() + kValueWidth );
+            }
+
+            return collected;
+        }
+
+        void expectAgreement( dim_t steps )
+        {
+            const HostFp32 q = this->synthetic( steps, kKeyWidth, 1 );
+            const HostFp32 k = this->synthetic( steps, kKeyWidth, 2 );
+            const HostFp32 v = this->synthetic( steps, kValueWidth, 3 );
+            const HostFp32 a = this->synthetic( steps, kValueHeads, 4 );
+            const HostFp32 b = this->synthetic( steps, kValueHeads, 5 );
+
+            const std::vector<float> chunked = this->wholeSequence( steps, q, k, v, a, b );
+            const std::vector<float> recurrent = this->tokenByToken( steps, q, k, v, a, b );
+
+            ASSERT_EQ( chunked.size(), recurrent.size() );
+
+            float max_divergence = 0.0f;
+
+            for ( size_t i = 0; i < chunked.size(); ++i )
+            {
+                max_divergence =
+                    std::max( max_divergence, std::fabs( chunked[ i ] - recurrent[ i ] ) );
+            }
+
+            EXPECT_LT( max_divergence, TPrecisionTag::chunked_atol )
+                << "chunked prefill and token-by-token decode disagree at " << steps
+                << " steps: max |diff| " << max_divergence;
+        }
+    };
+
+    TYPED_TEST_SUITE( ChunkedGatedDeltaRuleCudaTests, DeltaRulePrecisions, PrecisionNames );
+
+    TYPED_TEST( ChunkedGatedDeltaRuleCudaTests, ExactlyOneChunk_MatchesTokenByToken )
+    {
+        this->expectAgreement( kChunkThreshold );
+    }
+
+    /// One step past a chunk boundary: a second chunk of span 1, the narrowest ragged tail.
+    TYPED_TEST( ChunkedGatedDeltaRuleCudaTests, OneStepPastAChunk_MatchesTokenByToken )
+    {
+        this->expectAgreement( kChunkThreshold + 1 );
+    }
+
+    TYPED_TEST( ChunkedGatedDeltaRuleCudaTests, RaggedTail_MatchesTokenByToken )
+    {
+        this->expectAgreement( 3 * kChunkThreshold - 7 );
+    }
+
+    TYPED_TEST( ChunkedGatedDeltaRuleCudaTests, SeveralWholeChunks_MatchTokenByToken )
+    {
+        this->expectAgreement( 4 * kChunkThreshold );
+    }
+
+    /**
+     * @brief The state, not just the output, has to arrive at the same place.
+     *
+     * The tests above compare what the chunk emitted. A chunked kernel that carried a wrong
+     * state but read it back consistently would pass every one of them and then produce
+     * garbage on the first decode step after prefill -- which is what generation does.
+     * Continuing the sequence one token at a time from both paths is what separates those.
+     */
+    TYPED_TEST( ChunkedGatedDeltaRuleCudaTests, TheCarriedStateAgreesAfterAChunkedPrefill )
+    {
+        constexpr dim_t kPrefill = 2 * kChunkThreshold;
+        constexpr dim_t kContinuation = 4;
+        constexpr dim_t kTotal = kPrefill + kContinuation;
+
+        const auto q = this->synthetic( kTotal, kKeyWidth, 1 );
+        const auto k = this->synthetic( kTotal, kKeyWidth, 2 );
+        const auto v = this->synthetic( kTotal, kValueWidth, 3 );
+        const auto a = this->synthetic( kTotal, kValueHeads, 4 );
+        const auto b = this->synthetic( kTotal, kValueHeads, 5 );
+
+        // Arm one: a chunked prefill of the head, then decode the tail one token at a time.
+        auto rule = this->builtRule( kPrefill );
+
+        (void)rule->prefill(
+            this->toDevice( this->hostSlice( q.data(), kKeyWidth, 0, kPrefill ) ),
+            this->toDevice( this->hostSlice( k.data(), kKeyWidth, 0, kPrefill ) ),
+            this->toDevice( this->hostSlice( v.data(), kValueWidth, 0, kPrefill ) ),
+            this->toDevice( this->hostSlice( a.data(), kValueHeads, 0, kPrefill ) ),
+            this->toDevice( this->hostSlice( b.data(), kValueHeads, 0, kPrefill ) ), 0 );
+
+        rule->synchronize();
+
+        std::vector<float> after_chunked;
+
+        for ( dim_t t = kPrefill; t < kTotal; ++t )
+        {
+            auto& device_out = rule->decode(
+                this->toDevice( this->hostSlice( q.data(), kKeyWidth, t, 1 ) ),
+                this->toDevice( this->hostSlice( k.data(), kKeyWidth, t, 1 ) ),
+                this->toDevice( this->hostSlice( v.data(), kValueWidth, t, 1 ) ),
+                this->toDevice( this->hostSlice( a.data(), kValueHeads, t, 1 ) ),
+                this->toDevice( this->hostSlice( b.data(), kValueHeads, t, 1 ) ), t );
+
+            rule->synchronize();
+
+            auto host = this->toFloat( device_out );
+            after_chunked.insert( after_chunked.end(), host.data(), host.data() + kValueWidth );
+        }
+
+        // Arm two: the whole thing token by token, so the state was never chunked.
+        const std::vector<float> reference = this->tokenByToken( kTotal, q, k, v, a, b );
+
+        float max_divergence = 0.0f;
+
+        for ( dim_t i = 0; i < kContinuation * kValueWidth; ++i )
+        {
+            max_divergence = std::max( max_divergence, std::fabs(
+                after_chunked[ i ] - reference[ kPrefill * kValueWidth + i ] ) );
+        }
+
+        EXPECT_LT( max_divergence, TypeParam::chunked_atol )
+            << "decode after a chunked prefill diverges from decode after a recurrent one: "
+               "max |diff| " << max_divergence << " -- the carried state is wrong even "
+               "though the chunk's own output was right";
+    }
+
+    // ====================================================================
     // D. Guard clauses
     // ====================================================================
 
@@ -369,5 +588,162 @@ namespace Mila::Tests::Dnn::Components::DeltaNet
         auto b = this->toDevice( this->hostSlice( kB, kValueHeads, 0, 1 ) );
 
         EXPECT_THROW( (void)rule.forward( q, k, v, a, b ), std::runtime_error );
+    }
+
+    // ====================================================================
+    // E. The two kernels against each other, at the published 27B geometry.
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=*DISABLED_ChunkedAgainstRecurrentAtPublishedGeometry
+    //
+    // The harness for any further work on this kernel -- START HERE, and read section 8 of
+    // Qwen3.8.md before believing an improvement is worth having. Two things it settled:
+    // the mixer is 13% of prefill rather than the two thirds the plan assumed, and the
+    // chunked form is worth 1.10x rather than the several-fold its shape suggests.
+    //
+    // BOTH ARMS IN ONE RUN, and that is not incidental. The absolute figures move ~12%
+    // between runs with GPU clocks, so a ratio built from a number recorded earlier is not
+    // a measurement. 31 steps is the widest sequence that still takes the recurrent kernel
+    // (the launcher switches at 32) and the per-token cost of both is flat in T, which is
+    // what makes the two columns comparable at different widths.
+    //
+    // One layer's mixer alone -- no projections, no weights, no model -- reported against
+    // the 3.1 ms per token the Phase 5 breakdown recorded for the whole 64-layer forward
+    // (23.2 s / 7443 positions, context 1024). 48 of the 64 layers hold one of these.
+    // ====================================================================
+    class GatedDeltaRulePublishedGeometryTests : public ::testing::Test
+    {
+    protected:
+        using RuleType = Mila::Dnn::GatedDeltaRule<DeviceType::Cuda, TensorDataType::BF16>;
+        using DeviceTensor = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+        // Qwen 3.8 27B, from the checkpoint: 16 key heads, 48 value heads, 128 both dims.
+        static constexpr dim_t kKeyHeadCount = 16;
+        static constexpr dim_t kValueHeadCount = 48;
+        static constexpr dim_t kHeadDim = 128;
+        static constexpr dim_t kDeltaNetLayers = 48;
+
+        // The whole-model prefill cost this measurement is weighed against.
+        static constexpr double kWholeModelMicrosecondsPerToken = 3117.0;
+
+        void SetUp() override
+        {
+            try
+            {
+                cuda_context_ = createExecutionContext( Device::Cuda( 0 ) );
+            }
+            catch ( const std::exception& )
+            {
+                cuda_context_ = nullptr;
+            }
+
+            if ( !cuda_context_ )
+            {
+                GTEST_SKIP() << "CUDA device not available";
+            }
+        }
+
+        /// Bounded, deterministic, and not a ramp -- a ramp makes every head identical.
+        DeviceTensor filled( const shape_t& shape, int seed )
+        {
+            HostFp32 host( Device::Cpu(), shape );
+
+            for ( dim_t i = 0; i < host.size(); ++i )
+            {
+                const int step = static_cast<int>( (i * 37 + seed * 13) % 101 );
+                host.data()[ i ] = static_cast<float>( step ) / 50.0f - 1.0f;
+            }
+
+            DeviceTensor device( Device::Cuda( 0 ), shape );
+            copy( host, device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return device;
+        }
+
+        /// Microseconds per token for one mixer over @p steps, warmed and averaged.
+        double timePerToken( const GatedDeltaRuleConfig& config, dim_t steps )
+        {
+            constexpr dim_t kBatchSize = 1;
+            constexpr int kIterations = 20;
+
+            const dim_t key_width = kKeyHeadCount * kHeadDim;
+            const dim_t value_width = kValueHeadCount * kHeadDim;
+
+            auto rule = std::make_unique<RuleType>( "delta_rule", config, Device::Cuda( 0 ) );
+            rule->build( BuildContext(
+                shape_t{ kBatchSize, steps, value_width }, RuntimeMode::Inference, false ) );
+
+            auto parameters = rule->getParameters();
+            copy( HostFp32( Device::Cpu(), shape_t{ kValueHeadCount } ),
+                *static_cast<DeviceTensor*>( parameters[ 0 ] ), cuda_context_.get() );
+            copy( HostFp32( Device::Cpu(), shape_t{ kValueHeadCount } ),
+                *static_cast<DeviceTensor*>( parameters[ 1 ] ), cuda_context_.get() );
+
+            auto q = filled( shape_t{ kBatchSize, steps, key_width }, 1 );
+            auto k = filled( shape_t{ kBatchSize, steps, key_width }, 2 );
+            auto v = filled( shape_t{ kBatchSize, steps, value_width }, 3 );
+            auto a = filled( shape_t{ kBatchSize, steps, kValueHeadCount }, 4 );
+            auto b = filled( shape_t{ kBatchSize, steps, kValueHeadCount }, 5 );
+
+            (void)rule->prefill( q, k, v, a, b, 0 );
+            rule->synchronize();
+
+            const auto start = std::chrono::steady_clock::now();
+
+            for ( int iteration = 0; iteration < kIterations; ++iteration )
+            {
+                (void)rule->prefill( q, k, v, a, b, 0 );
+            }
+
+            rule->synchronize();
+
+            const double microseconds = 1e6 * std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - start ).count() / kIterations;
+
+            return microseconds / static_cast<double>( steps );
+        }
+
+        std::unique_ptr<IExecutionContext> cuda_context_;
+    };
+
+    TEST_F( GatedDeltaRulePublishedGeometryTests, DISABLED_ChunkedAgainstRecurrentAtPublishedGeometry )
+    {
+        // The launcher takes the chunked kernel from 32 steps up, so 31 is the widest
+        // sequence that still runs the recurrence -- and the per-token cost of both is flat
+        // in T, which is what makes the two columns comparable at different widths.
+        constexpr dim_t kRecurrentSteps = 31;
+        constexpr dim_t kRungs[] = { 32, 64, 128, 256, 512, 1024 };
+
+        GatedDeltaRuleConfig config( kKeyHeadCount, kValueHeadCount, kHeadDim, kHeadDim );
+
+        std::cout << "\n  one DeltaNet mixer, published geometry ("
+            << kKeyHeadCount << " key / " << kValueHeadCount << " value heads, "
+            << kHeadDim << " both dims), BF16\n\n";
+
+        const double recurrent_per_token = this->timePerToken( config, kRecurrentSteps );
+
+        std::cout << std::format(
+            "  recurrent kernel (T={}): {:.3f} us/token, {:.1f} us/token over 48 layers\n\n",
+            kRecurrentSteps, recurrent_per_token, recurrent_per_token * kDeltaNetLayers );
+
+        std::cout
+            << "     T   kernel us   us/token   speedup   x48 layers   share of a 3.1 ms prefill\n"
+            << "  ----  ----------  ---------  --------  -----------  -------------------------\n";
+
+        for ( dim_t steps : kRungs )
+        {
+            const double per_token = this->timePerToken( config, steps );
+            const double stack = per_token * kDeltaNetLayers;
+
+            std::cout << std::format(
+                "  {:>4}  {:>10.1f}  {:>9.3f}  {:>7.2f}x  {:>11.1f}  {:>24.1f}%\n",
+                steps, per_token * static_cast<double>( steps ), per_token,
+                recurrent_per_token / per_token, stack,
+                100.0 * stack / kWholeModelMicrosecondsPerToken ) << std::flush;
+        }
+
+        std::cout << "\n  The last column is what a chunked kernel can still remove from\n"
+                     "  prefill; the recurrent row above is where it started.\n" << std::flush;
     }
 }

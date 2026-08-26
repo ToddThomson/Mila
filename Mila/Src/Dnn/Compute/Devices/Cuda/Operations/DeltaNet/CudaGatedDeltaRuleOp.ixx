@@ -1,10 +1,13 @@
 /**
  * @file CudaGatedDeltaRuleOp.ixx
- * @brief CUDA implementation of the recurrent gated delta rule.
+ * @brief CUDA implementation of the gated delta rule.
  *
  * The state is FP32 regardless of the activation precision -- the reference runs the
  * recurrence in float32 (`mamba_ssm_dtype`), and a state that is both carried across every
  * token and repeatedly accumulated into is the last place to economize on mantissa.
+ *
+ * One forward() serves prefill and decode; the kernel behind it is chosen on the step count
+ * (see GatedDeltaRule.cuh), so nothing here or above it names a form.
  */
 
 module;

@@ -222,14 +222,23 @@ being a task list and needs a prune.
   these kernels instruction-bound and named the fix — amortizing the unpack across several
   output rows per thread, or bucketing activations by code. `DISABLED_DecodeRate` in
   `QwenModel.Load.Cuda.cpp` is the harness.
-- [ ] **DeltaNet prefill runs the recurrence sequentially — O(T) in sequence steps.** The chunked
-  UT-transform formulation is what makes long-prompt prefill affordable on the 48 DeltaNet layers,
-  and without it the 27B is not shippable at prefill. The recurrent kernel is the oracle it must be
-  validated against, bitwise where fp32 allows. `Cuda/Operations/DeltaNet/Kernels/GatedDeltaRule.cu`.
+- [ ] **Tensor cores for the DeltaNet chunked kernel — PRICE IT FIRST, against 13% of prefill.**
+  The chunked kernel shipped at 1.10x; its triangles and state update are matmul-shaped and only
+  reachable from that form. The mixer is 13.0% of prefill, so the whole remaining prize is ~12%.
+  `Cuda/Operations/DeltaNet/Kernels/GatedDeltaRule.cu`, measurements in `Qwen3.8.md` section 8.
+- [ ] **Prefill's real cost is the quantized projections, and nothing has profiled them.** The
+  four-layer fixture runs 103.8 us/token of prefill with the mixers accounting for 13 of it; the
+  rest is unexamined. That is where a prefill win is, if there is one.
+  `QwenPackedArtifactTests.DISABLED_PrefillShareOfTheDeltaNetMixer` is the harness.
 - [ ] **Prompt-prefix reuse is silently unavailable on any model with DeltaNet layers.**
   `QwenDeltaNetBlock::rewindKvCache` always returns false — correctly, since a recurrent state is a
   lossy summary that cannot be rolled back — and `QwenTransformer::rewindKvCache` ANDs that into a
   whole-stack refusal. Chat and MIS need to report this as a model property, not retry.
+  The block-level mechanism now exists (`snapshotState`/`restoreState`, ~150 MiB per prefix).
+- [ ] **Whole-model prefix caching for Qwen must combine TWO mechanisms, and nothing does yet.**
+  The 48 DeltaNet layers need the new snapshot/restore copy; the 16 attention layers need the
+  existing positional rewind. Deliberately left to Phase 6 because it is a policy question —
+  how many prefixes to hold in host RAM, and eviction. `Qwen3.8.md` section 8, `PromptCaching.md`.
 - [ ] **`AttentionOutputGate` now has two callers and one of them is not attention.**
   `QwenDeltaNetBlock` uses it for the mixer's output gate. The component is mechanically generic
   (`out = TGate(gate) * value`); the name is not. Rename to something generic, or accept the
@@ -397,8 +406,9 @@ being a task list and needs a prune.
   either (3.7 GB, ~0.3 s) — the host `exp` loop is essentially the whole 11 s overhead, matching its
   9.2 s prediction. **If scoring speed is ever wanted, parallelise the host loop across cores** —
   the rows are independent, it is a few lines, and it captures most of the same 11 s with no kernel,
-  no dead-code revival and no numerics risk. The real lever is the chunked UT-transform prefill
-  kernel already filed below: it owns the 68%.
+  no dead-code revival and no numerics risk. **The chunked UT-transform kernel is NOT the lever
+  here** — it shipped at 1.10x on a mixer measured at 13% of prefill, so it never owned the 68%;
+  prefill's cost is the quantized projections. See `Qwen3.8.md` section 8.
 - [ ] **Only Qwen can be scored.** Gemma, Llama and GPT-2 build their heads at T=1 with no width
   parameter (`Gemma.ixx:279`, `Llama.ixx:239`, `GptTransformer.ixx:365`), so `scoreTokens` throws the
   base's `logic_error`. The gate wants Gemma and Llama too, and each needs the same two pieces: a head

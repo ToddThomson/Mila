@@ -43,8 +43,12 @@ namespace Mila::Dnn::Compute::Cuda::DeltaNet
      * it back unchanged to continue one. Accumulation is float regardless of storage type,
      * matching the reference's float32 recurrence (`mamba_ssm_dtype`).
      *
-     * Sequential in T by construction. A chunked (UT-transform) formulation is the
-     * throughput answer for long prefills; this form is its oracle.
+     * TWO KERNELS SIT BEHIND THIS ENTRY POINT and the call chooses on @p steps alone: the
+     * sequential recurrence above, and a chunked (UT-transform) form that regroups the same
+     * arithmetic into one triangular solve per 32 steps. The chunked form runs from 32
+     * steps up, so prefill always takes it and decode never does. Semantics are identical
+     * and the recurrent form is the oracle -- the difference is float summation order, not
+     * definition. See GatedDeltaRule.cu for the derivation and the parallelism argument.
      */
     void cuda_gated_delta_rule_fp32(
         float* out,

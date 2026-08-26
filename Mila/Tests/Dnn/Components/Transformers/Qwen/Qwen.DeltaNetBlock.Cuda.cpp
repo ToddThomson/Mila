@@ -20,6 +20,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <stdexcept>
@@ -446,6 +447,208 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         {
             EXPECT_NEAR( second.data()[ i ], first.data()[ i ], 1e-5f ) << "at index " << i;
         }
+    }
+
+    // ====================================================================
+    // C2. Snapshot and restore -- Phase 3's remaining exit criterion
+    //
+    // `rewindKvCache` returns false here and always will: a recurrent state is a lossy
+    // summary, so the information needed to undo N steps is not in it. Copying the state out
+    // and putting it back is therefore the ONLY mechanism by which anything resembling
+    // prefix reuse can work on this layer kind (PromptCaching.md section 2 is what an
+    // attention layer does instead, for no memory at all).
+    //
+    // "Exactly" is meant literally below: same device, same weights, same inputs, so the
+    // restored continuation must be BITWISE identical, not merely close. A tolerance here
+    // would hide precisely the partial restore these tests exist to catch.
+    // ====================================================================
+
+    TEST_F( QwenDeltaNetBlockCudaTests, SnapshotRestoreRoundtripsExactly )
+    {
+        const shape_t shape{ batch_, seq_, kModelDim };
+
+        auto block = builtBlock( seq_ );
+        auto first_chunk = toDevice( rampHost( shape, -0.4f, 0.013f ) );
+        auto second_chunk = toDevice( rampHost( shape, 0.2f, -0.009f ) );
+
+        (void)block->prefill( first_chunk, 0 );
+        block->synchronize();
+
+        auto taken = block->makeStateSnapshot();
+        block->snapshotState( taken );
+
+        // Move the state on, then put it back and take a second reading of it.
+        (void)block->prefill( second_chunk, seq_ );
+        block->synchronize();
+
+        block->restoreState( taken );
+
+        auto retaken = block->makeStateSnapshot();
+        block->snapshotState( retaken );
+
+        auto expectIdentical = [] ( const auto& left, const auto& right, const char* piece )
+            {
+                ASSERT_EQ( left.size(), right.size() ) << piece;
+
+                for ( dim_t i = 0; i < left.size(); ++i )
+                {
+                    ASSERT_EQ( left.data()[ i ], right.data()[ i ] )
+                        << piece << " diverged at index " << i;
+                }
+            };
+
+        expectIdentical( taken.query_key_window, retaken.query_key_window, "query/key window" );
+        expectIdentical( taken.value_window, retaken.value_window, "value window" );
+        expectIdentical( taken.recurrent, retaken.recurrent, "recurrent state" );
+    }
+
+    /**
+     * @brief The property that matters: a restored block CONTINUES identically.
+     *
+     * Comparing snapshots to each other only proves the copy is a copy. What a caller needs
+     * is that the block's future is the same -- so both arms run the same second chunk, and
+     * the arm that was dirtied and restored must produce the same output as the arm that was
+     * never disturbed. DirtiedWithoutRestore below is the control that says this can fail.
+     */
+    TEST_F( QwenDeltaNetBlockCudaTests, RestoredStateContinuesIdentically )
+    {
+        const shape_t shape{ batch_, seq_, kModelDim };
+
+        auto block = builtBlock( seq_ );
+        auto first_chunk = toDevice( rampHost( shape, -0.4f, 0.013f ) );
+        auto second_chunk = toDevice( rampHost( shape, 0.2f, -0.009f ) );
+        auto dirtying_chunk = toDevice( rampHost( shape, 0.7f, 0.021f ) );
+
+        (void)block->prefill( first_chunk, 0 );
+        block->synchronize();
+
+        auto taken = block->makeStateSnapshot();
+        block->snapshotState( taken );
+
+        auto& undisturbed_device = block->prefill( second_chunk, seq_ );
+        block->synchronize();
+        auto undisturbed = toFloat( undisturbed_device );
+
+        // Carry the state somewhere else entirely, then wind it back.
+        (void)block->prefill( dirtying_chunk, 2 * seq_ );
+        block->synchronize();
+
+        block->restoreState( taken );
+
+        auto& restored_device = block->prefill( second_chunk, seq_ );
+        block->synchronize();
+        auto restored = toFloat( restored_device );
+
+        for ( dim_t i = 0; i < undisturbed.size(); ++i )
+        {
+            ASSERT_EQ( restored.data()[ i ], undisturbed.data()[ i ] )
+                << "restored continuation diverged at index " << i;
+        }
+    }
+
+    /// Positive control: without the restore, the same sequence must NOT match.
+    TEST_F( QwenDeltaNetBlockCudaTests, DirtiedWithoutRestoreDivergesFromTheUndisturbedRun )
+    {
+        const shape_t shape{ batch_, seq_, kModelDim };
+
+        auto block = builtBlock( seq_ );
+        auto first_chunk = toDevice( rampHost( shape, -0.4f, 0.013f ) );
+        auto second_chunk = toDevice( rampHost( shape, 0.2f, -0.009f ) );
+        auto dirtying_chunk = toDevice( rampHost( shape, 0.7f, 0.021f ) );
+
+        (void)block->prefill( first_chunk, 0 );
+        block->synchronize();
+
+        auto& undisturbed_device = block->prefill( second_chunk, seq_ );
+        block->synchronize();
+        auto undisturbed = toFloat( undisturbed_device );
+
+        (void)block->prefill( dirtying_chunk, 2 * seq_ );
+        block->synchronize();
+
+        auto& dirtied_device = block->prefill( second_chunk, seq_ );
+        block->synchronize();
+        auto dirtied = toFloat( dirtied_device );
+
+        float max_divergence = 0.0f;
+
+        for ( dim_t i = 0; i < undisturbed.size(); ++i )
+        {
+            max_divergence = std::max( max_divergence,
+                std::fabs( dirtied.data()[ i ] - undisturbed.data()[ i ] ) );
+        }
+
+        // ABSOLUTE, not a multiple of any tolerance: how far a dirtied state carries these
+        // particular inputs is a property of the inputs, and the bar only has to sit above
+        // bitwise noise -- of which there is none, both arms being the same kernel.
+        EXPECT_GT( max_divergence, 1e-4f )
+            << "dirtying the carried state changed nothing, so RestoredStateContinuesIdentically "
+               "cannot be distinguishing a restored state from a dirty one";
+    }
+
+    /**
+     * @brief Restoring the mixer but not the convolution windows must NOT pass.
+     *
+     * The block carries three things and the two convolution windows are the easy ones to
+     * forget -- they are 60 KiB against the mixer's 3 MiB at the published geometry. A
+     * half-restore leaves each convolution's retained rows describing tokens the mixer no
+     * longer believes it has seen, and the block then produces plausible output rather than
+     * an error. This is the test that makes the aggregate in StateSnapshot load-bearing.
+     */
+    TEST_F( QwenDeltaNetBlockCudaTests, RestoringTheMixerWithoutTheWindowsIsNotEnough )
+    {
+        const shape_t shape{ batch_, seq_, kModelDim };
+
+        auto block = builtBlock( seq_ );
+        auto first_chunk = toDevice( rampHost( shape, -0.4f, 0.013f ) );
+        auto second_chunk = toDevice( rampHost( shape, 0.2f, -0.009f ) );
+        auto dirtying_chunk = toDevice( rampHost( shape, 0.7f, 0.021f ) );
+
+        (void)block->prefill( first_chunk, 0 );
+        block->synchronize();
+
+        auto clean = block->makeStateSnapshot();
+        block->snapshotState( clean );
+
+        auto& undisturbed_device = block->prefill( second_chunk, seq_ );
+        block->synchronize();
+        auto undisturbed = toFloat( undisturbed_device );
+
+        (void)block->prefill( dirtying_chunk, 2 * seq_ );
+        block->synchronize();
+
+        // Build a deliberately partial snapshot: the dirty windows, the clean mixer.
+        auto partial = block->makeStateSnapshot();
+        block->snapshotState( partial );
+        copy( clean.recurrent, partial.recurrent );
+
+        block->restoreState( partial );
+
+        auto& half_device = block->prefill( second_chunk, seq_ );
+        block->synchronize();
+        auto half = toFloat( half_device );
+
+        float max_divergence = 0.0f;
+
+        for ( dim_t i = 0; i < undisturbed.size(); ++i )
+        {
+            max_divergence = std::max( max_divergence,
+                std::fabs( half.data()[ i ] - undisturbed.data()[ i ] ) );
+        }
+
+        EXPECT_GT( max_divergence, 1e-4f )
+            << "the convolution windows made no difference to the continuation -- either "
+               "they are not being carried at all, or this test has stopped exercising them";
+    }
+
+    TEST_F( QwenDeltaNetBlockCudaTests, SnapshotBeforeAnyChunkIsRefused )
+    {
+        auto block = builtBlock( seq_ );
+        auto taken = block->makeStateSnapshot();
+
+        // The convolution windows stand for a left context that does not exist yet. Zeros
+        // would answer the question silently and wrongly.
+        EXPECT_THROW( block->snapshotState( taken ), std::logic_error );
     }
 
     // ====================================================================

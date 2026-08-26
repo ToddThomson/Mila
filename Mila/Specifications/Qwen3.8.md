@@ -383,9 +383,11 @@ Ordered by dependency, not priority. Nothing here is scheduled.
    reference oracle. Validate **generation, not per-layer tolerance** — a per-layer test can
    pass while 48 recurrent layers compound to garbage, and that failure mode is more likely
    here than in an attention stack.
-   *Phase 3 built the component, the recurrent kernel and the oracle. Still open: the
-   chunked-parallel prefill kernel, and the generation-level validation — which needs a
-   converter, so it lands with Phase 4.*
+   *Phase 3 built the component, the recurrent kernel and the oracle; generation-level
+   validation landed with Phase 4. **The chunked-parallel prefill kernel landed 2026-08-26 and
+   closes this item** — at 1.10x, against a mixer measured at 13% of prefill rather than the
+   two thirds this document had assumed for it. The only remaining lever on it is tensor
+   cores, and the note below says to price that before building it.*
 6. ~~**Host-resident `embed_tokens`** path.~~ **Built** (Phase 5): a residency axis on
    `TokenEmbedding`, pinned host memory, gathered in place by the unchanged kernel. See
    *Host-resident embedding* below.
@@ -559,10 +561,14 @@ Ordered by dependency, not priority. Nothing here is scheduled.
    cheap version, parallelising the host loop across cores, captures most of the same 11 s in
    a few lines with no kernel and no numerics risk.
 
-   The number that matters more is the 68%: scoring is dominated by prefill, and prefill on
-   this model still runs the DeltaNet recurrence sequentially because the chunked UT-transform
-   kernel does not exist. That one kernel owns two thirds of every scoring run, on top of
-   being what Section 8 item 5 says the 27B is not shippable without.
+   The number that matters more is the 68%: scoring is dominated by prefill.
+
+   **What that does NOT license is the sentence this paragraph used to end with** -- that the
+   chunked UT-transform kernel "owns two thirds of every scoring run". Prefill owns two
+   thirds; the DeltaNet recurrence owns a share OF prefill, and that share was never
+   measured. It has been now, and it is **13.0%** -- see *The chunked kernel, and what the
+   recurrence actually costs* below. The error is worth naming because it is not arithmetic:
+   it is attributing a container's cost to one of its contents.
 
 ### Phasing
 
@@ -1791,13 +1797,19 @@ running makes it easy to read the phase as finished, and it is not:
 |---|---|
 | Chunked prefill and token-by-token decode produce identical state and output | **Met.** Pinned at three levels — the convolution, the mixer, and the whole block — each with a positive control that fails if the carried state is ignored. |
 | Oracle parity per layer, at BF16, **on real checkpoint weights** | **Met 2026-08-19.** All 64 layers compared against the HuggingFace reference on the published checkpoint, and the last-position argmax agrees (` Paris`). See "Phase 4's parity gate is MET" above for the per-layer profile and the one open numerics question it raises. Parity against the Python oracle on synthetic vectors remains bit-identical in FP32. |
-| State-plus-conv-ring snapshot/restore roundtrips exactly | **Not started.** Neither the recurrent state nor the convolution window can be snapshotted or restored today. Section 7 identifies this as the mechanism that replaces rewinding for prompt caching, so it is the gate criterion with a product consequence attached. |
+| State-plus-conv-ring snapshot/restore roundtrips exactly | **Met 2026-08-26.** `snapshotState`/`restoreState` on `GatedDeltaRule`, `CausalConv1d` and `QwenDeltaNetBlock`, host-resident and exact. Pinned by a bitwise continuation test with three controls. See *Snapshot and restore* below. |
 
 #### What Phase 3 does not do
 
-**Prefill runs the recurrence sequentially**, O(T) in sequence steps. The chunked
+~~**Prefill runs the recurrence sequentially**, O(T) in sequence steps. The chunked
 (UT-transform) formulation is the throughput answer and is not built; the recurrent form is
-the oracle it must be validated against. **This tree is not shippable at 27B prefill.**
+the oracle it must be validated against. **This tree is not shippable at 27B prefill.**~~
+
+**Built 2026-08-26, and the last sentence was never true.** The chunked kernel exists and is
+validated against the recurrent form. It is worth 1.10x on a mixer that is 13.0% of prefill --
+so the throughput answer for this layer kind is not the chunked formulation, and prefill was
+never gated on it. See *The chunked kernel, and what the recurrence actually costs* below for
+the measurements and for the three findings about occupancy and bank layout that outlast it.
 
 Two Phase 4 constraints found while enumerating, both filed:
 
@@ -2272,6 +2284,110 @@ cover were counted per layer and are now counted once (the two `Activation` outp
 0.47 GiB and the q/k split scratch at 0.19 GiB), against 0.14 GiB added for the shared
 workspace. Everything else the prediction omitted entirely, and the card paid for it anyway.
 
+### The chunked kernel, and what the recurrence actually costs (2026-08-26)
+
+Section 8 item 5's remaining half is built: `gated_delta_rule_chunked_kernel`, the UT-transform
+form, validated against the recurrent kernel as its oracle. **It is worth 1.10x, and the
+recurrence it speeds up is 13.0% of prefill.** Both halves of that sentence are measurements,
+and both contradict what this document assumed before either was taken.
+
+**The premise was wrong first.** Item 9 above claimed the kernel "owns two thirds of every
+scoring run", reasoning from prefill being 68% of scoring. Prefill is; the mixer inside it is
+not. Measured on one card in one build -- a recorded figure from another run is not a baseline:
+
+| | |
+|---|---|
+| One mixer, published geometry (16 key / 48 value heads, 128/128), BF16 | **4.4 us/token/layer**, flat across T = 64..1024 |
+| Four-layer packed fixture, whole forward, prefill, same 3:1 interleave | 103.8 us/token |
+| The 48 DeltaNet mixers' share of prefill | **13.0%** |
+
+So a chunked kernel that cost *nothing* removes 13% of prefill, about 9% of a scoring run.
+
+**Then the kernel came in slower than the thing it replaced, and the reason generalizes.** The
+first correct version ran at **0.29x**. Four rounds of profiling took it to 1.10x:
+
+| | us/token | vs recurrent |
+|---|---|---|
+| Chunked, scalar shared loads, one thread per value column | 15.6 | 0.29x |
+| float4 shared loads and four independent accumulators | 6.9 | 0.63x |
+| Key dimension split across four threads (4 warps/SM -> 16) | 6.8 | 0.65x |
+| ... with the bank collision that split exposed removed | 4.1 | 1.07x |
+| ... one block per SM declared to ptxas | 3.9 | **1.10x** |
+
+Three findings in that table outlast the kernel:
+
+- **The recurrent kernel's problem was never its arithmetic, it was that 48 blocks of 128
+  threads is 6144 threads on a card with 70656 thread slots** -- four warps on an SM that
+  holds 48, so every latency is exposed. It runs at 2.3% of peak. Any successor to this layer
+  kind has to answer that, and the chunked form only answers it via the key split.
+- **Four times the warps bought NOTHING** (6.9 -> 6.8) until the layout changed. Giving each
+  part a contiguous slice of the key dimension starts the four parts 32 floats apart, which is
+  exactly the bank period: every load collided four ways. Interleaving by float4 block instead
+  took conflicts from 7.1M to 37K and gave the 1.65x the split was supposed to. **A parallelism
+  change that measures flat has usually created a new serialization, not failed to help.**
+- **`__launch_bounds__` was load-bearing, not a tuning knob.** Without it ptxas chose a
+  register count for a narrower block and the launch was refused outright -- "too many
+  resources requested", not a slow kernel.
+
+The kernel now issues on 43% of cycles against the recurrent form's 34%, with no stall above
+0.24 and conflicts essentially gone, so **1.10x is close to what this structure yields rather
+than a tuning gap**. What remains is the ALU pipe outrunning the FMA pipe, 24% against 14% --
+address arithmetic and mask predicates, not mathematics.
+
+**What this settles.** "The 27B is not shippable at prefill without the chunked kernel"
+(item 5) is not supported by any measurement and should not be repeated. Prefill is dominated
+by the quantized projections, not by the mixer. The one remaining lever on this path is tensor
+cores for the triangles and the state update, which is reachable only from the chunked form --
+**price it against 13% of prefill before building it.**
+
+The exit criterion is met and is a test rather than a claim: chunked prefill and token-by-token
+decode agree at 32, 33, 89 and 128 steps in both precisions, and a chunked prefill leaves a
+state that decodes identically to a recurrent one. Its positive control is recorded --
+neutralizing the chunk-boundary decay leaves the single-chunk cases passing and fails all three
+multi-chunk cases at 0.117-0.171, three orders above the bars.
+
+### Snapshot and restore, and what it costs to cache a prefix (2026-08-26)
+
+Phase 3's last exit criterion is met. `snapshotState`/`restoreState` on `GatedDeltaRule`,
+`CausalConv1d` and `QwenDeltaNetBlock`; snapshots are host-resident tensors of the state's own
+shape, and the roundtrip is exact.
+
+**Why this exists at all, in one line:** `rewindKvCache` returns false on this block and always
+will, because a recurrent state is a lossy summary — what it held at position n is not
+recoverable from position n+1 by any bookkeeping. An attention layer needs no buffer for prefix
+reuse (PromptCaching.md section 2: K/V rows are positional, so reuse is a counter rewind).
+Copying the state out is the only mechanism this layer kind admits.
+
+**Three pieces, not one.** The mixer's recurrent state is the large one, but each block also
+carries two convolution windows of `kernel_width - 1` rows. Restoring the mixer alone leaves
+those rows describing tokens the mixer no longer believes it has seen — wrong by three
+positions per layer, and *plausible* rather than erroneous. There is a test that fails when
+only the mixer is restored, so the aggregate is demonstrated rather than argued.
+
+**The budget, derived from the published geometry** (B=1):
+
+| Per DeltaNet layer | |
+|---|---|
+| Mixer state, 48 value heads x 128 x 128, FP32 | 3.00 MiB |
+| Two convolution windows, 3 rows x (4096 + 6144), FP32 on the host | 0.12 MiB |
+| **x 48 DeltaNet layers** | **~150 MiB per cached prefix** |
+
+The windows are FP32 on the host rather than BF16 because BF16 is not a CPU storage type here;
+widening is lossless and narrowing returns the identical value, so the roundtrip stays exact at
+twice the bytes on the small piece.
+
+**150 MiB per prefix is worth paying and the arithmetic is not close.** A snapshot is one
+host transfer of ~150 MiB — around 12 ms at PCIe rates — against re-prefilling the prefix it
+replaces at roughly 1.7-3 ms per token for the 64-layer stack. It pays for itself before 10
+tokens and saves seconds on a multi-thousand-token conversation. Unlike the chunked kernel
+above, no measurement was needed to see the sign of this one; what Phase 6 has to decide is
+policy — how many prefixes to hold in the 31.8 GB of host RAM, and eviction.
+
+**Deliberately NOT built here:** no transformer-level snapshot, and nothing added to
+`ITransformerBlock`. A whole-model snapshot has to combine two different mechanisms — this copy
+for the DeltaNet layers, the existing positional rewind for the 16 attention layers — and
+choosing how belongs with Phase 6's caching policy, not with the mechanism.
+
 ---
 
 ## 9. Open Questions
@@ -2282,11 +2398,15 @@ workspace. Everything else the prediction omitted entirely, and the card paid fo
 - ~~**`intermediate_size` uniformity**~~ — **closed 2026-08-19.** Resolved at the config level
   in 2026-08-16 and now confirmed against every shard header: 17408 on all 64 layers, both
   kinds, and the MTP layer.
-- **Does the DeltaNet chunk size interact with the prefill chunk?** *Half answered
-  2026-08-19.* The convolution side is settled and implemented: it carries `kernel_width - 1`
-  rows across chunk boundaries, and chunked prefill provably reproduces a single pass. The
-  delta rule is currently recurrent, so it has no chunk of its own; the question becomes live
-  again — and unresolved — when the UT-transform kernel is built.
+- ~~**Does the DeltaNet chunk size interact with the prefill chunk?**~~ — **closed
+  2026-08-26, and the answer is no.** The convolution side was settled in 2026-08-19: it
+  carries `kernel_width - 1` rows across chunk boundaries and chunked prefill provably
+  reproduces a single pass. The UT-transform kernel now gives the delta rule a chunk of its
+  own — 32 steps, a compile-time constant — and it does not interact, for two reasons. The
+  kernel handles any step count with a ragged trailing chunk, pinned at 33 and 89 steps in
+  both precisions; and every prefill rung (1024, 512, 256, 128, 64) is a multiple of 32, so
+  the two nest evenly in practice anyway. The carried state composes across prefill chunks
+  independently of either width, which is what the block-level equivalence tests hold.
 - **mRoPE sections [11, 11, 10].** Text-only input gives all three sections the same position
   index, so mRoPE degenerates to standard RoPE regardless of the interleaved layout — the
   single-section fallback is exact, not an approximation. `rotary_dim` already exists on

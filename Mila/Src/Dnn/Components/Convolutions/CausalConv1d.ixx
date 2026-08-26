@@ -140,6 +140,66 @@ namespace Mila::Dnn
             state_primed_ = false;
         }
 
+        /**
+         * @brief Where a snapshot of the retained rows lives: host memory, FP32, [B, K-1, C].
+         *
+         * FP32 REGARDLESS OF TPrecision, and still exact. BF16 is not a CPU storage type
+         * here, so a same-type host snapshot is not expressible; widening to FP32 is lossless
+         * because BF16 is a truncated FP32, and narrowing back returns the identical value
+         * because it is one the format holds. The cost is twice the bytes on a window of
+         * `kernel_width - 1` rows, which is the small half of anything that carries one.
+         */
+        using StateSnapshot = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+        /// A snapshot sized for the built geometry. Allocates; hold it and reuse it.
+        StateSnapshot makeStateSnapshot() const
+        {
+            requireBuilt( "makeStateSnapshot" );
+
+            return StateSnapshot( Device::Cpu(), state_->shape(),
+                this->getName() + ".state_snapshot" );
+        }
+
+        /**
+         * @brief Copy the retained rows out.
+         *
+         * REFUSES AN UNPRIMED WINDOW, and that refusal is the whole reason the primed flag
+         * does not need to appear in the snapshot. The rows are meaningless before a chunk
+         * has been seen -- they are zeros standing for a left context that never existed --
+         * so a snapshot taken then would restore into a component that believes it has
+         * history and convolves against nothing. Rather than carry a flag alongside every
+         * snapshot for a case that is always a caller error, a snapshot is only obtainable
+         * when it means something, and restoring one always primes.
+         */
+        void snapshotState( StateSnapshot& destination ) const
+        {
+            requireBuilt( "snapshotState" );
+            requireMatchingShape( destination, "snapshotState" );
+
+            if ( !state_primed_ )
+            {
+                throw std::logic_error( std::format(
+                    "CausalConv1d '{}': snapshotState before any chunk was seen -- the "
+                    "retained rows stand for a left context that does not exist yet",
+                    this->getName() ) );
+            }
+
+            copy( *state_, destination, this->getExecutionContext() );
+            this->getExecutionContext()->synchronize();
+        }
+
+        /// Replace the retained rows, and with them the fact that there ARE retained rows.
+        void restoreState( const StateSnapshot& source )
+        {
+            requireBuilt( "restoreState" );
+            requireMatchingShape( source, "restoreState" );
+
+            copy( source, *state_, this->getExecutionContext() );
+            this->getExecutionContext()->synchronize();
+
+            state_primed_ = true;
+        }
+
         std::vector<std::string> getParameterNames() const override
         {
             if ( config_.hasBias() )
@@ -466,6 +526,28 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> output_{ nullptr };
         bool output_installed_{ false };
         std::optional<TensorType> output_view_;
+
+        void requireBuilt( const std::string& operation ) const
+        {
+            if ( !state_ )
+            {
+                throw std::runtime_error( std::format(
+                    "CausalConv1d '{}': {} requires a built component -- there are no "
+                    "retained rows until the geometry is known", this->getName(), operation ) );
+            }
+        }
+
+        void requireMatchingShape( const StateSnapshot& snapshot,
+            const std::string& operation ) const
+        {
+            if ( snapshot.shape() != state_->shape() )
+            {
+                throw std::invalid_argument( std::format(
+                    "CausalConv1d '{}': {} was given a snapshot shaped for a different "
+                    "geometry -- take it from makeStateSnapshot() on this component",
+                    this->getName(), operation ) );
+            }
+        }
 
         TensorType& run( const TensorType& input, bool use_state )
         {

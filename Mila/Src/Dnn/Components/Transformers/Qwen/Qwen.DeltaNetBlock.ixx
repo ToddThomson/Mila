@@ -402,6 +402,60 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Everything this block carries between chunks -- all of it, in one value.
+         *
+         * THREE PIECES, NOT ONE, and that is the point of aggregating them here. The mixer's
+         * recurrent state is the large one, but the two convolution windows are equally
+         * load-bearing: restoring the mixer alone would leave each convolution's `kernel
+         * width - 1` retained rows describing tokens the mixer no longer believes it has
+         * seen. The block's continuation would then be wrong by three positions per layer,
+         * in a way that produces plausible output rather than an error.
+         */
+        struct StateSnapshot
+        {
+            typename ConvType::StateSnapshot query_key_window;
+            typename ConvType::StateSnapshot value_window;
+            typename DeltaRuleType::StateSnapshot recurrent;
+        };
+
+        /// Snapshots sized for the built geometry. Allocates; hold them and reuse them.
+        StateSnapshot makeStateSnapshot() const
+        {
+            requireStatefulChildren( "makeStateSnapshot" );
+
+            return StateSnapshot{
+                conv_qk_->makeStateSnapshot(),
+                conv_v_->makeStateSnapshot(),
+                delta_rule_->makeStateSnapshot() };
+        }
+
+        /**
+         * @brief Copy out everything the block carries.
+         *
+         * The mechanism prompt caching needs on this layer kind, and the reason
+         * `rewindKvCache` above can only ever return false. See PromptCaching.md section 2
+         * for what an attention layer does instead, and why it costs nothing there.
+         */
+        void snapshotState( StateSnapshot& destination ) const
+        {
+            requireStatefulChildren( "snapshotState" );
+
+            conv_qk_->snapshotState( destination.query_key_window );
+            conv_v_->snapshotState( destination.value_window );
+            delta_rule_->snapshotState( destination.recurrent );
+        }
+
+        /// Replace everything the block carries. All three pieces, or the block is torn.
+        void restoreState( const StateSnapshot& source )
+        {
+            requireStatefulChildren( "restoreState" );
+
+            conv_qk_->restoreState( source.query_key_window );
+            conv_v_->restoreState( source.value_window );
+            delta_rule_->restoreState( source.recurrent );
+        }
+
+        /**
          * @brief Install the transformer-owned shared activation workspace (pooling).
          *
          * Must be called before build(); onBuilding then routes each slot into the matching
@@ -694,6 +748,16 @@ namespace Mila::Dnn
         std::shared_ptr<GateProjectionType> z_proj_{ nullptr };
         std::shared_ptr<GatingProjectionType> a_proj_{ nullptr };
         std::shared_ptr<GatingProjectionType> b_proj_{ nullptr };
+        void requireStatefulChildren( const std::string& operation ) const
+        {
+            if ( !conv_qk_ || !conv_v_ || !delta_rule_ )
+            {
+                throw std::runtime_error( std::format(
+                    "QwenDeltaNetBlock '{}': {} requires a built block -- the carried state "
+                    "does not exist until the children do", this->getName(), operation ) );
+            }
+        }
+
         std::shared_ptr<ConvType> conv_qk_{ nullptr };
         std::shared_ptr<ConvType> conv_v_{ nullptr };
         std::shared_ptr<ConvActivationType> conv_act_qk_{ nullptr };

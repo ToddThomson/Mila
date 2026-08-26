@@ -22,10 +22,11 @@
  * alternative -- computing them in the block -- would put a softplus on the public
  * activation enum for one caller and add two launches over [B, T, heads] tensors.
  *
- * RECURRENT FORM ONLY, for now. Prefill runs the same sequential recurrence as decode, so
- * it is O(T) in sequence steps rather than the chunked (UT-transform) formulation the
- * reference uses for long prefills. That is a throughput gap, not a correctness one, and
- * this form is the oracle the chunked one must be validated against when it is built.
+ * TWO FORMS, ONE DEFINITION. Decode runs the sequential recurrence above; prefill runs the
+ * chunked (UT-transform) form, which regroups the identical arithmetic into one triangular
+ * solve per 32 steps and so exposes far more of it at once. The backend chooses on the step
+ * count and the component does not know which ran. The recurrent form remains the oracle:
+ * the two agree to float reassociation, not by definition.
  *
  * Inference-only: no backward.
  */
@@ -155,6 +156,56 @@ namespace Mila::Dnn
             {
                 zero( *state_, this->getExecutionContext() );
             }
+        }
+
+        /**
+         * @brief Where a snapshot of the carried state lives: host memory, FP32, state-shaped.
+         *
+         * Same type and shape as the state itself, so a snapshot is a copy rather than a
+         * re-derivation -- no conversion anywhere on the path, in either direction.
+         */
+        using StateSnapshot = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+        /// A snapshot sized for the built geometry. Allocates; hold it and reuse it.
+        StateSnapshot makeStateSnapshot() const
+        {
+            requireBuilt( "makeStateSnapshot" );
+
+            return StateSnapshot( Device::Cpu(), state_->shape(),
+                this->getName() + ".state_snapshot" );
+        }
+
+        /**
+         * @brief Copy the carried state out, exactly.
+         *
+         * A RECURRENT STATE CANNOT BE REWOUND, ONLY REPLACED, and that is why this exists
+         * where an attention layer needs nothing. K/V rows are positional and survive being
+         * written past, so prefix reuse there is a counter rewind costing no memory at all
+         * (PromptCaching.md section 2). This state is a lossy summary of every token it has
+         * seen: what it held at position n is not recoverable from position n+1 by any
+         * amount of bookkeeping. Keeping a copy is the only mechanism there is.
+         *
+         * Synchronizes before returning. The transfer dominates by orders of magnitude and
+         * a snapshot handed back before it lands is a defect this tree has already paid for
+         * once elsewhere.
+         */
+        void snapshotState( StateSnapshot& destination ) const
+        {
+            requireBuilt( "snapshotState" );
+            requireMatchingShape( destination, "snapshotState" );
+
+            copy( *state_, destination, this->getExecutionContext() );
+            this->getExecutionContext()->synchronize();
+        }
+
+        /// Replace the carried state with a previously taken snapshot.
+        void restoreState( const StateSnapshot& source )
+        {
+            requireBuilt( "restoreState" );
+            requireMatchingShape( source, "restoreState" );
+
+            copy( source, *state_, this->getExecutionContext() );
+            this->getExecutionContext()->synchronize();
         }
 
         std::vector<std::string> getParameterNames() const override
@@ -483,6 +534,28 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> output_{ nullptr };
         bool output_installed_{ false };
         std::optional<TensorType> output_view_;
+
+        void requireBuilt( const std::string& operation ) const
+        {
+            if ( !state_ )
+            {
+                throw std::runtime_error( std::format(
+                    "GatedDeltaRule '{}': {} requires a built component -- there is no state "
+                    "to copy until the geometry is known", this->getName(), operation ) );
+            }
+        }
+
+        void requireMatchingShape( const StateSnapshot& snapshot,
+            const std::string& operation ) const
+        {
+            if ( snapshot.shape() != state_->shape() )
+            {
+                throw std::invalid_argument( std::format(
+                    "GatedDeltaRule '{}': {} was given a snapshot shaped for a different "
+                    "geometry -- take it from makeStateSnapshot() on this component",
+                    this->getName(), operation ) );
+            }
+        }
 
         /**
          * @brief The build context is sized by the VALUE side: [B, T, value_width].

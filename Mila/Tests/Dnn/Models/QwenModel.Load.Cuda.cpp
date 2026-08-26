@@ -976,6 +976,108 @@ namespace Mila::Tests::Dnn::Models
         std::cout << std::flush;
     }
 
+    // ====================================================================
+    // How much of PREFILL the DeltaNet recurrence actually is.
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_PrefillShareOfTheDeltaNetMixer
+    //
+    // Section 8 item 5 says the 27B is not shippable at prefill without the chunked
+    // (UT-transform) kernel, and the Phase 5 breakdown says prefill owns 68% of a scoring
+    // run. Neither of those measures what the RECURRENCE costs INSIDE prefill, which is the
+    // only figure a chunked kernel could remove.
+    //
+    // The mixer's own cost comes from GatedDeltaRulePublishedGeometryTests'
+    // DISABLED_ChunkedAgainstRecurrentAtPublishedGeometry, which times one mixer alone at the
+    // published geometry with no projections and no weights. Run the two together on ONE
+    // card: a figure recorded from another run is not a baseline.
+    //
+    // The 4-layer fixture carries the same 3 linear : 1 full interleave the 64-layer stack
+    // does, so the SHARE it reports carries to the full model even though its absolute rate
+    // does not. Timed by SUBTRACTION between two prompt lengths, so the load, the single
+    // decode step and lm_head all cancel.
+    // ====================================================================
+    TEST_F( QwenPackedArtifactTests, DISABLED_PrefillShareOfTheDeltaNetMixer )
+    {
+        // Measured by the sibling test named above, same card, same build. Stated rather
+        // than imported because the two tests share no fixture; re-measure both together.
+        constexpr double kMixerMicrosecondsPerTokenPerLayer = 4.5;
+        constexpr int kDeltaNetLayersOfFour = 3;
+
+        const fs::path fixture =
+            fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_l4_2p9bit.safetensors";
+
+        if ( !fs::exists( fixture ) )
+        {
+            GTEST_SKIP() << "Packed 4-layer fixture not present at: " << fixture.string();
+        }
+
+        constexpr dim_t kContextLength = 1152;
+        constexpr dim_t kLongPrompt = 1024;
+        constexpr dim_t kShortPrompt = 64;
+
+        QwenModelConfig model_config( kContextLength );
+        model_config.withPrecisionPlan();
+
+        auto model = QwenBf16::fromPretrained( fixture, model_config );
+
+        auto promptOf = [] ( dim_t length )
+            {
+                std::vector<int32_t> prompt;
+                prompt.reserve( static_cast<size_t>( length ) );
+
+                for ( dim_t i = 0; i < length; ++i )
+                {
+                    prompt.push_back( static_cast<int32_t>( 1000 + (i * 37) % 4096 ) );
+                }
+
+                return prompt;
+            };
+
+        auto timePrefill = [&]( const std::vector<int32_t>& prompt ) -> double
+            {
+                GenerateParams params;
+                params.max_new_tokens = 1;
+                params.sampling.temperature = 0.0f;
+
+                const auto start = std::chrono::steady_clock::now();
+
+                model->generate( prompt, []( int32_t ) {}, params, std::stop_token{} );
+
+                return std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - start ).count();
+            };
+
+        const std::vector<int32_t> long_prompt = promptOf( kLongPrompt );
+        const std::vector<int32_t> short_prompt = promptOf( kShortPrompt );
+
+        // Warm: the first pass pays lazy cuBLASLt plan selection and first-touch paging.
+        timePrefill( long_prompt );
+
+        const double long_seconds = timePrefill( long_prompt );
+        const double short_seconds = timePrefill( short_prompt );
+
+        const double per_token_microseconds = 1e6 * ( long_seconds - short_seconds )
+            / static_cast<double>( kLongPrompt - kShortPrompt );
+
+        const double mixer_microseconds =
+            kMixerMicrosecondsPerTokenPerLayer * kDeltaNetLayersOfFour;
+
+        std::cout << std::format(
+            "\n  4-layer packed fixture (3 DeltaNet : 1 full attention), context {}\n"
+            "  prefill: {:.1f} us/token for the whole 4-layer forward\n"
+            "  of which the DeltaNet mixers: {:.1f} us/token ({} x {:.1f})\n"
+            "\n"
+            "  THE RECURRENCE IS {:.1f}% OF PREFILL.\n"
+            "  A chunked kernel that cost NOTHING removes at most that much.\n",
+            kContextLength, per_token_microseconds,
+            mixer_microseconds, kDeltaNetLayersOfFour, kMixerMicrosecondsPerTokenPerLayer,
+            100.0 * mixer_microseconds / per_token_microseconds ) << std::flush;
+
+        EXPECT_GT( per_token_microseconds, mixer_microseconds )
+            << "prefill cannot be cheaper than the mixers it contains -- one of the two "
+               "measurements is not measuring what it says";
+    }
+
     // Decode cost per LAYER, on a model small enough to be genuinely VRAM-resident.
     //
     // The control for the full artifact's rate. The 4-layer packed fixture runs the same
