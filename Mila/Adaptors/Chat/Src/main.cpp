@@ -260,6 +260,21 @@ static std::size_t requireCount( std::string_view value, std::string_view flag )
     return parsed;
 }
 
+/// Like requireCount, but zero is a value rather than an error: device 0 is the first card, and
+/// on a single-card machine it is the only one.
+static int requireIndex( std::string_view value, std::string_view flag )
+{
+    int parsed = 0;
+    const char* const end = value.data() + value.size();
+    const auto [stopped, error] = std::from_chars( value.data(), end, parsed );
+
+    if ( error != std::errc{} || stopped != end || parsed < 0 )
+        throw UsageError( std::format(
+            "{} expects a device index of 0 or more, not '{}'.", flag, value ) );
+
+    return parsed;
+}
+
 static CommandLine parseCommandLine( int argc, char* argv[] )
 {
     CommandLine line;
@@ -296,6 +311,14 @@ static CommandLine parseCommandLine( int argc, char* argv[] )
                 line.overrides[ "context_length" ] = "auto";
             else
                 line.overrides[ "context_length" ] = requireCount( value, arg );
+        }
+        else if ( arg == "--device" )
+        {
+            // The CUDA ordinal, which is NOT nvidia-smi's index -- the two orders differ on a
+            // mixed-generation rig, and picking the wrong one is an out-of-memory abort rather
+            // than a message naming the card.
+            line.overrides[ "device" ] = requireIndex(
+                requireValue( argc, argv, i, arg ), arg );
         }
         else if ( arg == "--system-prompt" )
         {
@@ -343,6 +366,8 @@ static void printUsage( const char* prog_name )
         << "  --model <name>         Load this model, as 'mila models' lists it.\n"
         << "  --context-length <n>   Maximum sequence length to build for, or auto to take the\n"
         << "                         largest that fits this device with room to spare.\n"
+        << "  --device <n>           Which CUDA device to run on. This is the CUDA ordinal,\n"
+        << "                         which need not match the order nvidia-smi lists.\n"
         << "  --system-prompt <name> A prompt name, or a path to a JSON file holding a\n"
         << "                         system_prompt and optional tools. A path resolves\n"
         << "                         against the working directory.\n"
@@ -945,6 +970,9 @@ static ChatConfig buildConfig( const CommandLine& line )
 
     if ( const auto top_p = readNumber( settings, "top_p" ) )
         config.top_p = *top_p;
+
+    if ( const auto device = readInteger( settings, "device" ) )
+        config.device_index = *device;
 
     if ( const std::string prompt_path = readString( settings, "system_prompt_path" );
          !prompt_path.empty() )

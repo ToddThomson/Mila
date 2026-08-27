@@ -1,0 +1,11 @@
+{
+  "repo_id": "mila-llm/Qwen3.8-27B-it-fp4",
+  "repo_type": "model",
+
+  "//": "Large files live outside the repository (gitignored, multi-gigabyte). Keys are the",
+  "//sources": "path in the Hub repo; values are paths relative to the Mila repo root.",
+  "sources": {
+    "qwen38_27b_it_fp4.safetensors": "Data/Models/Qwen/packages/Qwen3.8-27B-it-fp4/qwen38_27b_it_fp4.safetensors",
+    "qwen38_tokenizer.bin": "Data/Models/Qwen/packages/Qwen3.8-27B-it-fp4/qwen38_tokenizer.bin"
+  }
+}

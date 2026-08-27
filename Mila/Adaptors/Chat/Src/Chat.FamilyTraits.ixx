@@ -72,11 +72,28 @@ namespace Mila::ChatApp
             .max_context = 1024,
             .default_context = 1024 };
 
+        // Thinking is native -- <think>/</think> are registered from the checkpoint vocabulary
+        // (BpeVocabulary::loadQwen) -- while streaming is not, and the two disagreeing here is
+        // exactly what the adjacent fields exist to show. Gemma's router keys on four control
+        // token ids that delimit every channel; Qwen has one pair, gating reasoning only, so a
+        // per-token router for it is a display that has not been written rather than one the
+        // weights cannot feed.
+        //
+        // 262144 is the checkpoint's own max_seq_length. It is far past what any card here
+        // holds, which is the footprint pre-flight's problem and not this row's: the ceiling
+        // says what the architecture can address.
+        constexpr FamilyTraits qwen{
+            .thinking_capable = true,
+            .streaming_capable = false,
+            .max_context = 262144,
+            .default_context = 4096 };
+
         switch ( family )
         {
             case ModelType::Gemma: return gemma;
             case ModelType::Llama: return llama;
             case ModelType::Gpt:   return gpt;
+            case ModelType::Qwen:  return qwen;
         }
 
         return llama;

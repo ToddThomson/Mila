@@ -48,6 +48,7 @@ import Chat.ChannelParser;
 import Chat.FamilyTraits;
 import Chat.Footprint;
 import Chat.Json;
+import Chat.QwenProtocol;
 import Chat.Renderer;
 import Chat.RichText;
 
@@ -68,12 +69,14 @@ namespace Mila::ChatApp
     using LlamaModelFP32Type = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
     using LlamaModelBF16Type = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
     using GemmaModelBF16Type = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
+    using QwenModelBF16Type  = QwenModel<DeviceType::Cuda, TensorDataType::BF16>;
 
     using ModelVariant = std::variant<
         std::unique_ptr<GptModelFP32Type>,
         std::unique_ptr<LlamaModelFP32Type>,
         std::unique_ptr<LlamaModelBF16Type>,
-        std::unique_ptr<GemmaModelBF16Type>
+        std::unique_ptr<GemmaModelBF16Type>,
+        std::unique_ptr<QwenModelBF16Type>
     >;
 
     export class Chat
@@ -576,7 +579,13 @@ namespace Mila::ChatApp
 
             try
             {
-                tool_call = ToolCallParser::parse( response );
+                // Qwen's <tool_call> span is its own trained grammar, and the Llama parser
+                // would not find a call inside it. Both round-trip through history the same
+                // way from here -- an Assistant turn holding the call, then a Tool turn
+                // holding the result -- so only the grammar differs.
+                tool_call = config_.model_type == ModelType::Qwen
+                    ? Qwen::parseToolCall( response )
+                    : ToolCallParser::parse( response );
             }
             catch ( const std::runtime_error& e )
             {
@@ -667,7 +676,7 @@ namespace Mila::ChatApp
             // the displayed answer as raw call syntax.
             const std::string without_tool_spans = stripToolExchangeSpans( raw );
             const std::string clean = stripSpecialTokens( without_tool_spans );
-            const ParsedResponse parsed = ChannelParser::parse( clean );
+            const ParsedResponse parsed = ChannelParser::parse( clean, activeChannel() );
 
             // One shot renders nothing: the caller gets the answer on standard output in the
             // format it asked for, and a painted block would be in the middle of it.
@@ -785,18 +794,51 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Remove <|tool_call>...<tool_call|> and <|tool_response>...<tool_response|>
-         *        spans from a Gemma response before it is channel-split and displayed.
+         * @brief The markers the resident family wraps its reasoning in.
          *
-         * These are protocol-internal (the harness already consumed and dispatched them in
-         * generateResponse()); showing the raw call/response syntax as answer prose is noise.
-         * An unterminated span (generation stopped mid-span) truncates to end-of-string.
+         * A family with no reasoning channel is given Gemma's, which finds nothing in its
+         * output and returns the whole response as the answer -- the pass-through the parser
+         * already contracts for. Naming a "none" pair would be a third case behaving as the
+         * first.
+         *
+         * Qwen's pair carries the session's thinking state, because for that family the state
+         * changes what a response MEANS: the primer opens the reasoning span when thinking is
+         * on, so text before a close marker is reasoning, and when it is off the very same text
+         * with no markers at all is the answer. The parser cannot tell those apart on its own.
+         */
+        ChannelDelimiters activeChannel() const
+        {
+            if ( config_.model_type != ModelType::Qwen )
+            {
+                return kGemmaChannel;
+            }
+
+            ChannelDelimiters channel = kQwenThinkSpan;
+            channel.primer_opens_channel = config_.show_thinking;
+
+            return channel;
+        }
+
+        /**
+         * @brief Remove tool call and tool response spans from a response before it is
+         *        channel-split and displayed.
+         *
+         * These are protocol-internal (the harness already consumed and dispatched them);
+         * showing the raw call/response syntax as answer prose is noise. An unterminated span
+         * (generation stopped mid-span) truncates to end-of-string.
+         *
+         * Every family's pair is stripped rather than only the resident one's: the strings do
+         * not collide, and a list keyed on the model would be a second place to update when a
+         * family is added.
          */
         static std::string stripToolExchangeSpans( const std::string& text )
         {
             static constexpr std::pair<std::string_view, std::string_view> kSpans[] = {
                 { "<|tool_call>", "<tool_call|>" },
                 { "<|tool_response>", "<tool_response|>" },
+                // Qwen 3.8.
+                { "<tool_call>", "</tool_call>" },
+                { "<tool_response>", "</tool_response>" },
             };
 
             std::string result = text;
@@ -823,13 +865,16 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Remove Llama special tokens from a generated response before
-         *        storing it in the conversation history.
+         * @brief Remove control tokens from a generated response before storing it in the
+         *        conversation history.
          *
-         * The streaming decoder may include <|eot_id|> or <|eom_id|> at the tail
-         * of the generated text. Storing these verbatim causes them to be re-emitted
-         * literally into the next formatted prompt, corrupting the token boundary
-         * structure and confusing the model on subsequent turns.
+         * The streaming decoder may include a turn terminator at the tail of the generated
+         * text. Storing these verbatim causes them to be re-emitted literally into the next
+         * formatted prompt, corrupting the token boundary structure and confusing the model
+         * on subsequent turns.
+         *
+         * Every family's tokens are listed, not the resident one's: the spellings do not
+         * collide, and one list is one place to update.
          */
         static std::string stripSpecialTokens( const std::string& text )
         {
@@ -843,7 +888,13 @@ namespace Mila::ChatApp
                 "<|turn>", "<turn|>", "<|think|>",
                 "<|tool>", "<tool|>", "<|tool_call>", "<tool_call|>",
                 "<|tool_response>", "<tool_response|>",
-                "<|image|>", "<|audio|>"
+                "<|image|>", "<|audio|>",
+                // Qwen 3.8 ChatML and tool markers. <think>/</think> are deliberately omitted
+                // for the same reason Gemma's channel pair is: ChannelParser consumes them
+                // before this runs, and removing them here would erase the boundary it splits on.
+                "<|im_start|>", "<|im_end|>", "<|endoftext|>",
+                "<tool_call>", "</tool_call>",
+                "<tool_response>", "</tool_response>"
             };
 
             std::string result = text;
@@ -925,6 +976,48 @@ namespace Mila::ChatApp
          * @param tools Tool definitions loaded from the system prompt file.
          * @return      JSON array string describing all tools.
          */
+        /**
+         * @brief The tools worth telling the model about: those with a registered handler.
+         *
+         * Describing an unhandled tool primes the model to emit a call it will never get a
+         * result for. Read from two places -- the system turn the history opens with, and
+         * Qwen's formatter, which builds its own -- so the filter lives here rather than in
+         * whichever of them happens to run first.
+         */
+        std::vector<ToolDefinition> activeTools() const
+        {
+            std::vector<ToolDefinition> active;
+
+            for ( const auto& tool : system_prompt_config_.tools )
+            {
+                if ( tool_handlers_.contains( tool.name ) )
+                    active.push_back( tool );
+            }
+
+            return active;
+        }
+
+        /**
+         * @brief The tool signatures as Qwen's template renders them: one JSON object per line.
+         *
+         * Not serializeTools() -- that produces one pretty-printed ARRAY, and the template
+         * writes the objects newline-separated inside <tools> with no array around them.
+         */
+        static std::string serializeQwenToolSignatures( const std::vector<ToolDefinition>& tools )
+        {
+            const nlohmann::json array = nlohmann::json::parse( serializeTools( tools ) );
+
+            std::string lines;
+
+            for ( const auto& tool : array )
+            {
+                lines += lines.empty() ? "" : "\n";
+                lines += tool.dump();
+            }
+
+            return lines;
+        }
+
         static std::string serializeTools( const std::vector<ToolDefinition>& tools )
         {
             nlohmann::json arr = nlohmann::json::array();
@@ -1197,6 +1290,19 @@ namespace Mila::ChatApp
 
             if ( config_.model_type == ModelType::Gemma )
                 prompt = formatGemmaPrompt( history_, config_.show_thinking, config_.thinking_effort );
+            else if ( config_.model_type == ModelType::Qwen )
+            {
+                // Effort goes through the model's own trained parameter rather than Gemma's
+                // prose scale: the checkpoint defines three levels and the exact wording for
+                // each, so a sentence of ours would be a prompt it was never tuned against.
+                const std::vector<ToolDefinition> tools = activeTools();
+
+                prompt = Qwen::formatPrompt(
+                    history_,
+                    config_.show_thinking,
+                    Qwen::reasoningEffortFromScale( config_.thinking_effort ),
+                    tools.empty() ? std::string{} : serializeQwenToolSignatures( tools ) );
+            }
             else
                 prompt = MessageFormatter::format( history_ );
 
@@ -1407,7 +1513,8 @@ namespace Mila::ChatApp
                 // does not change the answer.
                 const ResolvedContext measured = resolveAutomaticContext(
                     config_.model_path, config_.model_type, config_.precision,
-                    config_.quantization_mode, traits.max_context, traits.default_context );
+                    config_.quantization_mode, traits.max_context, traits.default_context,
+                    config_.device_index );
 
                 config_.context_length = measured.context_length;
             }
@@ -1476,7 +1583,7 @@ namespace Mila::ChatApp
                 // desktop holds gets charged to every candidate. Both push the same way, and a 3B
                 // was marked as not fitting on a card with room for three. The live picture
                 // belongs on /model, which measures it directly.
-                const DeviceMemoryInfo memory = queryDeviceMemory();
+                const DeviceMemoryInfo memory = queryDeviceMemory( config_.device_index );
 
                 std::optional<FootprintBudget> budget;
 
@@ -1497,7 +1604,8 @@ namespace Mila::ChatApp
                         : static_cast<dim_t>( config_.context_length );
 
                     costed.available_bytes = memory.total_bytes;
-                    costed.device_name = queryDeviceName();
+                    costed.device_name = queryDeviceName( config_.device_index );
+                    costed.device_index = config_.device_index;
                     costed.resident_model =
                         modelIsResident() ? modelName() : std::string{};
 
@@ -1528,7 +1636,8 @@ namespace Mila::ChatApp
                 // Capacity, matching the installed listing: the question is what this card can
                 // run, not what is free while a model is resident.
                 for ( const auto& line : describeHubModels(
-                    hub_owner(), memory.total_bytes, queryDeviceName() ) )
+                    hub_owner(), memory.total_bytes,
+                    queryDeviceName( config_.device_index ) ) )
                 {
                     std::cout << line << "\n";
                 }
@@ -1840,7 +1949,8 @@ namespace Mila::ChatApp
 
             const ResolvedContext measured = resolveAutomaticContext(
                 config_.model_path, config_.model_type, config_.precision,
-                config_.quantization_mode, traits.max_context, traits.default_context );
+                config_.quantization_mode, traits.max_context, traits.default_context,
+                config_.device_index );
 
             if ( !measured.fallback_reason.empty() )
             {
@@ -1933,7 +2043,8 @@ namespace Mila::ChatApp
 
             const ResolvedContext measured = resolveAutomaticContext(
                 config_.model_path, config_.model_type, config_.precision,
-                config_.quantization_mode, traits.max_context, traits.default_context );
+                config_.quantization_mode, traits.max_context, traits.default_context,
+                config_.device_index );
 
             if ( !measured.fallback_reason.empty() )
             {
@@ -2172,7 +2283,8 @@ namespace Mila::ChatApp
             }
 
             const std::size_t available =
-                availableDeviceBytes( queryDeviceMemory(), residentDeviceBytes() );
+                availableDeviceBytes(
+                    queryDeviceMemory( config_.device_index ), residentDeviceBytes() );
 
             // The same grader /model list uses, against a deliberately different budget: the
             // listing asks what this card can run at all, where this asks whether one load
@@ -2259,7 +2371,8 @@ namespace Mila::ChatApp
 
             const ResolvedContext measured = resolveAutomaticContext(
                 config_.model_path, config_.model_type, config_.precision,
-                config_.quantization_mode, traits.max_context, traits.default_context );
+                config_.quantization_mode, traits.max_context, traits.default_context,
+                config_.device_index );
 
             if ( !measured.fallback_reason.empty()
                 || measured.context_length >= config_.context_length )
@@ -2441,7 +2554,7 @@ namespace Mila::ChatApp
             // Measured off the device rather than taken from the model's own report: what is
             // actually resident includes the allocator rounding and lazily grown scratch that
             // a footprint cannot model, and that residual is the whole reason to look here.
-            const DeviceMemoryInfo memory = queryDeviceMemory();
+            const DeviceMemoryInfo memory = queryDeviceMemory( config_.device_index );
 
             if ( memory.total_bytes > 0 )
             {
@@ -2468,6 +2581,10 @@ namespace Mila::ChatApp
 
                     case ModelType::Gemma:
                         tokenizer_ = BpeTokenizer::loadGemma( config_.tokenizer_path );
+                        break;
+
+                    case ModelType::Qwen:
+                        tokenizer_ = BpeTokenizer::loadQwen( config_.tokenizer_path );
                         break;
                 }
 
@@ -2561,12 +2678,13 @@ namespace Mila::ChatApp
                 config_.model_type,
                 config_.precision,
                 config_.quantization_mode,
-                context_length );
+                context_length,
+                config_.device_index );
         }
 
         void loadModel()
         {
-            const DeviceId device{ DeviceType::Cuda, 0 };
+            const DeviceId device{ DeviceType::Cuda, config_.device_index };
 
             switch ( config_.model_type )
             {
@@ -2630,6 +2748,23 @@ namespace Mila::ChatApp
                         std::cout << gemma->getMemoryStats().toString() << "\n";
                     }
                     model_ = std::move( gemma );
+                    break;
+                }
+
+                case ModelType::Qwen:
+                {
+                    QwenModelConfig qwen_config = QwenModelConfig( config_.context_length );
+
+                    applyQwenQuantization( qwen_config, config_.quantization_mode );
+
+                    auto qwen = QwenModelBF16Type::fromPretrained(
+                        config_.model_path, qwen_config, device );
+                    if ( config_.detail == DetailLevel::All )
+                    {
+                        std::cout << qwen->toString();
+                        std::cout << qwen->getMemoryStats().toString() << "\n";
+                    }
+                    model_ = std::move( qwen );
                     break;
                 }
             }
@@ -2845,17 +2980,12 @@ Examples:
 
             std::string system_content = system_prompt_config_.system_prompt;
 
-            // Only advertise tools that have a registered handler.
-            // Describing unhandled tools primes the model to emit tool calls
-            // it will never get a result for.
-            std::vector<ToolDefinition> active_tools;
-            for ( const auto& tool : system_prompt_config_.tools )
-            {
-                if ( tool_handlers_.contains( tool.name ) )
-                    active_tools.push_back( tool );
-            }
+            const std::vector<ToolDefinition> active_tools = activeTools();
 
-            if ( !active_tools.empty() )
+            // Qwen's system turn is assembled by its own formatter, which orders the reasoning
+            // instruction, the tools section and the configured prompt the way the checkpoint's
+            // template does. Concatenating them here would fix an order it then could not change.
+            if ( !active_tools.empty() && config_.model_type != ModelType::Qwen )
             {
                 if ( config_.model_type == ModelType::Llama )
                 {

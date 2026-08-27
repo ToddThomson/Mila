@@ -1,0 +1,28 @@
+{
+  "manifest_version": 1,
+  "name": "Qwen3.8-27B-it-fp4",
+  "architecture": "qwen",
+  "variant": "fp4",
+  "weight_quantization": "per_group_fp4_128",
+  "minimum_mila_version": "0.20.0",
+  "base_model": "Qwen/Qwen3.8-27B",
+  "license": "apache-2.0",
+  "instruct": true,
+  "files": {
+    "weights": {
+      "path": "qwen38_27b_it_fp4.safetensors",
+      "sha256": "e988a62e02dfd12825670a5147d6b4e29da6f6e03f196999d98220e890ace96c",
+      "bytes": 16194533696
+    },
+    "tokenizer": {
+      "path": "qwen38_tokenizer.bin",
+      "sha256": "a1f463db78bde46a48ed7f09f0880eca9886a832202b61b97a1a30dc6de4a9b4",
+      "bytes": 10679864
+    },
+    "license": {
+      "path": "LICENSE",
+      "sha256": "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
+      "bytes": 11544
+    }
+  }
+}

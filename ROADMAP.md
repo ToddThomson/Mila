@@ -275,17 +275,21 @@ v0.20 — Chat (human gate) and MIS (Python wire) — distinguished by who close
 Both are consumers of a frozen library, so both stay open to change: where an adaptor cannot reach
 something Mila already does, that gap is the work. The Agentic adaptor stays explicitly post-release.
 
-**Qwen 3.8 is the current instance of that rule.** The model is in the library and no adaptor reaches
-it, which by this workstream's own definition is a defect in the demonstration rather than a feature
-request. It also asks the harness a question no previous model has: a recurrent state is a lossy
-summary and cannot be rewound, so Qwen refuses prompt-prefix reuse outright. An adaptor must report
-that as a property of the model and plan around it, not discover it as a failed retry.
+**Qwen 3.8 is the current instance of that rule.** The model is in the library, and until an adaptor
+reaches it, this workstream's own definition makes that a defect in the demonstration rather than a
+feature request. Chat closes that gap first: both deployments install, load, generate and call tools
+on the terms every other model gets. MIS is what remains, and it inherits a question no previous
+model has asked. A recurrent state is a lossy summary and cannot be rewound, so Qwen refuses
+prompt-prefix reuse outright; a server that reuses prefixes must report that as a property of the
+model and plan around it, not discover it as a failed retry. Chat is exempt only because it reuses
+nothing -- it re-prefills every turn.
 
 **Success criteria:** a foreign harness (Codex CLI and Claude Code CLI over the OpenAI/Anthropic wire
 shapes) drives Gemma 4 12B FP4 through MIS across plain-chat, single-tool, and tool-result-resume flows
 with no leaked control tokens; Qwen 3.8 is selectable by name from the chat harness on the same terms
-as any other model — footprint reported before the load, and its refusal of prefix reuse surfaced as a
-model property; the C++/Python grammar duplication is resolved by an explicit decision
+as any other model — footprint reported before the load — and wherever an adaptor reuses a prompt
+prefix, Qwen's refusal surfaces as a model property; the C++/Python grammar duplication is resolved
+by an explicit decision
 (single-sourced via pybind, or pinned by a cross-language parity test).
 
 ---

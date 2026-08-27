@@ -1017,10 +1017,19 @@ namespace Mila::Tools
                     LlamaModel<DeviceType::Cuda, TensorDataType::BF16>, LlamaModelConfig>(
                         options );
             }
+            else if ( architecture == "qwen" )
+            {
+                // FP4 and FP8 only. A per-role PLAN cannot be reached from here at all: its
+                // codebooks are fitted offline against calibration data, so there is no pass
+                // over BF16 weights that produces one -- the packer writes those artifacts.
+                written = loadAndWriteArtifact<
+                    QwenModel<DeviceType::Cuda, TensorDataType::BF16>, QwenModelConfig>(
+                        options );
+            }
             else
             {
                 std::cerr << std::format(
-                    "No chassis exports architecture '{}'. Supported: gemma, llama.\n",
+                    "No chassis exports architecture '{}'. Supported: gemma, llama, qwen.\n",
                     architecture.empty() ? "<unnamed>" : architecture );
 
                 return 2;

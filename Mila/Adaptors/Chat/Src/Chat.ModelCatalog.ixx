@@ -173,6 +173,11 @@ namespace Mila::ChatApp
             return ModelType::Gpt;
         }
 
+        if ( architecture == "qwen" )
+        {
+            return ModelType::Qwen;
+        }
+
         throw std::runtime_error( std::format(
             "Architecture '{}' is not one this build can load.", architecture ) );
     }
@@ -206,11 +211,16 @@ namespace Mila::ChatApp
             precision = ModelPrecision::BF16;
             quantization = QuantizationMode::None;
         }
+        else if ( variant == "codebook-fp2-3" )
+        {
+            precision = ModelPrecision::BF16;
+            quantization = QuantizationMode::Codebook;
+        }
         else
         {
             throw std::runtime_error( std::format(
-                "Variant '{}' is not one this build can load. Expected bf16, fp32, fp8 or fp4.",
-                variant ) );
+                "Variant '{}' is not one this build can load. Expected bf16, fp32, fp8, fp4 "
+                "or codebook-fp2-3.", variant ) );
         }
     }
 
@@ -254,6 +264,17 @@ namespace Mila::ChatApp
         if ( requested == QuantizationMode::None )
         {
             return;
+        }
+
+        // A codebook is fitted offline against calibration data, so there is no pass over BF16
+        // weights that produces one. Every other refusal here is about what the artifact IS;
+        // this one is about what no load path can do to it.
+        if ( requested == QuantizationMode::Codebook )
+        {
+            throw std::runtime_error( std::format(
+                "'{}' cannot be quantized to codebook-fp2-3 on the way in -- the codes are "
+                "fitted offline, so an artifact either carries them or does not. Install the "
+                "codebook build as its own model.", name ) );
         }
 
         if ( resolved.precision != ModelPrecision::BF16 )
@@ -606,14 +627,15 @@ namespace Mila::ChatApp
         ModelPrecision precision,
         QuantizationMode quantization,
         Mila::Dnn::dim_t fixed_context_length,
-        std::size_t available_bytes )
+        std::size_t available_bytes,
+        int device_index )
     {
         LadderFit fit;
 
         if ( fixed_context_length > 0 )
         {
             const FootprintPrediction prediction = predictFootprint(
-                weights, family, precision, quantization, fixed_context_length );
+                weights, family, precision, quantization, fixed_context_length, device_index );
 
             if ( !prediction.required )
             {
@@ -639,8 +661,8 @@ namespace Mila::ChatApp
                 continue;
             }
 
-            const FootprintPrediction prediction =
-                predictFootprint( weights, family, precision, quantization, candidate );
+            const FootprintPrediction prediction = predictFootprint(
+                weights, family, precision, quantization, candidate, device_index );
 
             if ( !prediction.required )
             {
@@ -700,6 +722,11 @@ namespace Mila::ChatApp
         /// against even when it cannot say what that thing is called.
         std::string device_name;
 
+        /// Which card the rows are priced against. Carried alongside its capacity rather than
+        /// derived here, because a row is measured by BUILDING the graph on that device -- the
+        /// two must name the same card or a row would be sized on one and graded against another.
+        int device_index{ 0 };
+
         /// The loaded model's name, marked in the listing. Empty when none is loaded.
         std::string resident_model;
     };
@@ -728,7 +755,8 @@ namespace Mila::ChatApp
     RowVerdict verdictFor(
         const Mila::Distribution::StoredModel& model,
         Mila::Dnn::dim_t fixed_context_length,
-        std::size_t available_bytes )
+        std::size_t available_bytes,
+        int device_index )
     {
         RowVerdict row;
 
@@ -770,7 +798,7 @@ namespace Mila::ChatApp
         // None -- for those two are different things, and it is the former /model with no argument
         // loads.
         const LadderFit native = largestFittingContext( model.weights_path, family, precision,
-            artifact, fixed_context_length, available_bytes );
+            artifact, fixed_context_length, available_bytes, device_index );
 
         if ( native.fits )
         {
@@ -794,7 +822,7 @@ namespace Mila::ChatApp
             for ( const QuantizationMode mode : { QuantizationMode::FP8, QuantizationMode::FP4 } )
             {
                 const LadderFit fit = largestFittingContext( model.weights_path, family, precision,
-                    mode, fixed_context_length, available_bytes );
+                    mode, fixed_context_length, available_bytes, device_index );
 
                 if ( fit.fits )
                 {
@@ -861,7 +889,7 @@ namespace Mila::ChatApp
             // Points at the listing rather than at /install, because this is the first-run state
             // and a user with an empty store has no name to pass to /install yet.
             listing.table.push_back(
-                "No models installed. /models --online lists what can be installed." );
+                "No models installed. /model list --online lists what can be installed." );
 
             return listing;
         }
@@ -889,7 +917,8 @@ namespace Mila::ChatApp
             if ( budget.has_value() )
             {
                 const RowVerdict row = verdictFor(
-                    model, budget->fixed_context_length, budget->available_bytes );
+                    model, budget->fixed_context_length, budget->available_bytes,
+                    budget->device_index );
 
                 // Tinted after formatting and last in the row, so no width calculation has to
                 // account for the escape bytes -- which is what the memory columns had to. Colour
@@ -946,7 +975,7 @@ namespace Mila::ChatApp
      * rather than a decision, and a name the user cannot act on is noise. Names and tags are
      * authored by whoever owns the repository -- printed as data, interpreted by nothing.
      *
-     * **This is the only listing a new user has**, since an empty store makes /models an empty
+     * **This is the only listing a new user has**, since an empty store makes /model list an empty
      * table -- so the support question has to be answerable here, before a multi-gigabyte transfer
      * rather than after it.
      *
@@ -967,7 +996,7 @@ namespace Mila::ChatApp
         {
             lines.push_back(
                 "This build has no HTTP transport (MILA_ENABLE_LIBCURL=OFF), so no publisher "
-                "can be listed. Models already installed are shown by /models." );
+                "can be listed. Models already installed are shown by /model list." );
 
             return lines;
         }
@@ -1016,7 +1045,7 @@ namespace Mila::ChatApp
         /**
          * What can be settled from a manifest alone, and nothing beyond it.
          *
-         * The same three states `/models` uses, so one word means one thing across both listings:
+         * The same three states `/model list` uses, so one word means one thing across both listings:
          * `not supported` for a base model or an architecture this build lacks, which no card would
          * change; `no` and `yes` for the card.
          *
@@ -1100,9 +1129,9 @@ namespace Mila::ChatApp
         // MODEL is 32 rather than 40 because the longest published name is 25 and the line would
         // otherwise wrap on an 80-column terminal.
         //
-        // LICENSE earns a place here and not in /models, because here it is a decision: this is
+        // LICENSE earns a place here and not in /model list, because here it is a decision: this is
         // the listing read while choosing whether to pull a model, which is the last moment before
-        // its terms are taken on. ARCHITECTURE is gone for the reason it went from /models -- it is
+        // its terms are taken on. ARCHITECTURE is gone for the reason it went from /model list -- it is
         // in the name of every published model, and it decides nothing an uninstalled row can act
         // on. GPU FIT took that space, which is what an uninstalled row CAN act on.
         lines.push_back( std::format( "  {:<32} {:>10}  {:<12}{:<15}{}",

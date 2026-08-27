@@ -3,7 +3,7 @@
  * @brief Predicting what a model would cost in device memory, and grading that against the card.
  *
  * One implementation, because two consumers ask the same question: the pre-flight before a load
- * and the /models listing. A listing that graded a model differently from the load it precedes
+ * and the /model list listing. A listing that graded a model differently from the load it precedes
  * would be worse than one that said nothing.
  */
 
@@ -110,9 +110,9 @@ namespace Mila::ChatApp
      * Zeros are the "do not claim anything" answer rather than an error: every caller here is
      * advisory, and a missing device must not stop a model being tried.
      */
-    export inline DeviceMemoryInfo queryDeviceMemory()
+    export inline DeviceMemoryInfo queryDeviceMemory( int device_index = 0 )
     {
-        const auto device = DeviceRegistry::instance().getDevice( Device::Cuda( 0 ) );
+        const auto device = DeviceRegistry::instance().getDevice( Device::Cuda( device_index ) );
 
         return device ? device->getMemoryInfo() : DeviceMemoryInfo{};
     }
@@ -125,10 +125,10 @@ namespace Mila::ChatApp
      * string lives on the concrete device's properties, hence the cast; empty on failure, because a
      * listing that cannot name the card is still a listing.
      */
-    export inline std::string queryDeviceName()
+    export inline std::string queryDeviceName( int device_index = 0 )
     {
         const auto cuda = std::dynamic_pointer_cast<CudaDevice>(
-            DeviceRegistry::instance().getDevice( Device::Cuda( 0 ) ) );
+            DeviceRegistry::instance().getDevice( Device::Cuda( device_index ) ) );
 
         return cuda ? cuda->getProperties().getName() : std::string{};
     }
@@ -229,6 +229,40 @@ namespace Mila::ChatApp
     };
 
     /**
+     * @brief Set Qwen's weight quantization, and NOT its KV cache compression.
+     *
+     * The convenience setters the other families use pair each weight format with FP8 KV --
+     * `withFP4Quantization()` sets both -- and Qwen has no FP8 KV type yet, so that pairing makes
+     * every FP4 load throw "FP8 KV cache compression is not yet supported" before it reads a byte.
+     * Its baseline is a BF16 cache, which fits at 16K uncompressed, so leaving the axis alone is
+     * the deployment rather than a workaround. Same shape the FP4 oracle test builds.
+     *
+     * Exported so the footprint pre-flight and the load configure one model one way. Splitting
+     * them is how a prediction comes to describe a deployment that never happens.
+     */
+    export inline void applyQwenQuantization(
+        QwenModelConfig& config, QuantizationMode quantization )
+    {
+        switch ( quantization )
+        {
+            case QuantizationMode::FP8:
+                config.withWeightQuantization( WeightQuantization::FP8 );
+                break;
+
+            case QuantizationMode::FP4:
+                config.withWeightQuantization( WeightQuantization::FP4 );
+                break;
+
+            case QuantizationMode::Codebook:
+                config.withPrecisionPlan();
+                break;
+
+            case QuantizationMode::None:
+                break;
+        }
+    }
+
+    /**
      * @brief What a model would allocate at a context length, without allocating any of it.
      *
      * Costs nothing on the device: the graph is constructed, asked, and discarded without a
@@ -248,9 +282,10 @@ namespace Mila::ChatApp
         ModelType family,
         ModelPrecision precision,
         QuantizationMode quantization,
-        dim_t context_length )
+        dim_t context_length,
+        int device_index = 0 )
     {
-        const DeviceId device{ DeviceType::Cuda, 0 };
+        const DeviceId device{ DeviceType::Cuda, device_index };
 
         // Shared by both families that have an entry point: it is one fact about what this build
         // instantiates, not one about either architecture.
@@ -305,6 +340,24 @@ namespace Mila::ChatApp
                     return { footprint.memory, {}, footprint.prefill };
                 }
 
+                case ModelType::Qwen:
+                {
+                    if ( precision != ModelPrecision::BF16 )
+                    {
+                        return { std::nullopt, bf16_only };
+                    }
+
+                    QwenModelConfig qwen_config( context_length );
+
+                    applyQwenQuantization( qwen_config, quantization );
+
+                    const DeploymentFootprint footprint =
+                        QwenModel<DeviceType::Cuda, TensorDataType::BF16>::getDeploymentFootprint(
+                            weights, qwen_config, device );
+
+                    return { footprint.memory, {}, footprint.prefill };
+                }
+
                 case ModelType::Gpt:
                 default:
                     return { std::nullopt, "GPT-2 has no footprint entry point in this build" };
@@ -336,7 +389,7 @@ namespace Mila::ChatApp
      * asked for.
      *
      * Exported because it belongs to every caller that probes in bulk, not just to the scan below.
-     * The /models ladder was written without it and leaked exactly the warning this was built to
+     * The /model list ladder was written without it and leaked exactly the warning this was built to
      * suppress -- a Gemma prefill complaint about a 128K context nobody had asked to run at,
      * printed above the table it was probing for.
      */
@@ -395,13 +448,14 @@ namespace Mila::ChatApp
         ModelPrecision precision,
         QuantizationMode quantization,
         std::size_t ceiling,
-        std::size_t floor )
+        std::size_t floor,
+        int device_index = 0 )
     {
         ResolvedContext resolved;
         resolved.automatic = true;
         resolved.context_length = floor;
 
-        const DeviceMemoryInfo memory = queryDeviceMemory();
+        const DeviceMemoryInfo memory = queryDeviceMemory( device_index );
 
         if ( memory.total_bytes == 0 )
         {
@@ -441,7 +495,8 @@ namespace Mila::ChatApp
               candidate -= kContextStep )
         {
             const FootprintPrediction prediction = predictFootprint(
-                weights, family, precision, quantization, static_cast<dim_t>( candidate ) );
+                weights, family, precision, quantization,
+                static_cast<dim_t>( candidate ), device_index );
 
             if ( !prediction.required )
             {

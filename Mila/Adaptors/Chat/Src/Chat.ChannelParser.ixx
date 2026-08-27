@@ -1,6 +1,10 @@
 /**
  * @file Chat.ChannelParser.ixx
- * @brief Splits a Gemma 4 channel-structured response into reasoning and answer.
+ * @brief Splits a channel-structured response into reasoning and answer.
+ *
+ * The delimiters are a parameter (ChannelDelimiters), so one parser serves every family that
+ * separates the two: Gemma 4's labelled channel and Qwen 3.8's <think> span differ only in
+ * their markers. The Gemma structure below is what the algorithm was written against.
  *
  * Per the Gemma 4 prompt-formatting protocol
  * (https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4), a thinking
@@ -38,6 +42,44 @@ namespace Mila::ChatApp
     };
 
     /**
+     * @brief The markers one family wraps its reasoning in.
+     *
+     * Parameterized rather than hardcoded because the split is one concept across families and
+     * only the delimiters differ: Gemma opens a labelled channel, Qwen opens a <think> span.
+     * Two parsers would be two places for the same bug.
+     */
+    export struct ChannelDelimiters
+    {
+        std::string_view open;
+        std::string_view close;
+
+        /// Whether the region opens with a channel name on its own line. Gemma's does; Qwen's
+        /// does not, and stripping one there would eat a reasoning line that happened to begin
+        /// with the word "analysis".
+        bool labelled{ true };
+
+        /**
+         * @brief Whether the channel can already be open when the response begins.
+         *
+         * Qwen's generation primer ends ON the opening marker, so the model's first token is
+         * already inside the reasoning and the response carries a CLOSE with no OPEN. Without
+         * this the parser finds no structure, hands the whole thing back as the answer, and the
+         * reasoning is displayed as the reply -- the exact failure the split exists to prevent.
+         *
+         * False for Gemma, where a bare close marker is stray text rather than a boundary.
+         */
+        bool primer_opens_channel{ false };
+    };
+
+    /// Gemma 4's channel structure -- see the file header.
+    export inline constexpr ChannelDelimiters kGemmaChannel{
+        "<|channel>", "<channel|>", true, false };
+
+    /// Qwen 3.8's reasoning span, registered in the checkpoint vocabulary.
+    export inline constexpr ChannelDelimiters kQwenThinkSpan{
+        "<think>", "</think>", false, true };
+
+    /**
      * @brief Separates a Gemma channel-structured response into reasoning and answer.
      *
      * A response with no kChannelOpen marker is returned verbatim as the answer
@@ -65,12 +107,30 @@ namespace Mila::ChatApp
     {
     public:
 
-        static ParsedResponse parse( const std::string& response )
+        static ParsedResponse parse(
+            const std::string& response, const ChannelDelimiters& channel = kGemmaChannel )
         {
-            const auto first_open = response.find( kChannelOpen );
+            const auto first_open = response.find( channel.open );
 
             if ( first_open == std::string::npos )
+            {
+                // The channel was open before the first token, so the response opens inside the
+                // reasoning: text up to the close is thinking, and an absent close means
+                // generation stopped there -- the same reading an unterminated channel gets
+                // below.
+                if ( channel.primer_opens_channel )
+                {
+                    const auto close = response.find( channel.close );
+
+                    return close == std::string::npos
+                        ? ParsedResponse{ trim( response ), std::string{} }
+                        : ParsedResponse{
+                            trim( response.substr( 0, close ) ),
+                            trim( response.substr( close + channel.close.size() ) ) };
+                }
+
                 return { std::string{}, trim( response ) };
+            }
 
             // Any text before the first channel is rare but is answer text.
             const std::string prefix = (first_open > 0) ? response.substr( 0, first_open ) : std::string{};
@@ -80,20 +140,21 @@ namespace Mila::ChatApp
 
             while ( true )
             {
-                const size_t header_start = cursor + kChannelOpen.size();
-                const auto close = response.find( kChannelClose, header_start );
+                const size_t header_start = cursor + channel.open.size();
+                const auto close = response.find( channel.close, header_start );
 
                 if ( close == std::string::npos )
                 {
-                    appendThinking( thinking, stripChannelLabel( response.substr( header_start ) ) );
+                    appendThinking( thinking,
+                        stripChannelLabel( response.substr( header_start ), channel.labelled ) );
                     return { trim( thinking ), trim( prefix ) };
                 }
 
                 appendThinking( thinking, stripChannelLabel(
-                    response.substr( header_start, close - header_start ) ) );
+                    response.substr( header_start, close - header_start ), channel.labelled ) );
 
-                const size_t after_close = close + kChannelClose.size();
-                const auto next_open = response.find( kChannelOpen, after_close );
+                const size_t after_close = close + channel.close.size();
+                const auto next_open = response.find( channel.open, after_close );
 
                 const bool adjacent = next_open != std::string::npos
                     && isAllWhitespace( std::string_view( response ).substr( after_close, next_open - after_close ) );
@@ -139,9 +200,6 @@ namespace Mila::ChatApp
 
     private:
 
-        static constexpr std::string_view kChannelOpen = "<|channel>";
-        static constexpr std::string_view kChannelClose = "<channel|>";
-
         /**
          * @brief Drop the leading channel-name label (e.g. "thought") from a region.
          *
@@ -149,8 +207,11 @@ namespace Mila::ChatApp
          * "thought\n[reasoning]". When the first line is a known channel label it
          * is removed; otherwise the region is returned unchanged.
          */
-        static std::string stripChannelLabel( std::string_view region )
+        static std::string stripChannelLabel( std::string_view region, bool labelled )
         {
+            if ( !labelled )
+                return std::string( region );
+
             const auto first = region.find_first_not_of( " \t\r\n" );
 
             if ( first == std::string_view::npos )

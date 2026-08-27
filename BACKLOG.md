@@ -1004,20 +1004,59 @@ being a task list and needs a prune.
 
 ### Product Family — Adaptor Validation
 
-- [ ] **[gate] No adaptor reaches Qwen 3.8 — nothing in `Mila/Adaptors` names it.** The model ships
-  with the release and is loadable only from the test suite, which by this workstream's own rule is a
-  defect in the demonstration. Chat first, per the ROADMAP criterion: selectable by name, footprint
-  reported before the load, on the same terms as any other model.
+- [ ] **[gate] MIS does not reach Qwen 3.8.** Chat now does — both deployments are installable,
+  selectable, costed before the load and tool-calling — but the server still names only Gemma.
+  `Mila/Adaptors/Inference/Server/src/mila_llm_server/gemma_protocol.py`.
+- [ ] **Qwen's chat protocol lives in the Chat adaptor, where Gemma's is in the runtime.**
+  `Chat.QwenProtocol.ixx` holds the ChatML template, the reasoning gate and the tool grammar;
+  Gemma's equivalent was folded down to `Gemma.Protocol.ixx` precisely so MIS could share it.
+  Until Qwen's follows, MIS would have to reimplement it. Needs the `Mila/Src` agreement first.
+- [ ] **Qwen streams nothing — the harness routes tokens by Gemma's four control ids.**
+  `FamilyTraits::streaming_capable` is false for Qwen (`Chat.FamilyTraits.ixx`), so a 27B answers in
+  one buffered block after a long silence. Qwen has one marker pair, `<think>`/`</think>`, which is
+  enough to route reasoning from answer; the per-token router just has not been written for it.
 - [ ] **Prompt-prefix reuse is unavailable on any model with DeltaNet layers, and the refusal is
   silent.** `QwenDeltaNetBlock::rewindKvCache` always returns false — correctly, since a recurrent
   state is a lossy summary that cannot be rolled back — and `QwenTransformer::rewindKvCache` ANDs that
-  into a whole-stack refusal. Chat and MIS need to report it as a model property and plan around it,
-  not retry. The block-level mechanism exists (`snapshotState`/`restoreState`, ~150 MiB per prefix)
+  into a whole-stack refusal. MIS needs to report it as a model property and plan around it, not
+  retry; Chat does not, because Chat has no prefix reuse to refuse — it re-prefills every turn. The block-level mechanism exists (`snapshotState`/`restoreState`, ~150 MiB per prefix)
   and a whole-model policy that combines it with the attention layers' positional rewind does not.
-- [ ] **Chat cannot choose a GPU.** `ChatConfig` has no device field and the runtime's device string
-  is always resolved as `CUDA:0`, so on the two-card rig the only way to reach the second GPU is
-  `CUDA_VISIBLE_DEVICES=1` in the environment. The library already names devices `CUDA:N`
-  (`CudaDevice.ixx:88`); the gap is that no adaptor setting reaches it.
+- [ ] **A session cannot move cards without restarting.** `--device N` and the `device` key choose
+  the card at startup, and every device question follows it, but there is no `/device` command —
+  `/set` is sampling knobs only, by its own contract. `/context` already shows the shape a
+  reload-on-change command takes (`Chat.ixx`).
+- [ ] **[decision 2026-08-27] Every model export goes through ONE path, and the Qwen 2/3-bit
+  export is deferred until it can.** Today Gemma, Llama and Qwen FP4 all take the same route:
+  the converter writes BF16, `ExportArtifact` loads it under a compiled policy so
+  `Linear::loadParameter` quantizes on the way in, and `savePretrained` writes the packed device
+  state. Quantize-on-load is the EXPORTER's engine, run once — a published artifact never needs
+  it. The codebook build is the one model that does not fit that route, because GPTQ's encode is
+  inseparable from its fit and can only run in Python. Resolving it means deciding how the fit
+  hands off, not patching the packer again. Do not do this piecemeal.
+- [ ] **The installed codebook artifact predates the packer fix, and its model card describes
+  that older shape.** `pack_qwen.py` now packs the three FP4 roles (attention QKV, attention
+  output, lm_head) instead of writing them BF16 for the loader to quantize, so the NEXT pack
+  produces ~11 GiB with nothing quantized at load. The artifact in the store is still the 15.09
+  GiB one — 52.4% BF16 against the FP4 build's 16.0% — deliberately, by Todd's call on
+  2026-08-26. Nothing is published, so nothing is wrong yet; but the card under
+  `ModelCards/Qwen3.8-27B-it-codebook-fp2-3/README.md` explains the BF16 share, and that
+  paragraph has to go when the artifact is re-packed. Re-packing needs no re-calibration: the
+  fit is unchanged and the damaged BF16 in the existing artifact is exactly the packer's input.
+- [ ] **The Python FP4 packer is not covered by the C++ parity fixture.** `packing.py`'s
+  `quantize_fp4_e2m1` was verified bit-identical to `CudaFp4WeightQuantization.cu` on real
+  lm_head weights (5,120,000 bytes, zero differences) — but by a throwaway script, where the
+  codebase's idiom for exactly this is `packing.py --emit-fixture` plus a C++ test. The codebook
+  formats are covered that way and FP4 is not.
+- [ ] **`ModelSize` is dead.** Declared in `Chat.Config.ixx` with four values and read nowhere —
+  the model's identity is its store name, which is what replaced it. Left in place it invites the
+  next family to add a fifth value that nothing will ever read.
+- [ ] **Qwen tool results are not merged into one user turn.** The checkpoint's template folds
+  consecutive `tool` messages into a single `<|im_start|>user` turn holding several
+  `<tool_response>` spans; `Chat.QwenProtocol.ixx` emits one turn each. Unreachable today — the
+  harness dispatches one call per round — and it becomes wrong the moment parallel calls land.
+- [ ] **`--fingerprint` is Gemma-only, so no other family has a load-parity probe.**
+  `ExportArtifact.ixx:968` refuses anything without `fingerprintPrefill`, which means the two Qwen
+  artifacts just published cannot be diffed against their source the way a Gemma one can.
 - [ ] **`ToolCallParser::parse` routes ANY response containing `[` into the tool-call parser** —
   `Chat.ToolCallParser.ixx:63` uses `response.find( '[' )` where the class's own doc comment at `:35`
   says "Leading `[`" and the nested `parseTagged` path at `:109` tests it correctly. Found on an

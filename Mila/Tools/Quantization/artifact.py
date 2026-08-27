@@ -175,6 +175,32 @@ def emit_mila_layer(artifact, policies, layer_index, targets, packed_pieces,
         policies[name] = POLICY_TYPE_NAMES[policy]
 
 
+def fp4_tensor_records(name, packed_pieces, scale_pieces, in_features, group_size=128):
+    """{tensor_name: array} for one Mila tensor held at PerGroupFp4<group_size>.
+
+    These roles carry no codebook: FP4 is data-free, so the artifact needs only the
+    nibbles and their per-group scales. They are packed here rather than shipped as
+    BF16 for the loader to quantize, because an artifact that declares a policy must
+    hold what that policy deploys -- and packing costs 4 bits per weight instead of 16
+    for a bit-identical result.
+
+    Pieces concatenate along the output axis for the same reason codebook pieces do:
+    packing is row-major and rows are independent.
+    """
+    weight = np.concatenate(packed_pieces, axis=0)
+    scale = np.concatenate(scale_pieces, axis=0)
+    out_features = weight.shape[0]
+
+    expect_shape(name, "weight", weight, (out_features, in_features // 2), np.uint8)
+    expect_shape(name, "weight_scale", scale,
+                 (out_features, in_features // group_size), np.float32)
+
+    return {
+        f"{name}.weight": weight,
+        f"{name}.weight_scale": scale,
+    }
+
+
 def expect_shape(name, suffix, array, shape, dtype):
     if array.shape != shape or array.dtype != dtype:
         raise AssertionError(

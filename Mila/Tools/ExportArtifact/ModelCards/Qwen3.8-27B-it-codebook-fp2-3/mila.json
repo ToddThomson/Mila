@@ -1,0 +1,28 @@
+{
+  "manifest_version": 1,
+  "name": "Qwen3.8-27B-it-codebook-fp2-3",
+  "architecture": "qwen",
+  "variant": "codebook-fp2-3",
+  "weight_quantization": "codebook",
+  "minimum_mila_version": "0.20.0",
+  "base_model": "Qwen/Qwen3.8-27B",
+  "license": "apache-2.0",
+  "instruct": true,
+  "files": {
+    "weights": {
+      "path": "qwen38_27b_2p9bit.safetensors",
+      "sha256": "d28a1bebd38a71a9e75d0a39f06a3a3c8fe753571ccc4546ab7e28fac54fd5d7",
+      "bytes": 16200748688
+    },
+    "tokenizer": {
+      "path": "qwen38_tokenizer.bin",
+      "sha256": "a1f463db78bde46a48ed7f09f0880eca9886a832202b61b97a1a30dc6de4a9b4",
+      "bytes": 10679864
+    },
+    "license": {
+      "path": "LICENSE",
+      "sha256": "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
+      "bytes": 11544
+    }
+  }
+}
