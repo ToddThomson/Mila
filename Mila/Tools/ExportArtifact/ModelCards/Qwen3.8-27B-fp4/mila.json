@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "name": "Qwen3.8-27B-it-fp4",
+  "name": "Qwen3.8-27B-fp4",
   "architecture": "qwen",
   "variant": "fp4",
   "weight_quantization": "per_group_fp4_128",

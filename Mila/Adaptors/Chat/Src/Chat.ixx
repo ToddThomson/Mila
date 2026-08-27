@@ -48,7 +48,6 @@ import Chat.ChannelParser;
 import Chat.FamilyTraits;
 import Chat.Footprint;
 import Chat.Json;
-import Chat.QwenProtocol;
 import Chat.Renderer;
 import Chat.RichText;
 
@@ -584,7 +583,7 @@ namespace Mila::ChatApp
                 // way from here -- an Assistant turn holding the call, then a Tool turn
                 // holding the result -- so only the grammar differs.
                 tool_call = config_.model_type == ModelType::Qwen
-                    ? Qwen::parseToolCall( response )
+                    ? Mila::Dnn::Qwen::parseToolCall( response )
                     : ToolCallParser::parse( response );
             }
             catch ( const std::runtime_error& e )
@@ -612,7 +611,6 @@ namespace Mila::ChatApp
             ChatMessage tool_turn;
             tool_turn.role = MessageRole::Tool;
             tool_turn.content = tool_result;
-            tool_turn.tool_call_id = tool_call->id;
             history_.push_back( std::move( tool_turn ) );
 
             std::string final_response;
@@ -997,27 +995,6 @@ namespace Mila::ChatApp
             return active;
         }
 
-        /**
-         * @brief The tool signatures as Qwen's template renders them: one JSON object per line.
-         *
-         * Not serializeTools() -- that produces one pretty-printed ARRAY, and the template
-         * writes the objects newline-separated inside <tools> with no array around them.
-         */
-        static std::string serializeQwenToolSignatures( const std::vector<ToolDefinition>& tools )
-        {
-            const nlohmann::json array = nlohmann::json::parse( serializeTools( tools ) );
-
-            std::string lines;
-
-            for ( const auto& tool : array )
-            {
-                lines += lines.empty() ? "" : "\n";
-                lines += tool.dump();
-            }
-
-            return lines;
-        }
-
         static std::string serializeTools( const std::vector<ToolDefinition>& tools )
         {
             nlohmann::json arr = nlohmann::json::array();
@@ -1297,11 +1274,13 @@ namespace Mila::ChatApp
                 // each, so a sentence of ours would be a prompt it was never tuned against.
                 const std::vector<ToolDefinition> tools = activeTools();
 
-                prompt = Qwen::formatPrompt(
+                prompt = Mila::Dnn::Qwen::formatPrompt(
                     history_,
                     config_.show_thinking,
-                    Qwen::reasoningEffortFromScale( config_.thinking_effort ),
-                    tools.empty() ? std::string{} : serializeQwenToolSignatures( tools ) );
+                    Mila::Dnn::Qwen::reasoningEffortFromScale( config_.thinking_effort ),
+                    tools.empty()
+                        ? std::string{}
+                        : Mila::Dnn::Qwen::serializeToolSignatures( serializeTools( tools ) ) );
             }
             else
                 prompt = MessageFormatter::format( history_ );

@@ -1,18 +1,25 @@
 """
 Assembles instruct-format prompts from chat messages.
 
-Dispatches on the configured model family:
+Dispatches on the loaded model's family:
   - llama: Llama 3.x instruct template (<|start_header_id|> ... <|eot_id|>)
   - gemma: Gemma 4 instruct template (<|turn> ... <turn|>)
+  - qwen:  Qwen 3.8 ChatML template (<|im_start|> ... <|im_end|>)
 
 The Gemma checkpoint Mila ships uses the <|turn>/<turn|> control tokens (NOT the
 Gemma 3-style <start_of_turn>/<end_of_turn>, which are absent from its vocabulary),
 roles system/user/model, a <bos> prefix, and a <|turn>model\\n generation primer.
 Reference: Mila chat harness formatGemmaPrompt() and
 https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4
+
+These are the PLAIN instruct templates. The agentic grammars -- tool declarations,
+tool-call and tool-response spans, reasoning channels -- live beside them in
+gemma_protocol, which the Responses and Anthropic Messages paths use instead.
 """
 
 import json
+
+import mila
 
 from mila_llm_server.config import loaded, ModelFamily
 
@@ -32,6 +39,10 @@ _GEMMA_TURN_CLOSE = "<turn|>"
 # suppresses "ghost" thought sections the 12B otherwise emits when deactivated.
 _GEMMA_THOUGHT_PRIME = "<|channel>thought\n<channel|>"
 
+# Qwen has no token constants here on purpose: its whole template comes from the runtime
+# through mila.qwen_format_prompt, and mila.qwen_protocol_tokens() reports the control
+# tokens a streaming caller needs. Writing either down again is how the copies start.
+
 
 def build_instruct_prompt(
     user_message: str,
@@ -47,6 +58,9 @@ def build_instruct_prompt(
     """
     if loaded.family == ModelFamily.gemma:
         return _build_gemma_prompt(user_message, system_prompt, history, tools)
+
+    if loaded.family == ModelFamily.qwen:
+        return _build_qwen_prompt(user_message, system_prompt, history, tools)
 
     return _build_llama_prompt(user_message, system_prompt, history, tools)
 
@@ -119,3 +133,41 @@ def _build_gemma_prompt(
     parts.append(_GEMMA_THOUGHT_PRIME)
 
     return "".join(parts)
+
+
+def _build_qwen_prompt(
+    user_message: str,
+    system_prompt: str,
+    history: list[dict[str, str]] | None,
+    tools: list[dict] | None,
+) -> str:
+    """
+    Qwen 3.8's ChatML prompt, rendered by the runtime.
+
+    No template is written here. `mila.qwen_format_prompt` is the same
+    Dnn.Components.QwenProtocol the chat harness renders through, so the two adaptors
+    cannot send the same model different prompts -- which is the whole reason a model's
+    grammar lives in the library rather than in whoever is driving it.
+
+    Thinking is off: a harness wants the answer, and the closed reasoning span in the
+    primer is the checkpoint's own suppression mechanism. Tools are declared in the
+    trained <tools> section, which is what the model emits <tool_call> spans against.
+    """
+    turns: list[dict] = []
+
+    if system_prompt:
+        turns.append({"role": "system", "content": system_prompt})
+
+    for turn in (history or []):
+        # The system turn is assembled by the template, in the order it puts its parts in;
+        # replaying one from history would produce a second.
+        if turn["role"] != "system":
+            turns.append({"role": turn["role"], "content": turn["content"]})
+
+    turns.append({"role": "user", "content": user_message})
+
+    return mila.qwen_format_prompt(
+        turns,
+        enable_thinking=False,
+        tools_json=json.dumps(tools) if tools else "",
+    )

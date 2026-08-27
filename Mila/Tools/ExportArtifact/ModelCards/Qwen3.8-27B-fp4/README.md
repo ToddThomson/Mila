@@ -15,11 +15,15 @@ A pre-quantized [Mila](https://github.com/ToddThomson/Mila) artifact of `Qwen/Qw
 safetensors format. The weights have been modified: they are quantized to FP4 E2M1 with
 per-group FP32 scales.
 
+`Qwen/Qwen3.8-27B` is the **instruction-tuned** checkpoint — Qwen marks the untuned variant
+`-Base`, which is why neither name carries an `-it` or `-Instruct` suffix. It has a reasoning
+channel and a trained tool-calling grammar, both of which Mila drives natively.
+
 **15.1 GB**, down from 50.1 GB at BF16. The packing is done once here instead of on every load,
 so a Mila session starts without first quantizing 27 billion parameters.
 
 Weights occupy 12.71 GB on the device, so this build wants a 16 GB card. For a 12 GB card, use
-[Qwen3.8-27B-it-codebook-fp2-3](https://huggingface.co/mila-llm/Qwen3.8-27B-it-codebook-fp2-3),
+[Qwen3.8-27B-cb2-3](https://huggingface.co/mila-llm/Qwen3.8-27B-cb2-3),
 which trades 13.9% higher perplexity for a residency that fits. This build is the more accurate
 of the two, and it is the oracle that figure is measured against.
 
@@ -37,8 +41,8 @@ of the two, and it is the oracle that figure is measured against.
 From the Mila chat harness:
 
 ```
-/model install Qwen3.8-27B-it-fp4
-/model Qwen3.8-27B-it-fp4
+/model install Qwen3.8-27B-fp4
+/model Qwen3.8-27B-fp4
 ```
 
 Installing is a deliberate step, and it is the only one that touches the network. It verifies

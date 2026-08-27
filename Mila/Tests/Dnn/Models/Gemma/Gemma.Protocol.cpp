@@ -1,4 +1,4 @@
-// Unit tests for the canonical Gemma 4 grammar module (Dnn.Components.GemmaProtocol).
+// Unit tests for the canonical Gemma 4 grammar module (Dnn.Models.GemmaProtocol).
 // This is the union-of-both-implementations coverage the drought never had: it pins the
 // spec-verified behaviors the runtime module now owns -- the <|"|> string delimiter on both
 // parse and format, integer-preserving argument coercion, namespace stripping, and the
@@ -11,7 +11,7 @@
 import Mila;
 import nlohmann.json;
 
-namespace Dnn::Components::Transformers::Tests
+namespace Mila::Tests::Dnn::Models
 {
     using namespace Mila::Dnn::Gemma;
 

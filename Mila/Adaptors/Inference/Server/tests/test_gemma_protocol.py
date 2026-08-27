@@ -1,10 +1,10 @@
 """
 Parity tests for the Gemma 4 native grammar renderer (gemma_protocol.py).
 
-These pin the PARITY CONTRACT with the C++ twin (Dnn.Components.GemmaProtocol,
-Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx). The golden strings
+These pin the PARITY CONTRACT with the C++ twin (Dnn.Models.GemmaProtocol,
+Mila/Src/Dnn/Models/Gemma/Gemma.Protocol.ixx). The golden strings
 in EXPECTED_* below are asserted verbatim by the matching C++ tests in
-Mila/Tests/Dnn/Components/Transformers/Gemma/Gemma.Protocol.cpp -- the two suites
+Mila/Tests/Dnn/Models/Gemma/Gemma.Protocol.cpp -- the two suites
 agreeing on the same literals is what makes "parity" mean something. Change a
 golden string here and the C++ counterpart must change in the same commit.
 

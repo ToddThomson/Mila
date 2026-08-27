@@ -400,11 +400,11 @@ PUBLIC
         
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Presets.ixx"
 
+
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Config.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.Workspace.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.ixx"
-        "Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx"
 
         "Src/Dnn/Components/Transformers/Qwen/Qwen.PrecisionPlan.ixx"
         "Src/Dnn/Components/Transformers/Qwen/Qwen.Config.ixx"
@@ -442,11 +442,14 @@ PUBLIC
         "Src/Dnn/Compute/Operations/IKvCacheLifecycle.ixx"
         
         # The one runtime-to-compile-time quantization bridge, imported by the models below.
+        "Src/Dnn/Models/Conversation.ixx"
         "Src/Dnn/Models/QuantizationDispatch.ixx"
-        "Src/Dnn/Models/GptModel.ixx"
-        "Src/Dnn/Models/LlamaModel.ixx"
-        "Src/Dnn/Models/GemmaModel.ixx"
-        "Src/Dnn/Models/QwenModel.ixx"
+        "Src/Dnn/Models/Gpt/GptModel.ixx"
+        "Src/Dnn/Models/LlaMa/LlamaModel.ixx"
+        "Src/Dnn/Models/Gemma/GemmaModel.ixx"
+        "Src/Dnn/Models/Gemma/Gemma.Protocol.ixx"
+        "Src/Dnn/Models/Qwen/QwenModel.ixx"
+        "Src/Dnn/Models/Qwen/Qwen.Protocol.ixx"
 
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         
@@ -473,9 +476,9 @@ PUBLIC
         #"Src/Dnn/Compute/Operations/LinearOpTypeMap.ixx"
         #"Src/Dnn/Core/ModelQuantizationConfig.ixx"
         "Src/Dnn/Core/ModelConfig.ixx"
-        "Src/Dnn/Models/LlamaModelConfig.ixx"
-        "Src/Dnn/Models/GemmaModelConfig.ixx"
-        "Src/Dnn/Models/QwenModelConfig.ixx"
+        "Src/Dnn/Models/LlaMa/LlamaModelConfig.ixx"
+        "Src/Dnn/Models/Gemma/GemmaModelConfig.ixx"
+        "Src/Dnn/Models/Qwen/QwenModelConfig.ixx"
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/GqaState.ixx"
@@ -495,7 +498,7 @@ PUBLIC
         "Src/Dnn/Core/SamplerBase.ixx"
         "Src/Dnn/Samplers/SamplingConfig.ixx"
         "Src/Dnn/Samplers/TokenSampler.ixx"
- "Src/Dnn/Models/GptModelConfig.ixx" "Src/Dnn/Core/GenerateStatus.ixx")
+ "Src/Dnn/Models/Gpt/GptModelConfig.ixx" "Src/Dnn/Core/GenerateStatus.ixx")
 
 # ----------------------------------------------------------------------------
 # CPU backend modules

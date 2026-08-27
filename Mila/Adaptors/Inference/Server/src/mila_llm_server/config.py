@@ -11,8 +11,17 @@ class ProtocolMode(str, Enum):
 
 
 class ModelFamily(str, Enum):
+    """
+    The architectures MIS serves, named as a store record names them.
+
+    Each value must have a session class in SESSION_FOR and a prompt template, because
+    _family_of() admits a record on the strength of this enum alone -- adding a value
+    without both is how an artifact of one architecture gets loaded into another's session.
+    """
+
     llama = "llama"
     gemma = "gemma"
+    qwen = "qwen"
 
 
 class Settings(BaseSettings):

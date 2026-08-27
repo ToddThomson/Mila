@@ -34,7 +34,13 @@ __all__ = [
     "BpeTokenizer",
     "GemmaModel",
     "LlamaModel",
+    "QwenModel",
     "StopController",
+    # Chat protocol: the model's own grammar, projected from the runtime rather than
+    # reimplemented here. A host renders a conversation; it does not write a template.
+    "qwen_format_prompt",
+    "qwen_parse_tool_call",
+    "qwen_protocol_tokens",
     "cuda_library_directories",
     # Distribution: the local store, shared with Chat and the Inference Server.
     "ModelStore",
@@ -187,12 +193,16 @@ try:
         HubModel,
         LlamaModel,
         ModelStore,
+        QwenModel,
         RemovalReport,
         StopController,
         StoredModel,
         StoreUsage,
         default_hub_owner,
         initialize,
+        qwen_format_prompt,
+        qwen_parse_tool_call,
+        qwen_protocol_tokens,
     )
 except ImportError as error:
     raise ImportError(

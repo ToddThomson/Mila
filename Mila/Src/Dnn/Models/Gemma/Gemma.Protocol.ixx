@@ -28,7 +28,7 @@ module;
 // them: they reach the BMI only as pruned global-module-fragment declarations.
 #include <memory>
 
-export module Dnn.Components.GemmaProtocol;
+export module Dnn.Models.GemmaProtocol;
 
 import nlohmann.json;
 

@@ -12,7 +12,9 @@ from mila_llm_server.protocols.utils import DEFAULT_SYSTEM_PROMPT, extract_conte
 from mila_llm_server.protocols.openai.tool_bridge import build_tool_injection, parse_tool_call
 from mila_llm_server.prompt import build_instruct_prompt
 from mila_llm_server.config import settings, loaded, ModelFamily
-from mila_llm_server import gemma_protocol
+from mila_llm_server import gemma_protocol, qwen_bridge
+
+import mila
 
 
 class OpenAIResponsesAdapter(ResponsesCapable):
@@ -35,10 +37,18 @@ class OpenAIResponsesAdapter(ResponsesCapable):
             _input_shapes = [(m.get("type", "message"), m.get("role")) for m in raw_input]
             print("[MIS DEBUG] input items:", json.dumps(_input_shapes), flush=True)
 
+        # Three-way, not gemma-or-else: the else branch was Llama's tool bridge back when
+        # Llama was the only other family, and it splices Llama 3's <|python_tag|> grammar
+        # into the prompt. A Qwen model sent through it would be handed a grammar it was
+        # never trained to read.
         if loaded.family == ModelFamily.gemma:
             prompt_str = self._build_gemma_prompt(raw_input, instructions, tools)
-        else:
+        elif loaded.family == ModelFamily.qwen:
+            prompt_str = self._build_qwen_prompt(raw_input, instructions, tools)
+        elif loaded.family == ModelFamily.llama:
             prompt_str = self._build_llama_prompt(raw_input, instructions, tools)
+        else:
+            prompt_str = self._build_plain_prompt(raw_input, instructions)
 
         print("[MIS DEBUG] prompt_str:\n", prompt_str, flush=True)
 
@@ -186,16 +196,131 @@ class OpenAIResponsesAdapter(ResponsesCapable):
 
         return build_instruct_prompt(user_message, instructions, history, None)
 
+    def _build_qwen_prompt(self, raw_input, instructions: str, tools: list) -> str:
+        """
+        Assemble a native Qwen agentic prompt from Responses items.
+
+        No template is written here -- the turns go to `mila.qwen_format_prompt`, the runtime's
+        own renderer. A `function_call` item becomes a tool call on the assistant turn and a
+        `function_call_output` becomes a turn of its own, which the template renders as a user
+        turn carrying a tool_response span.
+        """
+        if isinstance(raw_input, str):
+            turns = [{"role": "user", "content": raw_input}]
+            system_block = instructions
+        else:
+            messages = list(raw_input)
+            system_block, messages = self._collect_system_block(messages, instructions)
+            turns = []
+
+            for msg in messages:
+                msg_type = msg.get("type", "message")
+
+                if msg_type == "function_call":
+                    call = {
+                        "id": msg.get("call_id", ""),
+                        "name": msg.get("name", "tool"),
+                        "arguments": msg.get("arguments", "{}"),
+                    }
+
+                    if turns and turns[-1]["role"] == "assistant":
+                        turns[-1].setdefault("tool_calls", []).append(call)
+                    else:
+                        turns.append({"role": "assistant", "content": "", "tool_calls": [call]})
+
+                elif msg_type == "function_call_output":
+                    turns.append({
+                        "role": "tool",
+                        "content": msg.get("output", "") or "(no output)",
+                    })
+
+                elif msg_type == "message":
+                    role = "assistant" if msg.get("role") == "assistant" else "user"
+                    content = extract_content(msg.get("content", ""))
+
+                    if turns and turns[-1]["role"] == role and not turns[-1].get("tool_calls"):
+                        turns[-1]["content"] += "\n" + content
+                    else:
+                        turns.append({"role": role, "content": content})
+
+        if system_block:
+            turns.insert(0, {"role": "system", "content": system_block})
+
+        return mila.qwen_format_prompt(
+            turns,
+            enable_thinking=False,
+            tools_json=json.dumps(tools) if tools else "",
+        )
+
+    def _build_plain_prompt(self, raw_input, instructions: str) -> str:
+        """
+        Tool-blind assembly for a family with no agentic grammar on this path yet.
+
+        Tool declarations are dropped and a tool result replays as ordinary user text, so
+        the conversation stays readable and nothing invents a call syntax the model was not
+        trained on. The family's own turn template still applies -- build_instruct_prompt
+        dispatches on it -- so this is a plain conversation in the right frame, not a
+        Llama prompt wearing another model's name.
+        """
+        if isinstance(raw_input, str):
+            return build_instruct_prompt(raw_input, instructions, [], None)
+
+        messages = list(raw_input)
+        system_block, messages = self._collect_system_block(messages, instructions)
+
+        merged: list[dict] = []
+
+        for msg in messages:
+            msg_type = msg.get("type", "message")
+            role = msg.get("role", "user")
+
+            if msg_type == "function_call":
+                name = msg.get("name", "tool")
+                content = f"Called {name} with {msg.get('arguments', '{}')}."
+                role = "assistant"
+
+            elif msg_type == "function_call_output":
+                content = f"Result: {msg.get('output', '') or '(no output)'}"
+                role = "user"
+
+            elif msg_type == "message":
+                content = extract_content(msg.get("content", ""))
+
+            else:
+                continue
+
+            if merged and merged[-1]["role"] == role:
+                merged[-1]["content"] += "\n" + content
+            else:
+                merged.append({"role": role, "content": content})
+
+        user_message = merged[-1]["content"] if merged else ""
+
+        return build_instruct_prompt(user_message, system_block, merged[:-1], None)
+
     def parse_tool_call_from_text(self, text: str) -> dict | None:
         """Expose the tool-call parser to the streaming factory path (family-aware)."""
         if loaded.family == ModelFamily.gemma:
             return gemma_protocol.parse_tool_call(text)
-        return parse_tool_call(text)
+
+        if loaded.family == ModelFamily.qwen:
+            return qwen_bridge.parse_tool_call(text)
+
+        # Llama's bridge only. A family whose prompt carried no call syntax cannot have
+        # emitted one, and running a parser over its prose can only produce a phantom.
+        if loaded.family == ModelFamily.llama:
+            return parse_tool_call(text)
+
+        return None
 
     def clean_response_text(self, text: str) -> str:
-        """Reduce raw model output to the user-facing answer (Gemma channel-aware)."""
+        """Reduce raw model output to the user-facing answer."""
         if loaded.family == ModelFamily.gemma:
             return gemma_protocol.extract_answer(text)
+
+        if loaded.family == ModelFamily.qwen:
+            return qwen_bridge.answer_text(text)
+
         return text
 
     def format_responses_stream_function_call(self, response_id: str, item: dict) -> str:

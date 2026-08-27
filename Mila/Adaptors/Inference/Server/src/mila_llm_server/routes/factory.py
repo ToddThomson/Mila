@@ -20,6 +20,11 @@ from mila_llm_server.config import settings, loaded, ModelFamily
 
 logger = logging.getLogger(__name__)
 
+#: Families whose model emits a tool call in a grammar of its own, which the adapter parses out
+#: of the raw decode. These take the buffered path and the unstripped stream; Llama's bridge is
+#: plain text and does not, which is why it is absent.
+_NATIVE_TOOL_FAMILIES = frozenset({ModelFamily.gemma, ModelFamily.qwen})
+
 
 def register_routes(app: FastAPI, adapter) -> None:
     if isinstance(adapter, ProtocolAdapter):
@@ -103,7 +108,7 @@ async def _dispatch(
     # primitive to supply both. Non-gemma families and tool-blind adapters keep
     # the original stripped blocking path.
     tool_capable = (
-        loaded.family == ModelFamily.gemma
+        loaded.family in _NATIVE_TOOL_FAMILIES
         and hasattr(adapter, "parse_tool_call_from_text")
     )
 
@@ -388,10 +393,10 @@ async def _stream_responses(
     def on_done() -> None:
         loop.call_soon_threadsafe(queue.put_nowait, None)
 
-    # Gemma emits native <|tool_call>/<|channel> protocol tokens; the responses
-    # path parses them from the accumulated text, so it needs the raw (unstripped)
-    # decode. The worker still stops generation at <tool_call|> either way.
-    strip_control_tokens = loaded.family != ModelFamily.gemma
+    # A family with a native grammar emits protocol tokens the adapter parses out of the
+    # accumulated text, so it needs the raw (unstripped) decode. The worker stops generation
+    # at the closing tool-call marker either way.
+    strip_control_tokens = loaded.family not in _NATIVE_TOOL_FAMILIES
 
     generation = asyncio.create_task(
         worker.generate_streaming(

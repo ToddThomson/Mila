@@ -1,8 +1,8 @@
 {
   "manifest_version": 1,
-  "name": "Qwen3.8-27B-it-codebook-fp2-3",
+  "name": "Qwen3.8-27B-cb2-3",
   "architecture": "qwen",
-  "variant": "codebook-fp2-3",
+  "variant": "cb2-3",
   "weight_quantization": "codebook",
   "minimum_mila_version": "0.20.0",
   "base_model": "Qwen/Qwen3.8-27B",

@@ -1,7 +1,7 @@
 /**
  * @file Chat.GemmaToolCallParser.ixx
  * @brief RETIRED 2026-07-07. Superseded by the canonical runtime grammar module
- *        Dnn.Components.GemmaProtocol (Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx).
+ *        Dnn.Models.GemmaProtocol (Src/Dnn/Models/Gemma/Gemma.Protocol.ixx).
  *
  * The Gemma native token grammar is a property of the model, not of the Chat
  * adaptor, so it was folded DOWN into the runtime where the inference server can
@@ -10,7 +10,7 @@
  * only), keeps integer arguments as integers, and distills tool-response output
  * fields with failed-tool error surfacing.
  *
- * Chat now imports Dnn.Components.GemmaProtocol:
+ * Chat now imports Dnn.Models.GemmaProtocol:
  *   GemmaToolCallParser::parse            -> Mila::Dnn::Gemma::parseToolCall
  *   GemmaToolCallParser::formatToolResponse -> Mila::Dnn::Gemma::formatToolResponse
  *

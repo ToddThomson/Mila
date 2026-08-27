@@ -157,8 +157,8 @@ the `<tool_call|>` token by raw id (cached once via `tokenizer_->encode()`, chec
 in the per-token callback) and calls `stop_src_.request_stop()` — no core-library
 change needed, since the token is not in the model's own default stop set and so
 reaches the callback normally. The grammar itself lives in the runtime, not the
-harness: `Mila::Dnn::Gemma::parseToolCall` (module `Dnn.Components.GemmaProtocol`,
-`Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx`) extracts the call from the
+harness: `Mila::Dnn::Gemma::parseToolCall` (module `Dnn.Models.GemmaProtocol`,
+`Src/Dnn/Models/Gemma/Gemma.Protocol.ixx`) extracts the call from the
 accumulated text; `Mila::Dnn::Gemma::formatToolResponse` mirrors the dispatched result
 back into the `key:value` grammar for the spliced response, surfacing the primary
 output field (or the `error` field on a failed tool) and rendering string values in

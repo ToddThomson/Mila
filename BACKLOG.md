@@ -1004,13 +1004,12 @@ being a task list and needs a prune.
 
 ### Product Family — Adaptor Validation
 
-- [ ] **[gate] MIS does not reach Qwen 3.8.** Chat now does — both deployments are installable,
-  selectable, costed before the load and tool-calling — but the server still names only Gemma.
-  `Mila/Adaptors/Inference/Server/src/mila_llm_server/gemma_protocol.py`.
-- [ ] **Qwen's chat protocol lives in the Chat adaptor, where Gemma's is in the runtime.**
-  `Chat.QwenProtocol.ixx` holds the ChatML template, the reasoning gate and the tool grammar;
-  Gemma's equivalent was folded down to `Gemma.Protocol.ixx` precisely so MIS could share it.
-  Until Qwen's follows, MIS would have to reimplement it. Needs the `Mila/Src` agreement first.
+- [ ] **Gemma's grammar is still reimplemented in Python, now that Qwen's is not.**
+  `gemma_protocol.py` is 856 lines beside a runtime module that owns the same value grammar. The
+  projection Qwen uses is the pattern to follow: `Gemma.Protocol.ixx` needs the turn template, the
+  `<|tool>` declaration renderer and `extract_answer` it never received, then the binding projects
+  it and the Python module retires. That also closes the Chat/MIS declaration divergence below,
+  since both adaptors would render from one place. Largest remaining piece of the July fold.
 - [ ] **Qwen streams nothing — the harness routes tokens by Gemma's four control ids.**
   `FamilyTraits::streaming_capable` is false for Qwen (`Chat.FamilyTraits.ixx`), so a 27B answers in
   one buffered block after a long silence. Qwen has one marker pair, `<think>`/`</think>`, which is
@@ -1039,7 +1038,7 @@ being a task list and needs a prune.
   produces ~11 GiB with nothing quantized at load. The artifact in the store is still the 15.09
   GiB one — 52.4% BF16 against the FP4 build's 16.0% — deliberately, by Todd's call on
   2026-08-26. Nothing is published, so nothing is wrong yet; but the card under
-  `ModelCards/Qwen3.8-27B-it-codebook-fp2-3/README.md` explains the BF16 share, and that
+  `ModelCards/Qwen3.8-27B-cb2-3/README.md` explains the BF16 share, and that
   paragraph has to go when the artifact is re-packed. Re-packing needs no re-calibration: the
   fit is unchanged and the damaged BF16 in the existing artifact is exactly the packer's input.
 - [ ] **The Python FP4 packer is not covered by the C++ parity fixture.** `packing.py`'s
@@ -1052,7 +1051,7 @@ being a task list and needs a prune.
   next family to add a fifth value that nothing will ever read.
 - [ ] **Qwen tool results are not merged into one user turn.** The checkpoint's template folds
   consecutive `tool` messages into a single `<|im_start|>user` turn holding several
-  `<tool_response>` spans; `Chat.QwenProtocol.ixx` emits one turn each. Unreachable today — the
+  `<tool_response>` spans; `Qwen.Protocol.ixx` emits one turn each. Unreachable today — the
   harness dispatches one call per round — and it becomes wrong the moment parallel calls land.
 - [ ] **`--fingerprint` is Gemma-only, so no other family has a load-parity probe.**
   `ExportArtifact.ixx:968` refuses anything without `fingerprintPrefill`, which means the two Qwen
@@ -1082,8 +1081,17 @@ being a task list and needs a prune.
   live and the native grammar is reconciled to Google's canonical template, pinned by an oracle.
   Remaining: N sequential distinct tool calls in one turn, channel-content parser polish, and
   Codex-CLI re-validation on the reconciled grammar.
-- [~] **Grammar-in-runtime execution-time scope call** — the C++ and Python grammars are held together
-  by a cross-language parity test. Open for sign-off: single-source via pybind, or close on the test.
+- [~] **Grammar-in-runtime execution-time scope: SETTLED 2026-08-27 as a pybind projection.**
+  A host renders a conversation and reimplements nothing, the same rule the store's transport
+  delegate follows. Qwen is done this way end to end — `qwen_format_prompt` /
+  `qwen_parse_tool_call` / `qwen_protocol_tokens`, with `qwen_bridge.py` holding the wire-shape
+  reconciliation and no grammar. Open only for Gemma, above.
+- [ ] **Chat and MIS declare Gemma's tools differently, and MIS has the trained form.** Chat appends
+  `serializeTools()` — one pretty-printed JSON array — to the system turn (`Chat.ixx:2988`), while
+  MIS renders `<|tool>declaration:name{...}<tool|>` (`gemma_protocol.build_tool_injection`). That
+  renderer is what flipped the 12B from improvising off-spec calls to emitting the correct grammar,
+  so the two adaptors are sending the same model materially different prompts. The renderer has no
+  C++ counterpart at all, which is why the fold did not reach it.
 - [ ] **In-turn thoughts dropped between tool calls** — Google's multi-turn rule is to strip
   prior-turn thoughts and keep the current turn's.
 - [ ] Buffer Gemma Anthropic streaming only when tools are present.
@@ -1131,7 +1139,7 @@ being a task list and needs a prune.
   that its module is *usable*. It needs no GPU and no model to catch all three failures: they are
   compile-time. Cheapest possible guard for the entire C++ consumer story.
 - [ ] **The Python binding discards `GenerateStatus`, so the two quick starts cannot reach parity.**
-  `Mila_py.Wrappers.cpp:657` (Gemma) and `:553` (Llama) do `(void)impl_->model->generate(...)`, so a
+  All three sessions in `Mila_py.Wrappers.cpp` do `(void)impl_->model->generate(...)`, so a
   Python caller cannot tell EOS from the `max_new_tokens` cap from context overflow from a
   cancellation — which `LanguageModel::generate`'s own docstring calls the one outcome a caller
   cannot reconstruct from the token stream. The C++ quick start prints `[stop]`; the Python one
@@ -1144,8 +1152,8 @@ being a task list and needs a prune.
   Chat-test-model item above, which is the same gap.
 - [ ] **Decide whether a Python completion sample needs a `GptSession` before it can exist.**
   `Samples/QuickStart/Python/generate.py` already shows completion as a mode via `--raw`, so the only gap is
-  GPT-2 itself — and the binding exposes just `LlamaModel` and `GemmaModel`. That is also why MIS
-  refuses the architecture (`Server/model_worker.py:40`: "gpt2 has a record shape and no session"),
+  GPT-2 itself — `LlamaModel`, `GemmaModel` and `QwenModel` are the sessions the binding exposes.
+  That is also why MIS refuses the architecture ("gpt2 has a record shape and no session"),
   making this a binding decision, not a sample one. Session-depth, so consistent with the settled
   binding scope; still net-new projection surface for a sample Python largely already has.
 - [ ] **Chat lost its fast test model when base models were refused.** `gpt2-small` loaded in

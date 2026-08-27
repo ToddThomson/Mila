@@ -15,6 +15,10 @@ A pre-quantized [Mila](https://github.com/ToddThomson/Mila) artifact of `Qwen/Qw
 safetensors format. The weights have been modified: they are quantized, and the codebooks were
 fitted offline against calibration data.
 
+`Qwen/Qwen3.8-27B` is the **instruction-tuned** checkpoint — Qwen marks the untuned variant
+`-Base`, which is why neither name carries an `-it` or `-Instruct` suffix. It has a reasoning
+channel and a trained tool-calling grammar, both of which Mila drives natively.
+
 Unlike a uniform format, this artifact spends a different number of bits per role. The
 feed-forward and mixer projections carry fitted 2- and 3-bit codebooks; the full-attention
 layers stay at 4.125 bits, where the accuracy is worth the space. The quantized parameters
@@ -29,7 +33,7 @@ resident: this build runs Qwen3.8 27B on a 12 GB card, where the FP4 build's wei
 12.71 GB and need a larger one.
 
 Choose this artifact for a 12 GB card. Choose
-[Qwen3.8-27B-it-fp4](https://huggingface.co/mila-llm/Qwen3.8-27B-it-fp4) if you have 16 GB, since
+[Qwen3.8-27B-fp4](https://huggingface.co/mila-llm/Qwen3.8-27B-fp4) if you have 16 GB, since
 it is the more accurate of the two.
 
 ## Quality
@@ -62,8 +66,8 @@ Codebooks were fitted on wikitext-2 train.
 From the Mila chat harness:
 
 ```
-/model install Qwen3.8-27B-it-codebook-fp2-3
-/model Qwen3.8-27B-it-codebook-fp2-3
+/model install Qwen3.8-27B-cb2-3
+/model Qwen3.8-27B-cb2-3
 ```
 
 Installing is a deliberate step, and it is the only one that touches the network. It verifies

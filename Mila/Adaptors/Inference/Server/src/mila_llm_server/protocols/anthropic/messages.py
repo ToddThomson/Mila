@@ -4,22 +4,28 @@ Anthropic Messages API protocol adapter.
   Completions: POST /v1/messages  (Anthropic has no separate completions path;
                we alias it to the same endpoint for factory symmetry.)
 
-Gemma family: native tool calling. Inbound tool defs, assistant tool_use blocks,
-and user tool_result blocks are mapped onto the same gemma_protocol grammar the
-Responses path uses, so Claude Code can drive MIS as a harness. Non-gemma (Llama)
-stays tool-blind plain text. Non-streaming tool_use is wired here; streaming
-tool_use (content_block_start{type:tool_use} + input_json_delta) is deferred.
+Native tool calling for the Gemma and Qwen families: inbound tool defs, assistant
+tool_use blocks and user tool_result blocks are mapped onto the model's own grammar,
+so Claude Code can drive MIS as a harness. Llama stays tool-blind plain text.
+Non-streaming tool_use is wired here; streaming tool_use
+(content_block_start{type:tool_use} + input_json_delta) is deferred.
+
+Qwen's grammar comes from the runtime through the mila binding; Gemma's is still the
+Python gemma_protocol reimplementation. Those are the two halves of the same
+migration, not two designs -- see BACKLOG.
 """
 import json
 import logging
 import uuid
+
+import mila
 
 from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
 from mila_llm_server.protocols.base import ProtocolAdapter
 from mila_llm_server.protocols.utils import DEFAULT_SYSTEM_PROMPT, extract_content
 from mila_llm_server.prompt import build_instruct_prompt
 from mila_llm_server.config import settings, loaded, ModelFamily
-from mila_llm_server import gemma_protocol
+from mila_llm_server import gemma_protocol, qwen_bridge
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +115,10 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
 
         if loaded.family == ModelFamily.gemma:
             prompt_str = self._build_gemma_prompt(messages, system_prompt, tools)
+        elif loaded.family == ModelFamily.qwen:
+            prompt_str = self._build_qwen_prompt(messages, system_prompt, tools)
         else:
-            prompt_str = self._build_llama_prompt(messages, system_prompt)
+            prompt_str = self._build_plain_prompt(messages, system_prompt)
 
         req = InferenceRequest(
             prompt_ids=[],
@@ -244,8 +252,85 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
         continue_open = bool(turns) and turns[-1].get("tool", False)
         return gemma_protocol.assemble_prompt(system_block, turns, continue_open)
 
-    def _build_llama_prompt(self, messages: list, system_prompt: str) -> str:
-        """Tool-blind plain-text path for the Llama family (unchanged behavior)."""
+    def _build_qwen_prompt(self, messages: list, system_prompt: str, tools: list) -> str:
+        """
+        Assemble a native Qwen agentic prompt from Anthropic messages.
+
+        No template is written here: the turns go to `mila.qwen_format_prompt`, which is the
+        runtime's own renderer. All this does is translate Anthropic's content blocks into the
+        conversation they describe -- an assistant `tool_use` becomes a tool call on the
+        assistant turn, a user `tool_result` becomes a turn of its own.
+
+        Simpler than the Gemma path in one way worth noting: there is no splice-and-resume.
+        Qwen renders a tool result as a user turn, so a transcript ending on one primes a fresh
+        assistant turn by construction and no model turn is left open.
+        """
+        turns: list[dict] = []
+
+        if system_prompt:
+            turns.append({"role": "system", "content": system_prompt})
+
+        pending_names: dict[str, str] = {}
+
+        def append_text(role: str, text: str) -> None:
+            if not text:
+                return
+
+            if turns and turns[-1]["role"] == role and not turns[-1].get("tool_calls"):
+                turns[-1]["content"] += "\n" + text
+            else:
+                turns.append({"role": role, "content": text})
+
+        for msg in messages:
+            role = "assistant" if msg.get("role") == "assistant" else "user"
+            content = msg.get("content", "")
+            blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
+
+            for block in blocks:
+                if not isinstance(block, dict):
+                    continue
+
+                btype = block.get("type", "text")
+
+                if btype == "text":
+                    append_text(role, block.get("text", ""))
+
+                elif btype == "tool_use":
+                    name = block.get("name", "tool")
+                    pending_names[block.get("id", "")] = name
+                    call = {
+                        "id": block.get("id", ""),
+                        "name": name,
+                        "arguments": json.dumps(block.get("input", {})),
+                    }
+
+                    # Text and a call in one Anthropic message are one assistant turn: the
+                    # template renders the preamble and the call inside the same turn.
+                    if turns and turns[-1]["role"] == "assistant":
+                        turns[-1].setdefault("tool_calls", []).append(call)
+                    else:
+                        turns.append({"role": "assistant", "content": "", "tool_calls": [call]})
+
+                elif btype == "tool_result":
+                    turns.append({
+                        "role": "tool",
+                        "content": self._tool_result_text(block.get("content", "")),
+                    })
+
+        return mila.qwen_format_prompt(
+            turns,
+            enable_thinking=False,
+            tools_json=json.dumps(self._normalize_tools(tools)) if tools else "",
+        )
+
+    def _build_plain_prompt(self, messages: list, system_prompt: str) -> str:
+        """
+        Tool-blind plain-text path for every family without a native assembler here.
+
+        Named for what it does rather than for Llama, which is what it was called when
+        Llama was the only family that reached it: build_instruct_prompt dispatches on the
+        loaded family, so this already renders Qwen's ChatML frame correctly.
+        """
         user_message = self._extract_text(messages[-1]["content"]) if messages else ""
         history = [
             {"role": m["role"], "content": self._extract_text(m["content"])}
@@ -258,15 +343,23 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
     # ------------------------------------------------------------------
 
     def parse_tool_call_from_text(self, text: str) -> dict | None:
-        """Detect a native Gemma tool call in the raw model output (family-aware)."""
+        """Detect a native tool call in the raw model output, in the loaded family's grammar."""
         if loaded.family == ModelFamily.gemma:
             return gemma_protocol.parse_tool_call(text)
+
+        if loaded.family == ModelFamily.qwen:
+            return qwen_bridge.parse_tool_call(text)
+
         return None
 
     def clean_response_text(self, text: str) -> str:
-        """Reduce raw model output to the user-facing answer (Gemma channel-aware)."""
+        """Reduce raw model output to the user-facing answer."""
         if loaded.family == ModelFamily.gemma:
             return gemma_protocol.extract_answer(text)
+
+        if loaded.family == ModelFamily.qwen:
+            return qwen_bridge.answer_text(text)
+
         return text
 
     # ------------------------------------------------------------------

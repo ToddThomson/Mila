@@ -101,7 +101,7 @@ namespace Mila::ChatApp
     }
 
     /**
-     * @brief Parse a quantization keyword ("none"/"fp8"/"fp4"/"codebook-fp2-3").
+     * @brief Parse a quantization keyword ("none"/"fp8"/"fp4"/"cb2-3").
      *
      * Returns std::nullopt for an unrecognized value. Shared by the session-config
      * loader and the in-session /model command so both accept the same vocabulary.
@@ -116,7 +116,7 @@ namespace Mila::ChatApp
         // variant a model already IS gets the load they asked for rather than a vocabulary
         // error. Naming it for an artifact that is not one is refused where the artifact is
         // known, which is the only place the difference can be seen.
-        if ( s == "codebook-fp2-3" )     return QuantizationMode::Codebook;
+        if ( s == "cb2-3" )              return QuantizationMode::Codebook;
 
         return std::nullopt;
     }
@@ -130,7 +130,7 @@ namespace Mila::ChatApp
         {
             case QuantizationMode::FP8: return "fp8";
             case QuantizationMode::FP4: return "fp4";
-            case QuantizationMode::Codebook: return "codebook-fp2-3";
+            case QuantizationMode::Codebook: return "cb2-3";
             case QuantizationMode::None: return "none";
         }
 

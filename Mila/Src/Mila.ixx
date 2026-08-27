@@ -248,7 +248,6 @@ export import Dnn.Components.GemmaConfig;
 export import Dnn.Components.ITransformerBlock;
 export import Dnn.Components.GemmaBlock;
 export import Dnn.Components.GemmaTransformer;
-export import Dnn.Components.GemmaProtocol;
 
 export import Dnn.Components.QwenPrecisionPlan;
 export import Dnn.Components.QwenConfig;
@@ -259,6 +258,11 @@ export import Dnn.Components.QwenTransformer;
 // ============================================================================
 // Models - Open Source Models
 // ============================================================================
+// The conversation a chat template renders, shared by every family's protocol module.
+// Reachable through each protocol's own re-export; named here too so a consumer that only
+// builds a history does not have to import a family to describe one.
+export import Dnn.Models.Conversation;
+
 export import Dnn.Models.GptModel;
 
 export import Dnn.Models.LlamaModel;
@@ -266,9 +270,11 @@ export import Dnn.Models.LlamaModelConfig;
 
 export import Dnn.Models.GemmaModel;
 export import Dnn.Models.GemmaModelConfig;
+export import Dnn.Models.GemmaProtocol;
 
 export import Dnn.Models.QwenModel;
 export import Dnn.Models.QwenModelConfig;
+export import Dnn.Models.QwenProtocol;
 
 // ============================================================================
 // Dnn - Optimizers

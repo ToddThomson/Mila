@@ -1,5 +1,5 @@
 # CMake configuration for the MilaPy pybind11 extension module (module name: mila).
-# Requires CUDA; binds the Gemma 4 and Llama 3.x inference paths.
+# Requires CUDA; binds the Gemma 4, Llama 3.x and Qwen 3.8 inference paths.
 
 cmake_minimum_required(VERSION 4.0)
 

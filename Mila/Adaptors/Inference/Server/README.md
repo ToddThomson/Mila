@@ -4,8 +4,16 @@ A FastAPI-based HTTP inference server for [Mila](https://github.com/ToddT/Mila).
 *wire adaptor* over the Mila runtime: it imports the `mila` Python binding and exposes it over
 HTTP under a selectable API protocol (Mila native, OpenAI, or Anthropic Messages).
 
-The default model is **`gemma-4-12b-it-fp4`**; any installed Llama 3.x model is served too. MIS
-loads by store name, so what it can serve is whatever is installed — not a list compiled into it.
+The default model is **`gemma-4-12b-it-fp4`**; any installed Llama 3.x or Qwen 3.8 model is served
+too. MIS loads by store name, so what it can serve is whatever is installed — not a list compiled
+into it. The record's architecture chooses the session and the prompt template, so nothing has to
+be configured to match it.
+
+Qwen's prompt template and tool grammar come from the runtime, through the `mila` binding —
+`qwen_format_prompt`, `qwen_parse_tool_call`, `qwen_protocol_tokens`. MIS renders no Qwen template
+of its own, so it and the chat harness cannot send the same model different prompts. Gemma's
+grammar is still the Python `gemma_protocol` reimplementation; those are the two halves of one
+migration, not two designs.
 
 ---
 
@@ -192,9 +200,9 @@ MILA_DEVICE_INDEX=0
 against Anthropic's `{"data": [...], "has_more": false}` envelope — and both carry the same lineage
 fields.
 
-Native tool calling (Gemma family) is wired on the OpenAI Responses path and the Anthropic Messages
-path. On `/v1/messages`, tool_use is currently supported for **non-streaming** requests; streaming
-`tool_use` is a work-in-progress (see `BACKLOG.md`).
+Native tool calling (Gemma and Qwen) is wired on the OpenAI Responses path and the Anthropic
+Messages path. On `/v1/messages`, tool_use is currently supported for **non-streaming** requests;
+streaming `tool_use` is a work-in-progress (see `BACKLOG.md`).
 
 ### Lineage and attribution
 

@@ -31,6 +31,36 @@ _MAX_TOKEN_REPEATS = 48
 
 _log = logging.getLogger(__name__)
 
+#: The session class that loads each family's artifact. A mapping rather than a chain of
+#: conditionals, because the chain's else branch was a silent default: adding a third family
+#: to ModelFamily routed its artifact into LlamaModel rather than failing.
+SESSION_FOR = {
+    ModelFamily.gemma: "GemmaModel",
+    ModelFamily.llama: "LlamaModel",
+    ModelFamily.qwen: "QwenModel",
+}
+
+
+def _stop_markers_for(family: ModelFamily) -> tuple[str, ...]:
+    """
+    The decoded text that ends a turn early, in the loaded family's own grammar.
+
+    A closing tool-call marker is a protocol boundary: left running, the model fabricates the
+    tool result itself. The opening tool-response marker is the engine's turn to speak and never
+    the model's, so it backstops a call the model failed to close.
+
+    Qwen's come from the runtime rather than from constants here -- the grammar is the library's
+    and asking it is what keeps this from becoming a second place the tokens are written down.
+    """
+    if family == ModelFamily.gemma:
+        return (TOOL_CALL_CLOSE, TOOL_RESPONSE_OPEN)
+
+    if family == ModelFamily.qwen:
+        tokens = mila.qwen_protocol_tokens()
+        return (tokens["tool_call_close"], tokens["tool_response_open"])
+
+    return ()
+
 
 def _family_of(record: "mila.StoredModel") -> ModelFamily:
     """
@@ -60,7 +90,12 @@ class ModelWorker:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mila-worker")
         self._loop: asyncio.AbstractEventLoop | None = None
         self._tokenizer: mila.BpeTokenizer | None = None
-        self._model: "mila.LlamaModel | mila.GemmaModel | None" = None
+        self._model: "mila.LlamaModel | mila.GemmaModel | mila.QwenModel | None" = None
+
+        # Decoded text that must halt generation, from the loaded family's own grammar. Empty
+        # for a family with no tool spans, and filled by _load() -- never written down here,
+        # since the runtime reports them.
+        self._stop_markers: tuple[str, ...] = ()
 
     async def startup(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -115,7 +150,9 @@ class ModelWorker:
         # there is no longer a tokenizer path to pair with a weights path by hand.
         self._tokenizer = mila.BpeTokenizer.from_store(record.name)
 
-        session = mila.GemmaModel if loaded.family == ModelFamily.gemma else mila.LlamaModel
+        self._stop_markers = _stop_markers_for(loaded.family)
+
+        session = getattr(mila, SESSION_FOR[loaded.family])
 
         # from_store, not from_pretrained: every published artifact is already quantized,
         # and only the record knows to what.
@@ -278,10 +315,11 @@ class ModelWorker:
 
             token_buffer.clear()
 
-            # <tool_call|> closes a well-formed call; <|tool_response> is the spec's
-            # additional stop (the model must never generate the result -- the engine
-            # supplies it), which also backstops a call the model failed to close.
-            stop_now = self._is_gemma and (TOOL_CALL_CLOSE in text or TOOL_RESPONSE_OPEN in text)
+            # A closing tool-call marker ends the turn; an opening tool-response marker is the
+            # engine's to write, never the model's, so it backstops an unclosed call. Both come
+            # from the loaded family's grammar -- see _stop_markers_for.
+            stop_now = any(marker in text for marker in self._stop_markers)
+
             if self._is_gemma and stop_ctrl is not None and _degenerating(text):
                 stop_now = True
 

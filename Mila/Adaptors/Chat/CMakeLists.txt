@@ -25,7 +25,6 @@ PUBLIC
         "Src/Chat.SystemPrompt.ixx"
         "Src/Chat.ToolCallParser.ixx"
         "Src/Chat.ChannelParser.ixx"
-        "Src/Chat.QwenProtocol.ixx"
         "Src/Json.ixx"
 )
 

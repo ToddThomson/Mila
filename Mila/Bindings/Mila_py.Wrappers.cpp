@@ -39,6 +39,7 @@ namespace Mila::Bindings
 
     using LlamaCudaBf16 = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
     using GemmaCudaBf16 = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
+    using QwenCudaBf16 = QwenModel<DeviceType::Cuda, TensorDataType::BF16>;
 
     void initialize( const std::string& log_level )
     {
@@ -54,6 +55,97 @@ namespace Mila::Bindings
 
         auto sink = std::make_shared<Mila::Logging::ConsoleSink>( resolved );
         Mila::initialize( 0, std::move( sink ) );
+    }
+
+    // ---- Chat protocol ------------------------------------------------------
+
+    namespace
+    {
+        /// The four roles a conversation has, named as every wire protocol names them.
+        Conversation::Role roleFromString( const std::string& role )
+        {
+            if ( role == "system" )    return Conversation::Role::System;
+            if ( role == "user" )      return Conversation::Role::User;
+            if ( role == "assistant" ) return Conversation::Role::Assistant;
+            if ( role == "tool" )      return Conversation::Role::Tool;
+
+            throw std::runtime_error( std::format(
+                "'{}' is not a conversation role. Expected system, user, assistant or tool.",
+                role ) );
+        }
+
+        std::vector<Conversation::Turn> toConversationTurns( const std::vector<TurnInfo>& history )
+        {
+            std::vector<Conversation::Turn> turns;
+            turns.reserve( history.size() );
+
+            for ( const auto& turn : history )
+            {
+                Conversation::Turn converted;
+                converted.role = roleFromString( turn.role );
+                converted.content = turn.content;
+
+                for ( const auto& call : turn.tool_calls )
+                {
+                    converted.tool_calls.push_back( { call.name, call.arguments } );
+                }
+
+                turns.push_back( std::move( converted ) );
+            }
+
+            return turns;
+        }
+    }
+
+    std::string qwenFormatPrompt(
+        const std::vector<TurnInfo>& history,
+        bool enable_thinking,
+        int reasoning_effort_scale,
+        const std::string& tools_json )
+    {
+        const std::vector<Conversation::Turn> turns = toConversationTurns( history );
+
+        // std::invalid_argument, which formatPrompt throws for an empty or badly ordered
+        // history, reaches Python as ValueError rather than as the RuntimeError this surface
+        // documents. Translated here so one refusal shape covers the whole call.
+        try
+        {
+            return Qwen::formatPrompt(
+                turns,
+                enable_thinking,
+                Qwen::reasoningEffortFromScale( reasoning_effort_scale ),
+                Qwen::serializeToolSignatures( tools_json ) );
+        }
+        catch ( const std::invalid_argument& error )
+        {
+            throw std::runtime_error( error.what() );
+        }
+    }
+
+    std::optional<ToolCallInfo> qwenParseToolCall( const std::string& response )
+    {
+        const auto call = Qwen::parseToolCall( response );
+
+        if ( !call.has_value() )
+        {
+            return std::nullopt;
+        }
+
+        return ToolCallInfo{ call->name, call->arguments };
+    }
+
+    ProtocolTokens qwenProtocolTokens()
+    {
+        return ProtocolTokens{
+            .turn_open           = std::string( Qwen::kTurnOpen ),
+            .turn_close          = std::string( Qwen::kTurnClose ),
+            .reasoning_open      = std::string( Qwen::kThinkOpen ),
+            .reasoning_close     = std::string( Qwen::kThinkClose ),
+            .tool_call_open      = std::string( Qwen::kToolCallOpen ),
+            .tool_call_close     = std::string( Qwen::kToolCallClose ),
+            .tool_response_open  = std::string( Qwen::kToolResponseOpen ),
+            .tool_response_close = std::string( Qwen::kToolResponseClose ),
+        };
     }
 
     // ---- Distribution -------------------------------------------------------
@@ -157,6 +249,48 @@ namespace Mila::Bindings
                 throw std::runtime_error( std::format(
                     "{}: '{}' is not a variant this binding can load. Expected bf16, fp8 or fp4."
                     "{}",
+                    subject, variant,
+                    variant == "fp32" ? " These sessions are BF16 instantiations." : "" ) );
+            }
+        }
+
+        /**
+         * @brief Settle a Qwen config's quantization axes from a variant name.
+         *
+         * Qwen does not share applyQuantizationVariant, for two reasons that mapping cannot
+         * serve. The presets pair every weight format with FP8 KV compression -- and Qwen has
+         * no FP8 KV type, so withFP4Quantization() makes every FP4 load throw "FP8 KV cache
+         * compression is not yet supported" before it reads a byte. Its baseline is a BF16
+         * cache, which fits at 16K uncompressed, so leaving that axis alone is the deployment
+         * rather than a workaround. And the codebook build is a variant no other family has.
+         *
+         * Same shape as the chat harness's applyQwenQuantization, deliberately: two adaptors
+         * loading one artifact differently is two models wearing one name.
+         */
+        void applyQwenQuantizationVariant(
+            QwenModelConfig& model_config, const std::string& variant, const std::string& subject )
+        {
+            if ( variant == "fp4" )
+            {
+                model_config.withWeightQuantization( WeightQuantization::FP4 );
+            }
+            else if ( variant == "fp8" )
+            {
+                model_config.withWeightQuantization( WeightQuantization::FP8 );
+            }
+            else if ( variant == "cb2-3" )
+            {
+                model_config.withPrecisionPlan();
+            }
+            else if ( variant == "bf16" || variant == "none" )
+            {
+                model_config.withFullPrecision();
+            }
+            else
+            {
+                throw std::runtime_error( std::format(
+                    "{}: '{}' is not a variant this binding can load. Expected bf16, fp8, fp4 "
+                    "or cb2-3.{}",
                     subject, variant,
                     variant == "fp32" ? " These sessions are BF16 instantiations." : "" ) );
             }
@@ -403,6 +537,14 @@ namespace Mila::Bindings
         return std::shared_ptr<Tokenizer>( new Tokenizer( std::move( impl ) ) );
     }
 
+    std::shared_ptr<Tokenizer> Tokenizer::loadQwen( const std::string& path )
+    {
+        auto impl = std::make_unique<Impl>();
+        impl->tokenizer = BpeTokenizer::loadQwen( std::filesystem::path( path ) );
+
+        return std::shared_ptr<Tokenizer>( new Tokenizer( std::move( impl ) ) );
+    }
+
     std::shared_ptr<Tokenizer> Tokenizer::fromStore( const std::string& name )
     {
         const auto model = requireInstalledModel( name );
@@ -418,6 +560,11 @@ namespace Mila::Bindings
         if ( architecture == "llama" )
         {
             return loadLlama32( path );
+        }
+
+        if ( architecture == "qwen" )
+        {
+            return loadQwen( path );
         }
 
         throw std::runtime_error( std::format(
@@ -680,6 +827,118 @@ namespace Mila::Bindings
     }
 
     std::string GemmaSession::repr() const
+    {
+        return impl_->model->toString();
+    }
+
+    // ---- QwenSession --------------------------------------------------------
+
+    struct QwenSession::Impl
+    {
+        std::unique_ptr<QwenCudaBf16> model;
+    };
+
+    QwenSession::QwenSession( std::unique_ptr<Impl> impl ) : impl_( std::move( impl ) ) {}
+    QwenSession::~QwenSession() = default;
+
+    std::unique_ptr<QwenSession> QwenSession::fromPretrained(
+        const std::string& path, int64_t context_length, int device_index,
+        const std::string& quantization )
+    {
+        DeviceId device_id{ DeviceType::Cuda, device_index };
+        QwenModelConfig model_config( static_cast<dim_t>( context_length ) );
+
+        applyQwenQuantizationVariant( model_config, quantization, "QwenModel.from_pretrained" );
+
+        auto impl = std::make_unique<Impl>();
+        impl->model = QwenCudaBf16::fromPretrained(
+            std::filesystem::path( path ), model_config, device_id );
+
+        return std::unique_ptr<QwenSession>( new QwenSession( std::move( impl ) ) );
+    }
+
+    std::unique_ptr<QwenSession> QwenSession::fromStore(
+        const std::string& name, int64_t context_length, int device_index )
+    {
+        const auto model = requireInstalledModel( name );
+
+        requireArchitecture( model, "qwen" );
+
+        DeviceId device_id{ DeviceType::Cuda, device_index };
+        QwenModelConfig model_config( static_cast<dim_t>( context_length ) );
+
+        applyQwenQuantizationVariant( model_config, model.record.variant, name );
+
+        auto impl = std::make_unique<Impl>();
+        impl->model = QwenCudaBf16::fromPretrained(
+            model.weights_path, model_config, device_id );
+
+        return std::unique_ptr<QwenSession>( new QwenSession( std::move( impl ) ) );
+    }
+
+    std::vector<int32_t> QwenSession::generate(
+        const std::vector<int32_t>& prompt_tokens,
+        std::size_t max_new_tokens, float temperature, int top_k, float top_p )
+    {
+        GenerateParams params;
+        params.max_new_tokens = static_cast<int>( max_new_tokens );
+        params.sampling.temperature = temperature;
+        params.sampling.top_k = top_k;
+        params.sampling.top_p = top_p;
+
+        // Blocking convenience over the streaming-only core primitive: collect the
+        // generated tokens onto the prompt so the caller receives prompt + completion.
+        std::vector<int32_t> output( prompt_tokens.begin(), prompt_tokens.end() );
+        // Finish reason is not part of this blocking convenience shape; the caller
+        // infers completion from the returned token list.
+        (void)impl_->model->generate(
+            prompt_tokens,
+            [&output]( int32_t token ) { output.push_back( token ); },
+            params );
+
+        return output;
+    }
+
+    void QwenSession::generateStreaming(
+        const std::vector<int32_t>& prompt_tokens,
+        const std::function<void( int32_t )>& on_token,
+        std::size_t max_new_tokens, float temperature, int top_k, float top_p,
+        std::stop_token stop )
+    {
+        GenerateParams params;
+        params.max_new_tokens = static_cast<int>( max_new_tokens );
+        params.sampling.temperature = temperature;
+        params.sampling.top_k = top_k;
+        params.sampling.top_p = top_p;
+        (void)impl_->model->generate(
+            prompt_tokens, on_token, params, std::move( stop ) );
+    }
+
+    QwenConfigInfo QwenSession::getConfig() const
+    {
+        const auto& cfg = impl_->model->getNetworkConfig();
+
+        return QwenConfigInfo{
+            .vocab_size              = static_cast<int64_t>( cfg.getVocabSize() ),
+            .max_sequence_length     = static_cast<int64_t>( cfg.getMaxSequenceLength() ),
+            .model_dim               = static_cast<int64_t>( cfg.getModelDim() ),
+            .num_layers              = static_cast<int64_t>( cfg.getNumLayers() ),
+            .num_heads               = static_cast<int64_t>( cfg.getNumHeads() ),
+            .num_kv_heads            = static_cast<int64_t>( cfg.getNumKVHeads() ),
+            .head_dim                = static_cast<int64_t>( cfg.getHeadDim() ),
+            .hidden_dim              = static_cast<int64_t>( cfg.getHiddenDimension() ),
+            .rope_theta              = static_cast<double>( cfg.getRoPETheta() ),
+            .partial_rotary_factor   = static_cast<double>( cfg.getPartialRotaryFactor() ),
+            .attention_output_gate   = cfg.hasAttentionOutputGate(),
+            .full_attention_interval = static_cast<int64_t>( cfg.getFullAttentionInterval() ),
+            .linear_num_key_heads    = static_cast<int64_t>( cfg.getLinearNumKeyHeads() ),
+            .linear_num_value_heads  = static_cast<int64_t>( cfg.getLinearNumValueHeads() ),
+            .linear_head_dim         = static_cast<int64_t>( cfg.getLinearHeadDim() ),
+            .linear_conv_kernel_dim  = static_cast<int64_t>( cfg.getLinearConvKernelDim() ),
+        };
+    }
+
+    std::string QwenSession::repr() const
     {
         return impl_->model->toString();
     }

@@ -277,20 +277,27 @@ something Mila already does, that gap is the work. The Agentic adaptor stays exp
 
 **Qwen 3.8 is the current instance of that rule.** The model is in the library, and until an adaptor
 reaches it, this workstream's own definition makes that a defect in the demonstration rather than a
-feature request. Chat closes that gap first: both deployments install, load, generate and call tools
-on the terms every other model gets. MIS is what remains, and it inherits a question no previous
-model has asked. A recurrent state is a lossy summary and cannot be rewound, so Qwen refuses
-prompt-prefix reuse outright; a server that reuses prefixes must report that as a property of the
-model and plan around it, not discover it as a failed retry. Chat is exempt only because it reuses
-nothing -- it re-prefills every turn.
+feature request. Both adaptors now reach it: both deployments install, load, generate and call tools
+on the terms every other model gets, from Chat and over the wire.
+
+**Closing that gap decided how a grammar reaches a host language, and the answer generalises.** A
+model's native grammar is a property of the model, so it lives in the library; a host renders a
+conversation and reimplements nothing, exactly as the store's transport delegate already works.
+Qwen's template and tool grammar are projected through the binding rather than written twice, which
+is what makes one prompt reach the model whichever adaptor built it.
+
+What Qwen still asks of a server is a question no previous model has. A recurrent state is a lossy
+summary and cannot be rewound, so Qwen refuses prompt-prefix reuse outright; a server that reuses
+prefixes must report that as a property of the model and plan around it, not discover it as a failed
+retry. Chat is exempt only because it reuses nothing -- it re-prefills every turn.
 
 **Success criteria:** a foreign harness (Codex CLI and Claude Code CLI over the OpenAI/Anthropic wire
 shapes) drives Gemma 4 12B FP4 through MIS across plain-chat, single-tool, and tool-result-resume flows
 with no leaked control tokens; Qwen 3.8 is selectable by name from the chat harness on the same terms
 as any other model — footprint reported before the load — and wherever an adaptor reuses a prompt
-prefix, Qwen's refusal surfaces as a model property; the C++/Python grammar duplication is resolved
-by an explicit decision
-(single-sourced via pybind, or pinned by a cross-language parity test).
+prefix, Qwen's refusal surfaces as a model property; and no model's grammar is implemented twice --
+the runtime owns it and the binding projects it, so a prompt built by any adaptor is the same
+prompt.
 
 ---
 

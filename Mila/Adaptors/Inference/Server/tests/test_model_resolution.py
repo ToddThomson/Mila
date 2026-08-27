@@ -77,6 +77,7 @@ def store(monkeypatch):
 
     monkeypatch.setattr(mila.GemmaModel, "from_store", staticmethod(make_session("gemma")))
     monkeypatch.setattr(mila.LlamaModel, "from_store", staticmethod(make_session("llama")))
+    monkeypatch.setattr(mila.QwenModel, "from_store", staticmethod(make_session("qwen")))
 
     yield holder
 
@@ -118,12 +119,22 @@ def test_unservable_architecture_is_refused_at_load(store, monkeypatch):
     message = str(excinfo.value)
     assert "gpt2" in message
     # Naming the supported set is what makes the refusal actionable.
-    assert "gemma" in message and "llama" in message
+    assert "gemma" in message and "llama" in message and "qwen" in message
 
 
-def test_family_guard_accepts_both_served_architectures():
+def test_family_guard_accepts_every_served_architecture():
     assert _family_of(FakeRecord(architecture="gemma")) is ModelFamily.gemma
     assert _family_of(FakeRecord(architecture="llama")) is ModelFamily.llama
+    assert _family_of(FakeRecord(architecture="qwen")) is ModelFamily.qwen
+
+
+def test_every_admitted_family_has_a_session():
+    """_family_of admits a record on the strength of ModelFamily alone, so a value with no
+    entry here would load one architecture's artifact into another's session -- silently,
+    since both accept the same three arguments. This is the guard against that."""
+    for family in ModelFamily:
+        assert family in model_worker.SESSION_FOR
+        assert hasattr(mila, model_worker.SESSION_FOR[family])
 
 
 def test_load_fills_loaded_from_the_record_not_from_settings(store, monkeypatch):
@@ -164,6 +175,53 @@ def test_gemma_record_selects_the_gemma_session_and_asks_no_attribution(store, m
     assert store["session"] == "gemma"
     # Apache 2.0 requires the notice travel with the artifact, not that a server render one.
     assert loaded.attribution == ""
+
+
+def test_qwen_record_selects_the_qwen_session(store, monkeypatch):
+    # The regression this pins: the session was chosen by `gemma if ... else llama`, so the
+    # first qwen record ModelFamily admitted would have been loaded into a LlamaModel.
+    record = FakeRecord(
+        name="Qwen3.8-27B-fp4",
+        architecture="qwen",
+        variant="fp4",
+        base_model="Qwen/Qwen3.8-27B",
+        license="apache-2.0",
+    )
+    store["store"] = FakeStore([record])
+    monkeypatch.setattr(settings, "model", "Qwen3.8-27B-fp4")
+
+    ModelWorker()._load()
+
+    assert loaded.family is ModelFamily.qwen
+    assert store["session"] == "qwen"
+    assert loaded.attribution == ""
+
+    # The card claims a tool loop only where both halves are wired. Qwen's are: the prompt
+    # renders the trained <tools> section and the raw turn is parsed for a <tool_call> span,
+    # both through the runtime's own grammar.
+    from mila_llm_server.protocols.openai.models import OpenAIModelsAdapter
+
+    card = OpenAIModelsAdapter().format_models_response()["data"][0]
+    assert card["capabilities"]["tools"] is True
+
+
+def test_qwen_codebook_variant_reaches_the_session_unchanged(store, monkeypatch):
+    # The codebook build is a variant no other family has, and the record is the only thing
+    # that knows an artifact carries it -- MIS must not translate or default it away.
+    store["store"] = FakeStore([
+        FakeRecord(
+            name="Qwen3.8-27B-cb2-3",
+            architecture="qwen",
+            variant="cb2-3",
+            license="apache-2.0",
+        )
+    ])
+    monkeypatch.setattr(settings, "model", "Qwen3.8-27B-cb2-3")
+
+    ModelWorker()._load()
+
+    assert loaded.variant == "cb2-3"
+    assert store["loaded_name"] == "Qwen3.8-27B-cb2-3"
 
 
 def test_reported_identifier_is_the_loaded_name_not_the_configured_one(store, monkeypatch):

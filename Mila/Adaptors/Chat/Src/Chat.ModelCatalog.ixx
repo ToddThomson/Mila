@@ -211,7 +211,7 @@ namespace Mila::ChatApp
             precision = ModelPrecision::BF16;
             quantization = QuantizationMode::None;
         }
-        else if ( variant == "codebook-fp2-3" )
+        else if ( variant == "cb2-3" )
         {
             precision = ModelPrecision::BF16;
             quantization = QuantizationMode::Codebook;
@@ -220,7 +220,7 @@ namespace Mila::ChatApp
         {
             throw std::runtime_error( std::format(
                 "Variant '{}' is not one this build can load. Expected bf16, fp32, fp8, fp4 "
-                "or codebook-fp2-3.", variant ) );
+                "or cb2-3.", variant ) );
         }
     }
 
@@ -272,7 +272,7 @@ namespace Mila::ChatApp
         if ( requested == QuantizationMode::Codebook )
         {
             throw std::runtime_error( std::format(
-                "'{}' cannot be quantized to codebook-fp2-3 on the way in -- the codes are "
+                "'{}' cannot be quantized to cb2-3 on the way in -- the codes are "
                 "fitted offline, so an artifact either carries them or does not. Install the "
                 "codebook build as its own model.", name ) );
         }
