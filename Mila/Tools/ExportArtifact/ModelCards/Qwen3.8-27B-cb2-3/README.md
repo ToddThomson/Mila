@@ -26,11 +26,14 @@ average **2.82 bits per weight**.
 
 ## What this buys, and where
 
-**The saving is on the device, not in the download.** This file is 15.1 GB, and so is the FP4
-build of the same model. 7.9 GB of this one is still BF16, and roughly 5.5 GB of that is
-quantized to FP4 on the way in rather than being packed here. What differs is what ends up
-resident: this build runs Qwen3.8 27B on a 12 GB card, where the FP4 build's weights alone are
-12.71 GB and need a larger one.
+**In the download and on the device both.** This file is 11.1 GiB against 15.1 GiB for the FP4
+build of the same model, and it runs Qwen3.8 27B on a 12 GB card where the FP4 build's weights
+alone are 12.71 GB and need a larger one.
+
+Nothing is quantized when it loads. Every tensor a policy quantizes is packed here — the
+feed-forward and mixer rows at 2 and 3 bits, the full-attention and head rows at 4.125 — and the
+2.4 GiB that remains BF16 is the embedding table, the norms and the mixer's gating, which no
+policy quantizes.
 
 Choose this artifact for a 12 GB card. Choose
 [Qwen3.8-27B-fp4](https://huggingface.co/mila-llm/Qwen3.8-27B-fp4) if you have 16 GB, since
@@ -56,7 +59,7 @@ Codebooks were fitted on wikitext-2 train.
 
 | File | Purpose |
 |---|---|
-| `qwen38_27b_2p9bit.safetensors` | Weights: packed codebook indices, per-group scales, and the tensors quantized at load |
+| `qwen38_27b_cb2-3.safetensors` | Weights: packed codebook indices, packed FP4 nibbles, and their per-group scales |
 | `qwen38_tokenizer.bin` | Mila tokenizer |
 | `mila.json` | Manifest: file digests, quantization scheme, minimum Mila version |
 | `LICENSE` | Apache 2.0, as published with the base model |

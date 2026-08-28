@@ -246,12 +246,18 @@ namespace Mila::Tests::Dnn::Models
     }
 
     // ====================================================================
-    // The Section 5 allocation, against the packed 2.9-bit artifact
+    // The Section 5 allocation, against the published cb2-3 artifact
     //
-    // Produce it with (about 50 minutes on a 12 GiB card):
+    // Two steps, because the codebooks are fitted offline and nothing else about the model
+    // is. The fit is the long one (about 50 minutes on a 12 GiB card):
     //   python Tools/Quantization/pack_qwen.py --model Qwen/Qwen3.8-27B \
     //       --calib-text corpus/wiki.train.raw \
     //       --output <repo>/Data/Models/Qwen/qwen38_27b_2p9bit.safetensors
+    //   ExportArtifact <repo>/Data/Models/Qwen/qwen38_27b_2p9bit.safetensors \
+    //       <repo>/Data/Models/Qwen/qwen38_27b_cb2-3.safetensors --quantization plan
+    //
+    // The second file is what this gates, and the distinction is the point: the fitted
+    // source still quantizes its FP4 roles on load, and the published artifact does not.
     //
     // Unlike the 4-layer fixture above this IS the whole model, so what it proves is not
     // just that the machinery runs: a 27B stack that fits a 12 GiB card at all is the claim
@@ -269,7 +275,7 @@ namespace Mila::Tests::Dnn::Models
             }
 
             artifact_ = fs::path( TEST_DATA_DIR ) / "models" / "qwen"
-                / "qwen38_27b_2p9bit.safetensors";
+                / "qwen38_27b_cb2-3.safetensors";
 
             if ( !fs::exists( artifact_ ) )
             {

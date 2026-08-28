@@ -10,9 +10,9 @@
   "instruct": true,
   "files": {
     "weights": {
-      "path": "qwen38_27b_2p9bit.safetensors",
-      "sha256": "d28a1bebd38a71a9e75d0a39f06a3a3c8fe753571ccc4546ab7e28fac54fd5d7",
-      "bytes": 16200748688
+      "path": "qwen38_27b_cb2-3.safetensors",
+      "sha256": "5571725c0a3c0eb2161ad3c380eb3228993324a3d049a5aae97f5060a3d3fce9",
+      "bytes": 11869211920
     },
     "tokenizer": {
       "path": "qwen38_tokenizer.bin",

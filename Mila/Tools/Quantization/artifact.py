@@ -178,11 +178,13 @@ def emit_mila_layer(artifact, policies, layer_index, targets, packed_pieces,
 def fp4_tensor_records(name, packed_pieces, scale_pieces, in_features, group_size=128):
     """{tensor_name: array} for one Mila tensor held at PerGroupFp4<group_size>.
 
+    RETIRED -- no caller. Packing the FP4 roles here made this module a second writer
+    of published artifacts; ExportArtifact is the only one, and it packs them during
+    the export load. Kept because this is the Python side of the FP4 record layout and
+    the byte-parity fixture against the CUDA quantizer is written against it.
+
     These roles carry no codebook: FP4 is data-free, so the artifact needs only the
-    nibbles and their per-group scales. They are packed here rather than shipped as
-    BF16 for the loader to quantize, because an artifact that declares a policy must
-    hold what that policy deploys -- and packing costs 4 bits per weight instead of 16
-    for a bit-identical result.
+    nibbles and their per-group scales.
 
     Pieces concatenate along the output axis for the same reason codebook pieces do:
     packing is row-major and rows are independent.

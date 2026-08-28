@@ -10,7 +10,7 @@
   "instruct": true,
   "files": {
     "weights": {
-      "path": "qwen38_27b_it_fp4.safetensors",
+      "path": "qwen38_27b_fp4.safetensors",
       "sha256": "e988a62e02dfd12825670a5147d6b4e29da6f6e03f196999d98220e890ace96c",
       "bytes": 16194533696
     },

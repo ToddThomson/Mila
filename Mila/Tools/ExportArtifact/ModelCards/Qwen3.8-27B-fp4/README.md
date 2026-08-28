@@ -31,7 +31,7 @@ of the two, and it is the oracle that figure is measured against.
 
 | File | Purpose |
 |---|---|
-| `qwen38_27b_it_fp4.safetensors` | Weights: packed FP4 E2M1 with per-group FP32 scales |
+| `qwen38_27b_fp4.safetensors` | Weights: packed FP4 E2M1 with per-group FP32 scales |
 | `qwen38_tokenizer.bin` | Mila tokenizer |
 | `mila.json` | Manifest: file digests, quantization scheme, minimum Mila version |
 | `LICENSE` | Apache 2.0, as published with the base model |

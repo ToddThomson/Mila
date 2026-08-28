@@ -895,12 +895,16 @@ and peak device memory is under 4 GiB, so the conversion itself runs on the targ
    downstream sees the damage the deployed network will actually have -> re-run the layer
    with quantized weights to produce the next layer's inputs -> stream the packed records
    to the artifact.
-5. Artifact: only the codebook tensors carry the new record type (packed codes, FP16 group
-   scales, 4- or 8-entry codebook, policy metadata). Everything at 4 bits and above —
-   attention, `lm_head`, edge layers, beta/decay — stays BF16 in the artifact and keeps
-   today's quantize-at-`loadParameter()` path, so the serialization change is one record
-   kind. Size: ~5.5 GB packed + ~8.4 GB BF16 = **~14 GB**, from 54.7.
-6. Validation: reload and bit-match dequantization against the Python oracle; Phase 4
+5. Fitted source: only the codebook tensors carry the new record type (packed codes, FP16
+   group scales, 4- or 8-entry codebook, policy metadata), so the serialization change is
+   one record kind. Everything at 4 bits and above — attention, `lm_head`, edge layers,
+   beta/decay — stays BF16 here. **This file is not the published model.**
+6. Export: `ExportArtifact <fitted> <published> --quantization plan` loads under
+   `QwenPrecisionPlan` — the codes upload as they are, the FP4 roles quantize on the way in
+   — and writes the device state back out. Every model Mila publishes is written by that
+   one path; the fit above is the extra step in front of Qwen's, and it is the only step
+   that could not be done at load. Measured: 15.09 GiB fitted -> **11.05 GiB published**.
+7. Validation: reload and bit-match dequantization against the Python oracle; Phase 4
    parity gates the end-to-end result.
 
 Runtime is on the order of an hour on the 4070, dominated by the compensated column walk

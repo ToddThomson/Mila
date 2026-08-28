@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Pack Qwen 3.8 into the Section 5 allocation: a quantized Mila artifact, offline.
 
-WHAT THIS PRODUCES. One safetensors artifact carrying every tensor the BF16 converter
-writes, with the codebook rows replaced by packed codes, per-group FP16 scales and a
-fitted per-tensor table, and the FP4 rows -- full attention and the head -- packed as
-nibbles with per-group FP32 scales. NOTHING is quantized at load: an artifact holds what
-its declared policy deploys. Only the embedding table and the norms stay BF16, because
-no policy quantizes them. From 50.10 GiB to roughly 11.
+WHAT THIS PRODUCES, AND WHY IT IS NOT THE PUBLISHED MODEL. One safetensors artifact
+carrying every tensor the BF16 converter writes, with the codebook rows replaced by
+packed codes, per-group FP16 scales and a fitted per-tensor table. Everything else --
+the FP4 rows, the embedding table, the norms -- stays BF16. That is a FITTED SOURCE,
+not a finished artifact: the codebooks are the one thing no load can reconstruct, so
+this produces them and stops.
+
+ExportArtifact finishes it. `ExportArtifact <this file> <dst> --quantization plan`
+loads the model under the Section 5 plan, which uploads these codes as they are and
+quantizes the FP4 roles on the way in, then writes what ended up on the device. Every
+model Mila publishes is written by that one path; this is the extra step in front of
+Qwen's. Packing the FP4 rows here as well would make this a second writer of published
+artifacts, which is what that decision rules out.
 
 WHY IT STREAMS. Same reason the BF16 converter does, doubled: the checkpoint is
 51.8 GiB against 31.8 GB of host RAM and a 12 GiB card, and GPTQ additionally needs a
@@ -19,7 +26,8 @@ THE ORDER WITHIN A LAYER IS THE WHOLE METHOD, and getting it wrong is silent:
   2. Quantize each target against those Hessians, compensating column by column.
   3. Damage the FP4 tensors in place, so the layers downstream calibrate against what
      the deployed network will actually carry rather than against BF16. The damaged
-     values are then packed, which is exact: FP4 is data-free and idempotent.
+     values are what gets written; quantizing them at export yields the same nibbles
+     quantizing the originals would, because FP4 is data-free and idempotent.
   4. Re-run the calibration set through the now-quantized layer to produce the next
      layer's inputs.
 
@@ -66,13 +74,10 @@ from formats import (CODEBOOK_PARAMETERS, GENERATOR_SEED, GPTQ_FORMATS,
                      enforce_determinism, fake_fp4_e2m1, fit_codebook_levels,
                      fit_codebook_levels_joint)
 
-import numpy as np
 import torch
 
 import qwen_plan
-import packing
-from artifact import (codebook_tensor_records, fp4_tensor_records,
-                      pack_codebook_tensor)
+from artifact import codebook_tensor_records, pack_codebook_tensor
 from fit import gptq_quantize_tensor
 from streaming_safetensors import StreamingSafetensorsWriter
 
@@ -153,6 +158,12 @@ def codebook_record_shapes(target, shape_of):
 
 def fp4_record_shapes(target, shape_of):
     """{tensor_name: (safetensors_dtype, shape)} for one FP4 target.
+
+    RETIRED -- no caller. This packer writes its FP4 roles through at BF16 and
+    ExportArtifact packs them, so nothing here declares an FP4 record any more. Kept
+    beside its codebook sibling because it is the only Python statement of the FP4
+    record layout, and the fixture that proves byte parity against the CUDA quantizer
+    needs exactly this arithmetic.
 
     Same arithmetic Linear::initializeParameters uses for PerGroupFp4: two nibbles per
     byte along the input axis, one FP32 scale per group of 128. Scales are FP32 and not
@@ -325,51 +336,6 @@ class QwenPacker(StreamedReference):
 
         return weight if piece.rows is None else weight[piece.rows[0]:piece.rows[1]]
 
-    def _pack_fp4_target(self, target, views):
-        """Damage each piece in place, pack it, and return the artifact records.
-
-        Shared by the decoder stack and lm_head, which differ only in where their
-        tensors come from -- writing the head through as BF16 was the one place the
-        artifact stopped short of the policy it declared.
-        """
-        group_size = GPTQ_FORMATS["fp4"][1]
-
-        packed_pieces, scale_pieces = [], []
-
-        for view in views:
-            damaged, bits = fake_fp4_e2m1(view.float(), group_size)
-            view.copy_(damaged.to(view.dtype))
-            self.total_params += view.numel()
-            self.total_bits += bits * view.numel()
-
-            values = view.float().cpu().numpy()
-            packed, scales = packing.quantize_fp4_e2m1(values, group_size)
-
-            # Dequantized values must be a FIXED POINT of the codec: packing them again
-            # has to reproduce them exactly. That is the strongest property available
-            # here and it is exact, so a failure is a layout or stride bug rather than a
-            # tolerance question.
-            #
-            # NOT "dequantizes back to the damaged weights": those were stored through a
-            # BF16 view, and `level * scale` is not generally representable in BF16, so
-            # the group absmax re-derived from them differs in the last bit. Byte parity
-            # with the device quantizer is proved separately, against a fixture.
-            recovered = packing.dequantize_fp4_e2m1(
-                packed, scales, values.shape[1], group_size)
-            repacked, rescaled = packing.quantize_fp4_e2m1(recovered, group_size)
-
-            if not np.array_equal(
-                packing.dequantize_fp4_e2m1(
-                    repacked, rescaled, values.shape[1], group_size), recovered):
-                raise AssertionError(
-                    f"{target.stem}: packed FP4 is not a fixed point of its own codec")
-
-            packed_pieces.append(packed)
-            scale_pieces.append(scales)
-
-        return fp4_tensor_records(
-            target.stem, packed_pieces, scale_pieces, views[0].shape[1], group_size)
-
     def _quantize_target(self, layer_index, layer, target, hessians, counts):
         """Quantize one Mila tensor in place. Returns its artifact records, or None."""
         by_path = dict(layer.named_modules())
@@ -382,13 +348,18 @@ class QwenPacker(StreamedReference):
             # downstream calibrate against the damage the deployed network carries.
             # Compensating would optimize for a quantizer that never sees these codes.
             #
-            # The damaged view is then PACKED, not written through as BF16: the
-            # artifact must hold what the policy deploys. FP4 is data-free and
-            # idempotent, so packing the damaged values yields exactly the nibbles the
-            # device quantizer would have produced -- the same model from 4 bits per
-            # weight instead of 16.
-            return self._pack_fp4_target(
-                target, [self._piece_view(by_path, piece) for piece in target.pieces] )
+            # No records: the damaged view is written through at BF16 and the export
+            # pass packs it. Returning None is what routes it to _emit_passthrough.
+            group_size = GPTQ_FORMATS["fp4"][1]
+
+            for piece in target.pieces:
+                view = self._piece_view(by_path, piece)
+                damaged, bits = fake_fp4_e2m1(view.float(), group_size)
+                view.copy_(damaged.to(view.dtype))
+                self.total_params += view.numel()
+                self.total_bits += bits * view.numel()
+
+            return None
 
         levels, group_size, divisor, bits = GPTQ_FORMATS[target.policy]
         entries = CODEBOOK_PARAMETERS[target.policy][0]
@@ -516,41 +487,18 @@ class QwenPacker(StreamedReference):
                 if str(self.device).startswith("cuda"):
                     torch.cuda.reset_peak_memory_stats()
 
-        self._emit_outer(outer_mappings, targets.get("post", []))
+        self._emit_outer(outer_mappings)
 
-    def _emit_outer(self, mappings, post_targets):
+    def _emit_outer(self, mappings):
         """The tensors outside the decoder stack: the table, the final norm, the head.
 
-        lm_head is packed here like any other FP4 role. Nothing downstream reads its
-        output, so the damage changes no other tensor's calibration -- but the artifact
-        still owes the packed form, because that is what its declared policy deploys.
-        The embedding table is not quantized by any policy and passes through at BF16.
+        All three pass through at BF16. lm_head is an FP4 role, but it is not even
+        damaged here: nothing inside the model reads its output, so damaging it would
+        alter no calibration, and the export quantizes the original to the same nibbles
+        it would have quantized the damaged copy to. The embedding table is quantized by
+        no policy at all.
         """
-        packed_stems = set()
-
-        for target in post_targets:
-            if target.policy != "fp4":
-                continue
-
-            views = []
-
-            for piece in target.pieces:
-                # Cloned because these are checkpoint tensors rather than a live layer's
-                # parameters: the damage has nowhere to persist and nothing downstream
-                # reads it, but _pack_fp4_target writes through its view either way.
-                weight = self.weights.get(piece.source).clone().float()
-                views.append(weight if piece.rows is None
-                             else weight[piece.rows[0]:piece.rows[1]])
-
-            for name, array in self._pack_fp4_target( target, views ).items():
-                self.writer.write( name, array )
-
-            packed_stems.add( target.stem )
-
-        self._emit_passthrough(
-            [mapping for mapping in mappings
-             if mapping.mila.removesuffix(".weight") not in packed_stems],
-            self.weights.get)
+        self._emit_passthrough(mappings, self.weights.get)
 
 
 def _release(device):
@@ -615,12 +563,10 @@ def declare_artifact(writer, targets, layer_mappings, outer_mappings, shape_of):
 
     for layer_targets in targets.values():
         for target in layer_targets:
-            if target.policy in qwen_plan.CODEBOOK_POLICIES:
-                shapes = codebook_record_shapes(target, shape_of)
-            elif target.policy == "fp4":
-                shapes = fp4_record_shapes(target, shape_of)
-            else:
+            if target.policy not in qwen_plan.CODEBOOK_POLICIES:
                 continue
+
+            shapes = codebook_record_shapes(target, shape_of)
 
             packed_stems.add(target.stem)
 
@@ -925,12 +871,11 @@ def self_test(device):
     # both block kinds must run, and the 3:1 interleave puts the first full-attention
     # layer at index 3.
     #
-    # Widths are the smallest that satisfy every group size, and FP4's 128 is now the
-    # binding one: it applies to hidden_size (qkv and the head read it) and to
-    # num_attention_heads * head_dim (o_proj reads that). The earlier 64 satisfied only
-    # the codebook groups, because FP4 was faked here rather than packed -- so this path
-    # ran for the first time when packing arrived. Mila could not have loaded a 64-column
-    # FP4 tensor either: its quantization kernel is one block per 128-column group.
+    # Widths are the smallest that satisfy every group size, and FP4's 128 is the binding
+    # one even though nothing here packs FP4: it applies to hidden_size (qkv and the head
+    # read it) and to num_attention_heads * head_dim (o_proj reads that), and the export
+    # pass that finishes this artifact quantizes one block per 128-column group. At the
+    # earlier 64 the fitted source packed cleanly and could never be exported.
     config = Qwen3_5TextConfig(
         vocab_size=256,
         hidden_size=128,

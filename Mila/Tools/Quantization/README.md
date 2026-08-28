@@ -106,6 +106,19 @@ python pack_qwen.py --model Qwen/Qwen3.8-27B \
     --verify artifacts/qwen38_27b_2p9bit.safetensors
 ```
 
+**What comes out is a fitted source, not the published model.** The step that finishes it
+is the same one every other Mila model goes through, and it is minutes rather than an hour:
+
+```
+ExportArtifact artifacts/qwen38_27b_2p9bit.safetensors \
+    artifacts/qwen38_27b_cb2-3.safetensors --quantization plan
+```
+
+It loads under the Section 5 plan -- the codes upload as they are, the FP4 roles quantize on
+the way in -- and writes the device state back out. 15.09 GiB in, 11.05 GiB out, and nothing
+in the result quantizes at load. Only the fit needs to happen here, because GPTQ's encode is
+inseparable from it; everything else about the model is ordinary.
+
 Measured on the 4070 at 4 samples x 2048 tokens: **46 s and 8.22 GiB peak per layer**, the
 peak flat from layer 2 on. The full 64-layer run at 32 x 2048 extrapolates to **1.5-2 hours**;
 most of a layer's cost is fixed (shard read, codebook fit, the compensated column walk) and
@@ -114,7 +127,7 @@ only the two calibration passes scale with sample count.
 Run it on an otherwise idle card. 8.22 GiB against a 12 GiB display-attached device leaves
 under 3 GiB, and a spill turns an hour into a day.
 
-## What the artifact contains
+## What the fitted source contains
 
 Mila-named tensors, in the safetensors container Mila reads. Per unprotected decoder
 layer, seven tensors over two fused linears:
@@ -132,9 +145,9 @@ layer, seven tensors over two fused linears:
 Attention carries no codebook record. Mila fuses q/k/v into one `fc_qkv_proj` and the
 Phase 0 research allocation puts q/k at cb8 and v at cb4 -- two formats in one tensor,
 which one codebook cannot express. Section 8 step 5 settles it the other way: attention
-and `lm_head` stay BF16 and quantize to FP4 at load. **So the evaluated model and the
-artifact are not the same network** -- the perplexity a run reports covers the research
-allocation, including quantized attention, while the artifact is the FFN subset.
+and `lm_head` stay BF16 here and are packed to FP4 by the export above. **So the evaluated
+model and the fitted source are not the same network** -- the perplexity a run reports covers
+the research allocation, including quantized attention, while this file is the FFN subset.
 
 Names come from the converter's map (`Tools/Converters/common.py`), so the packer and the
 BF16 converter cannot disagree about what fuses. Shapes are checked against what

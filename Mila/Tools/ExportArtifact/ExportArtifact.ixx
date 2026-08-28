@@ -16,7 +16,9 @@ module;
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <map>
 #include <set>
+#include <utility>
 #include <string>
 #include <memory>
 #include <stdexcept>
@@ -85,8 +87,16 @@ namespace Mila::Tools
     };
 
     /**
-     * @brief Policy name as recorded in the artifact metadata.
+     * @brief The variant tag a plan's artifact carries, in a coordinate and in a manifest.
+     *
+     * A plan is per-role, so no single format names it and the tag has to name the
+     * allocation instead: Qwen 3.8 spends 2 and 3 bits across its codebook roles, which is
+     * what "cb2-3" says. Stated here for the reason `weightQuantizationName` states the
+     * scheme here -- one family has a plan today, and a second one is what forces both
+     * behind a family accessor.
      */
+    inline constexpr const char* kPlanVariantName = "cb2-3";
+
     /**
      * @brief Short variant key used in a coordinate and as the manifest variant name.
      */
@@ -94,17 +104,30 @@ namespace Mila::Tools
     {
         switch ( quantization )
         {
-            case WeightQuantization::FP4: return "fp4";
-            case WeightQuantization::FP8: return "fp8";
-            default:                      return "bf16";
+            case WeightQuantization::FP4:  return "fp4";
+            case WeightQuantization::FP8:  return "fp8";
+            case WeightQuantization::Plan: return kPlanVariantName;
+            default:                       return "bf16";
         }
     }
 
     /**
      * @brief Parse a quantization name, or report the accepted set.
+     *
+     * The plan is spellable two ways on purpose. "plan" is what the enumerator means -- the
+     * family's own per-role allocation, whichever family is being exported -- and "cb2-3" is
+     * what the resulting artifact is called, so a command line reads back as the thing it
+     * produced. Both resolve to the same load.
      */
     export bool parseQuantization( std::string_view text, WeightQuantization& out )
     {
+        if ( text == "plan" || text == kPlanVariantName )
+        {
+            out = WeightQuantization::Plan;
+
+            return true;
+        }
+
         if ( text == "fp4" )
         {
             out = WeightQuantization::FP4;
@@ -551,6 +574,39 @@ namespace Mila::Tools
     }
 
     /**
+     * @brief Report what the artifact spends its bytes on, by storage type.
+     *
+     * The reconciliation above compares tensor NAMES, so an artifact carrying every tensor it
+     * owes while holding half of them at BF16 passes it -- which is the exact defect a plan
+     * export exists to remove. One line per storage type answers it: a finished artifact
+     * spends its bulk on packed codes, and the BF16 that remains should be only the tensors
+     * no policy quantizes.
+     */
+    void reportStorageCensus( Serialization::PretrainedModelReader& reader )
+    {
+        std::map<std::string, std::pair<uint64_t, uint64_t>> by_storage_type;
+
+        reader.streamTensorBlobs(
+            [&by_storage_type]( const std::string&, const Serialization::ITensorBlob& blob )
+            {
+                auto& entry = by_storage_type[
+                    tensorDataTypeToString( blob.getMetadata().dtype ) ];
+
+                entry.first += 1;
+                entry.second += blob.sizeBytes();
+            } );
+
+        std::cout << "Storage census\n";
+
+        for ( const auto& [ storage_type, entry ] : by_storage_type )
+        {
+            std::cout << std::format( "  {:<6} {:>5} tensors  {:>7.2f} GB\n",
+                storage_type, entry.first,
+                static_cast<double>( entry.second ) / ( 1024.0 * 1024.0 * 1024.0 ) );
+        }
+    }
+
+    /**
      * @brief Rewrite a model file as a safetensors artifact, tensor for tensor.
      *
      * Family-agnostic on purpose, and the reason it can be: an unquantized export changes the
@@ -802,19 +858,23 @@ namespace Mila::Tools
      * does not, so the variant is its weight dtype -- taken from the largest tensor, because
      * that is the token embedding in every family here and it is unambiguously a weight, where
      * the first tensor in file order is whatever the converter happened to write first.
+     *
+     * The schemes are compared through weightQuantizationName rather than spelled out, so the
+     * scheme a model writes and the scheme this reads back are one string. A codebook artifact
+     * spelled here by hand is how it came to derive as "bf16": its largest tensor is the
+     * unquantized embedding table, and a scheme this does not recognize falls through to it.
      */
     std::string deriveVariantName( Serialization::PretrainedModelReader& reader )
     {
         const std::string& quantization = reader.getWeightQuantization();
 
-        if ( quantization == "per_group_fp4_128" )
+        for ( const auto candidate : { WeightQuantization::FP4, WeightQuantization::FP8,
+            WeightQuantization::Plan } )
         {
-            return "fp4";
-        }
-
-        if ( quantization == "per_channel_fp8_e4m3" )
-        {
-            return "fp8";
+            if ( quantization == weightQuantizationName( candidate ) )
+            {
+                return weightQuantizationVariantName( candidate );
+            }
         }
 
         TensorDataType widest{ TensorDataType::FP32 };
@@ -1019,9 +1079,12 @@ namespace Mila::Tools
             }
             else if ( architecture == "qwen" )
             {
-                // FP4 and FP8 only. A per-role PLAN cannot be reached from here at all: its
-                // codebooks are fitted offline against calibration data, so there is no pass
-                // over BF16 weights that produces one -- the packer writes those artifacts.
+                // --quantization plan takes a FITTED source and finishes it. The codebooks
+                // are the one thing no load can produce -- they are chosen offline against
+                // calibration data -- so the packer emits them and leaves the rest of the
+                // model at BF16, and this pass quantizes those roles and writes an artifact
+                // that holds what its policy deploys. The packer is a fitter, not a second
+                // writer: every published artifact is written here.
                 written = loadAndWriteArtifact<
                     QwenModel<DeviceType::Cuda, TensorDataType::BF16>, QwenModelConfig>(
                         options );
@@ -1059,6 +1122,8 @@ namespace Mila::Tools
             {
                 return reconciled;
             }
+
+            reportStorageCensus( verify );
 
             if ( !options.package_directory.empty() )
             {

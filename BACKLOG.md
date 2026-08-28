@@ -1024,28 +1024,18 @@ being a task list and needs a prune.
   the card at startup, and every device question follows it, but there is no `/device` command —
   `/set` is sampling knobs only, by its own contract. `/context` already shows the shape a
   reload-on-change command takes (`Chat.ixx`).
-- [ ] **[decision 2026-08-27] Every model export goes through ONE path, and the Qwen 2/3-bit
-  export is deferred until it can.** Today Gemma, Llama and Qwen FP4 all take the same route:
-  the converter writes BF16, `ExportArtifact` loads it under a compiled policy so
-  `Linear::loadParameter` quantizes on the way in, and `savePretrained` writes the packed device
-  state. Quantize-on-load is the EXPORTER's engine, run once — a published artifact never needs
-  it. The codebook build is the one model that does not fit that route, because GPTQ's encode is
-  inseparable from its fit and can only run in Python. Resolving it means deciding how the fit
-  hands off, not patching the packer again. Do not do this piecemeal.
-- [ ] **The installed codebook artifact predates the packer fix, and its model card describes
-  that older shape.** `pack_qwen.py` now packs the three FP4 roles (attention QKV, attention
-  output, lm_head) instead of writing them BF16 for the loader to quantize, so the NEXT pack
-  produces ~11 GiB with nothing quantized at load. The artifact in the store is still the 15.09
-  GiB one — 52.4% BF16 against the FP4 build's 16.0% — deliberately, by Todd's call on
-  2026-08-26. Nothing is published, so nothing is wrong yet; but the card under
-  `ModelCards/Qwen3.8-27B-cb2-3/README.md` explains the BF16 share, and that
-  paragraph has to go when the artifact is re-packed. Re-packing needs no re-calibration: the
-  fit is unchanged and the damaged BF16 in the existing artifact is exactly the packer's input.
 - [ ] **The Python FP4 packer is not covered by the C++ parity fixture.** `packing.py`'s
   `quantize_fp4_e2m1` was verified bit-identical to `CudaFp4WeightQuantization.cu` on real
   lm_head weights (5,120,000 bytes, zero differences) — but by a throwaway script, where the
   codebase's idiom for exactly this is `packing.py --emit-fixture` plus a C++ test. The codebook
-  formats are covered that way and FP4 is not.
+  formats are covered that way and FP4 is not. It is now the only reason `quantize_fp4_e2m1`,
+  `dequantize_fp4_e2m1` and `artifact.fp4_tensor_records` are retained: no packer calls them
+  since the export took over FP4 packing, and they are annotated as retired against this item.
+- [ ] **A 15.09 GiB blob is orphaned in the local model store.**
+  `%LOCALAPPDATA%\Mila\blobs\sha256-d28a1beb…` was the pre-export cb2-3 artifact; no record
+  references it since the 11.05 GiB one replaced it. The store has no garbage collector, so
+  nothing will ever reclaim it — which is the general gap, not this one file. A `mila` verb that
+  lists unreferenced blobs and removes them on request is the shape.
 - [ ] **`ModelSize` is dead.** Declared in `Chat.Config.ixx` with four values and read nowhere —
   the model's identity is its store name, which is what replaced it. Left in place it invites the
   next family to add a fifth value that nothing will ever read.
@@ -1189,6 +1179,11 @@ Next-cycle work. Coarse by design — detailed tasking happens only when an item
 - **Qwen 3** (presumptive next release) — the dense decoder, thinking-mode suppression, model-agnostic
   tool calling, and FP8 KV cache; the `OperationTraits<GqaOp, Cuda, BF16, PerChannelKvFp8<>>`
   specialization lands here.
+- **Qwen 3.8 FP4 — FP8 the embedding table so the model is wholly device-resident.**
+  `QwenOraclePrecisionPlan::EmbeddingTable` is `NoWeightQuant` and host-resident, so every decode
+  step gathers a row over PCIe; at `PerChannelFp8<>` the 1.271 B table halves to ~1.19 GiB and sits
+  beside the 12.31 GiB FP4 body inside a 15.93 GiB card. Gemma 4's D4 Design B is the precedent and
+  `TokenEmbedding` already accepts a per-channel table policy. `Qwen.PrecisionPlan.ixx:153`
 - **Architecture / MoE** — the presumptive post-v0.20 tentpole; one router chassis unlocks Gemma
   26B-A4B, Qwen3-30B-A3B and gpt-oss-20b. See [[project_moe_tentpole_direction]].
 - **Gemma 4 MTP** — the self-speculative drafter, sequenced ahead of MoE.
