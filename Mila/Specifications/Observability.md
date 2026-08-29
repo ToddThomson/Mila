@@ -261,6 +261,10 @@ tree** must be stated as a contract on `setExecutionContext` rather than left as
 today's construction path. Standalone-mode components each create their own and are therefore
 their own observation scope, which is the right answer for a component under test.
 
+**Stated on the symbol 2026-08-29** (`Component.ixx`, `setExecutionContext`), naming the
+observation-leak consequence so a future overload is rejected on its merits rather than
+tripping over an unexplained throw.
+
 **Filter at attach, not at publish.** Putting the observer on a shared context means the naive
 emission has to pattern-match a path on every call — a string comparison per component per
 token, worse than the null check Section 7 is measuring. Instead `observe( pattern, passes,
@@ -483,9 +487,13 @@ The design is gated on three real consumers, not on generality:
    The metric stays outside `Mila/Src`; the library owes logits, the consumer owes the number.
 2. **The Qwen parity harness** — replaces `QwenAttentionBlockWorkspace` reach-in, and makes
    the DeltaNet block visible for the first time.
-3. **`setStageProbe` and Gemma's `fingerprintPrefill`** — the existing mechanism becomes a
-   consumer of the general one and is deleted from the public base, which is the outcome
-   `TransformerApiReadiness.md` item 6 asks for under either of its two ends.
+3. **`setStageProbe` and Gemma's `fingerprintPrefill`** — **DONE 2026-08-29, and both are
+   gone rather than rewired.** The typedef, the silent base default and both family
+   overrides are deleted; so are `fingerprintPrefill`, `summarizeActivation` and
+   `ActivationSummary` on `GemmaModel`. The fingerprint is now `Tools/ExportArtifact`'s
+   `fingerprintModel`, attaching `observe( "*", inference() )` against `LanguageModel` and
+   reading the head's first publication — so `Mila/Src` carries no diagnostic of its own and
+   every chassis gains one. `TransformerApiReadiness.md` item 6 is closed.
 
 Three consumers exist before the API does. That is the guard against speculative generality.
 

@@ -48,9 +48,9 @@ being a task list and needs a prune.
   a shared helper buys little; a test pinning single-narrowing against an FP32 oracle would.
 - [ ] **A parity script cites a debug flag that no longer exists.** `kGemmaDumpActivations` is gone
   from `Mila/Src`, but `Gemma/gemma_4_BF16/hf_gemma_activation_dump.py:4` still tells the reader to
-  diff its output against it. The replacement is `LanguageNetwork::setStageProbe`
-  (`LanguageNetwork.ixx:101`); `GemmaModel::fingerprintPrefill` (`GemmaModel.ixx:315`) is not the
-  substitute — it localizes a NaN rather than comparing per-layer activations.
+  diff its output against it. The replacement is `LanguageModel::observe` (`LanguageModel.ixx:130`)
+  over `"*.tf_layer_*"`; `GemmaModel::fingerprintPrefill` is not the substitute — it localizes a NaN
+  rather than comparing per-layer activations.
 - [ ] **A consumer cannot instantiate a CUDA component without importing a non-public module.**
   `Mila.ixx` exports `Compute.IExecutionContext` but not `Compute.ExecutionContext`, and
   `CudaGqaOp::build` (`CudaGqaOp.ixx:260`) needs the latter COMPLETE — so consumer-side instantiation
@@ -176,20 +176,17 @@ being a task list and needs a prune.
 
 ### Observability
 
-- [ ] **`setStageProbe` is undesigned public API that observability supersedes.**
-  `LanguageModelNetwork.ixx:143`'s default accepts a probe and never fires it, so on Llama and Gpt
-  "not instrumented" and "clean" are indistinguishable — a false negative in a NaN detector. Its one
-  consumer reaches it through `if constexpr ( requires { ... } )`, so a signature change silently stops
-  the probing. `TransformerApiReadiness.md` item 6
-- [ ] **"One context, one model tree" is an accident, and observability makes it load-bearing.** Two
-  models cannot share an `IExecutionContext` today — the factory always allocates
-  (`ExecutionContextFactory.ixx:23`) and `Component::setExecutionContext` is protected and throws when
-  already set (`Component.ixx:765`, `:779`). Nothing forbids a future overload accepting one, which
-  would silently become a cross-model observation leak. State the contract. `Observability.md` §6.3
-- [ ] **A value-reading sink has to name the model's compute precision.** The sink gets
-  `const ITensor&`, whose `rawData()` is type-erased, so anything wanting numbers does a
-  `dynamic_cast` to `Tensor<TPrecision, MR>` then its own `toHost`; both consumers now do this.
-  Whether observation should offer a typed convenience is open — `Observability.md` §11.2, v0.21.
+- [ ] **`matchesPath`'s `*` crosses the path separator, and its own doc says it does not.**
+  `CompositeComponent.ixx:405-406` teaches `"qwen.blk_*"` as "every block, but not their children"
+  and offers `"qwen.blk_*.*"` for the children; both are false — `*` matches dots, so the two
+  patterns select the same set. Measured: `"*.tf_layer_*"` selected 816 components on Gemma 4 12B,
+  which has 48 layers. Decide whether `*` should stop at a dot or the doc should describe what it
+  does; `Observability.md` §11's path-matching bullet carries the same implication.
+- [ ] **[deferred]** **A value-reading sink has to name the model's compute precision.** The sink
+  gets `const ITensor&`, whose `rawData()` is type-erased, so anything wanting numbers does a
+  `dynamic_cast` to `Tensor<TPrecision, MR>` then its own `toHost`; all three consumers now do this.
+  Whether observation should offer a typed convenience is decided-deferred to v0.21 —
+  `Observability.md` §11.2.
 
 ### Test Suite Revival
 
@@ -556,9 +553,6 @@ being a task list and needs a prune.
   omitting it writes `instruct: false` into the manifest with no warning — changing the prompt
   template every consumer applies. Document it, and consider refusing an instruct-named model that
   declares otherwise.
-- [ ] **`--fingerprint` is Gemma-only, so no other family has a load-parity probe.**
-  `ExportArtifact.ixx:968` refuses anything without `fingerprintPrefill`, which means the two Qwen
-  models cannot be diffed against their source the way a Gemma one can.
 - [~] **Sweep the remaining "artifact" prose to model/weights.** The ten model cards, Chat, the pybind
   layer and MIS are converted. Still open: the QuickStart Python samples and the maintainer docs
   (`Publishing/README.md`, `Tools/README.md`, `getting-started.md`, `Data/Models/README.md`,

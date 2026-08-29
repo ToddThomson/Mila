@@ -222,11 +222,6 @@ namespace Mila::Dnn
             return prefillFrom( input, 0 );
         }
 
-        void setStageProbe( typename NetworkBase::StageProbe probe ) override
-        {
-            stage_probe_ = std::move( probe );
-        }
-
         /**
          * @brief Chunked prefill starting at an absolute position (prompt-prefix reuse).
          *
@@ -265,24 +260,10 @@ namespace Mila::Dnn
 
                 TensorType* block_input = &token_embedding_->forward( chunk_input );
 
-                if ( stage_probe_ )
-                {
-                    stage_probe_( "embedding", *block_input );
-                }
-
-                int layer_index = 0;
-
                 for ( auto* block : blocks_ )
                 {
                     auto& block_out = block->prefill( *block_input, offset );
                     block_input = &block_out;
-
-                    if ( stage_probe_ )
-                    {
-                        stage_probe_( std::format( "layer_{}", layer_index ), *block_input );
-                    }
-
-                    ++layer_index;
                 }
 
                 last_block_out = block_input;
@@ -759,9 +740,6 @@ namespace Mila::Dnn
         // Tuned prefill chunk -- single source of truth, set in onBuilding and threaded to
         // child components via BuildContext::withPrefillSize().
         dim_t prefill_chunk_size_{ 0 };
-
-        // Diagnostic only; unset in normal operation, where it costs one null check per layer.
-        typename NetworkBase::StageProbe stage_probe_{};
 
         std::shared_ptr<TokenEmbeddingType> token_embedding_{ nullptr };
         // Non-owning, polymorphic view of the layer list; the concrete blocks are owned by

@@ -5,10 +5,8 @@
 
 module;
 #include <cstdint>
-#include <functional>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 
 export module Dnn.LanguageModelNetwork;
 
@@ -139,38 +137,6 @@ namespace Mila::Dnn
         // ITransformerBlock models it as one method taking the offset.
         // TransformerApiReadiness.md item 7.
         virtual TensorType& prefill( const TokenIndexType& input ) = 0;
-
-        /**
-         * @brief Observer called with each intermediate activation during prefill.
-         *
-         * Diagnostic. Two loads of one model can hold byte-identical parameters and still
-         * compute differently, and only the activations show where they diverge. A probe on
-         * the real prefill path rather than a parallel diagnostic one, because a second
-         * implementation is free to not reproduce the bug.
-         *
-         * `stage` is implementation-defined, not a contract: the implementing networks emit
-         * "embedding" and "layer_N". Prefill only -- nothing fires during decode, so a value
-         * that first goes bad during generation is invisible here.
-         */
-        using StageProbe = std::function<void( std::string_view stage, const TensorType& value )>;
-
-        /**
-         * @brief Install a stage probe, or clear it by passing an empty function.
-         *
-         * Implemented by GemmaTransformer and QwenTransformer. On any other network the
-         * default accepts the probe and never fires it, so an empty result means "not
-         * instrumented" and not "nothing to report" -- the two are indistinguishable from
-         * the caller's side.
-         */
-        virtual void setStageProbe( StageProbe probe )
-        {
-            // REVIEW: a diagnostic hook that reached the public API to unblock artifact
-            // debugging, never designed as a feature -- undocumented stage vocabulary,
-            // prefill only, no test, one internal consumer found by `requires`. The silent
-            // default is the worst part: a false negative in a NaN detector.
-            // TransformerApiReadiness.md item 6 proposes taking it off the public base.
-            (void)probe;
-        }
 
         /**
          * @brief Inference decode -- single-token autoregressive step.

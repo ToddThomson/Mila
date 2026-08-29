@@ -8,7 +8,9 @@
  */
 
 module;
+#include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <cstdint>
 #include <cstdio>
@@ -16,7 +18,10 @@ module;
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <iterator>
+#include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <utility>
 #include <string>
@@ -987,6 +992,161 @@ namespace Mila::Tools
     inline constexpr int64_t kExportContextLength = 512;
 
     /**
+     * @brief Logits fingerprint for a fixed prompt, for comparing two loads of one model.
+     *
+     * Two loads can hold byte-identical parameters and still compute differently, and only
+     * the activations show where they diverge. This runs one real generation step and reports
+     * what the model actually computed: a per-component NaN and range summary, the first
+     * component to produce a NaN, and a digest of the resulting logit row.
+     *
+     * Written against LanguageModel rather than a family. Everything it needs -- attach an
+     * observer, run a pass, read a published tensor -- is on the base, so this works for
+     * every chassis without the library carrying a diagnostic of its own.
+     *
+     * The digest covers the head's output as FP32, so two fingerprints are comparable when
+     * they come from the same build of this tool. It is not a stable identity for a model.
+     */
+    template<DeviceType TDeviceType, TensorDataType TPrecision>
+    std::string fingerprintModel( LanguageModel<TDeviceType, TPrecision>& model,
+        const std::vector<int32_t>& probe )
+    {
+        using DeviceTensor =
+            Tensor<TPrecision, typename DeviceTypeTraits<TDeviceType>::memory_resource>;
+
+        std::string stages;
+        std::optional<std::string> first_nan_path;
+        std::vector<float> logits;
+
+        // The head is the last component of the prefill, so its first publication both IS
+        // the logit row this digests and marks the end of the pass worth summarizing --
+        // everything published after it belongs to a decode step.
+        bool recording = true;
+
+        const size_t observed = model.observe( "*", ComputePassMask::inference(),
+            [&]( std::string_view path, ComputePass, std::string_view stage,
+                const ITensor& value )
+            {
+                if ( !recording || stage != "output" )
+                {
+                    return;
+                }
+
+                // Reading VALUES needs the concrete type back, since the sink is handed an
+                // erased ITensor. A component publishing anything other than the model's
+                // compute precision is skipped rather than guessed at.
+                const auto* typed = dynamic_cast<const DeviceTensor*>( &value );
+
+                if ( typed == nullptr )
+                {
+                    return;
+                }
+
+                const auto host = toHost<TensorDataType::FP32>( *typed );
+                const float* elements = host.data();
+                const dim_t count = host.size();
+
+                int64_t nan_count = 0;
+                float lowest = std::numeric_limits<float>::infinity();
+                float highest = -std::numeric_limits<float>::infinity();
+
+                for ( dim_t i = 0; i < count; ++i )
+                {
+                    if ( std::isnan( elements[ i ] ) )
+                    {
+                        ++nan_count;
+                        continue;
+                    }
+
+                    lowest = std::min( lowest, elements[ i ] );
+                    highest = std::max( highest, elements[ i ] );
+                }
+
+                // Only the transition matters: report the first component reached, then
+                // every one carrying a NaN, and nothing in between.
+                if ( stages.empty() || nan_count > 0 )
+                {
+                    stages += std::format(
+                        "  {:<44} elements {:>8} | NaN {:>8} | range [{:.4f}, {:.4f}]\n",
+                        path, count, nan_count, lowest, highest );
+                }
+
+                if ( nan_count > 0 && !first_nan_path.has_value() )
+                {
+                    first_nan_path = std::string( path );
+                }
+
+                if ( path.ends_with( ".lm_head" ) )
+                {
+                    logits.assign( elements, elements + count );
+                    recording = false;
+                }
+            } );
+
+        // A pattern matching nothing is, downstream, indistinguishable from a run with
+        // nothing to report -- the false negative a NaN hunt must not have.
+        if ( observed == 0 )
+        {
+            model.stopObserving();
+
+            throw std::runtime_error(
+                "fingerprintModel: observation selected no components, so nothing would be "
+                "summarized." );
+        }
+
+        // One token, greedily: the prefill is what produces the row, and sampling shape must
+        // not enter a diagnostic meant to be identical across two loads.
+        GenerateParams params;
+        params.max_new_tokens = 1;
+        params.sampling.temperature = 0.0f;
+
+        // The sink holds references to locals of this call, so detachment cannot be left to
+        // the happy path.
+        try
+        {
+            [[maybe_unused]] const GenerateStatus status =
+                model.generate( probe, []( int32_t ) {}, params );
+        }
+        catch ( ... )
+        {
+            model.stopObserving();
+
+            throw;
+        }
+
+        model.stopObserving();
+
+        if ( logits.empty() )
+        {
+            throw std::runtime_error(
+                "fingerprintModel: the model's head published no output, so there is no "
+                "logit row to digest. See componentPaths() for what the tree offers." );
+        }
+
+        // FNV-1a rather than a real digest: this only has to distinguish two runs, and a
+        // model diagnostic should not depend on the model-download feature being compiled in.
+        uint64_t digest = 1469598103934665603ull;
+        const auto* bytes = reinterpret_cast<const uint8_t*>( logits.data() );
+
+        for ( size_t i = 0; i < logits.size() * sizeof( float ); ++i )
+        {
+            digest ^= bytes[ i ];
+            digest *= 1099511628211ull;
+        }
+
+        const auto best = std::max_element( logits.begin(), logits.end() );
+        const auto best_index = std::distance( logits.begin(), best );
+
+        const std::string origin = first_nan_path.has_value()
+            ? std::format( "  FIRST NaN AT: {}\n", *first_nan_path )
+            : std::string( "  no NaN in any observed component\n" );
+
+        return std::format(
+            "\n  observing {} components\n{}{}"
+            "  logits      fnv1a {:016x} | elements {} | argmax {} = {:.6f}",
+            observed, stages, origin, digest, logits.size(), best_index, *best );
+    }
+
+    /**
      * @brief Load one family at the requested quantization and write the artifact.
      *
      * Templated rather than branched inline because the two chassis differ only in the pair
@@ -1007,24 +1167,15 @@ namespace Mila::Tools
 
         if ( options.fingerprint_only )
         {
-            if constexpr ( requires { model->fingerprintPrefill( std::vector<int32_t>{} ); } )
-            {
-                // Fixed, arbitrary token ids: no tokenizer is involved, so two runs over
-                // different files are comparable by construction. Their meaning is irrelevant
-                // -- only that both loads see the same input.
-                const std::vector<int32_t> probe{ 2, 1000, 2000, 3000, 4000, 5000, 6000, 7000 };
+            // Fixed, arbitrary token ids: no tokenizer is involved, so two runs over
+            // different files are comparable by construction. Their meaning is irrelevant --
+            // only that both loads see the same input.
+            const std::vector<int32_t> probe{ 2, 1000, 2000, 3000, 4000, 5000, 6000, 7000 };
 
-                std::cout << std::format( "Fingerprint of {}\n", options.source.string() );
-                std::cout << "  " << model->fingerprintPrefill( probe ) << "\n";
+            std::cout << std::format( "Fingerprint of {}\n", options.source.string() );
+            std::cout << "  " << fingerprintModel( *model, probe ) << "\n";
 
-                return 0;
-            }
-            else
-            {
-                std::cerr << "--fingerprint is implemented on the Gemma chassis only.\n";
-
-                return 2;
-            }
+            return 0;
         }
 
         std::cout << std::format( "Writing {}\n", options.destination.string() );

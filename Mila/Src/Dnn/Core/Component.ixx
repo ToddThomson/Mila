@@ -861,6 +861,21 @@ namespace Mila::Dnn
          * Establishes the device and execution environment. Can only be called
          * once -- the execution context is immutable after setting.
          *
+         * **One context, one model tree.** A context is reachable only by the tree that
+         * owns it: every network mints its own from a DeviceId, this setter is protected so
+         * nothing outside can inject one, and it throws rather than accept a second. That is
+         * a contract, not an artifact of how the constructors happen to be written today.
+         *
+         * It has to be stated because observation rides on the context
+         * (Specifications/Observability.md 6.3): an observer is installed on the context and
+         * every component in the tree publishes through it. An overload accepting an
+         * existing context -- a reasonable thing to want, for a CUDA stream shared between
+         * two models -- would therefore also merge their observation scopes, and a caller
+         * watching one model would silently receive the other's activations. A shared stream
+         * must be introduced some other way. A standalone component creates its own context
+         * and is its own observation scope, which is the right answer for a component under
+         * test.
+         *
          * Called by:
          * - The component itself (standalone mode with owned context)
          * - Parent composite when adding child (shared context mode)

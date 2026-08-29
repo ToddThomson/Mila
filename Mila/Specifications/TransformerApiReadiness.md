@@ -64,7 +64,20 @@ the only caller who genuinely cannot tell the family -- cannot reach it.
 `Gemma.ixx:778`, `Llama.ixx:661`, `GptTransformer.ixx:688`, `Qwen.ixx:647`. Each body is
 a single `NetworkBase::onTrainingModeChanging( training_mode )` call.
 
-### 6. `setStageProbe` -- an undesigned diagnostic in the public surface
+### 6. `setStageProbe` -- an undesigned diagnostic in the public surface -- RESOLVED
+
+**Closed by the second end, and the diagnostic left `Mila/Src` entirely.** Observability was
+designed as a feature (`Observability.md`) and shipped, so `setStageProbe`, the `StageProbe`
+typedef, the silent base default and both family overrides are deleted.
+`GemmaModel::fingerprintPrefill` is deleted too, along with its `summarizeActivation` and
+`ActivationSummary` helpers: with `observe` as the door, the whole diagnostic is expressible
+from outside the model, and it now lives in `Tools/ExportArtifact` as `fingerprintModel`,
+written against `LanguageModel` and therefore working for every chassis.
+
+**The relocation, not the deletion, is the point.** Moving the probe from the network base to
+a model class would have kept an undesigned diagnostic on public API one level up. What the
+section asked for was that the tool reach the mechanism deliberately -- which is what a
+consumer calling `observe( "*", ... )` does. The record of the original defect follows.
 
 `Mila.ixx:159` exports `Dnn.LanguageModelNetwork`, so `setStageProbe` and the `StageProbe`
 typedef are public C++ API. Its sole consumer is an internal tool:
