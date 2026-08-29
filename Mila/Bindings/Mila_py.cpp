@@ -85,7 +85,7 @@ static void bind_tokenizer( py::module_& m )
             },
             py::arg( "name" ),
             "Load the tokenizer of an installed model, by store name.\n\n"
-            "The record says which loader the artifact needs, so nothing pairs a\n"
+            "The record says which loader the weights need, so nothing pairs a\n"
             "tokenizer path with a weights path by hand.\n\n"
             "Raises RuntimeError if the model is not installed or its files are missing." )
         .def( "encode",
@@ -381,16 +381,16 @@ static void bind_llama_model( py::module_& m )
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "bf16",
-            "Load Llama 3.x Instruct weights from an unquantized Mila artifact.\n\n"
+            "Load Llama 3.x Instruct weights from an unquantized Mila model file.\n\n"
             "Args:\n"
-            "    path:           Path to the Mila pretrained artifact.\n"
+            "    path:           Path to the Mila pretrained weights.\n"
             "    context_length: Maximum sequence length to build for.\n"
             "    device_index:   CUDA device index (default: 0).\n"
             "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
             "                    (default: 'bf16'). FP8 and FP4 require SM >= 8.9\n"
             "                    (RTX 40xx / Ada Lovelace).\n\n"
-            "A PRE-quantized artifact cannot be loaded here -- its bytes are already\n"
-            "FP4 or FP8, and only its store record says which. Use from_store()." )
+            "Pre-quantized weights cannot be loaded here -- their bytes are already\n"
+            "FP4 or FP8, and only the store record says which. Use from_store()." )
         .def_static( "from_store",
             []( const std::string& name,
                 int64_t context_length,
@@ -403,8 +403,8 @@ static void bind_llama_model( py::module_& m )
             py::arg( "name" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
-            "Load an installed Llama model by store name, as the artifact itself is.\n\n"
-            "The record settles the quantization, so a published FP4 or FP8 artifact\n"
+            "Load an installed Llama model by store name, as its weights already are.\n\n"
+            "The record settles the quantization, so a published FP4 or FP8 model\n"
             "loads without the caller knowing what it is. Nothing is downloaded: an\n"
             "uninstalled name raises RuntimeError.\n\n"
             "Args:\n"
@@ -503,15 +503,15 @@ static void bind_gemma_model( py::module_& m )
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "fp4",
-            "Load Gemma 4 weights from an unquantized Mila artifact.\n\n"
+            "Load Gemma 4 weights from an unquantized Mila model file.\n\n"
             "Args:\n"
-            "    path:           Path to the Mila pretrained artifact.\n"
+            "    path:           Path to the Mila pretrained weights.\n"
             "    context_length: Maximum sequence length to build for.\n"
             "    device_index:   CUDA device index (default: 0).\n"
             "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
             "                    (default: 'fp4' -- a BF16 Gemma 4 12B needs ~24 GB\n"
             "                    and OOMs at load on the cards this targets).\n\n"
-            "A PRE-quantized artifact cannot be loaded here. Use from_store()." )
+            "Pre-quantized weights cannot be loaded here. Use from_store()." )
         .def_static( "from_store",
             []( const std::string& name,
                 int64_t context_length,
@@ -524,7 +524,7 @@ static void bind_gemma_model( py::module_& m )
             py::arg( "name" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
-            "Load an installed Gemma model by store name, as the artifact itself is.\n\n"
+            "Load an installed Gemma model by store name, as its weights already are.\n\n"
             "Args:\n"
             "    name:           Store name, e.g. 'gemma-4-12b-it-fp4'.\n"
             "    context_length: Maximum sequence length to build for.\n"
@@ -626,17 +626,17 @@ static void bind_qwen_model( py::module_& m )
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "fp4",
-            "Load Qwen 3.8 weights from a Mila artifact.\n\n"
+            "Load Qwen 3.8 weights from a Mila model file.\n\n"
             "Args:\n"
-            "    path:           Path to the Mila pretrained artifact.\n"
+            "    path:           Path to the Mila pretrained weights.\n"
             "    context_length: Maximum sequence length to build for.\n"
             "    device_index:   CUDA device index (default: 0).\n"
             "    quantization:   'bf16', 'fp8', 'fp4' or 'cb2-3'\n"
             "                    (default: 'fp4' -- a BF16 27B fits no card this\n"
             "                    targets). 'cb2-3' names a codebook plan fitted\n"
-            "                    offline, so it selects a packed artifact's format\n"
+            "                    offline, so it selects packed weights' format\n"
             "                    rather than quantizing anything on the way in.\n\n"
-            "Prefer from_store(), which reads what the artifact already is." )
+            "Prefer from_store(), which reads what the weights already are." )
         .def_static( "from_store",
             []( const std::string& name,
                 int64_t context_length,
@@ -649,7 +649,7 @@ static void bind_qwen_model( py::module_& m )
             py::arg( "name" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
-            "Load an installed Qwen model by store name, as the artifact itself is.\n\n"
+            "Load an installed Qwen model by store name, as its weights already are.\n\n"
             "Args:\n"
             "    name:           Store name, e.g. 'Qwen3.8-27B-fp4'.\n"
             "    context_length: Maximum sequence length to build for.\n"
@@ -851,6 +851,111 @@ static void bind_chat_protocol( py::module_& m )
             "Qwen's control tokens, as the checkpoint vocabulary registers them.\n\n"
             "A streaming host needs these: generation stops at tool_call_close, or the\n"
             "model fabricates the tool result itself." );
+
+    m.def( "gemma_format_prompt",
+        []( const py::iterable& history,
+            const std::string& tool_declarations,
+            bool continue_open ) {
+            return Mila::Bindings::gemmaFormatPrompt(
+                turnsFromList( history ), tool_declarations, continue_open );
+        },
+        py::arg( "history" ),
+        py::arg( "tool_declarations" ) = "",
+        py::arg( "continue_open" ) = false,
+        "Render a Gemma 4 conversation into the prompt its checkpoint was trained on.\n\n"
+        "Args:\n"
+        "    history:           Sequence of {'role', 'content', 'tool_calls'} mappings.\n"
+        "                       Role is 'system', 'user', 'assistant' or 'tool'. The\n"
+        "                       assistant is spelled 'model' in the prompt and a tool\n"
+        "                       result renders as a user turn, both handled here. A tool\n"
+        "                       turn carries its result ALREADY rendered by\n"
+        "                       gemma_format_tool_response, which needs the tool's name.\n"
+        "    tool_declarations: What gemma_tool_declarations() returns, or '' for none.\n"
+        "    continue_open:     Emit the final turn open, with no closing marker and no\n"
+        "                       thought prime, so the next token continues it. That is\n"
+        "                       the shape after a tool response.\n\n"
+        "The template lives in the runtime, so this is the same prompt the chat harness\n"
+        "builds. Raises RuntimeError for an unknown role, or continue_open on an empty\n"
+        "history." );
+
+    m.def( "gemma_tool_declarations",
+        &Mila::Bindings::gemmaToolDeclarations,
+        py::arg( "tools_json" ),
+        "Tool schemas in Gemma's trained <|tool>declaration:...<tool|> grammar.\n\n"
+        "Takes a JSON array of tool schemas -- OpenAI function envelopes or bare\n"
+        "declarations. Returns '' when none are usable, which is what tells the model\n"
+        "there are none. Choosing WHICH tools to advertise is the caller's: a harness\n"
+        "with UI-only tools filters them out first." );
+
+    m.def( "gemma_parse_tool_call",
+        []( const std::string& response ) -> py::object {
+            const auto call = Mila::Bindings::gemmaParseToolCall( response );
+
+            if ( !call.has_value() )
+            {
+                return py::none();
+            }
+
+            py::dict parsed;
+            parsed[ "name" ] = call->name;
+            parsed[ "arguments" ] = call->arguments;
+
+            return parsed;
+        },
+        py::arg( "response" ),
+        "The most recent tool call in a Gemma response as {'name', 'arguments'}, or None.\n\n"
+        "No id: Gemma's grammar has no slot for one, so a caller that needs a correlation\n"
+        "id mints its own. Namespaced targets are reduced to the bare handler name, and\n"
+        "stray registered tokens are scrubbed from the name and from every string value." );
+
+    m.def( "gemma_format_tool_call",
+        &Mila::Bindings::gemmaFormatToolCall,
+        py::arg( "name" ), py::arg( "arguments" ),
+        "One assistant tool call rendered back into the native call grammar, for replay\n"
+        "into a prompt. Arguments is a JSON object as text." );
+
+    m.def( "gemma_format_tool_response",
+        &Mila::Bindings::gemmaFormatToolResponse,
+        py::arg( "name" ), py::arg( "result" ),
+        "A client-executed tool result in Gemma's <|tool_response> grammar.\n\n"
+        "A JSON envelope surfaces only its primary output field (the first non-empty of\n"
+        "output/result/content/stdout/text); metadata siblings would be echoed back as\n"
+        "content. A failed tool's 'error' is surfaced explicitly, without which the model\n"
+        "sees an empty result and blind-retries." );
+
+    m.def( "gemma_extract_answer",
+        &Mila::Bindings::gemmaExtractAnswer,
+        py::arg( "text" ),
+        "A channel-structured Gemma response reduced to the user-facing answer.\n\n"
+        "Drops every tool-call/response span and every reasoning-channel span, then\n"
+        "strips residual control tokens. Channels are removed wherever they appear, not\n"
+        "just at the start: the 12B emits mid-answer thought channels on the agentic path." );
+
+    m.def( "gemma_strip_control_tokens",
+        &Mila::Bindings::gemmaStripControlTokens,
+        py::arg( "text" ),
+        "Every registered control token removed from decoded text, including the\n"
+        "pipe-bracketed ones the enumerated set does not name." );
+
+    m.def( "gemma_protocol_tokens",
+        []() {
+            const auto tokens = Mila::Bindings::gemmaProtocolTokens();
+
+            py::dict d;
+            d[ "turn_open" ] = tokens.turn_open;
+            d[ "turn_close" ] = tokens.turn_close;
+            d[ "reasoning_open" ] = tokens.reasoning_open;
+            d[ "reasoning_close" ] = tokens.reasoning_close;
+            d[ "tool_call_open" ] = tokens.tool_call_open;
+            d[ "tool_call_close" ] = tokens.tool_call_close;
+            d[ "tool_response_open" ] = tokens.tool_response_open;
+            d[ "tool_response_close" ] = tokens.tool_response_close;
+
+            return d;
+        },
+        "Gemma's control tokens, as the checkpoint vocabulary registers them.\n\n"
+        "reasoning_open/close are the channel markers. A streaming host needs these:\n"
+        "generation stops at tool_call_close, or the model fabricates the result itself." );
 }
 
 // ============================================================================
@@ -883,8 +988,8 @@ PYBIND11_MODULE( _mila, m )
         "    LlamaModel  Llama 3.x Instruct, BF16 compute, optional FP8 or FP4 weights.\n"
         "    QwenModel   Qwen 3.8, BF16 compute, FP4 or a 2/3-bit codebook.\n\n"
         "Load an installed model by name with from_store(), which reads the store record\n"
-        "and so knows what the artifact already is -- a published model is pre-quantized,\n"
-        "and only its record says to what. from_pretrained() remains for a loose artifact\n"
+        "and so knows what the weights already are -- a published model is pre-quantized,\n"
+        "and only its record says to what. from_pretrained() remains for a loose weights\n"
         "file, where the quantization is the caller's choice. BpeTokenizer.from_store()\n"
         "takes the same name, so nothing pairs two paths by hand. The GIL is released\n"
         "around generation, so streaming callbacks, a StopController and Ctrl-C all work\n"

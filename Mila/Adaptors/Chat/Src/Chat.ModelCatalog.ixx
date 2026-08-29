@@ -63,8 +63,8 @@ namespace Mila::ChatApp
         /// never offers a thinking mode the weights cannot produce.
         bool thinking_capable{ false };
 
-        /// True when the quantization is a load-time choice rather than what the artifact already
-        /// is. Both land in the same field, but only this one is a fact the model's name omits.
+        /// True when the quantization is a load-time choice rather than what the weights already
+        /// are. Both land in the same field, but only this one is a fact the model's name omits.
         bool quantization_applied_at_load{ false };
     };
 
@@ -76,7 +76,7 @@ namespace Mila::ChatApp
      * survives `--rm`, and writing here never mutates a tracked file in a developer's checkout.
      *
      * This replaces a compiled-in default model. A fresh install has no model, so naming one
-     * reported a specific multi-gigabyte artifact as "missing" to a user who had never asked for
+     * reported a specific multi-gigabyte model as "missing" to a user who had never asked for
      * it -- an empty store is not a failed lookup.
      */
     export inline std::filesystem::path chatStatePath()
@@ -144,7 +144,7 @@ namespace Mila::ChatApp
      * the same duty for the download, not for the running product.
      *
      * Empty for licenses that impose no display duty. Apache 2.0 requires the notice travel with
-     * the artifact; it does not require a UI to render one.
+     * the model; it does not require a UI to render one.
      */
     export std::string_view requiredAttributionFor( std::string_view license )
     {
@@ -225,19 +225,19 @@ namespace Mila::ChatApp
     }
 
     /**
-     * @brief Apply a requested load-time quantization to an unquantized artifact.
+     * @brief Apply a requested load-time quantization to unquantized weights.
      *
-     * Quantizing on load is a deployment choice, like context length -- not an identity. A
-     * pre-quantized artifact is a *different model*: different bytes, its own name. The same
-     * BF16 artifact run at FP4 is one model deployed two ways, which is what lets an 8B whose
+     * Quantizing on load is a deployment choice, like context length -- not an identity.
+     * Pre-quantized weights are a *different model*: different bytes, its own name. The same
+     * BF16 weights run at FP4 are one model deployed two ways, which is what lets an 8B whose
      * weights are 15 GB run on a card that cannot hold them.
      *
      * The cost is paid at load: the full BF16 file is still read, and quantization happens on
-     * the way to the device. A pre-quantized artifact avoids that read entirely, which is why
-     * it is worth producing for a model used often.
+     * the way to the device. Pre-quantized weights avoid that read entirely, which is why they
+     * are worth producing for a model used often.
      *
-     * @throws std::runtime_error when the artifact is already quantized, since its bytes cannot
-     *         be turned back into something else.
+     * @throws std::runtime_error when the weights are already quantized, since their bytes
+     *         cannot be turned back into something else.
      */
     void applyRequestedQuantization(
         const std::string& name,
@@ -245,15 +245,15 @@ namespace Mila::ChatApp
         QuantizationMode requested,
         ResolvedModel& resolved )
     {
-        const bool artifact_is_quantized =
+        const bool weights_are_quantized =
             ( resolved.quantization != QuantizationMode::None );
 
-        if ( artifact_is_quantized )
+        if ( weights_are_quantized )
         {
             if ( requested != resolved.quantization )
             {
                 throw std::runtime_error( std::format(
-                    "'{}' is a pre-quantized {} artifact; its weights cannot be loaded as "
+                    "'{}' is already quantized as {}; its weights cannot be loaded as "
                     "something else. Install the variant you want as its own model.",
                     name, variant ) );
             }
@@ -267,20 +267,20 @@ namespace Mila::ChatApp
         }
 
         // A codebook is fitted offline against calibration data, so there is no pass over BF16
-        // weights that produces one. Every other refusal here is about what the artifact IS;
-        // this one is about what no load path can do to it.
+        // weights that produces one. Every other refusal here is about what the weights ARE;
+        // this one is about what no load path can do to them.
         if ( requested == QuantizationMode::Codebook )
         {
             throw std::runtime_error( std::format(
                 "'{}' cannot be quantized to cb2-3 on the way in -- the codes are "
-                "fitted offline, so an artifact either carries them or does not. Install the "
+                "fitted offline, so the weights either carry them or do not. Install the "
                 "codebook build as its own model.", name ) );
         }
 
         if ( resolved.precision != ModelPrecision::BF16 )
         {
             throw std::runtime_error( std::format(
-                "'{}' is an FP32 artifact, and quantized weights require BF16 compute.",
+                "'{}' is an FP32 model, and quantized weights require BF16 compute.",
                 name ) );
         }
 
@@ -431,8 +431,8 @@ namespace Mila::ChatApp
      * accepts a path -- a load is not a deliberate act the way an install is, so it must never
      * become a multi-gigabyte transfer.
      *
-     * @param requested_quantization Quantize an unquantized artifact on the way in. Empty loads
-     *        the artifact as it is.
+     * @param requested_quantization Quantize unquantized weights on the way in. Empty loads
+     *        the weights as they are.
      *
      * @throws std::runtime_error if no model of that name is installed, if this build cannot
      *         load what the record describes, or if the requested quantization contradicts it.
@@ -779,12 +779,12 @@ namespace Mila::ChatApp
         }
 
         ModelPrecision precision{ ModelPrecision::BF16 };
-        QuantizationMode artifact{ QuantizationMode::None };
+        QuantizationMode stored_quantization{ QuantizationMode::None };
         ModelType family{ ModelType::Gemma };
 
         try
         {
-            axesFromVariant( model.record.variant, precision, artifact );
+            axesFromVariant( model.record.variant, precision, stored_quantization );
             family = familyFromArchitecture( model.record.architecture );
         }
         catch ( const std::exception& error )
@@ -794,11 +794,11 @@ namespace Mila::ChatApp
             return row;
         }
 
-        // As the artifact is. A pre-quantized model offers only this, so `artifact` rather than
-        // None -- for those two are different things, and it is the former /model with no argument
-        // loads.
+        // As the weights are. A pre-quantized model offers only this, so `stored_quantization`
+        // rather than None -- for those two are different things, and it is the former /model
+        // with no argument loads.
         const LadderFit native = largestFittingContext( model.weights_path, family, precision,
-            artifact, fixed_context_length, available_bytes, device_index );
+            stored_quantization, fixed_context_length, available_bytes, device_index );
 
         if ( native.fits )
         {
@@ -811,8 +811,9 @@ namespace Mila::ChatApp
         std::string reason = native.unavailable_reason;
 
         // Quantizing on load needs BF16 compute and bytes that are not already quantized, so a
-        // pre-quantized or FP32 artifact has nothing further to offer.
-        if ( precision == ModelPrecision::BF16 && artifact == QuantizationMode::None )
+        // pre-quantized or FP32 model has nothing further to offer.
+        if ( precision == ModelPrecision::BF16
+            && stored_quantization == QuantizationMode::None )
         {
             // BOTH are tried rather than stopping at the first that works, because they are not
             // interchangeable: fp8 costs less accuracy and fp4 less memory, and which to reach for
@@ -871,7 +872,7 @@ namespace Mila::ChatApp
      * no device, and in a build with no hub at all. That default matters beyond speed: this
      * also renders --help, which runs before the runtime is initialized.
      *
-     * @param budget Engaged adds the fit column, at the price of an artifact-header read and up
+     * @param budget Engaged adds the fit column, at the price of a weights-header read and up
      *        to a ladder of constructed graphs per row. No device memory is committed by it. The
      *        session assembles it, because both figures in it are facts about the live session.
      */

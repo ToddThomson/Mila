@@ -12,7 +12,7 @@ from mila_llm_server.protocols.utils import DEFAULT_SYSTEM_PROMPT, extract_conte
 from mila_llm_server.protocols.openai.tool_bridge import build_tool_injection, parse_tool_call
 from mila_llm_server.prompt import build_instruct_prompt
 from mila_llm_server.config import settings, loaded, ModelFamily
-from mila_llm_server import gemma_protocol, qwen_bridge
+from mila_llm_server import gemma_bridge, qwen_bridge
 
 import mila
 
@@ -84,13 +84,13 @@ class OpenAIResponsesAdapter(ResponsesCapable):
         the model continues it (mirrors the chat harness splice-and-resume).
         """
         if isinstance(raw_input, str):
-            system_block = instructions + gemma_protocol.build_tool_injection(tools)
+            system_block = instructions + gemma_bridge.tool_declarations(tools)
             turns = [{"role": "user", "content": raw_input}]
-            return gemma_protocol.assemble_prompt(system_block, turns, continue_open=False)
+            return gemma_bridge.format_prompt(system_block, turns, continue_open=False)
 
         messages = list(raw_input)
         system_block, messages = self._collect_system_block(messages, instructions)
-        system_block += gemma_protocol.build_tool_injection(tools)
+        system_block += gemma_bridge.tool_declarations(tools)
 
         turns: list[dict] = []
         pending_names: dict[str, str] = {}  # call_id -> tool name
@@ -111,7 +111,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
                 name = msg.get("name", "tool")
                 pending_names[msg.get("call_id", "")] = name
                 append_model_tool_span(
-                    gemma_protocol.format_tool_call(name, msg.get("arguments", "{}")))
+                    gemma_bridge.format_tool_call(name, msg.get("arguments", "{}")))
 
             elif msg_type == "function_call_output":
                 name = pending_names.get(msg.get("call_id", ""), "tool")
@@ -120,7 +120,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
                 # field is the real output vs metadata (e.g. the leaked chunk id).
                 print("[MIS DEBUG] tool_output:", repr(raw_output)[:600], flush=True)
                 append_model_tool_span(
-                    gemma_protocol.format_tool_response(name, raw_output))
+                    gemma_bridge.format_tool_response(name, raw_output))
 
             elif msg_type == "message":
                 role = "model" if msg.get("role") == "assistant" else "user"
@@ -134,7 +134,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
         # same turn; otherwise the last turn is the user's message and a fresh
         # model turn is primed.
         continue_open = bool(turns) and turns[-1].get("tool", False)
-        return gemma_protocol.assemble_prompt(system_block, turns, continue_open)
+        return gemma_bridge.format_prompt(system_block, turns, continue_open)
 
     def _build_llama_prompt(self, raw_input, instructions: str, tools: list) -> str:
         if isinstance(raw_input, str):
@@ -301,7 +301,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
     def parse_tool_call_from_text(self, text: str) -> dict | None:
         """Expose the tool-call parser to the streaming factory path (family-aware)."""
         if loaded.family == ModelFamily.gemma:
-            return gemma_protocol.parse_tool_call(text)
+            return gemma_bridge.parse_tool_call(text)
 
         if loaded.family == ModelFamily.qwen:
             return qwen_bridge.parse_tool_call(text)
@@ -316,7 +316,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
     def clean_response_text(self, text: str) -> str:
         """Reduce raw model output to the user-facing answer."""
         if loaded.family == ModelFamily.gemma:
-            return gemma_protocol.extract_answer(text)
+            return gemma_bridge.answer_text(text)
 
         if loaded.family == ModelFamily.qwen:
             return qwen_bridge.answer_text(text)

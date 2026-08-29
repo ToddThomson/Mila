@@ -266,7 +266,7 @@ namespace Mila::ChatApp
      * @brief What a model would allocate at a context length, without allocating any of it.
      *
      * Costs nothing on the device: the graph is constructed, asked, and discarded without a
-     * weight being read. Only the artifact header is touched. See
+     * weight being read. Only the weights header is touched. See
      * Specifications/MemoryFootprint.md.
      *
      * The four axes are passed rather than a resolved model, because they are exactly what the
@@ -274,7 +274,7 @@ namespace Mila::ChatApp
      * config on the load path, a store record on the listing path.
      *
      * @return No footprint for a family with no entry point, for a precision that has none, and
-     *         on any failure to read the artifact -- each with the reason. Never throws: a
+     *         on any failure to read the weights -- each with the reason. Never throws: a
      *         pre-flight must never be the thing that stops a model from being tried.
      */
     export inline FootprintPrediction predictFootprint(
@@ -366,7 +366,7 @@ namespace Mila::ChatApp
         catch ( const std::exception& error )
         {
             // The reason the bare catch used to discard. Everything reachable from here names
-            // itself -- an unreadable artifact, a context past the trained maximum, a
+            // itself -- unreadable weights, a context past the trained maximum, a
             // quantization the dispatcher has no specialization for.
             return { std::nullopt, error.what() };
         }

@@ -10,9 +10,9 @@ so Claude Code can drive MIS as a harness. Llama stays tool-blind plain text.
 Non-streaming tool_use is wired here; streaming tool_use
 (content_block_start{type:tool_use} + input_json_delta) is deferred.
 
-Qwen's grammar comes from the runtime through the mila binding; Gemma's is still the
-Python gemma_protocol reimplementation. Those are the two halves of the same
-migration, not two designs -- see BACKLOG.
+Both families' grammars come from the runtime through the mila binding, so nothing here
+renders a template. What stays local is wire-shape adaptation: Anthropic names a tool's
+schema `input_schema` where the declaration renderer reads `parameters`.
 """
 import json
 import logging
@@ -25,7 +25,7 @@ from mila_llm_server.protocols.base import ProtocolAdapter
 from mila_llm_server.protocols.utils import DEFAULT_SYSTEM_PROMPT, extract_content
 from mila_llm_server.prompt import build_instruct_prompt
 from mila_llm_server.config import settings, loaded, ModelFamily
-from mila_llm_server import gemma_protocol, qwen_bridge
+from mila_llm_server import gemma_bridge, qwen_bridge
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +149,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
     def _normalize_tools(self, tools: list) -> list:
         """
         Adapt Anthropic tool defs ({name, description, input_schema}) to the
-        OpenAI-ish shape gemma_protocol.build_tool_injection consumes (it reads
+        OpenAI-ish shape gemma_bridge.tool_declarations consumes (it reads
         `parameters`, not Anthropic's `input_schema`).
         """
         normalized = []
@@ -185,7 +185,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
         ends on a tool result leaves that model turn open so the model continues it
         (mirrors responses.py / the chat harness splice-and-resume).
         """
-        tool_injection = gemma_protocol.build_tool_injection(self._normalize_tools(tools))
+        tool_injection = gemma_bridge.tool_declarations(self._normalize_tools(tools))
         # Bring-up: the tool declarations land in the SYSTEM turn (front of the
         # prompt), so they never appear in the _dispatch tail log -- log length +
         # head here to confirm they are actually injected, not filtered.
@@ -239,18 +239,18 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
                     name = block.get("name", "tool")
                     pending_names[block.get("id", "")] = name
                     append_model_tool_span(
-                        gemma_protocol.format_tool_call(name, json.dumps(block.get("input", {}))))
+                        gemma_bridge.format_tool_call(name, json.dumps(block.get("input", {}))))
 
                 elif btype == "tool_result":
                     name = pending_names.get(block.get("tool_use_id", ""), "tool")
                     append_model_tool_span(
-                        gemma_protocol.format_tool_response(
+                        gemma_bridge.format_tool_response(
                             name, self._tool_result_text(block.get("content", ""))))
 
         # If the transcript ends on a tool exchange the model must continue that
         # same model turn; otherwise a fresh model turn is primed.
         continue_open = bool(turns) and turns[-1].get("tool", False)
-        return gemma_protocol.assemble_prompt(system_block, turns, continue_open)
+        return gemma_bridge.format_prompt(system_block, turns, continue_open)
 
     def _build_qwen_prompt(self, messages: list, system_prompt: str, tools: list) -> str:
         """
@@ -345,7 +345,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
     def parse_tool_call_from_text(self, text: str) -> dict | None:
         """Detect a native tool call in the raw model output, in the loaded family's grammar."""
         if loaded.family == ModelFamily.gemma:
-            return gemma_protocol.parse_tool_call(text)
+            return gemma_bridge.parse_tool_call(text)
 
         if loaded.family == ModelFamily.qwen:
             return qwen_bridge.parse_tool_call(text)
@@ -355,7 +355,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
     def clean_response_text(self, text: str) -> str:
         """Reduce raw model output to the user-facing answer."""
         if loaded.family == ModelFamily.gemma:
-            return gemma_protocol.extract_answer(text)
+            return gemma_bridge.answer_text(text)
 
         if loaded.family == ModelFamily.qwen:
             return qwen_bridge.answer_text(text)

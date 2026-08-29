@@ -10,11 +10,11 @@ library_name: mila
 
 # GPT-2 Small — FP32 for Mila
 
-A [Mila](https://github.com/ToddThomson/Mila) artifact of `openai-community/gpt2`, in safetensors
-format, at the precision the weights were released in.
+`openai-community/gpt2`, converted for [Mila](https://github.com/ToddThomson/Mila) and published
+in safetensors format, at the precision the weights were released in.
 
 **622 MiB.** It is the reference model in Mila's catalogue rather than a deployment target: the
-smallest thing that exercises the whole path end to end, and the only published artifact that is
+smallest thing that exercises the whole path end to end, and the only published model that is
 not quantized.
 
 ## What this is for
@@ -30,7 +30,7 @@ because each of them is a design decision rather than a defect:
 - **Completion is the mode it belongs to**, along with the training path — Mila's `Bard` sample
   trains a GPT-2 stack from scratch.
 
-It is also the artifact to reach for when what you are testing is Mila rather than the model:
+It is also the one to reach for when what you are testing is Mila rather than the model:
 622 MiB resolves, pulls, verifies, adopts and loads in the time a 12B spends on its first file.
 
 ## Files
@@ -74,7 +74,7 @@ No token is required — this repository is public and ungated.
 ## Precision
 
 FP32, exactly as released. There is no quantized build here, and the name carries no precision
-suffix for that reason: the other artifacts in this catalogue are pre-quantized deployment builds,
+suffix for that reason: the other models in this catalogue are pre-quantized deployment builds,
 and this one is not.
 
 FP32 is also what Mila's training path is validated against, which is the second reason to leave it

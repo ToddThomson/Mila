@@ -173,6 +173,58 @@ namespace Mila::Bindings
     /// Qwen's control tokens, as the checkpoint vocabulary registers them.
     export ProtocolTokens qwenProtocolTokens();
 
+    /**
+     * @brief Render a Gemma 4 conversation into the prompt its checkpoint was trained on.
+     *
+     * The whole template is here rather than in the caller: turn structure, the role spellings,
+     * the empty-thought prime that opens a fresh model turn, and where declarations attach to
+     * the system turn. A host supplies a conversation and gets a prompt.
+     *
+     * @param tool_declarations What gemmaToolDeclarations returns, or empty for none.
+     * @param continue_open Emit the final turn OPEN so the next token continues it, which is
+     *        the shape after a tool response. No thought prime is emitted in that case -- the
+     *        turn already carries its channel, and a second one mid-turn is off-distribution.
+     *
+     * @throws std::runtime_error if a role is not one of the four, or if continue_open is set
+     *         on an empty history.
+     */
+    export std::string gemmaFormatPrompt(
+        const std::vector<TurnInfo>& history,
+        const std::string& tool_declarations,
+        bool continue_open );
+
+    /**
+     * @brief Tool schemas rendered in Gemma's trained <|tool>declaration:...<tool|> grammar.
+     *
+     * @param tools_json A JSON array of tool schemas, OpenAI function envelopes or bare
+     *        declarations. Which tools to advertise is the host's choice: a harness with
+     *        UI-only tools filters them out before calling.
+     */
+    export std::string gemmaToolDeclarations( const std::string& tools_json );
+
+    /// The most recent tool call in a Gemma response, or nothing when it holds none.
+    export std::optional<ToolCallInfo> gemmaParseToolCall( const std::string& response );
+
+    /// One assistant tool call rendered back into the native call grammar, for replay.
+    export std::string gemmaFormatToolCall( const std::string& name, const std::string& arguments );
+
+    /**
+     * @brief A client-executed tool result in Gemma's <|tool_response> grammar.
+     *
+     * A JSON envelope surfaces only its primary output field; metadata siblings are dropped, and
+     * a failed tool's `error` is surfaced explicitly so the model does not blind-retry.
+     */
+    export std::string gemmaFormatToolResponse( const std::string& name, const std::string& result );
+
+    /// A channel-structured response reduced to the user-facing answer.
+    export std::string gemmaExtractAnswer( const std::string& text );
+
+    /// Every registered control token removed from decoded text.
+    export std::string gemmaStripControlTokens( const std::string& text );
+
+    /// Gemma's control tokens, as the checkpoint vocabulary registers them.
+    export ProtocolTokens gemmaProtocolTokens();
+
     export class Tokenizer
     {
     public:
@@ -183,7 +235,7 @@ namespace Mila::Bindings
         /**
          * @brief The tokenizer of an installed model, by store name.
          *
-         * Which loader to use is a property of the artifact, not of the caller, so the
+         * Which loader to use is a property of the weights, not of the caller, so the
          * record decides it. That is what removes the pairing a consumer previously had to
          * keep correct by hand: a tokenizer path and a weights path that had to describe
          * the same model, with nothing checking that they did.
@@ -214,26 +266,26 @@ namespace Mila::Bindings
     // Quantization is named the way the store names it -- "bf16", "fp8", "fp4", and for Qwen
     // "cb2-3" -- by both session entry points, so a variant means the same thing
     // whether it came from a record or from a caller. "fp32" is rejected rather than ignored:
-    // these sessions are BF16 instantiations, and loading an FP32 artifact at BF16 is a
+    // these sessions are BF16 instantiations, and loading FP32 weights at BF16 is a
     // different model than the one asked for.
 
     export class LlamaSession
     {
     public:
         /**
-         * @param quantization Applied on the way in, against an unquantized artifact. A
-         *        pre-quantized artifact must be loaded through fromStore, which reads what
-         *        its bytes already are.
+         * @param quantization Applied on the way in, against unquantized weights.
+         *        Pre-quantized weights must be loaded through fromStore, which reads what
+         *        their bytes already are.
          */
         static std::unique_ptr<LlamaSession> fromPretrained(
             const std::string& path, int64_t context_length, int device_index,
             const std::string& quantization );
 
         /**
-         * @brief Load an installed model by store name, as the artifact itself is.
+         * @brief Load an installed model by store name, as its weights already are.
          *
          * The record decides the quantization, which is the whole point: a published
-         * artifact is already FP4 or FP8 bytes, and a caller-supplied flag could only agree
+         * model is already FP4 or FP8 bytes, and a caller-supplied flag could only agree
          * with them by luck. Nothing here reaches a network -- an uninstalled name is an
          * error, never a download.
          *
@@ -427,7 +479,7 @@ namespace Mila::Bindings
          * whichever transport this build was compiled with.
          *
          * @throws std::runtime_error if the name is path-shaped, the manifest is malformed, a
-         *         digest does not match, or the artifact requires a newer Mila.
+         *         digest does not match, or the model requires a newer Mila.
          */
         StoredModelInfo pull(
             const std::string& name,
@@ -459,7 +511,7 @@ namespace Mila::Bindings
     {
     public:
         /**
-         * @param quantization Applied on the way in, against an unquantized artifact.
+         * @param quantization Applied on the way in, against unquantized weights.
          *        Defaults to FP4 at the binding layer rather than to none: a BF16 Gemma 4
          *        12B needs ~24 GB and would OOM at load on the cards this targets.
          */
@@ -498,7 +550,7 @@ namespace Mila::Bindings
      *
      * Mirrors GemmaSession. Two deployments are published -- a per-group FP4 build and a
      * codebook build that spends 2 and 3 bits per weight across the body -- and both are
-     * pre-quantized artifacts, so fromStore is the entry point that matters.
+     * pre-quantized, so fromStore is the entry point that matters.
      */
     export class QwenSession
     {
@@ -506,8 +558,8 @@ namespace Mila::Bindings
         /**
          * @param quantization Defaults to FP4 at the binding layer for the same reason
          *        GemmaSession does: a BF16 27B does not fit any card this targets.
-         *        "cb2-3" names a plan fitted offline, so it selects a packed
-         *        artifact's format rather than applying anything on the way in.
+         *        "cb2-3" names a plan fitted offline, so it selects packed
+         *        weights' format rather than applying anything on the way in.
          */
         static std::unique_ptr<QwenSession> fromPretrained(
             const std::string& path, int64_t context_length, int device_index,

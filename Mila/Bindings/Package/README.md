@@ -26,7 +26,7 @@ model.generate_streaming(tokenizer.encode(prompt), print)
 ```
 
 A model is named, not pathed. `from_store` reads the local store's record, which is
-what knows the artifact is already FP4 — so nothing pairs a weights path with a
+what knows the weights are already FP4 — so nothing pairs a weights path with a
 tokenizer path, and nothing has to be told what the bytes are. **Pull and load are
 separate verbs**: a load never reaches the network, so an uninstalled name is an
 error rather than a surprise download.
@@ -71,8 +71,8 @@ Stated because the limits are documentation, not an omission from it.
   HTTP client of its own.
 - **A load never downloads.** `pull` and `from_store` are separate calls on purpose.
 - **No GPT-2.** It exists in the C++ library and is not bound.
-- **A published artifact's quantization is fixed** — its bytes are already FP4 or
-  FP8. Choosing a quantization applies only to an unquantized artifact loaded by path.
+- **A published model's quantization is fixed** — its bytes are already FP4 or
+  FP8. Choosing a quantization applies only to unquantized weights loaded by path.
 - **No training**, no batching, and a model instance is not thread-safe: serialize
   calls through a single worker thread.
 - **Text in, text out.** No embeddings, logits, or hidden-state access.

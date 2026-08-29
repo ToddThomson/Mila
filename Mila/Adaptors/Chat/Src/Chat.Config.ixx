@@ -46,12 +46,12 @@ namespace Mila::ChatApp
         FP4,   ///< INT4 weights + FP8 KV cache (PerGroupInt4 + PerChannelKvFp8). W4A16 kernel path.
 
         /**
-         * The family's own per-role bit allocation, from a pre-quantized artifact
+         * The family's own per-role bit allocation, from pre-quantized weights
          * (WeightQuantization::Plan). Qwen 3.8 spends 2 and 3 bits per weight across the body
          * against 4.125 on full attention, which averages 2.82.
          *
          * Unlike the three above this can never be a load-time choice: a codebook is fitted
-         * offline against calibration data, so an artifact either carries the codes or cannot
+         * offline against calibration data, so the weights either carry the codes or cannot
          * be built this way at all.
          */
         Codebook,
@@ -114,7 +114,7 @@ namespace Mila::ChatApp
 
         // Accepted although it can never be applied at load, so that a user who names the
         // variant a model already IS gets the load they asked for rather than a vocabulary
-        // error. Naming it for an artifact that is not one is refused where the artifact is
+        // error. Naming it for a model that is not one is refused where the weights are
         // known, which is the only place the difference can be seen.
         if ( s == "cb2-3" )              return QuantizationMode::Codebook;
 
@@ -171,8 +171,8 @@ namespace Mila::ChatApp
         ModelPrecision        precision{ ModelPrecision::BF16 };
         QuantizationMode      quantization_mode{ QuantizationMode::None };
 
-        /// True when quantization_mode is a load-time choice rather than what the artifact
-        /// already is. A pre-quantized model carries it in its name; a dynamic one does not,
+        /// True when quantization_mode is a load-time choice rather than what the weights
+        /// already are. A pre-quantized model carries it in its name; a dynamic one does not,
         /// and that is the only case where quoting it tells the reader something.
         bool                  quantization_applied_at_load{ false };
         bool                  is_instruct{ false };
@@ -193,7 +193,7 @@ namespace Mila::ChatApp
 
         /// Lineage of the loaded model, from its store record. `license` is the identifier the
         /// manifest declares (llama3.1, apache-2.0), not the text; the text ships with the
-        /// artifact on the hub. Both are empty for a model whose record declares neither.
+        /// model on the hub. Both are empty for a model whose record declares neither.
         std::string           base_model;
         std::string           license;
 

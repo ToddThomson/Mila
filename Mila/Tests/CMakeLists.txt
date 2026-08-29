@@ -236,6 +236,10 @@ if(MILA_ENABLE_CUDA)
         # without the fixture; see the file header for how to produce it.
         "Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp"
         "Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp"
+        # Observability's whole-model cost criterion. NOT under Models/: publication is a
+        # Component facility, so the two chassis it runs on are two samples of one
+        # measurement. DISABLED, and skips without a real checkpoint.
+        "Dnn/Observation/ObservationCost.Cuda.cpp"
         # The generation context bound. CUDA rather than CPU because the CPU operation
         # layer takes its extents from build(), so a CPU model cannot run a prompt
         # shorter than its built context and never reaches the loop under test.

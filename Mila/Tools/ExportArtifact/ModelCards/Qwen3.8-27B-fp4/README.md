@@ -11,47 +11,52 @@ library_name: mila
 
 # Qwen3.8 27B Instruct — FP4 for Mila
 
-A pre-quantized [Mila](https://github.com/ToddThomson/Mila) artifact of `Qwen/Qwen3.8-27B`, in
-safetensors format. The weights have been modified: they are quantized to FP4 E2M1 with
-per-group FP32 scales.
+`Qwen/Qwen3.8-27B` quantized to FP4 for [Mila](https://github.com/ToddThomson/Mila). It reasons
+before it answers, and it calls tools. (Qwen publishes the untuned model as `Qwen3.8-27B-Base`,
+so the plain name is the instruction-tuned one.)
 
-`Qwen/Qwen3.8-27B` is the **instruction-tuned** checkpoint — Qwen marks the untuned variant
-`-Base`, which is why neither name carries an `-it` or `-Instruct` suffix. It has a reasoning
-channel and a trained tool-calling grammar, both of which Mila drives natively.
+## What it needs
 
-**15.1 GB**, down from 50.1 GB at BF16. The packing is done once here instead of on every load,
-so a Mila session starts without first quantizing 27 billion parameters.
+A **16 GB** card. The download is 15.1 GiB, down from 50.1 GiB at BF16.
 
-Weights occupy 12.71 GB on the device, so this build wants a 16 GB card. For a 12 GB card, use
-[Qwen3.8-27B-cb2-3](https://huggingface.co/mila-llm/Qwen3.8-27B-cb2-3),
-which trades 13.9% higher perplexity for a residency that fits. This build is the more accurate
-of the two, and it is the oracle that figure is measured against.
+For a 12 GB card, use [Qwen3.8-27B-cb2-3](https://huggingface.co/mila-llm/Qwen3.8-27B-cb2-3),
+which fits in less memory at 13.9% higher perplexity.
+
+## Use
+
+```
+/model install Qwen3.8-27B-fp4
+/model load Qwen3.8-27B-fp4
+```
+
+`/model list` shows what you have installed, `/model list --online` what you can install.
+
+Thinking is hidden by default. `/verbose thoughts` shows it, `/thinking off` turns it off.
+
+## Quality
+
+Perplexity on wikitext-2 test — lower is better:
+
+| Context | 4096 | 8192 | 16384 |
+|---|---|---|---|
+| | 6.439 | 6.126 | 5.686 |
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `qwen38_27b_fp4.safetensors` | Weights: packed FP4 E2M1 with per-group FP32 scales |
+| `qwen38_27b_fp4.safetensors` | The weights |
 | `qwen38_tokenizer.bin` | Mila tokenizer |
-| `mila.json` | Manifest: file digests, quantization scheme, minimum Mila version |
+| `mila.json` | Manifest: file digests, quantization, minimum Mila version |
 | `LICENSE` | Apache 2.0, as published with the base model |
 
-## Use
+## Quantization
 
-From the Mila chat harness:
+The transformer blocks' linear weights are FP4 E2M1, two values packed per byte, with FP32 absmax
+scales per group of 128 along the input axis. Norms and embeddings stay BF16. Nothing was
+fine-tuned, distilled or otherwise changed about what the model learned.
 
-```
-/model install Qwen3.8-27B-fp4
-/model Qwen3.8-27B-fp4
-```
-
-Installing is a deliberate step, and it is the only one that touches the network. It verifies
-each file against the digest in `mila.json` and leaves it in a content-addressed local store;
-every load afterwards reads the store and nothing else. `/model list --online` lists what is
-published, and `/model list` lists what is already installed.
-
-Qwen3.8 has a reasoning channel. Mila's chat harness opens it by default and shows the answer
-alone; `/thinking off` closes it, and `/verbose thoughts` shows the reasoning as well.
+This is Mila's own format — not NVFP4 or MXFP4 — so `transformers` and vLLM cannot load it.
 
 ## License
 

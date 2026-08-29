@@ -148,6 +148,76 @@ namespace Mila::Bindings
         };
     }
 
+    std::string gemmaFormatPrompt(
+        const std::vector<TurnInfo>& history,
+        const std::string& tool_declarations,
+        bool continue_open )
+    {
+        const std::vector<Conversation::Turn> turns = toConversationTurns( history );
+
+        // std::invalid_argument reaches Python as ValueError rather than as the RuntimeError
+        // this surface documents. Translated so one refusal shape covers the whole call.
+        try
+        {
+            return Gemma::formatPrompt( turns, tool_declarations, continue_open );
+        }
+        catch ( const std::invalid_argument& error )
+        {
+            throw std::runtime_error( error.what() );
+        }
+    }
+
+    std::string gemmaToolDeclarations( const std::string& tools_json )
+    {
+        return Gemma::serializeToolDeclarations( tools_json );
+    }
+
+    std::optional<ToolCallInfo> gemmaParseToolCall( const std::string& response )
+    {
+        const auto call = Gemma::parseToolCall( response );
+
+        if ( !call.has_value() )
+        {
+            return std::nullopt;
+        }
+
+        return ToolCallInfo{ call->name, call->arguments };
+    }
+
+    std::string gemmaFormatToolCall( const std::string& name, const std::string& arguments )
+    {
+        return Gemma::formatToolCall( name, arguments );
+    }
+
+    std::string gemmaFormatToolResponse( const std::string& name, const std::string& result )
+    {
+        return Gemma::formatToolResponse( name, result );
+    }
+
+    std::string gemmaExtractAnswer( const std::string& text )
+    {
+        return Gemma::extractAnswer( text );
+    }
+
+    std::string gemmaStripControlTokens( const std::string& text )
+    {
+        return Gemma::stripControlTokens( text );
+    }
+
+    ProtocolTokens gemmaProtocolTokens()
+    {
+        return ProtocolTokens{
+            .turn_open           = std::string( Gemma::kTurnOpen ),
+            .turn_close          = std::string( Gemma::kTurnClose ),
+            .reasoning_open      = std::string( Gemma::kChannelOpen ),
+            .reasoning_close     = std::string( Gemma::kChannelClose ),
+            .tool_call_open      = std::string( Gemma::kToolCallOpen ),
+            .tool_call_close     = std::string( Gemma::kToolCallClose ),
+            .tool_response_open  = std::string( Gemma::kToolResponseOpen ),
+            .tool_response_close = std::string( Gemma::kToolResponseClose ),
+        };
+    }
+
     // ---- Distribution -------------------------------------------------------
 
     std::string defaultHubOwner()
@@ -265,7 +335,7 @@ namespace Mila::Bindings
          * rather than a workaround. And the codebook build is a variant no other family has.
          *
          * Same shape as the chat harness's applyQwenQuantization, deliberately: two adaptors
-         * loading one artifact differently is two models wearing one name.
+         * loading one set of weights differently is two models wearing one name.
          */
         void applyQwenQuantizationVariant(
             QwenModelConfig& model_config, const std::string& variant, const std::string& subject )

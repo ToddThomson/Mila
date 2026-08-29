@@ -1,93 +1,43 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ---
 
 ## Project Overview
 
-Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It is in public beta (currently **`0.20.0-beta.2`**, hardening toward the v0.20 first production release). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It is in public beta (see `Version.txt` for the current version; hardening toward the v0.20 first production release). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
 
 ### Two different "freezes" — do not conflate them
 
 - **The feature freeze covers `Mila/Src` only.** Everything outside it — `Mila/Adaptors` (Chat, MIS), `Mila/Bindings`, `Mila/Samples`, `Mila/Tools`, `Web/`, and every document — is polish and hardening by definition and is **in** v0.20 scope. Never cite the freeze at work outside `Mila/Src`. An adaptor adds no capability to the library, it only exposes what the library already has, so a gap between what Mila can do and what Chat or MIS reaches is a defect in the demonstration, not a feature request. When such work genuinely is blocked, the blocker is the new `Mila/Src` capability it needs — name that, never the freeze. Model Distribution is a deliberate carve-in and is pre-beta code, so changes to it inside `Mila/Src` are justified rather than exceptions.
 - **A release-window hold is not the feature freeze.** During a release the user may close `dev` to *all* commits so that built artifacts (wheels, tagged trees) stay valid. That is temporary, covers the whole tree regardless of scope, and lifts when the tag is pushed. Say which one is blocking a change; "the tree is frozen" is ambiguous and has caused this exact error more than once.
 
-Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4), Llama 3.1 8B Instruct (FP4 default, FP8 alternative), and Gemma 4 12B Instruct (FP4). The chat CLI default is Gemma 4 12B FP4.
+Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4), Llama 3.1 8B Instruct (FP4 default, FP8 alternative), Gemma 4 12B Instruct (FP4), and Qwen 3.8 27B (FP4, and a mixed 2/3-bit codebook build averaging 2.82 bits). The chat harness has **no compiled-in default model** — a fresh store has none, and one is installed by name.
 
 ---
 
 ## Build
 
-**Toolchain:** Visual Studio 2026 18.6.2 or newer (earlier 2026 builds have a C++23 module regression that breaks the Mila build; 18.6.2 fixed it), CUDA Toolkit 13.0+ (CI-tested on 13.0, developed on 13.3), CMake 4.0+, Ninja (required for C++23 module incremental builds), Git 2.x+ (validated on 2.54.0; CPM fetches dependencies via `git clone` at configure time), GTest 1.17.0, C++23.
+The user builds exclusively inside **Visual Studio 2026**. Ninja is required — C++23 module incremental builds need it.
 
-**C++ compilers:** the C++23 modules require MSVC (VS 2026 18.6.2+), Clang 19+, or GCC 15.3+. GCC 15.2 and earlier cannot compile the modules (validated: GCC 16 works, 15.2 fails); on Ubuntu 26.04 install the `gcc-16` package. In CUDA builds the C++ compiler handles the module units while nvcc uses a separate host compiler for `.cu` files (no modules there), so an older host GCC is acceptable for that role. Cross-compiler builds (Clang/GCC) surface missing `#include`s that MSVC resolves transitively — these are real portability fixes.
+**The C++23 modules constrain the compiler:** MSVC (VS 2026 18.6.2+ — earlier 2026 builds have a module regression that breaks Mila), Clang 19+, or GCC 15.3+. GCC 15.2 and earlier cannot compile them (validated: 16 works, 15.2 fails). In CUDA builds the C++ compiler handles the module units while nvcc uses a separate host compiler for `.cu` files, so an older host GCC is fine in that role. Cross-compiler builds surface missing `#include`s that MSVC resolves transitively — those are real portability fixes, not Clang being difficult.
 
-The user builds exclusively inside **Visual Studio 2026** — never run `git commit`, `git add`, or `git push` commands. Do not volunteer commit messages; only suggest one when the user explicitly says they are ready to commit, then let the user commit.
-
-```bash
-# CMake configure (Ninja, Debug)
-cmake -S . -B out/build/x64-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
-
-# Build
-cmake --build out/build/x64-debug
-
-# Run all tests
-ctest --test-dir out/build/x64-debug
-
-# Run a single test binary (example)
-./out/build/x64-debug/Mila/Tests/Dnn/Components/Activations/Gelu/GeluTests
-```
-
-CMake presets are in `CMakePresets.json`: `x64-debug`, `x64-release`, `x64-profile`, `x64-coverage`, `x64-validate` (pre-commit full validation), `x64-release-cpm-gate` (post-tag release smoke test), `x86-debug`, `x86-release`, plus the Linux/WSL presets `linux-clang-debug`/`-release` and `linux-clang-cpu-debug`/`-release`. The output directory is always `out/build/<preset-name>`. Note: VS 2026 shows each preset's `displayName`, not its `name` (e.g. `x64-validate` appears as "x64 Release (full validation - run before committing)").
+Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. VS 2026 shows each preset's `displayName`, not its `name` (`x64-validate` appears as "x64 Release (full validation - run before committing)"). The unit tests build into **one binary**, `Mila/Tests/MilaTests` — narrow with `--gtest_filter`; `ChatRichTextTests` is the one separate target.
 
 ---
 
 ## Repository Layout
 
-```
-Mila/
-  Src/Dnn/
-    Components/       DNN building blocks (Linear, Attention, Normalization, Activations, etc.)
-      Transformers/   GptBlock/GptTransformer, LlamaBlock/LlamaTransformer
-      Linear/         Linear.ixx — the reference component for OperationTraits dispatch
-      Attention/      GroupedQueryAttention, MultiHeadAttention
-      Normalization/  RmsNorm, LayerNorm
-      Activations/    Gelu, Swiglu (SiLU)
-      Embeddings/     TokenEmbedding
-      Encodings/      RoPE, LPE
-      FFN/            MLP
-    Compute/          Device abstractions, dispatch, execution context
-      Devices/Cuda/   CudaExecutionContext, CudaDevice, CUDA operation impls
-        Operations/   CudaLinearOp, CudaGqaOp, CudaMhaOp, CudaGeluOp, etc.
-      Devices/Cpu/    CpuExecutionContext, CPU operation impls
-      Operations/     OperationTraits.Template.ixx, OperationTraits.ixx (.Cuda/.Cpu partitions)
-                      OperationType.ixx, OperationBase.ixx
-    Models/           GptModel.ixx, LlamaModel.ixx, LlamaModelConfig.ixx
-    Quantization/     Weight/Policies.ixx (NoWeightQuant, PerChannelFp8<>, PerGroupFp4<>)
-                      KvCache/Policy.ixx (NoKvCompression, SlidingWindowKvCache;
-                      PerChannelKvFp8<> is planned for Qwen 3, not yet a type)
-    Tensors/          Tensor<T, MR> and memory resources
-    Serialization/    Model weight loading from binary blobs
-  Tests/Dnn/          GTest unit tests — mirrors Src/Dnn tree
-  Bindings/           Mila's Python projection (mila.pyd, module Mila.Bindings) — runtime-adjacent,
-                      consumer-blind; consumed by MIS and the parity/converter tooling
-  Adaptors/           First-class consumer adaptors over the runtime (see MilaProductFamily.md)
-    Chat/Src/         Chat CLI harness — human-gate adaptor (maintained surface; see API boundary)
-    Inference/Server/ Mila Inference Server (MIS): Python wire adaptor; imports the mila binding
-  Samples/
-    MNIST/            MNIST training loop sample
-    Bard/             GPT-2 text generation sample
-  Tools/
-    Converters/       Python scripts: convert_llama_weights.py, etc. (HuggingFace → Mila binary)
-    Tokenize/         Tokenizer tools
-  Specifications/     Design documents (OperationDispatch.md, Quantization.md, etc.)
-Data/
-  Models/             Binary weight files (llama32_3b_instruct_bf16.bin, llama31_8b_instruct_bf16.bin, etc.)
-  Scripts/            Python dev/conversion scripts
-```
+Browse the tree for what is where. What the tree does not tell you:
 
-`Dev/` is gitignored and is not part of the project. Do not read from it or reference it.
+- **`Mila/Src/`** is the runtime and the only place under the feature freeze. `Components/`, `Compute/`, `Models/`, `Quantization/`, `Tensors/`, `Serialization/`. `Models/` and `Components/Transformers/` are split per family (`Gemma`, `Gpt`, `LlaMa`, `Qwen`) — a family owns its model, config and chat protocol together.
+- **`Mila/Bindings/`** is the Python projection, and is **consumer-blind**: it knows nothing about Chat or MIS. Session depth only, never components.
+- **`Mila/Adaptors/`** are first-class consumers, not samples — `Chat/` (human gate) and `Inference/Server/` (MIS, the wire adaptor, which imports the binding). See `Specifications/MilaProductFamily.md`.
+- **`Mila/Samples/`** is teaching code and must run in any user's environment. `QuickStart/Cpp` and `QuickStart/Python` are the paths the website's Get Started tabs link to, so they are a published surface.
+- **`Mila/Tools/`** is developer tooling and **none of it ships** — the wheel excludes it and a FetchContent consumer never configures it. `Tools/README.md` is the index.
+- **`Data/`** holds weights, packages and corpora, all gitignored; only directory READMEs are tracked.
+- **`Dev/`** is gitignored and is **not part of the project**. Never read from it or reference it.
+
+`Linear` (`Components/Linear/Linear.ixx`) is the reference implementation of every dispatch pattern below — read it first when touching a component or operation.
 
 ---
 
@@ -95,11 +45,11 @@ Data/
 
 ### Compile-Time Type Axes
 
-Every component and operation is templated on two independent axes:
+Every component and operation is templated on independent axes:
 
 - **`TDeviceType`** (`DeviceType::Cpu` or `DeviceType::Cuda`) — determines memory resource and kernel dispatch.
 - **`TPrecision`** (`TensorDataType::FP32`, `BF16`, etc.) — activation input and compute type. BF16 is the primary reduced-precision target; FP16 is not used.
-- **`TWeightQuant`** (on `Linear` only) — compile-time weight quantization policy. Defaults to `NoWeightQuant`. Setting `PerChannelFp8<>` or `PerGroupFp4<128>` selects the storage format the artifact must already carry — no runtime config object.
+- **`TWeightQuantization`** (on `Linear` only) — compile-time weight quantization policy. Defaults to `NoWeightQuant`. Setting `PerChannelFp8<>`, `PerGroupFp4<128>` or a codebook policy selects the storage format the weights must already carry — no runtime config object.
 
 ### Operation Dispatch — OperationTraits
 
@@ -108,7 +58,7 @@ Components resolve their concrete operation type at compile time via:
 ```cpp
 using OpType = typename Compute::OperationTraits<
     Compute::OperationType::LinearOp,
-    TDeviceType, TComputePrecision, TWeightQuant>::type;
+    TDeviceType, TComputePrecision, TWeightQuantization>::type;
 ```
 
 The `OperationTraits` primary template is in `Compute/Operations/OperationTraits.Template.ixx`. Specializations live in `OperationTraits.Cuda.ixx` (`:Cuda` partition) and `OperationTraits.Cpu.ixx` (`:Cpu` partition). A missing specialization is a **hard compile error**, not a runtime miss. The old `OperationRegistry` string-keyed runtime dispatch is being phased out — do not add new `*Registrar` classes.
@@ -117,28 +67,23 @@ The `OperationTraits` primary template is in `Compute/Operations/OperationTraits
 
 ### Component Lifecycle
 
-Components derive from `Component<TDeviceType, TPrecision>`. Operations derive from `Operation<TDeviceType, TPrecision>`. `UnaryOperation`, `BinaryOperation`, and `PairedOperation` intermediate base classes are being removed — new ops derive directly from `Operation`.
+Each component owns its parameters and gradients. Composition is explicit with no shared global state, and `IExecutionContext*` is passed at construction.
 
-Each component owns its parameters (weights, biases) and gradients. Composition is explicit with no shared global state. `IExecutionContext*` is passed at construction.
+Direction of travel, so new code moves with it rather than against it: the `UnaryOperation` / `BinaryOperation` / `PairedOperation` intermediate bases are being removed — derive new operations directly from `Operation`.
 
 ### Model Entry Points
 
-- `LlamaModel::fromPretrained(path, config)` — loads weights from binary blob, dispatches to `fromPretrainedImpl<TWeightQuant, TKvPolicy>` based on `ChatConfig::QuantizationMode`.
-- `GptModel::fromPretrained(path, config)` — equivalent for GPT-2.
-- Both use a two-phase KV-cache: prefill (full sequence) + decode (one token at a time, outer_size == 1).
+- `<Family>Model::fromPretrained(path, config, device_id)` — reads the weights, then dispatches to `fromPretrainedImpl<TWeightQuantization, TKvCachePolicy>` on the config's `WeightQuantization`. One per family: Gemma, Llama, Gpt, Qwen.
+- The dispatch is `Models/QuantizationDispatch.ixx`. It keys on `LanguageModelConfig`'s own enum — **never on an adaptor's type.** `ChatConfig` lives in Chat and `Mila/Src` must not know it exists.
+- All use a two-phase KV-cache: prefill (full sequence) + decode (one token at a time, outer_size == 1).
 
 ### Quantization Pipeline
 
-Weight quantization is offline: `Tools/ExportArtifact` produces a pre-quantized safetensors artifact that declares its policy in `__metadata__["mila_quantization"]`, a load refuses an artifact whose policy is not the compiled one, and `Linear::loadParameter` uploads packed bytes directly. Sub-4-bit codebook formats have no other path — their tables are fitted offline against calibration data. Design of record: `Mila/Specifications/Quantization.md`.
+Weight quantization is offline: `Tools/ExportArtifact` produces pre-quantized safetensors weights that declare their policy in `__metadata__["mila_quantization"]`, a load refuses weights whose policy is not the compiled one, and `Linear::loadParameter` uploads packed bytes directly. Sub-4-bit codebook formats have no other path — their tables are fitted offline against calibration data by `Tools/Quantization`, and `ExportArtifact` is the only writer. Design of record: `Mila/Specifications/Quantization.md`.
 
-Quantize-on-load survives as a transitional path for FP8 and FP4 only, selected on the blob's dtype (`Linear.ixx:601`):
-1. Converter always writes BF16.
-2. `Linear<Cuda, BF16, PerChannelFp8<>>` calls `operation_->quantize()` during `loadParameter()`.
-3. For FP8: per-channel absmax scales computed host-side, FP8 weights + FP32 scales uploaded to device; cuBLASLt handles mixed-precision GEMM natively.
-4. For FP4 E2M1: per-group absmax scales, weights packed as nibbles (2 per byte); dequantized inline during the W4A16 GEMM tile load via LUT.
-5. Decode path (outer_size == 1): dedicated `matvec_decode_bf16_qfp8_kernel` / `matvec_decode_bf16_qfp4_kernel` — bypasses cuBLASLt entirely.
+Quantize-on-load survives as the **exporter's own engine**, run once, for FP8 and FP4 only. Converters always write BF16; `Linear::loadParameter` branches on the stored dtype (`Linear.ixx:603`) and calls `operation_->quantize()`. It is not a deployment path — see `Quantization.md` for the per-format kernel detail.
 
-The `getDeviceScratchBuffer()` grow-on-demand shared scratch buffer in `ExecutionContext` is used for the FP8 2-phase dequant staging buffer — **fetch at `forward()` time, never cache the pointer across calls** (it may be reallocated on grow).
+**Trap:** the `getDeviceScratchBuffer()` grow-on-demand buffer in `ExecutionContext` backs the FP8 dequant staging — **fetch it at `forward()` time and never cache the pointer across calls**, since it is reallocated on grow.
 
 ---
 
@@ -152,14 +97,16 @@ without prior agreement (they consume the runtime; they are not the runtime's pu
 change to the core Mila library (`Mila/Src/`) still requires explicit agreement first.
 
 Key files:
-- `Chat.ixx` — main chat loop, model hot-switching (`/model <alias> [quant]`), tool call dispatch
-- `Chat.Config.ixx` — `ChatConfig` with `ModelType`, `ModelSize`, `ModelPrecision` (compute), `QuantizationMode` (none/fp8/fp4)
+- `Chat.ixx` — main chat loop, model hot-switching, tool call dispatch
+- `Chat.ModelCatalog.ixx` — resolves a store name to a loadable model, and owns the load refusals
+- `Chat.Config.ixx` — `ChatConfig` with `ModelType`, `ModelSize`, `ModelPrecision` (compute), `QuantizationMode` (none/fp8/fp4/codebook)
+- `Chat.Footprint.ixx` — what a model would allocate at a context length, without allocating it
 - `Chat.Renderer.ixx` — `ConsoleRenderer` (standalone non-exported module): braille spinner, solid-color response blocks, word-wrap with leading-indent preservation, Unicode welcome box, ANSI stats line
-- `main.cpp` — entry point; default model is Gemma 4 12B FP4
+- `main.cpp` — entry point and the compiled-defaults layer of the config resolution
 
-Model aliases: `gpt2`, `llama-1b`, `llama-3b`, `llama-8b`, and `-fp32` variants. `llama-8b` uses the `llama31` family prefix in filename construction; 1B/3B use `llama32`.
+Models are named by their store name, not by an alias table — `/model <name>` reports, `/model load <name> [quant]` loads, and lookup case-folds. See `Specifications/ChatConfiguration.md` for the layered config resolution.
 
-Gemma streams live token-by-token through `Chat.StreamingDisplay` (channel-aware — thinking / tool-call / final routed by the four control-token ids; a stream validator asserts the streamed transcript equals the buffered render). Llama and GPT-2 stay buffered until their sampler/tool migration, and streaming falls back to buffered when the vocabulary lacks the channel-routing tokens.
+Gemma streams live token-by-token through `Chat.StreamingDisplay` (channel-aware — thinking / tool-call / final routed by the four control-token ids; a stream validator asserts the streamed transcript equals the buffered render). Llama, GPT-2 and Qwen stay buffered, and streaming falls back to buffered when the vocabulary lacks the channel-routing tokens.
 
 ---
 
@@ -174,6 +121,7 @@ Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend s
 ## Code Style
 
 - **No abbreviations in identifiers.** All names must be spelled out in full: `Quantization` not `Quant`, `Parameter` not `Param`, `Context` not `Ctx`, `Index` not `Idx`, `Implementation` not `Impl`. Template parameters follow the same rule: `TWeightQuantization` not `TWeightQuant`. Exception: established acronyms like `Kv` (Key-Value), `Gqa`, `Mha`, `Mlp`, `Lpe`, `Bpe` are acceptable.
+- **The user has a model. Mila has that model's weights. CI has artifacts.** Applies to identifiers, CLI text, error strings, model cards and docs alike. A *model* is the thing a user names, installs and runs — it has an identity, a card and a licence. A *package* is the directory that carries one: manifest, weights, tokenizer, licence, card. The safetensors file itself is **weights** — which is what the manifest role and `--weights` already call it — never an "artifact". Reserve **artifact** for its universal build sense: wheels, Pages bundles, CI uploads. It is not a synonym for either of the other two, and the model cards are the surface where getting this wrong is most expensive.
 - **`dim_t` is the type of anything that describes a tensor axis** — its extent, a position within it, or a count of its elements — at every API, config, component, and operation-interface boundary. `size_t` never describes a dimension. Narrowing to the 32-bit index that kernels use happens exactly **once per call path**, at the kernel launch site, through `narrowToKernelIndex()` (`Tensor.Types.ixx`); kernel internals and the `*.Dispatch`/`*.Plans` layers stay `int`. Token ids are values, not extents, and are out of scope for this rule.
 - **`size_t` begins where element counts become bytes, or cross into a CUDA/std API.** Mila-owned helpers that only forward an element count keep `dim_t`. So `Tensor::size()` and `Component::parameterCount()` are `dim_t`, while `TensorBuffer` is `size_t` throughout (allocation layer — its overflow guards depend on unsigned semantics), and the `TensorOps` helpers carry `dim_t` and convert at the `cudaMemcpy` / `launch_*_kernel` edge. Note `TensorShape::size()` is the **rank** (a count of axes, not of elements) and stays `size_t`.
 - No column alignment with extra spaces — single-space formatting throughout.
@@ -184,6 +132,29 @@ Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend s
 - Comments explain WHY or state a non-obvious contract — never restate what the code does.
 - ASCII only in code comments (no Unicode symbols, emojis).
 - File-level Doxygen: one to three sentences maximum. Detail belongs on the symbol.
+
+---
+
+## End-User Prose
+
+Engineering language is right for **developers** and wrong for **users**. The split is by audience, and the test is which side of Mila's API someone stands on — not whether they write code. A developer calling `from_store()` is a user.
+
+- **Developers** — people working on Mila. Commit messages, `BACKLOG.md` / `ROADMAP.md` / worklogs, `Mila/Specifications/`, code comments, internal `NOTE:` / `REVIEW:` notes. Full technical depth, rejected alternatives, unfinished work, measurement methodology. Nothing below applies here.
+- **Users** — people running Mila. Model cards, `Web/`, `README.md`, `getting-started.md`, Chat's console output (`--help`, `/help`, error strings), MIS's user-visible errors, the pybind docstrings that become `help()`, `Samples/QuickStart/`, and public Doxygen on the API a consumer calls.
+
+**Name the reader and what they came for, then serve only that.** The reader differs per surface and the voice follows: a model card reader arrived from a model search and has never heard of Mila; an API-reference reader is calling a function and needs the contract exact; a website reader is deciding whether to look further. A model card answers five questions and nothing else — what is this, will it run on my hardware, how do I run it, is it any good, what may I do with it. Point at any sentence and name which question it serves; if you cannot, delete it.
+
+Five rules, all checkable. A rule that needs good taste in the moment fails, because in the moment the error does not feel like one:
+
+- **Could the reader act differently if this were false?** If not, cut the mechanism and keep the consequence. "The packing is done once here instead of on every load" is our pipeline; "loads without a wait" is what the reader gets.
+- **An alternative appears only where the reader might choose it.** "Deliberately not NVFP4 or MXFP4, so `transformers` and vLLM cannot consume it" stays — a reader really may try that. "Instead of on every load" goes; that is not a choice they have. Work we have not done yet is never actionable, so it never appears at all.
+- **A term the reader would not meet in the model's own upstream docs is a developer's term.** `chassis`, `oracle`, `residency`, `content-addressed` exist only inside Mila. `perplexity`, `safetensors`, `context`, `quantization` are the user's, and are fine.
+- **Depth increases down the page.** The first screen is plain answers; specification detail (E2M1, per-group scales, packed layouts) lives under its own heading below it.
+- **Never defend a decision.** The reader raised no objection. State the fact and stop.
+
+The tells are greppable, and worth a pass before anything is published: **deliberate/deliberately, on purpose, rather than, instead of, which is why, that is why, the reason**. Each marks a sentence that may be arguing rather than informing. Not banned — checked.
+
+**Mila's own positioning is the trap.** The project is a reference implementation, the stack you read, so its internals genuinely are the product — *in the repository*. A model card on HuggingFace is not the repository, and its reader did not come for them. Applying the repository's voice to an end-user surface is the single error that every symptom above falls out of.
 
 ---
 
@@ -235,10 +206,6 @@ never deferred to "later":
 
 ## Key Specifications
 
-Design decisions are documented under `Mila/Specifications/`:
-- `OperationDispatch.md` — the full `OperationTraits` design, migration checklist, file layout
-- `Quantization.md` — quantization policy design and scope table
-- `ModelSerialization.md` — checkpoint vs distribution artifact, the `ModelArchive` defects, phased build plan
-- `PromptCaching.md`, `TokenSampling.md`, `ToolCalling.md` — planned features
+`ls Mila/Specifications/` for the list. A spec is the **design of record** for its area: where one exists, it decides, and a decision that contradicts it is either wrong or a spec edit — not a silent divergence. `OperationDispatch.md`, `Quantization.md` and `ModelDistribution.md` are the three that most often settle an argument.
 
 Work is tracked across `ROADMAP.md` / `BACKLOG.md` / `CHANGELOG.md` — see **Work-Tracking Docs** above.

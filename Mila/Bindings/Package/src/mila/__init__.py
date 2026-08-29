@@ -14,7 +14,7 @@ This package is the Python projection of that runtime.
     model.generate_streaming(tokenizer.encode(prompt), print)
 
 A model is named, not pathed: from_store() reads the local store's record, which
-is what knows the artifact is already FP4. Install one first -- ModelStore().pull()
+is what knows the weights are already FP4. Install one first -- ModelStore().pull()
 here, or `/install` in the chat harness -- because a load never downloads.
 
 The GIL is released around generation, so a streaming callback runs on a live
@@ -41,6 +41,14 @@ __all__ = [
     "qwen_format_prompt",
     "qwen_parse_tool_call",
     "qwen_protocol_tokens",
+    "gemma_format_prompt",
+    "gemma_tool_declarations",
+    "gemma_parse_tool_call",
+    "gemma_format_tool_call",
+    "gemma_format_tool_response",
+    "gemma_extract_answer",
+    "gemma_strip_control_tokens",
+    "gemma_protocol_tokens",
     "cuda_library_directories",
     # Distribution: the local store, shared with Chat and the Inference Server.
     "ModelStore",
@@ -199,6 +207,14 @@ try:
         StoredModel,
         StoreUsage,
         default_hub_owner,
+        gemma_extract_answer,
+        gemma_format_prompt,
+        gemma_format_tool_call,
+        gemma_format_tool_response,
+        gemma_parse_tool_call,
+        gemma_protocol_tokens,
+        gemma_strip_control_tokens,
+        gemma_tool_declarations,
         initialize,
         qwen_format_prompt,
         qwen_parse_tool_call,

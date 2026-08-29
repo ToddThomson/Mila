@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 #include <string>
 #include <optional>
+#include <vector>
 
 import Mila;
 import nlohmann.json;
@@ -14,6 +15,10 @@ import nlohmann.json;
 namespace Mila::Tests::Dnn::Models
 {
     using namespace Mila::Dnn::Gemma;
+
+    // The family-neutral conversation the template renders. Aliased rather than a using
+    // directive: this namespace is itself called Dnn, so an unqualified one is ambiguous.
+    namespace Conversation = Mila::Dnn::Conversation;
 
     // ---- parseToolCall: detection + malformed input -------------------------
 
@@ -367,5 +372,224 @@ namespace Mila::Tests::Dnn::Models
         EXPECT_EQ( std::string( kStringDelimiter ), "<|\"|>" );
         EXPECT_EQ( std::string( kToolCallOpen ), "<|tool_call>" );
         EXPECT_EQ( std::string( kToolCallClose ), "<tool_call|>" );
+    }
+
+    // ---- Stray registered tokens --------------------------------------------
+    // The checkpoint slips pipe-bracketed tokens this grammar has not enumerated into values.
+    // Left in place they ride into the client's tool arguments -- the observed case is a path
+    // arriving as `foo.cpp<|>`.
+
+    TEST( GemmaProtocolParse, StrayPipeTokenScrubbedFromStringValue )
+    {
+        const auto call = parseToolCall(
+            R"(<|tool_call>call:read{path:<|"|>foo.cpp<|><|"|>}<tool_call|>)" );
+
+        ASSERT_TRUE( call.has_value() );
+        EXPECT_EQ( nlohmann::json::parse( call->arguments ).at( "path" ), "foo.cpp" );
+    }
+
+    TEST( GemmaProtocolParse, StrayPipeTokenScrubbedInsideContainer )
+    {
+        const auto call = parseToolCall(
+            R"(<|tool_call>call:edit{files:[<|"|>a.cpp<|><|"|>]}<tool_call|>)" );
+
+        ASSERT_TRUE( call.has_value() );
+        EXPECT_EQ( nlohmann::json::parse( call->arguments ).at( "files" ),
+            nlohmann::json::parse( R"(["a.cpp"])" ) );
+    }
+
+    TEST( GemmaProtocolParse, AngleFormMarkersAreNotMistakenForPipeTokens )
+    {
+        // <|channel> and friends close with '>' alone, so the pipe scrub must leave them --
+        // they are removed by name, in order, by stripControlTokens.
+        EXPECT_EQ( stripControlTokens( "a<|channel>b<channel|>c" ), "abc" );
+    }
+
+    // ---- Tool declarations ---------------------------------------------------
+    // The golden strings here are asserted verbatim by the Python suite in
+    // Mila/Adaptors/Inference/Server/tests/test_gemma_protocol.py, which now drives the same
+    // renderer through the binding. Change one and the other must change in the same commit.
+
+    TEST( GemmaProtocolDeclaration, RendersTrainedGrammarWithSortedPropertiesAndUppercasedTypes )
+    {
+        const std::string rendered = serializeToolDeclarations( R"([{
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get the weather",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "units": { "type": "string", "enum": ["c", "f"] },
+                        "city": { "type": "string", "description": "The city" }
+                    },
+                    "required": ["city"]
+                }
+            }
+        }])" );
+
+        EXPECT_EQ( rendered,
+            "<|tool>declaration:get_weather{description:<|\"|>Get the weather<|\"|>,"
+            "parameters:{properties:{"
+            "city:{description:<|\"|>The city<|\"|>,type:<|\"|>STRING<|\"|>},"
+            "units:{enum:[<|\"|>c<|\"|>,<|\"|>f<|\"|>],type:<|\"|>STRING<|\"|>}},"
+            "required:[<|\"|>city<|\"|>],type:<|\"|>OBJECT<|\"|>}}<tool|>" );
+    }
+
+    TEST( GemmaProtocolDeclaration, ArrayPropertyRendersItemsBlock )
+    {
+        const std::string rendered = serializeToolDeclarations( R"([{
+            "name": "tag",
+            "description": "d",
+            "parameters": { "type": "object",
+                "properties": { "tags": { "type": "array", "items": { "type": "string" } } } }
+        }])" );
+
+        EXPECT_NE( rendered.find( "items:{type:<|\"|>STRING<|\"|>}" ), std::string::npos );
+        EXPECT_NE( rendered.find( "type:<|\"|>ARRAY<|\"|>" ), std::string::npos );
+    }
+
+    TEST( GemmaProtocolDeclaration, ParametersBlockIsAlwaysClosed )
+    {
+        // The canonical template closes the block from inside its `type:` branch, so a schema
+        // with no type leaves it unclosed and a comma dangling. This closes it either way.
+        const std::string rendered = serializeToolDeclarations( R"([{
+            "name": "f", "description": "d",
+            "parameters": { "properties": { "a": { "type": "string" } } }
+        }])" );
+
+        ASSERT_FALSE( rendered.empty() );
+        EXPECT_TRUE( rendered.ends_with( "}}<tool|>" ) );
+    }
+
+    TEST( GemmaProtocolDeclaration, NoParametersRendersDescriptionOnly )
+    {
+        EXPECT_EQ( serializeToolDeclarations( R"([{ "name": "ping", "description": "d" }])" ),
+            "<|tool>declaration:ping{description:<|\"|>d<|\"|>}<tool|>" );
+    }
+
+    TEST( GemmaProtocolDeclaration, UnusableInputAdvertisesNothing )
+    {
+        // Empty is what tells the model there are no tools, so every degenerate input has to
+        // reach it rather than emitting a half-formed declaration.
+        EXPECT_EQ( serializeToolDeclarations( "" ), "" );
+        EXPECT_EQ( serializeToolDeclarations( "[]" ), "" );
+        EXPECT_EQ( serializeToolDeclarations( "not json" ), "" );
+        EXPECT_EQ( serializeToolDeclarations( R"({"name":"f"})" ), "" );
+        EXPECT_EQ( serializeToolDeclarations( R"([{"description":"no name"}])" ), "" );
+        EXPECT_EQ( serializeToolDeclarations( R"([{"type":"retrieval","name":"f"}])" ), "" );
+    }
+
+    // ---- Turn template -------------------------------------------------------
+
+    TEST( GemmaProtocolPrompt, FreshTurnCarriesBosSystemAndTheThoughtPrime )
+    {
+        const std::vector<Conversation::Turn> history{
+            { Conversation::Role::System, "You are helpful." },
+            { Conversation::Role::User, "Hi" } };
+
+        EXPECT_EQ( formatPrompt( history ),
+            "<bos><|turn>system\nYou are helpful.<turn|>\n"
+            "<|turn>user\nHi<turn|>\n"
+            "<|turn>model\n<|channel>thought\n<channel|>" );
+    }
+
+    TEST( GemmaProtocolPrompt, AssistantIsSpelledModel )
+    {
+        const std::vector<Conversation::Turn> history{
+            { Conversation::Role::User, "Hi" },
+            { Conversation::Role::Assistant, "Hello" },
+            { Conversation::Role::User, "Again" } };
+
+        EXPECT_NE( formatPrompt( history ).find( "<|turn>model\nHello<turn|>" ), std::string::npos );
+    }
+
+    TEST( GemmaProtocolPrompt, DeclarationsAttachToTheSystemTurnWithNoSeparator )
+    {
+        // <|tool> is an atomic special token, so it needs no whitespace to separate it from
+        // the system prose -- and inserting some would be a prompt the model was not tuned on.
+        const std::vector<Conversation::Turn> history{
+            { Conversation::Role::System, "Be brief." },
+            { Conversation::Role::User, "Hi" } };
+
+        const std::string prompt = formatPrompt( history, "<|tool>declaration:f{}<tool|>" );
+
+        EXPECT_NE( prompt.find( "<|turn>system\nBe brief.<|tool>declaration:f{}<tool|><turn|>" ),
+            std::string::npos );
+    }
+
+    TEST( GemmaProtocolPrompt, DeclarationsAloneStillOpenASystemTurn )
+    {
+        const std::vector<Conversation::Turn> history{ { Conversation::Role::User, "Hi" } };
+
+        EXPECT_TRUE( formatPrompt( history, "<|tool>declaration:f{}<tool|>" )
+            .starts_with( "<bos><|turn>system\n<|tool>declaration:f{}<tool|><turn|>\n" ) );
+    }
+
+    TEST( GemmaProtocolPrompt, ContinueOpenLeavesTheFinalTurnUnclosedAndUnprimed )
+    {
+        // The shape after a tool response: the turn already carries its thought channel from
+        // before the call, and priming a second one mid-turn is off-distribution.
+        const std::vector<Conversation::Turn> history{
+            { Conversation::Role::User, "Hi" },
+            { Conversation::Role::Assistant, "partial" } };
+
+        const std::string prompt = formatPrompt( history, {}, true );
+
+        EXPECT_TRUE( prompt.ends_with( "<|turn>model\npartial" ) );
+        EXPECT_EQ( prompt.find( kThoughtPrime ), std::string::npos );
+    }
+
+    TEST( GemmaProtocolPrompt, ContinueOpenOnEmptyHistoryIsRefused )
+    {
+        const std::vector<Conversation::Turn> empty;
+
+        EXPECT_THROW( (void)formatPrompt( empty, {}, true ), std::invalid_argument );
+    }
+
+    TEST( GemmaProtocolPrompt, AssistantToolCallsRenderInTheNativeGrammar )
+    {
+        std::vector<Conversation::Turn> history{
+            { Conversation::Role::User, "Weather?" },
+            { Conversation::Role::Assistant, "" },
+            { Conversation::Role::User, "and now?" } };
+
+        history[ 1 ].tool_calls.push_back( { "get_weather", R"({"city":"Paris"})" } );
+
+        EXPECT_NE( formatPrompt( history ).find(
+            "<|tool_call>call:get_weather{city:<|\"|>Paris<|\"|>}<tool_call|>" ),
+            std::string::npos );
+    }
+
+    // ---- Answer extraction ---------------------------------------------------
+
+    TEST( GemmaProtocolAnswer, ReasoningChannelIsRemoved )
+    {
+        EXPECT_EQ( extractAnswer( "<|channel>thought\nreasoning<channel|>Four." ), "Four." );
+    }
+
+    TEST( GemmaProtocolAnswer, InteriorChannelsAreRemovedNotJustALeadingRun )
+    {
+        // The 12B emits mid-answer thought channels on the agentic path DESPITE the prime, and
+        // removing only the markers would leave the label and body behind as literal text.
+        EXPECT_EQ( extractAnswer( "A<|channel>thought\nmid<channel|>B" ), "AB" );
+    }
+
+    TEST( GemmaProtocolAnswer, UnclosedTrailingChannelTruncatesRatherThanLeaking )
+    {
+        EXPECT_EQ( extractAnswer( "Answer.<|channel>thought\ncut off" ), "Answer." );
+    }
+
+    TEST( GemmaProtocolAnswer, CompleteToolCallSpanIsDropped )
+    {
+        EXPECT_EQ( extractAnswer( "before<|tool_call>call:f{a:1}<tool_call|>after" ),
+            "beforeafter" );
+    }
+
+    TEST( GemmaProtocolAnswer, DanglingToolCallKeepsItsBodyRatherThanBlankingTheTurn )
+    {
+        // The off-spec `call:name:key=value` form the 12B emits with no closing marker. Dropping
+        // from the open would collapse a response that STARTS with one to an empty string.
+        EXPECT_EQ( extractAnswer( "<|tool_call>call:run:cmd=ls" ), "call:run:cmd=ls" );
     }
 }

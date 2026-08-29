@@ -12,15 +12,17 @@ roles system/user/model, a <bos> prefix, and a <|turn>model\\n generation primer
 Reference: Mila chat harness formatGemmaPrompt() and
 https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4
 
-These are the PLAIN instruct templates. The agentic grammars -- tool declarations,
-tool-call and tool-response spans, reasoning channels -- live beside them in
-gemma_protocol, which the Responses and Anthropic Messages paths use instead.
+Only Llama still has a template here. Gemma and Qwen render through the runtime, so this
+file writes down neither their tokens nor their turn structure -- and the agentic grammars
+(tool declarations, tool-call and tool-response spans, reasoning channels) are the same
+runtime modules the Responses and Anthropic Messages paths reach through their bridges.
 """
 
 import json
 
 import mila
 
+from mila_llm_server import gemma_bridge
 from mila_llm_server.config import loaded, ModelFamily
 
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
@@ -31,17 +33,10 @@ _LLAMA_HEADER_START = "<|start_header_id|>"
 _LLAMA_HEADER_END = "<|end_header_id|>"
 _LLAMA_EOT = "<|eot_id|>"
 
-# --- Gemma 4 instruct tokens (Mila checkpoint) ---
-_GEMMA_BOS = "<bos>"
-_GEMMA_TURN_OPEN = "<|turn>"
-_GEMMA_TURN_CLOSE = "<turn|>"
-# Thinking is off for coding/agentic harnesses. Priming an empty thought channel
-# suppresses "ghost" thought sections the 12B otherwise emits when deactivated.
-_GEMMA_THOUGHT_PRIME = "<|channel>thought\n<channel|>"
-
-# Qwen has no token constants here on purpose: its whole template comes from the runtime
-# through mila.qwen_format_prompt, and mila.qwen_protocol_tokens() reports the control
-# tokens a streaming caller needs. Writing either down again is how the copies start.
+# Gemma and Qwen have no token constants here on purpose: their whole templates come from the
+# runtime, through mila.gemma_format_prompt and mila.qwen_format_prompt, and each family's
+# *_protocol_tokens() reports the control tokens a streaming caller needs. Writing either down
+# again is how the copies start -- Gemma had three before its grammar came down.
 
 
 def build_instruct_prompt(
@@ -93,46 +88,38 @@ def _build_llama_prompt(
     return "".join(parts)
 
 
-def _gemma_turn(role: str, content: str) -> str:
-    """Render one Gemma turn: <|turn>{role}\\n{content}<turn|>\\n."""
-    return f"{_GEMMA_TURN_OPEN}{role}\n{content}{_GEMMA_TURN_CLOSE}\n"
-
-
 def _build_gemma_prompt(
     user_message: str,
     system_prompt: str,
     history: list[dict[str, str]] | None,
     tools: list[dict] | None,
 ) -> str:
-    parts: list[str] = [_GEMMA_BOS]
+    """
+    Gemma 4's native prompt, rendered by the runtime.
 
-    # Gemma has no native system role; it collapses to a single leading system turn.
-    if system_prompt or tools:
-        system_block = system_prompt or ""
+    No template is written here. `mila.gemma_format_prompt` is the same
+    Dnn.Models.GemmaProtocol the chat harness renders through, so the two adaptors cannot
+    send the same model different prompts -- which is the whole reason a model's grammar
+    lives in the library rather than in whoever is driving it.
 
-        if tools:
-            tools_str = json.dumps(tools, indent=2)
-            system_block = f"{system_block}\n\nYou have access to the following tools:\n{tools_str}"
-
-        parts.append(_gemma_turn("system", system_block))
+    Tools are declared in the trained <|tool>declaration:...<tool|> grammar. This path used
+    to advertise them as prose plus a JSON dump, which is not a Gemma format at all: given
+    that form the 12B invents tools that do not exist, and it disagreed with the Responses
+    and Anthropic paths, which already rendered the trained one.
+    """
+    turns: list[dict] = []
 
     for turn in (history or []):
-        role = turn["role"]
+        # The system turn is assembled by the template, in the order it puts its parts in;
+        # replaying one from history would produce a second.
+        if turn["role"] != "system":
+            turns.append({"role": turn["role"], "content": turn["content"]})
 
-        if role == "system":
-            continue
+    turns.append({"role": "user", "content": user_message})
 
-        # The assistant is the "model" role in Gemma's template.
-        gemma_role = "model" if role == "assistant" else "user"
-        parts.append(_gemma_turn(gemma_role, turn["content"]))
+    system_block = (system_prompt or "") + gemma_bridge.tool_declarations(tools or [])
 
-    parts.append(_gemma_turn("user", user_message))
-
-    # Generation primer + thinking-off channel prime.
-    parts.append(f"{_GEMMA_TURN_OPEN}model\n")
-    parts.append(_GEMMA_THOUGHT_PRIME)
-
-    return "".join(parts)
+    return gemma_bridge.format_prompt(system_block, turns)
 
 
 def _build_qwen_prompt(

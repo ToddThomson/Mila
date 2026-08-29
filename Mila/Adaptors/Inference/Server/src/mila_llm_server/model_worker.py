@@ -13,12 +13,13 @@ from typing import Callable
 
 import mila
 from mila_llm_server.config import settings, loaded, ModelFamily
-from mila_llm_server.gemma_protocol import (
-    strip_control_tokens as _strip_gemma_control_tokens,
-    TOOL_CALL_CLOSE,
-    TOOL_RESPONSE_OPEN,
-    CHANNEL_OPEN,
-)
+from mila_llm_server import gemma_bridge
+from mila_llm_server.gemma_bridge import strip_control_tokens as _strip_gemma_control_tokens
+
+# The checkpoint's own tokens, reported by the runtime rather than written down again.
+TOOL_CALL_CLOSE = gemma_bridge.TOKENS["tool_call_close"]
+TOOL_RESPONSE_OPEN = gemma_bridge.TOKENS["tool_response_open"]
+CHANNEL_OPEN = gemma_bridge.TOKENS["reasoning_open"]
 
 # Degeneration backstop. A bad Gemma sample can fail to emit a tool call or stop
 # token and instead spam empty reasoning channels / repeat one token for the whole
@@ -31,9 +32,9 @@ _MAX_TOKEN_REPEATS = 48
 
 _log = logging.getLogger(__name__)
 
-#: The session class that loads each family's artifact. A mapping rather than a chain of
+#: The session class that loads each family's weights. A mapping rather than a chain of
 #: conditionals, because the chain's else branch was a silent default: adding a third family
-#: to ModelFamily routed its artifact into LlamaModel rather than failing.
+#: to ModelFamily routed its weights into LlamaModel rather than failing.
 SESSION_FOR = {
     ModelFamily.gemma: "GemmaModel",
     ModelFamily.llama: "LlamaModel",
@@ -146,7 +147,7 @@ class ModelWorker:
         if loaded.attribution:
             _log.info("%s", loaded.attribution)
 
-        # One call for either family: the record says which loader the artifact needs, so
+        # One call for either family: the record says which loader the weights need, so
         # there is no longer a tokenizer path to pair with a weights path by hand.
         self._tokenizer = mila.BpeTokenizer.from_store(record.name)
 
@@ -154,7 +155,7 @@ class ModelWorker:
 
         session = getattr(mila, SESSION_FOR[loaded.family])
 
-        # from_store, not from_pretrained: every published artifact is already quantized,
+        # from_store, not from_pretrained: every published model is already quantized,
         # and only the record knows to what.
         self._model = session.from_store(
             record.name,
@@ -226,7 +227,7 @@ class ModelWorker:
         so a non-streaming tool-call turn cannot be detected there; this path is what
         the Anthropic/Responses tool flows need for a single-shot JSON response.
         Returns (raw_text, decoded_chunk_count). Callers that only want display text
-        reduce via gemma_protocol.extract_answer / strip_control_tokens.
+        reduce via gemma_bridge.answer_text / strip_control_tokens.
         """
         parts: list[str] = []
 

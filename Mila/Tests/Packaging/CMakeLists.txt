@@ -50,28 +50,51 @@ set_tests_properties(packaging_fetchcontent_consumer PROPERTIES
 option(MILA_ENABLE_CPM_GATE "Enable the CPM-by-tag release-access packaging gate (network; requires a published tag)." OFF)
 
 if(MILA_ENABLE_CPM_GATE)
+    # MILA_PRERELEASE_TAG still carries the `+build` metadata a working tree has
+    # ("beta.3+34"), and a tag never does -- so derive from the label with everything from '+'
+    # onward removed. Without this the default names a tag that cannot exist anywhere except
+    # in the moment between the prep commit and the next checkpoint.
     if(MILA_PRERELEASE_TAG)
-        set(_mila_default_tag "v${MILA_VERSION_NUMERIC}-${MILA_PRERELEASE_TAG}")
+        string(REGEX REPLACE "\\+.*$" "" _mila_tag_label "${MILA_PRERELEASE_TAG}")
+        set(_mila_default_tag "v${MILA_VERSION_NUMERIC}-${_mila_tag_label}")
     else()
         set(_mila_default_tag "v${MILA_VERSION_NUMERIC}")
     endif()
 
     set(MILA_CPM_GITHUB_REPOSITORY "ToddThomson/Mila" CACHE STRING "owner/repo for the CPM release-access gate.")
-    set(MILA_CPM_GIT_TAG "${_mila_default_tag}" CACHE STRING "Published tag for the CPM release-access gate.")
+
+    # DEFAULTS EMPTY ON PURPOSE, and the derived tag is a normal variable recomputed every
+    # configure. Caching the DERIVED value is what let this gate validate the wrong release and
+    # report success: `set(... CACHE STRING)` never overwrites an existing entry, so a build
+    # directory reused across releases kept the tag it was first configured with -- one release's
+    # gate ran in an old directory, tested the previous tag, and passed off a warm cache in 134
+    # seconds. Nothing in the output said which tag it had tested, so a stale pass and a real one
+    # looked identical.
+    set(MILA_CPM_GIT_TAG "" CACHE STRING "Tag for the CPM release-access gate; empty derives it from Version.txt.")
+
+    if(MILA_CPM_GIT_TAG STREQUAL "")
+        set(_mila_cpm_tag "${_mila_default_tag}")
+    else()
+        set(_mila_cpm_tag "${MILA_CPM_GIT_TAG}")
+    endif()
+
+    message(STATUS "CPM release-access gate: testing ${MILA_CPM_GITHUB_REPOSITORY}@${_mila_cpm_tag}")
 
     add_test(
         NAME packaging_cpm_consumer
         COMMAND ${CMAKE_COMMAND}
             -D "CONSUMER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/cpm_consumer"
-            -D "WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/work"
+            # Keyed on the tag: a different release cannot reuse another's warm clone and build,
+            # which is the second half of how a stale pass happened.
+            -D "WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/work/${_mila_cpm_tag}"
             -D "GENERATOR=${CMAKE_GENERATOR}"
             -D "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
             -D "CUDA_COMPILER=${CMAKE_CUDA_COMPILER}"
             -D "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
             -D "GITHUB_REPOSITORY=${MILA_CPM_GITHUB_REPOSITORY}"
-            -D "GIT_TAG=${MILA_CPM_GIT_TAG}"
+            -D "GIT_TAG=${_mila_cpm_tag}"
             -D "CPM_SCRIPT=${CMAKE_SOURCE_DIR}/cmake/CPM.cmake"
-            -D "CPM_SOURCE_CACHE=${CMAKE_CURRENT_BINARY_DIR}/cpm-cache"
+            -D "CPM_SOURCE_CACHE=${CMAKE_CURRENT_BINARY_DIR}/cpm-cache/${_mila_cpm_tag}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/drive_cpm.cmake"
     )
 

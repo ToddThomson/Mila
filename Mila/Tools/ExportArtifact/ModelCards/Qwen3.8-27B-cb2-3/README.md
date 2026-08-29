@@ -11,7 +11,7 @@ library_name: mila
 
 # Qwen3.8 27B Instruct — mixed 2/3-bit codebook for Mila
 
-A pre-quantized [Mila](https://github.com/ToddThomson/Mila) artifact of `Qwen/Qwen3.8-27B`, in
+`Qwen/Qwen3.8-27B`, pre-quantized for [Mila](https://github.com/ToddThomson/Mila) and published in
 safetensors format. The weights have been modified: they are quantized, and the codebooks were
 fitted offline against calibration data.
 
@@ -19,7 +19,7 @@ fitted offline against calibration data.
 `-Base`, which is why neither name carries an `-it` or `-Instruct` suffix. It has a reasoning
 channel and a trained tool-calling grammar, both of which Mila drives natively.
 
-Unlike a uniform format, this artifact spends a different number of bits per role. The
+Unlike a uniform format, these weights spend a different number of bits per role. The
 feed-forward and mixer projections carry fitted 2- and 3-bit codebooks; the full-attention
 layers stay at 4.125 bits, where the accuracy is worth the space. The quantized parameters
 average **2.82 bits per weight**.
@@ -35,7 +35,7 @@ feed-forward and mixer rows at 2 and 3 bits, the full-attention and head rows at
 2.4 GiB that remains BF16 is the embedding table, the norms and the mixer's gating, which no
 policy quantizes.
 
-Choose this artifact for a 12 GB card. Choose
+Choose this model for a 12 GB card. Choose
 [Qwen3.8-27B-fp4](https://huggingface.co/mila-llm/Qwen3.8-27B-fp4) if you have 16 GB, since
 it is the more accurate of the two.
 
@@ -78,10 +78,10 @@ each file against the digest in `mila.json` and leaves it in a content-addressed
 every load afterwards reads the store and nothing else. `/model list --online` lists what is
 published, and `/model list` lists what is already installed.
 
-Mila builds the codebook path at compile time from the scheme the artifact declares, so a load
-refuses an artifact whose scheme is not the one this build carries. There is no quantize-on-load
+Mila builds the codebook path at compile time from the scheme the weights declare, so a load
+refuses weights whose scheme is not the one this build carries. There is no quantize-on-load
 path to this format and there cannot be one: a codebook is fitted against calibration data, so
-the artifact either carries the codes or it does not.
+the weights either carry the codes or they do not.
 
 ## License
 

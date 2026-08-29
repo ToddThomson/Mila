@@ -165,8 +165,22 @@ output field (or the `error` field on a failed tool) and rendering string values
 the trained `<|"|>` delimiter. A non-JSON result passes through under the `value:` key,
 matching the canonical template's non-mapping response form. The harness then re-prefills prompt + full accumulated
 turn text and resumes generation, looping up to a small round cap. (This runtime module
-replaced the retired `Chat.GemmaToolCallParser.ixx` on 2026-07-07 and is shared with the
-Python inference server's `gemma_protocol.py` — one grammar, both adaptors.)
+replaced the retired `Chat.GemmaToolCallParser.ixx` on 2026-07-07.)
+
+**The whole grammar now lives in that module, and "shared with both adaptors" is finally
+literal.** It was not: the value grammar came down first while the turn template, the
+`<|tool>` declaration renderer and answer extraction stayed in the server's
+`gemma_protocol.py`, and a *second* template sat in its `prompt.py` — three implementations,
+which drifted exactly as duplication does. The chat harness advertised tools as a
+JSON array under a line of prose while the server rendered the trained
+`<|tool>declaration:...<tool|>` form, so one model received materially different prompts
+depending on which adaptor a user was holding, and only the server's was the form the
+model was tuned on. `Gemma.Protocol.ixx` now owns the template, the declaration renderer,
+`extractAnswer` and `stripControlTokens`; the binding projects them as `gemma_format_prompt`
+/ `gemma_tool_declarations` / `gemma_parse_tool_call` / `gemma_extract_answer`; and
+`gemma_bridge.py` holds only what is genuinely a server's — which tools a harness should
+advertise at all, and the correlation id the Anthropic wire requires. `gemma_protocol.py` is
+retired in place. The two were checked byte-for-byte before it was unhooked.
 
 **Confirmed (2026-07-01, second capture):** the real-injection round trip works.
 With the harness dispatching the actual registered tool and splicing a genuine

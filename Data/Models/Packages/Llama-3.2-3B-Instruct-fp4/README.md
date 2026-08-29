@@ -13,8 +13,8 @@ library_name: mila
 
 **Built with Llama.**
 
-A pre-quantized [Mila](https://github.com/ToddThomson/Mila) artifact of
-`meta-llama/Llama-3.2-3B-Instruct`, in safetensors format.
+`meta-llama/Llama-3.2-3B-Instruct`, pre-quantized for
+[Mila](https://github.com/ToddThomson/Mila) and published in safetensors format.
 
 **2.86 GiB**, down from 6.72 GiB at BF16. The FP4 packing is done once here instead of
 on every load, so a Mila session starts near-instantly rather than quantizing 3 billion parameters

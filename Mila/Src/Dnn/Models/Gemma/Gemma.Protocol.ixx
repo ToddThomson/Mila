@@ -1,16 +1,22 @@
 /**
  * @file Gemma.Protocol.ixx
- * @brief Canonical Gemma 4 native token grammar: parse/format for the model's
- *        registered turn / channel / tool-call / tool-response vocabulary.
+ * @brief Canonical Gemma 4 native token grammar: the turn template, the tool-declaration
+ *        renderer, the tool-call grammar and answer extraction.
  *
- * The Gemma 4 grammar is a property of the model, not of any single adaptor.
- * This runtime module is the one source of truth for it; the Chat harness and
- * (via a future pybind or a parity test) the Python inference server consume it
- * rather than each carrying a private copy that drifts. It was seeded from the
- * union of the two prior implementations -- the Python gemma_protocol.py, which
- * carried the spec-verified behaviors (the <|"|> string delimiter, tool-response
- * output-field distillation, failed-tool error surfacing), and the C++
- * GemmaToolCallParser it replaces. See GemmaChatProtocol.md.
+ * The Gemma 4 grammar is a property of the model, not of any single adaptor, so this runtime
+ * module is the one source of truth for it -- the same rule Qwen's module states (see
+ * Qwen.Protocol.ixx). The Chat harness consumes it directly and the inference server reaches
+ * it through the binding, so neither carries a copy that can drift.
+ *
+ * It was seeded from the union of the two prior implementations -- the Python
+ * gemma_protocol.py, which carried the spec-verified behaviors (the <|"|> string delimiter,
+ * tool-response output-field distillation, failed-tool error surfacing), and the C++
+ * GemmaToolCallParser it replaces. The template, the <|tool> declaration renderer and answer
+ * extraction came down later, from the same Python module, which then retired: until they did,
+ * Gemma's grammar was written THREE times (this module, gemma_protocol.py, and a second
+ * template in the server's prompt.py) and the adaptors disagreed -- Chat advertised tools as a
+ * JSON array while the server rendered the trained declaration form the model was tuned on.
+ * See GemmaChatProtocol.md.
  *
  * String-level parse/format only. Token-level splice into the live KV cache is
  * the decided direction but is post-release (see MilaProductFamily.md).
@@ -20,6 +26,8 @@ module;
 #include <string>
 #include <string_view>
 #include <optional>
+#include <span>
+#include <stdexcept>
 #include <vector>
 #include <cstdint>
 #include <cstdlib>
@@ -29,6 +37,8 @@ module;
 #include <memory>
 
 export module Dnn.Models.GemmaProtocol;
+
+export import Dnn.Models.Conversation;
 
 import nlohmann.json;
 
@@ -62,16 +72,27 @@ namespace Mila::Dnn::Gemma
     export inline constexpr std::string_view kStringDelimiter = "<|\"|>";
 
     /**
+     * @brief The empty reasoning channel that opens a fresh model turn.
+     *
+     * Load-bearing rather than cosmetic: without it the 12B emits ghost thought channels and
+     * generation degenerates. It belongs at the START of a fresh turn and nowhere else --
+     * priming a second one mid-turn is off-distribution and the model parrots it back
+     * (measured: empty-channel echoes and one 682-character runaway).
+     */
+    export inline constexpr std::string_view kThoughtPrime = "<|channel>thought\n<channel|>";
+
+    /// The labels a reasoning channel is opened with, for answer extraction.
+    export inline constexpr std::string_view kChannelLabels[] = {
+        "thought", "thinking", "analysis", "reasoning" };
+
+    /**
      * @brief A tool call parsed out of the model's native <|tool_call> emission.
      *
-     * arguments is a JSON object string (nlohmann dump), so the adaptor can hand
-     * it straight to a tool dispatcher without re-parsing the grammar.
+     * The family-neutral type, so a host describes a conversation once rather than once per
+     * family: arguments is a JSON object string, which is what the model wrote and what a
+     * dispatcher takes without re-parsing the grammar.
      */
-    export struct GemmaToolCall
-    {
-        std::string name;
-        std::string arguments;
-    };
+    export using GemmaToolCall = Conversation::ToolCall;
 
     // --- Shared helpers ------------------------------------------------------
 
@@ -87,6 +108,90 @@ namespace Mila::Dnn::Gemma
             const auto last = text.find_last_not_of( " \t\r\n" );
 
             return text.substr( first, last - first + 1 );
+        }
+
+        /**
+         * @brief Remove pipe-bracketed registered tokens the enumerated set does not name.
+         *
+         * Two forms: the delimiter family `<|...|>` (a sibling of `<|"|>`) and the bare `<|>`
+         * the checkpoint emits. Left in place they ride verbatim into answers and into tool
+         * arguments -- the observed case is a file path arriving as `foo.cpp<|>`.
+         *
+         * Hand-written rather than std::regex: MSVC's implementation is the one that already
+         * costs the BPE pre-tokenizer its Unicode classes, and this grammar is two literal
+         * shapes. The angle-form markers (`<|channel>`, `<|tool_call>`) do NOT match, because
+         * the run between the brackets stops at '>' and the close must be "|>".
+         */
+        inline std::string stripPipeTokens( std::string_view text )
+        {
+            std::string result;
+            result.reserve( text.size() );
+
+            size_t cursor = 0;
+
+            while ( cursor < text.size() )
+            {
+                if ( text[ cursor ] != '<' || cursor + 1 >= text.size() || text[ cursor + 1 ] != '|' )
+                {
+                    result += text[ cursor++ ];
+
+                    continue;
+                }
+
+                size_t scan = cursor + 2;
+
+                while ( scan < text.size() && text[ scan ] != '|' && text[ scan ] != '>' )
+                    ++scan;
+
+                if ( scan + 1 < text.size() && text[ scan ] == '|' && text[ scan + 1 ] == '>' )
+                {
+                    cursor = scan + 2;
+
+                    continue;
+                }
+
+                // The bare `<|>`: an empty run closed by '>' alone.
+                if ( scan == cursor + 2 && scan < text.size() && text[ scan ] == '>' )
+                {
+                    cursor = scan + 1;
+
+                    continue;
+                }
+
+                result += text[ cursor++ ];
+            }
+
+            return result;
+        }
+
+        /// stripPipeTokens over every string in a parsed argument tree. Recursive, because the
+        /// parser returns containers and a string nested in one needs the same scrub.
+        inline nlohmann::json scrubPipeTokensDeep( const nlohmann::json& value )
+        {
+            if ( value.is_string() )
+                return stripPipeTokens( value.get<std::string>() );
+
+            if ( value.is_object() )
+            {
+                nlohmann::json scrubbed = nlohmann::json::object();
+
+                for ( auto it = value.begin(); it != value.end(); ++it )
+                    scrubbed[ it.key() ] = scrubPipeTokensDeep( it.value() );
+
+                return scrubbed;
+            }
+
+            if ( value.is_array() )
+            {
+                nlohmann::json scrubbed = nlohmann::json::array();
+
+                for ( const auto& item : value )
+                    scrubbed.push_back( scrubPipeTokensDeep( item ) );
+
+                return scrubbed;
+            }
+
+            return value;
         }
 
         /**
@@ -417,10 +522,11 @@ namespace Mila::Dnn::Gemma
          * ([<|"|>a<|"|>,<|"|>b<|"|>]) puts untrained tokens in front of the model on
          * every call carrying a non-scalar parameter.
          *
-         * Object keys stay bare: the template renders argument bodies with
-         * escape_keys=False, reserving <|"|>-wrapped keys for tool declarations.
+         * @param escape_keys Wraps object KEYS in the delimiter. Argument bodies pass false
+         *        (bare keys); tool declarations pass true on their free-form branch, which is
+         *        the template's own default.
          */
-        inline std::string renderValue( const nlohmann::json& value )
+        inline std::string renderValue( const nlohmann::json& value, bool escape_keys = false )
         {
             if ( value.is_null() )
                 return "null";
@@ -442,7 +548,8 @@ namespace Mila::Dnn::Gemma
                         body += ",";
                     first = false;
 
-                    body += it.key() + ":" + renderValue( it.value() );
+                    body += ( escape_keys ? renderStringValue( it.key() ) : it.key() )
+                        + ":" + renderValue( it.value(), escape_keys );
                 }
 
                 return body + "}";
@@ -459,7 +566,7 @@ namespace Mila::Dnn::Gemma
                         body += ",";
                     first = false;
 
-                    body += renderValue( item );
+                    body += renderValue( item, escape_keys );
                 }
 
                 return body + "]";
@@ -488,6 +595,200 @@ namespace Mila::Dnn::Gemma
                 first = false;
 
                 body += it.key() + ":" + renderValue( it.value() );
+            }
+
+            return body;
+        }
+
+        // --- Tool declarations ----------------------------------------------
+        // Mirrors format_function_declaration in Google's canonical chat_template.jinja. The
+        // parameters schema is a full DSL, not a JSON blob: a declaration reads
+        //   <|tool>declaration:name{description:<|"|>..<|"|>,parameters:{properties:{
+        //   city:{description:<|"|>..<|"|>,type:<|"|>STRING<|"|>}},required:[<|"|>city<|"|>],
+        //   type:<|"|>OBJECT<|"|>}}<tool|>
+
+        inline std::string toUpper( std::string_view text )
+        {
+            std::string upper( text );
+
+            for ( char& character : upper )
+            {
+                if ( character >= 'a' && character <= 'z' )
+                    character = static_cast<char>( character - 'a' + 'A' );
+            }
+
+            return upper;
+        }
+
+        /// A required-list body: the names are delimiter-wrapped, comma separated.
+        inline std::string renderRequired( const nlohmann::json& required )
+        {
+            std::string body;
+            bool first = true;
+
+            for ( const auto& item : required )
+            {
+                if ( !first )
+                    body += ",";
+                first = false;
+
+                body += renderStringValue(
+                    item.is_string() ? item.get<std::string>() : item.dump() );
+            }
+
+            return body;
+        }
+
+        inline std::string renderParameters( const nlohmann::json& properties );
+
+        /**
+         * @brief The items:{...} body of an ARRAY property.
+         *
+         * Mirrors the template's items branch INCLUDING its quirks: `type` is uppercased and
+         * delimiter-wrapped, and any other free-form key renders with escape_keys true -- so
+         * nested mapping keys here ARE delimiter-wrapped, unlike in argument bodies.
+         */
+        inline std::string renderDeclarationItems( const nlohmann::json& items )
+        {
+            std::string body;
+            bool first = true;
+
+            const auto append = [&]( const std::string& part )
+                {
+                    if ( !first )
+                        body += ",";
+                    first = false;
+                    body += part;
+                };
+
+            for ( auto it = items.begin(); it != items.end(); ++it )
+            {
+                if ( it.value().is_null() )
+                    continue;
+
+                if ( it.key() == "properties" )
+                {
+                    append( "properties:{"
+                        + ( it.value().is_object() ? renderParameters( it.value() ) : std::string{} )
+                        + "}" );
+                }
+                else if ( it.key() == "required" )
+                {
+                    append( "required:[" + renderRequired( it.value() ) + "]" );
+                }
+                else if ( it.key() == "type" )
+                {
+                    if ( it.value().is_string() )
+                    {
+                        append( "type:" + renderStringValue( toUpper( it.value().get<std::string>() ) ) );
+                    }
+                    else
+                    {
+                        nlohmann::json uppercased = nlohmann::json::array();
+
+                        for ( const auto& entry : it.value() )
+                        {
+                            uppercased.push_back( toUpper(
+                                entry.is_string() ? entry.get<std::string>() : entry.dump() ) );
+                        }
+
+                        append( "type:" + renderValue( uppercased ) );
+                    }
+                }
+                else
+                {
+                    append( it.key() + ":" + renderValue( it.value(), true ) );
+                }
+            }
+
+            return body;
+        }
+
+        /**
+         * @brief One JSON-schema property in the trained declaration grammar.
+         *
+         * Field order is POSITIONAL, not alphabetical -- description, enum/items, nullable,
+         * properties/required, type. That is the order the template emits and the order the
+         * model saw in training, so it is not ours to tidy. Types are UPPERCASED.
+         */
+        inline std::string renderProperty( const nlohmann::json& schema )
+        {
+            std::vector<std::string> parts;
+
+            const auto description = schema.find( "description" );
+
+            if ( description != schema.end() && description->is_string()
+                && !description->get<std::string>().empty() )
+            {
+                parts.push_back( "description:" + renderStringValue( description->get<std::string>() ) );
+            }
+
+            const auto type = schema.find( "type" );
+            const std::string schema_type = type != schema.end() && type->is_string()
+                ? toUpper( type->get<std::string>() ) : std::string{};
+
+            const auto enumeration = schema.find( "enum" );
+            const auto items = schema.find( "items" );
+
+            if ( schema_type == "STRING" && enumeration != schema.end() && !enumeration->empty() )
+            {
+                parts.push_back( "enum:" + renderValue( *enumeration, true ) );
+            }
+            else if ( schema_type == "ARRAY" && items != schema.end() && items->is_object()
+                && !items->empty() )
+            {
+                parts.push_back( "items:{" + renderDeclarationItems( *items ) + "}" );
+            }
+
+            const auto nullable = schema.find( "nullable" );
+
+            if ( nullable != schema.end() && nullable->is_boolean() && nullable->get<bool>() )
+                parts.push_back( "nullable:true" );
+
+            if ( schema_type == "OBJECT" )
+            {
+                const auto properties = schema.find( "properties" );
+
+                if ( properties != schema.end() && properties->is_object() )
+                    parts.push_back( "properties:{" + renderParameters( *properties ) + "}" );
+
+                const auto required = schema.find( "required" );
+
+                if ( required != schema.end() && !required->empty() )
+                    parts.push_back( "required:[" + renderRequired( *required ) + "]" );
+            }
+
+            parts.push_back( "type:" + renderStringValue( schema_type ) );
+
+            std::string body = "{";
+
+            for ( size_t index = 0; index < parts.size(); ++index )
+            {
+                if ( index != 0 )
+                    body += ",";
+
+                body += parts[ index ];
+            }
+
+            return body + "}";
+        }
+
+        /// The properties:{...} body: name:{...},name2:{...}, names in sorted order.
+        inline std::string renderParameters( const nlohmann::json& properties )
+        {
+            std::string body;
+            bool first = true;
+
+            for ( auto it = properties.begin(); it != properties.end(); ++it )
+            {
+                if ( !it.value().is_object() )
+                    continue;
+
+                if ( !first )
+                    body += ",";
+                first = false;
+
+                body += it.key() + ":" + renderProperty( it.value() );
             }
 
             return body;
@@ -532,13 +833,16 @@ namespace Mila::Dnn::Gemma
             return std::nullopt;
 
         GemmaToolCall call;
-        call.name = detail::stripNamespace( detail::trim( body.substr( name_start, brace_open - name_start ) ) );
+        call.name = detail::stripPipeTokens(
+            detail::stripNamespace( detail::trim( body.substr( name_start, brace_open - name_start ) ) ) );
 
         if ( call.name.empty() )
             return std::nullopt;
 
-        call.arguments = detail::parseArguments(
-            body.substr( brace_open + 1, brace_close - brace_open - 1 ) ).dump();
+        // A stray registered token the checkpoint slipped into a value rides into the client's
+        // tool arguments otherwise -- the observed case is a path arriving as `foo.cpp<|>`.
+        call.arguments = detail::scrubPipeTokensDeep( detail::parseArguments(
+            body.substr( brace_open + 1, brace_close - brace_open - 1 ) ) ).dump();
 
         return call;
     }
@@ -636,5 +940,355 @@ namespace Mila::Dnn::Gemma
 
         return std::string( kToolResponseOpen ) + "response:" + std::string( name )
             + "{" + body + "}" + std::string( kToolResponseClose );
+    }
+
+    // --- Tool declarations (schemas -> system-turn suffix) -------------------
+
+    /**
+     * @brief Render tool schemas into Gemma's trained <|tool>declaration:...<tool|> grammar.
+     *
+     * There is ONE declaration form because Gemma has one. A plain-text JSON list is not a
+     * Gemma format at all -- it is prose plus a JSON dump -- and when it was measured against
+     * this the 12B invented tools that did not exist.
+     *
+     * Deliberately NO call-syntax instructions: the model emits calls through its trained
+     * <|tool_call> protocol, so teaching a foreign call format only confuses it.
+     *
+     * Declarations concatenate with no separator and no leading blank line, which is how the
+     * template appends them to the system turn -- <|tool> is an atomic special token, so it
+     * needs no whitespace to separate it from the system prose.
+     *
+     * ONE deliberate deviation from the template: it closes the parameters block from inside
+     * its `type:` branch, so a schema with no `type` leaves the block unclosed and a comma
+     * dangling. This always closes it. Malformed either way; this stays parseable.
+     *
+     * @param tools_json A JSON array of tool schemas, each either an OpenAI function envelope
+     *        ({type, function:{name, description, parameters}}) or a bare declaration.
+     *        Filtering which tools to advertise is the host's business, not the model's -- a
+     *        harness with UI-only tools excludes them before calling.
+     * @return Empty when the array is empty, does not parse, or names nothing, which omits the
+     *         declarations entirely -- and that absence is what tells the model there are none.
+     */
+    export inline std::string serializeToolDeclarations( const std::string& tools_json )
+    {
+        nlohmann::json parsed;
+
+        try
+        {
+            parsed = nlohmann::json::parse( tools_json.empty() ? "[]" : tools_json );
+        }
+        catch ( const nlohmann::json::exception& )
+        {
+            return {};
+        }
+
+        if ( !parsed.is_array() )
+            return {};
+
+        std::string declarations;
+
+        for ( const auto& entry : parsed )
+        {
+            if ( !entry.is_object() )
+                continue;
+
+            const auto type = entry.find( "type" );
+
+            if ( type != entry.end() && type->is_string() && type->get<std::string>() != "function" )
+                continue;
+
+            const auto function = entry.find( "function" );
+            const nlohmann::json& declaration = function != entry.end() && function->is_object()
+                ? *function : entry;
+
+            const auto name = declaration.find( "name" );
+
+            if ( name == declaration.end() || !name->is_string() || name->get<std::string>().empty() )
+                continue;
+
+            const auto description = declaration.find( "description" );
+
+            std::string body = "description:" + detail::renderStringValue(
+                description != declaration.end() && description->is_string()
+                    ? description->get<std::string>() : std::string{} );
+
+            const auto parameters = declaration.find( "parameters" );
+
+            if ( parameters != declaration.end() && parameters->is_object() && !parameters->empty() )
+            {
+                std::vector<std::string> parameter_parts;
+
+                const auto properties = parameters->find( "properties" );
+
+                if ( properties != parameters->end() && properties->is_object() && !properties->empty() )
+                    parameter_parts.push_back( "properties:{" + detail::renderParameters( *properties ) + "}" );
+
+                const auto required = parameters->find( "required" );
+
+                if ( required != parameters->end() && !required->empty() )
+                    parameter_parts.push_back( "required:[" + detail::renderRequired( *required ) + "]" );
+
+                const auto parameters_type = parameters->find( "type" );
+
+                if ( parameters_type != parameters->end() && parameters_type->is_string()
+                    && !parameters_type->get<std::string>().empty() )
+                {
+                    parameter_parts.push_back( "type:" + detail::renderStringValue(
+                        detail::toUpper( parameters_type->get<std::string>() ) ) );
+                }
+
+                body += ",parameters:{";
+
+                for ( size_t index = 0; index < parameter_parts.size(); ++index )
+                {
+                    if ( index != 0 )
+                        body += ",";
+
+                    body += parameter_parts[ index ];
+                }
+
+                body += "}";
+            }
+
+            declarations += std::string( kToolOpen ) + "declaration:" + name->get<std::string>()
+                + "{" + body + "}" + std::string( kToolClose );
+        }
+
+        return declarations;
+    }
+
+    // --- Turn template (conversation -> prompt) ------------------------------
+
+    /**
+     * @brief How the template spells a role.
+     *
+     * The assistant is "model" in Gemma's vocabulary, and a tool result is a USER turn --
+     * rendering Tool by its own name would open a role the model was never trained to read.
+     */
+    export inline std::string_view roleSpelling( Conversation::Role role )
+    {
+        switch ( role )
+        {
+            case Conversation::Role::System:
+                return "system";
+
+            case Conversation::Role::Assistant:
+                return "model";
+
+            case Conversation::Role::User:
+            case Conversation::Role::Tool:
+                return "user";
+        }
+
+        return "user";
+    }
+
+    /**
+     * @brief One closed turn: <|turn>{role}\n{content}<turn|>\n.
+     *
+     * An Assistant turn appends each of its tool calls in the native call grammar. A Tool turn
+     * carries its result ALREADY rendered -- formatToolResponse is the renderer, and it needs
+     * the tool's name, which a Conversation::Turn does not carry.
+     */
+    export inline std::string formatTurn( const Conversation::Turn& message )
+    {
+        std::string turn;
+        turn.reserve( 64 + message.content.size() );
+
+        turn += kTurnOpen;
+        turn += roleSpelling( message.role );
+        turn += "\n";
+        turn += message.content;
+
+        for ( const auto& call : message.tool_calls )
+            turn += formatToolCall( call.name, call.arguments );
+
+        turn += kTurnClose;
+        turn += "\n";
+
+        return turn;
+    }
+
+    /**
+     * @brief Render a conversation into Gemma's native prompt, primed for generation.
+     *
+     * The system turn is assembled here rather than taken from history, because the tool
+     * declarations are a SUFFIX of it and a caller that had already concatenated them could not
+     * put them in that order.
+     *
+     * @param tool_declarations What serializeToolDeclarations returns. Empty advertises none.
+     * @param continue_open Emit the final turn OPEN, with no closing marker and no thought
+     *        prime, so the next token continues it. That is the shape after a tool response:
+     *        the turn already carries its thought channel from before the call, and priming a
+     *        SECOND empty one mid-turn is off-distribution -- the model parrots it back.
+     *        Otherwise a fresh model turn is opened and primed, which is where the empty
+     *        thought channel belongs and the only place it does.
+     *
+     * @throws std::invalid_argument if continue_open is set on an empty history, since there
+     *         would be no turn to resume.
+     */
+    export inline std::string formatPrompt(
+        std::span<const Conversation::Turn> history,
+        const std::string& tool_declarations = {},
+        bool continue_open = false )
+    {
+        if ( continue_open && history.empty() )
+        {
+            throw std::invalid_argument(
+                "Gemma::formatPrompt: continue_open needs a final turn to resume" );
+        }
+
+        std::string system_content;
+
+        for ( const auto& message : history )
+        {
+            if ( message.role != Conversation::Role::System )
+                continue;
+
+            system_content += system_content.empty() ? "" : "\n\n";
+            system_content += message.content;
+        }
+
+        // No separator: <|tool> is atomic, and the template appends declarations directly.
+        system_content += tool_declarations;
+
+        std::string prompt( kBos );
+
+        if ( !system_content.empty() )
+            prompt += formatTurn( { Conversation::Role::System, system_content } );
+
+        const size_t body_count = continue_open ? history.size() - 1 : history.size();
+
+        for ( size_t index = 0; index < body_count; ++index )
+        {
+            if ( history[ index ].role == Conversation::Role::System )
+                continue;
+
+            prompt += formatTurn( history[ index ] );
+        }
+
+        if ( continue_open )
+        {
+            const auto& last = history.back();
+
+            prompt += kTurnOpen;
+            prompt += roleSpelling( last.role );
+            prompt += "\n";
+            prompt += last.content;
+
+            return prompt;
+        }
+
+        prompt += kTurnOpen;
+        prompt += "model\n";
+        prompt += kThoughtPrime;
+
+        return prompt;
+    }
+
+    // --- Answer extraction (model output -> user-facing text) ---------------
+
+    namespace detail
+    {
+        /// Drop every open..close span. An unterminated open truncates from there, which is
+        /// what a response cut off mid-reasoning should yield: the prefix, not a leaked tail.
+        inline std::string removeSpans( std::string_view text,
+            std::string_view open_token, std::string_view close_token )
+        {
+            std::string result( text );
+
+            while ( true )
+            {
+                const auto start = result.find( open_token );
+
+                if ( start == std::string::npos )
+                    return result;
+
+                const auto end = result.find( close_token, start + open_token.size() );
+
+                if ( end == std::string::npos )
+                    return result.substr( 0, start );
+
+                result = result.substr( 0, start ) + result.substr( end + close_token.size() );
+            }
+        }
+
+        /**
+         * @brief Drop complete tool spans; keep the BODY of a dangling one.
+         *
+         * The safety net for what parseToolCall could not classify. removeSpans would truncate
+         * from the first open, so a response STARTING with an unclosed <|tool_call> would
+         * collapse to nothing -- and the 12B does emit an off-spec `call:name:key=value` form
+         * with no closing marker. Keeping the body degrades it to readable text instead of
+         * blanking the turn; the residual open marker is cleared by stripControlTokens.
+         */
+        inline std::string stripToolSpans( std::string_view text,
+            std::string_view open_token, std::string_view close_token )
+        {
+            std::string result;
+            size_t cursor = 0;
+
+            while ( true )
+            {
+                const auto start = text.find( open_token, cursor );
+
+                if ( start == std::string_view::npos )
+                {
+                    result += text.substr( cursor );
+
+                    return result;
+                }
+
+                const auto end = text.find( close_token, start + open_token.size() );
+                result += text.substr( cursor, start - cursor );
+
+                cursor = end == std::string_view::npos
+                    ? start + open_token.size()
+                    : end + close_token.size();
+            }
+        }
+    }
+
+    /// Remove every enumerated control token, then scrub whatever the set missed.
+    export inline std::string stripControlTokens( std::string_view text )
+    {
+        constexpr std::string_view kControlTokens[] = {
+            kBos, kEos, kPad, kTurnOpen, kTurnClose, kChannelOpen, kChannelClose, kThink,
+            kToolOpen, kToolClose, kToolCallOpen, kToolCallClose,
+            kToolResponseOpen, kToolResponseClose, kStringDelimiter,
+            "<end_of_turn>", "<start_of_turn>" };
+
+        std::string result( text );
+
+        for ( const auto token : kControlTokens )
+        {
+            for ( auto position = result.find( token );
+                position != std::string::npos;
+                position = result.find( token, position ) )
+            {
+                result.erase( position, token.size() );
+            }
+        }
+
+        return detail::stripPipeTokens( result );
+    }
+
+    /**
+     * @brief Reduce a channel-structured response to just the user-facing answer.
+     *
+     * Reasoning channels appear more than once and INTERLEAVED with answer text -- the 12B
+     * emits mid-answer thought channels on the agentic path despite the empty-thought prime --
+     * so every channel span is removed, not just a leading run. Removing only the markers would
+     * leave the label and its reasoning body behind as literal text.
+     */
+    export inline std::string extractAnswer( std::string_view text )
+    {
+        std::string result = detail::stripToolSpans( text, kToolCallOpen, kToolCallClose );
+        result = detail::stripToolSpans( result, kToolResponseOpen, kToolResponseClose );
+        result = detail::removeSpans( result, kChannelOpen, kChannelClose );
+
+        const std::string cleaned = stripControlTokens( result );
+
+        return std::string( detail::trim( cleaned ) );
     }
 }

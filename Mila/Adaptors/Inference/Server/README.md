@@ -169,7 +169,7 @@ up when you run MIS from the checkout.
 The identifier a client sees in API responses is the **store record's** name, not `MILA_MODEL`. The
 store matches case-insensitively, so the two can differ; what is reported is what was loaded.
 
-There is no family, path or quantization setting. All three are properties of the artifact, which
+There is no family, path or quantization setting. All three are properties of the weights, which
 the store record already states — `gemma-4-12b-it-fp4` *is* FP4 weights, and a variable that said
 otherwise could only ever be wrong.
 

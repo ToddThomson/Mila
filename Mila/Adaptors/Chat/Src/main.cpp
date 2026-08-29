@@ -401,7 +401,7 @@ static void printUsage( const char* prog_name )
         << "                     the directory of the file that set it.\n"
         << "  temperature, top_k, top_p, max_new_tokens.\n"
         << "\n"
-        << "  quantization       none | fp8 | fp4. Quantizes an unquantized artifact on load;\n"
+        << "  quantization       none | fp8 | fp4. Quantizes unquantized weights on load;\n"
         << "                     a name ending -fp4/-fp8 is already quantized and refuses it.\n"
         << "\n";
 
@@ -786,7 +786,7 @@ static ChatConfig buildConfig( const CommandLine& line )
 
     const std::string name = readString( chosen, "model" );
 
-    // Quantization is a deployment choice against an unquantized artifact, so it is settled
+    // Quantization is a deployment choice against unquantized weights, so it is settled
     // before the model resolves rather than being part of the name.
     std::optional<QuantizationMode> requested_quantization;
 

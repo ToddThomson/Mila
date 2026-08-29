@@ -23,7 +23,7 @@ Data/**/*.exe
 *.bin
 *.safetensors
 
-# Manifests emitted beside an exported artifact. Derived from the bytes by
+# Manifests emitted beside exported weights. Derived from the bytes by
 # --emit-manifest; the publishable copy is tracked under Tools/ExportArtifact/ModelCards.
 Data/Models/**/mila.json
 
@@ -259,16 +259,11 @@ PublishScripts/
 # except build/, which is used as an MSBuild target.
 !**/[Pp]ackages/build/
 
-# The NuGet rule above catches Data/Models/Packages/ incidentally, which is right for the
-# multi-gigabyte weight blobs and wrong for the model cards beside them: README.md is the copy
-# every new user reads first, on huggingface.co, and it had no source in the repo at all.
-#
-# Three rules, because git will not descend into an excluded DIRECTORY -- a bare
-# "!.../*/README.md" would never be reached. Re-include the model directories, re-exclude their
-# contents so the blobs stay out, then re-include the card.
-!Data/Models/Packages/*/
-Data/Models/Packages/*/*
-!Data/Models/Packages/*/README.md
+# The NuGet rule above catches Data/Models/Packages/ incidentally, which is what we want: a
+# package directory is assembled output of ExportArtifact --package, and every file in it is
+# derived. The model card used to be re-included here because it had no source in the repo;
+# it now has one at Tools/ExportArtifact/ModelCards/<name>/README.md, which is the copy that
+# is written by hand and published, so the package's copy is derived like everything else.
 # Uncomment if necessary however generally it will be regenerated when needed
 #!**/[Pp]ackages/repositories.config
 # NuGet v3's project.json files produces more ignorable files

@@ -130,7 +130,7 @@ def test_family_guard_accepts_every_served_architecture():
 
 def test_every_admitted_family_has_a_session():
     """_family_of admits a record on the strength of ModelFamily alone, so a value with no
-    entry here would load one architecture's artifact into another's session -- silently,
+    entry here would load one architecture's weights into another's session -- silently,
     since both accept the same three arguments. This is the guard against that."""
     for family in ModelFamily:
         assert family in model_worker.SESSION_FOR
@@ -173,7 +173,7 @@ def test_gemma_record_selects_the_gemma_session_and_asks_no_attribution(store, m
 
     assert loaded.family is ModelFamily.gemma
     assert store["session"] == "gemma"
-    # Apache 2.0 requires the notice travel with the artifact, not that a server render one.
+    # Apache 2.0 requires the notice travel with the model, not that a server render one.
     assert loaded.attribution == ""
 
 
@@ -207,7 +207,7 @@ def test_qwen_record_selects_the_qwen_session(store, monkeypatch):
 
 def test_qwen_codebook_variant_reaches_the_session_unchanged(store, monkeypatch):
     # The codebook build is a variant no other family has, and the record is the only thing
-    # that knows an artifact carries it -- MIS must not translate or default it away.
+    # that knows the weights carry it -- MIS must not translate or default it away.
     store["store"] = FakeStore([
         FakeRecord(
             name="Qwen3.8-27B-cb2-3",

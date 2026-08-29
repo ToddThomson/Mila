@@ -1431,7 +1431,7 @@ namespace Mila::ChatApp
 
             // The name identifies the weights exactly -- it is unique across the store, which
             // the family/size/precision triple never was. Quantization still counts, because
-            // one artifact can be deployed at more than one.
+            // one set of weights can be deployed at more than one.
             return loaded
                 && config_.model_name == name
                 && ( !requested.has_value() || *requested == config_.quantization_mode );
@@ -1645,9 +1645,9 @@ namespace Mila::ChatApp
                 return;
             }
 
-            // Quantizing on load is a deployment choice, not an identity: it lets a BF16 artifact
-            // too large for the card run anyway. A pre-quantized artifact is a different model
-            // with its own name, and refuses this.
+            // Quantizing on load is a deployment choice, not an identity: it lets BF16 weights
+            // too large for the card run anyway. Pre-quantized weights are a different model
+            // with its own name, and refuse this.
             std::optional<QuantizationMode> requested_quantization;
 
             for ( std::size_t index = 1; index < args.size(); ++index )
@@ -2293,7 +2293,7 @@ namespace Mila::ChatApp
             if ( verdict == FootprintVerdict::WeightsExceedAvailable )
             {
                 // Context is not the lever when the weights alone overflow, since they do not
-                // shrink with it. Quantization is, and only while the artifact still permits it.
+                // shrink with it. Quantization is, and only while the weights still permit it.
                 if ( config_.quantization_mode == QuantizationMode::None )
                 {
                     renderer_.printInfo( std::format(
@@ -2906,8 +2906,8 @@ Available commands:
   /model                             Show the loaded model
   /model <name>                      Show a model, installed or published
   /model list [--online]             List installed models, or what can be installed
-  /model load <name> [quant]         Load a model (clears history). quant quantizes an
-                                     unquantized artifact on load: none, fp8, fp4.
+  /model load <name> [quant]         Load a model (clears history). quant quantizes
+                                     unquantized weights on load: none, fp8, fp4.
   /model install <name>              Download and install a published model
   /model remove <name>               Remove an installed model and reclaim its blobs
   /context                           Show the context window and the largest that fits
@@ -2922,8 +2922,8 @@ Available commands:
 
 Models:         a bare /model <name> reports; loading is spelled out, because it takes
                 seconds and clears the conversation.
-Quantization:   a name ending -fp4/-fp8 is a pre-quantized artifact. For an unquantized
-                one, /model load <name> fp4 quantizes it on load -- same weights, less
+Quantization:   a name ending -fp4/-fp8 is already quantized. For an unquantized model,
+                /model load <name> fp4 quantizes it on load -- same weights, less
                 VRAM, but the full file is still read.
 Thinking:       Gemma's <|think|> mode. Toggling it does not reload weights. Effort
                 (length) is set with /effort 1-5.
@@ -2976,17 +2976,23 @@ Examples:
                         "func_name2(params)]\n"
                         "You SHOULD NOT include any other text in the response.\n\n"
                         "Here is a list of functions in JSON format that you can invoke:\n";
+
+                    system_content += serializeTools( active_tools );
                 }
                 else
                 {
-                    // No invented call-syntax instructions: Gemma 4 has its own trained
-                    // <|tool_call>/<tool_call|> protocol (GemmaChatProtocol.md). This is a
-                    // plain description, deliberately left unopinionated about call syntax,
-                    // so /verbose all can capture the model's native format via printRaw.
-                    system_content += "\n\nYou have access to the following tools:\n";
+                    // Gemma's own trained declaration grammar, rendered by the runtime. No
+                    // prose and no call-syntax instructions: the model emits calls through its
+                    // <|tool_call> protocol, and <|tool> is an atomic token so the
+                    // declarations need no separator from the prompt above them.
+                    //
+                    // This used to be the same prose-plus-JSON-array the Llama branch sends,
+                    // which is not a Gemma format at all -- and the inference server was
+                    // already rendering the trained form, so one model was being given two
+                    // materially different prompts depending on which adaptor built them.
+                    system_content += Mila::Dnn::Gemma::serializeToolDeclarations(
+                        serializeTools( active_tools ) );
                 }
-
-                system_content += serializeTools( active_tools );
             }
 
             history_.push_back( { MessageRole::System, std::move( system_content ) } );

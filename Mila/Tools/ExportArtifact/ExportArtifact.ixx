@@ -612,7 +612,8 @@ namespace Mila::Tools
      * Family-agnostic on purpose, and the reason it can be: an unquantized export changes the
      * container, never the numbers. Nothing here builds a model, so no GPU is involved, no
      * architecture is named, and every family the reader can open transcodes the same way --
-     * which is what runExport, hardcoded to Gemma, cannot do.
+     * where runExport must name a chassis per architecture and so covers only the three it
+     * lists.
      *
      * Two passes because safetensors records byte ranges in its header: everything is declared,
      * the header is emitted, then bodies stream in declaration order. Both passes walk the
@@ -985,11 +986,6 @@ namespace Mila::Tools
      */
     inline constexpr int64_t kExportContextLength = 512;
 
-    /**
-     * @brief Load the source at the requested quantization and write the artifact.
-     *
-     * @return Process exit code.
-     */
     /**
      * @brief Load one family at the requested quantization and write the artifact.
      *

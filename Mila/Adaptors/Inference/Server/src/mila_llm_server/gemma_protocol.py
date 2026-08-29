@@ -1,4 +1,22 @@
 """
+RETIRED -- superseded by the runtime, kept on disk for reference only.
+
+Nothing imports this module. Every rule in it now lives in Dnn.Models.GemmaProtocol and
+reaches Python through the mila binding; `gemma_bridge.py` holds the part that was genuinely
+a server's (which tools to advertise, the correlation id the Anthropic wire needs) and no
+grammar at all. The two were checked byte-for-byte before this was unhooked: declarations,
+tool calls, tool responses and answer extraction agree exactly, and parsed arguments agree
+after decoding -- nlohmann dumps JSON without json.dumps's spaces, which is not part of what
+the model sees.
+
+It existed because a grammar written twice drifts, and it did: this rendered the trained
+<|tool>declaration form while the chat harness advertised a JSON array, so the same model got
+materially different prompts depending on which adaptor built them.
+
+Original header follows.
+
+---
+
 Gemma 4 native chat + tool-call protocol for the Mila Inference Server.
 
 Gemma 4 (the Mila checkpoint) uses registered vocabulary tokens for turns,

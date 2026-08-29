@@ -55,6 +55,11 @@ if(BUILD_TYPE)
     list(APPEND consumer_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
+# Announced BEFORE the work, not only after it. A pass that names its tag only on success is
+# indistinguishable from a stale pass when the run is short and cached, which is exactly how this
+# gate once validated the previous release and reported green.
+message(STATUS "Packaging gate: CPM release-access, fetching ${GITHUB_REPOSITORY}@${GIT_TAG}")
+
 # 1. Configure the consumer. CPMAddPackage git-clones Mila at GIT_TAG from the
 #    remote -- this is the step that exercises real release access.
 execute_process(

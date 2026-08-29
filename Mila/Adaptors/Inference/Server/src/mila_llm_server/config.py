@@ -16,7 +16,7 @@ class ModelFamily(str, Enum):
 
     Each value must have a session class in SESSION_FOR and a prompt template, because
     _family_of() admits a record on the strength of this enum alone -- adding a value
-    without both is how an artifact of one architecture gets loaded into another's session.
+    without both is how one architecture's weights get loaded into another's session.
     """
 
     llama = "llama"
@@ -74,7 +74,7 @@ def required_attribution_for(license_id: str) -> str:
     startup, and what /v1/models returns.
 
     Empty for licenses with no display duty -- Apache 2.0 and MIT require the notice travel
-    with the artifact, not that a consumer render one.
+    with the model, not that a consumer render one.
     """
     return "Built with Llama" if license_id.startswith("llama") else ""
 
@@ -85,7 +85,7 @@ class LoadedModel:
     What the store record says about the model this process loaded.
 
     Deliberately not configuration. Family, variant and instruct-tuning are facts about
-    the artifact's bytes, and an environment variable that disagreed with them could only
+    the weights' bytes, and an environment variable that disagreed with them could only
     ever be wrong -- which is exactly what MILA_MODEL_FAMILY was, a second place to state
     something the record already knew. ModelWorker fills this in at startup; the protocol
     adapters read it per request.

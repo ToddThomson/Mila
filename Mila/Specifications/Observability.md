@@ -407,11 +407,47 @@ decode shape costs ~7.5 microseconds of host time, and total time tracks enqueue
 exactly, so the call is host-bound on launch overhead (WDDM is expensive here) rather than on
 kernel work. A predicted branch against that is four orders of magnitude down.
 
-**What this does not measure.** One component in isolation, not 64 layers of components in a
-model, and not the attached case. The section 10 acceptance criterion — no movement in decode
-tok/s on the 27B at 16K — still has to be checked once instrumentation is real. The harness is
-`GeluCudaTests.DISABLED_PublishCost`, kept in the tree for re-running against the real
-mechanism.
+**What this does not measure.** One component in isolation, not a whole model, and not the
+attached case. The harness is `GeluCudaTests.DISABLED_PublishCost`, kept in the tree.
+
+### 7.1 Whole-model — MEASURED 2026-08-29: the section 10 criterion is met
+
+**Result first.** Publication is not measurable on decode tok/s with no observer attached, on
+two chassis, and the criterion is met. The arms differ by one line — a temporary
+`if constexpr` gate on `publish()`, applied and reverted, which is the fallback design this
+section declines to ship. Run order baseline / instrumented / baseline; seven repeats of the
+`decodeSecondsPerToken` subtraction per arm; `x64-claude-verify` Release, RTX 5060 Ti pinned
+by UUID, both models DRAM-resident with GiB to spare. Harness:
+`ObservationCostCudaTests` (`Mila/Tests/Dnn/Observation/ObservationCost.Cuda.cpp`).
+
+| Arm | Llama 3.2 3B FP4 | Gemma 4 12B FP4 |
+|---|---|---|
+| Baseline A | 10.2346 ms/token | 23.1355 ms/token |
+| Instrumented | 10.3609 ms/token | 23.1575 ms/token |
+| Baseline B | 10.3573 ms/token | 23.1642 ms/token |
+
+**The bracket is the finding, again.** On Llama the instrumented build sits 0.03% from
+baseline B while the two *identical* baselines differ from each other by 1.20% — forty times
+the gap being tested for. On Gemma the instrumented arm lands *between* the two baselines.
+Within-arm spread over seven repeats was 0.22-0.62%, so the measurement resolves well below
+the drift it is competing with.
+
+Taken alone, baseline A against the instrumented build reads "+1.23% on Llama". That is the
+same artifact section 7 produced at component scale, at a scale where it looks far more
+convincing, and it is what the bracket exists to catch. A single pair would have reported a
+regression that does not exist.
+
+**Why these models rather than the 27B.** The criterion was originally written as "the 27B at
+16K", which is the configuration least able to answer it. The overhead is *fixed* per token,
+so its share is largest where a decode step is cheapest: Llama 3B at 10 ms/token is roughly
+three times more sensitive than the 27B at ~33 ms. The 27B is worse still on the 12 GiB card,
+where the 16K build predicts 10.27 GiB against ~10.85 free and the number would carry the
+WDDM pager rather than the branch. Publication is a `Component` facility — the cost is
+(publish calls per token) x (cost per call), with nothing family-specific in it — so the model
+is a *sample*, and the right sample is the one where an effect would be largest. Finding
+nothing there settles the 27B a fortiori. **Section 10's criterion is restated accordingly**:
+no measurable movement in decode tok/s on a DRAM-resident model at the point of maximum
+sensitivity, on at least two chassis.
 
 ---
 

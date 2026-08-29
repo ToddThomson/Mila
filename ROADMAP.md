@@ -139,7 +139,8 @@ stage vocabulary **derived from the tensor names already in the code** rather th
 call site; a consumer outside the model walks the tree, attaches by pattern and pass, and reads
 activations without reaching through a protected accessor and without scaffolding in `Mila/Src`;
 attaching a sink that matches nothing says so rather than reporting silence; and instrumentation
-costs no measurable decode throughput on the 27B at its full context.
+costs no measurable decode throughput, held against build-to-build drift on more than one chassis
+at the point where a fixed per-token cost would show up largest.
 
 ### Test Suite Revival
 
@@ -284,7 +285,12 @@ on the terms every other model gets, from Chat and over the wire.
 model's native grammar is a property of the model, so it lives in the library; a host renders a
 conversation and reimplements nothing, exactly as the store's transport delegate already works.
 Qwen's template and tool grammar are projected through the binding rather than written twice, which
-is what makes one prompt reach the model whichever adaptor built it.
+is what makes one prompt reach the model whichever adaptor built it. Gemma followed, and it is the
+case that shows why the rule is worth enforcing rather than merely tidy: its grammar had been
+written three times, and the copies had drifted far enough that the chat harness advertised tools
+as a JSON array while the inference server rendered the trained declaration form the model was
+actually tuned on. One model, two materially different prompts, decided by which adaptor a user
+happened to be holding.
 
 What Qwen still asks of a server is a question no previous model has. A recurrent state is a lossy
 summary and cannot be rewound, so Qwen refuses prompt-prefix reuse outright; a server that reuses
