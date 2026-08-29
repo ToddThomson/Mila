@@ -177,30 +177,54 @@ The tells are greppable, and worth a pass before anything is published: **delibe
 
 ## Work-Tracking Docs
 
-**The git history is the record of what changed.** No work-tracking file duplicates it. The four
-files below stay **mutually consistent**, updated in the **same commit** as the work they describe —
-never deferred to "later":
+**The git history is the record of what changed.** No work-tracking file duplicates it. The five
+entries below stay **mutually consistent**, updated in the **same commit** as the work they describe —
+never deferred to "later".
+
+**Capture and commitment are separate acts, and conflating them is what makes a backlog
+unbounded.** Finding something mid-task leaves seconds for judgement, so anything requiring a
+decision at that moment defaults into the current release — a commitment nobody meant to make.
+`Mila/Issues/Untriaged.md` takes the finding with no decision attached; triage supplies the decision
+later. **Never write a finding straight into `BACKLOG.md`.**
 
 - **`ROADMAP.md`** — the durable **narrative + success criteria** of each release, organized by
   **theme** (not milestone). Shows the release in flight plus a single **Future** tail. **Narrative
   only — no task lists, checkboxes, or status** (they drift; point to BACKLOG). When a release ships,
   its section moves to CHANGELOG.
-- **`BACKLOG.md`** — the **open** task list, and nothing else. `## Current release` holds one **theme
-  bucket** per ROADMAP theme (matching names — the only join); `## Future` is a flat, coarse parking
-  list. Not GitHub Issues (a decoupled, requester-authored end-user layer — see RELEASING). Four
-  rules keep it usable:
+- **`BACKLOG.md`** — **work committed to the release in flight, and nothing else.** `## Current
+  release` holds one **theme bucket** per ROADMAP theme (matching names — the only join). Five rules
+  keep it usable:
+  - **Admission is earned.** Point at an item and name the ROADMAP success criterion that fails if
+    it never ships. If you cannot name one it belongs in `Mila/Issues/`. Membership in this file
+    *is* the claim that the item blocks the release, so an unearned item makes the claim worthless
+    for every other item too.
   - **An item is three lines** — what, why it matters, `file:line`. Five if genuinely complex.
   - **Status lives in the checkbox**, `[ ]` open or `[~]` in progress, and never in the prose. No
-    dates, no "GREEN", no findings, no measurement tables.
+    dates, no "GREEN", no findings, no measurement tables. **Disposition is a file in
+    `Mila/Issues/`, not a tag** — parked is `Future.md`, good-first-issue is `Contributor.md`.
   - **Done means deleted**, in the same commit as the work. There is no `[x]` state. The commit that
     landed the work is the record; a finding worth reusing goes to the owning spec or to memory.
   - **Past ~300 lines it has stopped being a task list** and needs a prune.
+- **`Mila/Issues/`** — everything upstream of that commitment; the funnel and its categories, with
+  the flow and the rules in [`Mila/Issues/README.md`](Mila/Issues/README.md). `Untriaged.md` is
+  untriaged capture, one line per entry, and is **lossy by design**: an entry still there at the
+  release tag is deleted unexamined. Triage runs at each `beta.N` / `rc.N` increment and gives every
+  line a destination — `BACKLOG.md`, a category file, or deletion. A category names **what happens
+  to an item**, never what it is about.
 - **`CHANGELOG.md`** — one short entry per **production (unsuffixed) release**, generated from its
   commit range at release time. Nothing is written to it during a cycle, and pre-release detail
   (`alpha.N`/`beta.N`/`rc.N`) never earns its own entry.
 - **`Version.txt`** — `MAJOR.MINOR.PATCH-stage.N`, bumped **before committing** (see
-  [RELEASING.md](RELEASING.md) for the scheme). GitHub Milestones/Issues/Labels are an end-user triage
-  layer, decoupled from this workflow.
+  [RELEASING.md](RELEASING.md) for the scheme).
+
+**GitHub Issues is the front desk; `Mila/Issues/` is the work queue.** Someone with no repo access
+files there and gets a notification when it is fixed, which a file in a repository can never do.
+The funnel inward is **manual** — a human decides which reports earn an entry — and for
+anything user-reported **the GitHub issue stays the record while the entry is only a pointer
+to it**, which is what makes the lossiness safe. `Contributor.md` is the outbound
+direction. "Issue" is ambiguous between the two only if the distinction goes unsaid; this is it
+being said. GitHub Milestones and Labels remain an end-user triage layer, decoupled from this
+workflow.
 
 ---
 

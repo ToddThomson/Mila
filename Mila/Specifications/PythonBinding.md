@@ -267,6 +267,7 @@ Out of bounds — feature additions, deferred to vNext:
    download is a slow first impression. Worth checking whether a smaller Gemma 4 variant exists that
    Mila could validate, which would give the good first run without the Llama licence conditions.
 2. **Whether the Python sample is a v0.20 barrier lever.** It is the same class as the Docker image
-   and the CPU-only path — work that lets an audience reach Mila at all. Promoting it from `## Future`
-   into Production Hardening changes what v0.20 claims, so it is a deliberate call.
+   and the CPU-only path — work that lets an audience reach Mila at all. Promoting it from
+   `Mila/Issues/Future.md` into Production Hardening changes what v0.20 claims, so it is a
+   deliberate call.
 3. **Wheel distribution** (Tier 3), and whether it belongs with the Python work or with packaging.

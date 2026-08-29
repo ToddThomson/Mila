@@ -1,8 +1,17 @@
 # Mila — Backlog
 
-The open task list for the release in flight. Narrative and success criteria live in
-[ROADMAP.md](ROADMAP.md); design rationale under `Mila/Specifications/`. **Completed work lives in
-the git history** — the commit that landed it is the record.
+**Work committed to the release in flight, and nothing else.** Narrative and success criteria live
+in [ROADMAP.md](ROADMAP.md); design rationale under `Mila/Specifications/`. **Completed work lives
+in the git history** — the commit that landed it is the record.
+
+Everything upstream of that commitment lives in [`Mila/Issues/`](Mila/Issues/README.md): findings
+land in `Untriaged.md` untriaged, and triage promotes them here, parks them in `Future.md`, or deletes
+them. **Nothing is written straight into this file** — an item arrives here only by being judged
+release work, which is what membership in it claims.
+
+**The admission test.** Point at an item and name the ROADMAP success criterion that fails if it
+never ships. If you cannot name one, it belongs in `Mila/Issues/`, not here. The test has to be
+external to the moment, because in the moment every item feels worth doing.
 
 Each `###` bucket is a v0.20 theme, its name matching the ROADMAP section (the only join).
 
@@ -10,8 +19,9 @@ Each `###` bucket is a v0.20 theme, its name matching the ROADMAP section (the o
 complex. **Status lives in the checkbox** — `[ ]` open, `[~]` in progress — and never in the prose;
 no dates, no "GREEN", no findings. **Done means deleted**, in the same commit as the work. Findings
 worth reusing go to the owning spec or to memory, not here. Tags: **[gate]** blocks the release ·
-**[deferred]** parked · **[contributor]** good-first-issue · **[crash]** reproduces as a crash ·
-**[net-new]** authored from scratch, not revived · **[decoupled]** off the critical path.
+**[crash]** reproduces as a crash · **[net-new]** authored from scratch, not revived ·
+**[decoupled]** off the critical path. Disposition is a file in `Mila/Issues/`, not a tag: parked is
+`Future.md`, good-first-issue is `Contributor.md`.
 
 **The size gate is lines per item, not total lines** — the failure mode is narrative, not item count.
 Divide the lines in `## Current release` by the number of items in it; past **four** it has stopped
@@ -149,9 +159,6 @@ being a task list and needs a prune.
   GPT-2's three cases pin, and nothing exercises it. Llama's overrun is the quiet one — it walks the
   KV cache rather than crashing — so absence of a report is not evidence. Template:
   `Tests/Dnn/Models/GptModel.Cuda.cpp`, a weightless checkpoint at a small deployment context.
-- [ ] **[contributor]** Llama 3.2 1B/3B weight tying — the aliasing plumbing shipped; add
-  `tie_word_embeddings_` + post-load aliasing + `getMemoryStats` correction to `LlamaTransformer`.
-  See `Specifications/WeightTying.md` §6.
 - [ ] **`cuda_fp4a16_gemm` and `cuda_fp4_dequantize_to_bf16` fall through to a SILENT no-op on an
   unsupported group size.** Both switch on `group_size` with `default: break` (`CudaW4A16Gemm.cu:398`,
   `:428`), so a size outside {64, 128} launches nothing and leaves the staging buffer holding the
@@ -182,11 +189,6 @@ being a task list and needs a prune.
   patterns select the same set. Measured: `"*.tf_layer_*"` selected 816 components on Gemma 4 12B,
   which has 48 layers. Decide whether `*` should stop at a dot or the doc should describe what it
   does; `Observability.md` §11's path-matching bullet carries the same implication.
-- [ ] **[deferred]** **A value-reading sink has to name the model's compute precision.** The sink
-  gets `const ITensor&`, whose `rawData()` is type-erased, so anything wanting numbers does a
-  `dynamic_cast` to `Tensor<TPrecision, MR>` then its own `toHost`; all three consumers now do this.
-  Whether observation should offer a typed convenience is decided-deferred to v0.21 —
-  `Observability.md` §11.2.
 
 ### Test Suite Revival
 
@@ -529,12 +531,6 @@ being a task list and needs a prune.
   version-skew comparison needs a mutable copy.
 - [ ] **Guided reading path** — one token's journey (embed -> attend -> sample -> decode) through the
   real source, readable by a strong C++ dev unaided.
-- [ ] **[contributor]** Llama-lineage CPU ops (`RmsNormOp`, `SwigluOp`, `RopeOp`, `TokenEmbeddingOp`,
-  `CrossEntropyOp`) in `OperationTraits.Cpu.ixx` — demand-driven; absence is zero-cost on the GPU path.
-- [ ] **[deferred, measure first]** Remove FP16 (superseded by BF16) — woven through live code; trace
-  live-vs-dead first, and 8 `REVIEW:` markers already scope it. Note the odd row it collides with:
-  CUDA `LayerNormOp` is registered at FP32 and FP16 and *not* BF16, so deleting the FP16 row leaves
-  CUDA LayerNorm FP32-only. Pinned by a `static_assert`, so this work must confront it.
 
 ### Model Distribution
 
@@ -822,89 +818,3 @@ being a task list and needs a prune.
   `Samples/QuickStart/Python/generate.py` already shows completion via `--raw`, so the only gap is
   GPT-2 itself — `LlamaModel`, `GemmaModel` and `QwenModel` are the sessions the binding exposes,
   which is also why MIS refuses the architecture. A binding decision, not a sample one.
-
----
-
-## Future
-
-Next-cycle work. Coarse by design — detailed tasking happens only when an item promotes into a release.
-
-- **[gate] One typed model handle + factory, before ANY next chassis** — the architecture-to-concrete
-  erasure exists three times in two languages (Chat's `ModelVariant`, the binding's `*Session`
-  classes, MIS's `ModelFamily`), which is why GPT-2 is missing from MIS. Lands in the runtime-adjacent
-  native agent core; sequencing in `MilaProductFamily.md` Open Decision 2. **After the v0.20 tag,
-  before the chassis expansion below.**
-- **The library should own architectural identity** — the set of architectures is the set of model
-  classes `Mila/Src` implements, held today as a compile-time type and an unvalidated manifest string
-  with nothing connecting them, so each consumer writes its own bridge (`familyFromArchitecture` in
-  `Chat.ModelCatalog.ixx:159`, `architecture == "gemma"` at `Mila_py.Wrappers.cpp:413`). Home is
-  `Distribution`, beside the manifest reader, not `Dnn`. The library owns the identity only; traits
-  merely keyed on it stay with the consumer they describe.
-  [[project_architecture_identity_ownership]]
-- **Qwen 3** — the dense decoder, thinking-mode suppression, model-agnostic tool calling, and FP8 KV
-  cache; the `OperationTraits<GqaOp, Cuda, BF16, PerChannelKvFp8<>>` specialization lands here.
-- **Qwen 3.8 FP4 — FP8 the embedding table so the model is wholly device-resident.**
-  `QwenOraclePrecisionPlan::EmbeddingTable` is `NoWeightQuant` and host-resident, so every decode step
-  gathers a row over PCIe; at `PerChannelFp8<>` the 1.271 B table halves to ~1.19 GiB and sits beside
-  the 12.31 GiB FP4 body inside a 15.93 GiB card. Gemma 4's D4 Design B is the precedent and
-  `TokenEmbedding` already accepts a per-channel table policy. `Qwen.PrecisionPlan.ixx:153`
-- **Architecture / MoE** — the presumptive post-v0.20 tentpole; one router chassis unlocks Gemma
-  26B-A4B, Qwen3-30B-A3B and gpt-oss-20b. [[project_moe_tentpole_direction]]
-- **Gemma 4 MTP** — the self-speculative drafter, sequenced ahead of MoE.
-- **Ministral** — SWA transformer; reuses the Llama foundation, Qwen 3 tool calling, and the Gemma 4
-  SWA mask + bounded-KV ring.
-- **v0.20 library-frozen tails** — the Generation API surface tail (`SamplerConfig` rename, Llama/Gpt
-  seedable sampling, eager sampler, config-accessor propagation, `contextLength()` hoist), the
-  Sample-API device-sampler migration for Llama/Gpt, and the Optimizer-dispatch migration onto
-  `OperationTraits`. All `Mila/Src`, which is why they wait. Adaptor work does not.
-- **Model serialization** — the remaining checkpoint round-trip and distribution phases. Design and
-  phase plan in `Specifications/ModelSerialization.md`.
-- **Retire quantize-on-load — one load shape for every policy.** `Linear::loadParameter` refuses a
-  compute-precision blob, uploads packed bytes, binds, derives; the dtype sniff at `Linear.ixx:601`
-  and `CudaLinearOp::quantize()` go, and FP8/FP4 fitting joins the sub-4-bit fitter in
-  `Tools/Quantization` — one producer for every format, and model production stops needing a GPU. The
-  codebook path is already this shape (`:574`). Depends on the FP4/FP8 codecs, and takes Chat's
-  load-time quantization keyword with it. An API change to `Mila/Src`, which is why it waits.
-  [[project_quantization_offline]]
-- **Python binding — numeric access, not component access.** Add a session-level `forward()` returning
-  logits, plus final hidden states, to `LlamaSession`/`GemmaSession`; from Python a parity run can
-  compare token ids and nothing else today. Component, tensor and training bindings are ruled out:
-  `TDeviceType x TPrecision x TWeightQuantization` is erased only at the session PIMPL.
-  `Mila_py.Wrappers.ixx:362`
-- **API Coherence** — the pre-1.0 consistency pass, and the precursor to any API-stability promise.
-  First named item: **`loadModel`/`saveModel` and `loadCheckpoint`/`saveCheckpoint`** — verb plus what
-  you get, both directions. "Pretrained" is relative to a fine-tuning stage Mila does not have and is
-  doubly wrong on the write side; "artifact" is build vocabulary for a file that is simply a model;
-  `from` names the *source* form, so `fromCheckpoint` earns it and `fromModel` cannot. Document the
-  distinction: a checkpoint carries epoch and loss as one of a series, a model is terminal. One
-  wrinkle: `Network::load( archive, mode )` restores into an existing graph. **The methods are the
-  small half** — `kArtifactMinimumMilaVersion`, `ModelDistribution.md`, both model cards,
-  `from_pretrained`, MIS and the samples all speak the old vocabulary. Sequence with the
-  `ExportArtifact` rename and the binding's `quantize_fp8` fix.
-- **Warnings-as-errors ratchet.** Requires the `/external:W0` isolation first; enforce in **CI only**,
-  never locally; ratchet on the count *not increasing* before demanding zero; **MSVC first**, since
-  `/WX` across three compilers means the union of three opinions must be zero; and dormant-but-retained
-  code warns by nature — suppress per-file in CMake pointing at the owning task, never with
-  `#pragma warning` in module code. Land it **after** v0.20 ships.
-- **Training (advanced)** — Llama fine-tuning, loss-function GPU migration, gradient checkpointing,
-  and BF16/GQA training.
-- **Performance** — Gemma 4's levers (the fused W4A16 prefill GEMM, flash-attention on the global
-  layers) and the codebook path's own, each a measured gap with its numbers in `Qwen3.8.md` §8: the
-  decode GEMVs' bandwidth shortfall against FP4 (amortize the unpack across output rows, or bucket
-  activations by code); staging the sub-4-bit prefill to FP8 so it reaches the sm89 tensor GEMM
-  instead of a BF16 one, gated on e4m3's 3 mantissa bits over 2.82-bit codes; the per-chunk staging
-  dequantize, unmeasured across the rung ladder (`Qwen.ixx:110`); tensor cores for the DeltaNet
-  chunked kernel, worth ~13% of prefill; and whether Gemma's ring softmax is reachable from Qwen's 16
-  full-attention layers. [[project_w4a16_prefill_gemm]]
-- **Whole-model prefix caching for Qwen** — the 48 DeltaNet layers need the snapshot/restore copy and
-  the 16 attention layers the positional rewind, and nothing combines them. Deferred as a policy
-  question: how many prefixes to hold in host RAM, and eviction. `Qwen3.8.md` §8, `PromptCaching.md`
-- **Native low-precision compute (Blackwell+)** — the microscaling data path and finer per-arch gating.
-- **Compute backends beyond CUDA** — ROCm and Metal; `DeviceType::Rocm` / `::Metal` are reserved and
-  unimplemented.
-- **Platform portability — aarch64 + coherent memory.** Mila has never been built on ARM.
-- **Model loading** — a load-time FP4 sidecar cache, and concurrent/async read I/O for real queue depth.
-- **Ungated GPT-2 zero-auth quick-start** — a first-run HTTPS weights fetch.
-- **`ComponentType` vitality** — does `getType()` earn its keep, or does the unused converter surface
-  retire?
-- **Discoverability** (internal, not a README theme) — the site is live at `mila.toddt.me`.
