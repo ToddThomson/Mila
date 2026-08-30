@@ -57,7 +57,11 @@ failure: deleting an entry and losing a measurement with it. Reconsider it at th
 | Tag | Means |
 |---|---|
 | `gate` | Blocks something named in the body. Not "important". |
-| `next` | First work after the current release tag. At most one or two entries hold this. |
+
+**`next` was retired when `Vnext.md` was created.** It meant "first work after the current release
+tag" — a disposition, and disposition is the filename rather than a tag. It was on one entry, below
+the threshold anyway. Where sequencing *within* `Vnext.md` matters, say it in the body, which is
+more precise than a tag and cannot silently contradict the file it sits in.
 
 ---
 

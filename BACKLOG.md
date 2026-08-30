@@ -16,8 +16,10 @@ external to the moment, because in the moment every item feels worth doing.
 Each `###` bucket is a v0.20 theme, its name matching the ROADMAP section (the only join).
 
 **House rules.** An item is **three lines**: what, why it matters, `file:line`. Five if genuinely
-complex. **Status lives in the checkbox** — `[ ]` open, `[~]` in progress — and never in the prose;
-no dates, no "GREEN", no findings. **Done means deleted**, in the same commit as the work. Findings
+complex. **Status lives in the checkbox** — `[ ]` open, `[~]` in progress, `[x]` done — and never in
+the prose; no dates, no "GREEN", no findings. **Done means deleted**, in the same commit as the
+work: `[x]` is a working-tree marker so finished items are visible while the change is reviewed, and
+the commit that lands the work removes them. **No `[x]` is ever committed.** Findings
 worth reusing go to the owning spec or to memory, not here. Tags: **[gate]** blocks the release ·
 **[crash]** reproduces as a crash · **[net-new]** authored from scratch, not revived ·
 **[decoupled]** off the critical path. Disposition is a file in `Mila/Issues/`, not a tag: parked is
@@ -171,10 +173,6 @@ being a task list and needs a prune.
   `basic_istream::sentry`; instantiating a model needs `<sstream>` **before** the import, since
   virtual `Component::toString()` compiles in via the vtable; import-before-includes is fatal (C1116).
   `Samples/QuickStart/Cpp/main.cpp` carries two workarounds. [[project_import_mila_breaks_std]]
-- [ ] **Make `packaging_fetchcontent_consumer` instantiate a model and read input.** Its fixture is a
-  version print, which is why the defect above sat undetected — the gate proves Mila *links*, not that
-  its module is *usable*. It needs no GPU and no model to catch all three failures: they are
-  compile-time. Cheapest possible guard for the entire C++ consumer story.
 - [ ] **The Python binding discards `GenerateStatus`, so the two quick starts cannot reach parity.**
   All three sessions in `Mila_py.Wrappers.cpp` (`:553`, `:657`) do `(void)impl_->model->generate(...)`,
   so a Python caller cannot tell EOS from the `max_new_tokens` cap from context overflow from a
@@ -200,7 +198,8 @@ being a task list and needs a prune.
 - [ ] **The head's two paths do not agree to the last digit, so a perplexity comparison must fix the
   width.** Same weights and corpus, width 1 (decode matvec) and width 64 (W4A8-FP8 GEMM) differ in the
   third decimal. Small, but head width is part of the measurement protocol rather than a free
-  performance knob — both arms of a quantization comparison must use the same one.
+  performance knob — both arms of a quantization comparison must use the same one. **Likely already
+  recorded** at `Qwen3.8.md:509` and `:546`; verify, and if so this item is the duplicate.
 - [ ] **`Qwen3.8.md` §8 gates the 16 GiB oracle on token-for-token cross-arch agreement, which cannot
   pass at any precision.** BF16, FP8 and FP4 all fork between Ada and Blackwell, at a token index set
   by the prompt rather than the precision, while each card is deterministic run-to-run — FP
@@ -215,31 +214,11 @@ being a task list and needs a prune.
   `ExecutionContextFactory` as public API, but no model factory accepts one (`GemmaModel.ixx:119`
   takes a `DeviceId`) and `Component` holds a non-owning pointer owned by its parent. Decide: a
   `fromPretrained` overload taking `IExecutionContext*`, or drop both from the umbrella.
-- [ ] **The README's six CI badges are decorative fiction.** `README.md:18-21` builds a Branch x
-  (Build/Test/Docs) table by passing `job=build`/`test`/`docs` to the badge endpoint, which has no
-  such parameter — all six fetch identically. `build-pipeline.yml`'s real jobs are `compile-and-gate`
-  and `cpu-only-tests`, with no docs job at all. Two honest badges beat six that cannot fail apart.
-- [ ] **Three different GCC floors are stated in the tree, and only one is measured.** `README.md:250`
-  says GCC 16, `README.md:267` implies 15.3 works, and `CLAUDE.md` says GCC 15.3+. What was validated
-  is 16 works / 15.2 fails; 15.3 has never been built. State the measured floor in one place.
-- [ ] **Both onboarding docs state the build-option defaults backwards.** `MILA_ENABLE_TESTING` is
-  `${PROJECT_IS_TOP_LEVEL}` and `MILA_ENABLE_DOCS` is `ON` (`CMakeLists.txt:67,77`), but
-  `README.md:282,296` and `getting-started.md:79,212` call both `OFF`. `getting-started.md:221`
-  compounds it with `find_package(Doxygen REQUIRED)` where the call must stay unqualified
-  (`Mila/Docs/CMakeLists.txt:12`), and sells Graphviz for call graphs the Doxyfile disables.
 - [ ] **A FetchContent consumer inherits Mila's `docs` target, aimed at the consumer's own source
   tree.** `MILA_ENABLE_DOCS` defaults `ON` and is not gated on `PROJECT_IS_TOP_LEVEL`, so a downstream
   configure offers a target whose `WORKING_DIRECTORY` and output path are `${CMAKE_SOURCE_DIR}`
   (`Mila/Docs/CMakeLists.txt:21-24`) — the consumer's root in a subproject build. Same class as the
   `tokenize` item; copy `MILA_ENABLE_SAMPLES`.
-- [ ] **The preset list names four presets that do not exist and omits nine that do.**
-  `getting-started.md:207` offers `x86-debug`, `x86-release`, `linux-debug`, `macos-debug` — none are
-  in `CMakePresets.json`, where the Linux entries are `linux-clang-{debug,release}` and
-  `linux-clang-cpu-{debug,release}`; `CLAUDE.md` repeats the `x86-*` pair. A reader following either
-  gets "no such preset" on their first configure.
-- [ ] **`getting-started.md:229` pins the dev container a release behind** — CUDA 13.0 / Clang 19 /
-  CMake 4.x against the actual CUDA 13.3 / clang-21 / gcc-15 / CMake 4.2.3
-  (`Docker/Dockerfile:18,48,50,61`). `README.md:321` and `Docker/README.md:13` both have it right.
 - [ ] **`CMakeLists.txt:266` pins curl at 8.11.1 under a `REVIEW:` marker naming 8.21 as current.** A
   vendored TLS-adjacent dependency in a published binary is the one pin where staleness has a security
   cost. Decide the bump or record why 8.11.1 stands.
@@ -279,16 +258,6 @@ being a task list and needs a prune.
   covers dropping `+build` (OCI forbids `+`) and nothing else. `latest` is what a bare
   `docker run toddthomson/mila-llm` resolves to, so pointing it at a beta makes the beta the default
   for everyone who does not read the tag list. Repository name is decided: **`toddthomson/mila-llm`**.
-- [ ] **ONE image holding all of Mila, with two entry points** — not one per adaptor. Chat and MIS are
-  two interfaces onto the same runtime: same `libMila`, same binding, same store on the same mount, so
-  splitting them duplicates the library and makes the user choose an artifact before they know which
-  interface they want. Chat is the default `CMD`; MIS is a second entry point. Accepted cost: a
-  Chat-only user carries Python, the binding and FastAPI.
-- [ ] **The real split is devel vs runtime, and only the runtime half is published.** Stage 1 is
-  today's `nvidia/cuda:*-devel` base building everything; stage 2 is a `*-runtime` base carrying only
-  the built binaries, the binding, MIS and the store tooling. That is where the size saving is, far
-  more than any adaptor split. `Docker/Dockerfile` stays as the contributor build environment, never
-  published.
 - [ ] **Docker Hub Overview page is an authored surface, so give it a source in the repo.** It is what
   search shows and it carries the container-distribution message; hand-editing it in the browser is
   how the HF org card came to need a rewrite. [[project_four_channel_roles]]

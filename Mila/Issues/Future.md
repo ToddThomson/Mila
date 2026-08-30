@@ -1,24 +1,15 @@
 # Future
 
-Next-cycle work: real, and for a later release. Flat and coarse **by design** — detailed tasking
-happens only when an item promotes into a release, and elaborating it here is work spent on a plan
-that will be rewritten before it is used.
+Real work carrying **zero commitment** — not scheduled, and some of it never will be. That is the
+whole difference from [`Vnext.md`](Vnext.md), which seeds the next release's backlog and therefore
+carries an intention to do the work. "Someday, if the hardware or the reason arrives" belongs here;
+"we mean to do this next cycle" belongs there.
 
-Moved out of `BACKLOG.md` so that file means exactly one thing: work committed to the release in
-flight. Triage flow and categories are in [README.md](README.md); the tag set is
-[Tags.md](Tags.md).
+Flat and coarse **by design** — detailed tasking happens only when an item promotes into a release,
+and elaborating it here is work spent on a plan that will be rewritten before it is used. Triage
+flow and categories are in [README.md](README.md); the tag set is [Tags.md](Tags.md).
 
 ---
-
-## One typed model handle + factory
-
-`architecture` · `mila-src` · `gate` · `next`
-
-The architecture-to-concrete erasure exists three times in two languages — Chat's `ModelVariant`,
-the binding's `*Session` classes, MIS's `ModelFamily` — which is why GPT-2 is missing from MIS.
-
-Lands in the runtime-adjacent native agent core; sequencing in `MilaProductFamily.md` Open
-Decision 2. **After the v0.20 tag, before the chassis expansion below.**
 
 ## The library should own architectural identity
 
@@ -122,16 +113,6 @@ convention. The converter skips the tensors today.
 SWA transformer; reuses the Llama foundation, Qwen 3 tool calling, and the Gemma 4 SWA mask +
 bounded-KV ring.
 
-## v0.20 library-frozen tails
-
-`api` · `mila-src`
-
-The Generation API surface tail (`SamplerConfig` rename, Llama/Gpt seedable sampling, eager
-sampler, config-accessor propagation, `contextLength()` hoist), the Sample-API device-sampler
-migration for Llama/Gpt, and the Optimizer-dispatch migration onto `OperationTraits`.
-
-All `Mila/Src`, which is why they wait. Adaptor work does not.
-
 ## Model serialization
 
 `api` · `mila-src`
@@ -195,25 +176,6 @@ indistinguishable. `TransformerApiReadiness.md` item 8 argues this at network le
 **`AttentionOutputGate` has two callers and one of them is not attention.** `QwenDeltaNetBlock` uses
 it for the mixer's output gate. The component is mechanically generic (`out = TGate(gate) * value`);
 the name is not. Rename, or accept the mismatch deliberately. `Components/Attention/OutputGate/`
-
-## Warnings-as-errors ratchet
-
-`build` · `ci` · `blocked`
-
-Enforce in **CI only**, never locally; ratchet on the count *not increasing* before demanding zero;
-**MSVC first**, since `/WX` across three compilers means the union of three opinions must be zero.
-Dormant-but-retained code warns by nature — suppress per-file in CMake pointing at the owning task,
-never with `#pragma warning` in module code. Land it **after** v0.20 ships.
-
-Blocked on isolating third-party warnings first: `/external:I` + `/external:W0` (`-isystem` for
-Clang/GCC), targeting third-party header text pulled into Mila's own TUs rather than their sources
-— `/W4` at `Mila/CMakeLists.txt:87` is `PRIVATE` and never reached them. Two frictions: those
-headers enter through module global module fragments, and `/external:` does nothing for nvcc
-diagnostics.
-
-`GroupedQueryAttention.ixx:216`'s C4702 is the case that decides the shape. It is left deliberately —
-it self-clears when the GQA training path is built, where a suppression would have to be remembered.
-A blanket `/WX` forces it silent; escalating only the defect-class codes leaves it visible.
 
 ## `#ifdef` inside module purviews
 

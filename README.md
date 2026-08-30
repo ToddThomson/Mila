@@ -15,10 +15,8 @@ dispatch magic. Just C++23, CUDA, and full control.
 
 ---
 
-| Branch | Build | Test | Docs |
-|--------|-------|------|------|
-| master | ![Build](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master&job=build) | ![Test](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master&job=test) | ![Docs](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master&job=docs) |
-| dev    | ![Build](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev&job=build) | ![Test](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev&job=test) | ![Docs](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev&job=docs) |
+[![master](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master)](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml?query=branch%3Amaster)
+[![dev](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev)](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml?query=branch%3Adev)
 
 ---
 
@@ -262,7 +260,7 @@ current API as part of v0.20 Training Revival.
 
 | Requirement | Version |
 |---|---|
-| C++ compiler | MSVC (Visual Studio 2026 18.6.2+) on Windows, or Clang 19+ / GCC 16 on Linux |
+| C++ compiler | MSVC (Visual Studio 2026 18.6.2+) on Windows; Clang 19+ on Linux |
 | CUDA Toolkit | 13.0+ on Windows; 13.3+ on Linux (Ubuntu 26.04 / glibc 2.43) |
 | CMake | 4.0 or newer |
 | Git | 2.x or newer (validated on 2.54.0) |
@@ -278,16 +276,20 @@ to work but are not exhaustively validated. On Linux (Ubuntu 26.04 / glibc 2.43)
 is required — 13.0 fails to build there.
 
 On Windows, use Visual Studio 2026 18.6.2 or newer — earlier 2026 builds have a regression
-that breaks the C++23 module build. On Linux, the C++23 modules build with Clang 19+ or GCC 16;
-on Ubuntu 26.04 install the `gcc-16` package (GCC 15.2 and earlier cannot compile the modules).
+that breaks the C++23 module build.
+
+On Linux, **Clang compiles the C++23 module units and GCC is nvcc's host compiler for the `.cu`
+files**, which contain no modules. The two carry different requirements: CI and the container use
+clang-21 with gcc-15 as the host. GCC can compile the module units instead, and there the floor is
+**GCC 16** — 15.2 and earlier cannot, and 15.3 has not been tested.
 
 Git must be installed and on `PATH`: the first CMake configure fetches dependencies via CPM
 (`git clone`), so it is needed beyond the initial repository clone. GitHub Desktop is an
 optional convenience, not a requirement.
 
-Building the API docs is optional — enable it with `-DMILA_ENABLE_DOCS=ON` (default
-`OFF`), which requires Doxygen (and Graphviz for the call graphs). A normal
-library/test build needs neither.
+`MILA_ENABLE_DOCS` is `ON` by default, and building the API docs needs Doxygen. Without it
+installed you still get a normal library build — the configure prints a warning and offers no
+`docs` target. Graphviz is not needed; the Doxyfile disables the call graphs.
 
 ### Quick Start
 
@@ -299,8 +301,9 @@ cmake --build build
 ctest --test-dir build
 ```
 
-Tests are opt-in (`MILA_ENABLE_TESTING` defaults to `OFF`); omit the flag for a
-library-only build.
+`MILA_ENABLE_TESTING` is already `ON` for a clone like this one, so the flag above is explicit
+rather than required. It is `OFF` when Mila is embedded in another project, which is what keeps a
+consumer from building Mila's tests. Pass `-DMILA_ENABLE_TESTING=OFF` for a library-only build.
 
 ### Visual Studio
 

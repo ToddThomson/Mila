@@ -19,7 +19,7 @@ Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4), Llama 3.1 8B 
 
 The user builds exclusively inside **Visual Studio 2026**. Ninja is required — C++23 module incremental builds need it.
 
-**The C++23 modules constrain the compiler:** MSVC (VS 2026 18.6.2+ — earlier 2026 builds have a module regression that breaks Mila), Clang 19+, or GCC 15.3+. GCC 15.2 and earlier cannot compile them (validated: 16 works, 15.2 fails). In CUDA builds the C++ compiler handles the module units while nvcc uses a separate host compiler for `.cu` files, so an older host GCC is fine in that role. Cross-compiler builds surface missing `#include`s that MSVC resolves transitively — those are real portability fixes, not Clang being difficult.
+**The C++23 modules constrain the compiler:** MSVC (VS 2026 18.6.2+ — earlier 2026 builds have a module regression that breaks Mila), Clang 19+, or GCC 16+. GCC 15.2 and earlier cannot compile them (validated: 16 works, 15.2 fails; 15.3 has never been built). In CUDA builds the C++ compiler handles the module units while nvcc uses a separate host compiler for `.cu` files, so an older host GCC is fine in that role. Cross-compiler builds surface missing `#include`s that MSVC resolves transitively — those are real portability fixes, not Clang being difficult.
 
 Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. VS 2026 shows each preset's `displayName`, not its `name` (`x64-validate` appears as "x64 Release (full validation - run before committing)"). The unit tests build into **one binary**, `Mila/Tests/MilaTests` — narrow with `--gtest_filter`; `ChatRichTextTests` is the one separate target.
 
@@ -202,8 +202,10 @@ later. **Never write a finding straight into `BACKLOG.md`.**
   - **Status lives in the checkbox**, `[ ]` open or `[~]` in progress, and never in the prose. No
     dates, no "GREEN", no findings, no measurement tables. **Disposition is a file in
     `Mila/Issues/`, not a tag** — parked is `Future.md`, good-first-issue is `Contributor.md`.
-  - **Done means deleted**, in the same commit as the work. There is no `[x]` state. The commit that
-    landed the work is the record; a finding worth reusing goes to the owning spec or to memory.
+  - **Done means deleted**, in the same commit as the work. `[x]` is a **working-tree marker only** —
+    it makes finished items visible while the change is reviewed, and the commit that lands the work
+    deletes them. **No `[x]` is ever committed.** The commit that landed the work is the record; a
+    finding worth reusing goes to the owning spec or to memory.
   - **Past ~300 lines it has stopped being a task list** and needs a prune.
 - **`Mila/Issues/`** — everything upstream of that commitment; the funnel and its categories, with
   the flow and the rules in [`Mila/Issues/README.md`](Mila/Issues/README.md). `Untriaged.md` is

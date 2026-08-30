@@ -13,9 +13,12 @@ nobody meant to make. Writing to `Untriaged.md` needs no decision. Triage suppli
 ```
   found while working  ─┐
                         ├─→  Untriaged.md  ──triage──→  BACKLOG.md  (committed to this release)
-  reported on GitHub   ─┘                      └─→  Future.md   (real work, later cycle)
+  reported on GitHub   ─┘                      └─→  Vnext.md    (seeds the NEXT backlog)
+                                               └─→  Future.md   (real, zero commitment)
                                                └─→  a category below
                                                └─→  deleted
+
+  and when the release ships:   Vnext.md  ──→  the next BACKLOG.md
 ```
 
 Triage runs at each `beta.N` / `rc.N` increment. It is an event, not a mood: open `Untriaged.md`,
@@ -32,8 +35,15 @@ recoverable by grep; disposition is not. Categorising by subject would rebuild B
 buckets one level up and reproduce its failure mode.
 
 - **`Untriaged.md`** — captured, not yet judged. Lossy; see below.
-- **`Future.md`** — real work, wrong cycle. Flat and coarse by design: detailed tasking happens
-  only when an item promotes into a release.
+- **`Vnext.md`** — the **seed corpus for the next release's backlog**. When the release in flight
+  goes to production, `BACKLOG.md` is rewritten from this, so an item here carries a real intention
+  to do it in that cycle. A shortlist, not a plan: tasking happens on promotion, when the next
+  release has a ROADMAP section and its items can face the real admission test.
+- **`Future.md`** — real work carrying **zero commitment**, some of which will never be scheduled.
+  Flat and coarse by design.
+
+The line between those two is the only judgement the split asks for. "We mean to do this next
+cycle" is `Vnext.md`; "someday, if the hardware or the reason arrives" is `Future.md`.
 - **`Contributor.md`** — good-first-issue shaped. The outbound queue: these are what get mirrored
   *to* GitHub Issues with a label when someone asks how to help.
 - **`Declined.md`** — considered, not doing, with the reason. Cheaper than rediscovering the
@@ -56,6 +66,7 @@ Only the metadata line differs by file, because only its question differs:
 | File | Metadata line | Body is |
 |---|---|---|
 | `Untriaged.md` | `<anchor> @ <sha>` — where to find it | what you were doing when you noticed |
+| `Vnext.md` | tags | what it is and why |
 | `Future.md` | tags | what it is and why |
 | `Contributor.md` | tags | what it is and why |
 | `Declined.md` | tags | the reason, and the measurement behind it |
