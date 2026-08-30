@@ -1,10 +1,12 @@
 # Untriaged
 
-One line per entry: `<what> — file:line`. Rules and the triage flow are in
-[README.md](README.md). Two that matter at write time:
+Captured, not yet judged. Writing here needs no judgement, which is the whole point — finding
+something mid-task leaves seconds, and a format that asks for more is a format that goes unused.
+Facts may grow; judgement may not.
 
-- Entries still here at the release tag are **deleted, unexamined**.
-- A user-reported item is a **pointer** to its GitHub issue, never a copy of it.
+Entries are **deleted unexamined at the release tag**, and anything user-reported is a pointer to
+its GitHub issue rather than a copy. Triage flow, categories and the entry format are in
+[README.md](README.md); entries here carry an anchor where the judged files carry tags.
 
 ---
 

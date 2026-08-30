@@ -21,6 +21,10 @@ nobody meant to make. Writing to `Untriaged.md` needs no decision. Triage suppli
 Triage runs at each `beta.N` / `rc.N` increment. It is an event, not a mood: open `Untriaged.md`,
 give every line a destination, and leave the file shorter than you found it.
 
+**Promotion is one-way.** An item that reached `BACKLOG.md` never returns to `Untriaged.md` — that
+file is lossy, and demoting a considered item into it puts it on a delete-at-tag timer. If
+committed work turns out not to belong in the release, it goes to `Future.md` or a category below.
+
 ## Categories
 
 A category names **what happens to an item**, never what it is about. Subject is already
@@ -35,19 +39,54 @@ buckets one level up and reproduce its failure mode.
 - **`Declined.md`** — considered, not doing, with the reason. Cheaper than rediscovering the
   argument.
 
-`Contributor.md` and `Declined.md` are sanctioned but not created — a category file appears when
-it has its first entry. Empty files invite the same "where does this go" paralysis at triage that
-`Untriaged.md` exists to remove at capture.
+## The entry format
+
+**One shape in every file here.** Heading, metadata line, body:
+
+```markdown
+## <Title — the thing itself, as a noun phrase>
+
+<metadata line>
+
+<Body.>
+```
+
+Only the metadata line differs by file, because only its question differs:
+
+| File | Metadata line | Body is |
+|---|---|---|
+| `Untriaged.md` | `<anchor> @ <sha>` — where to find it | what you were doing when you noticed |
+| `Future.md` | tags | what it is and why |
+| `Contributor.md` | tags | what it is and why |
+| `Declined.md` | tags | the reason, and the measurement behind it |
+
+The heading is what makes a file navigable — an editor's outline pane and the markdown TOC both key
+on it, and entries collapse.
+
+Every file opens the same way too: `# Name`, a paragraph saying what it holds, a paragraph carrying
+the one rule that matters plus the pointers here and to `Tags.md`, then `---`, then entries. **No
+file carries its own rules inline** — they live on this page, so there is one place to change them.
+
+Tags come from the closed set in [Tags.md](Tags.md) and nowhere else. That page also records why
+`BACKLOG.md` keeps its own four tags rather than sharing these.
 
 ## Untriaged rules
 
-**One line.** `<what> — file:line`. BACKLOG's three-line rule is right for a *commitment*; an
-observation has not earned three lines. It gets them on promotion, not before.
+**Facts may grow; judgement may not.** Whether something blocks the release is triage's question,
+and answering it at capture is what put everything into `BACKLOG.md` in the first place. The body
+is the trigger — what you were doing — not the argument.
 
-**Factual, not speculative-derogatory.** This directory is public, which is correct — it is a
-developer surface, and a reference implementation that shows its working should show the parts
-not yet worked. "Looks sketchy" is both a bad entry and a bad thing to publish about your own
-code. `parse routes any '[' into the tool-call path — Chat.ToolCallParser.ixx:63` is neither.
+**The anchor** is `file:line`, or a test name, a repro command, a model and prompt — whatever makes
+it re-findable. Some findings have no line to cite: an absence, a pattern spread across files, a
+runtime behaviour. An entry distorted into a fake location is worse than one anchored honestly.
+
+**Append `@ <sha>`.** A line number rots on the next edit; `git show <sha>:<path>` still returns the
+exact text afterwards. It costs nine characters and no judgement — write the current HEAD. Without
+it, an entry that survives one refactor points at nothing and gets deleted at triage for being
+undecodable, which is the lossiness rule destroying signal rather than noise.
+
+**Name the symbol, not just the location.** `matchesPath`'s glob outlives
+`CompositeComponent.ixx:405`, and both together cost one clause.
 
 **Lossy by design.** An entry still in `Untriaged.md` at the release tag is **deleted, unexamined** —
 not re-triaged. If nobody promoted it across a whole cycle it was noise, and rediscovering it
