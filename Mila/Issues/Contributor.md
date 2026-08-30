@@ -141,22 +141,6 @@ Drop `Json.ixx` from the target and import `nlohmann.json` everywhere.
 It needs a file with a backdated write time. Make the threshold a constructor parameter so a test
 can set it to zero — a better shape than backdating with `last_write_time()`.
 
-## A blog post ships with no `discussion:` line
-
-`docs`
-
-`Web/content/blog/longer-context-fixed-the-crash.md`.
-
-## Two orphaned brand assets still carry the old Achilles mark
-
-`docs`
-
-`icon.png` at the repo root and `Web/static/achilles.png`, neither referenced by any page, template,
-README or the Doxyfile — which sets no `PROJECT_LOGO` at all.
-
-Delete rather than replace: `Brand/generate.py` emits the current mark into `Web/static/` only, so a
-root copy would be a second source to drift.
-
 ## Two CUDA memory resources throw an allocation failure with no message
 
 `mila-src`

@@ -324,10 +324,32 @@ where several items carry five lines.
 - **Contested (1)** — Test Suite Revival:217, the `[crash]` GPT-2 CPU path. Sent to Future by the
   "full CPU op parity is not a gate" criterion, against the fact that it is a crash on a path the
   QuickStart samples may reach.
-- **No ROADMAP theme (6)** — the `#### Website` sub-bucket under Model Distribution. The website is
-  not model distribution and no ROADMAP theme owns it, so by the admission test nothing in it can be
-  admitted. Its items are real and release-coupled (the home page hardcodes `0.20.0-beta.3` in three
-  places), so the fix is a ROADMAP theme rather than a mass eviction. **Todd's call.**
+- **No ROADMAP theme — resolved.** The `#### Website` sub-bucket had no theme to name, so nothing in
+  it could be admitted. The website is a separate project with its own cadence and publish, so it
+  now has its own funnel at [`Web/Issues/`](../../Web/Issues/README.md): the six items moved to
+  `Web/Issues/Backlog.md`, joined by two website items that had gone to `Contributor.md` (the blog
+  `discussion:` line and the orphaned Achilles assets). Same entry format, its own four area tags —
+  `content`, `layout`, `brand`, `publish` — because nearly everything on a website is `docs`, which
+  tags nothing.
+
+---
+
+## Website — 8 items moved to `Web/Issues/`
+
+| Origin | Item | Destination |
+|---|---|---|
+| Website:581 | Reconcile `start.md` with the Get Started band `[~]` | `Web/Issues/Backlog.md` |
+| Website:586 | The home page hardcodes `0.20.0-beta.3` in three places | `Web/Issues/Backlog.md` |
+| Website:591 | The Evaluating band leaves a stopped container behind | `Web/Issues/Backlog.md` |
+| Website:596 | `docs.md:28` states "quantization has no checkpoint format" | `Web/Issues/Backlog.md` |
+| Website:599 | The site links GitHub and nothing else | `Web/Issues/Backlog.md` |
+| Website:601 | Mila is a library, never a "runtime" `[~]` | `Web/Issues/Backlog.md` |
+| Website:606 | A blog post ships with no `discussion:` line | `Web/Issues/Backlog.md` (via `Contributor.md`) |
+| Website:608 | Two orphaned brand assets carry the old Achilles mark | `Web/Issues/Backlog.md` (via `Contributor.md`) |
+
+The release coupling survives the split and is worth restating: the home page hardcodes the Mila
+version in three places, so a release tag and a site publish still have to name the same version.
+Separate project means separate cadence, not separate from the release.
 
 Production Hardening 65 (31 + 10 Release mechanics + 17 Container + 8 Library hygiene) ·
 Model Distribution 39 (31 + 8 Website) · Product Family — Adaptor Validation 29.
