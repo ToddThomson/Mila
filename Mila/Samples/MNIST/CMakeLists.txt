@@ -15,7 +15,9 @@ PUBLIC
 		"Src/MnistConfig.ixx"
 )
 
-# Define the Data/Datasets directory path
-target_compile_definitions( MnistApp PRIVATE MILA_DATASETS_DIR="${CMAKE_SOURCE_DIR}/Data/Datasets")
+# Define the Data/Datasets directory path. MILA_DATA_DIR is ${PROJECT_SOURCE_DIR}/Data,
+# so this stays inside Mila's own tree when a consumer builds the samples as a subproject;
+# CMAKE_SOURCE_DIR would be that consumer's root, which has no Datasets directory.
+target_compile_definitions( MnistApp PRIVATE MILA_DATASETS_DIR="${MILA_DATA_DIR}/Datasets")
 
 target_link_libraries( MnistApp PRIVATE Mila CUDA::cudart )

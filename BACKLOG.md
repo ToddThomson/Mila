@@ -178,14 +178,6 @@ being a task list and needs a prune.
   so a Python caller cannot tell EOS from the `max_new_tokens` cap from context overflow from a
   cancellation. The C++ quick start prints `[stop]`; the Python one prints nothing, and that gap is
   visible to anyone reading the website's two first tabs side by side.
-- [ ] **`Mila/Tools` has no off switch** — gated on `PROJECT_IS_TOP_LEVEL` alone
-  (`Mila/CMakeLists.txt:962`), so the wheel configure builds `tokenize` and `ExportArtifact`, neither
-  of which can go in a wheel. Every other subdirectory has a `MILA_ENABLE_*`.
-- [ ] **`tokenize` writes its executable into the consumer's source tree.**
-  `Tools/Tokenize/CMakeLists.txt:13` sets `RUNTIME_OUTPUT_DIRECTORY` under `${CMAKE_SOURCE_DIR}`,
-  which in a subproject build is the consumer's root. `PROJECT_SOURCE_DIR` is the fix, but the tool is
-  run from `Data/Tools/<CONFIG>`, so moving it is a workflow change. Masked today by the
-  `PROJECT_IS_TOP_LEVEL` gate above; it becomes live the moment Tools gets its `MILA_ENABLE_*` switch.
 - [ ] **`mila/__init__.py` is copied by a `POST_BUILD` step of a target it is not a source of.**
   `Mila/Bindings/CMakeLists.txt:95` stages it with `copy_if_different` off
   `add_custom_command(TARGET MilaPy POST_BUILD)`, which runs only when `MilaPy` relinks — so editing
@@ -214,11 +206,6 @@ being a task list and needs a prune.
   `ExecutionContextFactory` as public API, but no model factory accepts one (`GemmaModel.ixx:119`
   takes a `DeviceId`) and `Component` holds a non-owning pointer owned by its parent. Decide: a
   `fromPretrained` overload taking `IExecutionContext*`, or drop both from the umbrella.
-- [ ] **A FetchContent consumer inherits Mila's `docs` target, aimed at the consumer's own source
-  tree.** `MILA_ENABLE_DOCS` defaults `ON` and is not gated on `PROJECT_IS_TOP_LEVEL`, so a downstream
-  configure offers a target whose `WORKING_DIRECTORY` and output path are `${CMAKE_SOURCE_DIR}`
-  (`Mila/Docs/CMakeLists.txt:21-24`) — the consumer's root in a subproject build. Same class as the
-  `tokenize` item; copy `MILA_ENABLE_SAMPLES`.
 - [ ] **`CMakeLists.txt:266` pins curl at 8.11.1 under a `REVIEW:` marker naming 8.21 as current.** A
   vendored TLS-adjacent dependency in a published binary is the one pin where staleness has a security
   cost. Decide the bump or record why 8.11.1 stands.
@@ -270,10 +257,6 @@ being a task list and needs a prune.
   stage greps for `"not found"`, but an unmatched glob makes the shell hand `ldd` a literal pattern
   and it answers `"No such file or directory"` — so the gate printed "Shared library check passed"
   over a missing extension. Assert the file exists first, then check its NEEDED entries.
-- [ ] **The wheel VERSION file is written into the source tree from any build.**
-  `Mila/Bindings/CMakeLists.txt:65` runs `file(WRITE ...Package/VERSION)` at configure time,
-  unguarded, so a FetchContent consumer writes into whatever tree Mila was fetched from — the same
-  class as the POST_BUILD staging now behind `PROJECT_IS_TOP_LEVEL`. The two belong under one guard.
 - [ ] **`Docker/build-mis.sh:76` looks broken on the current image.** It runs
   `pip install --no-deps -e Mila/Bindings/Package` under the container's Python 3.14, and `mila-llm`'s
   `requires-python` is `>=3.12,<3.14`; `--no-deps` does not suppress that check. The script's own

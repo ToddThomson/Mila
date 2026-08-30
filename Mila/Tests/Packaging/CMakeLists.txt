@@ -28,6 +28,10 @@ add_test(
         -D "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
         -D "CUDA_COMPILER=${CMAKE_CUDA_COMPILER}"
         -D "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        # Outside WORK_DIR, which the driver wipes every run. Not tag-keyed like the CPM
+        # gate's: this consumer builds the local tree, so the cache holds only third-party
+        # packages, which CPM already keys by version.
+        -D "CPM_SOURCE_CACHE=${CMAKE_CURRENT_BINARY_DIR}/cpm-cache"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/drive_fetchcontent.cmake"
 )
 

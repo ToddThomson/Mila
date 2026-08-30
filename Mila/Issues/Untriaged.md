@@ -18,5 +18,7 @@ its GitHub issue rather than a copy. Triage flow, categories and the entry forma
 Two 16 MB fossils dated 2026-07-21, left by the third binding destination that
 `Mila/Bindings/CMakeLists.txt:112-118` records as removed. They landed there because the copy was
 source-relative and a subproject build makes the consumer's root `CMAKE_SOURCE_DIR` — the same
-defect as the open `tokenize` and wheel-VERSION items. Nothing looks in these directories, so the
-evidence sat for six weeks. Found widening the FetchContent gate.
+defect class as the `tokenize` and wheel-VERSION items, both closed at `+40`. Nothing looks in
+these directories, so the evidence sat for six weeks. Found widening the FetchContent gate. The
+open question is whether the gate should assert the fixture directories are clean afterwards,
+which is what would have caught this in a day rather than six weeks.

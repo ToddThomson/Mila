@@ -1004,9 +1004,10 @@ if(MILA_ENABLE_DOCS)
     add_subdirectory( Docs )
 endif()
 
-# Developer tooling (tokenize.exe, etc.) -- top-level builds only; an embedding
-# consumer just wants the library.
-if(PROJECT_IS_TOP_LEVEL)
+# Developer tooling (tokenize.exe, the mila CLI, ExportArtifact). Defaults to
+# PROJECT_IS_TOP_LEVEL; the option exists so a top-level build that packages nothing
+# from Tools (the wheel presets) can drop it.
+if(MILA_ENABLE_TOOLS)
     add_subdirectory( Tools )
 endif()
 

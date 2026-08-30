@@ -74,7 +74,16 @@ option(MILA_ENABLE_PYTHON_BINDINGS "Build the MilaPy pybind11 extension module."
 option(MILA_ENABLE_PROFILING "Enable Mila Library profiling." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_ADAPTORS "Build the first-class Mila adaptors (Chat CLI)." ${PROJECT_IS_TOP_LEVEL})
-option(MILA_ENABLE_DOCS "Build Doxygen API documentation. Requires Doxygen and Graphviz." ON)
+# Developer tooling: tokenize, the mila CLI, ExportArtifact. None of it ships -- the wheel
+# excludes it and an embedding consumer just wants the library -- so this follows the same
+# rule as the extras above rather than the bare PROJECT_IS_TOP_LEVEL it used to carry, which
+# left no way to turn it off in a top-level build (the wheel presets configure one and got
+# tokenize and ExportArtifact whether they wanted them or not).
+option(MILA_ENABLE_TOOLS "Build Mila's developer tools (tokenize, mila CLI, ExportArtifact)." ${PROJECT_IS_TOP_LEVEL})
+# The docs target's Doxyfile paths are Mila's own, so it is meaningless in a consumer's build
+# and used to be offered there anyway. The docs CI job runs Doxygen directly against
+# Mila/Docs/Doxyfile and never configures CMake, so nothing outside a top-level build needs it.
+option(MILA_ENABLE_DOCS "Build Doxygen API documentation. Requires Doxygen and Graphviz." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 
 # Mila's own HTTP transport. OFF drops libcurl and nothing else: the store, packaging,

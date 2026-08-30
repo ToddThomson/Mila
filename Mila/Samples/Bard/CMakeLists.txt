@@ -19,6 +19,8 @@ PUBLIC
 
 # Absolute source-tree dataset path, mirroring MNIST, so the sample finds its
 # Shakespeare data regardless of the working directory it is launched from.
-target_compile_definitions( Bard PRIVATE MILA_DATASETS_DIR="${CMAKE_SOURCE_DIR}/Data/Datasets" )
+# MILA_DATA_DIR, not CMAKE_SOURCE_DIR: the latter is the consumer's root in a
+# subproject build.
+target_compile_definitions( Bard PRIVATE MILA_DATASETS_DIR="${MILA_DATA_DIR}/Datasets" )
 
 target_link_libraries( Bard PRIVATE Mila CUDA::cudart )

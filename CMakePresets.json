@@ -177,7 +177,7 @@
     {
       "name": "x64-wheel",
       "displayName": "x64 Wheel (build the mila-llm wheel for PyPI)",
-      "description": "The Windows mila-llm wheel. Release, the Mila library and the MilaPy extension and nothing else -- no tests, samples, adaptors, profiling or docs, none of which go in a wheel. MILA_ENABLE_LIBCURL=OFF because the wheel is Python end to end: it supplies its own transport through the binding's HttpFetchDelegate, so no C++ HTTP client belongs in the .pyd. Build this, then `pip wheel Mila/Bindings/Package` over the staged extension.",
+      "description": "The Windows mila-llm wheel. Release, the Mila library and the MilaPy extension and nothing else -- no tests, samples, adaptors, profiling, tools or docs, none of which go in a wheel. MILA_ENABLE_LIBCURL=OFF because the wheel is Python end to end: it supplies its own transport through the binding's HttpFetchDelegate, so no C++ HTTP client belongs in the .pyd. Build this, then `pip wheel Mila/Bindings/Package` over the staged extension.",
       "inherits": "x64-release",
       "cacheVariables": {
         "CMAKE_CUDA_ARCHITECTURES": "75;80;86;89;90",
@@ -189,13 +189,14 @@
         "MILA_ENABLE_SAMPLES": "OFF",
         "MILA_ENABLE_ADAPTORS": "OFF",
         "MILA_ENABLE_PROFILING": "OFF",
+        "MILA_ENABLE_TOOLS": "OFF",
         "MILA_ENABLE_DOCS": "OFF"
       }
     },
     {
       "name": "linux-wheel",
       "displayName": "Linux Wheel (mila-llm for PyPI - select the Wheel Container)",
-      "description": "The Linux mila-llm wheel. Runs in the WHEEL container (Ubuntu 24.04), not the dev container (26.04) and not WSL: auditwheel derives the manylinux tag from the highest versioned glibc symbol anything in the wheel's dependency closure requires, so the build distro sets the CEILING and the measured symbols set the actual floor. Building on 24.04 measured manylinux_2_38 -- reaching the current LTS and older; on 26.04 it would land near 2_43 and lock out 24.04. clang-21 compiles the module units, gcc-14 is nvcc's host compiler and supplies the libstdc++ headers. -static-libstdc++ goes in CMAKE_MODULE_LINKER_FLAGS, not SHARED: pybind11_add_module creates a MODULE library, so a SHARED flag is silently ignored and the extension keeps a GLIBCXX symbol-version floor nobody asked for. binaryDir is the container volume /build, NOT under the bind-mounted source: CUTLASS's clone step cannot remove directories across the Windows bind mount and the configure fails there. Same reason build-all.sh uses /build. After building, run mila-build-wheel to package and repair.",
+      "description": "The Linux mila-llm wheel -- the Mila library and the MilaPy extension and nothing else; no tests, samples, adaptors, profiling, tools or docs go in a wheel. Runs in the WHEEL container (Ubuntu 24.04), not the dev container (26.04) and not WSL: auditwheel derives the manylinux tag from the highest versioned glibc symbol anything in the wheel's dependency closure requires, so the build distro sets the CEILING and the measured symbols set the actual floor. Building on 24.04 measured manylinux_2_38 -- reaching the current LTS and older; on 26.04 it would land near 2_43 and lock out 24.04. clang-21 compiles the module units, gcc-14 is nvcc's host compiler and supplies the libstdc++ headers. -static-libstdc++ goes in CMAKE_MODULE_LINKER_FLAGS, not SHARED: pybind11_add_module creates a MODULE library, so a SHARED flag is silently ignored and the extension keeps a GLIBCXX symbol-version floor nobody asked for. binaryDir is the container volume /build, NOT under the bind-mounted source: CUTLASS's clone step cannot remove directories across the Windows bind mount and the configure fails there. Same reason build-all.sh uses /build. After building, run mila-build-wheel to package and repair.",
       "generator": "Ninja",
       "binaryDir": "/build/linux-wheel",
       "installDir": "/build/install",
@@ -224,6 +225,7 @@
         "MILA_ENABLE_SAMPLES": "OFF",
         "MILA_ENABLE_ADAPTORS": "OFF",
         "MILA_ENABLE_PROFILING": "OFF",
+        "MILA_ENABLE_TOOLS": "OFF",
         "MILA_ENABLE_DOCS": "OFF"
       },
       "condition": {
