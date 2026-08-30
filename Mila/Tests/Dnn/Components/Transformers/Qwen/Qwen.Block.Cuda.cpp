@@ -40,7 +40,6 @@ import Mila;
 // place in the tree where a CUDA block is instantiated by a consumer. A downstream
 // consumer would hit exactly this, so it is a library defect rather than a test quirk --
 // filed in BACKLOG against the public export surface, not worked around there.
-import Compute.ExecutionContext;
 
 namespace Mila::Tests::Dnn::Components::Transformers::Qwen
 {

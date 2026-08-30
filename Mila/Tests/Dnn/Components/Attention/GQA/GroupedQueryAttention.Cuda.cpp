@@ -29,7 +29,6 @@
 #include <stdexcept>
 
 import Mila;
-import Compute.ExecutionContext;
 
 namespace Mila::Tests::Dnn::Components::Attention::GQA
 {

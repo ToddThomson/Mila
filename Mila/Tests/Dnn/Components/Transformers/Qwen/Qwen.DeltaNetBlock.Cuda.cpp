@@ -32,7 +32,6 @@ import Mila;
 
 // See the note in Qwen.Block.Cuda.cpp: instantiating a CUDA block from a consumer TU needs
 // ExecutionContext<Cuda> COMPLETE, and the public umbrella exports only IExecutionContext.
-import Compute.ExecutionContext;
 
 namespace Mila::Tests::Dnn::Components::Transformers::Qwen
 {

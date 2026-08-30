@@ -23,7 +23,6 @@ import Mila;
 // Instantiating Activation<Cuda, P, TFn> forces CudaElementwiseActivationOp member
 // bodies, which call concrete ExecutionContext<Cuda> methods (getStream). The Mila
 // umbrella does not complete that type for a consumer TU, so import it directly.
-import Compute.ExecutionContext;
 
 namespace Mila::Tests::Dnn::Components::Activations::Activation
 {

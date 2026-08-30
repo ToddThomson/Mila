@@ -30,7 +30,6 @@
 #include <vector>
 
 import Mila;
-import Compute.ExecutionContext;
 
 namespace Mila::Tests::Dnn::Components::Attention::MHA
 {

@@ -33,7 +33,6 @@ import Mila;
 // Instantiating CudaGqaOp forces member bodies that call concrete
 // ExecutionContext<Cuda> methods (getCublasLtHandle, getStream, ...), which the
 // Mila umbrella does not complete for a consumer TU — import them directly.
-import Compute.ExecutionContext;
 import Compute.CudaGqaOp;
 import Compute.GqaState;
 

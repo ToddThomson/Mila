@@ -45,7 +45,6 @@ import Mila;
 // Instantiating a CUDA component consumer-side reaches CudaGqaOp::build and CudaLinearOp,
 // which need ExecutionContext<Cuda> COMPLETE rather than merely reachable, and Mila.ixx
 // exports only IExecutionContext. Same import Qwen.Block.Cuda.cpp had to add.
-import Compute.ExecutionContext;
 
 // After the import: the helpers name GenerateParams. Every std header they need is already
 // included above, so their own includes are no-ops in this TU -- which is what keeps this

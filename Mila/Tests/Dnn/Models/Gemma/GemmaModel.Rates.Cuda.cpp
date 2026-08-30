@@ -20,7 +20,6 @@
 #include <vector>
 
 import Mila;
-import Compute.ExecutionContext;
 
 #include "Common/GenerationRates.h"
 

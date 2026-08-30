@@ -57,7 +57,6 @@ import Mila;
 // ExecutionContext, and building a CUDA attention block reaches CudaGqaOp::build, which needs
 // the complete type. Filed in BACKLOG against the export surface; the same line appears in
 // Qwen.Block.Cuda.cpp for the same reason.
-import Compute.ExecutionContext;
 
 namespace Mila::Tests::Dnn::Models
 {

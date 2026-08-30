@@ -78,6 +78,7 @@ namespace Mila::Dnn::Compute
     }
 
     /**
+     * @internal
      * @brief Validate and cast IExecutionContext to device-specific execution context.
      *
      * Generic helper for operation constructors. Validates that the provided context

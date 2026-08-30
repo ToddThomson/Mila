@@ -28,7 +28,6 @@
 #include <vector>
 
 import Mila;
-import Compute.ExecutionContext;
 import Compute.OperationTraits;
 import Serialization.Tensor;
 import Dnn.Quantization.Weight.CodebookPacking;

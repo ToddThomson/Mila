@@ -43,7 +43,6 @@
 #include <vector>
 
 import Mila;
-import Compute.ExecutionContext;
 // The serialization metadata type is not re-exported through the Mila umbrella; import
 // its module directly (as the Src consumers do). MSVC surfaced it transitively via
 // import Mila, clang does not. The weight-quant policies used to need the same treatment

@@ -31,7 +31,11 @@ import Dnn.TensorOps;
 import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.CudaDeviceMemoryResource;
-import Compute.ExecutionContext;
+// MSVC WORKAROUND, not a design decision: a consumer instantiating this operation must
+// complete ExecutionContext<Cuda>, and MSVC 14.51 demands the type be VISIBLE where the
+// standard -- and Clang 19+ -- accept it being merely reachable. Restore the plain import
+// when that is fixed; nothing else here depends on the export.
+export import Compute.ExecutionContext;
 import Compute.CudaTensorDataType;
 
 namespace Mila::Dnn::Compute

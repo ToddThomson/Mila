@@ -163,11 +163,12 @@ being a task list and needs a prune.
 
 ### Production Hardening
 
-- [ ] **A consumer cannot instantiate a CUDA component without importing a non-public module.**
-  `Mila.ixx` exports `Compute.IExecutionContext` but not `Compute.ExecutionContext`, and
-  `CudaGqaOp::build` (`CudaGqaOp.ixx:260`) needs the latter COMPLETE — so consumer-side instantiation
-  fails with "use of undefined type" until it imports that module directly. Decide whether the
-  umbrella exports it. [[project_cuda_component_needs_execution_context]]
+- [~] **A consumer cannot use a CUDA tensor operation without importing a non-public module.** MSVC
+  completes a class only where it is visible, not merely reachable, so any template a consumer
+  instantiates that dereferences `ExecutionContext<Cuda>` fails with "use of undefined type" naming a
+  module it never imported. The operation layer is fixed; the six `CudaTensorOps.*` partitions are
+  not, and cannot use the same fix because `TensorOps.ixx:6` puts them on a public path — which is
+  itself this defect worked around by publishing the whole CUDA backend. One decision, both halves.
 - [ ] **`import Mila;` breaks the standard library in the consumer's translation unit.** Three
   failures in a real FetchContent consumer, absent without it: stream **input** fails on an undefined
   `basic_istream::sentry`; instantiating a model needs `<sstream>` **before** the import, since
@@ -202,10 +203,13 @@ being a task list and needs a prune.
   `BpeTokenizer.ixx:344` throws and approximates, and no parity test catches it. Settle together —
   whether the fixtures are English-only (if so the site's parity claim is untested), and PCRE2/RE2
   against a hand-written Unicode scanner.
-- [ ] **`IExecutionContext` is exported but unreachable in practice.** `Mila.ixx` re-exports it and
-  `ExecutionContextFactory` as public API, but no model factory accepts one (`GemmaModel.ixx:119`
-  takes a `DeviceId`) and `Component` holds a non-owning pointer owned by its parent. Decide: a
-  `fromPretrained` overload taking `IExecutionContext*`, or drop both from the umbrella.
+- [ ] **DECISION OWED — no model factory accepts an `IExecutionContext`.** The earlier premise that
+  it is exported but unreachable is false: it is the parameter type of the public `TensorOps`
+  transfer functions (`TensorOps.Transfer.ixx:90`) and of `Component::setExecutionContext`
+  (`Component.ixx:896`), and `Samples/MNIST/Src/MnistClassifier.ixx:84` builds a network on one from
+  the factory. What remains is that `fromPretrained` takes a `DeviceId` (`GemmaModel.ixx:130`), so
+  two models cannot share a stream — which `IExecutionContext.ixx:66-74` documents as deliberate,
+  because an overload would make the activation observer a cross-model leak. Confirm or change it.
 - [ ] **`CMakeLists.txt:266` pins curl at 8.11.1 under a `REVIEW:` marker naming 8.21 as current.** A
   vendored TLS-adjacent dependency in a published binary is the one pin where staleness has a security
   cost. Decide the bump or record why 8.11.1 stands.
