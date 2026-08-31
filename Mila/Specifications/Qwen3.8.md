@@ -692,12 +692,34 @@ allocation against.
 
 Two prerequisites, in order:
 
-1. **Cross-arch kernel agreement, established on a model that fits both cards.** The oracle
-   runs sm_120 and the target sm_89, so a disagreement between them is ambiguous between
-   bits and architecture — and the 27B cannot disambiguate it, since the FP4 build does not
-   fit the 4070. Gemma 4 12B FP4 and Llama 3.2 3B FP4, token-for-token across both cards,
-   first.
+1. **The architecture term must be removed from the comparison.** The oracle runs sm_120 and
+   the target sm_89, so a disagreement between them is otherwise ambiguous between bits and
+   architecture — and the 27B cannot disambiguate it, since the FP4 build does not fit the
+   4070. Either arrangement satisfies this:
+   - **Run both arms on one card.** The architecture is then held constant by construction
+     and there is nothing to establish. This is the stronger option and is what Phase 5
+     actually did.
+   - **Where a cross-card comparison is unavoidable, agree teacher-forced.** Scored
+     perplexity over a fixed corpus, within a tolerance written down before the sweep is
+     read. Never a generated-token comparison — see below.
+
+   **Token-for-token agreement across architectures is not available, and asking for it
+   gates the oracle on something no correct implementation can reach.** Floating-point
+   addition is not associative and the two architectures reduce in different orders, so
+   logits differ in their last bits; a generated token is an argmax over those logits, and
+   one flip diverges the sequence for good. Measured: BF16, FP8 and FP4 all fork between the
+   cards, at a token index set by the prompt rather than by the precision, while each card
+   stays deterministic run to run. Teacher-forced scoring is immune to this — it never
+   samples, so a last-bit difference moves the third decimal of a score instead of forking a
+   sequence.
 2. **Item 9.** Without it the Phase 5 gate has no number to report.
+
+**Both are resolved.** Item 9 landed and reported the table in Phase 5 item 8. Prerequisite 1
+was met the first way: the quality gate ran all six cells on the 5060 Ti, and the divergence
+criteria ran both arms on one card, so no measurement behind the Qwen claim carries a
+cross-architecture term at all. What that leaves open is a **deployment** question rather than
+a gate — whether the 2.82-bit build scores the same on the 4070 as on the 5060 Ti. Nothing
+claims it does, and if it is ever asked, it is asked teacher-forced.
 
 Two properties of the oracle that are not regressions. It is **slower** than the target:
 448 GB/s against the 4070's 504, reading 12.31 GiB of weights per token instead of 8.65,

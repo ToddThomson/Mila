@@ -86,7 +86,7 @@ not.*
 - **Gemma 4 12B** — the flagship, and the default chat target at FP4, fitting a 12 GB consumer card.
   Tool calling validated; the 26B-A4B MoE follow-on stays Future.
 - **Llama 3.1 8B, 3.2 3B, 3.2 1B** — the primary validated inference lineage; FP4 default with FP8 and
-  BF16 alternatives, tool calling validated.
+  BF16 alternatives.
 - **GPT-2** — the foundation model behind the MNIST and Bard training samples; FP32 / BF16, inference
   and train-from-scratch.
 
@@ -97,7 +97,7 @@ without the weights present, and therefore for hardware the user does not yet ow
 from the same components that do the allocating, so it cannot drift into fiction.
 
 **Success criteria:** each family decodes token-for-token against HuggingFace at its target precision,
-captured as CI-guarded regression tests; tool calling validated on Gemma 4 and Llama 3.2 3B / 3.1 8B;
+captured as CI-guarded regression tests; tool calling validated on Gemma 4;
 a model's reported footprint matches what it actually allocates, held by test **on the quantized
 loads the published models use** — the unquantized path is measured but not yet gated. Qwen 3.8 is gated
 differently and deliberately: a BF16 27B fits no card here, so token-for-token agreement is not
@@ -150,17 +150,23 @@ correctness oracle for everything after it.*
 
 The first year of Mila was test-driven; the authored suite was largely commented out during the
 inference-era refactors, leaving only ~24 of ~70 files active. This is recovery: the test *logic* is
-authored, and the work re-aligns it to the post-refactor API. One new slice remains: the inference
-features built during the test drought — quantization and the Llama path — need coverage the old
-suite never had. The authored suite was also **forward-only**, so every `backward()` the training
-samples drive has zero coverage; that half follows the training primitive suite out of this release.
+authored, and the work re-aligns it to the post-refactor API. The authored suite was also
+**forward-only**, so every `backward()` the training samples drive has zero coverage; that half
+follows the training primitive suite out of this release.
 
-**Success criteria:** the authored component / tensor / tokenizer suites re-enabled and green against
-the current API; the redundant op-layer mirror tests retired (backend ops tested through the public
-component, the sole exception being the unreachable weight-quantization white-box); new coverage for
-the quantization and Llama inference paths; the suite gated in CI so a future API churn fails loudly
-instead of silently rotting coverage. The gradient-check archetype for the backward path moves out
-with the training primitive suite.
+**The recovered suite is the claim, and it stops at what is compiled.** Fourteen files were never
+re-enabled, and the coverage the old suite never had — the load-time quantization white-box and the
+Llama inference path — is not written. Both are deferred rather than declined, on the same reasoning
+the training scope was narrowed by: what ships is a suite that catches regressions in everything it
+covers, not a suite that covers everything. A release is entitled to say which of those it has.
+
+**Success criteria:** the authored component / tensor / tokenizer suites re-aligned to the current
+API and green; the redundant op-layer mirror tests retired (backend ops tested through the public
+component, the sole exception being the unreachable weight-quantization white-box); and the suite
+gated in CI so a future API churn fails loudly instead of silently rotting coverage. **Explicitly
+not in scope:** the fourteen still-commented-out files, new coverage for the quantization and Llama
+inference paths, and the gradient-check archetype for the backward path, which moves out with the
+training primitive suite.
 
 ### Training Revival
 
@@ -242,8 +248,11 @@ their way into. Mila's positioning is the stack you can *read*, so a reader arri
 a failure of the claim rather than a gap in the docs. Portability belongs here too: the compiler and
 platform matrix is a property of the source a consumer builds, not of anything Mila ships.
 
-**Success criteria:** an external consumer builds against Mila via FetchContent with no workarounds;
-the Linux/clang build is a first-class, CI-compiled and WSL-tested platform; contributor onboarding
+**Success criteria:** an external consumer builds against Mila via FetchContent, with the MSVC
+module-consumption defect documented at the point of use and pinned by a gate that compiles a real
+consumer translation unit — so the workarounds it forces are visible, bounded, and will report the
+day they stop being needed; the Linux/clang build is a first-class, CI-compiled and WSL-tested
+platform; contributor onboarding
 (`CONTRIBUTING.md`, `getting-started.md`, a guided reading path through one token's journey)
 complete; the public export surface frozen at the narrowest defensible umbrella; a missing dispatch
 specialization reads as a sentence, not a constraint cascade. GPU-first: the CUDA backend is the

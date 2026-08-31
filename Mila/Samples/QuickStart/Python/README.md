@@ -78,8 +78,8 @@ family Mila does not publish. Convert with `Tools/Converters` (see
 | `gemma` | `Data/Models/Gemma/gemma4_12b_it_bf16.bin` | `Data/Models/Gemma/gemma_tokenizer.bin` |
 | `llama` | `Data/Models/LLaMa/llama32_3b_instruct_bf16.bin` | `Data/Models/LLaMa/llama32_tokenizer.bin` |
 
-On that path `--quantization` is a load-time choice, because the artifact is
-unquantized; a published one already is, and its record says to what.
+On that path `--quantization` is a load-time choice, because the weights are
+unquantized; a published model's already are, and its record says to what.
 
 ---
 

@@ -407,10 +407,13 @@ legible than MSVC's `C7602` form.
 ### Adoption
 
 This is `Src` work spanning the dispatch core and every op's constraint, so it is
-adopted incrementally — pair it with the FP16 removal, when each op's
-supported-precision set is made explicit anyway, rather than a big-bang refactor.
-The capability predicate (B) is the design target; the friendly primary assert (A)
-is the high-ROI first step. Tracked in BACKLOG.
+adopted incrementally rather than as a big-bang refactor. **(A) has landed**, which
+is what makes a missing specialization read as a sentence. The capability predicate
+(B) is the design target and has not; it is tracked in `Mila/Issues/Vnext.md`.
+
+The original plan was to pair (B) with the FP16 removal, when each op's
+supported-precision set would be made explicit anyway. That carrier no longer
+exists — FP16 is not used in Mila — so (B) needs its own pass or a new pairing.
 
 ---
 

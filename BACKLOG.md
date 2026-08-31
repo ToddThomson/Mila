@@ -38,46 +38,6 @@ never committed.
 
 ## Current release (v0.20.0)
 
-### Models
-
-#### Llama throws away its long-context scaling factor
-
-`open` · `llama`
-
-The load path reads `rope_scaling` from the model metadata and discards it — the
-`.withRoPEScalingFactor()` call at `Llama.ixx:703` is commented out, for a reason recorded as
-unclear. 3.1 8B is a shipped model that cannot reach the context length it advertises.
-
-#### Tool calling has never been run end-to-end on Llama
-
-`open` · `llama` · `adaptors`
-
-Gemma 4 is validated through both adaptors. Llama 3.2 3B and 3.1 8B are named in this release's
-success criteria and in the product definition, and neither has been exercised — so the claim is
-made on two models nobody has driven through a tool call.
-
-#### GPT-2 and Llama 3 tokenize by approximation on every build and platform
-
-`open` · `tokenizer` · `gpt` · `llama`
-
-`\p{L}` and `\p{N}` (`BpePreTokenizationMode.ixx:33`, `:57`) compile in no standard `std::regex`, so
-`BpeTokenizer.ixx:344` throws and silently falls back to an ASCII scanner — in every build, the
-published Linux container included. No parity test catches it, which raises a second question worth
-settling in the same pass: whether the fixtures are English-only, because if they are, the site's
-tokenizer parity claim is untested. The fix is PCRE2/RE2 or a hand-written Unicode scanner.
-
-#### The Qwen oracle is gated on an agreement no correct implementation can reach
-
-`open` · `qwen` · `docs`
-
-`Qwen3.8.md` §8 asks the 16 GiB oracle to agree token-for-token across architectures. BF16, FP8 and
-FP4 all fork between Ada and Blackwell, at a token index set by the prompt rather than by the
-precision, while each card stays deterministic run to run — floating-point non-associativity, not a
-defect. The release's Qwen quality claim rests on this gate, so restate it as teacher-forced;
-perplexity never samples.
-
----
-
 ### Observability
 
 #### `observe()` documents a path pattern that does not work the way it says
@@ -89,36 +49,6 @@ not their children", and offers `"qwen.blk_*.*"` for the children (`CompositeCom
 Both are false — `*` matches dots, so the two patterns select the same set. Measured:
 `"*.tf_layer_*"` selected 816 components on a 48-layer Gemma 4 12B. Either `*` stops at a dot or the
 examples describe what it actually does; `Observability.md` §11 carries the same claim.
-
----
-
-### Test Suite Revival
-
-#### The authored component, tensor and tokenizer suites are not yet green on the current API
-
-`in progress` · `architecture`
-
-The suite was largely commented out during the inference-era refactors and is being re-aligned
-rather than rewritten. Concrete component classes are re-enabled and build-green.
-`SoftmaxCrossEntropy` is parked until loss moves onto the device, and three backward-numeric cases
-are skipped pending the kernel defects below.
-
-#### The quantization and Llama inference paths were built during the test drought and have no coverage
-
-`in progress` · `quantization` · `llama`
-
-`OperationTraits` dispatch is now covered. What remains is the load-time quantization white-box —
-`PerChannelFp8`, `PerGroupFp4` and the decode matvec kernels, which are the one legitimate op-layer
-test because they cannot be reached through the public component — and the Llama path.
-
-#### Llama silently runs past its context limit and no test says so
-
-`open` · `llama`
-
-`LlamaModel.ixx:336` carries the guard and nothing exercises it. Where GPT-2 crashes, Llama walks
-off the end of the KV cache instead, so nobody reports it and absence of reports is not evidence.
-The template is `Tests/Dnn/Models/GptModel.Cuda.cpp`: a weightless checkpoint at a small deployment
-context.
 
 ---
 
@@ -252,32 +182,6 @@ and have CI build `FROM` the image rather than apt-installing its dependencies a
 
 ### Consumer & Contributor Surface
 
-#### `import Mila;` breaks the standard library in the consumer's translation unit
-
-`open` · `api` · `build`
-
-FetchContent is the one supported C++ consumption path, and it works only with workarounds. Three
-failures show up in a real consumer and vanish without the import: stream **input** fails on an
-undefined `basic_istream::sentry`; instantiating a model needs `<sstream>` included **before** the
-import, because virtual `Component::toString()` compiles in through the vtable; and putting the
-import before the includes is fatal (C1116). `Samples/QuickStart/Cpp/main.cpp` carries two of these
-workarounds today. [[project_import_mila_breaks_std]]
-
-#### Linux/clang is not yet a first-class platform
-
-`in progress` · `build` · `ci`
-
-WSL is green, CI compiles under clang-21, and the container builds and runs Gemma 4 FP4. The GCC 16
-second compiler oracle and the broadened compiler matrix move to Future rather than blocking this.
-
-#### A missing dispatch specialization still reads as a cascade in places
-
-`in progress` · `architecture` · `api`
-
-A missing `(Op, Device, Precision)` combination should read as one sentence, not a wall of
-constraint failures. The core landed; the optional named kernel concepts and the
-`OperationDispatch.md` §12 reconcile remain.
-
 #### There is no guided reading path through the source
 
 `open` · `docs`
@@ -285,16 +189,6 @@ constraint failures. The core landed; the optional named kernel concepts and the
 Mila's positioning is the stack you can read, and nothing shows a reader where to start. One token's
 journey — embed, attend, sample, decode — through the real source, followable by a strong C++
 developer unaided. No anchor: the finding is an absence.
-
-#### The QuickStart Python samples still call weights an "artifact"
-
-`in progress` · `docs` · `binding`
-
-A user has a model, Mila has that model's weights, CI has artifacts. The ten model cards, Chat, the
-pybind layer and MIS are converted; QuickStart Python is the published surface still outstanding —
-the website's Get Started tabs link straight to it. The maintainer docs and the `Mila/Src` tail are
-deferred. Must **not** change: `tool_bridge.py:84` and `:455`.
-[[project_artifact_vocabulary_rule]]
 
 ---
 

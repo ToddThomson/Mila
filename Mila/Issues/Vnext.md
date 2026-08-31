@@ -345,13 +345,83 @@ both. Same files throughout, so it is one pass.
 
 `architecture`
 
-Re-greening the authored tensor suite is v0.20 work and is committed. This is the layer underneath
-it, which the old suite never covered at all: `TensorBuffer`, the `TensorDataType*` maps,
-`Partitioning`, and `Serialization` — plus the `TensorOps.Transfer` device split. New coverage
-rather than revival, which is why it is not in the release.
+Distinct from "The authored test suite is green except for the files still commented out", which is
+revival. This is the layer underneath, which
+the old suite never covered at all — `TensorBuffer`, the `TensorDataType*` maps, `Partitioning`, and
+`Serialization`, plus the `TensorOps.Transfer` device split. New coverage rather than revival.
 
 Eight `REVIEW:` markers already name the exact contracts to pin; `Specifications/Testing.Tensors.md`
 carries them.
+
+## `import Mila;` degrades the standard library in a consumer translation unit
+
+`api` · `build` · `mila-src` · `blocked`
+
+Held to be an **MSVC modules defect** rather than a Mila one, which is why v0.20 ships it documented
+and gated rather than fixed. Three failures, all compile-time, all absent the moment the import is
+removed, re-verified 2026-08-30 on MSVC 14.51.36231:
+
+1. **No C++ stream input.** `std::getline(cin, s)` and `cin.getline(char*, n)` both fail with
+   `C2079: '_Ok' uses undefined class 'std::basic_istream<char>::sentry'`. Output is fine. It also
+   bites *inside* `Mila/Tests`, and covers `<fstream>` — including that header in a test that
+   imports Mila reproduces it.
+2. **Instantiating a model needs `<sstream>` included first.** `Component::toString()` is pure
+   virtual (`Component.ixx:632`), so `GemmaModel::toString()`'s body (`GemmaModel.ixx:261`) compiles
+   into the consumer through the vtable and uses `std::ostringstream`.
+3. **The import must come after the `#include`s.** Import-first is fatal — C1116, whose Microsoft
+   documentation names mixing `import` and `#include` as a cause.
+
+1 and 2 are independent: `<sstream>` does not repair input.
+
+**Reachable is not visible, and more includes cannot fix it.** `GemmaModel.ixx:14` already includes
+`<sstream>` in its own global module fragment, and 91 modules under `Mila/Src` do the same — the
+consumer still needs its own copy first. GMF entities are reachable in an importing translation unit
+but not visible, and MSVC will not instantiate a class template whose definition is only reachable.
+One mechanism, all three symptoms, and no include added on Mila's side closes it.
+
+**The intended fix is `import std;` throughout.** It is the only candidate that addresses the
+mechanism rather than a symptom: with no textual std anywhere, there is no global module fragment to
+own std entities and no reachable-but-invisible state for them to be in. It needs
+`CMAKE_CXX_MODULE_STD` set before `project()`, so it means a fresh build directory and a full
+rebuild, and it is a tree-wide change to every module's GMF — which is exactly why it waits for a
+release that is not in flight.
+
+The alternative is recorded only so it is not mistaken for the plan: moving the `toString()` bodies
+out of the module interfaces would stop the consumer compiling those instantiations, but it
+addresses failure 2 alone and leaves the mechanism intact.
+
+Check a newer MSVC before starting either — the cheapest outcome is that the toolchain fixed it.
+Filing upstream is worth considering: a 2026-08-13 search found no matching report, and MSVC emitted
+its own report-a-modules-bug note. **Do not narrow `Mila.ixx` in response to this** — narrowing the
+umbrella was measured and reverted, and this resolves by widening if it resolves in Mila at all.
+
+**What v0.20 ships instead.** Both workarounds are commented at the point of use in
+`Samples/QuickStart/Cpp/main.cpp` and in `Mila/Tests/Packaging/fetchcontent_consumer/main.cpp`, and
+that fixture pins all three defects by compiling — ordering for 3, a never-called
+`instantiateModelFromConsumerTranslationUnit()` that forces the vtable for 2, and the `fgets`
+workaround for 1. It needs no GPU and no model, so it will report the day the workarounds become
+unnecessary.
+
+## A dispatch row that lies still fails as a constraint cascade
+
+`architecture` · `api` · `mila-src`
+
+The friendly primary-template assert — `OperationDispatch.md` §12 **A** — landed, so a *missing*
+`(Op, Device, Precision, Policy)` specialization now reads as a sentence naming the unsupported
+combination instead of an incomplete-type puzzle. That is the half v0.20 claims.
+
+What remains is the worse failure mode: a specialization that **exists** but maps to a kernel whose
+own constraints fail, so the dispatch table advertises a capability the backend does not have and
+the diagnostic is a cascade deep inside the kernel that never names the cause. §12's motivating case
+is `OperationTraits<GeluOp, Cuda, BF16>` mapping to a `cuda_gelu_impl` constrained to
+`float || half`. The fix is §12 **B**, one authoritative `OperationSupported` predicate that the
+kernel constraint, the traits specialization and a component-level assert all reference, so the two
+places that can drift become one. §12 **C**, naming the kernel concepts, is marginal and free as
+each op is touched.
+
+**Its intended carrier is gone.** §12's Adoption note proposed pairing this with the FP16 removal,
+when each op's supported-precision set would be made explicit anyway — but FP16 is not used in Mila,
+so this needs its own pass or a new pairing.
 
 ## Llama parity has no automated regression test
 
@@ -362,3 +432,94 @@ Llama's agreement with the HuggingFace reference has been established by hand, b
 `GemmaModel.Parity.Cuda.cpp` as the template; Qwen has no equivalent because a BF16 27B reference
 fits no card here, which makes Llama the family where a permanent token-for-token test is actually
 affordable.
+
+## Llama's long-context scaling factor is stored, printed, and never used
+
+`llama` · `mila-src`
+
+The presets carry it — 32.0 for the 3.2 models, 8.0 for the 3.1 ones (`Llama.Presets.ixx:50`, `:70`,
+`:96`) — `LlamaConfig` stores it, serializes it into the metadata and restores it, and three tests
+assert it. It reaches nothing. `getRoPEScalingFactor()` has three non-test callers and all three are
+serialization or `toString()`; `Llama.ixx:751` builds the Rope component with `.withRoPETheta()` and
+nothing else, and `Rope.Config.ixx` has no scaling knob at all — `withBase`, `withRotaryDim`,
+`withRotaryLayout`.
+
+So the commented-out `.withRoPEScalingFactor( metadata.rope_scaling )` at `Llama.ixx:837` is a
+symptom rather than the defect, and uncommenting it changes no output. The work is Llama 3's
+NTK-by-parts frequency scaling implemented in the Rope component and its CPU and CUDA operations,
+then wired through — which is why this is not the small item its `REVIEW:` marker makes it look.
+
+It leaves one question open that is worth answering before the work rather than after: Llama's
+token-for-token agreement with HuggingFace was established with the factor inert, and HuggingFace
+applies Llama 3 scaling at every position rather than only past the original window. Either the
+parity runs used checkpoints whose config declares no scaling, or the agreement is narrower than
+recorded.
+
+## Tool calling has never been driven end to end on Llama
+
+`llama` · `adaptors`
+
+Gemma 4 is validated through both adaptors across plain-chat, single-tool and tool-result-resume
+flows. Llama 3.2 3B and 3.1 8B are the primary validated inference lineage in the product definition
+and neither has been driven through a single tool call, from Chat or over the wire. The tool-calling
+framework itself is complete and family-neutral; what is missing is the evidence that Llama's
+grammar reaches it.
+
+Moving this out narrowed two published claims in the same commit — the ROADMAP Models criterion and
+`README.md`'s Llama section — so nothing now asserts it. Related: the parity entry above, which is
+the other half of what "validated lineage" is asked to mean.
+
+## GPT-2 and Llama 3 tokenize by approximation on every build and platform
+
+`tokenizer` · `gpt` · `llama` · `mila-src`
+
+`\p{L}` and `\p{N}` (`BpePreTokenizationMode.ixx:33`, `:57`) compile in no standard `std::regex`, so
+`BpeTokenizer.ixx:344` throws and falls back to an ASCII scanner — in every build, the published
+Linux container included. No parity test catches it, which raises a second question to settle in the
+same pass: whether the tokenizer fixtures are English-only, because if they are, nothing here was
+ever measurable.
+
+The fix is PCRE2, RE2, or a hand-written Unicode scanner, which makes this a vendored-dependency
+decision as much as a tokenizer one — the same ground the curl pin sits on.
+
+## The authored test suite is green except for the files still commented out
+
+`architecture`
+
+v0.20 ships the revival: 153 test sources on disk, the concrete component, tensor and tokenizer
+suites re-aligned to the post-refactor API, the redundant per-op mirror tests retired down to three
+files covering the dispatch mechanism itself, and the CPU arm running in CI as a ratchet
+(`build-pipeline.yml`, clang-21, `MILA_ENABLE_CUDA=OFF`). That is the claim, and it stops at what is
+compiled.
+
+What is left is the tail that was never re-enabled — ten CPU-side and four CUDA-side entries still
+commented out in `Mila/Tests/CMakeLists.txt:154-166` and `:283-290`: `Network.cpp`,
+`CrossEntropy.Config.cpp` and `.Cpu.cpp`, `Model.cpp`, `Model.Cpu.cpp`, `ModelArchive.cpp`,
+`ZipSerializer.cpp`, `TensorBuffer.Tracking.cpp`, `Network.Cuda.cpp`, `AdamW.Cuda.cpp`,
+`SoftmaxCrossEntropy.Cuda.cpp`, `CudaDevice.cpp`.
+
+Several are not simply switch-on work and should not be estimated as if they were.
+`SoftmaxCrossEntropy` waits on loss moving onto the device, and the `AdamW.Cuda` and `Network.Cuda`
+entries belong with the training primitive suite rather than here — see "Nothing pins the training
+primitives independently of the samples", which owns the backward-numeric cases skipped for the same
+reason.
+
+## The quantization and Llama inference paths have no coverage
+
+`quantization` · `llama`
+
+Both were built during the test drought and the authored suite never reached them. `OperationTraits`
+dispatch is now covered; two gaps are not.
+
+**The load-time quantization white-box** — `PerChannelFp8`, `PerGroupFp4` and the decode matvec
+kernels. This is the one legitimate op-layer test in the tree, because the packed path cannot be
+reached through the public component at all, which is why retiring the op-layer mirrors does not
+retire it.
+
+**The Llama path**, where the concrete case is the context limit. `LlamaModel.ixx:329` throws when a
+prompt exceeds the deployment context and `:363` returns `ContextOverflow` when decode would write
+past it; nothing exercises either. The comment at `:359-362` states the stakes precisely — RoPE is
+computed rather than looked up, so there is no positional table to run off the end of and nothing
+crashes. Where GPT-2 crashes, Llama overruns the cache quietly, so absence of reports is not
+evidence. `Tests/Dnn/Models/GptModel.Cuda.cpp` is the template: a weightless checkpoint at a small
+deployment context.

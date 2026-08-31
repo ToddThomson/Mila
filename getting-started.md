@@ -439,7 +439,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Mila)
 
-add_executable(my_app main.cpp)      # main.cpp does: import Mila;
+add_executable(my_app main.cpp)      # main.cpp does: import Mila; -- after its #includes
 target_link_libraries(my_app PRIVATE Mila::Mila)
 
 # Clang consumers only (MSVC auto-configures module consumption):
@@ -458,6 +458,12 @@ A complete, copy-paste starting point is in
 [`Mila/Samples/QuickStart/Cpp`](Mila/Samples/QuickStart/Cpp/README.md) — a standalone project that
 consumes Mila exactly like this and then loads a model and streams a reply, so the `CMakeLists.txt`
 above is shown doing real work rather than printing a version.
+
+**Two rules for the translation unit that imports Mila**, both from an MSVC modules defect and both
+temporary. Put `import Mila;` **after** your `#include`s — importing first stops the build with
+C1116. Include `<sstream>` among them if you instantiate a model, and read input with `std::fgets`
+rather than `std::getline` or `std::cin.getline`. The QuickStart sample above shows both, commented
+where they appear.
 
 > **`find_package(Mila)`?** Not supported, and removed in 0.20.0-beta.3. A module library is a
 > source distribution, so `find_package`'s prebuilt-binary benefit is void while its install

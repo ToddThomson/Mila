@@ -7,7 +7,7 @@ part you came to read. Standard library only -- there is no requirements.txt for
 these samples, and that is deliberate.
 
 There are two ways to name a model, and they are not equivalent. A store name
-(load_from_store) is the normal one: the artifact is already quantized and its
+(load_from_store) is the normal one: the weights are already quantized and its
 record says to what. Loose .bin paths (resolve_paths + load) are the fallback for
 a checkpoint converted locally from a family Mila does not publish.
 """
@@ -25,7 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 # /install; nothing in these samples downloads anything.
 DEFAULT_MODEL = "gemma-4-12b-it-fp4"
 
-# Where the converter writes Mila binary artifacts. Both files are produced by
+# Where the converter writes Mila's binary weights and tokenizers. Both files are produced by
 # Tools/Converters (see Data/Models/README.md); neither is redistributed here.
 MODELS_DIR = REPO_ROOT / "Data" / "Models"
 
@@ -212,14 +212,15 @@ def resolve_paths(family, weights=None, tokenizer=None):
 
 def load(mila, family, weights, tokenizer, context_length, device_index=0, quantization=None):
     """
-    Load a tokenizer and model pair for the given family, from loose artifact files.
+    Load a tokenizer and model pair for the given family, from loose weights and
+    tokenizer files.
 
-    Quantization is a load-time choice here because the artifact is unquantized: "bf16",
+    Quantization is a load-time choice here because the weights are unquantized: "bf16",
     "fp8" or "fp4". Gemma defaults to FP4 -- a BF16 12B needs ~24 GB and OOMs on a 12 GB
     card -- and Llama to BF16.
 
-    Prefer load_from_store() for an installed model: a published artifact is already
-    quantized and only its store record says to what.
+    Prefer load_from_store() for an installed model: a published model's weights are
+    already quantized and only its store record says to what.
     """
     if family == "gemma":
         return (
@@ -237,7 +238,7 @@ def load(mila, family, weights, tokenizer, context_length, device_index=0, quant
 
 def load_from_store(mila, name, context_length, device_index=0):
     """
-    Load an installed model by store name -- as the artifact itself is.
+    Load an installed model by the name the store lists it under.
 
     Returns (tokenizer, model, record). The record carries the architecture, the variant
     and whether the model is instruction-tuned, so a caller needs to know nothing about

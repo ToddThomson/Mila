@@ -101,11 +101,11 @@ def parse_args():
     parser.add_argument("--model", default=common.DEFAULT_MODEL,
                         help=f"Installed model to load by store name (default: {common.DEFAULT_MODEL}).")
     parser.add_argument("--family", default="gemma", choices=("gemma", "llama"),
-                        help="Which instruct template the --weights artifact wants. Ignored "
+                        help="Which instruct template the --weights file wants. Ignored "
                              "for --model, where the store record answers it.")
     parser.add_argument("--quantization", choices=("bf16", "fp8", "fp4"),
                         help="Quantize Linear weights at load time, for --weights only: a "
-                             "published artifact is already quantized. FP8 and FP4 require "
+                             "published model's weights are already quantized. FP8 and FP4 require "
                              "SM >= 8.9. Default: fp4 for gemma, bf16 for llama.")
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--weights", help="Path to a locally converted .bin, instead of --model.")

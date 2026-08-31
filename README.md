@@ -8,7 +8,7 @@ Mila is built for researchers, engineers, and developers who find high-level fra
 and write kernels that do precisely what they intend. No autograd engine. No runtime
 dispatch magic. Just C++23, CUDA, and full control.
 
-> *Currently in public beta (`0.20.0-beta.2`) — feature-frozen and hardening toward the v0.20 first
+> *Currently in public beta (`0.20.0-beta.3`) — feature-frozen and hardening toward the v0.20 first
 > production release. Pre-1.0: the API is not yet stable.*
 > *Active development lands on the [`dev`](https://github.com/ToddThomson/Mila/tree/dev) branch; `master` tracks tagged releases.*
 > *See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for current status and trajectory.*
@@ -109,11 +109,11 @@ GeGLU, RMSNorm, and final logit softcap — validated **token-for-token against 
 ### Llama 3.x
 
 Mila's primary validated inference lineage — Llama 3.2 1B, 3.2 3B, and 3.1 8B — built from RMSNorm,
-SwiGLU, Grouped Query Attention, and RoPE, with SentencePiece tokenization and HuggingFace weight
+SwiGLU, Grouped Query Attention, and RoPE, with BPE tokenization and HuggingFace weight
 conversion. Each is validated **token-for-token against HuggingFace**: 1B at FP32, 3B at BF16, and the
 quantized paths (FP8 E4M3 per-channel, FP4 E2M1 per-group) against that baseline. Llama 3.1 8B at FP4
 (~6 GB) is the small-footprint workhorse — it fits a 12 GB card with room to spare — with FP8 as the
-finer-precision alternative. Tool calling is validated on Llama 3.2 3B Instruct.
+finer-precision alternative.
 
 ### GPT-2 — where it started
 
@@ -127,7 +127,7 @@ place to read one token's journey end to end.
 
 ---
 
-## Current Status — Beta.2 (feature-frozen, hardening)
+## Current Status — Beta.3 (feature-frozen, hardening)
 
 Mila is in public beta, hardening toward a craft-complete first release (v0.20). The alpha
 phase built and validated the core architecture against known-good reference implementations; the
@@ -135,13 +135,13 @@ feature set is now **frozen**, and the remaining work is validation, packaging, 
 recovering the full GPT-2 / training foundation — so the first release ships everything Mila has
 built, inference and training, as one coherent, tested, documented package.
 
-**Hardening through beta (Production Hardening)**
-Feature-frozen: validation, packaging, and documentation only. **Model distribution is the one
-deliberate carve-in**, landed in `beta.2` — a release nobody can get a model for is not an onboarding
-story, and it was an alpha omission rather than a new idea. The v0.20 workstreams still in flight
-are test-suite revival, training revival (the MNIST and Bard GPT-2 samples re-aligned to the current
-API — Llama 3.1/3.2 training is not part of this release), API documentation, and production
-hardening itself, from which the `beta.X` and `rc.X` tags are cut. See
+**Hardening through beta**
+Feature-frozen: validation, packaging, and documentation only. **Two carve-ins were made
+deliberately** — model distribution in `beta.2`, because a release nobody can get a model for is not
+an onboarding story, and observability in `beta.3`. The test suite and the MNIST and Bard training
+samples are re-aligned to the current API and running; Llama 3.1/3.2 training is not part of this
+release. What is still in flight is validation, packaging and distribution, API documentation, and
+the surface a consumer meets. See
 [RELEASING.md](https://github.com/ToddThomson/Mila/blob/dev/RELEASING.md) for how stages and tags
 relate.
 
