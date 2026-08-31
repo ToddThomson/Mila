@@ -58,8 +58,10 @@
  */
 
 module;
+#include <format>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 export module Dnn.LanguageModelConfig;
 
@@ -154,6 +156,56 @@ namespace Mila::Dnn
     {
         return quantization == WeightQuantization::FP4
             || quantization == WeightQuantization::FP8;
+    }
+
+    /**
+     * @brief Refuse a load whose stored weights were packed for a different policy.
+     *
+     * Nothing downstream can tell the two apart: packed codes reinterpreted as BF16, or a
+     * BF16 blob decoded through a codebook, produce a model that loads and runs and is wrong.
+     * The storage dtype cannot stand in for this check -- FP4 at group 128 and at group 64 are
+     * both U8. An empty stored name means reference weights; the reader normalizes the
+     * writer's "none" to empty, so the two spellings compare as one.
+     *
+     * The one asymmetry is deliberate: reference weights ARE a valid source for a derivable
+     * format, because the load computes those scales from the weights. See
+     * isDerivableFromReferenceWeights for why a codebook is the opposite case.
+     *
+     * It lives here rather than in a family because the rule is the writer's and the reader's
+     * alike, and a family that omits it does not fail -- it runs wrong.
+     *
+     * @param caller Qualified name of the calling factory, for the message.
+     * @param weights_path Path to the weights being loaded.
+     * @param stored_quantization Scheme the weights declare; empty for reference weights.
+     * @param requested_quantization Policy this build was compiled for.
+     */
+    export inline void requireStoredQuantizationMatches(
+        std::string_view caller,
+        std::string_view weights_path,
+        std::string_view stored_quantization,
+        WeightQuantization requested_quantization )
+    {
+        const std::string requested = weightQuantizationName( requested_quantization );
+
+        const bool weights_are_quantized = !stored_quantization.empty();
+        const bool build_is_quantized = requested_quantization != WeightQuantization::None;
+
+        const bool quantizes_on_load = !weights_are_quantized
+            && isDerivableFromReferenceWeights( requested_quantization );
+
+        if ( !quantizes_on_load
+            && ( weights_are_quantized != build_is_quantized
+                || ( weights_are_quantized && stored_quantization != requested ) ) )
+        {
+            throw std::runtime_error( std::format(
+                "{}: weights '{}' are stored as '{}' but this load requested '{}'. A codebook "
+                "cannot be loaded at reference precision and reference weights cannot be "
+                "decoded through one -- the codes are fitted offline against calibration data "
+                "and are not recoverable from weights",
+                caller, weights_path,
+                weights_are_quantized ? stored_quantization : std::string_view{ "none" },
+                requested ) );
+        }
     }
 
     // =========================================================================

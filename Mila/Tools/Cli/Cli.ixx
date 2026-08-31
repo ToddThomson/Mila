@@ -61,17 +61,24 @@ namespace Mila::Tools::Cli
             return applicationDirectory() / "venv";
         }
 
+        /**
+         * @brief Render a byte count in the binary units it is actually divided by.
+         *
+         * Both divisions are powers of 1024, so labelling them MB and GB reported every size
+         * 5% and 7% low against a figure in those units -- and this is what `mila models`
+         * shows for a download the hub states in the same units.
+         */
         std::string formatBytes( std::uint64_t bytes )
         {
-            constexpr double kMegabyte = 1024.0 * 1024.0;
-            constexpr double kGigabyte = kMegabyte * 1024.0;
+            constexpr double kMebibyte = 1024.0 * 1024.0;
+            constexpr double kGibibyte = kMebibyte * 1024.0;
 
-            if ( bytes >= static_cast<std::uint64_t>( kGigabyte ) )
+            if ( bytes >= static_cast<std::uint64_t>( kGibibyte ) )
             {
-                return std::format( "{:.2f} GB", static_cast<double>( bytes ) / kGigabyte );
+                return std::format( "{:.2f} GiB", static_cast<double>( bytes ) / kGibibyte );
             }
 
-            return std::format( "{:.1f} MB", static_cast<double>( bytes ) / kMegabyte );
+            return std::format( "{:.1f} MiB", static_cast<double>( bytes ) / kMebibyte );
         }
 
         /**

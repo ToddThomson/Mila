@@ -103,6 +103,18 @@ namespace Mila::Tools
     inline constexpr const char* kPlanVariantName = "cb2-3";
 
     /**
+     * @brief Bytes as gibibytes -- the unit every size this tool prints is divided by.
+     *
+     * The divisor was written out at six call sites and the result labelled GB, so every
+     * figure read 7% low against the same file measured in GB. One helper, and the label
+     * beside it says GiB.
+     */
+    inline double gibibytes( std::uint64_t bytes )
+    {
+        return static_cast<double>( bytes ) / ( 1024.0 * 1024.0 * 1024.0 );
+    }
+
+    /**
      * @brief Short variant key used in a coordinate and as the manifest variant name.
      */
     std::string weightQuantizationVariantName( WeightQuantization quantization )
@@ -404,10 +416,9 @@ namespace Mila::Tools
                 std::cout << std::format( "  warning: {}\n", warning );
             }
 
-            std::cout << std::format( "  verified {} file(s), {:.2f} GB\n",
+            std::cout << std::format( "  verified {} file(s), {:.2f} GiB\n",
                 validation.files_verified,
-                static_cast<double>( validation.bytes_verified )
-                / ( 1024.0 * 1024.0 * 1024.0 ) );
+                gibibytes( validation.bytes_verified ) );
 
             if ( !validation.ok() )
             {
@@ -472,9 +483,8 @@ namespace Mila::Tools
                     installed.tokenizer_path.string() );
             }
 
-            std::cout << std::format( "  on disk       {:.2f} GB\n",
-                static_cast<double>( installed.bytes_on_disk )
-                / ( 1024.0 * 1024.0 * 1024.0 ) );
+            std::cout << std::format( "  on disk       {:.2f} GiB\n",
+                gibibytes( installed.bytes_on_disk ) );
 
             return installed.complete ? 0 : 3;
         }
@@ -605,9 +615,8 @@ namespace Mila::Tools
 
         for ( const auto& [ storage_type, entry ] : by_storage_type )
         {
-            std::cout << std::format( "  {:<6} {:>5} tensors  {:>7.2f} GB\n",
-                storage_type, entry.first,
-                static_cast<double>( entry.second ) / ( 1024.0 * 1024.0 * 1024.0 ) );
+            std::cout << std::format( "  {:<6} {:>5} tensors  {:>7.2f} GiB\n",
+                storage_type, entry.first, gibibytes( entry.second ) );
         }
     }
 
@@ -685,9 +694,8 @@ namespace Mila::Tools
 
             writer.close();
 
-            std::cout << std::format( "Wrote {} ({:.2f} GB)\n",
-                destination.string(),
-                static_cast<double>( written ) / ( 1024.0 * 1024.0 * 1024.0 ) );
+            std::cout << std::format( "Wrote {} ({:.2f} GiB)\n",
+                destination.string(), gibibytes( written ) );
 
             // Reopening is the only check that the header agrees with the data region, and the
             // reconciliation is what catches a tensor quietly dropped or duplicated.
@@ -803,9 +811,8 @@ namespace Mila::Tools
                 bytes += left_blob.sizeBytes();
             }
 
-            std::cout << std::format( "  {} identical, {} mismatched, {:.2f} GB compared\n",
-                compared, mismatched,
-                static_cast<double>( bytes ) / ( 1024.0 * 1024.0 * 1024.0 ) );
+            std::cout << std::format( "  {} identical, {} mismatched, {:.2f} GiB compared\n",
+                compared, mismatched, gibibytes( bytes ) );
 
             if ( mismatched > 0 )
             {
@@ -1252,8 +1259,7 @@ namespace Mila::Tools
 
             const auto bytes = std::filesystem::file_size( options.destination );
 
-            std::cout << std::format( "Wrote {:.2f} GB\n",
-                static_cast<double>( bytes ) / ( 1024.0 * 1024.0 * 1024.0 ) );
+            std::cout << std::format( "Wrote {:.2f} GiB\n", gibibytes( bytes ) );
 
             // Reopening is the only check that the header agrees with the data region; a
             // writer bug produces a file that looks finished and fails at load.

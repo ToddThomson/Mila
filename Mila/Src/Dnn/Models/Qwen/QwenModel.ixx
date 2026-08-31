@@ -672,41 +672,12 @@ namespace Mila::Dnn
             const QwenModelConfig& model_config,
             const QwenConfig& network_config )
         {
-            // The artifact and the build must agree on the storage format, because nothing
-            // downstream can tell them apart: packed codes reinterpreted as BF16, or a BF16
-            // blob decoded through a codebook, produce a model that loads and runs and is
-            // wrong. An empty string means an unquantized artifact -- the reader normalizes
-            // the writer's "none" to empty -- so the two spellings compare as one.
-            //
-            // The one asymmetry is deliberate: a BF16 artifact IS a valid source for a
-            // derivable format, because the load computes those scales from the weights --
-            // which is what this family already does for its attention and head projections
-            // inside the packed artifact. Refusing it would put the Phase 5 FP4 oracle
-            // (uniform PerGroupFp4 over the reference blob) behind a repack that could only
-            // reproduce what the load does anyway. A quantized artifact must still match
-            // exactly, in either direction.
-            const std::string& artifact_quantization = reader.getWeightQuantization();
-            const WeightQuantization requested_quantization = model_config.getWeightQuantization();
-            const std::string requested = weightQuantizationName( requested_quantization );
-
-            const bool artifact_is_quantized = !artifact_quantization.empty();
-            const bool build_is_quantized = requested_quantization != WeightQuantization::None;
-
-            const bool quantizes_on_load = !artifact_is_quantized
-                && isDerivableFromReferenceWeights( requested_quantization );
-
-            if ( !quantizes_on_load
-                && ( artifact_is_quantized != build_is_quantized
-                    || ( artifact_is_quantized && artifact_quantization != requested ) ) )
-            {
-                throw std::runtime_error( std::format(
-                    "{}: artifact '{}' is stored as '{}' but this load requested '{}'. A "
-                    "codebook artifact cannot be loaded at reference precision and a BF16 "
-                    "artifact cannot be decoded through one -- the codes are fitted offline "
-                    "and are not recoverable from weights",
-                    caller, path.string(),
-                    artifact_is_quantized ? artifact_quantization : "none", requested ) );
-            }
+            // This family is the one that most needs the derivable-format asymmetry: the
+            // Phase 5 FP4 oracle is uniform PerGroupFp4 over the reference blob, and refusing
+            // it would put that behind a repack reproducing what the load does anyway.
+            requireStoredQuantizationMatches(
+                caller, path.string(), reader.getWeightQuantization(),
+                model_config.getWeightQuantization() );
 
             const auto& metadata = reader.getPretrainedMetadata();
 

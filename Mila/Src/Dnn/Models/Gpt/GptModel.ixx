@@ -36,6 +36,7 @@ module;
 export module Dnn.Models.GptModel;
 
 import Dnn.LanguageModel;
+import Dnn.LanguageModelConfig;
 import Dnn.LanguageModelNetwork;
 import Dnn.GenerateParams;
 import Dnn.GenerateStatus;
@@ -126,6 +127,13 @@ namespace Mila::Dnn
 
             PretrainedModelReader reader( path );
             const auto& metadata = reader.getPretrainedMetadata();
+
+            // GPT-2 has no quantization policy, so the only agreement to reach is that the
+            // weights carry none either. Without this a pre-quantized file loads its packed
+            // bytes as BF16 and generates noise.
+            requireStoredQuantizationMatches(
+                "GptModel::fromPretrained", path.string(), reader.getWeightQuantization(),
+                WeightQuantization::None );
 
             GptConfig config = configFromMetadata( metadata );
 

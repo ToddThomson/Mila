@@ -84,6 +84,9 @@ add_executable( MilaTests
     "Dnn/Core/Component.cpp"
     "Dnn/Core/ComponentConfig.cpp"
     "Dnn/Core/CompositeComponent.cpp"
+    # The stored-weights quantization rule: one shared refusal, four families, and a
+    # failure mode that loads and runs rather than erroring.
+    "Dnn/Core/LanguageModelConfig.cpp"
     # The only GptModel factory reachable without a converted .bin: a checkpoint
     # carries its own config, so fromCheckpoint needs nothing but an archive.
     "Dnn/Models/Gpt/GptModel.Cpu.cpp"

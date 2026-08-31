@@ -31,21 +31,33 @@ Eleven `unreachable code` warnings appear under `RelWithDebInfo` and under no ot
 Release and Debug both report zero on the identical tree, measured across five configurations.
 They also need the extras — with `MILA_ENABLE_TESTING/SAMPLES/ADAPTORS/TOOLS/PROFILING` off the
 library alone reports none, so the instantiations that trigger them come from outside `Mila/Src`.
-Ten of the eleven are the `copyFromBlob` fall-through fixed at `+42`; the eleventh is the GQA
-backward entry below. Bisected to at least `+38` by building `git archive` exports at a short path
+Ten of the eleven are the `copyFromBlob` fall-through fixed at `+42`; the eleventh was
+`GroupedQueryAttention::backward`, whose tail became unreachable once the operation it dispatched
+into always threw, and which `+43` resolved by declaring the refusal at the component boundary
+instead. **Unverified there: whether moving the throw up a level moves the warning up with it.**
+MSVC deduced never-returns through the operation call, so it may deduce the same through
+`attn_->backward` at `Llama.Block.ixx:373` and report the Llama backward chain as unreachable —
+which would be true, and is the reason to look rather than to assume. No preset the project
+watches is `RelWithDebInfo`, so nothing will surface it on its own.
+Bisected to at least `+38` by building `git archive` exports at a short path
 (`MAX_PATH` defeats a scratchpad build), so they are older than the day they were first noticed —
 first noticed only because a clean full `x64-profile` build is rarer than an incremental one. The
 open question is whether any preset the project actually watches should be `RelWithDebInfo`, since
 `x64-validate` is the pre-commit gate and is Release, and therefore blind to this whole class.
 
-## CUDA `GroupedQueryAttention::backward` is dead code and the compiler says so
+## A public component method takes a type the umbrella does not export
 
-`Mila/Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.ixx:219` @ `a5650805`
+`Mila/Src/Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.ixx:363` @ `a395fe76`
 
-`return *input_grad_;` draws C4702 because line 217's `operation_->backward(...)` provably never
-returns — the CUDA GQA backward throws unconditionally, so the whole tail is unreachable. This is
-not a code-shape problem and was deliberately left reporting the truth when the ten sibling
-warnings were fixed at `+42`: silencing it would hide an unimplemented path. Matches the standing
-note that GQA backward has never been validated. The decision owed is whether backward is
-implemented, or declared unsupported at the component's own boundary so the throw is the
-documented contract rather than an accident of the operation layer.
+`void setState( const GqaState& ) override` is public on a public component, but `Mila.ixx` never
+exports `Compute.GqaState`, so a consumer with `import Mila;` cannot name the argument and cannot
+call the method. Found because clang rejects what MSVC accepts: the name is reachable through the
+component modules, and `Qwen.DeltaNetBlock.Cuda.cpp` compiled on MSVC while failing on clang with
+`use of undeclared identifier 'GqaState'`. Worked around at `+42` with a direct
+`import Compute.GqaState;` in the test, matching what `CudaGqaOp.Cuda.cpp` already does -- the
+umbrella was left alone because widening it is a public-API decision. Same class as the notes
+already in `Mila.ixx` for `Serialization.Tensor` and the weight-quantization policies: a type in a
+public interface that the umbrella does not re-export, which fails asymmetrically and so goes
+unnoticed. The decision owed is whether `GqaState` joins the export list, or `setState` stops being
+part of the public component surface. Worth asking the same question of every other type named in a
+public component signature, since nothing checks this.

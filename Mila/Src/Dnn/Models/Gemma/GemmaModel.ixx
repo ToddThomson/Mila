@@ -455,26 +455,9 @@ namespace Mila::Dnn
             PretrainedModelReader reader( path );
             const auto& metadata = reader.getPretrainedMetadata();
 
-            // A pre-quantized artifact declares the policy its bytes were packed with. The
-            // storage dtype alone cannot tell FP4 at group 128 from group 64 -- both are
-            // U8 -- so loading one into a build expecting the other would reinterpret the
-            // nibble layout and produce a model that runs and is wrong. An empty
-            // declaration is a full-precision source and any policy may quantize it on load.
-            const std::string& artifact_quantization = reader.getWeightQuantization();
-
-            if ( !artifact_quantization.empty() )
-            {
-                const std::string requested =
-                    weightQuantizationName( model_config.getWeightQuantization() );
-
-                if ( artifact_quantization != requested )
-                {
-                    throw std::runtime_error( std::format(
-                        "GemmaModel::fromPretrained: artifact '{}' is pre-quantized as '{}' "
-                        "but this load requested '{}'",
-                        path.string(), artifact_quantization, requested ) );
-                }
-            }
+            requireStoredQuantizationMatches(
+                "GemmaModel::fromPretrained", path.string(), reader.getWeightQuantization(),
+                model_config.getWeightQuantization() );
 
             GemmaConfig network_config = configFromMetadata( metadata );
 
@@ -524,21 +507,9 @@ namespace Mila::Dnn
             PretrainedModelReader reader( path );
             const auto& metadata = reader.getPretrainedMetadata();
 
-            const std::string& artifact_quantization = reader.getWeightQuantization();
-
-            if ( !artifact_quantization.empty() )
-            {
-                const std::string requested =
-                    weightQuantizationName( model_config.getWeightQuantization() );
-
-                if ( artifact_quantization != requested )
-                {
-                    throw std::runtime_error( std::format(
-                        "GemmaModel::getDeploymentFootprint: artifact '{}' is pre-quantized as '{}' "
-                        "but this query requested '{}'",
-                        path.string(), artifact_quantization, requested ) );
-                }
-            }
+            requireStoredQuantizationMatches(
+                "GemmaModel::getDeploymentFootprint", path.string(),
+                reader.getWeightQuantization(), model_config.getWeightQuantization() );
 
             GemmaConfig network_config = configFromMetadata( metadata );
 

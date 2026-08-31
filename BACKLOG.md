@@ -133,11 +133,6 @@ being a task list and needs a prune.
 - [ ] **[net-new]** TrainingMode / RuntimeMode coverage — assert that mode transitions allocate and skip
   gradient buffers correctly. Three `REVIEW:` markers are the invariant to assert, each guarding a
   state believed unreachable: `TokenEmbedding.ixx:221`, `Lpe.ixx:187`, `Lpe.ixx:495`.
-- [ ] **`ResidualConfig` advertises a scaling factor that no backward implements and the two devices
-  disagree about in forward.** CUDA forward honours it, CUDA backward takes no scale, and the CPU op
-  ignores it entirely; the only guard is a debug-only assert at `CudaResidualOp.ixx:106`, so release
-  builds train silently wrong. Cheapest correct fix, freeze-compatible because it removes an
-  unimplemented knob: have `validate()` reject `scaling_factor != 1.0f` (`ResidualConfig.ixx:97`).
 - [ ] **Validation** — the **FP32** training path proven by the primitive suite (gradient checks,
   step-convergence, loader contracts, init-at-precision, the integration test), CI-gated; samples run
   as demos. BF16 and GQA training move to the Training (advanced) release.
@@ -287,14 +282,6 @@ being a task list and needs a prune.
   (`Publishing/README.md`, `Tools/README.md`, `getting-started.md`, `Data/Models/README.md`,
   `Tools/Quantization/README.md`); `Mila/Src` prose is 117 occurrences over 21 files, the low-priority
   tail. Must NOT change: `tool_bridge.py:84`/`:455`. [[project_artifact_vocabulary_rule]]
-- [ ] **`GB` is printed for a GiB division across the whole toolchain.** Six sites in
-  `ExportArtifact.ixx` (`:402`, `:470`, `:603`, `:682`, `:800`, `:1108`) and `formatBytes` in
-  `Cli.ixx:64`, which is what `mila models` shows a user. Consistently 7% off; one shared helper.
-- [ ] **Only Gemma refuses a pre-quantized model whose policy is not the one it compiled.**
-  `GemmaModel.ixx:640` (and `:704` for the footprint sibling) compares `reader.getWeightQuantization()`
-  against the requested policy; `LlamaModel::fromPretrainedImpl` and `GptModel` never read it. The
-  storage dtype cannot substitute — FP4 at group 128 and 64 are both U8 — so a mismatch reinterprets
-  the nibble layout and runs wrong. `ExportArtifact` emits Llama weights, so the hole is reachable.
 - [ ] **`ModelSerialization.md` Phase 7 describes work that shipped.** The distribution path exists end
   to end — `savePretrained` (`LanguageModel.ixx:116`), the `mila_quantization` metadata key, the
   reader, the policy check, `Linear`'s pre-packed load branch, and `Tools/ExportArtifact` driving it.

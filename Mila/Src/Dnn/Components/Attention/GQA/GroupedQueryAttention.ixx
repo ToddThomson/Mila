@@ -192,32 +192,27 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Run backward pass and return the component-owned input-gradient tensor.
+         * @brief Not implemented -- GQA is inference only, and this is where that is decided.
          *
-         * @param input       Concatenated QKV input tensor used in forward.
-         * @param output_grad Gradient w.r.t. the module output.
-         * @return Reference to component-owned TensorType containing the input gradient.
+         * No GQA backend implements a backward pass. The refusal is stated here, at the
+         * component's own boundary, rather than reached by dispatching into an operation
+         * whose body is an unconditional throw: the built/training-mode guards below it were
+         * checking preconditions for a call that could never succeed, and the tail after the
+         * dispatch was unreachable code the compiler reported.
+         *
+         * The retired sketch ran on the expanded [B,NH,T,HS] layout that CudaGqaOp no longer
+         * allocates; whether a real backward keeps that layout for training or is derived on
+         * the compact NKV layout is an open design question recorded in GqaMemory.md.
+         *
+         * MultiHeadAttention implements both directions and is the component to train through.
+         *
+         * @throws std::runtime_error Always.
          */
-        TensorType& backward( const TensorType& input, const TensorType& output_grad )
+        TensorType& backward( const TensorType&, const TensorType& )
         {
-            if ( !this->isBuilt() )
-            {
-                throw std::runtime_error(
-                    "GroupedQueryAttention must be built before calling backward." );
-            }
-
-            if ( !this->isTrainingMode() )
-            {
-                throw std::runtime_error(
-                    "GroupedQueryAttention must be in training mode to call backward." );
-            }
-
-            validateConcatenatedQKVShape( input.shape() );
-
-            zero( *input_grad_ );
-            operation_->backward( input, output_grad, *input_grad_ );
-
-            return *input_grad_;
+            throw std::runtime_error(
+                "GroupedQueryAttention::backward is not implemented -- GQA is inference only. "
+                "Train through MultiHeadAttention, or drive GQA with prefill()/decode()." );
         }
 
         // ====================================================================

@@ -435,6 +435,10 @@ namespace Mila::Dnn
             PretrainedModelReader reader( path );
             const auto& metadata = reader.getPretrainedMetadata();
 
+            requireStoredQuantizationMatches(
+                "LlamaModel::fromPretrained", path.string(), reader.getWeightQuantization(),
+                model_config.getWeightQuantization() );
+
             LlamaConfig network_config = configFromMetadata( metadata );
 
             if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
@@ -479,6 +483,10 @@ namespace Mila::Dnn
         {
             PretrainedModelReader reader( path );
             const auto& metadata = reader.getPretrainedMetadata();
+
+            requireStoredQuantizationMatches(
+                "LlamaModel::getDeploymentFootprint", path.string(),
+                reader.getWeightQuantization(), model_config.getWeightQuantization() );
 
             LlamaConfig network_config = configFromMetadata( metadata );
 
