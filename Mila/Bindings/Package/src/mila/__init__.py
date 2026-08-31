@@ -11,14 +11,18 @@ This package is the Python projection of that runtime.
     tokenizer = mila.BpeTokenizer.from_store("gemma-4-12b-it-fp4")
     model = mila.GemmaModel.from_store("gemma-4-12b-it-fp4", 4096)
 
-    model.generate_streaming(tokenizer.encode(prompt), print)
+    reason = model.generate(tokenizer.encode(prompt), print)
 
 A model is named, not pathed: from_store() reads the local store's record, which
 is what knows the weights are already FP4. Install one first -- ModelStore().pull()
 here, or `/install` in the chat harness -- because a load never downloads.
 
-The GIL is released around generation, so a streaming callback runs on a live
-interpreter and StopController cancels a decode loop already in flight.
+generate() hands each token to the callback as it is produced and returns why it
+stopped -- "stop", "length", "context_limit" or "cancelled" -- which the tokens
+themselves cannot tell you.
+
+The GIL is released around generation, so the callback runs on a live interpreter
+and StopController cancels a decode loop already in flight.
 
 Source and documentation: https://github.com/toddthomson/Mila
 """

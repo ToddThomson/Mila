@@ -733,30 +733,7 @@ namespace Mila::Bindings
         return std::unique_ptr<LlamaSession>( new LlamaSession( std::move( impl ) ) );
     }
 
-    std::vector<int32_t> LlamaSession::generate(
-        const std::vector<int32_t>& prompt_tokens,
-        std::size_t max_new_tokens, float temperature, int top_k, float top_p )
-    {
-        GenerateParams params;
-        params.max_new_tokens = static_cast<int>( max_new_tokens );
-        params.sampling.temperature = temperature;
-        params.sampling.top_k = top_k;
-        params.sampling.top_p = top_p;
-
-        // Blocking convenience over the streaming-only core primitive: collect the
-        // generated tokens onto the prompt so the caller receives prompt + completion.
-        std::vector<int32_t> output( prompt_tokens.begin(), prompt_tokens.end() );
-        // Finish reason is not part of this blocking convenience shape; the caller
-        // infers completion from the returned token list.
-        (void)impl_->model->generate(
-            prompt_tokens,
-            [&output]( int32_t token ) { output.push_back( token ); },
-            params );
-
-        return output;
-    }
-
-    void LlamaSession::generateStreaming(
+    std::string LlamaSession::generate(
         const std::vector<int32_t>& prompt_tokens,
         const std::function<void( int32_t )>& on_token,
         std::size_t max_new_tokens, float temperature, int top_k, float top_p,
@@ -767,8 +744,11 @@ namespace Mila::Bindings
         params.sampling.temperature = temperature;
         params.sampling.top_k = top_k;
         params.sampling.top_p = top_p;
-        (void)impl_->model->generate(
+
+        const auto status = impl_->model->generate(
             prompt_tokens, on_token, params, std::move( stop ) );
+
+        return std::string( to_string( status ) );
     }
 
     LlamaConfigInfo LlamaSession::getConfig() const
@@ -837,30 +817,7 @@ namespace Mila::Bindings
         return std::unique_ptr<GemmaSession>( new GemmaSession( std::move( impl ) ) );
     }
 
-    std::vector<int32_t> GemmaSession::generate(
-        const std::vector<int32_t>& prompt_tokens,
-        std::size_t max_new_tokens, float temperature, int top_k, float top_p )
-    {
-        GenerateParams params;
-        params.max_new_tokens = static_cast<int>( max_new_tokens );
-        params.sampling.temperature = temperature;
-        params.sampling.top_k = top_k;
-        params.sampling.top_p = top_p;
-
-        // Blocking convenience over the streaming-only core primitive: collect the
-        // generated tokens onto the prompt so the caller receives prompt + completion.
-        std::vector<int32_t> output( prompt_tokens.begin(), prompt_tokens.end() );
-        // Finish reason is not part of this blocking convenience shape; the caller
-        // infers completion from the returned token list.
-        (void)impl_->model->generate(
-            prompt_tokens,
-            [&output]( int32_t token ) { output.push_back( token ); },
-            params );
-
-        return output;
-    }
-
-    void GemmaSession::generateStreaming(
+    std::string GemmaSession::generate(
         const std::vector<int32_t>& prompt_tokens,
         const std::function<void( int32_t )>& on_token,
         std::size_t max_new_tokens, float temperature, int top_k, float top_p,
@@ -871,8 +828,11 @@ namespace Mila::Bindings
         params.sampling.temperature = temperature;
         params.sampling.top_k = top_k;
         params.sampling.top_p = top_p;
-        (void)impl_->model->generate(
+
+        const auto status = impl_->model->generate(
             prompt_tokens, on_token, params, std::move( stop ) );
+
+        return std::string( to_string( status ) );
     }
 
     GemmaConfigInfo GemmaSession::getConfig() const
@@ -946,30 +906,7 @@ namespace Mila::Bindings
         return std::unique_ptr<QwenSession>( new QwenSession( std::move( impl ) ) );
     }
 
-    std::vector<int32_t> QwenSession::generate(
-        const std::vector<int32_t>& prompt_tokens,
-        std::size_t max_new_tokens, float temperature, int top_k, float top_p )
-    {
-        GenerateParams params;
-        params.max_new_tokens = static_cast<int>( max_new_tokens );
-        params.sampling.temperature = temperature;
-        params.sampling.top_k = top_k;
-        params.sampling.top_p = top_p;
-
-        // Blocking convenience over the streaming-only core primitive: collect the
-        // generated tokens onto the prompt so the caller receives prompt + completion.
-        std::vector<int32_t> output( prompt_tokens.begin(), prompt_tokens.end() );
-        // Finish reason is not part of this blocking convenience shape; the caller
-        // infers completion from the returned token list.
-        (void)impl_->model->generate(
-            prompt_tokens,
-            [&output]( int32_t token ) { output.push_back( token ); },
-            params );
-
-        return output;
-    }
-
-    void QwenSession::generateStreaming(
+    std::string QwenSession::generate(
         const std::vector<int32_t>& prompt_tokens,
         const std::function<void( int32_t )>& on_token,
         std::size_t max_new_tokens, float temperature, int top_k, float top_p,
@@ -980,8 +917,11 @@ namespace Mila::Bindings
         params.sampling.temperature = temperature;
         params.sampling.top_k = top_k;
         params.sampling.top_p = top_p;
-        (void)impl_->model->generate(
+
+        const auto status = impl_->model->generate(
             prompt_tokens, on_token, params, std::move( stop ) );
+
+        return std::string( to_string( status ) );
     }
 
     QwenConfigInfo QwenSession::getConfig() const

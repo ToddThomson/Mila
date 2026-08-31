@@ -103,11 +103,7 @@ def main():
 
     # The binding releases the GIL around generation, so this callback runs on a live
     # interpreter and the reply appears as it is produced rather than all at once.
-    #
-    # The C++ twin ends by printing why generation stopped; there is nothing to print here
-    # because the binding discards GenerateStatus, so Python cannot tell EOS from hitting
-    # MAX_NEW_TOKENS. That is a binding gap, not a difference in the samples.
-    model.generate_streaming(
+    reason = model.generate(
         prompt_tokens,
         on_token,
         MAX_NEW_TOKENS,
@@ -116,7 +112,8 @@ def main():
         TOP_P,
     )
 
-    print()
+    # Why it stopped is the one outcome a caller cannot reconstruct from the tokens.
+    print(f"\n\n[{reason}]")
 
     return 0
 

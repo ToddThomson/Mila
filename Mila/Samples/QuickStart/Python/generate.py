@@ -1,9 +1,10 @@
 """
 Tokenizer round-trip and the sampling knobs, on one prompt.
 
-Blocking generation rather than streaming (chat.py has the streaming loop), so
-what is on show here is the small stuff you actually poke at: how text becomes
-tokens and back, and what temperature / top_k / top_p do to the same prompt.
+The whole reply is collected before anything is printed (chat.py has the live
+streaming loop), so what is on show here is the small stuff you actually poke at:
+how text becomes tokens and back, and what temperature / top_k / top_p do to the
+same prompt.
 
     python generate.py --sweep
     python generate.py --model Llama-3.2-3B-Instruct-fp4
@@ -81,15 +82,18 @@ def show_round_trip(tokenizer, text):
 
 
 def run(model, tokenizer, prompt_tokens, max_new_tokens, temperature, top_k, top_p):
-    """One blocking generation. Returns (text, generated token count, seconds)."""
+    """One generation, collected rather than streamed. Returns (text, count, seconds, reason)."""
+    generated = []
+
     started = time.perf_counter()
-    output = model.generate(prompt_tokens, max_new_tokens, temperature, top_k, top_p)
+    # generate() hands out tokens as they are produced and returns why it stopped.
+    # Collecting them here is what makes this the blocking counterpart to chat.py:
+    # nothing reaches the screen until the whole reply is in hand.
+    reason = model.generate(
+        prompt_tokens, generated.append, max_new_tokens, temperature, top_k, top_p)
     elapsed = time.perf_counter() - started
 
-    # generate() returns the prompt followed by the completion.
-    generated = output[len(prompt_tokens):]
-
-    return strip_control_tokens(tokenizer.decode(generated)), len(generated), elapsed
+    return strip_control_tokens(tokenizer.decode(generated)), len(generated), elapsed, reason
 
 
 def parse_args():
@@ -165,13 +169,14 @@ def main():
     )
 
     for label, knobs in settings:
-        text, count, elapsed = run(
+        text, count, elapsed, reason = run(
             model, tokenizer, prompt_tokens, args.max_new_tokens, **knobs)
 
         knob_summary = ", ".join(f"{name}={value}" for name, value in knobs.items())
         print(f"--- {label}  ({knob_summary})")
         print(text.strip())
-        print(f"[{count} tokens in {elapsed:.2f}s, {count / max(elapsed, 1e-9):.1f} tok/s]\n")
+        print(f"[{reason}, {count} tokens in {elapsed:.2f}s, "
+              f"{count / max(elapsed, 1e-9):.1f} tok/s]\n")
 
 
 if __name__ == "__main__":

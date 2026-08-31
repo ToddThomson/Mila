@@ -295,11 +295,16 @@ namespace Mila::Bindings
         static std::unique_ptr<LlamaSession> fromStore(
             const std::string& name, int64_t context_length, int device_index );
 
-        std::vector<int32_t> generate(
-            const std::vector<int32_t>& prompt_tokens,
-            std::size_t max_new_tokens, float temperature, int top_k, float top_p );
-
-        void generateStreaming(
+        /**
+         * @brief Generate from a prompt, streaming each token through on_token.
+         *
+         * The same shape as the library's own LanguageModel::generate: tokens leave
+         * through the callback and the return value is why generation stopped, which
+         * is the one outcome a caller cannot reconstruct from the token stream. The
+         * status crosses as its wire spelling -- "stop", "length", "context_limit" or
+         * "cancelled" -- so no enum has to cross with it.
+         */
+        std::string generate(
             const std::vector<int32_t>& prompt_tokens,
             const std::function<void( int32_t )>& on_token,
             std::size_t max_new_tokens, float temperature, int top_k, float top_p,
@@ -523,11 +528,8 @@ namespace Mila::Bindings
         static std::unique_ptr<GemmaSession> fromStore(
             const std::string& name, int64_t context_length, int device_index );
 
-        std::vector<int32_t> generate(
-            const std::vector<int32_t>& prompt_tokens,
-            std::size_t max_new_tokens, float temperature, int top_k, float top_p );
-
-        void generateStreaming(
+        /// As LlamaSession::generate -- tokens through the callback, why it stopped returned.
+        std::string generate(
             const std::vector<int32_t>& prompt_tokens,
             const std::function<void( int32_t )>& on_token,
             std::size_t max_new_tokens, float temperature, int top_k, float top_p,
@@ -569,11 +571,8 @@ namespace Mila::Bindings
         static std::unique_ptr<QwenSession> fromStore(
             const std::string& name, int64_t context_length, int device_index );
 
-        std::vector<int32_t> generate(
-            const std::vector<int32_t>& prompt_tokens,
-            std::size_t max_new_tokens, float temperature, int top_k, float top_p );
-
-        void generateStreaming(
+        /// As LlamaSession::generate -- tokens through the callback, why it stopped returned.
+        std::string generate(
             const std::vector<int32_t>& prompt_tokens,
             const std::function<void( int32_t )>& on_token,
             std::size_t max_new_tokens, float temperature, int top_k, float top_p,

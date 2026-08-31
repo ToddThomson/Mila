@@ -45,6 +45,21 @@ first noticed only because a clean full `x64-profile` build is rarer than an inc
 open question is whether any preset the project actually watches should be `RelWithDebInfo`, since
 `x64-validate` is the pre-commit gate and is Release, and therefore blind to this whole class.
 
+## MIS reports every response as `finish_reason: "stop"`, including truncated ones
+
+`Mila/Adaptors/Inference/Server/src/mila_llm_server/routes/completions.py:49` @ `9c431945`
+
+Five sites hardcode it -- `chat.py:66`, `completions.py:49`, `factory.py:137`, `:155`, `:200` --
+so an OpenAI or Anthropic client is told a reply ended naturally when it was cut off by
+`max_tokens` or by context exhaustion. The live Anthropic path returns `stop_reason: "end_turn"`
+on every response for the same reason. Until now this was not fixable: the binding discarded
+`GenerateStatus`, so MIS had nothing truthful to report and a constant was the only option. The
+binding's `generate` now returns the reason, and `ModelWorker.generate` /
+`ModelWorker.generate_streaming` are the two places it would be threaded through -- neither
+currently propagates it to the routes. Mapping is not one-to-one: OpenAI spells the cap `length`
+and Anthropic spells it `max_tokens`, and neither protocol has a spelling for `context_limit`, so
+the decision owed is what each protocol reports for a context overflow.
+
 ## A public component method takes a type the umbrella does not export
 
 `Mila/Src/Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.ixx:363` @ `a395fe76`

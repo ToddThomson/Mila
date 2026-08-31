@@ -207,7 +207,13 @@ class ModelWorker:
         loop = asyncio.get_running_loop()
 
         def _run() -> list[int]:
-            return self._model.generate(prompt_tokens, max_new_tokens, temperature, top_k, top_p)
+            # The binding streams tokens and returns why it stopped, so prompt + completion
+            # is assembled here -- which is the shape this worker's callers slice.
+            output = list(prompt_tokens)
+            self._model.generate(
+                prompt_tokens, output.append, max_new_tokens, temperature, top_k, top_p)
+
+            return output
 
         return await loop.run_in_executor(self._executor, _run)
 
@@ -263,7 +269,7 @@ class ModelWorker:
         strip_control_tokens: bool = True,
     ) -> None:
         """
-        Runs generate_streaming() on the worker thread. Each token is decoded
+        Runs the binding's generate() on the worker thread. Each token is decoded
         on the worker thread and delivered as a string via on_text, avoiding
         re-entrant calls back into the executor from the asyncio event loop.
         on_text is called from the worker thread; callers must use thread-safe
@@ -333,7 +339,7 @@ class ModelWorker:
                 stop_ctrl.request_stop()
 
         def _run() -> None:
-            self._model.generate_streaming(
+            self._model.generate(
                 prompt_tokens, _on_token, max_new_tokens, temperature, top_k, top_p, stop_ctrl
             )
 

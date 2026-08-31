@@ -39,7 +39,7 @@ using Mila::Bindings::Tokenizer;
 /**
  * @brief Python-visible handle for cooperative generation cancellation.
  *
- * Construct one instance per request; pass to generate_streaming() and call
+ * Construct one instance per request; pass to generate() and call
  * request_stop() on client disconnect. A single instance must not be shared
  * across concurrent requests.
  */
@@ -414,29 +414,12 @@ static void bind_llama_model( py::module_& m )
         .def( "generate",
             []( LlamaSession& self,
                 const std::vector<int32_t>& prompt_tokens,
-                std::size_t max_new_tokens,
-                float temperature,
-                int top_k,
-                float top_p ) -> std::vector<int32_t>
-            {
-                py::gil_scoped_release _;
-                return self.generate( prompt_tokens, max_new_tokens, temperature, top_k, top_p );
-            },
-            py::arg( "prompt_tokens" ),
-            py::arg( "max_new_tokens" ) = 64,
-            py::arg( "temperature" ) = 1.0f,
-            py::arg( "top_k" ) = 0,
-            py::arg( "top_p" ) = 1.0f,
-            "Blocking generation. Returns prompt tokens followed by all generated tokens." )
-        .def( "generate_streaming",
-            []( LlamaSession& self,
-                const std::vector<int32_t>& prompt_tokens,
                 py::function on_token,
                 std::size_t max_new_tokens,
                 float temperature,
                 int top_k,
                 float top_p,
-                StopController* stop_ctrl )
+                StopController* stop_ctrl ) -> std::string
             {
                 std::stop_token stop = stop_ctrl
                     ? stop_ctrl->get_token()
@@ -444,7 +427,7 @@ static void bind_llama_model( py::module_& m )
 
                 py::gil_scoped_release release;
 
-                self.generateStreaming(
+                return self.generate(
                     prompt_tokens,
                     [&on_token]( int32_t tok ) {
                         py::gil_scoped_acquire acquire;
@@ -460,9 +443,14 @@ static void bind_llama_model( py::module_& m )
             py::arg( "top_k" ) = 0,
             py::arg( "top_p" ) = 1.0f,
             py::arg( "stop_controller" ) = py::none(),
-            "Stream generation token by token. on_token(id: int) is called for each "
-            "generated token (EOS excluded). Blocks until generation completes or "
-            "stop_controller.request_stop() is called." )
+            "Generate token by token. on_token(id: int) is called for each generated\n"
+            "token (EOS excluded). Blocks until generation completes or\n"
+            "stop_controller.request_stop() is called.\n\n"
+            "Returns why generation stopped, which the token stream cannot tell you:\n"
+            "    'stop'           the model finished on its own (EOS)\n"
+            "    'length'         max_new_tokens was reached\n"
+            "    'context_limit'  the context window was exhausted\n"
+            "    'cancelled'      stop_controller.request_stop() was called" )
         .def( "get_config",
             []( const LlamaSession& self ) {
                 const LlamaConfigInfo cfg = self.getConfig();
@@ -532,30 +520,12 @@ static void bind_gemma_model( py::module_& m )
         .def( "generate",
             []( GemmaSession& self,
                 const std::vector<int32_t>& prompt_tokens,
-                std::size_t max_new_tokens,
-                float temperature,
-                int top_k,
-                float top_p ) -> std::vector<int32_t>
-            {
-                py::gil_scoped_release _;
-                return self.generate( prompt_tokens, max_new_tokens, temperature, top_k, top_p );
-            },
-            py::arg( "prompt_tokens" ),
-            py::arg( "max_new_tokens" ) = 64,
-            py::arg( "temperature" ) = 1.0f,
-            py::arg( "top_k" ) = 0,
-            py::arg( "top_p" ) = 1.0f,
-            "Blocking generation. Returns prompt tokens followed by all generated tokens.\n"
-            "For HF token-for-token parity use temperature=0.0 (greedy argmax)." )
-        .def( "generate_streaming",
-            []( GemmaSession& self,
-                const std::vector<int32_t>& prompt_tokens,
                 py::function on_token,
                 std::size_t max_new_tokens,
                 float temperature,
                 int top_k,
                 float top_p,
-                StopController* stop_ctrl )
+                StopController* stop_ctrl ) -> std::string
             {
                 std::stop_token stop = stop_ctrl
                     ? stop_ctrl->get_token()
@@ -563,7 +533,7 @@ static void bind_gemma_model( py::module_& m )
 
                 py::gil_scoped_release release;
 
-                self.generateStreaming(
+                return self.generate(
                     prompt_tokens,
                     [&on_token]( int32_t tok ) {
                         py::gil_scoped_acquire acquire;
@@ -579,8 +549,14 @@ static void bind_gemma_model( py::module_& m )
             py::arg( "top_k" ) = 0,
             py::arg( "top_p" ) = 1.0f,
             py::arg( "stop_controller" ) = py::none(),
-            "Stream generation token by token. on_token(id: int) is called for each "
-            "generated token (EOS excluded)." )
+            "Generate token by token. on_token(id: int) is called for each generated\n"
+            "token (EOS excluded). For HF token-for-token parity use temperature=0.0\n"
+            "(greedy argmax).\n\n"
+            "Returns why generation stopped, which the token stream cannot tell you:\n"
+            "    'stop'           the model finished on its own (EOS)\n"
+            "    'length'         max_new_tokens was reached\n"
+            "    'context_limit'  the context window was exhausted\n"
+            "    'cancelled'      stop_controller.request_stop() was called" )
         .def( "get_config",
             []( const GemmaSession& self ) {
                 const GemmaConfigInfo cfg = self.getConfig();
@@ -657,29 +633,12 @@ static void bind_qwen_model( py::module_& m )
         .def( "generate",
             []( QwenSession& self,
                 const std::vector<int32_t>& prompt_tokens,
-                std::size_t max_new_tokens,
-                float temperature,
-                int top_k,
-                float top_p ) -> std::vector<int32_t>
-            {
-                py::gil_scoped_release _;
-                return self.generate( prompt_tokens, max_new_tokens, temperature, top_k, top_p );
-            },
-            py::arg( "prompt_tokens" ),
-            py::arg( "max_new_tokens" ) = 64,
-            py::arg( "temperature" ) = 1.0f,
-            py::arg( "top_k" ) = 0,
-            py::arg( "top_p" ) = 1.0f,
-            "Blocking generation. Returns prompt tokens followed by all generated tokens." )
-        .def( "generate_streaming",
-            []( QwenSession& self,
-                const std::vector<int32_t>& prompt_tokens,
                 py::function on_token,
                 std::size_t max_new_tokens,
                 float temperature,
                 int top_k,
                 float top_p,
-                StopController* stop_ctrl )
+                StopController* stop_ctrl ) -> std::string
             {
                 std::stop_token stop = stop_ctrl
                     ? stop_ctrl->get_token()
@@ -687,7 +646,7 @@ static void bind_qwen_model( py::module_& m )
 
                 py::gil_scoped_release release;
 
-                self.generateStreaming(
+                return self.generate(
                     prompt_tokens,
                     [&on_token]( int32_t tok ) {
                         py::gil_scoped_acquire acquire;
@@ -703,8 +662,13 @@ static void bind_qwen_model( py::module_& m )
             py::arg( "top_k" ) = 0,
             py::arg( "top_p" ) = 1.0f,
             py::arg( "stop_controller" ) = py::none(),
-            "Stream generation token by token. on_token(id: int) is called for each "
-            "generated token (EOS excluded)." )
+            "Generate token by token. on_token(id: int) is called for each generated\n"
+            "token (EOS excluded).\n\n"
+            "Returns why generation stopped, which the token stream cannot tell you:\n"
+            "    'stop'           the model finished on its own (EOS)\n"
+            "    'length'         max_new_tokens was reached\n"
+            "    'context_limit'  the context window was exhausted\n"
+            "    'cancelled'      stop_controller.request_stop() was called" )
         .def( "get_config",
             []( const QwenSession& self ) {
                 const QwenConfigInfo cfg = self.getConfig();
@@ -967,7 +931,7 @@ static void bind_stop_controller( py::module_& m )
     py::class_<StopController>( m, "StopController" )
         .def( py::init<>() )
         .def( "request_stop", &StopController::request_stop,
-            "Signal the running generate_streaming() call to halt." )
+            "Signal the running generate() call to halt." )
         .def_property_readonly( "stop_requested", &StopController::stop_requested );
 }
 

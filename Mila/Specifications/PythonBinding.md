@@ -29,10 +29,18 @@ Complete as of `0.20.0-beta.2+45`. Source: `Mila/Bindings/Mila_py.cpp`.
 |---|---|
 | `mila.initialize` | `log_level` = `trace \| info \| warning \| error` |
 | `mila.BpeTokenizer` | `from_store(name)`, `load_llama32`, `load_gemma`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
-| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="bf16")`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
-| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
+| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
+| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
 | `mila.ModelStore` | `root`, `list`, `locate`, `remove`, `usage`, `install`, `pull`, `list_hub_models` |
 | `mila.StopController` | `request_stop`, `stop_requested` |
+
+**`generate` is the shape `LanguageModel::generate` already has** — prompt and callback in, a
+finish reason out — and there is deliberately no second, token-collecting overload. The binding
+carried one for a while; it was the only method in the projection with no counterpart in the
+library, it owned the good name, and it discarded the `GenerateStatus` the real call returns, so a
+Python caller could not tell EOS from the `max_new_tokens` cap. The status crosses as its wire
+spelling (`stop` / `length` / `context_limit` / `cancelled`) rather than as a bound enum, which
+keeps the projection std-only.
 
 Two properties worth stating because they make a real sample possible: **the GIL is released around
 generation** (`py::gil_scoped_release`), so streaming callbacks and a Ctrl-C handler both work; and

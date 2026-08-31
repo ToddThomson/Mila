@@ -16,7 +16,7 @@ python quickstart.py "Why is the sky blue?"
 |---|---|
 | [`quickstart.py`](quickstart.py) | One prompt in, tokens streamed out. Single-shot: no history, no REPL, thinking off. The smallest complete thing. |
 | [`chat.py`](chat.py) | Streaming chat with Gemma 4. The instruct template, the token loop, the channel filter, and cooperative Ctrl-C — the whole thing, in one file. |
-| [`generate.py`](generate.py) | Tokenizer round-trip and the sampling knobs (`temperature`, `top_k`, `top_p`), blocking generation, Gemma or Llama. |
+| [`generate.py`](generate.py) | Tokenizer round-trip and the sampling knobs (`temperature`, `top_k`, `top_p`), the reply collected rather than streamed, Gemma or Llama. |
 | [`store.py`](store.py) | What the model store holds — listing, locating, and what each model costs on disk. No network: pull and load are separate verbs. |
 | [`common.py`](common.py) | Finding the built extension and resolving a model. Not inference; it is here so the others can open with the part worth reading. |
 
@@ -116,8 +116,8 @@ over the same prompt so the knobs are visible side by side. On the `--weights` p
 | `mila.BpeTokenizer` | `from_store(name)`, `load_llama32`, `load_gemma`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
 | `mila.ModelStore` | `root`, `list`, `locate(name)`, `remove(name)`, `usage`, `install(package_directory, ...)`, `pull(name, owner, transport=None)`, `list_hub_models(owner, transport=None)` |
 | `mila.http_transport` | The standard-library transport `pull` uses when none is passed; `mila.default_hub_owner()` names the owner Mila publishes under |
-| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
-| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="bf16")`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
+| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
+| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
 | `mila.StopController` | `request_stop`, `stop_requested` |
 
 The GIL is released around generation, so a streaming callback runs on a live

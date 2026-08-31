@@ -163,11 +163,6 @@ being a task list and needs a prune.
   `basic_istream::sentry`; instantiating a model needs `<sstream>` **before** the import, since
   virtual `Component::toString()` compiles in via the vtable; import-before-includes is fatal (C1116).
   `Samples/QuickStart/Cpp/main.cpp` carries two workarounds. [[project_import_mila_breaks_std]]
-- [ ] **The Python binding discards `GenerateStatus`, so the two quick starts cannot reach parity.**
-  All three sessions in `Mila_py.Wrappers.cpp` (`:553`, `:657`) do `(void)impl_->model->generate(...)`,
-  so a Python caller cannot tell EOS from the `max_new_tokens` cap from context overflow from a
-  cancellation. The C++ quick start prints `[stop]`; the Python one prints nothing, and that gap is
-  visible to anyone reading the website's two first tabs side by side.
 - [ ] **`mila/__init__.py` is copied by a `POST_BUILD` step of a target it is not a source of.**
   `Mila/Bindings/CMakeLists.txt:95` stages it with `copy_if_different` off
   `add_custom_command(TARGET MilaPy POST_BUILD)`, which runs only when `MilaPy` relinks — so editing

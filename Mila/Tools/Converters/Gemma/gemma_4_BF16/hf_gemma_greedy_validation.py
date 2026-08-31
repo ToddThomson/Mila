@@ -5,8 +5,8 @@
 # model never sees a valid context and degenerates into repetition loops.
 #
 # Mila side: feed the printed "prompt ids" (which include the template tokens)
-# into mila.GemmaModel.generate(prompt_ids, max_new_tokens=64) and diff the
-# generated ids against "generated ids" below. The Mila tokenizer is validated
+# into mila.GemmaModel.generate(prompt_ids, collected.append, max_new_tokens=64)
+# and diff collected against "generated ids" below. The Mila tokenizer is validated
 # separately (BpeTokenizerGemma suite), so feeding identical ids isolates MODEL
 # parity.
 #

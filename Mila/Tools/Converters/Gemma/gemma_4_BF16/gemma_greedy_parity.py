@@ -71,10 +71,11 @@ def main():
         args.mila_bin, context_length=args.context_length, device_index=args.device_index)
     print(f"  config: {model.get_config()}")
 
-    mila_full = model.generate(prompt_ids, max_new_tokens=args.max_new_tokens,
-                               temperature=0.0, top_k=1)   # greedy argmax
-    mila_gen = mila_full[len(prompt_ids):]
-    print(f"Mila gen   : {mila_gen}")
+    mila_gen = []
+    reason = model.generate(prompt_ids, mila_gen.append,
+                            max_new_tokens=args.max_new_tokens,
+                            temperature=0.0, top_k=1)   # greedy argmax
+    print(f"Mila gen   : {mila_gen}  [{reason}]")
     print(f"           : {tokenizer.decode(mila_gen)!r}\n")
 
     # ---- Compare -------------------------------------------------------------

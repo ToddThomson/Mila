@@ -195,7 +195,7 @@ def stream_turn(mila, model, tokenizer, prompt, args):
     previous_handler = signal.signal(signal.SIGINT, lambda *_: stop.request_stop())
 
     try:
-        model.generate_streaming(
+        reason = model.generate(
             prompt_tokens,
             on_token,
             args.max_new_tokens,
@@ -215,8 +215,10 @@ def stream_turn(mila, model, tokenizer, prompt, args):
 
     sys.stdout.write("\n")
 
-    if stop.stop_requested:
-        sys.stdout.write("[stopped]\n")
+    # A reply that ended on its own needs no announcement; the other three reasons all
+    # mean it was cut short, which the text alone does not show.
+    if reason != "stop":
+        sys.stdout.write(f"[{reason}]\n")
 
     elapsed = time.perf_counter() - started
     generated = counters["tokens"]
