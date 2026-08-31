@@ -63,6 +63,7 @@ import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.GqaState;
+import Compute.Observation;
 import Dnn.Components.RmsNorm;
 import Dnn.Components.Rope;
 import Dnn.Components.Gqa;

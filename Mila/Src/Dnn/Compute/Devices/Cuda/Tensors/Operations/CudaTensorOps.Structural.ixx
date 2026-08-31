@@ -31,8 +31,6 @@ namespace Mila::Dnn::Compute::Cuda
 {
 	using namespace Mila::Dnn::Compute;
 
-	// Forward-declare CUDA-specific execution context type (concrete alias exists in ExecutionContext:Cuda).
-	class CudaExecutionContext;
 
     namespace Detail
     {

@@ -21,7 +21,6 @@ import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-import Compute.ExecutionContextTemplate;
 import Compute.OperationType;
 import Dnn.Component;
 import Compute.OperationBase;

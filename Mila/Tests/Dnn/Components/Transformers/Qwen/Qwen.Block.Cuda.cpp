@@ -28,18 +28,6 @@
 
 import Mila;
 
-// Compute.ExecutionContext is NOT part of the public umbrella (Mila.ixx exports only
-// IExecutionContext and the factory), and instantiating a CUDA block reaches
-// CudaGqaOp::build, which needs ExecutionContext<Cuda> COMPLETE -- not merely reachable
-// through the block module's own imports. Without this line the instantiation fails with
-// "use of undefined type ExecutionContext<Cuda>" pointing into CudaGqaOp.
-//
-// The equivalent Gemma suite needs no such import only because GemmaModel instantiates
-// GemmaBlock inside the library, where the type is complete, and MSVC reuses that
-// instantiation. Qwen has no model yet (QwenModel is Phase 4), so this suite is the first
-// place in the tree where a CUDA block is instantiated by a consumer. A downstream
-// consumer would hit exactly this, so it is a library defect rather than a test quirk --
-// filed in BACKLOG against the public export surface, not worked around there.
 
 namespace Mila::Tests::Dnn::Components::Transformers::Qwen
 {

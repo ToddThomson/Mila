@@ -67,6 +67,7 @@ import Compute.GqaState;
 import Compute.CpuMemoryResource;
 #ifdef MILA_HAS_CUDA
 import Compute.CudaPinnedMemoryResource;
+import Compute.Observation;
 #endif
 import Dnn.Components.RmsNorm;
 import Dnn.Components.Rope;

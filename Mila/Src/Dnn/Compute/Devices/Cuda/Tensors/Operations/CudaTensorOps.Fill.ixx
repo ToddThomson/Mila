@@ -37,7 +37,6 @@ import Dnn.TensorDataTypeTraits;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaDevice;
 import Compute.ExecutionContext;
-//import Compute.CudaExecutionContext;
 import Compute.DeviceType;
 import Compute.CudaTensorDataType;
 import Cuda.Helpers;

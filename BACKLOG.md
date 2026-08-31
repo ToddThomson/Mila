@@ -163,12 +163,6 @@ being a task list and needs a prune.
 
 ### Production Hardening
 
-- [~] **A consumer cannot use a CUDA tensor operation without importing a non-public module.** MSVC
-  completes a class only where it is visible, not merely reachable, so any template a consumer
-  instantiates that dereferences `ExecutionContext<Cuda>` fails with "use of undefined type" naming a
-  module it never imported. The operation layer is fixed; the six `CudaTensorOps.*` partitions are
-  not, and cannot use the same fix because `TensorOps.ixx:6` puts them on a public path — which is
-  itself this defect worked around by publishing the whole CUDA backend. One decision, both halves.
 - [ ] **`import Mila;` breaks the standard library in the consumer's translation unit.** Three
   failures in a real FetchContent consumer, absent without it: stream **input** fails on an undefined
   `basic_istream::sentry`; instantiating a model needs `<sstream>` **before** the import, since

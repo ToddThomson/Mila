@@ -40,6 +40,7 @@ import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.OperationTraits;
 import Compute.CpuMemoryResource;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Tensor;
 import Serialization.Mode;

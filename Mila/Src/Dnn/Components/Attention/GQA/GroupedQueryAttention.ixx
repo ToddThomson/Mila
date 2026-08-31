@@ -35,6 +35,7 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.IKvInference;
 import Compute.IKvCacheLifecycle;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Dnn.Quantization.KvCache.Policy;

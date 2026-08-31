@@ -11,6 +11,7 @@
 #include <vector>
 
 import Dnn.TensorTypes;
+import Dnn.TensorDataType;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.Weight.CodebookPacking;
 

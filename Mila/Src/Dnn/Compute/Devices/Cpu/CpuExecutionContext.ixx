@@ -8,9 +8,8 @@ module;
 #include <string>
 #include <stdexcept>
 
-export module Compute.ExecutionContext:Cpu;
+export module Compute.CpuExecutionContext;
 
-import Compute.ExecutionContextTemplate;
 import Compute.IExecutionContext;
 import Compute.Device;
 import Compute.DeviceId;
@@ -26,8 +25,7 @@ namespace Mila::Dnn::Compute
      * require streams or library handles, so this implementation provides
      * the interface without additional overhead.
      */
-    template<>
-    class ExecutionContext<DeviceType::Cpu> : public IExecutionContext
+    export class CpuExecutionContext : public IExecutionContext
     {
     public:
         /**
@@ -35,15 +33,15 @@ namespace Mila::Dnn::Compute
          *
          * @param device_id CPU device identifier (typically Device::Cpu()).
          */
-        explicit ExecutionContext( DeviceId device_id = Device::Cpu() )
+        explicit CpuExecutionContext( DeviceId device_id = Device::Cpu() )
             : device_id_( device_id )
         {
         }
 
-        ExecutionContext( const ExecutionContext& ) = delete;
-        ExecutionContext& operator=( const ExecutionContext& ) = delete;
-        ExecutionContext( ExecutionContext&& ) = delete;
-        ExecutionContext& operator=( ExecutionContext&& ) = delete;
+        CpuExecutionContext( const CpuExecutionContext& ) = delete;
+        CpuExecutionContext& operator=( const CpuExecutionContext& ) = delete;
+        CpuExecutionContext( CpuExecutionContext&& ) = delete;
+        CpuExecutionContext& operator=( CpuExecutionContext&& ) = delete;
 
         /**
          * @brief Gets the device identifier.
@@ -67,6 +65,4 @@ namespace Mila::Dnn::Compute
     private:
         DeviceId device_id_;
     };
-
-    export using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 }

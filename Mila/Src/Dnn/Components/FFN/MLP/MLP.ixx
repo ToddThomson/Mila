@@ -34,6 +34,7 @@ import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.CpuMemoryResource;
+import Compute.Observation;
 import Dnn.Components.Linear;
 import Dnn.Components.Gelu;
 import Serialization.ModelArchive;

@@ -38,6 +38,7 @@ import Compute.OperationType;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
+import Compute.Observation;
 
 import Serialization.ModelArchive;
 import Serialization.Mode;

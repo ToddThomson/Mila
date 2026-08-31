@@ -7,13 +7,9 @@ export import :Transfer;
 export import :Structural;
 export import :Random;
 
-import Dnn.TensorOps.Base;
-import Compute.DeviceType;
-
 namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute::Cuda;
 
-	template<>
-	struct TensorOps<Compute::DeviceType::Cuda> : ZeroOps, FillOps, MathOps, TransferOps, StructuralOps, RandomOps {};
+	export struct CudaTensorOps : ZeroOps, FillOps, MathOps, TransferOps, StructuralOps, RandomOps {};
 }

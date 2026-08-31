@@ -35,6 +35,7 @@ import Compute.ExecutionContextFactory;
 import Compute.IPositionalPairedOp;
 import Compute.OperationTraits;
 import Compute.CpuMemoryResource;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 

@@ -77,6 +77,7 @@ import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.GqaState;
 import Compute.CpuMemoryResource;
+import Compute.Observation;
 import Dnn.Components.RmsNorm;
 import Dnn.Components.Residual;
 import Dnn.Components.Linear;

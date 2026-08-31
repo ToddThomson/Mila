@@ -1,10 +1,10 @@
 /**
  * @file ExecutionContext.ixx
- * @brief Templated execution context framework for compute operations and stream management.
+ * @brief Execution context framework for compute operations and stream management.
  *
- * ExecutionContext provides the interface for managing execution streams, synchronization,
- * and compute library handles across different hardware platforms. The template parameter
- * provides compile-time device type safety and eliminates runtime dispatch overhead.
+ * ExecutionContext manages execution streams, synchronization, and compute library handles
+ * across hardware platforms. Selecting the backend by device type at compile time gives
+ * type safety and eliminates runtime dispatch overhead.
  */
 
 module;
@@ -18,28 +18,43 @@ module;
 
 export module Compute.ExecutionContext;
 
-export import Compute.ExecutionContextTemplate;
 export import Compute.IExecutionContext;
 
-export import :Cpu;
+// The traits modules export no entities -- an explicit specialization cannot carry
+// `export` -- so re-exporting them publishes nothing. They are re-exported rather than
+// imported plainly because MSVC 14.51 will not complete a merely reachable explicit
+// specialization when the dereference is dependent. The context classes below stay on
+// plain imports, which is what keeps them out of `import Mila;`.
+export import Compute.ExecutionContextTraits;
+export import Compute.ExecutionContextTraits.Cpu;
+
+import Compute.CpuExecutionContext;
 
 #ifdef MILA_HAS_CUDA
-export import :Cuda;
+export import Compute.ExecutionContextTraits.Cuda;
+import Compute.CudaExecutionContext;
 #endif
 
-#ifdef MILA_HAS_METAL
-export import :Metal;
-#endif
-
-#ifdef MILA_HAS_ROCM
-export import :Rocm;
-#endif
+// Metal and Rocm have no binding here: neither backend has ever been compiled, and their
+// context files declare standalone modules rather than partitions of this one.
 
 import Compute.DeviceType;
 import Compute.DeviceId;
 
 namespace Mila::Dnn::Compute
 {
+    /**
+     * @brief The execution context for a device type.
+     *
+     * Resolves to the backend's concrete context class -- CpuExecutionContext,
+     * CudaExecutionContext -- each of which implements IExecutionContext and adds the
+     * stream and library handles its backend needs.
+     *
+     * @tparam TDeviceType The device type (Cpu, Cuda, ...).
+     */
+    export template<DeviceType TDeviceType>
+    using ExecutionContext = typename ExecutionContextTraits<TDeviceType>::type;
+
     /**
      * @internal
      * @brief Safe cast from IExecutionContext to concrete ExecutionContext<Device>.

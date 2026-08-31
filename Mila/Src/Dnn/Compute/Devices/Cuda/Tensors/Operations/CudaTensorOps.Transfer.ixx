@@ -296,54 +296,52 @@ namespace Mila::Dnn::Compute::Cuda
             if constexpr ( TDstMemoryResource::is_host_accessible )
             {
                 copyHostToHost<TDstDataType>( src_data, dst_data, dst.size() );
-
-                return;
-            }
-
-            // Destination is device memory from here on.
-            cudaStream_t stream = nullptr;
-            int device_id = dst.getDeviceId().index;
-            bool needs_sync = false;
-
-            if ( exec_context )
-            {
-                if ( exec_context->getDeviceId().type != DeviceType::Cuda )
-                {
-                    throw std::invalid_argument( "CUDA operations require a CUDA execution context" );
-                }
-
-                auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
-                stream = cuda_context->getStream();
-                device_id = cuda_context->getDeviceId().index;
             }
             else
             {
-                // No exec_context => use default stream for the device inferred from the destination.
-                // Ensure we synchronize the default stream before returning.
-                needs_sync = true;
+                // Destination is device memory from here on.
+                cudaStream_t stream = nullptr;
+                int device_id = dst.getDeviceId().index;
+                bool needs_sync = false;
+
+                if ( exec_context )
+                {
+                    if ( exec_context->getDeviceId().type != DeviceType::Cuda )
+                    {
+                        throw std::invalid_argument( "CUDA operations require a CUDA execution context" );
+                    }
+
+                    auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
+                    stream = cuda_context->getStream();
+                    device_id = cuda_context->getDeviceId().index;
+                }
+                else
+                {
+                    // No exec_context => use default stream for the device inferred from the destination.
+                    // Ensure we synchronize the default stream before returning.
+                    needs_sync = true;
+                }
+
+                if ( device_id < 0 )
+                {
+                    throw std::runtime_error( "Invalid CUDA device id for Host->Device transfer" );
+                }
+
+                // Perform Host -> Device transfer (blob -> device tensor).
+                copyHostToDevice<TDstDataType>(
+                    src_data,
+                    dst_data,
+                    dst.size(),
+                    stream,
+                    device_id
+                );
+
+                if ( needs_sync )
+                {
+                    // Synchronize default stream to ensure completion before returning.
+                    cudaStreamSynchronize( stream );
+                }
             }
-
-            if ( device_id < 0 )
-            {
-                throw std::runtime_error( "Invalid CUDA device id for Host->Device transfer" );
-            }
-
-            // Perform Host -> Device transfer (blob -> device tensor).
-            copyHostToDevice<TDstDataType>(
-                src_data,
-                dst_data,
-                dst.size(),
-                stream,
-                device_id
-            );
-
-            if ( needs_sync )
-            {
-                // Synchronize default stream to ensure completion before returning.
-                cudaStreamSynchronize( stream );
-            }
-
-            return;
         }
 
         /**

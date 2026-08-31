@@ -45,12 +45,9 @@
 #include <vector>
 
 import Mila;
-// Instantiating Linear<Cuda, P> forces CudaLinearOp's member bodies, which call
-// concrete ExecutionContext<Cuda> methods (getCublasLtHandle, etc.). The Mila
-// umbrella does not complete that type for a consumer TU, so import it directly.
-// Same reason: the serialization blob types (TensorMetadata / TensorBlobView) are not
-// re-exported through the Mila umbrella, so import that module directly (clang requires
-// it; MSVC did not). The weight-quant policies used to need this too and no longer do --
+// The serialization blob types (TensorMetadata / TensorBlobView) are not re-exported
+// through the Mila umbrella, so import that module directly (clang requires it; MSVC
+// did not). The weight-quant policies used to need this too and no longer do --
 // Mila.ixx exports them.
 import Serialization.Tensor;
 

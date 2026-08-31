@@ -188,6 +188,7 @@ PUBLIC
         # Dnn / Tensors / Operations
         "Src/Dnn/Tensors/Operations/TensorOps.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps.Traits.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Math.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Fill.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
@@ -271,7 +272,7 @@ PUBLIC
         "Src/Dnn/Compute/DeviceType.ixx"
         "Src/Dnn/Compute/DeviceId.ixx"
 
-        "Src/Dnn/Compute/ExecutionContext.Template.ixx"
+        "Src/Dnn/Compute/ExecutionContext.Traits.ixx"
         "Src/Dnn/Compute/Observation.ixx"
         "Src/Dnn/Compute/ExecutionContext.ixx"
         "Src/Dnn/Compute/IExecutionContext.ixx"
@@ -511,10 +512,12 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/CpuDevice.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuExecutionContext.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/CpuExecutionContext.Traits.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTypeTraits.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/CpuTensorDataTypeTraits.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Traits.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
@@ -696,6 +699,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/CudaDevice.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.Traits.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Profiling/CudaTimer.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceMemoryResource.ixx"
@@ -706,6 +710,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Maps.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Traits.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Math.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"

@@ -44,6 +44,7 @@ import Compute.ExecutionContext;
 import Compute.CpuMemoryResource;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
+import Compute.Observation;
 import Dnn.Components.LayerNorm;
 import Dnn.Components.MultiHeadAttention;
 import Dnn.Components.Residual;

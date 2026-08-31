@@ -15,9 +15,8 @@ module;
 #include <format>
 #include <stdexcept>
 
-export module Compute.ExecutionContext:Cuda;
+export module Compute.CudaExecutionContext;
 
-import Compute.ExecutionContextTemplate;
 import Compute.IExecutionContext;
 import Compute.DeviceId;
 import Compute.DeviceType;
@@ -38,7 +37,7 @@ namespace Mila::Dnn::Compute
      * - Library handles are owned by the context and must not be used
      *   concurrently from multiple threads without external synchronization.
      */
-    template<> class ExecutionContext<DeviceType::Cuda> : public IExecutionContext
+    export class CudaExecutionContext : public IExecutionContext
     {
     public:
         /**
@@ -50,7 +49,7 @@ namespace Mila::Dnn::Compute
          * @throws std::invalid_argument If device_id type is not Cuda.
          * @throws std::runtime_error If CUDA stream creation fails.
          */
-        explicit ExecutionContext( DeviceId device_id )
+        explicit CudaExecutionContext( DeviceId device_id )
             : device_id_( validateDeviceId( device_id ) )
         {
             initializeResources();
@@ -59,15 +58,15 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Destructor with proper CUDA resource cleanup.
          */
-        ~ExecutionContext()
+        ~CudaExecutionContext()
         {
             releaseResources();
         }
 
-        ExecutionContext( const ExecutionContext& ) = delete;
-        ExecutionContext& operator=( const ExecutionContext& ) = delete;
-        ExecutionContext( ExecutionContext&& ) = delete;
-        ExecutionContext& operator=( ExecutionContext&& ) = delete;
+        CudaExecutionContext( const CudaExecutionContext& ) = delete;
+        CudaExecutionContext& operator=( const CudaExecutionContext& ) = delete;
+        CudaExecutionContext( CudaExecutionContext&& ) = delete;
+        CudaExecutionContext& operator=( CudaExecutionContext&& ) = delete;
 
         /**
          * @brief Gets the device identifier.
@@ -457,7 +456,7 @@ namespace Mila::Dnn::Compute
                 if ( err != cudaSuccess )
                 {
                     std::fprintf( stderr,
-                        "ExecutionContext: Failed to synchronize CUDA stream: %s\n",
+                        "CudaExecutionContext: Failed to synchronize CUDA stream: %s\n",
                         cudaGetErrorString( err ) );
                 }
 
@@ -466,7 +465,7 @@ namespace Mila::Dnn::Compute
                 if ( err != cudaSuccess )
                 {
                     std::fprintf( stderr,
-                        "ExecutionContext: Failed to destroy CUDA stream: %s\n",
+                        "CudaExecutionContext: Failed to destroy CUDA stream: %s\n",
                         cudaGetErrorString( err ) );
                 }
 
@@ -475,6 +474,4 @@ namespace Mila::Dnn::Compute
             }
         }
     };
-
-    export using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 }
