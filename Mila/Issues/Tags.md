@@ -7,9 +7,9 @@ Tags describe **area and constraint, never disposition.** Disposition is already
 `Future.md`, `Contributor.md`, `Declined.md`. Encoding it twice is how the two drift apart and how
 the categories stopped meaning anything the last time.
 
-Where they apply: `Future.md`, `Contributor.md`, `Declined.md`. **Not `Untriaged.md`** — one line
-per entry leaves no room, and an observation has not earned a taxonomy. **Not `BACKLOG.md`**, which
-has its own set; see the bottom of this page.
+Where they apply: `Vnext.md`, `Future.md`, `Contributor.md`, `Declined.md`, and `BACKLOG.md`. **Not
+`Untriaged.md`** — one line per entry leaves no room, and an observation has not earned a taxonomy.
+BACKLOG uses the area tags here and nothing of its own; see the bottom of this page.
 
 ---
 
@@ -20,7 +20,11 @@ is a statement about where the work is, not a tag that needs retiring.
 
 | Tag | Means |
 |---|---|
-| `models` | A model family — its chassis, config, or protocol. |
+| `models` | Model work spanning families — the shared chassis machinery, or a defect that shows up in more than one. |
+| `gemma` | The Gemma family. |
+| `gpt` | The GPT family — GPT-2 is its only member today. |
+| `llama` | The Llama family. |
+| `qwen` | The Qwen family. |
 | `quantization` | Weight and KV formats, packing, the offline fitting pipeline. |
 | `training` | The backward path, optimizers, loss, data loaders. |
 | `tokenizer` | BPE, pre-tokenization, vocabularies. |
@@ -34,6 +38,11 @@ is a statement about where the work is, not a tag that needs retiring.
 | `perf` | Throughput, bandwidth, memory residency. |
 | `observability` | View and Observe. |
 | `distribution` | The store, manifests, fetching, publishing. |
+
+**The family tags follow the tree**, where `Models/` and `Components/Transformers/` are split per
+family. **A family tag replaces `models`, it does not accompany it** — `models` says the work is
+not confined to one family, so carrying both says nothing and spends one of the four slots. Two
+family tags on one entry is legitimate and means exactly what it says.
 
 ## Constraint — what makes it costly or gated
 
@@ -80,15 +89,14 @@ moves into the prose of the entries that had it.
 
 ---
 
-## `BACKLOG.md` has a different set, deliberately
+## `BACKLOG.md` uses this set and adds nothing
 
-BACKLOG's tags — `[gate]`, `[crash]`, `[net-new]`, `[decoupled]` — describe **properties of
-committed release work**: whether it blocks the tag, whether it reproduces as a crash, whether it
-is authored from scratch, whether it is off the critical path. Those questions only exist once
-something is committed to a release, which is why they do not appear here.
+It once carried four of its own — `[gate]`, `[crash]`, `[net-new]`, `[decoupled]` — describing
+properties of committed release work. They were retired when the backlog was pruned to items that
+each name a failing ROADMAP criterion: **membership already says the item blocks the release**, so
+`gate` restated the file it sat in, and the other three had reached zero entries.
 
-The two sets share one word. `[gate]` in BACKLOG means *blocks the release*; `gate` here means
-*blocks the thing named in the body*, because nothing in `Future.md` blocks the release in flight
-by definition. That is a real difference and not worth collapsing.
+`gate` survives here, where it still discriminates — it means *blocks the thing named in the body*,
+and nothing in these files blocks the release in flight by definition.
 
-One registry, two sets, stated in one place — so the next person does not find a third.
+One registry, one set, stated in one place — so the next person does not find a second.

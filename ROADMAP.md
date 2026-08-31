@@ -98,7 +98,8 @@ from the same components that do the allocating, so it cannot drift into fiction
 
 **Success criteria:** each family decodes token-for-token against HuggingFace at its target precision,
 captured as CI-guarded regression tests; tool calling validated on Gemma 4 and Llama 3.2 3B / 3.1 8B;
-a model's reported footprint matches what it actually allocates, held by test. Qwen 3.8 is gated
+a model's reported footprint matches what it actually allocates, held by test **on the quantized
+loads the published models use** — the unquantized path is measured but not yet gated. Qwen 3.8 is gated
 differently and deliberately: a BF16 27B fits no card here, so token-for-token agreement is not
 available and the bar is a **perplexity ratio against its own FP4 oracle, held under 1.25 at the
 context the model is sold at**, on a fixed corpus and protocol, with the threshold written down
@@ -149,33 +150,35 @@ correctness oracle for everything after it.*
 
 The first year of Mila was test-driven; the authored suite was largely commented out during the
 inference-era refactors, leaving only ~24 of ~70 files active. This is recovery: the test *logic* is
-authored, and the work re-aligns it to the post-refactor API. Two new slices remain — the inference
-features built during the test drought (quantization, the Llama path) need coverage the old suite
-never had, and the authored suite was **forward-only**, so every `backward()` the training samples
-drive has zero coverage. A finite-difference gradient-check archetype is the precondition for Training
-Revival.
+authored, and the work re-aligns it to the post-refactor API. One new slice remains: the inference
+features built during the test drought — quantization and the Llama path — need coverage the old
+suite never had. The authored suite was also **forward-only**, so every `backward()` the training
+samples drive has zero coverage; that half follows the training primitive suite out of this release.
 
 **Success criteria:** the authored component / tensor / tokenizer suites re-enabled and green against
 the current API; the redundant op-layer mirror tests retired (backend ops tested through the public
 component, the sole exception being the unreachable weight-quantization white-box); new coverage for
-the quantization and Llama inference paths; a per-component gradient-check archetype covering the
-training backward path (MNIST spine first, Bard transformer stack second); the suite gated in CI so a
-future API churn fails loudly instead of silently rotting coverage.
+the quantization and Llama inference paths; the suite gated in CI so a future API churn fails loudly
+instead of silently rotting coverage. The gradient-check archetype for the backward path moves out
+with the training primitive suite.
 
 ### Training Revival
 
-*Resurrect the validated GPT-2 / MLP training path — MNIST and Bard — to current-API quality, proven
-by its own revived tests. Scope is **FP32 GPT-2 / MLP only**: Llama 3.1/3.2 training, GQA training,
+*Resurrect the validated GPT-2 / MLP training path — MNIST and Bard — to current-API quality, and
+demonstrate it end to end. Scope is **FP32 GPT-2 / MLP only**: Llama 3.1/3.2 training, GQA training,
 and reduced-precision (BF16) training all stay Future.*
 
 MNIST (MLP) and Bard (GPT-2 generation) were complete, working training samples that are now being
 revived. Reviving them reactivates the half of the library inference never exercises: the AdamW
 optimizer, the loss and backward kernels, gradient flow, and train-from-scratch parameter
-initialization. The revived **primitive/component tests** are the correctness oracle — the samples are
-usage demos and the bug-discovery mechanism, not the test target. The work is sequenced **MNIST first,
-then Bard**: MNIST is a pure MLP that exercises the full training spine on the smallest possible graph;
-Bard then stacks the `GptTransformer`, the BPE/char tokenizers, and the sequence loader on an
-already-proven spine.
+initialization. The work was sequenced **MNIST first, then Bard**: MNIST is a pure MLP that exercises
+the full training spine on the smallest possible graph; Bard then stacks the `GptTransformer`, the
+BPE/char tokenizers, and the sequence loader on an already-proven spine. Both now run.
+
+**The two samples are the claim, and the claim stops there.** A primitive suite pinning each piece
+independently — gradient checks, step-convergence, loader contracts — would say *which* part is
+wrong when one breaks, where a sample can only say that something is. That suite is deferred, so
+this release demonstrates training rather than gating it, and says so.
 
 **The precision boundary is FP32, and it is drawn deliberately rather than by omission.** Reduced-
 precision training touches machinery FP32 never does — FP32 master parameters, stochastic-rounding
@@ -187,13 +190,11 @@ path this release should claim. FP32 is also the better **reference** implementa
 point of the project: a reader learning how training works should not first have to understand why
 there are two copies of every weight.
 
-**Success criteria:** the training-path **primitive suite** is the green/red oracle — the
-gradient-check archetype, the AdamW step-convergence test, the concrete data-loader contract tests,
-and init-at-precision — with a small **sample-independent** training-loop integration test as
-composition/wiring insurance; train-from-scratch validated **at FP32**; all training-path tests
-CI-gated. The MNIST and Bard samples are re-enabled and **run** against the current API (MNIST trains
-to target accuracy, Bard generates coherent text). **Explicitly not in scope:** BF16 or FP8 training,
-GQA training (`CudaGqaOp::backward` throws by design), and Llama fine-tuning.
+**Success criteria:** the MNIST and Bard samples are re-enabled and **run** against the current API —
+MNIST trains to target accuracy, Bard generates coherent text — which is train-from-scratch at FP32
+demonstrated end to end. **Explicitly not in scope:** the training-path primitive suite and its CI
+gate, BF16 or FP8 training, GQA training (`CudaGqaOp::backward` throws by design), and Llama
+fine-tuning.
 
 ### API Documentation
 
@@ -212,27 +213,41 @@ the `OperationTraits` world and the spelled-out naming style; the published docs
 public API surface; the docs job renders C++23 module units faithfully and publishes from `master`;
 Doxygen's own warnings gated as errors so doc drift fails the build.
 
-### Production Hardening
+### Packaging & Distribution
 
-*Validate, package, and distribute for external contributors. No new library capability.*
+*Produce something a stranger can install. No new library capability.*
 
-The convergence workstream: prove the primary Llama and Gemma targets against the HuggingFace oracle as
-permanent regression tests, package Mila as a consumable source distribution (FetchContent is the
-one supported path), stand up the Linux/clang portability gates and the
-reproducible container build, and land the contributor-facing surface (coding standards, onboarding, a
-guided reading path through one token's journey). Python consumption is the other half of the same
-question and a different kind of artifact: a C++ consumer builds Mila from source, while `pip install
-mila-llm` hands over a compiled extension that has to carry its own CUDA and work on a machine that
-has none. Both platforms ship a wheel. Engineering detail lives in [BACKLOG.md](BACKLOG.md)
-under this bucket.
+A C++ consumer builds Mila from source, which makes FetchContent the one supported path there. A
+Python consumer gets a different kind of thing entirely: `pip install mila-llm` hands over a compiled
+extension that carries its own CUDA and has to work on a machine with none. The container is a third,
+and it is an onboarding path rather than a by-product of the build — for many people it is the
+shortest route from nothing to a model answering. Each has its own failure modes, and a published
+claim about any of them is immutable once uploaded, which is why the clean-room gates matter more
+here than anywhere else in the release.
 
-**Success criteria:** an external consumer can build against Mila via FetchContent; `pip install
-mila-llm` gives a working runtime on Windows and Linux with no CUDA Toolkit installed; the Linux/clang
-build is a first-class, CI-compiled + WSL-tested platform, with
-a reproducible container build; contributor onboarding (`CONTRIBUTING.md`, `getting-started.md`, a
-guided reading path) complete; the public export surface frozen at the narrowest defensible umbrella; a
-missing dispatch specialization reads as a sentence, not a constraint cascade. GPU-first: the CUDA
-backend is the validated inference path; full CPU op parity is not a gate.
+**Success criteria:** `pip install mila-llm` gives a working runtime on Windows and Linux with no
+CUDA Toolkit installed, both wheels proven in a clean room; a reproducible container build published
+to Docker Hub, running all three entrypoint verbs; every published metadata claim — wheel platforms,
+supported architectures, tags — true of the file it describes; each channel's authored landing page
+sourced from the repository rather than a browser; and every vendored dependency inside a published
+binary either current or pinned with the reason written down.
+
+### Consumer & Contributor Surface
+
+*What a person meets once they have Mila. No new library capability.*
+
+The other half of hardening, and the one that decides whether someone stays. A consumer's first
+contact is a build against their own translation unit; a contributor's is a tree they have to find
+their way into. Mila's positioning is the stack you can *read*, so a reader arriving with no map is
+a failure of the claim rather than a gap in the docs. Portability belongs here too: the compiler and
+platform matrix is a property of the source a consumer builds, not of anything Mila ships.
+
+**Success criteria:** an external consumer builds against Mila via FetchContent with no workarounds;
+the Linux/clang build is a first-class, CI-compiled and WSL-tested platform; contributor onboarding
+(`CONTRIBUTING.md`, `getting-started.md`, a guided reading path through one token's journey)
+complete; the public export surface frozen at the narrowest defensible umbrella; a missing dispatch
+specialization reads as a sentence, not a constraint cascade. GPU-first: the CUDA backend is the
+validated inference path; full CPU op parity is not a gate.
 
 ### Model Distribution
 
