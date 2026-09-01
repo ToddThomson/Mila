@@ -43,6 +43,17 @@ Data/Models/
 Data/Datasets/
 **/*.bin
 
+# The other two weight extensions. `**/*.bin` above does not reach them, and missing them
+# cost 7.3 GB of build context and 8m52s of transfer on EVERY image build, publish included:
+# Mila/Tools/Quantization/artifacts/ alone holds 6.76 GB of fitted codebooks and exported
+# weights. Nothing in any image is built from a weights file — models arrive at runtime.
+**/*.safetensors
+**/*.npz
+
+# Data/Tools is a build output directory. Its only tracked files are a README and two
+# setpath helpers for Windows; the rest is MSVC link output for the tokenize tool.
+Data/Tools/
+
 # Editor / tooling / OS noise
 .devcontainer/
 .claude/

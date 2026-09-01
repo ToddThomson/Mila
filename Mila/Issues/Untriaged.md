@@ -60,6 +60,22 @@ currently propagates it to the routes. Mapping is not one-to-one: OpenAI spells 
 and Anthropic spells it `max_tokens`, and neither protocol has a spelling for `context_limit`, so
 the decision owed is what each protocol reports for a context overflow.
 
+## A failed `--model` names a remedy that only exists inside the session it refused to open
+
+`Mila/Adaptors/Chat/Src/Chat.ModelCatalog.ixx:485` @ `840568de`
+
+`resolveStoredName`'s two refusals advise `/model install <name>` (:478) and `/model list --online`
+(:486). Both are REPL commands, and both are correct on the path where the session opens anyway --
+which `main.cpp:1057` and `Chat.Config.ixx:201` describe as the deliberate design. But the same
+exception is thrown on the command-line path, where `main.cpp:823` deliberately exits instead:
+"opening a session that ignored the one instruction it was given is worse than refusing". That exit
+is right; the message travelling with it is not, because the user is back at their shell and cannot
+type what it suggests. In the published container it is wrong twice over -- the reachable remedy
+there is the image's own `install` verb, which is step 1 of the website's Evaluating band, and the
+message never mentions it. Found by running the site's step 2 against a store where step 1 had not
+run. The decision owed is whether the refusal text varies by path, or whether one wording can serve
+both.
+
 ## A public component method takes a type the umbrella does not export
 
 `Mila/Src/Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.ixx:363` @ `a395fe76`

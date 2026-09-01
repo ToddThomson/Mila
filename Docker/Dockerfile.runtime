@@ -67,9 +67,12 @@ ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 # model Mila publishes is FP4, and FP8/FP4 need SM 8.9 or newer, so shipping Turing and
 # Ampere kernels would advertise cards that cannot run anything in the store. Ada (89) is
 # the validated target, Hopper (90) is the datacenter neighbour it costs little to keep,
-# and Blackwell (120) is the consumer generation. Each entry is a full compile of the CUDA
-# sources -- this is the dominant build time, and the one number to change if the
-# compatibility promise changes.
+# and Blackwell (120) is the consumer generation.
+#
+# Widening this is CHEAP, and the older claim here that each entry dominates build time was
+# wrong. Measured 2026-08-31: of 899 objects only 65 are CUDA, so going from one arch to
+# three rebuilt those 65 in ~51 s against a warm cache. The C++23 module graph is what costs
+# ~29 min. Narrow this list because of what the store can RUN, never to save build time.
 ARG MILA_IMAGE_CUDA_ARCHITECTURES="89;90;120"
 
 # Parallelism here is a MEMORY limit, not a core count: the heaviest module TUs cost
