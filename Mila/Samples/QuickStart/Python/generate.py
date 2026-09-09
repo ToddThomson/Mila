@@ -105,8 +105,9 @@ def parse_args():
                              "for --model, where the store record answers it.")
     parser.add_argument("--quantization", choices=("bf16", "fp8", "fp4"),
                         help="Quantize Linear weights at load time, for --weights only: a "
-                             "published model's weights are already quantized. FP8 and FP4 require "
-                             "SM >= 8.9. Default: fp4 for gemma, bf16 for llama.")
+                             "published model's weights are already quantized. FP4 requires "
+                             "SM >= 8.0, FP8 requires SM >= 8.9. Default: fp4 for gemma, bf16 "
+                             "for llama.")
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--weights", help="Path to a locally converted .bin, instead of --model.")
     parser.add_argument("--tokenizer", help="Path to the tokenizer .bin, with --weights.")

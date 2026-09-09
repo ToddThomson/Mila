@@ -86,14 +86,45 @@ Windows has never had a clean-room run and cannot get one locally, since Windows
 Containers nor Hyper-V. Both resolve only through a release cycle, so the matrix needs
 `wheel-cleanroom.yml` running on `master`.
 
-#### The published wheel stops one GPU generation short
+#### No Ampere or Turing card has ever run Mila, and the published lists assume one answer
 
 `open` · `binding` · `build`
 
-The `x64-wheel` and `linux-wheel` presets pin `75;80;86;89;90` (`CMakePresets.json:183-184`,
-`:214-215`) while the library default already carries `120` (`Mila/CMakeLists.txt:24`). A
-`pip install mila-llm` on an RTX 50-series card therefore JITs from sm_90 PTX at first launch.
-Adding `120` costs one more CUDA compile per wheel; the alternative is saying so on the PyPI page.
+The published-artifact architecture list is `80;86;89;90;120` on the reasoning that SM 8.0 is the
+floor Mila's kernels draw — the FP4 GEMM gates on `major >= 8` (`CudaLinearOp.ixx:661`) and both
+GQA flash prefill paths throw below it (`Gqa.Flash.Fa2.cu:513`). That is what the code is written
+for; it is not what anyone has observed, because the dev box has only sm_89 and sm_120. A rented
+A10G or A100 hour would settle whether an RTX 30-series card really runs a published FP4 model, and
+whether Turing's non-WMMA fallback is reachable at all or is dead code behind those throws.
+
+#### miniz serves an archive stack nothing reaches, and is the one unpinned dependency
+
+`open` · `build` · `architecture`
+
+`CPMAddPackage(NAME miniz GITHUB_REPOSITORY richgel999/miniz GIT_TAG master)` at
+`CMakeLists.txt:228` is the only unpinned dependency in the tree — nlohmann_json is `3.12.0`, curl
+`curl-8_11_1`, pybind11 `v3.1.0`, cutlass `v4.5.1`, and there is no `package-lock.cmake`. This
+theme's criterion requires every vendored dependency in a published binary to be current or pinned
+with the reason written down, and **removal is what satisfies it**, at the production release the
+criterion binds.
+
+**Pinning it first was considered and declined** (Todd, 2026-09-09) as inconsequential, and the
+reasoning is worth keeping so it is not re-proposed: unlike an ambient CUDA toolkit, a floating
+miniz cannot silently change a shipped artifact. A different revision either fails the build loudly
+or yields a serializer no code path reaches. So there is no interim step — the entry is one action.
+
+Remove it for the production release: delete
+`ZipSerializer.ixx` (the only `ArchiveSerializer` implementation and the only file naming miniz),
+`GptModel::fromCheckpoint` / `saveCheckpoint` (`GptModel.ixx:177`, `:231`), the `Mila.ixx:309`
+re-export, and the `PUBLIC` link plus the two `INTERFACE` include directories at
+`Mila/CMakeLists.txt:962` and `:971-973` — which is what currently makes every consumer's
+`import Mila;` recompile a module that includes `<miniz.h>`.
+
+`ModelArchive` and the 24 public pure-virtual `save_` implementations **stay** and go inert; giving
+them a safetensors backend is the Vnext entry "Saving never followed loading to safetensors", and
+attempting it here would be a core `Mila/Src` change under the freeze. The cost to accept
+deliberately: roughly 46 test usages across 10 files construct a `ZipSerializer` to exercise the
+component save/load round trip, and that coverage goes with it until the migration restores it.
 
 #### The Docker runtime image has never had a publish build
 
@@ -102,8 +133,8 @@ Adding `120` costs one more CUDA compile per wheel; the alternative is saying so
 The image builds and all three entrypoint verbs are verified in a container: `install` pulled into a
 fresh volume, `chat` listed that store, and `serve` bound 6452 and answered a real
 `/v1/chat/completions` from a read-only mount of the host store. What has never been built is a
-*publishable* image — verification used single-arch `89`, where a published one needs `89;90;120`
-and `MILA_CLEAN_BUILD=1`, since `--no-cache` leaves BuildKit cache mounts intact and has already
+*publishable* image — verification used single-arch `89`, where a published one needs
+`80;86;89;90;120` and `MILA_CLEAN_BUILD=1`, since `--no-cache` leaves BuildKit cache mounts intact and has already
 produced two silently wrong images in one day. The website's devel cost figures come from that
 build, via `docker manifest inspect` and `docker images`.
 
@@ -143,15 +174,6 @@ and `mila-llm`'s `requires-python` is `>=3.12,<3.14`; `--no-deps` does not suppr
 script's own comment shows the ceiling was handled for the server dependencies and missed for the
 package. Verify in a container, then add `--ignore-requires-python` as the runtime image already
 does.
-
-#### The container tag scheme is undecided, including whether a pre-release gets `latest`
-
-`open` · `ci` · `docs`
-
-RELEASING covers dropping `+build` from the version (OCI forbids `+`) and nothing else. `latest` is
-what a bare `docker run toddthomson/mila-llm` resolves to, so pointing it at a beta makes the beta
-the default for everyone who does not read the tag list. The repository name is settled:
-`toddthomson/mila-llm`.
 
 #### The Docker Hub Overview page is authored in a browser with no source in the repo
 

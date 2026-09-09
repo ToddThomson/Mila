@@ -71,16 +71,19 @@ in modern C++ and intends to stay there. No header soup. Fast incremental builds
 **CUDA-native.** Matrix operations via cuBLASLt. Hand-written kernels where control
 matters. Vectorized memory access throughout — float4 for FP32, uint4 for BF16.
 
-**Precision is deliberate.** BF16 is the primary reduced-precision compute target — it
+**Precision and quantization.** BF16 is the primary reduced-precision compute target — it
 matches FP32's exponent range, avoiding overflow and underflow without loss scaling, with
-native Tensor Core support on Ada Lovelace and newer. FP16 is not a Mila target; BF16
-supersedes it for all current use cases. Weight quantization is applied at model load time
-as a pure compile-time decision via a `TWeightQuant` policy on `Linear` — no runtime
-dispatch, no quantized checkpoint format. FP8 (`PerChannelFp8<>`) enables 8B-class models
-within a 12 GB VRAM budget via per-channel BF16→FP8_E4M3 quantization with cuBLASLt
-mixed-precision GEMM. FP4 E2M1 (`PerGroupFp4<>`) halves weight storage again — packed
-nibbles dequantized per-group inline at inference time, forward-compatible with Blackwell
-native FP4 compute when it becomes available.
+native Tensor Core support on Ampere and newer. FP16 is not a Mila target; BF16 supersedes
+it for all current use cases. Weight quantization is a compile-time decision — a
+`TWeightQuant` policy on `Linear`, with no runtime dispatch — and the weights arrive already
+quantized: `Tools/ExportArtifact` packs them offline into safetensors that declare their own
+policy, and a load refuses weights whose policy is not the one compiled in. FP8
+(`PerChannelFp8<>`) fits 8B-class models in a 12 GB budget through per-channel BF16→FP8_E4M3
+with cuBLASLt mixed-precision GEMM, and needs SM 8.9 or newer. FP4 E2M1 (`PerGroupFp4<128>`)
+halves weight storage again — packed nibbles dequantized per group inside the GEMM, on SM 8.0
+and newer. Below four bits, codebook policies (`PerGroupCodebook2`, `PerGroupCodebook3`) carry
+tables fitted offline against calibration data; a mixed 2/3-bit Qwen 3.8 27B averages 2.82 bits
+per weight.
 
 ---
 

@@ -38,6 +38,45 @@ $vsPath = & $vswhere -latest -products * -property installationPath
 Import-Module (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
 Enter-VsDevShell -VsInstallPath $vsPath -DevCmdArguments "-arch=x64 -host_arch=x64" -SkipAutomaticLocation | Out-Null
 
+# THE CUDA TOOLKIT IS DECLARED AND RECORDED, NOT AMBIENT -- a narrower claim than pinning for its
+# own sake. The other three published artifacts already name their toolkit in the tree
+# (Docker/Dockerfile.wheel and Docker/Dockerfile.runtime each pin a CUDA base image); this script
+# took whatever CUDA_PATH resolved to, so installing 13.4 on the dev box changed what a published
+# wheel was built with and nothing in the repository recorded it.
+#
+# WHAT THIS DOES NOT CONSTRAIN, since that is the usual misreading: a FetchContent or clone
+# consumer builds with their own toolkit and never reads this file, and a wheel USER needs no
+# toolkit at all -- the nvidia-* runtime wheels in pyproject.toml supply what the extension loads.
+# Within CUDA 13 the minor version is not observable to them (minor version compatibility), so this
+# is about the four wheels agreeing and being recorded, never about the hardware or software a user
+# must have.
+#
+# The MAJOR version is the one real constraint: pyproject.toml pins the nvidia-* runtime wheels to
+# >=13.0,<14.0, so a wheel built against CUDA 12 would resolve libraries it was not compiled for.
+# That is asserted below; the minor version is a declaration a maintainer may override.
+#
+# Set after Enter-VsDevShell so this PATH entry wins over anything the dev shell prepends.
+$cudaVersion = if ($env:MILA_WHEEL_CUDA_VERSION) { $env:MILA_WHEEL_CUDA_VERSION } else { "13.3" }
+$cudaBase = Join-Path ${env:ProgramFiles} "NVIDIA GPU Computing Toolkit\CUDA"
+$cudaRoot = Join-Path $cudaBase "v$cudaVersion"
+
+if (-not (Test-Path (Join-Path $cudaRoot "bin\nvcc.exe"))) {
+    $installed = (Get-ChildItem $cudaBase -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ", "
+    throw "CUDA $cudaVersion not found at $cudaRoot. Installed: $installed. Set MILA_WHEEL_CUDA_VERSION to build against one of those, or change `$cudaVersion here and the base image in Docker/Dockerfile.wheel together, so both platforms' wheels stay one toolchain."
+}
+
+$env:CUDA_PATH = $cudaRoot
+$env:CUDAToolkit_ROOT = $cudaRoot
+$env:PATH = "$cudaRoot\bin;$env:PATH"
+
+$nvccRelease = (& (Join-Path $cudaRoot "bin\nvcc.exe") --version | Select-String -Pattern 'release ([\d.]+)').Matches.Groups[1].Value
+
+if (-not $nvccRelease.StartsWith("13.")) {
+    throw "CUDA $nvccRelease is not a 13.x toolkit. pyproject.toml pins the nvidia-* runtime wheels to >=13.0,<14.0, so the wheel would load runtime libraries it was not built against."
+}
+
+Write-Host "CUDA toolkit : $cudaRoot (nvcc release $nvccRelease)" -ForegroundColor Cyan
+
 Set-Location $repo
 
 # Clear THIS platform's wheels ONCE, before the loop, and never the whole directory: the

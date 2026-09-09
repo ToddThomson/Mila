@@ -12,7 +12,7 @@ set -euo pipefail
 # MILA_IMAGE_TARGET selects which published image to build: `runtime` (Chat + the inference
 # server, no compiler) or `devel` (that build plus the toolchain, source and build tree).
 : "${MILA_RUNTIME_IMAGE_TAG:=mila-llm:local}"
-: "${MILA_IMAGE_CUDA_ARCHITECTURES:=89;90;120}"
+: "${MILA_IMAGE_CUDA_ARCHITECTURES:=80;86;89;90;120}"
 : "${MILA_IMAGE_TARGET:=runtime}"
 : "${MILA_CLEAN_BUILD:=0}"
 

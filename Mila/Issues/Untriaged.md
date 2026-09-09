@@ -92,3 +92,27 @@ public interface that the umbrella does not re-export, which fails asymmetricall
 unnoticed. The decision owed is whether `GqaState` joins the export list, or `setState` stops being
 part of the public component surface. Worth asking the same question of every other type named in a
 public component signature, since nothing checks this.
+
+## A fourth copy of the stale `/install` verb, in the README's Docker section
+
+`README.md:348` @ `d4c61b15`
+
+The verb is `/model install`. Three other copies were already known —
+`Mila/Samples/QuickStart/README.md:36`, `getting-started.md:286-288`, and
+`Web/layouts/index.html:266` — and this one was not on that list. Found auditing every onboarding
+surface against RELEASING.md. Two adjacent claims in the same region go stale the day the container
+images publish and are now handled by RELEASING.md's release-prep step rather than left here:
+`README.md:350` and `getting-started.md:270` both call the slim runtime image "planned".
+
+## An FP4 model on Turing has a fallback path that may be unreachable dead code
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx:882` @ `d4c61b15`
+
+When `use_wmma_fp4_gemm_` is false (SM < 8.0), the FP4 Linear dispatches to a non-WMMA
+`cuda_fp4a16_gemm` rather than refusing -- so the Linear layer is written to serve Turing. But both
+GQA flash prefill entry points throw outright on `sm_major < 8` (`Gqa.Flash.Fa2.cu:513`,
+`Gqa.Flash.Wmma.cu:632`), and every bound model uses GQA, so no prefill can reach that GEMM on such
+a card. Either the scalar path is dead code behind a refusal, or there is a non-flash attention
+route that makes it live and nothing says which. Found deciding the published architecture lists,
+which now start at 80 and so compile it for nobody. Worth resolving before someone maintains a
+kernel that cannot execute.

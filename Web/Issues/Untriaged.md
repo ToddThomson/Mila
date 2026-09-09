@@ -10,4 +10,14 @@ tags.
 
 ---
 
-*Empty.* This is the target state, not an oversight — the file is drained at each publish.
+## The C++ tab loads a model from a store it never says how to fill
+
+`Web/layouts/index.html:107` — `#p-cpp` step 2
+
+`ModelStore{}.locate( "gemma-4-12b-it-fp4" )`, with the comment "the store is the only source --
+loading never downloads" beside it, and no step anywhere in the panel that installs one. Every other
+path carries an explicit install step of its own: Python `pull`s in step 2, both Docker panels and
+Clone each run an install verb. So the tab whose reader has the longest build ahead of them is the
+one that reaches a runtime refusal, and the refusal it reaches names REPL commands
+(`Mila/Adaptors/Chat/Src/Chat.ModelCatalog.ixx:485`) that a C++ consumer has no session to type
+into. Found mapping the five onboarding paths against RELEASING.md.

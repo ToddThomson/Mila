@@ -18,13 +18,23 @@ set -euo pipefail
 
 readonly REPOSITORY="toddthomson/mila-llm"
 
-# The published GPU compatibility list, and the authority for it. Every published model is FP4 or
-# FP8, which need SM 8.9+, so Turing and Ampere kernels would advertise cards that cannot run
-# anything in the store; 120 is Blackwell, which the library's own portable list omits and which is
-# the generation people are buying. `native` -- the default in the local build scripts -- is wrong
-# twice here: it does not resolve on a GPU-less builder, and the image is pulled by hardware the
-# builder never saw.
-readonly ARCHITECTURES="89;90;120"
+# The published GPU compatibility list, and the authority for it. SM 8.0 is the floor Mila's own
+# kernels draw: the FP4 W4A16 GEMM gates on major >= 8 (CudaLinearOp.ixx:661) because E2M1 is
+# decoded by a software LUT into BF16 WMMA fragments, and both GQA flash prefill paths THROW below
+# 8.0 rather than falling back (Gqa.Flash.Fa2.cu:513, Gqa.Flash.Wmma.cu:632). Nothing in the
+# runtime reads the capability MINOR at all, so no path can gate on 8.9. Turing therefore ships no
+# kernels -- it carries a refusal the library already implements -- while Ampere runs every
+# published FP4 model, which is all of them but gpt2-small. 120 is Blackwell, listed so those cards
+# get native cubin instead of a PTX JIT from 90.
+#
+# THIS LIST WAS 89;90;120 and that was wrong. It rested on "FP8/FP4 need SM 8.9+", which holds for
+# FP8 (the Ada cuBLASLt TN path) and not for FP4, and it locked out every RTX 30-series card --
+# including the 3090, which on VRAM is a better host than the dev box. Keep it in step with the
+# x64-wheel and linux-wheel presets: all four published artifacts carry one list.
+#
+# `native` -- the default in the local build scripts -- is wrong twice here: it does not resolve on
+# a GPU-less builder, and the image is pulled by hardware the builder never saw.
+readonly ARCHITECTURES="80;86;89;90;120"
 
 # No `latest`. A bare `docker run toddthomson/mila-llm` resolves to it, so pointing it at a
 # pre-release makes the beta the default for everyone who does not read the tag list. It starts

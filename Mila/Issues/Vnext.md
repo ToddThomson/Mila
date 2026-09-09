@@ -216,6 +216,40 @@ Phases 1 through 5 of the layered resolution have landed and Chat's configuratio
 left is the last phase, which reaches into Model Distribution for two fields on `ModelRecord`.
 Design and phasing are in `Mila/Specifications/ChatConfiguration.md`.
 
+## Saving never followed loading to safetensors
+
+`architecture` · `mila-src` · `breaking`
+
+Reading a model is safetensors end to end — `PretrainedReader.ixx` and `SafeTensors.ixx`, neither of
+which touches a serializer. Writing one is still the original archive stack:
+`save_( ModelArchive&, SerializationMode )` is **public and pure virtual** on `Component`
+(`Component.ixx:406`) and again on `Network` (`:344`), so every component must implement it — 24
+`save_` and 5 `load_` today. Behind it sit
+`Serialization/{ModelArchive,ArchiveSerializer,ZipSerializer,SerializationMetadata}.ixx` and
+`Tensors/Tensor.Serialization.ixx`: roughly 1,800 lines whose only concrete backend is
+`ZipSerializer`, whose only dependency is miniz, and whose only caller in `Mila/Src` is
+`GptModel::fromCheckpoint` / `saveCheckpoint` (`GptModel.ixx:177`, `:231`).
+
+**The writer already exists and is already used**, so this is not new machinery — it is pointing
+`save_` at the machinery beside it. `LanguageModel::savePretrained` (`:173`) writes through
+`Serialization::SafeTensorsWriter`. The hierarchical scopes `Network::saveComponentGraph` already
+builds — `components/<name>/...` at `Network.ixx:516` and `:609` — flatten to safetensors keys the
+way every other framework's checkpoints do, and `__metadata__` already carries the JSON that
+`SerializationMetadata` carries now.
+
+Doing it retires ModelArchive, ArchiveSerializer, ZipSerializer and miniz together and leaves save
+and load speaking one format. **Do not substitute another container.** Tar was proposed and rejected
+(Todd, 2026-09-09) — safetensors is the format, and no zip or tar will ever be needed.
+
+Two things to settle first. Whether component-level checkpoints survive at all: training is the only
+thing that wants them, `GptModel` is the only model exposing them, and `savePretrained` already
+refuses a model reconstructed from a checkpoint (`LanguageModel.ixx:364`). And where the ~46 test
+usages across 10 files that construct a `ZipSerializer` go — that round-trip coverage is real and
+should move rather than evaporate. Note the v0.20 cycle removes miniz ahead of this by deleting the
+zip backend outright, so `save_` arrives here already inert; that is the state this entry starts
+from, not a second problem. `ModelSerialization.md` is the design of record and needs amending
+either way — its Phase 7 is stale for a different reason, recorded below.
+
 ## `ModelSerialization.md` Phase 7 describes shipped work as unwritten
 
 `docs` · `distribution`

@@ -48,9 +48,10 @@ for the `.cu` files, which contain no modules — CI and the dev container pair 
 gcc-15 in that role, and its version is nvcc's business rather than the module floor's.
 
 A CUDA-capable NVIDIA GPU is needed to run the CUDA inference paths. The library builds
-without a GPU, but the validated inference targets (Llama, GPT-2) run on CUDA. BF16
-compute and FP8/FP4 quantization require an Ada Lovelace (SM 8.9) or newer GPU for full
-Tensor Core support.
+without a GPU, but the validated inference targets (Llama, GPT-2) run on CUDA. BF16 compute
+and FP4 weights need an Ampere (SM 8.0) or newer GPU — an RTX 30-series card or better.
+FP8 weights need Ada Lovelace (SM 8.9) or newer, because that path runs through cuBLASLt's
+FP8 kernels.
 
 > **Prefer not to install the toolchain by hand?** Section 4 covers the Docker / dev
 > container path, which gives you a reproducible Linux build environment (it still builds
@@ -312,8 +313,11 @@ variant Mila has not published, or your own fine-tune. It needs a PyTorch enviro
 HuggingFace authentication for a gated family, and enough disk for the source checkpoint.
 Skip it entirely if 5a gave you what you need.
 
-> Quantized variants (FP8, FP4) are produced by Mila at model load time — you only ever
-> convert and store the **BF16** source files.
+> Converters always write **BF16**, and on this path FP8 and FP4 are produced when those
+> weights load — so one BF16 source covers both, and you never store a quantized copy. A
+> published model (5a) works the other way: its weights are already quantized and load as
+> they are. Codebook formats below four bits have no load-time path at all — their tables are
+> fitted offline against calibration data, and `Tools/ExportArtifact` is the only writer.
 
 #### Set up the converter environment
 
@@ -562,4 +566,5 @@ coverage, and new encoding strategies under `Mila/Src/Dnn/Components/Encodings/`
 | `hf auth login` fails or model 403s | You have not accepted Meta's license on the HuggingFace model page. |
 | Module / incremental build errors with MSBuild | Use the **Ninja** generator — MSBuild does not handle C++23 modules well. |
 | Out-of-memory converting Llama 3.1 8B | Conversion needs ~16 GB host RAM; convert in BF16 (the default). |
-| FP8/FP4 produce garbage or fail | Requires an SM 8.9+ (Ada Lovelace or newer) GPU. |
+| FP4 produces garbage or fails | Requires an SM 8.0+ (Ampere or newer) GPU. |
+| FP8 produces garbage or fails | Requires an SM 8.9+ (Ada Lovelace or newer) GPU. |

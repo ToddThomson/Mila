@@ -387,8 +387,8 @@ static void bind_llama_model( py::module_& m )
             "    context_length: Maximum sequence length to build for.\n"
             "    device_index:   CUDA device index (default: 0).\n"
             "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
-            "                    (default: 'bf16'). FP8 and FP4 require SM >= 8.9\n"
-            "                    (RTX 40xx / Ada Lovelace).\n\n"
+            "                    (default: 'bf16'). FP4 requires SM >= 8.0 (RTX 30xx\n"
+            "                    or newer); FP8 requires SM >= 8.9 (RTX 40xx or newer).\n\n"
             "Pre-quantized weights cannot be loaded here -- their bytes are already\n"
             "FP4 or FP8, and only the store record says which. Use from_store()." )
         .def_static( "from_store",
