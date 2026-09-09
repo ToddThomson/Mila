@@ -1116,6 +1116,8 @@ namespace Mila::Dnn::Gemma
      * declarations are a SUFFIX of it and a caller that had already concatenated them could not
      * put them in that order.
      *
+     * @param history The conversation so far, oldest turn first. Any system turn in it is
+     *        ignored: this function assembles that turn itself, for the reason above.
      * @param tool_declarations What serializeToolDeclarations returns. Empty advertises none.
      * @param continue_open Emit the final turn OPEN, with no closing marker and no thought
      *        prime, so the next token continues it. That is the shape after a tool response:

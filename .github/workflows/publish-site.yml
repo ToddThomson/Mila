@@ -54,16 +54,29 @@ jobs:
   build:
     name: Doxygen (build artifact)
     runs-on: ubuntu-24.04
+
+    # THE TOOL VERSIONS LIVE HERE, ONCE EACH. They used to be spelled out four times per tool --
+    # step name, release URL, tarball name, extracted directory -- across this file and web.yml,
+    # which is eight edits to move Hugo by one version and a guarantee that some of them are
+    # missed. HUGO_VERSION must stay equal to the one in web.yml: that workflow is the staging
+    # gate for this one, and a gate running a different generator validates a different site.
+    # scripts/build-artifacts.ps1 reads HUGO_VERSION and DOXYGEN_VERSION from THIS file, so a
+    # local pre-flight build cannot silently disagree with the publish.
+    env:
+      DOXYGEN_VERSION: 1.17.0
+      HUGO_VERSION: 0.164.0
+
     steps:
       - uses: actions/checkout@v5
 
-      # Pin Doxygen to 1.17: the distro package lags, and 1.17 is what the docs config
+      # Pin Doxygen: the distro package lags, and this version is what the docs config
       # and the C++23 module (.ixx) parsing were validated against.
-      - name: Install Doxygen 1.17.0
+      - name: Install Doxygen ${{ env.DOXYGEN_VERSION }}
         run: |
-          wget -q https://github.com/doxygen/doxygen/releases/download/Release_1_17_0/doxygen-1.17.0.linux.bin.tar.gz
-          tar -xzf doxygen-1.17.0.linux.bin.tar.gz
-          sudo cp doxygen-1.17.0/bin/doxygen /usr/local/bin/
+          # The release TAG uses underscores where the filenames use dots.
+          wget -q "https://github.com/doxygen/doxygen/releases/download/Release_${DOXYGEN_VERSION//./_}/doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"
+          tar -xzf "doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"
+          sudo cp "doxygen-${DOXYGEN_VERSION}/bin/doxygen" /usr/local/bin/
           doxygen --version
 
       # Runs from the repo root; the Doxyfile's paths are repo-root-relative. WARN_AS_ERROR
@@ -82,10 +95,10 @@ jobs:
       # transpilation, and cloud-bucket deployment -- the site uses none of them (its CSS is
       # written inline in layouts/_default/baseof.html), and extended would pull a Dart Sass
       # prerequisite for nothing.
-      - name: Install Hugo 0.164.0
+      - name: Install Hugo ${{ env.HUGO_VERSION }}
         run: |
-          wget -q https://github.com/gohugoio/hugo/releases/download/v0.164.0/hugo_0.164.0_linux-amd64.tar.gz
-          tar -xzf hugo_0.164.0_linux-amd64.tar.gz hugo
+          wget -q "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_${HUGO_VERSION}_linux-amd64.tar.gz"
+          tar -xzf "hugo_${HUGO_VERSION}_linux-amd64.tar.gz" hugo
           sudo mv hugo /usr/local/bin/
           hugo version
 

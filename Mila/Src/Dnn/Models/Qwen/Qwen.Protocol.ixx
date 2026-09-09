@@ -114,7 +114,7 @@ namespace Mila::Dnn::Qwen
      * model is tuned to emit exactly this shape, and a paraphrase is a different prompt.
      *
      * @param signatures One JSON object per tool, newline separated, as the template renders
-     *        them inside <tools>.
+     *        them inside `<tools>`.
      */
     export inline std::string toolsSection( const std::string& signatures )
     {
@@ -140,7 +140,7 @@ namespace Mila::Dnn::Qwen
     /**
      * @brief The tool signatures as the template renders them: one JSON object per line.
      *
-     * Not a JSON array -- the template writes the objects newline separated inside <tools> with
+     * Not a JSON array -- the template writes the objects newline separated inside `<tools>` with
      * no array around them. Takes the array a host already holds, so a caller with tool schemas
      * in any form converts once, to JSON, rather than to a private wire shape.
      *
@@ -180,6 +180,7 @@ namespace Mila::Dnn::Qwen
     /**
      * @brief One tool call rendered in the grammar the model emits it in.
      *
+     * @param name The function name, rendered into the `<function=...>` opener verbatim.
      * @param arguments A JSON object as text. String values are spliced raw, everything else is
      *        re-encoded -- which is the template's own rule, and it is what lets a parameter
      *        hold prose containing quotes or newlines without escaping.
@@ -227,7 +228,7 @@ namespace Mila::Dnn::Qwen
     /**
      * @brief Render one completed turn, delimiters included.
      *
-     * A tool result is a USER turn carrying a <tool_response> span, not a role of its own --
+     * A tool result is a USER turn carrying a `<tool_response>` span, not a role of its own --
      * rendering Conversation::Role::Tool by its own name would open a role Qwen was never trained to read.
      * Consecutive results are not merged into one user turn the way the template does; no host
      * dispatches parallel calls yet, so the case does not arise.
@@ -291,10 +292,19 @@ namespace Mila::Dnn::Qwen
      * orders it -- reasoning instruction, then tools, then whatever the caller configured -- and
      * a caller that had already concatenated them could not produce that order.
      *
+     * @param history The conversation so far, oldest turn first. A system turn in it is ignored:
+     *        this function assembles that turn itself, for the reason above.
+     *
      * @param enable_thinking False makes the primer carry a CLOSED, empty reasoning span, which
      *        is the model's own suppression mechanism: a finished channel is one it continues
      *        past. True leaves the span OPEN, so the response begins inside the reasoning and
      *        carries a closing marker with no opening one.
+     *
+     * @param effort Selects the trained instruction text for the reasoning budget. Medium is the
+     *        checkpoint's default and emits NOTHING -- its instruction is the absence of one --
+     *        so it is not a middle setting between the other two but the unmodified model.
+     *        Ignored entirely when enable_thinking is false, since the instruction would then
+     *        describe a channel that never opens.
      *
      * @param tool_signatures One JSON object per tool, newline separated -- what
      *        serializeToolSignatures returns. Empty omits the whole tools section, which is what
@@ -406,7 +416,7 @@ namespace Mila::Dnn::Qwen
     /**
      * @brief The first tool call in a response, or nothing when it holds none.
      *
-     * Anchored on the <tool_call> span, so ordinary prose is never routed here -- and the
+     * Anchored on the `<tool_call>` span, so ordinary prose is never routed here -- and the
      * template itself permits natural-language reasoning BEFORE a call, which a parser keyed on
      * anything looser would swallow. An unterminated span means generation stopped inside the
      * call: nothing is returned rather than half a call being dispatched.

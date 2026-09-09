@@ -201,8 +201,13 @@ making the sky appear blue to our eyes.</code></pre>
           <span class="qs-num">1</span>
           <div class="qs-body">
             <h4>Start the environment</h4>
-<pre><code>docker run --gpus all -it -v mila-store:/models \
-  toddthomson/mila-llm:0.20.0-beta.3-devel</code></pre>
+{{/* ONE LINE, and it must stay one line. A `\` continuation is POSIX shell syntax: pasted into
+     PowerShell -- which is what a Windows reader has open -- the backslash becomes a literal
+     argument, docker fails on an invalid image reference, and the second line then runs as its own
+     command. Windows Terminal also raises a "you are about to paste text that contains multiple
+     lines" security warning before any of that. Both go away when there is nothing to continue.
+     It is long; `pre` carries overflow-x: auto, so it scrolls in its own box. Do not re-wrap it. */}}
+<pre><code>docker run --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-beta.3-devel</code></pre>
             <p>You land in a shell, in a Mila tree that is already built. Your host supplies the GPU
             driver through the NVIDIA Container Toolkit; on Windows, Docker Desktop with the WSL2
             backend provides it.</p>
@@ -303,8 +308,9 @@ cmake --build build</code></pre>
      without it every run leaves a stopped one behind until `docker image rm` fails on a conflict
      the reader has no context for. The Docker TAB deliberately omits it -- that image is an
      environment the reader edits, not a disposable one. */}}
-<pre><code>docker run --rm --gpus all -v mila-store:/models \
-  toddthomson/mila-llm:0.20.0-beta.3-runtime install Llama-3.2-3B-Instruct-fp4</code></pre>
+{{/* One line, deliberately -- see the note in the Docker panel above. A continuation here breaks
+     in PowerShell and trips Windows Terminal's multi-line paste warning first. */}}
+<pre><code>docker run --rm --gpus all -v mila-store:/models toddthomson/mila-llm:0.20.0-beta.3-runtime install Llama-3.2-3B-Instruct-fp4</code></pre>
           <p>2.87 GB — the smallest instruct model Mila publishes, ungated. The volume keeps it, so
           every later run starts with it in place.</p>
         </div>
@@ -314,8 +320,7 @@ cmake --build build</code></pre>
         <span class="qs-num">2</span>
         <div class="qs-body">
           <h4>Talk to it</h4>
-<pre><code>docker run --rm --gpus all -it -v mila-store:/models \
-  toddthomson/mila-llm:0.20.0-beta.3-runtime chat --model Llama-3.2-3B-Instruct-fp4</code></pre>
+<pre><code>docker run --rm --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-beta.3-runtime chat --model Llama-3.2-3B-Instruct-fp4</code></pre>
           {{/* The model is named rather than inferred from a store that happens to hold one: Chat
                switches models at runtime, so a command that guessed would change meaning the moment
                a second model was installed. The reasoning stays here -- a reader running the command

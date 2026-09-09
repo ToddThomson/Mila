@@ -30,17 +30,23 @@ jobs:
   build:
     name: Hugo (build + validate)
     runs-on: ubuntu-24.04
+
+    # MUST EQUAL publish-site.yml's HUGO_VERSION. This workflow is the staging gate for that one,
+    # so a different generator here validates a different site than the one that ships. Two files
+    # rather than one because a workflow cannot import another's env; the pairing is the contract,
+    # and it is now one string per file instead of four.
+    env:
+      HUGO_VERSION: 0.164.0
+
     steps:
       - uses: actions/checkout@v5
 
-      # Pinned to match publish-site.yml exactly: the staging build must reproduce what the deploy
-      # build produces, or this gate validates a different site than the one that ships.
       # Standard edition (not extended) for the same reason as publish-site.yml -- the site uses no
       # Sass, WebP, or cloud deploy.
-      - name: Install Hugo 0.164.0
+      - name: Install Hugo ${{ env.HUGO_VERSION }}
         run: |
-          wget -q https://github.com/gohugoio/hugo/releases/download/v0.164.0/hugo_0.164.0_linux-amd64.tar.gz
-          tar -xzf hugo_0.164.0_linux-amd64.tar.gz hugo
+          wget -q "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_${HUGO_VERSION}_linux-amd64.tar.gz"
+          tar -xzf "hugo_${HUGO_VERSION}_linux-amd64.tar.gz" hugo
           sudo mv hugo /usr/local/bin/
           hugo version
 

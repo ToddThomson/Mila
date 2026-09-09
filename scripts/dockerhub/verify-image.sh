@@ -7,6 +7,12 @@
 # changes this script has to change with it; that coupling IS the point. A published image whose
 # quick start does not work is worse than no published image.
 #
+# LINE BREAKING IS THE ONE THING THAT DELIBERATELY DIFFERS. The site prints each command on a
+# single line because a `\` continuation is POSIX syntax that fails when pasted into PowerShell,
+# and trips Windows Terminal's multi-line paste warning before it even gets that far. This is a
+# bash script, so continuations are correct here and a 130-character line would not be. Same
+# arguments in the same order; only the wrapping differs.
+#
 #   scripts/dockerhub/verify-image.sh
 #   MILA_IMAGE=mila-llm:local scripts/dockerhub/verify-image.sh
 #   MILA_KEEP_VOLUME=1 scripts/dockerhub/verify-image.sh   # leave the store behind to poke at

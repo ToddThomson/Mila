@@ -240,11 +240,19 @@ p { margin: 0 0 1.15rem; }
    separates them. Muted until selected, so the strip stays scannable. */
 .qs-who { font-size: .82rem; line-height: 1.35; color: var(--tab-who); }
 
-/* scroll-margin-top keeps the strip on screen when a fragment jumps to a panel; without it the
+/* SHARED PANEL CHROME. The Get Started tabs and the Evaluating band are built from the same two
+   components -- .qs-meta and .qs-step -- so they must be framed the same way or they read as two
+   different kinds of thing. .eval used to carry no frame at all, which a max-width: 44rem hid by
+   making it look deliberately narrower; widening it to match its siblings exposed that the panel
+   was simply missing, and left the WHAT YOU GET / WHAT IT COSTS box flush to the section edge
+   instead of inset. Declare the frame once, here, for both. */
+.qspanel, .eval { border: 1px solid var(--rule); border-radius: 10px;
+  background: var(--bg); padding: 1.5rem 1.6rem 1.4rem; }
+
+/* Tab-panel behaviour only -- .eval is always visible and is not a fragment target.
+   scroll-margin-top keeps the strip on screen when a fragment jumps to a panel; without it the
    browser puts the panel's top edge at the viewport top and scrolls the tabs out of view. */
-.qspanel { display: none; border: 1px solid var(--rule); border-radius: 10px;
-  background: var(--bg); padding: 1.5rem 1.6rem 1.4rem; margin-top: 1rem;
-  scroll-margin-top: 18rem; }
+.qspanel { display: none; margin-top: 1rem; scroll-margin-top: 18rem; }
 .qspanel:target { display: block; }
 /* C++ is the default panel, shown while nothing on the page is targeted. */
 .qs:not(:has(.qspanel:target)) #p-cpp { display: block; }
@@ -261,17 +269,27 @@ p { margin: 0 0 1.15rem; }
 }
 
 /* The panel's own furniture. */
-.qs-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--rule);
-  border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; margin-bottom: 1.5rem; }
+/* TWO CARDS, NOT ONE BOX WITH A HAIRLINE THROUGH IT. This used the usual trick -- a 1px grid gap
+   over a --rule container background -- which is a divider in the markup and nothing to the eye:
+   one pixel of #2b2b33 between two #17171b cells is invisible on a dark screen, so the two
+   answers read as a single continuous block. A real gutter separates them, and each half carries
+   its own border, which is what every other pair of side-by-side items on the page already does. */
+.qs-meta { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; margin-bottom: 1.5rem; }
 @media (max-width: 40rem) { .qs-meta { grid-template-columns: 1fr; } }
-.qs-meta div { background: var(--faint); padding: .8rem 1rem; }
+.qs-meta div { background: var(--faint); border: 1px solid var(--rule); border-radius: 7px;
+  padding: .8rem 1rem; }
 .qs-meta dt { font-size: .73rem; font-weight: 650; text-transform: uppercase; letter-spacing: .07em;
   color: var(--accent); margin: 0 0 .2rem; }
 .qs-meta dd { margin: 0; font-size: .93rem; line-height: 1.5; }
 
 /* Numbered because these ARE a sequence -- you cannot pull a model before you have installed
    the thing that pulls it. */
-.qs-step { display: grid; grid-template-columns: 1.6rem 1fr; gap: 0 .9rem; margin-bottom: 1.3rem; }
+/* minmax(0, 1fr), NOT 1fr. A bare `1fr` is minmax(auto, 1fr), and that `auto` floor refuses to
+   shrink the track below its content's min-content width -- which for a <pre> holding a single
+   unbreakable 134-character command is very wide. The track then pushes the whole PAGE into
+   horizontal scroll instead of letting the <pre> scroll inside its own box, which is the entire
+   point of overflow-x: auto on it. Latent until the docker commands became single-line. */
+.qs-step { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr); gap: 0 .9rem; margin-bottom: 1.3rem; }
 .qs-num { grid-row: span 2; width: 1.6rem; height: 1.6rem; border-radius: 50%;
   background: var(--accent-soft); color: var(--accent); font-size: .8rem; font-weight: 700;
   display: flex; align-items: center; justify-content: center; margin-top: .18rem; }
@@ -285,12 +303,33 @@ p { margin: 0 0 1.15rem; }
 
 /* The evaluation band. Its own section rather than a tab, because the reader asking "is this
    real" has not chosen a tab yet. */
-.eval { max-width: 44rem; }
+/* NO max-width. It was 44rem, which is 18rem narrower than the .wrap.wide (62rem) that every
+   other band fills and that the Get Started panels beside it use -- so the Evaluating band read as
+   a different layout from the rest of the page, and its narrower column is what pushed the docker
+   commands into scrollbars and then into wrapping. Matching the siblings fixes the appearance and
+   the overflow with one change. Prose is still measured: .band .sub caps the intro at 38rem. */
+/* Frame and width come from the shared .qspanel, .eval rule above -- there is deliberately no
+   max-width here, so this band measures the same as every other .wrap.wide section. */
 .eval .note { margin: 1.2rem 0 0; font-size: .9rem; color: var(--muted); }
 
 /* Both components set their own pre margins -- the base pre rule leaves the UA's 1em, which the
    step grid and the paired eval commands both need gone. --c is the palette's comment colour. */
 .qspanel pre, .eval pre { margin: 0; }
+
+/* WRAP RATHER THAN SCROLL -- .eval ONLY, and the scoping is the point. This column is
+   max-width: 44rem, narrower than the Get Started panels, so the single-line docker commands
+   overflowed it: a horizontal scrollbar under every command and the text sliding beneath the copy
+   button. `pre-wrap` preserves real newlines and adds only SOFT wraps, and a soft wrap is not part
+   of innerText -- which is what the copy button reads -- so a 134-character command shows on two
+   lines and still reaches the clipboard as one. That is the whole reason it was made single-line.
+
+   NOT applied to .qspanel pre. Tried, and it soft-wrapped the C++ sample in the Get Started tab
+   from 20 lines to 27: those blocks carry real indentation, and wrapping them costs more than the
+   scrollbar it saves. They scroll, which is what overflow-x on the base rule is for.
+
+   Kept even after .eval was widened to match its siblings, where the commands fit on one line at
+   full width: it is what stops them reappearing as a scrollbar on a narrow window. */
+.eval pre { white-space: pre-wrap; }
 .eval pre + pre { margin-top: .7rem; }
 .qspanel .cmt, .eval .cmt { color: var(--c); font-style: italic; }
 
@@ -371,6 +410,32 @@ code { background: var(--code-bg); padding: .12em .36em; border-radius: 3px; fon
 pre { background: var(--code-bg); border: 1px solid var(--rule); padding: .95rem 1.1rem; border-radius: 7px;
   overflow-x: auto; font-size: .855rem; line-height: 1.55; }
 pre code { background: none; padding: 0; font-size: inherit; }
+
+/* Copy button. The wrapper and the button are BUILT BY SCRIPT (see the end of this file), so with
+   JavaScript off none of this matches anything and the page is exactly what it was: a <pre> that
+   renders and selects. That is the whole basis on which a zero-JS site takes a script at all.
+   position: relative on the wrapper rather than the <pre> because the <pre> scrolls -- anchoring
+   to it would carry the button out of view on a long command.
+
+   ALWAYS VISIBLE, never hover-revealed: an affordance a reader has to discover by hovering is one
+   most readers never find, and it is absent entirely on touch. Being permanent is what makes it
+   quiet instead -- an icon at --muted on the block's own background, carrying no label to read. */
+.copywrap { position: relative; }
+.copywrap > pre { padding-right: 3.1rem; }
+.copybtn { position: absolute; top: .5rem; right: .5rem; z-index: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.85rem; height: 1.85rem; padding: 0; cursor: pointer;
+  border-radius: 5px; color: var(--muted);
+  background: var(--code-bg); border: 1px solid var(--rule);
+  transition: color .12s ease, border-color .12s ease; }
+/* Background stays --code-bg in every state. Swapping it on hover reads as "darker" in the dark
+   theme and "lighter" in the light one, since --bg sits on opposite sides of --code-bg in each;
+   moving only the foreground and the border behaves the same way in both. */
+.copybtn svg { width: 14px; height: 14px; display: block; }
+.copybtn:hover { color: var(--fg); border-color: var(--muted); }
+.copybtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.copybtn[data-state="ok"] { color: var(--accent); border-color: var(--accent); }
+.copybtn[data-state="fail"] { color: var(--fg); border-color: var(--muted); }
 .chroma .k, .chroma .kd, .chroma .kn, .chroma .kt, .chroma .kr, .chroma .cp { color: var(--k); }
 .chroma .c, .chroma .c1, .chroma .cm, .chroma .cs { color: var(--c); font-style: italic; }
 .chroma .s, .chroma .s1, .chroma .s2, .chroma .sc { color: var(--s); }
@@ -451,5 +516,99 @@ footer a { color: var(--muted); }
     beta. Hardware and compute <a href="{{ "sponsor/" | relURL }}">sponsorship</a> welcome.</p>
   </div>
 </footer>
+
+{{/* THE SITE'S ONLY SCRIPT, and the terms it is admitted on. Everything it does is additive: the
+     button and its wrapper are CREATED here, so with JavaScript disabled no rule in the stylesheet
+     matches anything and the page is exactly the page it was -- a <pre> that renders, selects and
+     copies by hand. No content, layout or navigation depends on it. That is what keeps "zero-JS"
+     true in the sense that mattered (nothing the reader needs is behind a script) while giving
+     them the affordance every other technical site has.
+
+     It is inline and at the end of <body> deliberately: an external file would be a second request
+     and a second thing to cache-bust, and the site has no build step to fingerprint one. */}}
+<script>
+(function () {
+  // Bail entirely where the API is missing -- insecure origins (plain http on a LAN address) and
+  // older browsers. A button that silently fails to copy is worse than no button at all.
+  if (!navigator.clipboard || !navigator.clipboard.writeText) return;
+
+  // Inline SVG rather than a font or an image: no extra request, and `stroke: currentColor` means
+  // the icon follows the button's colour through hover, focus and both themes without a second
+  // rule anywhere. aria-hidden because the button's own aria-label already names the action --
+  // without it a screen reader announces the graphic as well and says everything twice.
+  function svg( body ) {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+           'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+           body + '</svg>';
+  }
+
+  var ICON = {
+    copy:  svg('<rect x="9" y="9" width="13" height="13" rx="2"/>' +
+               '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'),
+    check: svg('<polyline points="20 6 9 17 4 12"/>'),
+    alert: svg('<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>' +
+               '<line x1="12" y1="16" x2="12.01" y2="16"/>')
+  };
+
+  // TWO PASSES, AND THE ORDER IS LOAD-BEARING. A <pre> directly following another <pre> is sample
+  // OUTPUT rather than something to run -- the shape the Get Started panels use, command then what
+  // it prints, and the same adjacency the `pre + pre` spacing rule above depends on. Copying a
+  // model's answer helps nobody. But wrapping a <pre> puts a DIV where it stood in the sibling
+  // order, so deciding and mutating in one pass makes every block after the first look like it
+  // follows a DIV: the test silently stops matching and every block gets a button. Select first,
+  // mutate second. `data-nocopy` is the escape hatch if the adjacency ever lies.
+  var targets = [].filter.call(document.querySelectorAll('pre'), function (pre) {
+    if (pre.hasAttribute('data-nocopy')) return false;
+    var prev = pre.previousElementSibling;
+    return !(prev && prev.tagName === 'PRE');
+  });
+
+  targets.forEach(function (pre) {
+    var wrap = document.createElement('div');
+    wrap.className = 'copywrap';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copybtn';
+    // The button carries NO text, so the accessible name has to come from here -- an icon-only
+    // control with no aria-label is announced as "button" and nothing else. `title` gives the
+    // same words to a sighted reader on hover, and both are rewritten on each state change so
+    // the two never say different things.
+    btn.setAttribute('aria-label', 'Copy this code block to the clipboard');
+    btn.title = 'Copy';
+    btn.innerHTML = ICON.copy;
+
+    var revert;
+
+    function state( name, icon, label ) {
+      btn.innerHTML = icon;
+      btn.title = label;
+      btn.setAttribute('aria-label', label + ' this code block to the clipboard');
+      if (name) { btn.setAttribute('data-state', name); } else { btn.removeAttribute('data-state'); }
+    }
+
+    btn.addEventListener('click', function () {
+      // innerText rather than textContent: it reflects RENDERED line breaks, so a multi-line
+      // block reaches the clipboard as separate lines instead of one run-on string. The trailing
+      // trim drops the newline the closing tag contributes.
+      navigator.clipboard.writeText(pre.innerText.replace(/\s+$/, '')).then(function () {
+        state('ok', ICON.check, 'Copied');
+        clearTimeout(revert);
+        revert = setTimeout(function () { state('', ICON.copy, 'Copy'); }, 1400);
+      }, function () {
+        // Permission can still be refused after the API check passes -- an automated browser or a
+        // hardened profile will do exactly that. Say what to do instead rather than sit inert.
+        state('fail', ICON.alert, 'Copy blocked by the browser; select and press Ctrl+C');
+        clearTimeout(revert);
+        revert = setTimeout(function () { state('', ICON.copy, 'Copy'); }, 2600);
+      });
+    });
+
+    wrap.appendChild(btn);
+  });
+})();
+</script>
 </body>
 </html>
