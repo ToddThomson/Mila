@@ -347,11 +347,12 @@ ctest --test-dir out/build/linux-release
 VS Code users can instead **Reopen in Container** — see `.devcontainer/`.
 
 Model weights are not included. The image sets `MILA_CACHE_DIR=/mila/Data/Models/Store`, which sits
-on the repo bind mount, so a model installed with `/install` survives `run --rm` and is the same
-store the host uses — install it once from either side.
+on the repo bind mount, so a model installed with `/model install` survives `run --rm` and is the
+same store the host uses — install it once from either side.
 
-> A slim, published runtime image — `docker run … mila` for users who only want to run
-> inference without building — is planned for the v0.20 release. See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md).
+> To run a model without building anything, use the slim runtime image published as
+> `toddthomson/mila-llm:<version>-runtime`. The two commands are on
+> [mila.toddt.me](https://mila.toddt.me/#evaluate).
 
 ---
 

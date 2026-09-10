@@ -11,7 +11,7 @@ model, done here in one readable file.
     python chat.py --temperature 0.6 --max-new-tokens 512
 
 The model comes from the local store by name; fetch one first with
-mila.ModelStore().pull(...) or /install in the chat harness. Pass
+mila.ModelStore().pull(...) or /model install in the chat harness. Pass
 --weights/--tokenizer instead to open a locally converted .bin pair.
 
 Ctrl-C stops generation without leaving the chat; /exit leaves.

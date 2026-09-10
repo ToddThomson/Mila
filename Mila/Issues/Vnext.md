@@ -463,9 +463,10 @@ so this needs its own pass or a new pairing.
 
 Llama's agreement with the HuggingFace reference has been established by hand, but nothing holds it
 — so the next change to the load path or the attention kernels can break it silently. Gemma has
-`GemmaModel.Parity.Cuda.cpp` as the template; Qwen has no equivalent because a BF16 27B reference
-fits no card here, which makes Llama the family where a permanent token-for-token test is actually
-affordable.
+`GemmaModel.Parity.Cuda.cpp` as the template, and it is the right one: Qwen's
+`QwenModel.Parity.Cuda.cpp` compares hidden states one decoder block at a time, because a 50 GiB
+BF16 reference cannot be resident, so it is not a decode test. Llama is the family where a
+permanent token-for-token test is affordable at all.
 
 ## Llama's long-context scaling factor is stored, printed, and never used
 

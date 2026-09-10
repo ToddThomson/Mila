@@ -93,16 +93,34 @@ unnoticed. The decision owed is whether `GqaState` joins the export list, or `se
 part of the public component surface. Worth asking the same question of every other type named in a
 public component signature, since nothing checks this.
 
-## A fourth copy of the stale `/install` verb, in the README's Docker section
+## Nothing in the repository compiles the C++ quick start the website links to
 
-`README.md:348` @ `d4c61b15`
+`Mila/Samples/QuickStart/Cpp/main.cpp` @ `00978057`
 
-The verb is `/model install`. Three other copies were already known —
-`Mila/Samples/QuickStart/README.md:36`, `getting-started.md:286-288`, and
-`Web/layouts/index.html:266` — and this one was not on that list. Found auditing every onboarding
-surface against RELEASING.md. Two adjacent claims in the same region go stale the day the container
-images publish and are now handled by RELEASING.md's release-prep step rather than left here:
-`README.md:350` and `getting-started.md:270` both call the slim runtime image "planned".
+It is a standalone FetchContent project, so the main tree never adds it -- `x64-validate`
+does not build it and neither does CI. `packaging_fetchcontent_consumer` has its own
+`main.cpp` rather than this one. The only build that touches it is
+`Docker/Dockerfile.runtime:347`, which copies it into `/root/myapp` for the devel image, so a
+break reaches a published surface and is caught by a container build or by a reader. Found
+editing its not-installed message and having nowhere to compile-check the edit.
+Configuring it standalone with `-DFETCHCONTENT_SOURCE_DIR_MILA=<tree>` works and needs no
+network, which is what a gate would do; the file's own comment already names that override.
+Same shape as the Doxygen entry in BACKLOG: a published artefact whose only checker is the
+publish itself.
+
+## A mid-download transport failure tells the reader nothing about what to do next
+
+`Mila/Src/Distribution/ModelStore.ixx:457` @ `00978057`
+
+Walking the website's Evaluating band, `install` died at 35% of a 2.86 GiB transfer with
+`ModelStore: fetch of llama32_3b_instruct_fp4.safetensors (mila-llm/Llama-3.2-3B-Instruct-fp4)
+failed: Transferred a partial file (TransportError)`. The design handles this well —
+`ensureBlob` names the partial after the digest precisely so the next invocation resumes
+(`:342`) — but the message says none of that, so a first-time evaluator on the highest-stakes
+path reads a raw transport error as "this is broken" rather than "run it again, it continues
+from 1 GiB". The remedy exists and the text does not name it. Whether resume actually engages
+on the container's named-volume path is untested: `verify-image.sh` uses a throwaway volume by
+design, so it always restarts from zero and cannot demonstrate it.
 
 ## An FP4 model on Turing has a fallback path that may be unreachable dead code
 

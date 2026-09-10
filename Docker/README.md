@@ -26,7 +26,7 @@ CUDA 13.3 (not 13.0) is required on Ubuntu 26.04 / glibc 2.43. No cuDNN is insta
   Docker Desktop on the WSL 2 backend with an NVIDIA driver.
 - An NVIDIA GPU. The build defaults to **`sm_89` (Ada / RTX 4070)** — override
   `MILA_CUDA_ARCH` for another card (e.g. `120` for Blackwell / RTX 5060 Ti).
-- **Nothing else.** Models are pulled into the local store at first use (`/install
+- **Nothing else.** Models are pulled into the local store at first use (`/model install
   gemma-4-12b-it-fp4` at the Chat prompt), which the image points at
   `Data/Models/Store` on the bind mount — so the download survives `run --rm` and the
   host shares it. Weights are **never baked into the image**.

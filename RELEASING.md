@@ -66,7 +66,7 @@ sort *below* what is already released).
 | `rc.X` | release candidate | `0.20.0-rc.1+N` |
 | _(none)_ | production-tagged | `0.20.0` |
 
-Last checkpoint tagged: **`v0.20.0-beta.2`** (model distribution, and both wheels on PyPI).
+Last checkpoint tagged: **`v0.20.0-beta.3`** (observability, and the container images published).
 
 **`Version.txt`** at the repo root is the single source of truth. It feeds `project(VERSION ...)`
 (the numeric triple) and the prerelease label separately; see `cmake/MilaVersion.cmake` — which
@@ -413,7 +413,8 @@ step below exists to prevent, and why it is not optional.
    the same glob, and that cannot be withdrawn. Expect the directory to hold the previous
    checkpoint's `.devN` wheels when you arrive here: each script clears only its own platform's, so a
    stale wheel survives whenever the interpreter list or the platform set has changed.
-3. **Upload to TestPyPI**, never to PyPI first — and **only ever a `.devN` snapshot.** TestPyPI
+3. **Upload to TestPyPI** with `twine upload --repository testpypi out/wheel/*.whl` — never to PyPI
+   first, and **only ever a `.devN` snapshot.** TestPyPI
    burns a filename permanently on first upload exactly as PyPI does, so uploading the plain release
    version there leaves no second attempt if a fix is needed. Worse, a stray `0.20.0b2` upload once
    pinned that release's `Requires-Python` at `>=3.13` for good — PyPI fixes it at the release level
@@ -428,8 +429,15 @@ step below exists to prevent, and why it is not optional.
    leaning on a host Toolkit passes there exactly the way a correct one does.
    All four legs must be green. The version is pinned exactly because PyPI carries an older
    `mila-llm` that can outrank a TestPyPI build; the script re-asserts the version it actually got.
-5. **Upload to PyPI.** Only now, at release step 8, and only if step 4 was green on all four legs.
-   This is the release version, and it is the only place it is ever uploaded.
+5. **Upload to PyPI** with `twine upload out/wheel/*.whl`. Only now, at release step 8, and only if
+   step 4 was green on all four legs. This is the release version, and it is the only place it is
+   ever uploaded.
+
+**The upload client is `twine`, and its credentials are not in the repository.** `~/.pypirc` names
+the two indexes and the username `__token__`; the API tokens themselves live in the OS keyring
+(Windows Credential Manager), one per index, so an upload runs without a prompt on a configured box
+and not at all on any other. A maintainer setting up a new machine installs `twine`, writes that
+`.pypirc`, and lets the first upload store the tokens.
 
 The workflow is `workflow_dispatch`, so it is dispatchable only once `wheel-cleanroom.yml` is on the
 default branch (`master`). Until the merge that first puts it there, the validation run has to

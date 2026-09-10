@@ -96,8 +96,9 @@ weights, KV cache, activation workspace — for a chosen context length, without
 without the weights present, and therefore for hardware the user does not yet own. The estimate comes
 from the same components that do the allocating, so it cannot drift into fiction.
 
-**Success criteria:** each family decodes token-for-token against HuggingFace at its target precision,
-captured as CI-guarded regression tests; tool calling validated on Gemma 4;
+**Success criteria:** each family decodes token-for-token against HuggingFace at its target precision
+— Gemma 4's agreement is held by a regression test, the rest were established by hand, and no parity
+test runs in CI, which has neither a GPU nor the reference weights; tool calling validated on Gemma 4;
 a model's reported footprint matches what it actually allocates, held by test **on the quantized
 loads the published models use** — the unquantized path is measured but not yet gated. Qwen 3.8 is gated
 differently and deliberately: a BF16 27B fits no card here, so token-for-token agreement is not

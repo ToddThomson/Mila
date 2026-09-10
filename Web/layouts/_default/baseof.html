@@ -117,7 +117,7 @@ body {
 .band.alt { background: var(--faint); }
 .band:last-child { border-bottom: none; }
 .band h2 { margin-top: 0; border-bottom: none; padding-bottom: 0; font-size: 1.5rem; }
-.band .sub { max-width: 38rem; }
+.band .sub { max-width: 50rem; }
 main > .wrap { padding-top: 3rem; padding-bottom: 2rem; }
 
 header { padding: 1.75rem 0 1.1rem; border-bottom: 1px solid var(--rule); text-align: center; }
@@ -307,7 +307,7 @@ p { margin: 0 0 1.15rem; }
    other band fills and that the Get Started panels beside it use -- so the Evaluating band read as
    a different layout from the rest of the page, and its narrower column is what pushed the docker
    commands into scrollbars and then into wrapping. Matching the siblings fixes the appearance and
-   the overflow with one change. Prose is still measured: .band .sub caps the intro at 38rem. */
+   the overflow with one change. Prose is still measured: .band .sub caps the intro at 50rem. */
 /* Frame and width come from the shared .qspanel, .eval rule above -- there is deliberately no
    max-width here, so this band measures the same as every other .wrap.wide section. */
 .eval .note { margin: 1.2rem 0 0; font-size: .9rem; color: var(--muted); }
@@ -357,6 +357,27 @@ p { margin: 0 0 1.15rem; }
 .chip .d { display: block; margin-top: .55rem; color: var(--muted); font-size: .84rem; line-height: 1.45; }
 .band.alt .chip { background: var(--bg); }
 .note { color: var(--muted); font-size: .9rem; margin-top: 1.6rem; }
+
+/* BLOCK LABELS. `data-label` on the <pre> plus ::before, rather than a heading element above it:
+   the copy pass builds a wrapper around each <pre>, and an extra node in the sibling order is
+   what broke its output test once already (see the script at the end of this file).
+
+   The label is IN FLOW at the top of the block's own padding, not absolutely positioned. A <pre>
+   here scrolls horizontally on the long docker commands, and anything anchored inside it rides
+   the scroll out of view -- the same reason the copy button hangs off .copywrap instead. In flow
+   it simply stays put, because the padding box does not scroll. */
+pre[data-label]::before {
+  content: attr(data-label);
+  display: block;
+  position: sticky; left: 0;
+  margin: -.35rem 0 .7rem;
+  font-size: .7rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* Output blocks read as a consequence of the block above, so they sit closer and carry no border
+   on the joined edge. `pre + pre` still matches: the label is inside the <pre>, not between. */
+pre[data-nocopy] { border-top-left-radius: 0; border-top-right-radius: 0; }
+pre + pre[data-nocopy] { margin-top: -1px; }
 /* Bylines -- a statement per line, not a paragraph. */
 .byline { font-size: 1.1rem; margin: 0 0 .3rem; letter-spacing: -.01em; }
 .byline + .byline { color: var(--muted); font-size: 1rem; margin-bottom: 1.8rem; }

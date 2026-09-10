@@ -159,8 +159,17 @@ int main( int argc, char** argv )
 
         if ( !installed.has_value() || !installed->complete )
         {
+            // Which of these is reachable depends on how the reader got here, and none of
+            // the three covers the other two: the container and a clone build put the CLI
+            // on PATH, while a FetchContent consumer builds no tools at all
+            // (MILA_ENABLE_TOOLS is off unless Mila is the top-level project) and has only
+            // the wheel.
             std::cerr << "'" << kModelName << "' is not installed.\n"
-                      << "Install it from Python:\n"
+                      << "\n"
+                      << "Install it with the Mila CLI:\n"
+                      << "  mila install " << kModelName << "\n"
+                      << "\n"
+                      << "Or from Python, after pip install mila-llm:\n"
                       << "  import mila\n"
                       << "  mila.initialize(\"warning\")\n"
                       << "  mila.ModelStore().pull(\"" << kModelName

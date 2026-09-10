@@ -328,9 +328,20 @@ ENV MILA_VENV_DIR=/opt/mila/venv
 # A project to start from, in the user's own home rather than under /opt/mila -- it is
 # theirs, not part of the install. main.cpp is the sample's, unchanged, so there is one
 # quick start rather than two; only the CMakeLists differs, because Mila is already on disk
-# here instead of being fetched. Deliberately NOT pre-built: building it compiles Mila into
-# this project's own tree (module BMIs are not portable), which would add a second full
-# compile and roughly 5 GB to this image. The first build costs the user ~15 minutes once.
+# here instead of being fetched. NOT pre-built: building it compiles Mila into this
+# project's own tree (module BMIs are not portable), which would add a second full compile
+# and roughly 5 GB to this image. The first build costs the user one full compile of Mila.
+#
+# That compile is memory-bound, not CPU-bound, and the reader runs it with a bare
+# `cmake --build build` that carries no -j. Ninja would then default to the container's CPU
+# count -- ten parallel clang module TUs at roughly 2 GB peak each, which exhausts a stock
+# Docker Desktop WSL2 allocation (15.9 GB, half of a 32 GB host) and takes the engine down
+# with it rather than failing the build. The image's own build is already held to
+# MILA_BUILD_JOBS for the same reason; this extends that limit to the build the website
+# tells a reader to run, so their published command needs no flag to be correct.
+# cmake --build honours this, so it reaches ninja without the reader passing anything.
+ENV CMAKE_BUILD_PARALLEL_LEVEL=4
+
 RUN mkdir -p /root/myapp
 COPY Docker/myapp/CMakeLists.txt /root/myapp/CMakeLists.txt
 RUN cp /src/Mila/Samples/QuickStart/Cpp/main.cpp /root/myapp/main.cpp \

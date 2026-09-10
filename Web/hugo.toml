@@ -96,7 +96,10 @@ enableRobotsTXT = false
   url = 'blog/'
 [[params.nav]]
   name = 'Get started'
-  url = 'start/'
+  # The four tabs on the home page, not /start/. A reader clicking this wants the ways in;
+  # /start/ is one of them plus the toolchain reference, and is reached from the Clone tab
+  # and from Design.
+  url = '/#qs'
 [[params.nav]]
   name = 'API reference'
   url = 'api/'

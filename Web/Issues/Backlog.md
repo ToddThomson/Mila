@@ -18,27 +18,29 @@ getting-started surfaces.
 That page's §3 is retired in every sentence — conversion as the path, "no separate quantized
 checkpoint to manage", and "Llama and Gemma are gated", now backwards. This reconcile owns §3.
 
-## `[ ]` The home page hardcodes `0.20.0-beta.3` in three places
+## `[ ]` The home page hardcodes the version at five sites, and nothing derives them
 
 `layout` · `publish`
 
-Two image tags — the Docker panel and the Evaluating band — plus the FetchContent pin. Every later
-release breaks those commands until the copy is updated with it, so the site and the release tag
-must ship naming the same version.
+The C++ tab's `GIT_TAG` and its sample output, the `-devel` tag, and the `-runtime` tag in both
+Evaluating commands. Every later release breaks those commands until the copy is bumped with it, so
+the site and the release tag must ship naming the same version. They have already drifted from each
+other once — the tab pinned `beta.2` against `beta.3` output for a whole cycle.
 
-The C++ tab compounds it by pinning `v0.20.0-beta.2` while its sample output reads `0.20.0-beta.3`.
-`Web/layouts/index.html` — `#p-docker`, `#evaluate`, `#p-cpp` steps 1 and 3.
+Held today by procedure rather than by derivation: `RELEASING.md` step 2 lists all five, plus
+`scripts/dockerhub/verify-image.sh`'s `MILA_IMAGE` default, as one edit.
+`Web/layouts/index.html` — `#p-cpp` steps 1 and 3, `#p-docker`, `#evaluate`.
 
-## `[ ]` The Evaluating band's commands leave a stopped container behind on every run
+## `[ ]` The Docker tab never says how to get back into the container
 
 `content`
 
-No `--rm`, so a QA afternoon accumulated four and `docker image rm` then failed with a conflict the
-user has no context for. Nothing is lost — the model lives in the named volume.
+That image is a configured environment where the reader edits `~/myapp`, so leaving it is not the
+end of the session — but the tab stops at `docker run` and nothing names `docker start -ai`. The
+reader's second visit begins with a container they cannot find.
 
-**The devel tab must NOT get `--rm`**: that image is a configured environment where the reader edits
-`~/myapp`, and its gap is the opposite — nothing says how to re-enter it. `Web/layouts/index.html`,
-`#evaluate`
+**It must not gain `--rm`**, which is what makes this the opposite gap from the Evaluating band's.
+`Web/layouts/index.html`, `#p-docker`
 
 ## `[ ]` `Web/content/docs.md:28` states "quantization has no checkpoint format"
 

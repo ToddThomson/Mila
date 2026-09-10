@@ -241,7 +241,8 @@ If you do not want to install the CUDA/Clang/CMake toolchain locally, the develo
 container provides a reproducible Linux build environment (CUDA 13.3, clang-21, gcc-15 as nvcc's
 host, CMake 4.2.3, Ninja) — handy from WSL. It mounts the repo at `/mila` with GPU access. Note this **still
 builds Mila from source** inside the container; it removes toolchain setup, not the build.
-(A pull-and-run published image is planned for beta — see the note at the end of this section.)
+(To run a model without building anything, use the published runtime image — see the note at the
+end of this section.)
 
 **Prerequisites for this path:**
 
@@ -268,8 +269,9 @@ GPU access, the repo mount, and the C/C++ / CMake Tools / clangd extensions.
 The image sets `MILA_CACHE_DIR=/mila/Data/Models/Store`, which sits on the repo bind mount, so
 a model installed (Section 5) from either side is the same store — install it once.
 
-> A slim, published runtime image — `docker run … mila` for users who only want to run
-> inference without building — is planned for the v0.20 release. See [ROADMAP.md](ROADMAP.md).
+> To run a model without building anything, use the slim runtime image published as
+> `toddthomson/mila-llm:<version>-runtime`. The two commands are on
+> [mila.toddt.me](https://mila.toddt.me/#evaluate).
 
 ---
 
@@ -284,9 +286,9 @@ Mila publishes pre-quantized models under [`mila-llm`](https://huggingface.co/mi
 are ungated — no account, no access request, no token. From the chat harness:
 
 ```
-/models --online          # what is published
-/install gemma-4-12b-it-fp4
-/models                   # what is installed, and what each costs in VRAM
+/model list --online      # what is published
+/model install gemma-4-12b-it-fp4
+/model list               # what is installed, and what each costs in VRAM
 ```
 
 Published today: `gemma-4-12b-it-fp4` (~6.3 GB, the chat default),
@@ -381,7 +383,7 @@ ExportArtifact --install out/llama32-1b-package
 ```
 
 Every file is hashed as it is adopted, so a blob is trusted only after its digest matches the
-manifest. Afterwards the model is listed by `/models` and loaded by name exactly like a
+manifest. Afterwards the model is listed by `/model list` and loaded by name exactly like a
 published one — that is the point of one manifest describing every model, whatever its origin.
 
 > `--instruct` is not implied by the model's name. Omitting it writes `instruct: false` and
@@ -402,13 +404,13 @@ The chat sample builds as the `mila-chat` target. Its executable is written to t
 ```
 
 From Visual Studio, set **mila-chat** as the startup item and run. Chat opens on an empty store,
-so a first run with nothing installed still reaches `/install`.
+so a first run with nothing installed still reaches `/model install`.
 
-A model is named, not aliased — what `/models` shows is what you type:
+A model is named, not aliased — what `/model list` shows is what you type:
 
 ```
-/models                            # installed, with what each costs in VRAM
-/model Llama-3.2-3B-Instruct-fp4   # switch (clears history)
+/model list                        # installed, with what each costs in VRAM
+/model load Llama-3.2-3B-Instruct-fp4   # switch (clears history)
 /model                             # current model and quantization
 /help
 ```
@@ -439,7 +441,7 @@ include(FetchContent)
 FetchContent_Declare(
     Mila
     GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
-    GIT_TAG        v0.20.0-beta.2    # pin to a published release tag
+    GIT_TAG        v0.20.0-beta.3    # pin to a published release tag
 )
 FetchContent_MakeAvailable(Mila)
 
@@ -562,7 +564,7 @@ coverage, and new encoding strategies under `Mila/Src/Dnn/Components/Encodings/`
 
 | Symptom | Likely cause |
 |---|---|
-| Chat reports a model is not installed | Nothing in the store yet — `/models --online` then `/install <name>`, see Section 5a. Weights are not in git. |
+| Chat reports a model is not installed | Nothing in the store yet — `/model list --online` then `/model install <name>`, see Section 5a. Weights are not in git. |
 | `hf auth login` fails or model 403s | You have not accepted Meta's license on the HuggingFace model page. |
 | Module / incremental build errors with MSBuild | Use the **Ninja** generator — MSBuild does not handle C++23 modules well. |
 | Out-of-memory converting Llama 3.1 8B | Conversion needs ~16 GB host RAM; convert in BF16 (the default). |
