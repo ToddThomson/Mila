@@ -82,7 +82,7 @@ namespace Mila::Distribution
      * multi-gigabyte store often does not belong on the same volume as the user profile.
      *
      * The root holds models/, blobs/ and tmp/, so it does NOT end in "models" -- appending it
-     * here as well as in recordPath() is what produced the Mila\models\models tree.
+     * here as well as in recordPath() is what produced the `Mila\models\models` tree.
      */
     export inline std::filesystem::path resolveStoreRoot()
     {
@@ -270,9 +270,11 @@ namespace Mila::Distribution
      * @brief The local store of installed models.
      *
      * Layout:
+     * @verbatim
      *   models/<owner>/<repository>/<variant>.json   the records -- the index
      *   blobs/sha256-<hex>                           the content
      *   tmp/                                         in-flight transfers and their locks
+     * @endverbatim
      */
     export class ModelStore
     {
@@ -352,6 +354,8 @@ namespace Mila::Distribution
          *
          * @param description What the blob is, for messages only -- typically the file's path in
          *        the repository it came from. The store never interprets it.
+         * @param expected_sha256_hex The blob's digest, which is also its name under blobs/.
+         * @param fetcher Supplies the bytes when the blob is absent, resuming from any partial.
          *
          * @return Path to the verified blob.
          * @throws std::runtime_error on fetch failure, digest mismatch, or a lock held elsewhere.

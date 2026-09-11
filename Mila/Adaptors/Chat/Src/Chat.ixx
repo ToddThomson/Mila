@@ -34,6 +34,7 @@ module;
 #include <unordered_map>
 #include <chrono>
 #include <optional>
+#include <span>
 
 export module Mila.Chat;
 
@@ -44,10 +45,15 @@ export import Chat.MessageFormatter;
 export import Chat.SystemPrompt;
 export import Chat.ToolCallParser;
 import Chat.ChannelParser;
+import Chat.FamilyTraits;
 import Chat.Footprint;
 import Chat.Json;
 import Chat.Renderer;
 import Chat.RichText;
+
+// For the layer vocabulary only: /context reports which layer set the value, and naming the layer
+// in one place is what keeps "this session" from being spelled two ways.
+import Chat.Settings;
 import Chat.StreamingDisplay;
 
 import Mila;
@@ -62,12 +68,14 @@ namespace Mila::ChatApp
     using LlamaModelFP32Type = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
     using LlamaModelBF16Type = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
     using GemmaModelBF16Type = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
+    using QwenModelBF16Type  = QwenModel<DeviceType::Cuda, TensorDataType::BF16>;
 
     using ModelVariant = std::variant<
         std::unique_ptr<GptModelFP32Type>,
         std::unique_ptr<LlamaModelFP32Type>,
         std::unique_ptr<LlamaModelBF16Type>,
-        std::unique_ptr<GemmaModelBF16Type>
+        std::unique_ptr<GemmaModelBF16Type>,
+        std::unique_ptr<QwenModelBF16Type>
     >;
 
     export class Chat
@@ -107,6 +115,79 @@ namespace Mila::ChatApp
             tool_handlers_.emplace( std::move( name ), std::move( handler ) );
         }
 
+        /**
+         * @brief Answer one prompt and return, without opening a session.
+         *
+         * Standard output carries the answer and nothing else -- no banner, no spinner, no
+         * session status -- so that `mila-chat -p "..." > answer.txt` yields an answer rather
+         * than an answer wearing a welcome box.
+         *
+         * @param answer_out The real standard output. main.cpp has already pointed std::cout at
+         *        standard error, because the diagnostics to be kept out of the answer include
+         *        the library's own log records and those are not written through this class.
+         *        Everything reaching std::cout below is therefore already diverted.
+         *
+         * @return An exit code from the contract in ChatConfiguration.md section 9.
+         */
+        int runOnce( const std::string& prompt, bool as_json, std::ostream& answer_out )
+        {
+            one_shot_ = true;
+            renderer_.setQuiet( true );
+
+            if ( config_.model_name.empty() )
+            {
+                std::cerr << "No model is loaded. Name one with --model, "
+                             "or install one with 'mila install <name>'.\n";
+
+                return 4;
+            }
+
+            try
+            {
+                loadActiveModel();
+            }
+            catch ( const std::exception& error )
+            {
+                std::cerr << std::format( "Could not load {}: {}\n",
+                    config_.model_name, error.what() );
+
+                return 5;
+            }
+
+            clearHistory();
+            history_.push_back( { MessageRole::User, prompt } );
+
+            std::string response;
+            response.reserve( 4096 );
+
+            generateResponse( response );
+            handleResponse( response );
+
+            // handleResponse pushes the parsed answer as the final Assistant turn, so the last
+            // entry is the answer after any tool round trip -- which is what a caller asked for,
+            // rather than the raw text with its channels still in it.
+            const std::string answer = history_.empty() ? std::string{} : history_.back().content;
+
+            if ( as_json )
+            {
+                emitOneShotJson( answer, answer_out );
+            }
+            else
+            {
+                answer_out << answer << '\n';
+
+                // A truncated answer is still an answer, so it is not a failure code. It is said
+                // once on stderr, where it cannot corrupt the thing being piped.
+                if ( finishStatus() == GenerateStatus::MaxNewTokensReached )
+                {
+                    std::cerr << "Note: response hit the token cap without a stop token "
+                                 "(finish: length).\n";
+                }
+            }
+
+            return 0;
+        }
+
         void run()
         {
             printBanner();
@@ -124,7 +205,26 @@ namespace Mila::ChatApp
             }
             else
             {
-                loadActiveModel();
+                // A load that fails is reported INTO the session, not out of it -- the commands
+                // that fix it (/model and its subcommands) are all inside. Leaving here is what
+                // turned a readable "context_length must be greater than zero" into an abort,
+                // and the session is perfectly able to run with nothing loaded.
+                try
+                {
+                    loadActiveModel();
+                }
+                catch ( const std::exception& error )
+                {
+                    renderer_.printError( std::format(
+                        "Could not load {}: {}", config_.model_name, error.what() ) );
+
+                    std::visit( []( auto& model ) { model.reset(); }, model_ );
+
+                    // An empty name IS the no-model state, tested in both places that ask.
+                    config_.model_name.clear();
+
+                    reportNoModel();
+                }
             }
 
             printSessionStatus();
@@ -253,257 +353,116 @@ namespace Mila::ChatApp
                         continue;
                     }
 
-                    if ( cmd == "model" || cmd.starts_with( "model " ) )
+                    if ( cmd == "context" || cmd.starts_with( "context " ) )
                     {
-                        if ( cmd == "model" )
-                        {
-                            printModelInfo();
-                            continue;
-                        }
-
-                        const std::vector<std::string_view> args = splitWhitespace( cmd.substr( 6 ) );
+                        const std::vector<std::string_view> args =
+                            cmd == "context" ? std::vector<std::string_view>{}
+                                             : splitWhitespace( cmd.substr( 8 ) );
 
                         if ( args.empty() )
                         {
-                            printModelInfo();
+                            reportContext();
                             continue;
                         }
 
-                        const std::string name( args.front() );
-
-                        bool thinking = false;
-                        bool bad_token = false;
-
-                        // Quantizing on load is a deployment choice, not an identity: it lets a
-                        // BF16 artifact too large for the card run anyway. A pre-quantized
-                        // artifact is a different model with its own name, and refuses this.
-                        std::optional<QuantizationMode> requested_quantization;
-
-                        for ( size_t i = 1; i < args.size(); ++i )
+                        if ( args.front() == "auto" )
                         {
-                            if ( args[ i ] == "thinking" )
-                            {
-                                thinking = true;
-                                continue;
-                            }
-
-                            const auto parsed = parseQuantization( args[ i ] );
-
-                            if ( !parsed )
-                            {
-                                renderer_.printInfo( std::format(
-                                    "Unknown option '{}'. Use none, fp8, fp4, or thinking.",
-                                    args[ i ] ) );
-                                bad_token = true;
-                                break;
-                            }
-
-                            requested_quantization = *parsed;
-                        }
-
-                        if ( bad_token )
-                            continue;
-
-                        config_.show_thinking = thinking;
-
-                        // Toggling only the thinking flag on the already-loaded model
-                        // must not trigger a multi-GB weight reload.
-                        if ( isCurrentModel( name, requested_quantization ) )
-                        {
-                            renderer_.printInfo( thinking
-                                ? "Thinking display enabled."
-                                : "Thinking display disabled." );
+                            applyAutomaticContext();
                             continue;
                         }
 
-                        try
+                        const std::string_view value = args.front();
+                        std::size_t length = 0;
+                        const auto result = std::from_chars(
+                            value.data(), value.data() + value.size(), length );
+
+                        if ( result.ec != std::errc{}
+                            || result.ptr != value.data() + value.size() || length == 0 )
                         {
-                            switchModel( name, requested_quantization );
-                        }
-                        catch ( const std::exception& error )
-                        {
-                            // The session keeps its working model: resolution happens before
-                            // the current one is released.
-                            renderer_.printInfo( error.what() );
+                            renderer_.printInfo(
+                                "Usage: /context <n>|auto  (n = tokens; auto measures the largest "
+                                "that fits this card)." );
+                            continue;
                         }
 
+                        applyContextLength( length );
                         continue;
                     }
 
-                    if ( cmd == "models" || cmd.starts_with( "models " ) )
+                    if ( cmd == "set" || cmd.starts_with( "set " ) )
                     {
                         const std::vector<std::string_view> args =
-                            cmd == "models" ? std::vector<std::string_view>{}
-                                            : splitWhitespace( cmd.substr( 7 ) );
+                            cmd == "set" ? std::vector<std::string_view>{}
+                                         : splitWhitespace( cmd.substr( 4 ) );
 
-                        try
+                        if ( args.empty() )
                         {
-                            // Installed is the default because it is the offline, instant
-                            // answer, and because it is the only one that says what can
-                            // actually be loaded.
-                            // The owner is hidden: --online means the one Mila publishes into.
-                            // An explicit owner still works, as the escape hatch for a second
-                            // publisher, but nothing advertises it.
-                            const auto hub_owner = [&]() -> std::string
-                                {
-                                    const std::string argument( args.front() );
-
-                                    return ( argument == "--online" || argument == "online" )
-                                        ? std::string( Mila::Distribution::kDefaultHubOwner )
-                                        : argument;
-                                };
-
-                            // Costed at the session's own context, and against the card's
-                            // TOTAL memory rather than what is free.
-                            //
-                            // The listing answers "which of these could this machine run", and
-                            // that is a property of the card, not of this second. Free memory
-                            // was tried and is wrong here twice over: the resident model's own
-                            // report understates what releasing it returns (it excludes the
-                            // 6-13% residual Gate B measured), and whatever the desktop holds
-                            // gets charged to every candidate. Both push the same way, and a
-                            // 3B was marked as not fitting on a card with room for three.
-                            // The live picture belongs on /model, which measures it directly.
-                            const DeviceMemoryInfo memory = queryDeviceMemory();
-
-                            std::optional<FootprintBudget> budget;
-
-                            // No device to ask means no column: a listing claiming "0 MB"
-                            // would be stating a measurement it does not have.
-                            if ( memory.total_bytes > 0 )
-                            {
-                                FootprintBudget costed;
-                                costed.context_length =
-                                    static_cast<dim_t>( config_.context_length );
-                                costed.available_bytes = memory.total_bytes;
-                                costed.resident_model =
-                                    modelIsResident() ? modelName() : std::string{};
-
-                                budget = std::move( costed );
-                            }
-
-                            if ( args.empty() )
-                            {
-                                const ModelListing listing = describeInstalledModels( budget );
-
-                                // Plain, like /help and /model: a table is the content the
-                                // command was run to produce.
-                                for ( const auto& line : listing.table )
-                                {
-                                    std::cout << line << "\n";
-                                }
-
-                                std::cout << "\n";
-
-                                // Tinted, because these are commentary on the table rather than
-                                // part of it -- the same distinction printInfo already carries
-                                // for a system message.
-                                for ( const auto& line : listing.notes )
-                                {
-                                    renderer_.printInfo( "  " + line );
-                                }
-
-                                renderer_.printInfo(
-                                    "  /models --online lists models available to install" );
-                            }
-                            else
-                            {
-                                for ( const auto& line : describeHubModels( hub_owner() ) )
-                                {
-                                    std::cout << line << "\n";
-                                }
-                            }
-                        }
-                        catch ( const std::exception& error )
-                        {
-                            renderer_.printError( std::format( "Could not list models: {}", error.what() ) );
-                        }
-
-                        continue;
-                    }
-
-                    if ( cmd.starts_with( "install " ) )
-                    {
-                        const std::vector<std::string_view> args = splitWhitespace( cmd.substr( 8 ) );
-
-                        if ( args.size() != 1 )
-                        {
-                            renderer_.printInfo( "Usage: /install <name> -- one name, as /models --online lists it." );
+                            reportSamplingSettings();
                             continue;
                         }
 
-                        bool installed = false;
-
-                        try
+                        if ( args.size() != 2 )
                         {
-                            for ( const auto& line : installModel( std::string( args.front() ) ) )
-                            {
-                                renderer_.printInfo( line );
-                            }
-
-                            installed = true;
-                        }
-                        catch ( const std::exception& error )
-                        {
-                            // A failed install must leave the session on its working model, so
-                            // this reports and returns to the prompt rather than propagating.
-                            renderer_.printInfo( std::format( "Install failed: {}", error.what() ) );
-                        }
-
-                        // Bootstrap: a session that opened with nothing resident wants the model
-                        // it just installed. Reported separately from the install because a load
-                        // that fails here has not failed the install, and saying so would send
-                        // the user to fix the wrong thing.
-                        if ( installed && !modelIsResident() )
-                        {
-                            try
-                            {
-                                switchModel( std::string( args.front() ) );
-                            }
-                            catch ( const std::exception& error )
-                            {
-                                renderer_.printInfo( std::format(
-                                    "Installed, but loading it failed: {}", error.what() ) );
-                            }
-                        }
-
-                        continue;
-                    }
-
-                    if ( cmd == "install" )
-                    {
-                        renderer_.printInfo( "Usage: /install <name> -- one name, as /models --online lists it." );
-                        continue;
-                    }
-
-                    if ( cmd.starts_with( "rm " ) )
-                    {
-                        const std::vector<std::string_view> args = splitWhitespace( cmd.substr( 3 ) );
-
-                        if ( args.size() != 1 )
-                        {
-                            renderer_.printInfo( "Usage: /rm <name> -- one name, as /models lists it." );
+                            renderer_.printInfo(
+                                "Usage: /set <temperature|top_k|top_p> <value>." );
                             continue;
                         }
 
-                        try
-                        {
-                            for ( const auto& line : removeModel( std::string( args.front() ) ) )
-                            {
-                                renderer_.printInfo( line );
-                            }
-                        }
-                        catch ( const std::exception& error )
-                        {
-                            renderer_.printInfo( std::format( "Remove failed: {}", error.what() ) );
-                        }
-
+                        applySamplingSetting( args[ 0 ], args[ 1 ] );
                         continue;
                     }
 
-                    if ( cmd == "rm" )
+                    if ( cmd == "thinking" || cmd.starts_with( "thinking " ) )
                     {
-                        renderer_.printInfo( "Usage: /rm <name> -- one name, as /models lists it." );
+                        const std::vector<std::string_view> args =
+                            cmd == "thinking" ? std::vector<std::string_view>{}
+                                              : splitWhitespace( cmd.substr( 9 ) );
+
+                        applyThinking( args );
+                        continue;
+                    }
+
+                    if ( cmd == "model" || cmd.starts_with( "model " ) )
+                    {
+                        const std::vector<std::string_view> args =
+                            cmd == "model" ? std::vector<std::string_view>{}
+                                           : splitWhitespace( cmd.substr( 6 ) );
+
+                        // A bare argument is a model NAME, not a verb, so the reserved words are a
+                        // closed set and everything else describes. That is what makes /model
+                        // <name> report rather than load: a load takes seconds, discards the KV
+                        // cache and is spelled out, so a half-remembered name costs a lookup
+                        // instead of a multi-gigabyte reload. It also means the noun form reads
+                        // the same way everywhere -- /model and /model <name> are one verb applied
+                        // to two objects, matching /context, /effort and /verbose.
+                        //
+                        // A model named `list` is unreachable. Repository names make that
+                        // implausible, and the alternative is a prefix nobody would type.
+                        if ( args.empty() )
+                        {
+                            printModelInfo();
+                        }
+                        else if ( args.front() == "list" )
+                        {
+                            listModelsCommand( std::span( args ).subspan( 1 ) );
+                        }
+                        else if ( args.front() == "load" )
+                        {
+                            loadModelCommand( std::span( args ).subspan( 1 ) );
+                        }
+                        else if ( args.front() == "install" )
+                        {
+                            installModelCommand( std::span( args ).subspan( 1 ) );
+                        }
+                        else if ( args.front() == "remove" )
+                        {
+                            removeModelCommand( std::span( args ).subspan( 1 ) );
+                        }
+                        else
+                        {
+                            describeModelCommand( args );
+                        }
+
                         continue;
                     }
 
@@ -534,6 +493,63 @@ namespace Mila::ChatApp
     private:
 
         /**
+         * @brief How the last round of the turn ended, or Success when nothing has run.
+         *
+         * The last round is the one that produced the answer: a tool round trip finishes its
+         * first round early by design, and reporting that as the turn's outcome would call a
+         * complete answer truncated.
+         */
+        GenerateStatus finishStatus() const
+        {
+            return last_turn_rounds_.empty()
+                ? GenerateStatus::Success
+                : last_turn_rounds_.back().finish_status;
+        }
+
+        /**
+         * @brief The one-shot answer as a JSON object on standard output.
+         *
+         * finish_reason is the field that earns this format: a response cut off at the token
+         * cap reads as a complete answer in plain text and is self-announcing here.
+         */
+        void emitOneShotJson( const std::string& answer, std::ostream& answer_out ) const
+        {
+            int tokens = 0;
+
+            for ( const RoundStats& round : last_turn_rounds_ )
+            {
+                tokens += round.tokens_generated;
+            }
+
+            nlohmann::json payload;
+            payload[ "content" ] = answer;
+            payload[ "model" ] = config_.model_name;
+            payload[ "context_length" ] = config_.context_length;
+
+            // The scripted half of the provenance the startup line prints. A caller that asked for
+            // no context and got 83968 has the same right to know why as a reader of the banner.
+            payload[ "context_source" ] = config_.context_is_automatic ? "auto" : "configured";
+            payload[ "tokens_generated" ] = tokens;
+            payload[ "rounds" ] = last_turn_rounds_.size();
+            payload[ "finish_reason" ] = finishReasonName( finishStatus() );
+
+            answer_out << payload.dump( 2 ) << '\n';
+        }
+
+        /**
+         * @brief Wire names for the generation outcome, in the vocabulary a caller expects.
+         */
+        static const char* finishReasonName( GenerateStatus status )
+        {
+            switch ( status )
+            {
+                case GenerateStatus::MaxNewTokensReached: return "length";
+                case GenerateStatus::ContextOverflow:     return "context_limit";
+                default:                                  return "stop";
+            }
+        }
+
+        /**
          * @brief Route a completed generation response through tool call handling.
          *
          * When ToolCallParser detects a <|python_tag|> block the response is treated
@@ -562,7 +578,13 @@ namespace Mila::ChatApp
 
             try
             {
-                tool_call = ToolCallParser::parse( response );
+                // Qwen's <tool_call> span is its own trained grammar, and the Llama parser
+                // would not find a call inside it. Both round-trip through history the same
+                // way from here -- an Assistant turn holding the call, then a Tool turn
+                // holding the result -- so only the grammar differs.
+                tool_call = config_.model_type == ModelType::Qwen
+                    ? Mila::Dnn::Qwen::parseToolCall( response )
+                    : ToolCallParser::parse( response );
             }
             catch ( const std::runtime_error& e )
             {
@@ -589,7 +611,6 @@ namespace Mila::ChatApp
             ChatMessage tool_turn;
             tool_turn.role = MessageRole::Tool;
             tool_turn.content = tool_result;
-            tool_turn.tool_call_id = tool_call->id;
             history_.push_back( std::move( tool_turn ) );
 
             std::string final_response;
@@ -623,7 +644,7 @@ namespace Mila::ChatApp
             // spelled-out example goes stale the moment the store holds something else.
             if ( level >= DetailLevel::Thoughts && !config_.show_thinking )
                 message += std::format(
-                    " (Thinking mode is off — enable it with /model {} thinking to see reasoning.)",
+                    " (Thinking mode is off — enable it with /thinking on to see reasoning.)",
                     modelName() );
 
             renderer_.printInfo( message );
@@ -653,7 +674,17 @@ namespace Mila::ChatApp
             // the displayed answer as raw call syntax.
             const std::string without_tool_spans = stripToolExchangeSpans( raw );
             const std::string clean = stripSpecialTokens( without_tool_spans );
-            const ParsedResponse parsed = ChannelParser::parse( clean );
+            const ParsedResponse parsed = ChannelParser::parse( clean, activeChannel() );
+
+            // One shot renders nothing: the caller gets the answer on standard output in the
+            // format it asked for, and a painted block would be in the middle of it.
+            if ( one_shot_ )
+            {
+                stream_display_.reset();
+                history_.push_back( { MessageRole::Assistant, parsed.answer } );
+
+                return;
+            }
 
             if ( stream_display_ != nullptr && renderer_.streamHasOutput() )
             {
@@ -761,18 +792,51 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Remove <|tool_call>...<tool_call|> and <|tool_response>...<tool_response|>
-         *        spans from a Gemma response before it is channel-split and displayed.
+         * @brief The markers the resident family wraps its reasoning in.
          *
-         * These are protocol-internal (the harness already consumed and dispatched them in
-         * generateResponse()); showing the raw call/response syntax as answer prose is noise.
-         * An unterminated span (generation stopped mid-span) truncates to end-of-string.
+         * A family with no reasoning channel is given Gemma's, which finds nothing in its
+         * output and returns the whole response as the answer -- the pass-through the parser
+         * already contracts for. Naming a "none" pair would be a third case behaving as the
+         * first.
+         *
+         * Qwen's pair carries the session's thinking state, because for that family the state
+         * changes what a response MEANS: the primer opens the reasoning span when thinking is
+         * on, so text before a close marker is reasoning, and when it is off the very same text
+         * with no markers at all is the answer. The parser cannot tell those apart on its own.
+         */
+        ChannelDelimiters activeChannel() const
+        {
+            if ( config_.model_type != ModelType::Qwen )
+            {
+                return kGemmaChannel;
+            }
+
+            ChannelDelimiters channel = kQwenThinkSpan;
+            channel.primer_opens_channel = config_.show_thinking;
+
+            return channel;
+        }
+
+        /**
+         * @brief Remove tool call and tool response spans from a response before it is
+         *        channel-split and displayed.
+         *
+         * These are protocol-internal (the harness already consumed and dispatched them);
+         * showing the raw call/response syntax as answer prose is noise. An unterminated span
+         * (generation stopped mid-span) truncates to end-of-string.
+         *
+         * Every family's pair is stripped rather than only the resident one's: the strings do
+         * not collide, and a list keyed on the model would be a second place to update when a
+         * family is added.
          */
         static std::string stripToolExchangeSpans( const std::string& text )
         {
             static constexpr std::pair<std::string_view, std::string_view> kSpans[] = {
                 { "<|tool_call>", "<tool_call|>" },
                 { "<|tool_response>", "<tool_response|>" },
+                // Qwen 3.8.
+                { "<tool_call>", "</tool_call>" },
+                { "<tool_response>", "</tool_response>" },
             };
 
             std::string result = text;
@@ -799,13 +863,16 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Remove Llama special tokens from a generated response before
-         *        storing it in the conversation history.
+         * @brief Remove control tokens from a generated response before storing it in the
+         *        conversation history.
          *
-         * The streaming decoder may include <|eot_id|> or <|eom_id|> at the tail
-         * of the generated text. Storing these verbatim causes them to be re-emitted
-         * literally into the next formatted prompt, corrupting the token boundary
-         * structure and confusing the model on subsequent turns.
+         * The streaming decoder may include a turn terminator at the tail of the generated
+         * text. Storing these verbatim causes them to be re-emitted literally into the next
+         * formatted prompt, corrupting the token boundary structure and confusing the model
+         * on subsequent turns.
+         *
+         * Every family's tokens are listed, not the resident one's: the spellings do not
+         * collide, and one list is one place to update.
          */
         static std::string stripSpecialTokens( const std::string& text )
         {
@@ -819,7 +886,13 @@ namespace Mila::ChatApp
                 "<|turn>", "<turn|>", "<|think|>",
                 "<|tool>", "<tool|>", "<|tool_call>", "<tool_call|>",
                 "<|tool_response>", "<tool_response|>",
-                "<|image|>", "<|audio|>"
+                "<|image|>", "<|audio|>",
+                // Qwen 3.8 ChatML and tool markers. <think>/</think> are deliberately omitted
+                // for the same reason Gemma's channel pair is: ChannelParser consumes them
+                // before this runs, and removing them here would erase the boundary it splits on.
+                "<|im_start|>", "<|im_end|>", "<|endoftext|>",
+                "<tool_call>", "</tool_call>",
+                "<tool_response>", "</tool_response>"
             };
 
             std::string result = text;
@@ -901,6 +974,27 @@ namespace Mila::ChatApp
          * @param tools Tool definitions loaded from the system prompt file.
          * @return      JSON array string describing all tools.
          */
+        /**
+         * @brief The tools worth telling the model about: those with a registered handler.
+         *
+         * Describing an unhandled tool primes the model to emit a call it will never get a
+         * result for. Read from two places -- the system turn the history opens with, and
+         * Qwen's formatter, which builds its own -- so the filter lives here rather than in
+         * whichever of them happens to run first.
+         */
+        std::vector<ToolDefinition> activeTools() const
+        {
+            std::vector<ToolDefinition> active;
+
+            for ( const auto& tool : system_prompt_config_.tools )
+            {
+                if ( tool_handlers_.contains( tool.name ) )
+                    active.push_back( tool );
+            }
+
+            return active;
+        }
+
         static std::string serializeTools( const std::vector<ToolDefinition>& tools )
         {
             nlohmann::json arr = nlohmann::json::array();
@@ -951,6 +1045,7 @@ namespace Mila::ChatApp
             gen_params.max_new_tokens = static_cast<int>( budget );
             gen_params.sampling.temperature = config_.temperature;
             gen_params.sampling.top_k = config_.top_k;
+            gen_params.sampling.top_p = config_.top_p;
 
             // Gemma 4's <|tool_call>/<tool_call|> pair is a native protocol element, not a
             // text convention (GemmaChatProtocol.md): the model expects the harness to stop
@@ -973,7 +1068,9 @@ namespace Mila::ChatApp
             // tool rounds of the turn.
             stream_display_.reset();
 
-            if ( config_.streaming_capable && gemma_stream_tokens_.has_value() )
+            // Not in one shot: streaming paints tokens onto standard output as they arrive,
+            // which is the whole value at a prompt and pure corruption of a piped answer.
+            if ( config_.streaming_capable && gemma_stream_tokens_.has_value() && !one_shot_ )
                 stream_display_ = std::make_unique<StreamingResponseDisplay>(
                     renderer_, *gemma_stream_tokens_, config_.detail );
 
@@ -1095,8 +1192,10 @@ namespace Mila::ChatApp
 
                 // A capped round is indistinguishable from a hang while the buffered
                 // response builds (pegged GPU, silent spinner) -- say so explicitly.
-                if ( round_status == GenerateStatus::MaxNewTokensReached
-                    || round_status == GenerateStatus::ContextOverflow )
+                // One shot says it on standard error instead, or in finish_reason -- this line
+                // goes to standard output and would land inside the answer being piped.
+                if ( ( round_status == GenerateStatus::MaxNewTokensReached
+                    || round_status == GenerateStatus::ContextOverflow ) && !one_shot_ )
                 {
                     if ( stream_display_ )
                         stream_display_->suspendForTrace();
@@ -1156,9 +1255,9 @@ namespace Mila::ChatApp
         /**
          * @brief Build the token sequence for the current generation step.
          *
-         * Llama instruct models format the full structured history via
-         * MessageFormatter. GPT and Llama base models encode only the last
-         * user message content.
+         * Each family renders the full structured history into its own instruct template. There
+         * is no base-model branch: `resolveModel` refuses a non-instruct model, so history is
+         * always something the model was trained to read.
          *
          * @return Token ids ready to pass to generateAsync().
          */
@@ -1166,12 +1265,25 @@ namespace Mila::ChatApp
         {
             std::string prompt;
 
-            if ( config_.model_type == ModelType::Llama && config_.is_instruct )
-                prompt = MessageFormatter::format( history_ );
-            else if ( config_.model_type == ModelType::Gemma && config_.is_instruct )
+            if ( config_.model_type == ModelType::Gemma )
                 prompt = formatGemmaPrompt( history_, config_.show_thinking, config_.thinking_effort );
+            else if ( config_.model_type == ModelType::Qwen )
+            {
+                // Effort goes through the model's own trained parameter rather than Gemma's
+                // prose scale: the checkpoint defines three levels and the exact wording for
+                // each, so a sentence of ours would be a prompt it was never tuned against.
+                const std::vector<ToolDefinition> tools = activeTools();
+
+                prompt = Mila::Dnn::Qwen::formatPrompt(
+                    history_,
+                    config_.show_thinking,
+                    Mila::Dnn::Qwen::reasoningEffortFromScale( config_.thinking_effort ),
+                    tools.empty()
+                        ? std::string{}
+                        : Mila::Dnn::Qwen::serializeToolSignatures( serializeTools( tools ) ) );
+            }
             else
-                prompt = history_.back().content;
+                prompt = MessageFormatter::format( history_ );
 
             auto token_ids = tokenizer_->encode( prompt );
 
@@ -1319,7 +1431,7 @@ namespace Mila::ChatApp
 
             // The name identifies the weights exactly -- it is unique across the store, which
             // the family/size/precision triple never was. Quantization still counts, because
-            // one artifact can be deployed at more than one.
+            // one set of weights can be deployed at more than one.
             return loaded
                 && config_.model_name == name
                 && ( !requested.has_value() || *requested == config_.quantization_mode );
@@ -1346,15 +1458,53 @@ namespace Mila::ChatApp
             config_.base_model        = resolved.base_model;
             config_.license           = resolved.license;
             config_.streaming_capable = resolved.streaming_capable;
+
+            // Thinking is the model's capability, so it re-derives on every switch rather than
+            // carrying a preference across a family that has no reasoning channel.
+            config_.thinking_capable  = resolved.thinking_capable;
+            config_.show_thinking     = resolved.thinking_capable;
             config_.quantization_mode = resolved.quantization;
             config_.quantization_applied_at_load = resolved.quantization_applied_at_load;
             config_.model_path        = resolved.weights;
             config_.tokenizer_path    = resolved.tokenizer;
 
-            // Preserve context_length across same-architecture switches; reset to the
-            // new model's default on an architecture change.
-            if ( prev_type != config_.model_type )
-                config_.context_length = resolved.default_context;
+            // Preserve context_length across same-architecture switches. On an architecture change
+            // the live value cannot carry (the ceilings differ), so fall back to what the merged
+            // configuration asked for, clamped to what the new architecture can address, and only
+            // to the new family's default when no layer above the defaults named a context.
+            //
+            // A zero is not a live value to preserve, and the architecture test alone does not
+            // catch it: a session that opened with NO model holds the default model_type, so
+            // loading a model of that same family skipped this and carried the zero into the load.
+            // That is the container failure -- no session config, then a Llama, then
+            // "context_length must be greater than zero". See ChatConfiguration.md section 2.
+            const FamilyTraits traits = familyTraits( config_.model_type );
+
+            if ( config_.context_is_automatic )
+            {
+                // Auto means "whatever fits the card", and what fits depends on the model, so a
+                // switch re-measures rather than carrying a number derived for the model being
+                // replaced -- which is the defect configured_context_length exists to prevent,
+                // in the one shape that field cannot express.
+                //
+                // Measured before the outgoing model is released, deliberately: auto budgets
+                // against device CAPACITY rather than free memory, so what is currently resident
+                // does not change the answer.
+                const ResolvedContext measured = resolveAutomaticContext(
+                    config_.model_path, config_.model_type, config_.precision,
+                    config_.quantization_mode, traits.max_context, traits.default_context,
+                    config_.device_index );
+
+                config_.context_length = measured.context_length;
+            }
+            else if ( prev_type != config_.model_type || config_.context_length == 0 )
+            {
+                const std::size_t configured = config_.configured_context_length;
+
+                config_.context_length = configured == 0
+                    ? traits.default_context
+                    : ( configured < traits.max_context ? configured : traits.max_context );
+            }
 
             // Destroy the current model before allocating the replacement.
             // This returns VRAM to the CUDA pool before the new model is loaded,
@@ -1365,9 +1515,714 @@ namespace Mila::ChatApp
             loadActiveModel();
             clearHistory();
 
+            // Written only after the load succeeds, so a name that failed to load is never the
+            // one the next session opens with.
+            writeLastChosenModel( config_.model_name );
+
             renderer_.printInfo( had_model
                 ? "Model switched. Conversation history cleared."
                 : "Model loaded." );
+
+            // Said on a switch as well as at startup: under auto the context is re-measured for
+            // the model just loaded, and between two families that is a change of two orders of
+            // magnitude. Silent would be the same unaccountable number this replaced.
+            if ( config_.context_is_automatic )
+            {
+                renderer_.printInfo( std::format( "Context {} (auto).", config_.context_length ) );
+            }
+        }
+
+        /**
+         * @brief `/model list [--online]`.
+         *
+         * Installed is the default because it is the offline, instant answer, and because it is
+         * the only one that says what can actually be loaded. The owner is hidden: --online means
+         * the one Mila publishes into. An explicit owner still works, as the escape hatch for a
+         * second publisher, but nothing advertises it.
+         */
+        void listModelsCommand( std::span<const std::string_view> args )
+        {
+            try
+            {
+                const auto hub_owner = [&]() -> std::string
+                    {
+                        const std::string argument( args.front() );
+
+                        return ( argument == "--online" || argument == "online" )
+                            ? std::string( Mila::Distribution::kDefaultHubOwner )
+                            : argument;
+                    };
+
+                // Against the card's TOTAL memory rather than what is free.
+                //
+                // The listing answers "which of these could this machine run", and that is a
+                // property of the card, not of this second. Free memory was tried and is wrong
+                // here twice over: the resident model's own report understates what releasing it
+                // returns (it excludes the 6-13% residual Gate B measured), and whatever the
+                // desktop holds gets charged to every candidate. Both push the same way, and a 3B
+                // was marked as not fitting on a card with room for three. The live picture
+                // belongs on /model, which measures it directly.
+                const DeviceMemoryInfo memory = queryDeviceMemory( config_.device_index );
+
+                std::optional<FootprintBudget> budget;
+
+                // No device to ask means no column: a listing claiming "0 MB" would be stating a
+                // measurement it does not have.
+                if ( memory.total_bytes > 0 )
+                {
+                    FootprintBudget costed;
+
+                    // Zero under auto, which asks the listing to answer each row at the largest
+                    // context THAT model would get. Pricing every row at the resident model's
+                    // auto-derived number is what made three of six rows warn falsely: Gemma
+                    // affords 56320 because most of its layers are sliding-window, and no Llama
+                    // would ever be given it. A context the user NAMED is different -- it really
+                    // does apply to every row, because it is what loading any of them would use.
+                    costed.fixed_context_length = config_.context_is_automatic
+                        ? dim_t{ 0 }
+                        : static_cast<dim_t>( config_.context_length );
+
+                    costed.available_bytes = memory.total_bytes;
+                    costed.device_name = queryDeviceName( config_.device_index );
+                    costed.device_index = config_.device_index;
+                    costed.resident_model =
+                        modelIsResident() ? modelName() : std::string{};
+
+                    budget = std::move( costed );
+                }
+
+                if ( args.empty() )
+                {
+                    const ModelListing listing = describeInstalledModels( budget );
+
+                    // Plain, like /help and /model: a table is the content the command was run
+                    // to produce.
+                    for ( const auto& line : listing.table )
+                    {
+                        std::cout << line << "\n";
+                    }
+
+                    std::cout << "\n";
+
+                    for ( const auto& line : listing.notes )
+                    {
+                        renderer_.printInfo( "  " + line );
+                    }
+
+                    return;
+                }
+
+                // Capacity, matching the installed listing: the question is what this card can
+                // run, not what is free while a model is resident.
+                for ( const auto& line : describeHubModels(
+                    hub_owner(), memory.total_bytes,
+                    queryDeviceName( config_.device_index ) ) )
+                {
+                    std::cout << line << "\n";
+                }
+            }
+            catch ( const std::exception& error )
+            {
+                renderer_.printError( std::format(
+                    "Could not list models: {}", error.what() ) );
+            }
+        }
+
+        /**
+         * @brief `/model load <name> [none|fp8|fp4]`.
+         *
+         * Spelled out rather than reached by a bare name, because it is the one command here that
+         * costs seconds and megabytes: it releases the resident weights, builds a new graph and
+         * clears the conversation.
+         */
+        void loadModelCommand( std::span<const std::string_view> args )
+        {
+            if ( args.empty() )
+            {
+                renderer_.printInfo(
+                    "Usage: /model load <name> [none|fp8|fp4]." );
+
+                return;
+            }
+
+            // Quantizing on load is a deployment choice, not an identity: it lets BF16 weights
+            // too large for the card run anyway. Pre-quantized weights are a different model
+            // with its own name, and refuse this.
+            std::optional<QuantizationMode> requested_quantization;
+
+            for ( std::size_t index = 1; index < args.size(); ++index )
+            {
+                const auto parsed = parseQuantization( args[ index ] );
+
+                if ( !parsed )
+                {
+                    renderer_.printInfo( std::format(
+                        "Unknown option '{}'. Use none, fp8 or fp4.", args[ index ] ) );
+
+                    return;
+                }
+
+                requested_quantization = *parsed;
+            }
+
+            // Folded before the comparison below, so `/model load LLAMA-3.2-3B-INSTRUCT-FP4`
+            // against that same model resident is recognised rather than reloaded.
+            const std::string name =
+                resolveStoredName( std::string( args.front() ) )
+                    .value_or( std::string( args.front() ) );
+
+            if ( isCurrentModel( name, requested_quantization ) )
+            {
+                renderer_.printInfo( std::format( "{} is already loaded.", modelName() ) );
+
+                return;
+            }
+
+            try
+            {
+                switchModel( name, requested_quantization );
+            }
+            catch ( const std::exception& error )
+            {
+                // The session keeps its working model: resolution happens before the current one
+                // is released.
+                renderer_.printInfo( error.what() );
+            }
+        }
+
+        /// `/model install <name>`.
+        void installModelCommand( std::span<const std::string_view> args )
+        {
+            if ( args.size() != 1 )
+            {
+                renderer_.printInfo(
+                    "Usage: /model install <name> -- one name, as /model list --online shows it." );
+
+                return;
+            }
+
+            const std::string name( args.front() );
+
+            bool installed = false;
+
+            try
+            {
+                for ( const auto& line : installModel( name ) )
+                {
+                    renderer_.printInfo( line );
+                }
+
+                installed = true;
+            }
+            catch ( const std::exception& error )
+            {
+                // A failed install must leave the session on its working model, so this reports
+                // and returns to the prompt rather than propagating.
+                renderer_.printInfo( std::format( "Install failed: {}", error.what() ) );
+            }
+
+            // Bootstrap: a session that opened with nothing resident wants the model it just
+            // installed. Reported separately from the install because a load that fails here has
+            // not failed the install, and saying so would send the user to fix the wrong thing.
+            if ( installed && !modelIsResident() )
+            {
+                try
+                {
+                    switchModel( name );
+                }
+                catch ( const std::exception& error )
+                {
+                    renderer_.printInfo( std::format(
+                        "Installed, but loading it failed: {}", error.what() ) );
+                }
+            }
+        }
+
+        /// `/model remove <name>`.
+        void removeModelCommand( std::span<const std::string_view> args )
+        {
+            if ( args.size() != 1 )
+            {
+                renderer_.printInfo(
+                    "Usage: /model remove <name> -- one name, as /model list shows it." );
+
+                return;
+            }
+
+            try
+            {
+                for ( const auto& line : removeModel( std::string( args.front() ) ) )
+                {
+                    renderer_.printInfo( line );
+                }
+            }
+            catch ( const std::exception& error )
+            {
+                renderer_.printInfo( std::format( "Remove failed: {}", error.what() ) );
+            }
+        }
+
+        /// `/model <name>` -- the facts about one model, installed or only published.
+        void describeModelCommand( std::span<const std::string_view> args )
+        {
+            if ( args.size() != 1 )
+            {
+                renderer_.printInfo(
+                    "Usage: /model <name>, or /model list|load|install|remove." );
+
+                return;
+            }
+
+            const std::string name =
+                resolveStoredName( std::string( args.front() ) )
+                    .value_or( std::string( args.front() ) );
+
+            // The resident model answers from the session instead, because the live deployment --
+            // the context it was built at, what it is actually holding -- is strictly more than
+            // the record can say, and it is the same model either way.
+            if ( isCurrentModel( name, std::nullopt ) )
+            {
+                printModelInfo();
+
+                return;
+            }
+
+            try
+            {
+                for ( const auto& line : describeModel( name ) )
+                {
+                    std::cout << line << "\n";
+                }
+            }
+            catch ( const std::exception& error )
+            {
+                renderer_.printError( std::format(
+                    "Could not describe {}: {}", name, error.what() ) );
+            }
+        }
+
+        /**
+         * @brief `/thinking [on|off]`.
+         *
+         * Its own command rather than an argument to a load. It rode on `/model <name> thinking`,
+         * which needed a no-reload fast path to avoid a multi-gigabyte round trip for a boolean --
+         * and once loading became explicit, `/model load <name> thinking` would have been a load
+         * that deliberately does not load.
+         */
+        void applyThinking( std::span<const std::string_view> args )
+        {
+            // A preference cannot give a model a channel it was not trained with, and reporting
+            // one as enabled is how the session came to advertise an effort level for Llama.
+            if ( !config_.thinking_capable )
+            {
+                renderer_.printInfo( "This model has no reasoning channel." );
+
+                return;
+            }
+
+            if ( args.empty() )
+            {
+                renderer_.printInfo( std::format(
+                    "Thinking: {}.", config_.show_thinking ? "on" : "off" ) );
+
+                return;
+            }
+
+            if ( args.size() != 1 || ( args.front() != "on" && args.front() != "off" ) )
+            {
+                renderer_.printInfo( "Usage: /thinking [on|off]." );
+
+                return;
+            }
+
+            config_.show_thinking = ( args.front() == "on" );
+
+            renderer_.printInfo( std::format(
+                "Thinking {}.", config_.show_thinking ? "on" : "off" ) );
+        }
+
+        /// Tokens an answer needs after the transcript and the reasoning budget. A policy number,
+        /// and the only compiled part of the context floor -- the rest the session measures.
+        static constexpr std::size_t kAnswerHeadroomTokens = 512;
+
+        /**
+         * @brief The smallest context this session could hold a turn in, and what makes it up.
+         *
+         * The parts are carried, not just the sum, because a refusal has to be arguable: "8192 is
+         * below the minimum" invites the question this answers.
+         */
+        struct ContextFloor
+        {
+            /// Zero when there was no tokenizer to measure with, which reads as "no floor".
+            std::size_t minimum{ 0 };
+
+            std::size_t transcript{ 0 };
+
+            /// Zero unless thinking is both switched on and something this model can do.
+            std::size_t reasoning{ 0 };
+        };
+
+        /**
+         * @brief Measure the floor.
+         *
+         * Derived rather than compiled, because every part is something the session already knows:
+         * what the transcript renders to, what the reasoning budget will claim, and room to answer.
+         * A constant 512 or 1024 would be a figure the user has to take on faith, and would be
+         * wrong in both directions -- too small for a Gemma turn at high effort, too large for
+         * GPT-2's 1024 addressable positions.
+         */
+        ContextFloor contextFloor() const
+        {
+            ContextFloor floor;
+
+            if ( !tokenizer_ )
+            {
+                return floor;
+            }
+
+            // The RENDERED transcript, so the system prompt and the template's own control tokens
+            // are both counted -- the two a hand-written floor would have forgotten.
+            floor.transcript = buildInputTokens().size();
+
+            floor.reasoning = ( config_.show_thinking && config_.thinking_capable )
+                ? static_cast<std::size_t>( thinkingEffort( config_.thinking_effort ).budget )
+                : 0;
+
+            floor.minimum = floor.transcript + floor.reasoning + kAnswerHeadroomTokens;
+
+            return floor;
+        }
+
+        /**
+         * @brief Report the context, where it came from, and what auto would choose now.
+         *
+         * The last of those is what makes the command self-teaching: the number is on screen
+         * before the user commits to it, so /context auto is never a leap in the dark.
+         */
+        void reportContext()
+        {
+            const std::string basis = config_.context_is_automatic
+                ? std::string( "auto" )
+                : ( config_.context_origin.empty()
+                    ? std::string( layerName( SettingsLayer::FamilyInvariants ) )
+                    : config_.context_origin );
+
+            std::cout << std::format( "  {:<16}{}\n", "Context window:", config_.context_length );
+            std::cout << std::format( "  {:<16}{}\n", "Set by:", basis );
+
+            const ContextFloor floor = contextFloor();
+
+            if ( floor.minimum > 0 )
+            {
+                std::cout << std::format( "  {:<16}{} (transcript {}, reasoning {}, answer {})\n",
+                    "Minimum here:", floor.minimum, floor.transcript, floor.reasoning,
+                    kAnswerHeadroomTokens );
+            }
+
+            if ( !modelIsResident() )
+            {
+                return;
+            }
+
+            const FamilyTraits traits = familyTraits( config_.model_type );
+
+            const ResolvedContext measured = resolveAutomaticContext(
+                config_.model_path, config_.model_type, config_.precision,
+                config_.quantization_mode, traits.max_context, traits.default_context,
+                config_.device_index );
+
+            if ( !measured.fallback_reason.empty() )
+            {
+                std::cout << std::format( "  {:<16}not measured ({})\n",
+                    "Largest fit:", measured.fallback_reason );
+
+                return;
+            }
+
+            // Why it stopped short is worth one clause here, where the reader asked about context
+            // specifically -- it is the one place the prefill bound is not noise.
+            std::cout << std::format( "  {:<16}{}{}\n",
+                "Largest fit:", measured.context_length,
+                measured.bounded_by_prefill
+                    ? "  (held back to keep a full prefill chunk)" : "" );
+
+            if ( measured.context_length != config_.context_length )
+            {
+                renderer_.printInfo( std::format(
+                    "  /context {} reloads there, /context auto keeps it measured.",
+                    measured.context_length ) );
+            }
+        }
+
+        /**
+         * @brief Set the context to an explicit length and rebuild the model there.
+         *
+         * Refused rather than clamped below the floor: a context too short for the turn loads
+         * perfectly well and then truncates every round, which is exactly the failure Gemma's
+         * compiled 512 default produced for anyone with no config file.
+         *
+         * The number is passed through exactly. Rounding a requested 8000 up to the 1024 grid the
+         * auto scan reports on would be the silent device override ChatConfiguration.md section 6
+         * rules out: a user who writes 8192 gets 8192, and one who writes 8000 gets 8000.
+         */
+        void applyContextLength( std::size_t length )
+        {
+            const FamilyTraits traits = familyTraits( config_.model_type );
+
+            if ( modelIsResident() && length > traits.max_context )
+            {
+                renderer_.printError( std::format(
+                    "{} addresses {} positions at most.", modelName(), traits.max_context ) );
+
+                return;
+            }
+
+            const ContextFloor floor = contextFloor();
+
+            if ( floor.minimum > 0 && length < floor.minimum )
+            {
+                renderer_.printError( std::format(
+                    "{} is below this session's minimum of {}: the transcript renders to {} "
+                    "tokens{}, and an answer needs room after it.",
+                    length, floor.minimum, floor.transcript,
+                    floor.reasoning > 0
+                        ? std::format( " with {} budgeted for reasoning", floor.reasoning )
+                        : std::string{} ) );
+
+                renderer_.printInfo(
+                    "  /clear drops the transcript; /effort lowers the reasoning budget." );
+
+                return;
+            }
+
+            reloadAtContext( length, false );
+        }
+
+        /**
+         * @brief Measure the largest context that fits this card and rebuild there.
+         */
+        void applyAutomaticContext()
+        {
+            if ( !modelIsResident() )
+            {
+                // Nothing to measure: auto is a question about a model's footprint, and the flag
+                // is what makes the next load ask it.
+                config_.context_is_automatic = true;
+                config_.configured_context_length = 0;
+                config_.context_origin =
+                    std::string( layerName( SettingsLayer::SessionOverride ) );
+
+                renderer_.printInfo(
+                    "Context set to auto; it is measured when a model loads." );
+
+                return;
+            }
+
+            const FamilyTraits traits = familyTraits( config_.model_type );
+
+            const ResolvedContext measured = resolveAutomaticContext(
+                config_.model_path, config_.model_type, config_.precision,
+                config_.quantization_mode, traits.max_context, traits.default_context,
+                config_.device_index );
+
+            if ( !measured.fallback_reason.empty() )
+            {
+                renderer_.printError( std::format(
+                    "Could not measure a context for this card: {}.",
+                    measured.fallback_reason ) );
+
+                return;
+            }
+
+            reloadAtContext( measured.context_length, true );
+        }
+
+        /**
+         * @brief Rebuild the resident model at a new context, keeping the conversation.
+         *
+         * Context sizes the KV cache and the activation workspaces at build time and there is no
+         * in-place resize, so this is switchModel's path with the same weights. It differs in the
+         * one way the user notices: /model clears history because the tokenizer and the template
+         * change, and neither changes here, so the transcript survives and re-prefills next turn.
+         *
+         * Same exposure switchModel has, deliberately rather than by omission: the outgoing model
+         * is released before the replacement is built, so a load that fails leaves nothing
+         * resident and reports into the session. The pre-flight inside loadActiveModel is what
+         * makes that unlikely; a bespoke restore-and-reload path here would be a second recovery
+         * convention for one command.
+         */
+        void reloadAtContext( std::size_t length, bool automatic )
+        {
+            if ( length == config_.context_length )
+            {
+                if ( automatic == config_.context_is_automatic )
+                {
+                    renderer_.printInfo( std::format( "Context is already {}.", length ) );
+
+                    return;
+                }
+
+                // A change of flag alone must not rebuild: the buffers are already this size. This
+                // is `/context <the number auto chose>`, which pins a measured value, and its
+                // inverse -- and a multi-second reload to flip a bool would be indefensible.
+                config_.context_is_automatic = automatic;
+                config_.configured_context_length = automatic ? 0 : length;
+                config_.context_origin =
+                    std::string( layerName( SettingsLayer::SessionOverride ) );
+
+                renderer_.printInfo( automatic
+                    ? std::format( "Context {} is now re-measured on each load.", length )
+                    : std::format( "Context {} is now pinned.", length ) );
+
+                return;
+            }
+
+            const std::string name = modelName();
+
+            // Every field the attempt is about to overwrite, so a failure leaves the session
+            // describing the context it would return to rather than the one that did not load.
+            const std::size_t previous_length = config_.context_length;
+            const bool previous_automatic = config_.context_is_automatic;
+            const std::size_t previous_configured = config_.configured_context_length;
+            const std::string previous_origin = config_.context_origin;
+
+            config_.context_length = length;
+            config_.context_is_automatic = automatic;
+
+            // What was ASKED for, so a later model switch carries this rather than dropping to the
+            // next family's default. Cleared under auto, where the answer is re-measured per model.
+            config_.configured_context_length = automatic ? 0 : length;
+            config_.context_origin = std::string( layerName( SettingsLayer::SessionOverride ) );
+
+            try
+            {
+                // Released before the replacement is built, so the two never both hold VRAM.
+                std::visit( []( auto& model ) { model.reset(); }, model_ );
+
+                loadActiveModel();
+            }
+            catch ( const std::exception& error )
+            {
+                renderer_.printError( std::format(
+                    "Could not reload {} at context {}: {}", name, length, error.what() ) );
+
+                std::visit( []( auto& model ) { model.reset(); }, model_ );
+
+                config_.context_length = previous_length;
+                config_.context_is_automatic = previous_automatic;
+                config_.configured_context_length = previous_configured;
+                config_.context_origin = previous_origin;
+
+                // An empty name IS the no-model state, which is what the session now is. The
+                // transcript is left alone: it is what the reload was protecting.
+                config_.model_name.clear();
+
+                renderer_.printInfo( std::format(
+                    "Nothing is loaded. /model {} loads it again at context {}.",
+                    name, previous_length ) );
+
+                return;
+            }
+
+            renderer_.printInfo( automatic
+                ? std::format( "Context {} (auto). Conversation kept.", length )
+                : std::format( "Context {}. Conversation kept.", length ) );
+        }
+
+        /// The sampling knobs, which reach the sampler per call and so need no reload.
+        void reportSamplingSettings() const
+        {
+            std::cout << std::format( "  {:<16}{}\n", "temperature:", config_.temperature );
+            std::cout << std::format( "  {:<16}{}\n", "top_k:", config_.top_k );
+            std::cout << std::format( "  {:<16}{}\n", "top_p:", config_.top_p );
+
+            renderer_.printInfo(
+                "  Set with /set <key> <value>. temperature 0 is greedy, top_k 0 and top_p 1 "
+                "each disable that filter." );
+        }
+
+        /**
+         * @brief Set one sampling knob.
+         *
+         * The bounds are the sampler's rather than a matter of taste: a negative temperature or a
+         * top_p outside [0,1] is not an adventurous setting, it is a value nothing downstream has
+         * a meaning for. No reload -- these are read per generate call, unlike context.
+         */
+        void applySamplingSetting( std::string_view key, std::string_view value )
+        {
+            // Whole-field parses only. from_chars stops at the first character it cannot use, so
+            // without the end test "0.8abc" and "40x" would both be accepted silently.
+            const auto parseFloat = [value]( float& out ) -> bool
+                {
+                    const auto result = std::from_chars(
+                        value.data(), value.data() + value.size(), out );
+
+                    return result.ec == std::errc{}
+                        && result.ptr == value.data() + value.size();
+                };
+
+            const auto parseInt = [value]( int& out ) -> bool
+                {
+                    const auto result = std::from_chars(
+                        value.data(), value.data() + value.size(), out );
+
+                    return result.ec == std::errc{}
+                        && result.ptr == value.data() + value.size();
+                };
+
+            if ( key == "temperature" )
+            {
+                float parsed = 0.0f;
+
+                if ( !parseFloat( parsed ) || parsed < 0.0f || parsed > 5.0f )
+                {
+                    renderer_.printInfo( "Usage: /set temperature <0..5>  (0 is greedy)." );
+
+                    return;
+                }
+
+                config_.temperature = parsed;
+                renderer_.printInfo( std::format( "temperature set to {}.", parsed ) );
+
+                return;
+            }
+
+            if ( key == "top_k" )
+            {
+                int parsed = 0;
+
+                if ( !parseInt( parsed ) || parsed < 0 )
+                {
+                    renderer_.printInfo( "Usage: /set top_k <n>  (0 disables it)." );
+
+                    return;
+                }
+
+                config_.top_k = parsed;
+                renderer_.printInfo( std::format( "top_k set to {}.", parsed ) );
+
+                return;
+            }
+
+            if ( key == "top_p" )
+            {
+                float parsed = 0.0f;
+
+                if ( !parseFloat( parsed ) || parsed < 0.0f || parsed > 1.0f )
+                {
+                    renderer_.printInfo( "Usage: /set top_p <0..1>  (1 disables it)." );
+
+                    return;
+                }
+
+                config_.top_p = parsed;
+                renderer_.printInfo( std::format( "top_p set to {}.", parsed ) );
+
+                return;
+            }
+
+            renderer_.printInfo( std::format(
+                "'{}' is not a setting. Use temperature, top_k or top_p.", key ) );
         }
 
         /**
@@ -1386,18 +2241,31 @@ namespace Mila::ChatApp
          */
         void reportFootprintBeforeLoad()
         {
-            std::optional<MemoryStats> required =
+            const FootprintPrediction prediction =
                 predictActiveFootprint( static_cast<dim_t>( config_.context_length ) );
+
+            const std::optional<MemoryStats>& required = prediction.required;
 
             if ( !required )
             {
+                // Silent by contract -- a pre-flight must never be what stops a model being
+                // tried. At All the user has asked to see everything, and an absence with no
+                // reason is what left the predictor's own failure undiagnosed for a week.
+                if ( config_.detail == DetailLevel::All )
+                {
+                    renderer_.printInfo( std::format(
+                        "No footprint prediction for {}: {}.",
+                        modelName(), prediction.unavailable_reason ) );
+                }
+
                 return;
             }
 
             const std::size_t available =
-                availableDeviceBytes( queryDeviceMemory(), residentDeviceBytes() );
+                availableDeviceBytes(
+                    queryDeviceMemory( config_.device_index ), residentDeviceBytes() );
 
-            // The same grader /models uses, against a deliberately different budget: the
+            // The same grader /model list uses, against a deliberately different budget: the
             // listing asks what this card can run at all, where this asks whether one load
             // succeeds on the machine as it stands. So a model the listing showed as fitting
             // can still warn here, when something else is holding the memory -- which is the
@@ -1425,7 +2293,7 @@ namespace Mila::ChatApp
             if ( verdict == FootprintVerdict::WeightsExceedAvailable )
             {
                 // Context is not the lever when the weights alone overflow, since they do not
-                // shrink with it. Quantization is, and only while the artifact still permits it.
+                // shrink with it. Quantization is, and only while the weights still permit it.
                 if ( config_.quantization_mode == QuantizationMode::None )
                 {
                     renderer_.printInfo( std::format(
@@ -1437,7 +2305,7 @@ namespace Mila::ChatApp
             }
 
             // The weights fit, so trimming context can bring the working memory under the line.
-            suggestFittingContext( available );
+            suggestFittingContext();
         }
 
         /**
@@ -1464,46 +2332,36 @@ namespace Mila::ChatApp
         /**
          * @brief Largest context length that would fit, reported as a suggestion.
          *
-         * A footprint query is cheap enough to binary-search: it reads the artifact header
-         * and walks a constructed graph, so a dozen probes cost milliseconds and no VRAM.
+         * Asked through the same scan /context auto runs, for two reasons that both matter. The
+         * number is one the user can now GET -- this used to advise editing the chat config and
+         * restarting, which made it a measurement nobody could act on from where they were
+         * standing. And the scan descends the grid where this bisected: bisection assumes the
+         * footprint rises with context and Gemma's does not, it drops where prefill chunking caps
+         * the activation buffers, so a bisection can land the wrong side of that step and report a
+         * context shorter than one it had already accepted.
+         *
+         * Budgeted against device capacity less a margin, which is what auto uses, rather than
+         * against the bytes free at this instant. Deliberate: a suggestion the user cannot
+         * reproduce by typing the command it names would be worse than saying nothing.
          */
-        void suggestFittingContext( std::size_t free_bytes )
+        void suggestFittingContext()
         {
-            std::size_t low = 512;
-            std::size_t high = config_.context_length;
-            std::size_t best = 0;
+            const FamilyTraits traits = familyTraits( config_.model_type );
 
-            while ( low <= high )
+            const ResolvedContext measured = resolveAutomaticContext(
+                config_.model_path, config_.model_type, config_.precision,
+                config_.quantization_mode, traits.max_context, traits.default_context,
+                config_.device_index );
+
+            if ( !measured.fallback_reason.empty()
+                || measured.context_length >= config_.context_length )
             {
-                const std::size_t midpoint = low + ( ( high - low ) / 2 / 512 ) * 512;
-
-                std::optional<MemoryStats> required =
-                    predictActiveFootprint( static_cast<dim_t>( midpoint ) );
-
-                if ( !required )
-                {
-                    return;
-                }
-
-                if ( practicalDeviceBytes( *required ) <= free_bytes )
-                {
-                    best = midpoint;
-                    low = midpoint + 512;
-                }
-                else
-                {
-                    // low never drops below the 512 floor, so midpoint >= 512 always and the
-                    // subtraction cannot wrap; the loop ends when high falls under low.
-                    high = midpoint - 512;
-                }
+                return;
             }
 
-            if ( best > 0 )
-            {
-                renderer_.printInfo( std::format(
-                    "Context {} would fit -- set \"context_length\": {} in the chat config.",
-                    best, best ) );
-            }
+            renderer_.printInfo( std::format(
+                "Context {} would fit -- run /context {}, or /context auto to keep it measured.",
+                measured.context_length, measured.context_length ) );
         }
 
         /**
@@ -1531,12 +2389,22 @@ namespace Mila::ChatApp
         void reportNoModel() const
         {
             renderer_.printInfo(
-                "No model is loaded. /models --online lists what can be installed, "
-                "/install <name> installs one, and /models lists what is already here." );
+                "No model is loaded. /model list --online shows what can be installed, "
+                "/model install <name> installs one, and /model list shows what is here." );
         }
 
         void loadActiveModel()
         {
+            // Checked against the key a user can edit, before anything is constructed. The
+            // library's own guard is correct and names LanguageModelConfig, which is a type the
+            // reader of a session file has never heard of and cannot change.
+            if ( config_.context_length == 0 )
+            {
+                throw std::invalid_argument(
+                    "context_length is zero. Set a positive 'context_length' in the session "
+                    "config, or remove the key to take the model's own default." );
+            }
+
             reportFootprintBeforeLoad();
 
             if ( config_.detail == DetailLevel::All )
@@ -1544,7 +2412,6 @@ namespace Mila::ChatApp
                 // No spinner: its redraws and the log lines fight for the same line.
                 initializeTokenizer();
                 loadModel();
-                announceCompletionMode();
 
                 return;
             }
@@ -1556,12 +2423,22 @@ namespace Mila::ChatApp
                     modelName(), quantizationName( config_.quantization_mode ) )
                 : std::format( "Loading {}", modelName() ) );
 
-            initializeTokenizer();
-            loadModel();
+            // Stopped here rather than in each caller's catch: a load that throws left the
+            // spinner redrawing over the error message that explained it, and the hidden
+            // cursor never came back. The one place that starts it owns stopping it.
+            try
+            {
+                initializeTokenizer();
+                loadModel();
+            }
+            catch ( ... )
+            {
+                renderer_.stopSpinner();
+
+                throw;
+            }
 
             renderer_.stopSpinner();
-
-            announceCompletionMode();
         }
 
         /**
@@ -1587,26 +2464,6 @@ namespace Mila::ChatApp
             return std::min( config_.max_new_tokens, remaining );
         }
 
-        /**
-         * @brief Say plainly when the loaded model is not an instruct model.
-         *
-         * Chat renders turns and accumulates history, and a base model uses none of it: the
-         * prompt is the last line, raw. Saying so is the difference between a model that looks
-         * broken and one doing exactly what a base model does.
-         */
-        void announceCompletionMode() const
-        {
-            if ( config_.is_instruct )
-            {
-                return;
-            }
-
-            renderer_.printInfo( std::format(
-                "{} is a base model, so this is completion mode: no chat template, no system "
-                "prompt, and no history. Your line is the prompt and the model continues it.",
-                modelName() ) );
-        }
-
         void printModelInfo() const
         {
             // Without a model the fields below are defaults, not facts -- printing them would
@@ -1620,51 +2477,67 @@ namespace Mila::ChatApp
 
             const ThinkingEffort& effort = thinkingEffort( config_.thinking_effort );
 
-            std::cout << std::format( "  Model:        {}\n", modelName() );
+            std::cout << std::format( "  Model:          {}\n", modelName() );
 
             // Lineage before the deployment axes: a redistributed model's attribution belongs
             // beside its identity, not below its settings.
             if ( !config_.base_model.empty() )
             {
-                std::cout << std::format( "  Base model:   {}\n", config_.base_model );
+                std::cout << std::format( "  Base model:     {}\n", config_.base_model );
             }
 
             if ( !config_.license.empty() )
             {
-                std::cout << std::format( "  License:      {}\n", config_.license );
+                std::cout << std::format( "  License:        {}\n", config_.license );
             }
 
             const std::string_view attribution = requiredAttributionFor( config_.license );
 
             if ( !attribution.empty() )
             {
-                std::cout << std::format( "  Attribution:  {}\n", attribution );
+                std::cout << std::format( "  Attribution:    {}\n", attribution );
             }
 
+            // Whether it was derived, not the derivation. "auto, 11.99 GB device, held to a full
+            // 1024-row prefill chunk" answers a question nobody in a chat session is asking; that
+            // it was not a number they chose is the part that changes how they read it. The full
+            // account still reaches a caller through the -p JSON payload's context_source.
+            const std::string context_line = config_.context_is_automatic
+                ? std::format( "{} (auto)", config_.context_length )
+                : std::format( "{}", config_.context_length );
+
             std::cout << std::format(
-                "  Precision:    {}\n"
-                "  Quantization: {}\n"
-                "  Context:      {}\n"
-                "  Instruct:     {}\n"
-                "  Thinking:     {}\n"
-                "  Effort:       {} ({}, ~{} tokens)\n"
-                "  Detail:       {}\n",
+                "  Precision:      {}\n"
+                "  Quantization:   {}\n"
+                "  Context window: {}\n"
+                "  Instruct:       {}\n",
                 (config_.precision == ModelPrecision::BF16) ? "bf16" : "fp32",
                 quantizationName( config_.quantization_mode ),
-                config_.context_length,
-                config_.is_instruct ? "yes" : "no",
-                config_.show_thinking ? "on" : "off",
-                config_.thinking_effort, effort.name, effort.budget,
+                context_line,
+                config_.is_instruct ? "yes" : "no" );
+
+            // Reported only by a model that has the channel. An effort level beside a model with
+            // no reasoning mode describes a budget for tokens it will never emit.
+            if ( config_.thinking_capable )
+            {
+                std::cout << std::format(
+                    "  Thinking:       {}\n"
+                    "  Effort:         {} ({}, ~{} tokens)\n",
+                    config_.show_thinking ? "on" : "off",
+                    config_.thinking_effort, effort.name, effort.budget );
+            }
+
+            std::cout << std::format( "  Detail:         {}\n",
                 detailLevelName( config_.detail ) );
 
             // Measured off the device rather than taken from the model's own report: what is
             // actually resident includes the allocator rounding and lazily grown scratch that
             // a footprint cannot model, and that residual is the whole reason to look here.
-            const DeviceMemoryInfo memory = queryDeviceMemory();
+            const DeviceMemoryInfo memory = queryDeviceMemory( config_.device_index );
 
             if ( memory.total_bytes > 0 )
             {
-                std::cout << std::format( "  VRAM:         {}\n",
+                std::cout << std::format( "  VRAM:           {}\n",
                     formatBytesOf( memory.total_bytes - memory.free_bytes, memory.total_bytes ) );
             }
         }
@@ -1687,6 +2560,10 @@ namespace Mila::ChatApp
 
                     case ModelType::Gemma:
                         tokenizer_ = BpeTokenizer::loadGemma( config_.tokenizer_path );
+                        break;
+
+                    case ModelType::Qwen:
+                        tokenizer_ = BpeTokenizer::loadQwen( config_.tokenizer_path );
                         break;
                 }
 
@@ -1773,19 +2650,20 @@ namespace Mila::ChatApp
          * makes this the load path's question: a prediction made under different settings
          * than the load would use describes a different model.
          */
-        std::optional<MemoryStats> predictActiveFootprint( dim_t context_length ) const
+        FootprintPrediction predictActiveFootprint( dim_t context_length ) const
         {
             return Mila::ChatApp::predictFootprint(
                 config_.model_path,
                 config_.model_type,
                 config_.precision,
                 config_.quantization_mode,
-                context_length );
+                context_length,
+                config_.device_index );
         }
 
         void loadModel()
         {
-            const DeviceId device{ DeviceType::Cuda, 0 };
+            const DeviceId device{ DeviceType::Cuda, config_.device_index };
 
             switch ( config_.model_type )
             {
@@ -1849,6 +2727,23 @@ namespace Mila::ChatApp
                         std::cout << gemma->getMemoryStats().toString() << "\n";
                     }
                     model_ = std::move( gemma );
+                    break;
+                }
+
+                case ModelType::Qwen:
+                {
+                    QwenModelConfig qwen_config = QwenModelConfig( config_.context_length );
+
+                    applyQwenQuantization( qwen_config, config_.quantization_mode );
+
+                    auto qwen = QwenModelBF16Type::fromPretrained(
+                        config_.model_path, qwen_config, device );
+                    if ( config_.detail == DetailLevel::All )
+                    {
+                        std::cout << qwen->toString();
+                        std::cout << qwen->getMemoryStats().toString() << "\n";
+                    }
+                    model_ = std::move( qwen );
                     break;
                 }
             }
@@ -1975,12 +2870,28 @@ namespace Mila::ChatApp
         {
             if ( modelIsResident() )
             {
-                const std::string thinking_display = config_.show_thinking
-                    ? std::string( thinkingEffort( config_.thinking_effort ).name )
-                    : "off";
+                // "(auto)" says the number was not one they chose, which changes how they read it.
+                // How it was derived does not, and is not shown anywhere.
+                const std::string context_display = config_.context_is_automatic
+                    ? std::format( "{} (auto)", config_.context_length )
+                    : std::format( "{}", config_.context_length );
 
-                renderer_.printInfo( std::format( "  Model: {}  ·  Thinking: {}",
-                    modelName(), thinking_display ) );
+                // The thinking clause is omitted entirely for a model without the channel, rather
+                // than shown as "off" -- off reads as a setting the user could turn on.
+                if ( config_.thinking_capable )
+                {
+                    const std::string thinking_display = config_.show_thinking
+                        ? std::string( thinkingEffort( config_.thinking_effort ).name )
+                        : "off";
+
+                    renderer_.printInfo( std::format( "  Model: {}  ·  Context window: {}  ·  Thinking: {}",
+                        modelName(), context_display, thinking_display ) );
+                }
+                else
+                {
+                    renderer_.printInfo( std::format( "  Model: {}  ·  Context window: {}",
+                        modelName(), context_display ) );
+                }
             }
 
             std::cout << "  Type /help for commands, /exit to quit.\n\n";
@@ -1992,24 +2903,33 @@ namespace Mila::ChatApp
 Available commands:
   /help                              Show this help message
   /clear                             Clear conversation history
-  /model                             Show current model and quantization
-  /model <name> [quant] [thinking]   Switch model (clears history). quant quantizes an
-                                     unquantized artifact on load: none, fp8, fp4.
-  /models                            List installed models and what they cost in memory
-  /models --online                   List models available to install
-  /install <name>                    Download and install a published model
-  /rm <name>                         Remove an installed model and reclaim its blobs
+  /model                             Show the loaded model
+  /model <name>                      Show a model, installed or published
+  /model list [--online]             List installed models, or what can be installed
+  /model load <name> [quant]         Load a model (clears history). quant quantizes
+                                     unquantized weights on load: none, fp8, fp4.
+  /model install <name>              Download and install a published model
+  /model remove <name>               Remove an installed model and reclaim its blobs
+  /context                           Show the context window and the largest that fits
+  /context <n>|auto                  Set the context window (rebuilds, keeps the conversation)
+  /thinking [on|off]                 Show or set the reasoning channel
+  /set <key> <value>                 Set temperature, top_k or top_p
   /effort [1-5]                      Show or set the thinking token-budget level
   /verbose [off|thoughts|all]        Show or set display detail (reasoning, raw + logs)
   /stats                             Show per-round timing for the last turn
   /seed <n>                          Reseed the sampler for reproducible generation
   /exit                              Exit the application
 
-Quantization:   a name ending -fp4/-fp8 is a pre-quantized artifact. For an unquantized
-                one, /model <name> fp4 quantizes it on load -- same weights, less VRAM,
-                but the full file is still read.
-Thinking:       add 'thinking' to make Gemma reason (its <|think|> mode); toggling it
-                does not reload weights. Effort (length) is set with /effort 1-5.
+Models:         a bare /model <name> reports; loading is spelled out, because it takes
+                seconds and clears the conversation.
+Quantization:   a name ending -fp4/-fp8 is already quantized. For an unquantized model,
+                /model load <name> fp4 quantizes it on load -- same weights, less
+                VRAM, but the full file is still read.
+Thinking:       Gemma's <|think|> mode. Toggling it does not reload weights. Effort
+                (length) is set with /effort 1-5.
+Context:        the primary VRAM lever, and it sizes buffers at build time -- so /context
+                rebuilds the model, though the conversation survives. auto measures the
+                largest that fits this card; a number you give is used exactly.
 Detail:         tool calls always show as an agentic trace. /verbose thoughts adds the
                 reasoning channel, all adds raw output + logging. The model reasons even
                 when detail is off.
@@ -2019,12 +2939,14 @@ Examples:
 
             // Named from the resident model rather than spelled out: a model name is whatever
             // the store holds, so a literal example stops resolving as soon as it holds
-            // something else. No quantization argument here -- the resident model may already
-            // be a pre-quantized artifact, which refuses one.
-            std::cout << std::format( "  /model {} thinking\n", modelName() );
+            // something else.
+            std::cout << std::format( "  /model {}\n", modelName() );
 
-            std::cout << R"(  /verbose thoughts
+            std::cout << R"(  /model list --online
+  /thinking on
   /effort 5
+  /context auto
+  /set temperature 0.6
 )" << "\n";
         }
 
@@ -2032,28 +2954,17 @@ Examples:
         {
             history_.clear();
 
-            // A base model never reads the system prompt -- buildInputTokens takes the last
-            // message verbatim -- so seeding one would be a persona the user configured and
-            // the model never sees.
-            if ( !config_.is_instruct )
-                return;
-
             if ( system_prompt_config_.system_prompt.empty() )
                 return;
 
             std::string system_content = system_prompt_config_.system_prompt;
 
-            // Only advertise tools that have a registered handler.
-            // Describing unhandled tools primes the model to emit tool calls
-            // it will never get a result for.
-            std::vector<ToolDefinition> active_tools;
-            for ( const auto& tool : system_prompt_config_.tools )
-            {
-                if ( tool_handlers_.contains( tool.name ) )
-                    active_tools.push_back( tool );
-            }
+            const std::vector<ToolDefinition> active_tools = activeTools();
 
-            if ( !active_tools.empty() )
+            // Qwen's system turn is assembled by its own formatter, which orders the reasoning
+            // instruction, the tools section and the configured prompt the way the checkpoint's
+            // template does. Concatenating them here would fix an order it then could not change.
+            if ( !active_tools.empty() && config_.model_type != ModelType::Qwen )
             {
                 if ( config_.model_type == ModelType::Llama )
                 {
@@ -2065,17 +2976,23 @@ Examples:
                         "func_name2(params)]\n"
                         "You SHOULD NOT include any other text in the response.\n\n"
                         "Here is a list of functions in JSON format that you can invoke:\n";
+
+                    system_content += serializeTools( active_tools );
                 }
                 else
                 {
-                    // No invented call-syntax instructions: Gemma 4 has its own trained
-                    // <|tool_call>/<tool_call|> protocol (GemmaChatProtocol.md). This is a
-                    // plain description, deliberately left unopinionated about call syntax,
-                    // so /verbose all can capture the model's native format via printRaw.
-                    system_content += "\n\nYou have access to the following tools:\n";
+                    // Gemma's own trained declaration grammar, rendered by the runtime. No
+                    // prose and no call-syntax instructions: the model emits calls through its
+                    // <|tool_call> protocol, and <|tool> is an atomic token so the
+                    // declarations need no separator from the prompt above them.
+                    //
+                    // This used to be the same prose-plus-JSON-array the Llama branch sends,
+                    // which is not a Gemma format at all -- and the inference server was
+                    // already rendering the trained form, so one model was being given two
+                    // materially different prompts depending on which adaptor built them.
+                    system_content += Mila::Dnn::Gemma::serializeToolDeclarations(
+                        serializeTools( active_tools ) );
                 }
-
-                system_content += serializeTools( active_tools );
             }
 
             history_.push_back( { MessageRole::System, std::move( system_content ) } );
@@ -2132,5 +3049,9 @@ Examples:
         };
 
         std::vector<RoundStats> last_turn_rounds_;
+
+        // Set by runOnce: suppresses every display path, so standard output holds the answer
+        // alone. Not a detail level -- detail says how much to show, this says show nothing.
+        bool one_shot_{ false };
     };
 }

@@ -1,26 +1,57 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mila-inference-server"
-version = "0.1.0"
-# Pinned to 3.13.x: the mila binding is a version-locked CPython extension
-# (_mila.cp313-win_amd64.pyd) that loads only under the interpreter it was built
-# for. A wider range lets pip install under a Python that cannot import mila.
-requires-python = ">=3.13,<3.14"
+name = "mila-llm-server"
+# Derived from the repository's Version.txt by the CMake build, not written here: the
+# binding's hand-maintained copy drifted 18 builds behind before this was fixed, and MIS
+# releases with the runtime it serves. The SemVer -> PEP 440 mapping lives once, in
+# cmake/MilaVersion.cmake; setup.py reads the generated VERSION file.
+dynamic = ["version"]
+description = "Mila Inference Server: OpenAI, Anthropic and Mila chat protocols over the Mila runtime."
+readme = "README.md"
+# Follows mila-llm's range rather than leading it. The old 3.13 floor predated the cp312
+# wheels and refused an interpreter the binding supports; the 3.14 ceiling is still real,
+# because no mila-llm wheel is built against it.
+requires-python = ">=3.12,<3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Todd Thomson" }]
+keywords = ["llm", "inference", "server", "openai", "anthropic", "gemma", "llama"]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Framework :: FastAPI",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Environment :: GPU :: NVIDIA CUDA :: 13",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+]
+
 dependencies = [
     # The runtime, as an ordinary dependency rather than a file the build copies in.
-    # The floor is the build that introduced from_store(); .devN sorts BEFORE the
-    # release, so both a locally built snapshot and the published 0.20.0b2 satisfy it.
-    # A development checkout satisfies this with an editable install of
-    # Mila/Bindings/Package, whose extension the CMake build stages -- see the README.
-    "mila-llm>=0.20.0b2.dev45",
+    # The floor is the first published release carrying from_store(); a development
+    # snapshot satisfies it too, since 0.20.0b3.devN sorts after 0.20.0b2.
+    "mila-llm>=0.20.0b2",
     "fastapi>=0.136.0",
     "uvicorn[standard]>=0.44.0",
     "pydantic>=2.13.3",
     "pydantic-settings>=2.14.0",
 ]
+
+[project.scripts]
+# The whole command line: serving is configured through MILA_* environment variables
+# (or a .env beside the working directory), so there are no flags to parse.
+mila-server = "mila_llm_server.app:main"
+
+[project.urls]
+Homepage = "https://mila.toddt.me"
+Source = "https://github.com/toddthomson/Mila"
+Issues = "https://github.com/toddthomson/Mila/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -35,8 +66,13 @@ dev = [
 ]
 
 [tool.setuptools]
-# MIS is run in place (python main.py / uvicorn main:app) from this directory, not
-# imported as an installed library. This install exists only to pull the runtime
-# dependencies, so declare no importable packages and skip setuptools flat-layout
-# autodiscovery (which otherwise fails on the routes/schemas/protocols top-level dirs).
-py-modules = []
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+# The suite imports mila_llm_server as an installed package, which an src layout
+# guarantees is the same code the server runs -- there is no copy in the rootdir for
+# an accidental import to find instead.
+testpaths = ["tests"]

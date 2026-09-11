@@ -17,7 +17,7 @@ module;
 export module Dnn.ComponentFactory;
 
 import Compute.DeviceType;
-import Compute.ExecutionContextTemplate;
+import Compute.ExecutionContext;
 import Serialization.ModelArchive;
 import Serialization.Metadata;
 import Dnn.ComponentType;

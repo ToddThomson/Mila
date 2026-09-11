@@ -34,6 +34,7 @@ import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.CpuMemoryResource;
+import Compute.Observation;
 import Dnn.Components.Linear;
 import Dnn.Components.Gelu;
 import Serialization.ModelArchive;
@@ -158,6 +159,8 @@ namespace Mila::Dnn
 
             last_final_out_ = &fc2_->forward( *last_act_out_ );
 
+            this->publish( ComputePass::Forward, "output", *last_final_out_ );
+
             return *last_final_out_;
         }
 
@@ -251,6 +254,11 @@ namespace Mila::Dnn
         const ComponentType getType() const override
         {
             return ComponentType::Mlp;
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward } } };
         }
 
         MemoryStats getMemoryStats() const override

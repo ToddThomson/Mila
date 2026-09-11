@@ -56,6 +56,7 @@ export import Compute.OperationType;
 // ====================================================================
 // Compute - Execution Context
 // ====================================================================
+export import Compute.Observation;
 export import Compute.IExecutionContext;
 export import Compute.ExecutionContextFactory;
 
@@ -156,7 +157,7 @@ export import Dnn.NetworkFactory;
 // Dnn - Core Model
 // ============================================================================
 export import Dnn.Model;
-export import Dnn.LanguageNetwork;
+export import Dnn.LanguageModelNetwork;
 export import Dnn.LanguageModel;
 export import Dnn.SamplingParams;
 export import Dnn.GenerateParams;
@@ -195,6 +196,7 @@ export import Dnn.Components.Lpe;
 export import Dnn.Components.Rope;
 export import Dnn.Components.Gelu;
 export import Dnn.Components.Activation;
+export import Dnn.Components.AttentionOutputGate;
 export import Dnn.Components.Swiglu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
@@ -217,9 +219,16 @@ export import Compute.OperationTraits;
 export import Dnn.Quantization.Weight.Policies;
 export import Dnn.Quantization.KvCache.Policy;
 
+// Same rule, one level up: a per-role PLAN is QwenAttentionBlock's third template argument
+// and QwenTransformer's, so the plan concepts and the uniform lift are part of a public
+// interface and must be VISIBLE at instantiation, not merely reachable.
+export import Dnn.Quantization.Weight.PrecisionPlan;
+
 export import Dnn.Components.Linear;
 
 export import Dnn.Components.Residual;
+export import Dnn.Components.CausalConv1d;
+export import Dnn.Components.GatedDeltaRule;
 export import Dnn.Components.Softmax;
 // BACKLOG: export import Dnn.Components.SoftmaxCrossEntropy;
 
@@ -236,14 +245,24 @@ export import Dnn.Components.GptBlock;
 export import Dnn.Components.GptTransformer;
 export import Dnn.Components.LlamaTransformer;
 export import Dnn.Components.GemmaConfig;
-export import Dnn.Components.IDecoderLayer;
+export import Dnn.Components.ITransformerBlock;
 export import Dnn.Components.GemmaBlock;
 export import Dnn.Components.GemmaTransformer;
-export import Dnn.Components.GemmaProtocol;
+
+export import Dnn.Components.QwenPrecisionPlan;
+export import Dnn.Components.QwenConfig;
+export import Dnn.Components.QwenAttentionBlock;
+export import Dnn.Components.QwenDeltaNetBlock;
+export import Dnn.Components.QwenTransformer;
 
 // ============================================================================
 // Models - Open Source Models
 // ============================================================================
+// The conversation a chat template renders, shared by every family's protocol module.
+// Reachable through each protocol's own re-export; named here too so a consumer that only
+// builds a history does not have to import a family to describe one.
+export import Dnn.Models.Conversation;
+
 export import Dnn.Models.GptModel;
 
 export import Dnn.Models.LlamaModel;
@@ -251,6 +270,11 @@ export import Dnn.Models.LlamaModelConfig;
 
 export import Dnn.Models.GemmaModel;
 export import Dnn.Models.GemmaModelConfig;
+export import Dnn.Models.GemmaProtocol;
+
+export import Dnn.Models.QwenModel;
+export import Dnn.Models.QwenModelConfig;
+export import Dnn.Models.QwenProtocol;
 
 // ============================================================================
 // Dnn - Optimizers

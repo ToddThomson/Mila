@@ -43,6 +43,7 @@ import Compute.ExecutionContextFactory;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Metadata;
 import Serialization.Mode;
@@ -114,6 +115,8 @@ namespace Mila::Dnn
             }
 
             operation_->forward( input, *output_view_ );
+
+            this->publish( ComputePass::Forward, "output", *output_view_ );
 
             return *output_view_;
         }
@@ -324,6 +327,21 @@ namespace Mila::Dnn
         const ComponentType getType() const override
         {
             return ComponentType::RmsNorm;
+        }
+
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            if ( output_ == nullptr )
+            {
+                return {};
+            }
+
+            return { output_.get() };
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward } } };
         }
 
         MemoryStats getMemoryStats() const override

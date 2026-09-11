@@ -12,9 +12,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
     /**
      * @brief Per-row causal softmax over BF16 preattention scores.
      *
-     * Mirrors prefill_softmax_fp32_kernel_v2. All arithmetic is performed in
-     * float32; BF16 inputs are widened on load and narrowed on store to
-     * preserve numerical stability across the exp/normalize pass.
+     * All arithmetic is performed in float32; BF16 inputs are widened on load and
+     * narrowed once at the store.
+     *
+     * NO LONGER A MIRROR OF prefill_softmax_fp32_kernel_v2, deliberately. That kernel
+     * still stores the unnormalized exponentials and reloads them to normalize, which
+     * in FP32 is lossless and merely wasted traffic. Porting that shape to BF16 also
+     * made it round twice, so this kernel recomputes the exponential on the store pass
+     * instead. The FP32 kernel is left alone: recomputing there costs an expf for no
+     * accuracy gain, so it is a pure throughput trade and unmeasured.
      *
      * Each thread owns one query row (b, nh, t), iterates over key positions
      * [0, abs_t], and zeros positions (abs_t, attended_len).
@@ -38,10 +44,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * @param position_offset Absolute position of the first token in this chunk.
      */
     __global__ void prefill_softmax_bf16_kernel(
-        __nv_bfloat16* att,
-        const __nv_bfloat16* preatt,
-        int B,
-        int NH,
+        __nv_bfloat16* att, const __nv_bfloat16* preatt,
+        int B, int NH,
         int T_stride,
         int attended_len,
         int chunk_stride,
@@ -85,19 +89,23 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         for ( int t2 = window_start; t2 <= max_t2; ++t2 )
             max_val = fmaxf( max_val, __bfloat162float( preatt_row[ t2 ] ) );
 
-        // Step 2: exponentiate and accumulate sum
+        // Step 2: accumulate the exponent sum. NOTHING IS STORED HERE. The previous
+        // form parked the unnormalized exponentials in att_row and reloaded them in
+        // step 3, which cost a full extra write pass over the widest transient in the
+        // prefill pipeline and rounded to BF16 twice. Step 3 recomputes instead: an
+        // expf is a special-function instruction against a global round trip, and the
+        // decode softmax took the same shape in 0.13.37-alpha.5 for ~20% decode
+        // throughput. The second rounding was measured at ~1e-4 relative -- real, but
+        // the reason to do this is the traffic.
         float sum = 0.0f;
         for ( int t2 = window_start; t2 <= max_t2; ++t2 )
-        {
-            float val = expf( __bfloat162float( preatt_row[ t2 ] ) - max_val );
-            sum += val;
-            att_row[ t2 ] = __float2bfloat16( val );
-        }
+            sum += expf( __bfloat162float( preatt_row[ t2 ] ) - max_val );
 
-        // Step 3: normalize
+        // Step 3: exponentiate again, normalize, and narrow to BF16 exactly once.
         float inv_sum = 1.0f / sum;
         for ( int t2 = window_start; t2 <= max_t2; ++t2 )
-            att_row[ t2 ] = __float2bfloat16( __bfloat162float( att_row[ t2 ] ) * inv_sum );
+            att_row[ t2 ] = __float2bfloat16(
+                expf( __bfloat162float( preatt_row[ t2 ] ) - max_val ) * inv_sum );
 
         // Step 4: zero out positions the AV GEMM will read but this row does not
         // attend — below the window [0, window_start) and the causal future
@@ -154,21 +162,16 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 max_val = fmaxf( max_val, __bfloat162float( preatt_row[ j ] ) );
         }
 
+        // Sum only -- see prefill_softmax_bf16_kernel: the exponentials are recomputed
+        // below rather than parked in att_row and reloaded, so every slot is written
+        // exactly once and narrowed to BF16 exactly once.
         float sum = 0.0f;
         for ( int j = 0; j < capacity; ++j )
         {
             const int p = end - ( ( r - j + capacity ) % capacity );
 
             if ( p >= window_start && p <= abs_t )
-            {
-                float val = expf( __bfloat162float( preatt_row[ j ] ) - max_val );
-                sum += val;
-                att_row[ j ] = __float2bfloat16( val );
-            }
-            else
-            {
-                att_row[ j ] = __float2bfloat16( 0.0f );
-            }
+                sum += expf( __bfloat162float( preatt_row[ j ] ) - max_val );
         }
 
         float inv_sum = 1.0f / sum;
@@ -176,8 +179,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         {
             const int p = end - ( ( r - j + capacity ) % capacity );
 
-            if ( p >= window_start && p <= abs_t )
-                att_row[ j ] = __float2bfloat16( __bfloat162float( att_row[ j ] ) * inv_sum );
+            // Masked slots are zeroed rather than skipped: the AV GEMM reads the whole
+            // ring row, so a stale value would be attended to.
+            att_row[ j ] = ( p >= window_start && p <= abs_t )
+                ? __float2bfloat16( expf( __bfloat162float( preatt_row[ j ] ) - max_val ) * inv_sum )
+                : __float2bfloat16( 0.0f );
         }
     }
 

@@ -29,10 +29,18 @@ Complete as of `0.20.0-beta.2+45`. Source: `Mila/Bindings/Mila_py.cpp`.
 |---|---|
 | `mila.initialize` | `log_level` = `trace \| info \| warning \| error` |
 | `mila.BpeTokenizer` | `from_store(name)`, `load_llama32`, `load_gemma`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
-| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="bf16")`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
-| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
+| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
+| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
 | `mila.ModelStore` | `root`, `list`, `locate`, `remove`, `usage`, `install`, `pull`, `list_hub_models` |
 | `mila.StopController` | `request_stop`, `stop_requested` |
+
+**`generate` is the shape `LanguageModel::generate` already has** — prompt and callback in, a
+finish reason out — and there is deliberately no second, token-collecting overload. The binding
+carried one for a while; it was the only method in the projection with no counterpart in the
+library, it owned the good name, and it discarded the `GenerateStatus` the real call returns, so a
+Python caller could not tell EOS from the `max_new_tokens` cap. The status crosses as its wire
+spelling (`stop` / `length` / `context_limit` / `cancelled`) rather than as a bound enum, which
+keeps the projection std-only.
 
 Two properties worth stating because they make a real sample possible: **the GIL is released around
 generation** (`py::gil_scoped_release`), so streaming callbacks and a Ctrl-C handler both work; and
@@ -75,7 +83,7 @@ costs.
 
 ### Tier 1 — one command, given a built `mila.pyd`
 
-**Delivered 2026-07-28.** With the neutral output location in place, `python Mila/Samples/Python/chat.py`
+**Delivered 2026-07-28.** With the neutral output location in place, `python Mila/Samples/QuickStart/Python/chat.py`
 is the whole command: the sample finds the extension under `out/build/*/python/` (or `MILA_PYD_DIR`),
 finds the weights under `Data/Models/` (or `MILA_MODEL_PATH`), and streams. Two failure modes get a
 sentence rather than a stack trace — an extension built for a different Python (the ABI tag is
@@ -88,13 +96,14 @@ directories, the extension's own directory, and `os.add_dll_directory`). The bin
 failed" on a machine with a correct CUDA install on `PATH`. The sample registers the toolkit's
 `bin\x64` and `bin` before importing.
 
-This is not sample-local. MIS handled it inline at the top of `main.py`, which covered the server and
-nothing else: importing `model_worker` or any route module directly still failed, as did the README's
-own `python -c "import mila"` verification step, and the inline version raised `FileNotFoundError` on
-a stale `CUDA_PATH`. Hoisted 2026-07-28 into `Server/cuda_runtime.py`, imported ahead of `mila` in all
-five modules that touch the binding. **Any future consumer of the binding needs the same three lines**
-— which is an argument for Tier 3 (a wheel) doing it once in a package `__init__`, rather than each
-consumer rediscovering it.
+This is not sample-local. MIS handled it inline at the top of its entry point, which covered the
+server and nothing else: importing `model_worker` or any route module directly still failed, as did
+the README's own `python -c "import mila"` verification step, and the inline version raised
+`FileNotFoundError` on a stale `CUDA_PATH`. Hoisted 2026-07-28 into a `Server/cuda_runtime.py`
+imported ahead of `mila` in all five modules that touched the binding — **any consumer of the
+binding needed the same three lines**, which was the argument for the wheel doing it once in the
+package `__init__`. That is where it lives now, and `Server/cuda_runtime.py` was deleted as
+redundant: a consumer gets the DLL directories by importing `mila` and nothing else.
 
 That argument was taken: `mila/__init__.py` now *loads* the pinned CUDA libraries before importing
 the extension, on both platforms, and does it better than the per-consumer version ever could —
@@ -218,7 +227,7 @@ distribution with additive backend extras (`mila-llm[rocm]`), so no user's pin e
 
 ## Samples
 
-Shipped 2026-07-28 at `Mila/Samples/Python/`. No pip dependencies — standard library only. The
+Shipped 2026-07-28 at `Mila/Samples/QuickStart/Python/`. No pip dependencies — standard library only. The
 absence of a `requirements.txt` is itself part of the message.
 
 - **`chat.py`** — the flagship. Load Gemma, tokenize, stream tokens to stdout, interrupt through
@@ -266,6 +275,7 @@ Out of bounds — feature additions, deferred to vNext:
    download is a slow first impression. Worth checking whether a smaller Gemma 4 variant exists that
    Mila could validate, which would give the good first run without the Llama licence conditions.
 2. **Whether the Python sample is a v0.20 barrier lever.** It is the same class as the Docker image
-   and the CPU-only path — work that lets an audience reach Mila at all. Promoting it from `## Future`
-   into Production Hardening changes what v0.20 claims, so it is a deliberate call.
+   and the CPU-only path — work that lets an audience reach Mila at all. Promoting it from
+   `Mila/Issues/Future.md` into Production Hardening changes what v0.20 claims, so it is a
+   deliberate call.
 3. **Wheel distribution** (Tier 3), and whether it belongs with the Python work or with packaging.

@@ -21,6 +21,8 @@ import Compute.CudaGqaOp;
 import Compute.CudaGeluOp;
 import Compute.CudaElementwiseActivationOp;
 import Compute.CudaResidualOp;
+import Compute.CudaCausalConv1dOp;
+import Compute.CudaGatedDeltaRuleOp;
 import Compute.CudaRmsNormOp;
 import Compute.CudaLayerNormOp;
 import Compute.CudaSoftmaxOp;
@@ -66,6 +68,39 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerChannelFp8<>>
     {
         using type = CudaLinearOp<TensorDataType::BF16, PerChannelFp8<>>;
+    };
+
+    // Sub-4-bit codebook paths (Specifications/Qwen3.8.md). BF16 only: the GEMV kernels
+    // are BF16 in / BF16 out, and an op that cannot honor a precision must carry no row
+    // for it. They resolve to CudaLinearOp like every other weight format -- the policy,
+    // not a second operation, is what selects the decode kernel and the prefill strategy.
+
+    /// W2A16, 2-bit codes into a 4-entry table, group 32. Section 5 FFN gate/up.
+    template<>
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupCodebook2<32>>
+    {
+        using type = CudaLinearOp<TensorDataType::BF16, PerGroupCodebook2<32>>;
+    };
+
+    /// W2A16 at group 64. Half the scale overhead, coarser absmax.
+    template<>
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupCodebook2<64>>
+    {
+        using type = CudaLinearOp<TensorDataType::BF16, PerGroupCodebook2<64>>;
+    };
+
+    /// W3A16, 3-bit codes into an 8-entry table, group 64. Section 5 FFN down.
+    template<>
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupCodebook3<64>>
+    {
+        using type = CudaLinearOp<TensorDataType::BF16, PerGroupCodebook3<64>>;
+    };
+
+    /// W3A16 at group 128.
+    template<>
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupCodebook3<128>>
+    {
+        using type = CudaLinearOp<TensorDataType::BF16, PerGroupCodebook3<128>>;
     };
 
     /// INT4 per-group quantized BF16 path. W4A16 fused GEMM, group_size=128. Requires SM >= 8.0.
@@ -168,6 +203,38 @@ namespace Mila::Dnn::Compute
     {
         template<typename TFunctor>
         using op_for = Cuda::Activation::CudaElementwiseActivationOp<TensorDataType::BF16, TFunctor>;
+    };
+
+    // -------------------------------------------------------------------------
+    // CausalConv1dOp -- CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::CausalConv1dOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Convolution::CudaCausalConv1dOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::CausalConv1dOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Convolution::CudaCausalConv1dOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // GatedDeltaRuleOp -- CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::GatedDeltaRuleOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::DeltaNet::CudaGatedDeltaRuleOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::GatedDeltaRuleOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::DeltaNet::CudaGatedDeltaRuleOp<TensorDataType::BF16>;
     };
 
     // -------------------------------------------------------------------------

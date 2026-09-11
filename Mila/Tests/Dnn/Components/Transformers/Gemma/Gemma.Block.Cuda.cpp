@@ -3,7 +3,7 @@
  * @brief Structural tests for GemmaBlock<DeviceType::Cuda, FP32, kGlobal>.
  *
  * GemmaBlock is a Llama-family decoder block (GQA, RMSNorm, RoPE, gated FFN) and,
- * like LlamaBlock, is INFERENCE-ONLY: it implements IDecoderLayer (prefill/decode),
+ * like LlamaBlock, is INFERENCE-ONLY: it implements ITransformerBlock (prefill/decode),
  * not Component forward/backward. There is no standalone Llama.Block test to mirror,
  * so this suite covers the block's structural contract directly:
  *   - construction / validation and the [B, T, model_dim] build contract,

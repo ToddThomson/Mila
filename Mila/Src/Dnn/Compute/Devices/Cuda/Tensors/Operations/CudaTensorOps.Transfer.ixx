@@ -288,50 +288,60 @@ namespace Mila::Dnn::Compute::Cuda
                 throw std::runtime_error( "Invalid data pointers for copyFromBlob" );
             }
 
-            // Destination is device memory from here on.
-            cudaStream_t stream = nullptr;
-            int device_id = dst.getDeviceId().index;
-            bool needs_sync = false;
-
-            if ( exec_context )
+            // A CUDA tensor is not necessarily device memory: pinned and managed resources
+            // report DeviceType::Cuda and are host-accessible, and a blob is always host
+            // memory. Declaring that copy cudaMemcpyHostToDevice would name a direction the
+            // pointers do not have, which the CUDA contract leaves undefined -- copy() has
+            // dispatched on accessibility for exactly this reason since it was written.
+            if constexpr ( TDstMemoryResource::is_host_accessible )
             {
-                if ( exec_context->getDeviceId().type != DeviceType::Cuda )
-                {
-                    throw std::invalid_argument( "CUDA operations require a CUDA execution context" );
-                }
-
-                auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
-                stream = cuda_context->getStream();
-                device_id = cuda_context->getDeviceId().index;
+                copyHostToHost<TDstDataType>( src_data, dst_data, dst.size() );
             }
             else
             {
-                // No exec_context => use default stream for the device inferred from the destination.
-                // Ensure we synchronize the default stream before returning.
-                needs_sync = true;
+                // Destination is device memory from here on.
+                cudaStream_t stream = nullptr;
+                int device_id = dst.getDeviceId().index;
+                bool needs_sync = false;
+
+                if ( exec_context )
+                {
+                    if ( exec_context->getDeviceId().type != DeviceType::Cuda )
+                    {
+                        throw std::invalid_argument( "CUDA operations require a CUDA execution context" );
+                    }
+
+                    auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
+                    stream = cuda_context->getStream();
+                    device_id = cuda_context->getDeviceId().index;
+                }
+                else
+                {
+                    // No exec_context => use default stream for the device inferred from the destination.
+                    // Ensure we synchronize the default stream before returning.
+                    needs_sync = true;
+                }
+
+                if ( device_id < 0 )
+                {
+                    throw std::runtime_error( "Invalid CUDA device id for Host->Device transfer" );
+                }
+
+                // Perform Host -> Device transfer (blob -> device tensor).
+                copyHostToDevice<TDstDataType>(
+                    src_data,
+                    dst_data,
+                    dst.size(),
+                    stream,
+                    device_id
+                );
+
+                if ( needs_sync )
+                {
+                    // Synchronize default stream to ensure completion before returning.
+                    cudaStreamSynchronize( stream );
+                }
             }
-
-            if ( device_id < 0 )
-            {
-                throw std::runtime_error( "Invalid CUDA device id for Host->Device transfer" );
-            }
-
-            // Perform Host -> Device transfer (blob -> device tensor).
-            copyHostToDevice<TDstDataType>(
-                src_data,
-                dst_data,
-                dst.size(),
-                stream,
-                device_id
-            );
-
-            if ( needs_sync )
-            {
-                // Synchronize default stream to ensure completion before returning.
-                cudaStreamSynchronize( stream );
-            }
-
-            return;
         }
 
         /**

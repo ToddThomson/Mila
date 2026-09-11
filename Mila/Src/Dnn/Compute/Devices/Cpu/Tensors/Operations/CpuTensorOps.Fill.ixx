@@ -31,7 +31,6 @@ import Compute.DeviceType;
 //import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
-import Compute.ExecutionContext;
 
 namespace Mila::Dnn::Compute::Cpu
 {

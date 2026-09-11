@@ -32,7 +32,6 @@ import Compute.OperationBase;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
-import Compute.ExecutionContextTemplate;
 import Compute.OperationType;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;

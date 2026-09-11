@@ -35,7 +35,7 @@ jinja2 = pytest.importorskip("jinja2", reason="reference parity needs the jinja2
 from jinja2 import TemplateError
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
-from protocols.anthropic.messages import AnthropicMessagesAdapter
+from mila_llm_server.protocols.anthropic.messages import AnthropicMessagesAdapter
 
 TEMPLATE = pathlib.Path(__file__).parent / "reference" / "gemma4_12b_chat_template.jinja"
 

@@ -82,7 +82,7 @@ namespace Mila::Dnn::Compute
          * information on allocation failure.
          *
          * @param bytes Number of bytes to allocate
-         * @param alignment Memory alignment requirement (ignored by CUDA)
+         * The alignment argument is ignored: CUDA allocations are already suitably aligned.
          * @return Pointer to allocated device memory
          * @throws CudaBadAlloc If allocation fails
          */

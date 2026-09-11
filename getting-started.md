@@ -27,8 +27,7 @@ changes are still expected — backward compatibility is not yet a goal.
 | CMake | 4.0 or newer | Bundled with recent Visual Studio |
 | Ninja | latest | Required for fast C++23 module incremental builds |
 | GTest | 1.17.0 | Fetched by the build |
-| Doxygen | latest | Optional — only needed to build the API docs (`-DMILA_ENABLE_DOCS=ON`) |
-| Graphviz (dot) | latest | Optional — renders the call/caller graphs in the generated docs |
+| Doxygen | latest | Optional — only needed to build the API docs (`MILA_ENABLE_DOCS`, `ON` by default) |
 | C++ Standard | C++23 | Modules, deducing-this, concepts |
 | Python | 3.10+ | Only needed to convert a checkpoint Mila does not publish (Section 5b); validated on 3.14.5 |
 
@@ -40,16 +39,19 @@ newer 13.x releases are expected to work but are not exhaustively validated.
 | Compiler | Minimum | Notes |
 |---|---|---|
 | MSVC (Visual Studio) | 2026 18.6.2 | Primary Windows compiler |
-| Clang | 19 | CI-validated on Linux |
-| GCC | 15.3 | 15.2 and earlier **cannot** compile the modules; on Ubuntu 26.04 install the `gcc-16` package |
+| Clang | 19 | The Linux path CI and the container build |
+| GCC | 16 | Alternative on Linux; 15.2 and earlier **cannot** compile the modules, and 15.3 is untested |
 
-In the CUDA build, the compiler above compiles the C++23 module units; nvcc uses a separate
-host compiler for `.cu` files (which contain no modules), so an older GCC is fine for that role.
+**Two compilers are involved in a Linux CUDA build, and only one of them is bound by that
+table.** The compiler above compiles the C++23 module units. nvcc uses a separate host compiler
+for the `.cu` files, which contain no modules — CI and the dev container pair clang-21 with
+gcc-15 in that role, and its version is nvcc's business rather than the module floor's.
 
 A CUDA-capable NVIDIA GPU is needed to run the CUDA inference paths. The library builds
-without a GPU, but the validated inference targets (Llama, GPT-2) run on CUDA. BF16
-compute and FP8/FP4 quantization require an Ada Lovelace (SM 8.9) or newer GPU for full
-Tensor Core support.
+without a GPU, but the validated inference targets (Llama, GPT-2) run on CUDA. BF16 compute
+and FP4 weights need an Ampere (SM 8.0) or newer GPU — an RTX 30-series card or better.
+FP8 weights need Ada Lovelace (SM 8.9) or newer, because that path runs through cuBLASLt's
+FP8 kernels.
 
 > **Prefer not to install the toolchain by hand?** Section 4 covers the Docker / dev
 > container path, which gives you a reproducible Linux build environment (it still builds
@@ -76,8 +78,8 @@ clone your fork.
 
 The repository ships CMake presets in `CMakePresets.json`. The output directory is always
 `out/build/<preset-name>`. Ninja is the generator on every platform — MSBuild does not
-handle C++23 modules reliably. Tests are opt-in: configure with `-DMILA_ENABLE_TESTING=ON`
-(it defaults to `OFF`) or `ctest` will find nothing to run.
+handle C++23 modules reliably. `MILA_ENABLE_TESTING` is `ON` for a clone of this repository and
+`OFF` when Mila is embedded in another project, so `ctest` finds the suite without a flag.
 
 The first configure fetches dependencies through CPM (GoogleTest, nlohmann_json, miniz,
 CUTLASS, and others), which runs `git clone` under the hood — so **`git` must be installed
@@ -95,10 +97,14 @@ breaks the C++23 module build; 18.6.2 fixed it.
 
 ### Linux / WSL (VS Code)
 
-Two C++ compilers are supported on Linux: **Clang ≥ 19** (CI-validated on Ubuntu 24.04) and
-**GCC ≥ 15.3** (validated with GCC 16 on Ubuntu 26.04). GCC 15.2 and earlier cannot compile
-the C++23 modules, so on an older distro use Clang. The steps below target a recent Ubuntu
-(24.04 or 26.04) with CUDA through WSL.
+**Clang is the Linux path** — clang-21 is what CI compiles and what the dev container runs, with
+gcc-15 as nvcc's host compiler for the `.cu` files. Clang 19 is the floor.
+
+GCC can compile the module units instead, and there the floor is **GCC 16**: 15.2 and earlier
+cannot, and 15.3 has never been built. That is a different question from nvcc's host GCC, which
+the container pins at 15.
+
+The steps below target a recent Ubuntu (24.04 or 26.04) with CUDA through WSL.
 
 1. **Set up WSL** (skip on native Linux). From an elevated PowerShell on Windows:
    ```powershell
@@ -132,22 +138,24 @@ the C++23 modules, so on an older distro use Clang. The steps below target a rec
    ```bash
    sudo apt-get update
    sudo apt-get install -y build-essential ninja-build git wget ca-certificates cmake libssl-dev
-   gcc --version                        # need GCC >= 15.3 (see the compiler matrix above)
+   sudo apt-get install -y clang-21     # compiles the module units; see the matrix above
    ```
    `libssl-dev` is curl's, not Mila's: `MILA_ENABLE_LIBCURL` defaults ON, and on Linux the
    vendored libcurl takes TLS from the system OpenSSL (`CURL_USE_SCHANNEL` is Windows-only),
    so its `find_package(OpenSSL)` fails the whole configure without it. Omit it only if you
    also configure with `-DMILA_ENABLE_LIBCURL=OFF`, which builds a Mila that can still list,
    install, locate and load models but cannot pull one without a caller-supplied transport.
-   `build-essential` installs the distro's default GCC. Mila needs **GCC ≥ 15.3** — Ubuntu
-   26.04 currently ships 15.2, which is too old, so install a newer one and select it at
-   configure time:
+   `build-essential` installs the distro's default GCC, which is what nvcc uses as its host
+   compiler for the `.cu` files. Ubuntu 26.04 ships GCC 15.2, and that is fine in this role —
+   the module floor does not apply to it.
+
+   To compile the module units with GCC instead of Clang, install **GCC 16** and select it at
+   configure time; 15.2 cannot compile them:
    ```bash
    sudo apt-get install -y gcc-16 g++-16     # then configure with -DCMAKE_CXX_COMPILER=g++-16
    ```
-   Prefer Clang? `sudo apt-get install -y clang clangd` (≥ 19). Ubuntu 26.04 provides
-   CMake ≥ 4.0 via apt; on older distros use Kitware's APT repo or the official tarball.
-   Add `doxygen graphviz` only if you plan to build the docs.
+   Ubuntu 26.04 provides CMake ≥ 4.0 via apt; on older distros use Kitware's APT repo or the
+   official tarball. Add `doxygen` only if you plan to build the docs.
 
 4. **Install VS Code (latest) with the WSL workflow.** Install
    [VS Code](https://code.visualstudio.com/) on Windows, add the **WSL**, **C/C++**, and
@@ -171,24 +179,26 @@ cmake --build out/build/x64-release
 ctest --test-dir out/build/x64-release
 ```
 
-On Linux, point CMake at your chosen compiler and the CUDA toolkit explicitly. GCC example
-(Ubuntu 26.04 + GCC 16 + CUDA 13.3):
+On Linux, point CMake at both compilers and the CUDA toolkit explicitly. This is what CI and the
+dev container run — clang-21 for the module units, gcc-15 as nvcc's host, CUDA 13.3:
 
 ```bash
 cmake -S . -B out/build/linux-release -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_COMPILER=gcc-16 -DCMAKE_CXX_COMPILER=g++-16 \
+  -DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
   -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.3/bin/nvcc \
+  -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \
   -DCUDAToolkit_ROOT=/usr/local/cuda-13.3 \
   -DCMAKE_CUDA_ARCHITECTURES=89 \
   -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
   -DCMAKE_CXX_STANDARD=23 -DMILA_ENABLE_TESTING=ON
 ```
 
-For the CI-validated Clang path, swap in `-DCMAKE_C_COMPILER=clang-19
--DCMAKE_CXX_COMPILER=clang++-19` and set `-DCMAKE_CUDA_HOST_COMPILER=gcc-14` (nvcc's
-host compiler for the `.cu` files -- do not put `-ccbin` in `CMAKE_CUDA_FLAGS`, that
-conflicts with the one CMake emits from `CMAKE_CUDA_HOST_COMPILER`).
+Do not put `-ccbin` in `CMAKE_CUDA_FLAGS` — it conflicts with the one CMake emits from
+`CMAKE_CUDA_HOST_COMPILER`.
+
+To compile the module units with GCC instead, swap in `-DCMAKE_C_COMPILER=gcc-16
+-DCMAKE_CXX_COMPILER=g++-16` and drop `CMAKE_CUDA_HOST_COMPILER`.
 
 Notes:
 - Set `-DCMAKE_CUDA_ARCHITECTURES` to your GPU's arch (`89` = Ada). `native` fails on GPUs
@@ -204,32 +214,35 @@ Run a single test binary directly, for example:
 ./out/build/x64-release/Mila/Tests/Dnn/Components/Activations/Gelu/GeluTests
 ```
 
-Available presets: `x64-debug`, `x64-release`, `x64-profile` (RelWithDebInfo with device
-line info for Nsight), `x86-debug`, `x86-release`, plus `linux-debug` and `macos-debug`
-for remote / WSL targets.
+Available presets, from `CMakePresets.json`:
 
-> **Building the API documentation (optional).** Doc generation is opt-in via the
-> `MILA_ENABLE_DOCS` option (default `OFF`), so a normal library/test build needs neither
-> Doxygen nor Graphviz. To build the docs, install both, then configure with the option on
-> and build the `docs` target:
+| Platform | Presets |
+|---|---|
+| Windows | `x64-debug`, `x64-release`, `x64-release-ada`, `x64-release-blackwell`, `x64-profile` (RelWithDebInfo with device line info for Nsight), `x64-validate`, `x64-coverage`, `x64-debug-cpu-only`, `x64-debug-no-libcurl` |
+| Linux / WSL | `linux-clang-debug`, `linux-clang-release`, `linux-clang-cpu-debug`, `linux-clang-cpu-release` |
+| Packaging | `x64-wheel`, `linux-wheel`, `x64-release-cpm-gate` |
+
+> **Building the API documentation.** `MILA_ENABLE_DOCS` is `ON` by default. Doxygen is not a
+> hard requirement — without it the configure prints a warning and offers no `docs` target, and
+> the library still builds. Graphviz is not needed either; the Doxyfile disables the call graphs.
+> With Doxygen installed:
 >
 > ```bash
-> cmake -S . -B out/build/x64-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DMILA_ENABLE_DOCS=ON
 > cmake --build out/build/x64-release --target docs
 > ```
 >
-> Output lands in `<build-dir>/docs`. Note: when `MILA_ENABLE_DOCS=ON`, Doxygen becomes a
-> hard configure-time requirement (the `Docs` target uses `find_package(Doxygen REQUIRED)`).
+> Output lands in `<build-dir>/docs`.
 
 ---
 
 ## 4. Build with Docker / dev container
 
 If you do not want to install the CUDA/Clang/CMake toolchain locally, the development
-container provides a reproducible Linux build environment (CUDA 13.0, Clang 19, CMake 4.x,
-Ninja) — handy from WSL. It mounts the repo at `/mila` with GPU access. Note this **still
+container provides a reproducible Linux build environment (CUDA 13.3, clang-21, gcc-15 as nvcc's
+host, CMake 4.2.3, Ninja) — handy from WSL. It mounts the repo at `/mila` with GPU access. Note this **still
 builds Mila from source** inside the container; it removes toolchain setup, not the build.
-(A pull-and-run published image is planned for beta — see the note at the end of this section.)
+(To run a model without building anything, use the published runtime image — see the note at the
+end of this section.)
 
 **Prerequisites for this path:**
 
@@ -256,8 +269,9 @@ GPU access, the repo mount, and the C/C++ / CMake Tools / clangd extensions.
 The image sets `MILA_CACHE_DIR=/mila/Data/Models/Store`, which sits on the repo bind mount, so
 a model installed (Section 5) from either side is the same store — install it once.
 
-> A slim, published runtime image — `docker run … mila` for users who only want to run
-> inference without building — is planned for the v0.20 release. See [ROADMAP.md](ROADMAP.md).
+> To run a model without building anything, use the slim runtime image published as
+> `toddthomson/mila-llm:<version>-runtime`. The two commands are on
+> [mila.toddt.me](https://mila.toddt.me/#evaluate).
 
 ---
 
@@ -272,9 +286,9 @@ Mila publishes pre-quantized models under [`mila-llm`](https://huggingface.co/mi
 are ungated — no account, no access request, no token. From the chat harness:
 
 ```
-/models --online          # what is published
-/install gemma-4-12b-it-fp4
-/models                   # what is installed, and what each costs in VRAM
+/model list --online      # what is published
+/model install gemma-4-12b-it-fp4
+/model list               # what is installed, and what each costs in VRAM
 ```
 
 Published today: `gemma-4-12b-it-fp4` (~6.3 GB, the chat default),
@@ -301,8 +315,11 @@ variant Mila has not published, or your own fine-tune. It needs a PyTorch enviro
 HuggingFace authentication for a gated family, and enough disk for the source checkpoint.
 Skip it entirely if 5a gave you what you need.
 
-> Quantized variants (FP8, FP4) are produced by Mila at model load time — you only ever
-> convert and store the **BF16** source files.
+> Converters always write **BF16**, and on this path FP8 and FP4 are produced when those
+> weights load — so one BF16 source covers both, and you never store a quantized copy. A
+> published model (5a) works the other way: its weights are already quantized and load as
+> they are. Codebook formats below four bits have no load-time path at all — their tables are
+> fitted offline against calibration data, and `Tools/ExportArtifact` is the only writer.
 
 #### Set up the converter environment
 
@@ -366,7 +383,7 @@ ExportArtifact --install out/llama32-1b-package
 ```
 
 Every file is hashed as it is adopted, so a blob is trusted only after its digest matches the
-manifest. Afterwards the model is listed by `/models` and loaded by name exactly like a
+manifest. Afterwards the model is listed by `/model list` and loaded by name exactly like a
 published one — that is the point of one manifest describing every model, whatever its origin.
 
 > `--instruct` is not implied by the model's name. Omitting it writes `instruct: false` and
@@ -379,21 +396,21 @@ tables and per-model notes.
 
 ## 6. Run inference (Chat CLI)
 
-The chat sample builds as the `ChatApp` target. Its executable is written to the build root
-(e.g. `out/build/x64-release/ChatApp.exe`), with a `Data/` folder copied alongside it.
+The chat sample builds as the `mila-chat` target. Its executable is written to the build root
+(e.g. `out/build/x64-release/mila-chat.exe`), with a `Data/` folder copied alongside it.
 
 ```bash
-./out/build/x64-release/ChatApp.exe
+./out/build/x64-release/mila-chat.exe
 ```
 
-From Visual Studio, set **ChatApp** as the startup item and run. Chat opens on an empty store,
-so a first run with nothing installed still reaches `/install`.
+From Visual Studio, set **mila-chat** as the startup item and run. Chat opens on an empty store,
+so a first run with nothing installed still reaches `/model install`.
 
-A model is named, not aliased — what `/models` shows is what you type:
+A model is named, not aliased — what `/model list` shows is what you type:
 
 ```
-/models                            # installed, with what each costs in VRAM
-/model Llama-3.2-3B-Instruct-fp4   # switch (clears history)
+/model list                        # installed, with what each costs in VRAM
+/model load Llama-3.2-3B-Instruct-fp4   # switch (clears history)
 /model                             # current model and quantization
 /help
 ```
@@ -424,11 +441,11 @@ include(FetchContent)
 FetchContent_Declare(
     Mila
     GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
-    GIT_TAG        v0.20.0           # pin to a published release tag
+    GIT_TAG        v0.20.0-beta.3    # pin to a published release tag
 )
 FetchContent_MakeAvailable(Mila)
 
-add_executable(my_app main.cpp)      # main.cpp does: import Mila;
+add_executable(my_app main.cpp)      # main.cpp does: import Mila; -- after its #includes
 target_link_libraries(my_app PRIVATE Mila::Mila)
 
 # Clang consumers only (MSVC auto-configures module consumption):
@@ -439,12 +456,24 @@ target_link_libraries(my_app PRIVATE Mila::Mila)
 in `FetchContent_Declare`. Because C++23 module BMIs are not portable, your toolchain recompiles
 Mila's module units from source — inherent to consuming any module library, not specific to Mila.
 
-A complete, copy-paste starting point is in
-[`Mila/Samples/QuickStart`](Mila/Samples/QuickStart/README.md).
+**Budget for the first build**: your project builds all of Mila, every CUDA kernel included, so
+set `-DCMAKE_CUDA_ARCHITECTURES` to your own GPU's arch (`89` for Ada) as in Section 3 — the
+default multi-arch list compiles every kernel several times over. Rebuilds are incremental.
 
-> **`find_package(Mila)`?** Parked in favor of FetchContent: a module library is a source
-> distribution, so `find_package`'s prebuilt-binary benefit is void while its install layout is
-> pure maintenance surface. It remains on disk, opt-in only.
+A complete, copy-paste starting point is in
+[`Mila/Samples/QuickStart/Cpp`](Mila/Samples/QuickStart/Cpp/README.md) — a standalone project that
+consumes Mila exactly like this and then loads a model and streams a reply, so the `CMakeLists.txt`
+above is shown doing real work rather than printing a version.
+
+**Two rules for the translation unit that imports Mila**, both from an MSVC modules defect and both
+temporary. Put `import Mila;` **after** your `#include`s — importing first stops the build with
+C1116. Include `<sstream>` among them if you instantiate a model, and read input with `std::fgets`
+rather than `std::getline` or `std::cin.getline`. The QuickStart sample above shows both, commented
+where they appear.
+
+> **`find_package(Mila)`?** Not supported, and removed in 0.20.0-beta.3. A module library is a
+> source distribution, so `find_package`'s prebuilt-binary benefit is void while its install
+> layout costs real maintenance. FetchContent is the one supported path.
 
 ---
 
@@ -525,7 +554,7 @@ coverage, and new encoding strategies under `Mila/Src/Dnn/Components/Encodings/`
 - [CLAUDE.md](CLAUDE.md) — architecture overview, type axes, dispatch, and code style.
 - `Mila/Specifications/` — design documents:
   [OperationDispatch.md](Mila/Specifications/OperationDispatch.md),
-  [Quantization.V2.md](Mila/Specifications/Quantization.V2.md), and the planned-feature
+  [Quantization.md](Mila/Specifications/Quantization.md), and the planned-feature
   specs (PromptCaching, TokenSampling, ToolCalling).
 - API reference: https://mila.toddt.me/api/ (regenerated on every push to master).
 
@@ -535,8 +564,9 @@ coverage, and new encoding strategies under `Mila/Src/Dnn/Components/Encodings/`
 
 | Symptom | Likely cause |
 |---|---|
-| Chat reports a model is not installed | Nothing in the store yet — `/models --online` then `/install <name>`, see Section 5a. Weights are not in git. |
+| Chat reports a model is not installed | Nothing in the store yet — `/model list --online` then `/model install <name>`, see Section 5a. Weights are not in git. |
 | `hf auth login` fails or model 403s | You have not accepted Meta's license on the HuggingFace model page. |
 | Module / incremental build errors with MSBuild | Use the **Ninja** generator — MSBuild does not handle C++23 modules well. |
 | Out-of-memory converting Llama 3.1 8B | Conversion needs ~16 GB host RAM; convert in BF16 (the default). |
-| FP8/FP4 produce garbage or fail | Requires an SM 8.9+ (Ada Lovelace or newer) GPU. |
+| FP4 produces garbage or fails | Requires an SM 8.0+ (Ampere or newer) GPU. |
+| FP8 produces garbage or fails | Requires an SM 8.9+ (Ada Lovelace or newer) GPU. |

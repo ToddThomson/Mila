@@ -39,19 +39,19 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
             for ( int t2 = 0; t2 <= t; ++t2 )
                 max_val = fmaxf( max_val, __bfloat162float( preatt_row[ t2 ] ) );
 
+            // Sum only. The exponentials are recomputed on the store pass rather than
+            // parked in att_row and reloaded -- one fewer write pass over the row, and
+            // one BF16 rounding instead of two. Same shape as the decode kernel below.
             float sum = 0.0f;
 
             for ( int t2 = 0; t2 <= t; ++t2 )
-            {
-                float val = expf( (__bfloat162float( preatt_row[ t2 ] ) - max_val) * scale );
-                sum += val;
-                att_row[ t2 ] = __float2bfloat16( val );
-            }
+                sum += expf( (__bfloat162float( preatt_row[ t2 ] ) - max_val) * scale );
 
             float inv_sum = 1.0f / sum;
 
             for ( int t2 = 0; t2 <= t; ++t2 )
-                att_row[ t2 ] = __float2bfloat16( __bfloat162float( att_row[ t2 ] ) * inv_sum );
+                att_row[ t2 ] = __float2bfloat16(
+                    expf( (__bfloat162float( preatt_row[ t2 ] ) - max_val) * scale ) * inv_sum );
 
             for ( int t2 = t + 1; t2 < T; ++t2 )
                 att_row[ t2 ] = __float2bfloat16( 0.0f );
@@ -88,19 +88,17 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
             for ( int t2 = 0; t2 <= max_t2; ++t2 )
                 max_val = fmaxf( max_val, __bfloat162float( preatt_row[ t2 ] ) );
 
+            // Sum only -- exponentials recomputed on the store pass, as above.
             float sum = 0.0f;
 
             for ( int t2 = 0; t2 <= max_t2; ++t2 )
-            {
-                float val = expf( (__bfloat162float( preatt_row[ t2 ] ) - max_val) * scale );
-                sum += val;
-                att_row[ t2 ] = __float2bfloat16( val );
-            }
+                sum += expf( (__bfloat162float( preatt_row[ t2 ] ) - max_val) * scale );
 
             float inv_sum = 1.0f / sum;
 
             for ( int t2 = 0; t2 <= max_t2; ++t2 )
-                att_row[ t2 ] = __float2bfloat16( __bfloat162float( att_row[ t2 ] ) * inv_sum );
+                att_row[ t2 ] = __float2bfloat16(
+                    expf( (__bfloat162float( preatt_row[ t2 ] ) - max_val) * scale ) * inv_sum );
 
             for ( int t2 = max_t2 + 1; t2 < T; ++t2 )
                 att_row[ t2 ] = __float2bfloat16( 0.0f );

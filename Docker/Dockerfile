@@ -82,11 +82,11 @@ ENV MILA_COMPILE_JOB_POOL_SIZE=4
 
 # Convenience entry points baked into the image so the exact configure flags live in
 # one versioned place (see the scripts for the flag rationale):
-#   mila-build-chat  -- configure + build just the ChatApp target (fast path)
+#   mila-build-chat  -- configure + build just the mila-chat target (fast path)
 #   mila-build-all   -- configure + build the full product set (library, samples,
 #                       Chat, Python binding); single-arch for a fast one-GPU build
 #   mila-build-mis   -- build the mila binding + the MIS Python server venv
-#   mila-chat        -- run the built ChatApp
+#   mila-chat        -- run the built mila-chat
 #   mila-mis         -- run the Mila Inference Server (HTTP wire adaptor)
 COPY Docker/build-chat.sh /usr/local/bin/mila-build-chat
 COPY Docker/build-all.sh  /usr/local/bin/mila-build-all

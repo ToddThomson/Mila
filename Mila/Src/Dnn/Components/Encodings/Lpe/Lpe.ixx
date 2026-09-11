@@ -40,6 +40,7 @@ import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.IPositionalDecode;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Metadata;
 import Serialization.Mode;
@@ -157,6 +158,8 @@ namespace Mila::Dnn
             shape_t actual_out_shape = { B, T, config_.getEmbeddingDim() };
             current_output_view_ = std::make_unique<EmbeddingsTensorType>( output_->view( actual_out_shape ) );
 
+            this->publish( ComputePass::Forward, "output", *current_output_view_ );
+
             return *current_output_view_;
         }
 
@@ -252,6 +255,8 @@ namespace Mila::Dnn
             shape_t decode_out_shape = { 1, 1, config_.getEmbeddingDim() };
             current_output_view_ = std::make_unique<EmbeddingsTensorType>(
                 output_->view( decode_out_shape ) );
+
+            this->publish( ComputePass::Decode, "output", *current_output_view_ );
 
             return *current_output_view_;
         }
@@ -433,6 +438,21 @@ namespace Mila::Dnn
         int64_t getEmbeddingDim() const noexcept
         {
             return config_.getEmbeddingDim();
+        }
+
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            if ( output_ == nullptr )
+            {
+                return {};
+            }
+
+            return { output_.get() };
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward, ComputePass::Decode } } };
         }
 
         MemoryStats getMemoryStats() const override

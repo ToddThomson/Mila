@@ -16,7 +16,7 @@ namespace Mila::Dnn::Compute
     /**
      * @brief Compute interface for attention operations that maintain a KV cache.
      *
-     * Extends IKVCacheLifecycle with the two-phase inference compute contract
+     * Extends IKvCacheLifecycle with the two-phase inference compute contract
      * used by modern transformer architectures (GQA, MQA, and derived models):
      *
      *   prefill -- populate the KV cache from a (possibly chunked) prompt sequence.

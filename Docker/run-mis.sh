@@ -55,4 +55,4 @@ echo "Starting MIS: protocol=${MILA_PROTOCOL} model=${MILA_MODEL} on ${MILA_HOST
 
 # config.py loads Server/.env relative to the CWD, so run from the server directory.
 cd "${SERVER}"
-exec "${VENV}/bin/python" main.py
+exec "${VENV}/bin/mila-server"

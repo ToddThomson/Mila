@@ -193,6 +193,16 @@ namespace Mila::Dnn::Compute::Cuda
      *                      CUBLASLT_MATMUL_DESC_A_SCALE_POINTER must be set in the descriptor
      *                      *before* cublasLtMatmulAlgoGetHeuristic for FP8 algorithms to be
      *                      returned. Ignored on the non-quantized path (default nullptr).
+     * @param output_row_stride Row stride of C, in elements. Zero (the default) means
+     *                      out_features, i.e. C is a standalone [outer_size, out_features]
+     *                      matrix -- the only shape every caller but one needs. Passing the
+     *                      stride of a WIDER matrix makes C a column slice of it, so a plan
+     *                      covering out_features of that matrix's channels writes them in
+     *                      place. That is what lets the codebook prefill path dequantize and
+     *                      multiply one strip of output channels at a time instead of
+     *                      expanding a whole weight matrix (Specifications/Qwen3.8.md
+     *                      sections 5 and 8). Non-quantized path only; a strided C has no
+     *                      meaning for the FP8 layout and is rejected.
      */
     export template<TensorDataType TComputePrecision, TensorDataType TParameterPrecision = TComputePrecision>
         CublasLtLinearPlan<TComputePrecision, TParameterPrecision> build_linear_plan(
@@ -203,9 +213,26 @@ namespace Mila::Dnn::Compute::Cuda
             bool has_bias,
             cublasComputeType_t compute_type,
             cudaDataType_t scale_type,
-            const float* weight_scale = nullptr )
+            const float* weight_scale = nullptr,
+            int output_row_stride = 0 )
     {
         constexpr bool kIsQuantized = (TParameterPrecision != TComputePrecision);
+
+        if ( output_row_stride != 0 && output_row_stride < out_features )
+        {
+            throw std::invalid_argument(
+                "build_linear_plan - output_row_stride must be zero or at least out_features" );
+        }
+
+        if constexpr ( kIsQuantized )
+        {
+            if ( output_row_stride != 0 )
+            {
+                throw std::invalid_argument(
+                    "build_linear_plan - output_row_stride is not supported on the quantized "
+                    "FP8 path, whose C is column-major" );
+            }
+        }
 
         // Activation type (A non-quantized / B quantized), weight type (B non-quantized / A quantized)
         constexpr cudaDataType_t data_type_activation = cuda_data_type_v<TComputePrecision>;
@@ -334,7 +361,10 @@ namespace Mila::Dnn::Compute::Cuda
             // Row-major layouts.
             // A = activation:  [M x K], lda = K
             // B = weight:      [N x K], ldb = K
-            // C = output:      [M x N], ldc = N
+            // C = output:      [M x N], ldc = N, or the caller's wider stride so that C is a
+            //                  column slice written in place.
+            const int output_stride = ( output_row_stride != 0 ) ? output_row_stride : out_features;
+
             status = cublasLtMatrixLayoutCreate(
                 &plan.layoutA, data_type_activation, outer_size,   in_features,  in_features );
             if ( status != CUBLAS_STATUS_SUCCESS )
@@ -352,7 +382,7 @@ namespace Mila::Dnn::Compute::Cuda
             }
 
             status = cublasLtMatrixLayoutCreate(
-                &plan.layoutC, data_type_output,     outer_size,   out_features, out_features );
+                &plan.layoutC, data_type_output,     outer_size,   out_features, output_stride );
             if ( status != CUBLAS_STATUS_SUCCESS )
             {
                 Logging::Logger::error( "layoutC (output) create failed: " + std::to_string( status ) );
@@ -529,6 +559,18 @@ namespace Mila::Dnn::Compute::Cuda
      * @param out_features       Output channels N.
      * @param activation_scale  Device float scalar for the FP8 activation operand (B_SCALE, 1.0f).
      * @param weight_scale      Device float scalar for the FP8 weight operand (A_SCALE).
+     * @param output_row_stride Row stride of the FULL output when this plan computes a strip
+     *                          of it; 0 when it computes the whole thing. Must be >=
+     *                          out_features. This is what lets a caller expand one strip of
+     *                          output channels at a time instead of the whole weight matrix
+     *                          at once -- see CudaLinearOp's staging cap.
+     *
+     * Column-major C carries a leading dimension as naturally as row-major does: with
+     * ldc = output_row_stride and the base pointer advanced by the strip's first channel,
+     * element (n, m) lands at base + m * stride + n, which is exactly Y[m][begin + n].
+     * `build_linear_plan` rejects the parameter on its own quantized branch on the grounds
+     * that C is column-major there; that reasoning does not hold, and the restriction should
+     * go when something needs it.
      */
     export template<TensorDataType TComputePrecision>
         CublasLtLinearPlan<TComputePrecision, TensorDataType::FP8_E4M3> build_fp8_prefill_plan(
@@ -537,8 +579,18 @@ namespace Mila::Dnn::Compute::Cuda
             int in_features,
             int out_features,
             const float* activation_scale,
-            const float* weight_scale )
+            const float* weight_scale,
+            int output_row_stride = 0 )
     {
+        if ( output_row_stride != 0 && output_row_stride < out_features )
+        {
+            throw std::invalid_argument(
+                "build_fp8_prefill_plan - output_row_stride must be zero or at least out_features" );
+        }
+
+        const int output_leading_dimension =
+            ( output_row_stride != 0 ) ? output_row_stride : out_features;
+
         constexpr cudaDataType_t data_type_output = cuda_data_type_v<TComputePrecision>;
 
         CublasLtLinearPlan<TComputePrecision, TensorDataType::FP8_E4M3> plan;
@@ -566,7 +618,7 @@ namespace Mila::Dnn::Compute::Cuda
         cublasLtCheckStatus( cublasLtMatrixLayoutCreate(
             &plan.layoutB, CUDA_R_8F_E4M3, in_features,  outer_size,   in_features ) );
         cublasLtCheckStatus( cublasLtMatrixLayoutCreate(
-            &plan.layoutC, data_type_output, out_features, outer_size, out_features ) );
+            &plan.layoutC, data_type_output, out_features, outer_size, output_leading_dimension ) );
 
         cublasLtCheckStatus( cublasLtMatmulPreferenceCreate( &plan.preference ) );
 

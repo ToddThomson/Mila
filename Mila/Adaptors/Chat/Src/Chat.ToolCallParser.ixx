@@ -13,7 +13,6 @@ module;
 #include <optional>
 #include <stdexcept>
 #include <format>
-#include <atomic>
 
 export module Chat.ToolCallParser;
 
@@ -35,9 +34,7 @@ namespace Mila::ChatApp
      *   2. Leading '['            -> parsePythonicCall
      *   3. Fallback               -> parseBareJson
      *
-     * Thread safety: parse() is stateless except for the call_id counter,
-     * which uses a relaxed atomic increment. Concurrent calls produce unique
-     * ids but do not impose ordering guarantees on each other.
+     * Thread safety: parse() is stateless.
      */
     export class ToolCallParser
     {
@@ -73,8 +70,6 @@ namespace Mila::ChatApp
         static constexpr std::string_view kPythonTag = "<|python_tag|>";
         static constexpr std::string_view kEot = "<|eot_id|>";
         static constexpr std::string_view kEom = "<|eom_id|>";
-
-        static inline std::atomic<uint32_t> next_id_{ 1 };
 
         /**
          * @brief Parse a <|python_tag|>-prefixed tool call block.
@@ -154,7 +149,6 @@ namespace Mila::ChatApp
                 return std::nullopt;
 
             ToolCall call;
-            call.id = std::format( "call_{}", next_id_.fetch_add( 1, std::memory_order_relaxed ) );
             call.name = j[ "name" ].get<std::string>();
             call.arguments = j[ "arguments" ].dump();
 
@@ -240,7 +234,6 @@ namespace Mila::ChatApp
             }
 
             ToolCall call;
-            call.id = std::format( "call_{}", next_id_.fetch_add( 1, std::memory_order_relaxed ) );
             call.name = tool_name;
             call.arguments = arguments.dump();
 

@@ -2,12 +2,12 @@
 
 Working space for **locally converted** model weights. Nothing here is tracked in git.
 
-This is not where installed models live. A model you install with `/install` goes into the **model
+This is not where installed models live. A model you install with `/model install` goes into the **model
 store**, which is a separate location — see below.
 
 ## The store, and why it is usually elsewhere
 
-The store is what `/models`, `/install` and every `from_store` load read. Its root resolves in this
+The store is what `/model list`, `/model install` and every `from_store` load read. Its root resolves in this
 order (`Mila/Src/Distribution/ModelStore.ixx`):
 
 1. `MILA_CACHE_DIR`, if set
@@ -37,7 +37,7 @@ Llama/llama32_3b_instruct_bf16.bin
 ## A loose .bin is not yet a model Mila can name
 
 Nothing loads a bare `.bin` by name. To make a converted checkpoint a first-class model — listed by
-`/models`, loadable exactly like a published one — put it through the store:
+`/model list`, loadable exactly like a published one — put it through the store:
 
 ```
 ExportArtifact <source>.bin <artifact>.safetensors

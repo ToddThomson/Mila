@@ -152,6 +152,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * @param scales_out     Device FP32 tensor [out_features, in_features/group_size].
          * @param expected_shape Expected weight shape [out_features, in_features].
          * @param group_size     Quantization group size (64 or 128).
+         * @param dev_staging    Device staging buffer; need not hold the whole tensor.
+         * @param staging_bytes  Its capacity. The tensor is quantized in row blocks that fit.
          */
         export void quantize_fp4_per_group(
             const Mila::Dnn::Serialization::ITensorBlob& blob,
@@ -160,6 +162,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             const Mila::Dnn::shape_t&                    expected_shape,
             int                                          group_size,
             void*                                        dev_staging,
+            std::size_t                                  staging_bytes,
             cudaStream_t                                 stream )
         {
             const auto& meta = blob.getMetadata();
@@ -183,6 +186,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 in_features,
                 group_size,
                 dev_staging,
+                staging_bytes,
                 stream );
         }
 

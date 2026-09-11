@@ -13,6 +13,7 @@
 #   GENERATOR         CMake generator to reuse (e.g. Ninja)
 # Optional:
 #   CXX_COMPILER, CUDA_COMPILER  pin the consumer to the same toolchain
+#   CPM_SOURCE_CACHE             dir to cache CPM clones across runs
 
 cmake_minimum_required(VERSION 4.0)
 
@@ -27,6 +28,17 @@ if(CXX_COMPILER)
 endif()
 if(CUDA_COMPILER)
     list(APPEND compiler_args "-DCMAKE_CUDA_COMPILER=${CUDA_COMPILER}")
+endif()
+
+# The wipe above takes _deps with it, so without a cache OUTSIDE the build directory
+# every run re-clones cutlass, curl, nlohmann and miniz. Measured 2026-08-30: configure
+# is 103.7s cold against 18.0s with the cache warm, so this buys about 86 seconds and
+# the network traffic, not the minutes an earlier note here claimed. Unlike the CPM
+# gate, nothing here needs a fresh clone of Mila itself: this consumer takes the local
+# working tree via SOURCE_DIR, so only third-party packages are cached, and CPM keys
+# its cache entries by package version.
+if(CPM_SOURCE_CACHE)
+    list(APPEND compiler_args "-DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}")
 endif()
 
 # Build the subproject (Mila + the consumer exe) in the same config as the parent build

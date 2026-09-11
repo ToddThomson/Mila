@@ -29,6 +29,7 @@ namespace Mila::Dnn
         Gpt2,       ///< GPT-2 style decoder network
         Llama,      ///< LLaMA 3 style decoder network
         Gemma,      ///< Gemma 4 style decoder network
+        Qwen,       ///< Qwen 3.8 style hybrid decoder network (full attention + Gated DeltaNet)
         Mistral,    ///< Mistral style decoder network
         Bert,       ///< BERT style encoder network
     };
@@ -49,6 +50,8 @@ namespace Mila::Dnn
                 return "Llama";
             case ModelType::Gemma:
                 return "Gemma";
+            case ModelType::Qwen:
+                return "Qwen";
             case ModelType::Mistral:
                 return "Mistral";
             case ModelType::Bert:
@@ -77,6 +80,8 @@ namespace Mila::Dnn
             return ModelType::Llama;
         if ( low == "gemma" )
             return ModelType::Gemma;
+        if ( low == "qwen" )
+            return ModelType::Qwen;
         if ( low == "mistral" )
             return ModelType::Mistral;
         if ( low == "bert" )

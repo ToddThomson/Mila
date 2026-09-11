@@ -106,6 +106,7 @@ namespace Mila::Distribution
     /**
      * @brief Parse a manifest, refusing anything a consumer would have to guess about.
      *
+     * @param text The manifest's JSON text.
      * @param source What is being parsed, for messages only -- a name or a package path.
      * @throws std::runtime_error on malformed JSON, or a model that declares no usable files.
      */

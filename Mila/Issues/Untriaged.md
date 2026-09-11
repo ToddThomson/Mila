@@ -1,0 +1,136 @@
+# Untriaged
+
+Captured, not yet judged. Writing here needs no judgement, which is the whole point — finding
+something mid-task leaves seconds, and a format that asks for more is a format that goes unused.
+Facts may grow; judgement may not.
+
+Entries are **deleted unexamined at the production release tag**, and anything user-reported is a
+pointer to its GitHub issue rather than a copy. Triage flow, categories and the entry format are in
+[README.md](README.md); entries here carry an anchor where the judged files carry tags.
+
+---
+
+## The packaging fixtures are an unread detector for source-tree pollution
+
+`Mila/Tests/Packaging/{fetchcontent,cpm}_consumer/Mila/Adaptors/Inference/Server/mila.cp313-win_amd64.pyd`
+@ `a87e8315`
+
+Two 16 MB fossils dated 2026-07-21, left by the third binding destination that
+`Mila/Bindings/CMakeLists.txt:112-118` records as removed. They landed there because the copy was
+source-relative and a subproject build makes the consumer's root `CMAKE_SOURCE_DIR` — the same
+defect class as the `tokenize` and wheel-VERSION items, both closed at `+40`. Nothing looks in
+these directories, so the evidence sat for six weeks. Found widening the FetchContent gate. The
+open question is whether the gate should assert the fixture directories are clean afterwards,
+which is what would have caught this in a day rather than six weeks.
+
+## `RelWithDebInfo` is the only build type that reports C4702, and nothing watches it
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx:296` @ `a5650805`
+
+Eleven `unreachable code` warnings appear under `RelWithDebInfo` and under no other build type:
+Release and Debug both report zero on the identical tree, measured across five configurations.
+They also need the extras — with `MILA_ENABLE_TESTING/SAMPLES/ADAPTORS/TOOLS/PROFILING` off the
+library alone reports none, so the instantiations that trigger them come from outside `Mila/Src`.
+Ten of the eleven are the `copyFromBlob` fall-through fixed at `+42`; the eleventh was
+`GroupedQueryAttention::backward`, whose tail became unreachable once the operation it dispatched
+into always threw, and which `+43` resolved by declaring the refusal at the component boundary
+instead. **Unverified there: whether moving the throw up a level moves the warning up with it.**
+MSVC deduced never-returns through the operation call, so it may deduce the same through
+`attn_->backward` at `Llama.Block.ixx:373` and report the Llama backward chain as unreachable —
+which would be true, and is the reason to look rather than to assume. No preset the project
+watches is `RelWithDebInfo`, so nothing will surface it on its own.
+Bisected to at least `+38` by building `git archive` exports at a short path
+(`MAX_PATH` defeats a scratchpad build), so they are older than the day they were first noticed —
+first noticed only because a clean full `x64-profile` build is rarer than an incremental one. The
+open question is whether any preset the project actually watches should be `RelWithDebInfo`, since
+`x64-validate` is the pre-commit gate and is Release, and therefore blind to this whole class.
+
+## MIS reports every response as `finish_reason: "stop"`, including truncated ones
+
+`Mila/Adaptors/Inference/Server/src/mila_llm_server/routes/completions.py:49` @ `9c431945`
+
+Five sites hardcode it -- `chat.py:66`, `completions.py:49`, `factory.py:137`, `:155`, `:200` --
+so an OpenAI or Anthropic client is told a reply ended naturally when it was cut off by
+`max_tokens` or by context exhaustion. The live Anthropic path returns `stop_reason: "end_turn"`
+on every response for the same reason. Until now this was not fixable: the binding discarded
+`GenerateStatus`, so MIS had nothing truthful to report and a constant was the only option. The
+binding's `generate` now returns the reason, and `ModelWorker.generate` /
+`ModelWorker.generate_streaming` are the two places it would be threaded through -- neither
+currently propagates it to the routes. Mapping is not one-to-one: OpenAI spells the cap `length`
+and Anthropic spells it `max_tokens`, and neither protocol has a spelling for `context_limit`, so
+the decision owed is what each protocol reports for a context overflow.
+
+## A failed `--model` names a remedy that only exists inside the session it refused to open
+
+`Mila/Adaptors/Chat/Src/Chat.ModelCatalog.ixx:485` @ `840568de`
+
+`resolveStoredName`'s two refusals advise `/model install <name>` (:478) and `/model list --online`
+(:486). Both are REPL commands, and both are correct on the path where the session opens anyway --
+which `main.cpp:1057` and `Chat.Config.ixx:201` describe as the deliberate design. But the same
+exception is thrown on the command-line path, where `main.cpp:823` deliberately exits instead:
+"opening a session that ignored the one instruction it was given is worse than refusing". That exit
+is right; the message travelling with it is not, because the user is back at their shell and cannot
+type what it suggests. In the published container it is wrong twice over -- the reachable remedy
+there is the image's own `install` verb, which is step 1 of the website's Evaluating band, and the
+message never mentions it. Found by running the site's step 2 against a store where step 1 had not
+run. The decision owed is whether the refusal text varies by path, or whether one wording can serve
+both.
+
+## A public component method takes a type the umbrella does not export
+
+`Mila/Src/Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.ixx:363` @ `a395fe76`
+
+`void setState( const GqaState& ) override` is public on a public component, but `Mila.ixx` never
+exports `Compute.GqaState`, so a consumer with `import Mila;` cannot name the argument and cannot
+call the method. Found because clang rejects what MSVC accepts: the name is reachable through the
+component modules, and `Qwen.DeltaNetBlock.Cuda.cpp` compiled on MSVC while failing on clang with
+`use of undeclared identifier 'GqaState'`. Worked around at `+42` with a direct
+`import Compute.GqaState;` in the test, matching what `CudaGqaOp.Cuda.cpp` already does -- the
+umbrella was left alone because widening it is a public-API decision. Same class as the notes
+already in `Mila.ixx` for `Serialization.Tensor` and the weight-quantization policies: a type in a
+public interface that the umbrella does not re-export, which fails asymmetrically and so goes
+unnoticed. The decision owed is whether `GqaState` joins the export list, or `setState` stops being
+part of the public component surface. Worth asking the same question of every other type named in a
+public component signature, since nothing checks this.
+
+## Nothing in the repository compiles the C++ quick start the website links to
+
+`Mila/Samples/QuickStart/Cpp/main.cpp` @ `00978057`
+
+It is a standalone FetchContent project, so the main tree never adds it -- `x64-validate`
+does not build it and neither does CI. `packaging_fetchcontent_consumer` has its own
+`main.cpp` rather than this one. The only build that touches it is
+`Docker/Dockerfile.runtime:347`, which copies it into `/root/myapp` for the devel image, so a
+break reaches a published surface and is caught by a container build or by a reader. Found
+editing its not-installed message and having nowhere to compile-check the edit.
+Configuring it standalone with `-DFETCHCONTENT_SOURCE_DIR_MILA=<tree>` works and needs no
+network, which is what a gate would do; the file's own comment already names that override.
+Same shape as the Doxygen entry in BACKLOG: a published artefact whose only checker is the
+publish itself.
+
+## A mid-download transport failure tells the reader nothing about what to do next
+
+`Mila/Src/Distribution/ModelStore.ixx:457` @ `00978057`
+
+Walking the website's Evaluating band, `install` died at 35% of a 2.86 GiB transfer with
+`ModelStore: fetch of llama32_3b_instruct_fp4.safetensors (mila-llm/Llama-3.2-3B-Instruct-fp4)
+failed: Transferred a partial file (TransportError)`. The design handles this well —
+`ensureBlob` names the partial after the digest precisely so the next invocation resumes
+(`:342`) — but the message says none of that, so a first-time evaluator on the highest-stakes
+path reads a raw transport error as "this is broken" rather than "run it again, it continues
+from 1 GiB". The remedy exists and the text does not name it. Whether resume actually engages
+on the container's named-volume path is untested: `verify-image.sh` uses a throwaway volume by
+design, so it always restarts from zero and cannot demonstrate it.
+
+## An FP4 model on Turing has a fallback path that may be unreachable dead code
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx:882` @ `d4c61b15`
+
+When `use_wmma_fp4_gemm_` is false (SM < 8.0), the FP4 Linear dispatches to a non-WMMA
+`cuda_fp4a16_gemm` rather than refusing -- so the Linear layer is written to serve Turing. But both
+GQA flash prefill entry points throw outright on `sm_major < 8` (`Gqa.Flash.Fa2.cu:513`,
+`Gqa.Flash.Wmma.cu:632`), and every bound model uses GQA, so no prefill can reach that GEMM on such
+a card. Either the scalar path is dead code behind a refusal, or there is a non-flash attention
+route that makes it live and nothing says which. Found deciding the published architecture lists,
+which now start at 80 and so compile it for nobody. Worth resolving before someone maintains a
+kernel that cannot execute.

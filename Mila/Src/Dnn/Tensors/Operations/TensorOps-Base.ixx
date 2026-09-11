@@ -1,45 +1,32 @@
 /**
  * @file TensorOps-Base.ixx
- * @brief Base declaration for device-specific TensorOps specializations.
+ * @brief The device-dispatched entry point for tensor operations.
  *
- * Declares the `TensorOps` template used as the entry point for device-specific
- * tensor operation implementations. Specializations must provide the concrete
- * operations for their device.
+ * Declares the `TensorOps` alias template that resolves a device type to its backend
+ * implementation through Dnn::TensorOpsTraits.
  */
 
 export module Dnn.TensorOps.Base;
 
 import Compute.DeviceType;
+export import Dnn.TensorOpsTraits;
 
 namespace Mila::Dnn
 {
     /**
-     * @brief Device-dispatched TensorOps interface template.
+     * @brief Device-dispatched tensor operations.
      *
-     * Specialize `TensorOps<TDevice>` for each supported `Compute::DeviceType` to
-     * provide backend implementations of tensor operations (elementwise, reductions,
-     * copy, fill, etc.).
+     * Resolves to the backend implementation for a device -- CpuTensorOps,
+     * CudaTensorOps -- each of which supplies the elementwise, reduction, copy and fill
+     * operations the device-neutral entry points in Dnn.TensorOps dispatch to.
      *
-     * Requirements for specializations:
-     * - Provide the operations used by the framework (static or instance methods),
-     *   matching the signatures expected by TensorOps callers.
-     * - Use the device's memory resource and execution context types to access
-     *   device-specific APIs and streams.
-     * - Respect host/device accessibility guarantees: CPU specializations must
-     *   operate on host-accessible memory, CUDA specializations on device memory.
+     * A backend is added by defining its operations class and binding it in a traits
+     * module of its own: `template<> struct TensorOpsTraits<DeviceType::X> { using type = XTensorOps; };`.
+     * Backends respect host/device accessibility -- CPU on host-accessible memory,
+     * CUDA on device memory.
      *
-     * Usage example:
-     * @code
-     * template<>
-     * struct TensorOps<Compute::DeviceType::Cpu>
-     * {
-     *     static void copy(const ITensor& src, ITensor& dst);
-     *     // ...
-     * };
-     * @endcode
-     *
-     * @tparam TDevice Compute device type to specialize for (DeviceType::Cpu, DeviceType::Cuda, ...)
+     * @tparam TDevice Compute device type (DeviceType::Cpu, DeviceType::Cuda, ...)
      */
-    export template<Compute::DeviceType TDevice> 
-    struct TensorOps;
+    export template<Compute::DeviceType TDevice>
+    using TensorOps = typename TensorOpsTraits<TDevice>::type;
 }

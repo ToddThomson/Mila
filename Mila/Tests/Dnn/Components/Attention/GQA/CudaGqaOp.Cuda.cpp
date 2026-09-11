@@ -30,10 +30,7 @@
 #include <vector>
 
 import Mila;
-// Instantiating CudaGqaOp forces member bodies that call concrete
-// ExecutionContext<Cuda> methods (getCublasLtHandle, getStream, ...), which the
-// Mila umbrella does not complete for a consumer TU — import them directly.
-import Compute.ExecutionContext;
+// CudaGqaOp is not on the public umbrella; this suite tests the operation directly.
 import Compute.CudaGqaOp;
 import Compute.GqaState;
 

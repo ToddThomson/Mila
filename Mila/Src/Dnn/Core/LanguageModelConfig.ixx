@@ -58,8 +58,10 @@
  */
 
 module;
+#include <format>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 export module Dnn.LanguageModelConfig;
 
@@ -90,6 +92,20 @@ namespace Mila::Dnn
         None,   ///< BF16 weights -- default; no quantization overhead.
         FP8,    ///< FP8_E4M3 per-channel weight quantization -- Alpha.5 target.
         FP4,    ///< Per-group FP4 weight quantization -- future target.
+
+        /**
+         * The family's own designed per-role allocation, rather than one uniform format.
+         *
+         * The three values above name a STORAGE FORMAT that applies to every Linear alike.
+         * This one does not name a format at all: it says "build this model the way its
+         * designers allocated its bits", and which formats that means is the family's to
+         * define -- Qwen 3.8 spends 2.5 bits on the feed-forward gate/up pair and 4.125 on
+         * full attention (Specifications/Qwen3.8.md section 5).
+         *
+         * A family with no plan must REFUSE this value rather than fall back to a uniform
+         * policy, which is why dispatchWeightQuantization handles it explicitly.
+         */
+        Plan,
     };
 
     /**
@@ -107,9 +123,88 @@ namespace Mila::Dnn
         {
             case WeightQuantization::FP4: return "per_group_fp4_128";
             case WeightQuantization::FP8: return "per_channel_fp8_e4m3";
+
+            // A plan's artifact scheme is the FAMILY's, not this enum's -- Qwen 3.8 writes
+            // "codebook" because its sub-4-bit rows are what a load cannot reconstruct. One
+            // family has a plan today, so the mapping is stated here; a second one with a
+            // different scheme is what forces it to move behind a family accessor.
+            case WeightQuantization::Plan: return "codebook";
+
             case WeightQuantization::None:
             default:
                 return "none";
+        }
+    }
+
+    /**
+     * @brief True when a load can derive this format from reference weights.
+     *
+     * The distinction the artifact check turns on. FP4 and FP8 are computed from the weights
+     * at load time -- absmax scales and a format-defined level table -- so a BF16 artifact is
+     * a legitimate source for them, and every family already relies on that: Qwen's own
+     * packed artifact carries codebook tensors only and quantizes its attention and head
+     * projections on load (Qwen3.8.md section 8).
+     *
+     * A plan's codebooks are the opposite case. They are FITTED offline against calibration
+     * data, so nothing in a BF16 tensor recovers them and the artifact must carry them.
+     *
+     * Refusing both alike would be the safe-looking answer and the wrong one: it would make a
+     * uniform FP4 build of any family unreachable without a repack that adds nothing, which
+     * is exactly what the Phase 5 FP4 oracle needs to load.
+     */
+    export inline bool isDerivableFromReferenceWeights( WeightQuantization quantization )
+    {
+        return quantization == WeightQuantization::FP4
+            || quantization == WeightQuantization::FP8;
+    }
+
+    /**
+     * @brief Refuse a load whose stored weights were packed for a different policy.
+     *
+     * Nothing downstream can tell the two apart: packed codes reinterpreted as BF16, or a
+     * BF16 blob decoded through a codebook, produce a model that loads and runs and is wrong.
+     * The storage dtype cannot stand in for this check -- FP4 at group 128 and at group 64 are
+     * both U8. An empty stored name means reference weights; the reader normalizes the
+     * writer's "none" to empty, so the two spellings compare as one.
+     *
+     * The one asymmetry is deliberate: reference weights ARE a valid source for a derivable
+     * format, because the load computes those scales from the weights. See
+     * isDerivableFromReferenceWeights for why a codebook is the opposite case.
+     *
+     * It lives here rather than in a family because the rule is the writer's and the reader's
+     * alike, and a family that omits it does not fail -- it runs wrong.
+     *
+     * @param caller Qualified name of the calling factory, for the message.
+     * @param weights_path Path to the weights being loaded.
+     * @param stored_quantization Scheme the weights declare; empty for reference weights.
+     * @param requested_quantization Policy this build was compiled for.
+     */
+    export inline void requireStoredQuantizationMatches(
+        std::string_view caller,
+        std::string_view weights_path,
+        std::string_view stored_quantization,
+        WeightQuantization requested_quantization )
+    {
+        const std::string requested = weightQuantizationName( requested_quantization );
+
+        const bool weights_are_quantized = !stored_quantization.empty();
+        const bool build_is_quantized = requested_quantization != WeightQuantization::None;
+
+        const bool quantizes_on_load = !weights_are_quantized
+            && isDerivableFromReferenceWeights( requested_quantization );
+
+        if ( !quantizes_on_load
+            && ( weights_are_quantized != build_is_quantized
+                || ( weights_are_quantized && stored_quantization != requested ) ) )
+        {
+            throw std::runtime_error( std::format(
+                "{}: weights '{}' are stored as '{}' but this load requested '{}'. A codebook "
+                "cannot be loaded at reference precision and reference weights cannot be "
+                "decoded through one -- the codes are fitted offline against calibration data "
+                "and are not recoverable from weights",
+                caller, weights_path,
+                weights_are_quantized ? stored_quantization : std::string_view{ "none" },
+                requested ) );
         }
     }
 
@@ -198,6 +293,34 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Positions the language-model head evaluates per pass. Default 1.
+         *
+         * Generation reads a logit only at the final position, which is what the default
+         * pays for. Teacher-forced scoring needs one at every position, and a whole prefill
+         * chunk of logit rows does not fit -- at a 248,320 vocabulary a BF16 row is
+         * 0.474 MiB -- so a scoring deployment raises this to the number of rows it can
+         * afford and the head is evaluated in windows of that width.
+         *
+         * Sizes buffers at build time exactly as withContextLength does, and like it,
+         * describes the deployment rather than the checkpoint. Families that have not
+         * implemented scoring ignore it.
+         *
+         * @param positions  Head width in positions. Must be > 0.
+         * @throws std::invalid_argument if positions is zero.
+         */
+        TDerived& withLanguageModelHeadPositions( dim_t positions )
+        {
+            if ( positions <= 0 )
+            {
+                throw std::invalid_argument(
+                    "LanguageModelConfig: language_model_head_positions must be greater than zero" );
+            }
+
+            language_model_head_positions_ = positions;
+            return static_cast<TDerived&>(*this);
+        }
+
+        /**
          * @brief Set the weight quantization mode independently.
          *
          * Use when the desired weight quantization does not pair with the
@@ -275,6 +398,25 @@ namespace Mila::Dnn
             return static_cast<TDerived&>(*this);
         }
 
+        /**
+         * @brief The family's designed per-role allocation, from a pre-quantized artifact.
+         *
+         * Unlike the two above, this sets no KV compression: a plan allocates WEIGHT bits,
+         * and Qwen 3.8's baseline pairs its 2.90-bit body with a BF16 KV cache, which fits
+         * at 16K without compression (Qwen3.8.md section 5). A deployment that wants FP8 KV
+         * on top asks for it separately.
+         *
+         * There is no quantize-on-load path here and there cannot be one: a codebook is
+         * fitted offline against calibration data, so the artifact must already carry the
+         * codes. A load refuses an artifact whose scheme is not the compiled one.
+         */
+        TDerived& withPrecisionPlan()
+        {
+            weight_quantization_ = WeightQuantization::Plan;
+
+            return static_cast<TDerived&>(*this);
+        }
+
         // =====================================================================
         // Accessors
         // =====================================================================
@@ -282,6 +424,11 @@ namespace Mila::Dnn
         dim_t getContextLength() const noexcept
         {
             return context_length_;
+        }
+
+        dim_t getLanguageModelHeadPositions() const noexcept
+        {
+            return language_model_head_positions_;
         }
 
         WeightQuantization getWeightQuantization() const noexcept
@@ -313,6 +460,7 @@ namespace Mila::Dnn
                         case WeightQuantization::None: return "None (BF16)";
                         case WeightQuantization::FP8:  return "FP8 (PerChannelFp8)";
                         case WeightQuantization::FP4:  return "FP4 (PerGroupFp4)";
+                        case WeightQuantization::Plan: return "Plan (per-role allocation)";
                         default:                       return "Unknown";
                     }
                 };
@@ -331,7 +479,8 @@ namespace Mila::Dnn
             result += "  context_length:      " + std::to_string( context_length_ ) + "\n";
             result += "  weight_quantization: " + weightQuantStr( weight_quantization_ ) + "\n";
             result += "  kv_cache_compression:" + kvCacheStr( kv_cache_compression_ ) + "\n";
-            
+            result += "  lm_head_positions:   " + std::to_string( language_model_head_positions_ ) + "\n";
+
             return result;
         }
 
@@ -344,5 +493,8 @@ namespace Mila::Dnn
         dim_t              context_length_{ 0 };
         WeightQuantization weight_quantization_{ WeightQuantization::None };
         KvCacheCompression kv_cache_compression_{ KvCacheCompression::None };
+
+        // 1 is what generation reads; only a scoring deployment raises it.
+        dim_t              language_model_head_positions_{ 1 };
     };
 }

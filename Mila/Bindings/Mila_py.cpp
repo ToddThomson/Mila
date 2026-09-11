@@ -28,6 +28,8 @@ using Mila::Bindings::GemmaConfigInfo;
 using Mila::Bindings::GemmaSession;
 using Mila::Bindings::LlamaConfigInfo;
 using Mila::Bindings::LlamaSession;
+using Mila::Bindings::QwenConfigInfo;
+using Mila::Bindings::QwenSession;
 using Mila::Bindings::Tokenizer;
 
 // ============================================================================
@@ -37,7 +39,7 @@ using Mila::Bindings::Tokenizer;
 /**
  * @brief Python-visible handle for cooperative generation cancellation.
  *
- * Construct one instance per request; pass to generate_streaming() and call
+ * Construct one instance per request; pass to generate() and call
  * request_stop() on client disconnect. A single instance must not be shared
  * across concurrent requests.
  */
@@ -71,13 +73,19 @@ static void bind_tokenizer( py::module_& m )
             },
             py::arg( "path" ),
             "Load a Gemma 4 SentencePiece tokenizer from a Mila binary vocabulary file." )
+        .def_static( "load_qwen",
+            []( const std::string& path ) {
+                return Tokenizer::loadQwen( path );
+            },
+            py::arg( "path" ),
+            "Load a Qwen 3.8 tokenizer from a Mila binary vocabulary file." )
         .def_static( "from_store",
             []( const std::string& name ) {
                 return Tokenizer::fromStore( name );
             },
             py::arg( "name" ),
             "Load the tokenizer of an installed model, by store name.\n\n"
-            "The record says which loader the artifact needs, so nothing pairs a\n"
+            "The record says which loader the weights need, so nothing pairs a\n"
             "tokenizer path with a weights path by hand.\n\n"
             "Raises RuntimeError if the model is not installed or its files are missing." )
         .def( "encode",
@@ -373,16 +381,16 @@ static void bind_llama_model( py::module_& m )
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "bf16",
-            "Load Llama 3.x Instruct weights from an unquantized Mila artifact.\n\n"
+            "Load Llama 3.x Instruct weights from an unquantized Mila model file.\n\n"
             "Args:\n"
-            "    path:           Path to the Mila pretrained artifact.\n"
+            "    path:           Path to the Mila pretrained weights.\n"
             "    context_length: Maximum sequence length to build for.\n"
             "    device_index:   CUDA device index (default: 0).\n"
             "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
-            "                    (default: 'bf16'). FP8 and FP4 require SM >= 8.9\n"
-            "                    (RTX 40xx / Ada Lovelace).\n\n"
-            "A PRE-quantized artifact cannot be loaded here -- its bytes are already\n"
-            "FP4 or FP8, and only its store record says which. Use from_store()." )
+            "                    (default: 'bf16'). FP4 requires SM >= 8.0 (RTX 30xx\n"
+            "                    or newer); FP8 requires SM >= 8.9 (RTX 40xx or newer).\n\n"
+            "Pre-quantized weights cannot be loaded here -- their bytes are already\n"
+            "FP4 or FP8, and only the store record says which. Use from_store()." )
         .def_static( "from_store",
             []( const std::string& name,
                 int64_t context_length,
@@ -395,8 +403,8 @@ static void bind_llama_model( py::module_& m )
             py::arg( "name" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
-            "Load an installed Llama model by store name, as the artifact itself is.\n\n"
-            "The record settles the quantization, so a published FP4 or FP8 artifact\n"
+            "Load an installed Llama model by store name, as its weights already are.\n\n"
+            "The record settles the quantization, so a published FP4 or FP8 model\n"
             "loads without the caller knowing what it is. Nothing is downloaded: an\n"
             "uninstalled name raises RuntimeError.\n\n"
             "Args:\n"
@@ -406,29 +414,12 @@ static void bind_llama_model( py::module_& m )
         .def( "generate",
             []( LlamaSession& self,
                 const std::vector<int32_t>& prompt_tokens,
-                std::size_t max_new_tokens,
-                float temperature,
-                int top_k,
-                float top_p ) -> std::vector<int32_t>
-            {
-                py::gil_scoped_release _;
-                return self.generate( prompt_tokens, max_new_tokens, temperature, top_k, top_p );
-            },
-            py::arg( "prompt_tokens" ),
-            py::arg( "max_new_tokens" ) = 64,
-            py::arg( "temperature" ) = 1.0f,
-            py::arg( "top_k" ) = 0,
-            py::arg( "top_p" ) = 1.0f,
-            "Blocking generation. Returns prompt tokens followed by all generated tokens." )
-        .def( "generate_streaming",
-            []( LlamaSession& self,
-                const std::vector<int32_t>& prompt_tokens,
                 py::function on_token,
                 std::size_t max_new_tokens,
                 float temperature,
                 int top_k,
                 float top_p,
-                StopController* stop_ctrl )
+                StopController* stop_ctrl ) -> std::string
             {
                 std::stop_token stop = stop_ctrl
                     ? stop_ctrl->get_token()
@@ -436,7 +427,7 @@ static void bind_llama_model( py::module_& m )
 
                 py::gil_scoped_release release;
 
-                self.generateStreaming(
+                return self.generate(
                     prompt_tokens,
                     [&on_token]( int32_t tok ) {
                         py::gil_scoped_acquire acquire;
@@ -452,9 +443,14 @@ static void bind_llama_model( py::module_& m )
             py::arg( "top_k" ) = 0,
             py::arg( "top_p" ) = 1.0f,
             py::arg( "stop_controller" ) = py::none(),
-            "Stream generation token by token. on_token(id: int) is called for each "
-            "generated token (EOS excluded). Blocks until generation completes or "
-            "stop_controller.request_stop() is called." )
+            "Generate token by token. on_token(id: int) is called for each generated\n"
+            "token (EOS excluded). Blocks until generation completes or\n"
+            "stop_controller.request_stop() is called.\n\n"
+            "Returns why generation stopped, which the token stream cannot tell you:\n"
+            "    'stop'           the model finished on its own (EOS)\n"
+            "    'length'         max_new_tokens was reached\n"
+            "    'context_limit'  the context window was exhausted\n"
+            "    'cancelled'      stop_controller.request_stop() was called" )
         .def( "get_config",
             []( const LlamaSession& self ) {
                 const LlamaConfigInfo cfg = self.getConfig();
@@ -495,15 +491,15 @@ static void bind_gemma_model( py::module_& m )
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "fp4",
-            "Load Gemma 4 weights from an unquantized Mila artifact.\n\n"
+            "Load Gemma 4 weights from an unquantized Mila model file.\n\n"
             "Args:\n"
-            "    path:           Path to the Mila pretrained artifact.\n"
+            "    path:           Path to the Mila pretrained weights.\n"
             "    context_length: Maximum sequence length to build for.\n"
             "    device_index:   CUDA device index (default: 0).\n"
             "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
             "                    (default: 'fp4' -- a BF16 Gemma 4 12B needs ~24 GB\n"
             "                    and OOMs at load on the cards this targets).\n\n"
-            "A PRE-quantized artifact cannot be loaded here. Use from_store()." )
+            "Pre-quantized weights cannot be loaded here. Use from_store()." )
         .def_static( "from_store",
             []( const std::string& name,
                 int64_t context_length,
@@ -516,7 +512,7 @@ static void bind_gemma_model( py::module_& m )
             py::arg( "name" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
-            "Load an installed Gemma model by store name, as the artifact itself is.\n\n"
+            "Load an installed Gemma model by store name, as its weights already are.\n\n"
             "Args:\n"
             "    name:           Store name, e.g. 'gemma-4-12b-it-fp4'.\n"
             "    context_length: Maximum sequence length to build for.\n"
@@ -524,30 +520,12 @@ static void bind_gemma_model( py::module_& m )
         .def( "generate",
             []( GemmaSession& self,
                 const std::vector<int32_t>& prompt_tokens,
-                std::size_t max_new_tokens,
-                float temperature,
-                int top_k,
-                float top_p ) -> std::vector<int32_t>
-            {
-                py::gil_scoped_release _;
-                return self.generate( prompt_tokens, max_new_tokens, temperature, top_k, top_p );
-            },
-            py::arg( "prompt_tokens" ),
-            py::arg( "max_new_tokens" ) = 64,
-            py::arg( "temperature" ) = 1.0f,
-            py::arg( "top_k" ) = 0,
-            py::arg( "top_p" ) = 1.0f,
-            "Blocking generation. Returns prompt tokens followed by all generated tokens.\n"
-            "For HF token-for-token parity use temperature=0.0 (greedy argmax)." )
-        .def( "generate_streaming",
-            []( GemmaSession& self,
-                const std::vector<int32_t>& prompt_tokens,
                 py::function on_token,
                 std::size_t max_new_tokens,
                 float temperature,
                 int top_k,
                 float top_p,
-                StopController* stop_ctrl )
+                StopController* stop_ctrl ) -> std::string
             {
                 std::stop_token stop = stop_ctrl
                     ? stop_ctrl->get_token()
@@ -555,7 +533,7 @@ static void bind_gemma_model( py::module_& m )
 
                 py::gil_scoped_release release;
 
-                self.generateStreaming(
+                return self.generate(
                     prompt_tokens,
                     [&on_token]( int32_t tok ) {
                         py::gil_scoped_acquire acquire;
@@ -571,8 +549,14 @@ static void bind_gemma_model( py::module_& m )
             py::arg( "top_k" ) = 0,
             py::arg( "top_p" ) = 1.0f,
             py::arg( "stop_controller" ) = py::none(),
-            "Stream generation token by token. on_token(id: int) is called for each "
-            "generated token (EOS excluded)." )
+            "Generate token by token. on_token(id: int) is called for each generated\n"
+            "token (EOS excluded). For HF token-for-token parity use temperature=0.0\n"
+            "(greedy argmax).\n\n"
+            "Returns why generation stopped, which the token stream cannot tell you:\n"
+            "    'stop'           the model finished on its own (EOS)\n"
+            "    'length'         max_new_tokens was reached\n"
+            "    'context_limit'  the context window was exhausted\n"
+            "    'cancelled'      stop_controller.request_stop() was called" )
         .def( "get_config",
             []( const GemmaSession& self ) {
                 const GemmaConfigInfo cfg = self.getConfig();
@@ -597,6 +581,348 @@ static void bind_gemma_model( py::module_& m )
 }
 
 // ============================================================================
+// QwenModel bindings — Qwen 3.8 27B, CUDA BF16
+// ============================================================================
+
+static void bind_qwen_model( py::module_& m )
+{
+    py::class_<QwenSession>( m, "QwenModel" )
+        .def_static( "from_pretrained",
+            []( const std::string& path,
+                int64_t context_length,
+                int device_index,
+                const std::string& quantization ) -> std::unique_ptr<QwenSession>
+            {
+                py::gil_scoped_release _;
+
+                return QwenSession::fromPretrained(
+                    path, context_length, device_index, quantization );
+            },
+            py::arg( "path" ),
+            py::arg( "context_length" ),
+            py::arg( "device_index" ) = 0,
+            py::arg( "quantization" ) = "fp4",
+            "Load Qwen 3.8 weights from a Mila model file.\n\n"
+            "Args:\n"
+            "    path:           Path to the Mila pretrained weights.\n"
+            "    context_length: Maximum sequence length to build for.\n"
+            "    device_index:   CUDA device index (default: 0).\n"
+            "    quantization:   'bf16', 'fp8', 'fp4' or 'cb2-3'\n"
+            "                    (default: 'fp4' -- a BF16 27B fits no card this\n"
+            "                    targets). 'cb2-3' names a codebook plan fitted\n"
+            "                    offline, so it selects packed weights' format\n"
+            "                    rather than quantizing anything on the way in.\n\n"
+            "Prefer from_store(), which reads what the weights already are." )
+        .def_static( "from_store",
+            []( const std::string& name,
+                int64_t context_length,
+                int device_index ) -> std::unique_ptr<QwenSession>
+            {
+                py::gil_scoped_release _;
+
+                return QwenSession::fromStore( name, context_length, device_index );
+            },
+            py::arg( "name" ),
+            py::arg( "context_length" ),
+            py::arg( "device_index" ) = 0,
+            "Load an installed Qwen model by store name, as its weights already are.\n\n"
+            "Args:\n"
+            "    name:           Store name, e.g. 'Qwen3.8-27B-fp4'.\n"
+            "    context_length: Maximum sequence length to build for.\n"
+            "    device_index:   CUDA device index (default: 0)." )
+        .def( "generate",
+            []( QwenSession& self,
+                const std::vector<int32_t>& prompt_tokens,
+                py::function on_token,
+                std::size_t max_new_tokens,
+                float temperature,
+                int top_k,
+                float top_p,
+                StopController* stop_ctrl ) -> std::string
+            {
+                std::stop_token stop = stop_ctrl
+                    ? stop_ctrl->get_token()
+                    : std::stop_token{};
+
+                py::gil_scoped_release release;
+
+                return self.generate(
+                    prompt_tokens,
+                    [&on_token]( int32_t tok ) {
+                        py::gil_scoped_acquire acquire;
+                        on_token( tok );
+                    },
+                    max_new_tokens, temperature, top_k, top_p,
+                    std::move( stop ) );
+            },
+            py::arg( "prompt_tokens" ),
+            py::arg( "on_token" ),
+            py::arg( "max_new_tokens" ) = 64,
+            py::arg( "temperature" ) = 1.0f,
+            py::arg( "top_k" ) = 0,
+            py::arg( "top_p" ) = 1.0f,
+            py::arg( "stop_controller" ) = py::none(),
+            "Generate token by token. on_token(id: int) is called for each generated\n"
+            "token (EOS excluded).\n\n"
+            "Returns why generation stopped, which the token stream cannot tell you:\n"
+            "    'stop'           the model finished on its own (EOS)\n"
+            "    'length'         max_new_tokens was reached\n"
+            "    'context_limit'  the context window was exhausted\n"
+            "    'cancelled'      stop_controller.request_stop() was called" )
+        .def( "get_config",
+            []( const QwenSession& self ) {
+                const QwenConfigInfo cfg = self.getConfig();
+                py::dict d;
+                d["vocab_size"] = cfg.vocab_size;
+                d["max_sequence_length"] = cfg.max_sequence_length;
+                d["model_dim"] = cfg.model_dim;
+                d["num_layers"] = cfg.num_layers;
+                d["num_heads"] = cfg.num_heads;
+                d["num_kv_heads"] = cfg.num_kv_heads;
+                d["head_dim"] = cfg.head_dim;
+                d["hidden_dim"] = cfg.hidden_dim;
+                d["rope_theta"] = cfg.rope_theta;
+                d["partial_rotary_factor"] = cfg.partial_rotary_factor;
+                d["attention_output_gate"] = cfg.attention_output_gate;
+                d["full_attention_interval"] = cfg.full_attention_interval;
+                d["linear_num_key_heads"] = cfg.linear_num_key_heads;
+                d["linear_num_value_heads"] = cfg.linear_num_value_heads;
+                d["linear_head_dim"] = cfg.linear_head_dim;
+                d["linear_conv_kernel_dim"] = cfg.linear_conv_kernel_dim;
+                return d;
+            } )
+        .def( "__repr__",
+            []( const QwenSession& self ) { return self.repr(); } );
+}
+
+// ============================================================================
+// Chat protocol bindings — the model's grammar, projected from the runtime
+// ============================================================================
+
+namespace
+{
+    /// One turn from a Python mapping. Dicts rather than a bound class: a host reaching this
+    /// already holds its conversation as dicts, and a class would make it build a second shape.
+    Mila::Bindings::TurnInfo turnFromDict( const py::handle& item )
+    {
+        const py::dict turn = py::reinterpret_borrow<py::dict>( item );
+
+        Mila::Bindings::TurnInfo info;
+        info.role = turn.contains( "role" ) ? turn[ "role" ].cast<std::string>() : "user";
+        info.content = turn.contains( "content" ) ? turn[ "content" ].cast<std::string>() : "";
+
+        if ( turn.contains( "tool_calls" ) && !turn[ "tool_calls" ].is_none() )
+        {
+            for ( const auto& entry : turn[ "tool_calls" ] )
+            {
+                const py::dict call = py::reinterpret_borrow<py::dict>( entry );
+
+                // An "id" a host carries for its own correlation is ignored rather than
+                // rejected: no template renders one, so it is not this call's business.
+                info.tool_calls.push_back( {
+                    call.contains( "name" ) ? call[ "name" ].cast<std::string>() : std::string{},
+                    call.contains( "arguments" )
+                        ? call[ "arguments" ].cast<std::string>() : std::string{ "{}" },
+                } );
+            }
+        }
+
+        return info;
+    }
+
+    std::vector<Mila::Bindings::TurnInfo> turnsFromList( const py::iterable& history )
+    {
+        std::vector<Mila::Bindings::TurnInfo> turns;
+
+        for ( const auto& item : history )
+        {
+            turns.push_back( turnFromDict( item ) );
+        }
+
+        return turns;
+    }
+}
+
+static void bind_chat_protocol( py::module_& m )
+{
+    m.def( "qwen_format_prompt",
+        []( const py::iterable& history,
+            bool enable_thinking,
+            int reasoning_effort,
+            const std::string& tools_json ) {
+            return Mila::Bindings::qwenFormatPrompt(
+                turnsFromList( history ), enable_thinking, reasoning_effort, tools_json );
+        },
+        py::arg( "history" ),
+        py::arg( "enable_thinking" ) = false,
+        py::arg( "reasoning_effort" ) = 3,
+        py::arg( "tools_json" ) = "",
+        "Render a Qwen 3.8 conversation into the prompt its checkpoint was trained on.\n\n"
+        "Args:\n"
+        "    history:          Sequence of {'role', 'content', 'tool_calls'} mappings.\n"
+        "                      Role is 'system', 'user', 'assistant' or 'tool'; a tool\n"
+        "                      turn carries the result as its content. tool_calls is\n"
+        "                      optional and holds {'id', 'name', 'arguments'} mappings\n"
+        "                      whose arguments is a JSON object as text.\n"
+        "    enable_thinking:  True leaves the reasoning span OPEN, so the response\n"
+        "                      begins inside it and carries a close with no open.\n"
+        "    reasoning_effort: 1..5, mapped onto the three levels the checkpoint knows.\n"
+        "                      The middle level deliberately emits no instruction.\n"
+        "    tools_json:       JSON array of tool signature objects, or '' for none.\n\n"
+        "The template lives in the runtime, so this is the same prompt the chat harness\n"
+        "builds. Raises RuntimeError for an unknown role, an empty history, or a history\n"
+        "ending on an assistant turn." );
+
+    m.def( "qwen_parse_tool_call",
+            []( const std::string& response ) -> py::object {
+                const auto call = Mila::Bindings::qwenParseToolCall( response );
+
+                if ( !call.has_value() )
+                {
+                    return py::none();
+                }
+
+                py::dict parsed;
+                parsed[ "name" ] = call->name;
+                parsed[ "arguments" ] = call->arguments;
+
+                return parsed;
+            },
+            py::arg( "response" ),
+            "The first tool call in a Qwen response as {'name', 'arguments'}, or None.\n\n"
+            "No id: Qwen pairs a call to its result positionally and its template never\n"
+            "renders one, so a caller that needs a correlation id mints its own.\n\n"
+            "Anchored on the <tool_call> span, so prose is never routed here and reasoning\n"
+            "before a call is preserved. Raises RuntimeError when the span holds something\n"
+            "that is not a call -- the model failing at its own protocol." );
+
+    m.def( "qwen_protocol_tokens",
+            []() {
+                const auto tokens = Mila::Bindings::qwenProtocolTokens();
+
+                py::dict d;
+                d[ "turn_open" ] = tokens.turn_open;
+                d[ "turn_close" ] = tokens.turn_close;
+                d[ "reasoning_open" ] = tokens.reasoning_open;
+                d[ "reasoning_close" ] = tokens.reasoning_close;
+                d[ "tool_call_open" ] = tokens.tool_call_open;
+                d[ "tool_call_close" ] = tokens.tool_call_close;
+                d[ "tool_response_open" ] = tokens.tool_response_open;
+                d[ "tool_response_close" ] = tokens.tool_response_close;
+
+                return d;
+            },
+            "Qwen's control tokens, as the checkpoint vocabulary registers them.\n\n"
+            "A streaming host needs these: generation stops at tool_call_close, or the\n"
+            "model fabricates the tool result itself." );
+
+    m.def( "gemma_format_prompt",
+        []( const py::iterable& history,
+            const std::string& tool_declarations,
+            bool continue_open ) {
+            return Mila::Bindings::gemmaFormatPrompt(
+                turnsFromList( history ), tool_declarations, continue_open );
+        },
+        py::arg( "history" ),
+        py::arg( "tool_declarations" ) = "",
+        py::arg( "continue_open" ) = false,
+        "Render a Gemma 4 conversation into the prompt its checkpoint was trained on.\n\n"
+        "Args:\n"
+        "    history:           Sequence of {'role', 'content', 'tool_calls'} mappings.\n"
+        "                       Role is 'system', 'user', 'assistant' or 'tool'. The\n"
+        "                       assistant is spelled 'model' in the prompt and a tool\n"
+        "                       result renders as a user turn, both handled here. A tool\n"
+        "                       turn carries its result ALREADY rendered by\n"
+        "                       gemma_format_tool_response, which needs the tool's name.\n"
+        "    tool_declarations: What gemma_tool_declarations() returns, or '' for none.\n"
+        "    continue_open:     Emit the final turn open, with no closing marker and no\n"
+        "                       thought prime, so the next token continues it. That is\n"
+        "                       the shape after a tool response.\n\n"
+        "The template lives in the runtime, so this is the same prompt the chat harness\n"
+        "builds. Raises RuntimeError for an unknown role, or continue_open on an empty\n"
+        "history." );
+
+    m.def( "gemma_tool_declarations",
+        &Mila::Bindings::gemmaToolDeclarations,
+        py::arg( "tools_json" ),
+        "Tool schemas in Gemma's trained <|tool>declaration:...<tool|> grammar.\n\n"
+        "Takes a JSON array of tool schemas -- OpenAI function envelopes or bare\n"
+        "declarations. Returns '' when none are usable, which is what tells the model\n"
+        "there are none. Choosing WHICH tools to advertise is the caller's: a harness\n"
+        "with UI-only tools filters them out first." );
+
+    m.def( "gemma_parse_tool_call",
+        []( const std::string& response ) -> py::object {
+            const auto call = Mila::Bindings::gemmaParseToolCall( response );
+
+            if ( !call.has_value() )
+            {
+                return py::none();
+            }
+
+            py::dict parsed;
+            parsed[ "name" ] = call->name;
+            parsed[ "arguments" ] = call->arguments;
+
+            return parsed;
+        },
+        py::arg( "response" ),
+        "The most recent tool call in a Gemma response as {'name', 'arguments'}, or None.\n\n"
+        "No id: Gemma's grammar has no slot for one, so a caller that needs a correlation\n"
+        "id mints its own. Namespaced targets are reduced to the bare handler name, and\n"
+        "stray registered tokens are scrubbed from the name and from every string value." );
+
+    m.def( "gemma_format_tool_call",
+        &Mila::Bindings::gemmaFormatToolCall,
+        py::arg( "name" ), py::arg( "arguments" ),
+        "One assistant tool call rendered back into the native call grammar, for replay\n"
+        "into a prompt. Arguments is a JSON object as text." );
+
+    m.def( "gemma_format_tool_response",
+        &Mila::Bindings::gemmaFormatToolResponse,
+        py::arg( "name" ), py::arg( "result" ),
+        "A client-executed tool result in Gemma's <|tool_response> grammar.\n\n"
+        "A JSON envelope surfaces only its primary output field (the first non-empty of\n"
+        "output/result/content/stdout/text); metadata siblings would be echoed back as\n"
+        "content. A failed tool's 'error' is surfaced explicitly, without which the model\n"
+        "sees an empty result and blind-retries." );
+
+    m.def( "gemma_extract_answer",
+        &Mila::Bindings::gemmaExtractAnswer,
+        py::arg( "text" ),
+        "A channel-structured Gemma response reduced to the user-facing answer.\n\n"
+        "Drops every tool-call/response span and every reasoning-channel span, then\n"
+        "strips residual control tokens. Channels are removed wherever they appear, not\n"
+        "just at the start: the 12B emits mid-answer thought channels on the agentic path." );
+
+    m.def( "gemma_strip_control_tokens",
+        &Mila::Bindings::gemmaStripControlTokens,
+        py::arg( "text" ),
+        "Every registered control token removed from decoded text, including the\n"
+        "pipe-bracketed ones the enumerated set does not name." );
+
+    m.def( "gemma_protocol_tokens",
+        []() {
+            const auto tokens = Mila::Bindings::gemmaProtocolTokens();
+
+            py::dict d;
+            d[ "turn_open" ] = tokens.turn_open;
+            d[ "turn_close" ] = tokens.turn_close;
+            d[ "reasoning_open" ] = tokens.reasoning_open;
+            d[ "reasoning_close" ] = tokens.reasoning_close;
+            d[ "tool_call_open" ] = tokens.tool_call_open;
+            d[ "tool_call_close" ] = tokens.tool_call_close;
+            d[ "tool_response_open" ] = tokens.tool_response_open;
+            d[ "tool_response_close" ] = tokens.tool_response_close;
+
+            return d;
+        },
+        "Gemma's control tokens, as the checkpoint vocabulary registers them.\n\n"
+        "reasoning_open/close are the channel markers. A streaming host needs these:\n"
+        "generation stops at tool_call_close, or the model fabricates the result itself." );
+}
+
+// ============================================================================
 // StopController binding
 // ============================================================================
 
@@ -605,7 +931,7 @@ static void bind_stop_controller( py::module_& m )
     py::class_<StopController>( m, "StopController" )
         .def( py::init<>() )
         .def( "request_stop", &StopController::request_stop,
-            "Signal the running generate_streaming() call to halt." )
+            "Signal the running generate() call to halt." )
         .def_property_readonly( "stop_requested", &StopController::stop_requested );
 }
 
@@ -623,10 +949,11 @@ PYBIND11_MODULE( _mila, m )
         "Mila inference bindings for CUDA.\n\n"
         "Models:\n"
         "    GemmaModel  Gemma 4 Instruct, BF16 compute with FP4 weights (the flagship).\n"
-        "    LlamaModel  Llama 3.x Instruct, BF16 compute, optional FP8 or FP4 weights.\n\n"
+        "    LlamaModel  Llama 3.x Instruct, BF16 compute, optional FP8 or FP4 weights.\n"
+        "    QwenModel   Qwen 3.8, BF16 compute, FP4 or a 2/3-bit codebook.\n\n"
         "Load an installed model by name with from_store(), which reads the store record\n"
-        "and so knows what the artifact already is -- a published model is pre-quantized,\n"
-        "and only its record says to what. from_pretrained() remains for a loose artifact\n"
+        "and so knows what the weights already are -- a published model is pre-quantized,\n"
+        "and only its record says to what. from_pretrained() remains for a loose weights\n"
         "file, where the quantization is the caller's choice. BpeTokenizer.from_store()\n"
         "takes the same name, so nothing pairs two paths by hand. The GIL is released\n"
         "around generation, so streaming callbacks, a StopController and Ctrl-C all work\n"
@@ -645,8 +972,10 @@ PYBIND11_MODULE( _mila, m )
         "Initialize the Mila framework. log_level: trace | info | warning | error." );
 
     bind_stop_controller( m );
+    bind_chat_protocol( m );
     bind_distribution( m );
     bind_tokenizer( m );
     bind_llama_model( m );
     bind_gemma_model( m );
+    bind_qwen_model( m );
 }

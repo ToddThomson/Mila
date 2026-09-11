@@ -3,7 +3,7 @@
 # Configure + build the Chat app inside the Mila build container.
 #
 # Source is read from the bind-mounted repo at /mila; build artifacts (the C++23
-# module BMIs, objects, and the ChatApp binary) are written to /build, a
+# module BMIs, objects, and the mila-chat binary) are written to /build, a
 # container-local volume. Keeping the build tree OFF the bind mount matters: the
 # module build is metadata-heavy BMI I/O, which is slow across the host->container
 # filesystem boundary (the same reason the WSL build uses an ext4 clone, not /mnt).
@@ -57,6 +57,6 @@ cmake -S "${SRC}" -B "${BUILD}" -G Ninja \
     -DMILA_ENABLE_PYTHON_BINDINGS=OFF \
     -DMILA_INSTALL=OFF
 
-cmake --build "${BUILD}" --target ChatApp -- -j "${MILA_BUILD_JOBS}"
+cmake --build "${BUILD}" --target mila-chat -- -j "${MILA_BUILD_JOBS}"
 
-echo "Built ${BUILD}/ChatApp (arch ${MILA_CUDA_ARCH}, ${MILA_BUILD_TYPE}, -j ${MILA_BUILD_JOBS}). Run it with: mila-chat"
+echo "Built ${BUILD}/mila-chat (arch ${MILA_CUDA_ARCH}, ${MILA_BUILD_TYPE}, -j ${MILA_BUILD_JOBS}). Run it with: mila-chat"

@@ -45,11 +45,12 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             int    head_dim,
             float  base,
             int    rotary_dim,
+            int    rotary_layout,
             cudaStream_t stream )
         {
             cuda_rope_build_cache_fp32(
                 cos_cache, sin_cache,
-                max_seq_len, head_dim, base, rotary_dim, stream );
+                max_seq_len, head_dim, base, rotary_dim, rotary_layout, stream );
         }
 
         /**
@@ -64,13 +65,14 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             const float* cos_cache, const float* sin_cache,
             int B, int T,
             int n_heads, int n_kv_heads, int head_dim,
+            int rotary_dim, int rotary_layout,
             int position_offset,
             cudaStream_t stream )
         {
             cuda_rope_forward_fp32(
                 Q_out, K_out, Q_in, K_in,
                 cos_cache, sin_cache,
-                B, T, n_heads, n_kv_heads, head_dim, position_offset, stream );
+                B, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, position_offset, stream );
         }
 
         /**
@@ -82,12 +84,13 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             const float* cos_cache, const float* sin_cache,
             int B, int T,
             int n_heads, int n_kv_heads, int head_dim,
+            int rotary_dim, int rotary_layout,
             cudaStream_t stream )
         {
             cuda_rope_backward_fp32(
                 dQ_in, dK_in, dQ_out, dK_out,
                 cos_cache, sin_cache,
-                B, T, n_heads, n_kv_heads, head_dim, stream );
+                B, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
         }
 
         /**
@@ -99,12 +102,13 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             const float* cos_cache, const float* sin_cache,
             int B, int position,
             int n_heads, int n_kv_heads, int head_dim,
+            int rotary_dim, int rotary_layout,
             cudaStream_t stream )
         {
             cuda_rope_decode_fp32(
                 Q_out, K_out, Q_in, K_in,
                 cos_cache, sin_cache,
-                B, position, n_heads, n_kv_heads, head_dim, stream );
+                B, position, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
         }
     };
 
@@ -123,12 +127,13 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             int   head_dim,
             float base,
             int   rotary_dim,
+            int   rotary_layout,
             cudaStream_t stream )
         {
             // REVIEW: Why is cache building going through the dispatcher. Call directly.
             cuda_rope_build_cache_fp32(
                 cos_cache, sin_cache,
-                max_seq_len, head_dim, base, rotary_dim, stream );
+                max_seq_len, head_dim, base, rotary_dim, rotary_layout, stream );
         }
 
         static void forward(
@@ -137,13 +142,14 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             const float* cos_cache, const float* sin_cache,
             int B, int T,
             int n_heads, int n_kv_heads, int head_dim,
+            int rotary_dim, int rotary_layout,
             int position_offset,
             cudaStream_t stream )
         {
             cuda_rope_forward_bf16(
                 Q_out, K_out, Q_in, K_in,
                 cos_cache, sin_cache,
-                B, T, n_heads, n_kv_heads, head_dim, position_offset, stream );
+                B, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, position_offset, stream );
         }
 
         static void backward(
@@ -152,12 +158,13 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             const float* cos_cache, const float* sin_cache,
             int B, int T,
             int n_heads, int n_kv_heads, int head_dim,
+            int rotary_dim, int rotary_layout,
             cudaStream_t stream )
         {
             cuda_rope_backward_bf16(
                 dQ_in, dK_in, dQ_out, dK_out,
                 cos_cache, sin_cache,
-                B, T, n_heads, n_kv_heads, head_dim, stream );
+                B, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
         }
 
         static void decode(
@@ -166,12 +173,13 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             const float* cos_cache, const float* sin_cache,
             int B, int position,
             int n_heads, int n_kv_heads, int head_dim,
+            int rotary_dim, int rotary_layout,
             cudaStream_t stream )
         {
             cuda_rope_decode_bf16(
                 Q_out, K_out, Q_in, K_in,
                 cos_cache, sin_cache,
-                B, position, n_heads, n_kv_heads, head_dim, stream );
+                B, position, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
         }
     };
 }

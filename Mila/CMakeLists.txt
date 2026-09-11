@@ -1,4 +1,4 @@
-﻿# CMake configuration for the Mila library
+# CMake configuration for the Mila library
 
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
@@ -11,12 +11,17 @@ add_library( Mila STATIC )
 # CUDA architectures the Mila library target is compiled for. The default is a
 # portable fat binary spanning every supported arch, so a find_package consumer's
 # Mila.lib runs on any of them. This is a target property, so it overrides any global
-# CMAKE_CUDA_ARCHITECTURES -- which is why the library always built all five arches
+# CMAKE_CUDA_ARCHITECTURES -- which is why the library always builds the whole list
 # regardless of a caller's -DCMAKE_CUDA_ARCHITECTURES. A local build that targets one
 # known GPU (the devcontainer/WSL convenience path, or any single-card dev build) can
 # pin a single arch for a much faster build via -DMILA_LIBRARY_CUDA_ARCHITECTURES=89.
 # Opt-in: the default is unchanged, so releases and packaged consumers stay portable.
-set(MILA_LIBRARY_CUDA_ARCHITECTURES "75;80;86;89;90" CACHE STRING
+#
+# 120 is Blackwell consumer (RTX 50-series). It is listed so those cards get native
+# cubin rather than a PTX JIT from 90 at first launch; nothing in Mila uses sm_120
+# instructions yet. Each added arch costs .cu compile time, so pin a single arch when
+# iterating on one card.
+set(MILA_LIBRARY_CUDA_ARCHITECTURES "75;80;86;89;90;120" CACHE STRING
     "CUDA architectures for the Mila library target (default: portable fat binary)")
 
 set_target_properties( Mila PROPERTIES
@@ -73,12 +78,10 @@ target_include_directories( Mila
 
 # Kernel headers and the vendored nlohmann header are pulled by file-relative quoted
 # includes (#include "Kernels/Foo.cuh", "../../Deps/nlohmann/json.hpp"), which resolve
-# relative to the including .ixx. The install tree mirrors the source tree (see the
-# install section), so those same relative includes resolve after install when the
-# consumer recompiles the module units. No source-side include changes are needed.
+# relative to the including .ixx. A subproject consumer compiles the module units in
+# place against this source tree, so those relative includes resolve unchanged.
 target_include_directories( Mila
     INTERFACE
-        $<INSTALL_INTERFACE:include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Src>
 )
 
@@ -185,6 +188,7 @@ PUBLIC
         # Dnn / Tensors / Operations
         "Src/Dnn/Tensors/Operations/TensorOps.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps.Traits.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Math.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Fill.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
@@ -209,6 +213,14 @@ PUBLIC
         "Src/Dnn/Components/Connections/ConnectionType.ixx"
         "Src/Dnn/Components/Connections/Residual.ixx"
         "Src/Dnn/Components/Connections/ResidualConfig.ixx"
+
+        # Components - Convolutions
+        "Src/Dnn/Components/Convolutions/CausalConv1d.Config.ixx"
+        "Src/Dnn/Components/Convolutions/CausalConv1d.ixx"
+
+        # Components - DeltaNet
+        "Src/Dnn/Components/DeltaNet/GatedDeltaRule.Config.ixx"
+        "Src/Dnn/Components/DeltaNet/GatedDeltaRule.ixx"
 
         # Components - Embeddings
         "Src/Dnn/Components/Embeddings/TokenEmbedding.ixx"
@@ -260,7 +272,8 @@ PUBLIC
         "Src/Dnn/Compute/DeviceType.ixx"
         "Src/Dnn/Compute/DeviceId.ixx"
 
-        "Src/Dnn/Compute/ExecutionContext.Template.ixx"
+        "Src/Dnn/Compute/ExecutionContext.Traits.ixx"
+        "Src/Dnn/Compute/Observation.ixx"
         "Src/Dnn/Compute/ExecutionContext.ixx"
         "Src/Dnn/Compute/IExecutionContext.ixx"
         "Src/Dnn/Compute/ExecutionContextFactory.ixx"
@@ -378,6 +391,8 @@ PUBLIC
         "Src/Dnn/Components/Normalization/NormType.ixx"
         "Src/Dnn/Components/Encodings/EncodingType.ixx"
         
+        "Src/Dnn/Components/Transformers/ITransformerBlock.ixx"
+
         "Src/Dnn/Components/Transformers/Gpt/GptTransformer.ixx"
         
         "Src/Dnn/Components/Transformers/Gpt/Gpt.Config.ixx"
@@ -386,11 +401,17 @@ PUBLIC
         
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Presets.ixx"
 
+
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Config.ixx"
-        "Src/Dnn/Components/Transformers/Gemma/IDecoderLayer.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.Workspace.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.ixx"
-        "Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx"
+
+        "Src/Dnn/Components/Transformers/Qwen/Qwen.PrecisionPlan.ixx"
+        "Src/Dnn/Components/Transformers/Qwen/Qwen.Config.ixx"
+        "Src/Dnn/Components/Transformers/Qwen/Qwen.AttentionBlock.ixx"
+        "Src/Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.ixx"
+        "Src/Dnn/Components/Transformers/Qwen/Qwen.ixx"
 
         "Src/Data/Tokenizers/Tokenizer.ixx"
         "Src/Data/Tokenizers/TokenizerVocabulary.ixx"
@@ -419,23 +440,30 @@ PUBLIC
         "Src/Dnn/Serialization/PretrainedReader.ixx"
         "Src/Dnn/Serialization/Serializer.ixx"
         
-        "Src/Dnn/Compute/Operations/IKVCacheLifecycle.ixx"
+        "Src/Dnn/Compute/Operations/IKvCacheLifecycle.ixx"
         
         # The one runtime-to-compile-time quantization bridge, imported by the models below.
+        "Src/Dnn/Models/Conversation.ixx"
         "Src/Dnn/Models/QuantizationDispatch.ixx"
-        "Src/Dnn/Models/GptModel.ixx"
-        "Src/Dnn/Models/LlamaModel.ixx"
-        "Src/Dnn/Models/GemmaModel.ixx"
+        "Src/Dnn/Models/Gpt/GptModel.ixx"
+        "Src/Dnn/Models/LlaMa/LlamaModel.ixx"
+        "Src/Dnn/Models/Gemma/GemmaModel.ixx"
+        "Src/Dnn/Models/Gemma/Gemma.Protocol.ixx"
+        "Src/Dnn/Models/Qwen/QwenModel.ixx"
+        "Src/Dnn/Models/Qwen/Qwen.Protocol.ixx"
 
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.ixx"
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
+
+        "Src/Dnn/Components/Attention/OutputGate/AttentionOutputGate.Config.ixx"
+        "Src/Dnn/Components/Attention/OutputGate/AttentionOutputGate.ixx"
         
         "Src/Dnn/Core/Component.MemoryStats.ixx"
         "Src/Dnn/Core/Model.RuntimeMode.ixx"
         "Src/Dnn/Core/Model.ixx"
-        "Src/Dnn/Core/LanguageNetwork.ixx"
+        "Src/Dnn/Core/LanguageModelNetwork.ixx"
         "Src/Dnn/Core/LanguageModel.ixx"
         "Src/Dnn/Core/Component.TrainingMode.ixx"
         "Src/Dnn/Compute/Operations/IPositionalPairedOp.ixx"
@@ -449,8 +477,9 @@ PUBLIC
         #"Src/Dnn/Compute/Operations/LinearOpTypeMap.ixx"
         #"Src/Dnn/Core/ModelQuantizationConfig.ixx"
         "Src/Dnn/Core/ModelConfig.ixx"
-        "Src/Dnn/Models/LlamaModelConfig.ixx"
-        "Src/Dnn/Models/GemmaModelConfig.ixx"
+        "Src/Dnn/Models/LlaMa/LlamaModelConfig.ixx"
+        "Src/Dnn/Models/Gemma/GemmaModelConfig.ixx"
+        "Src/Dnn/Models/Qwen/QwenModelConfig.ixx"
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/GqaState.ixx"
@@ -459,19 +488,18 @@ PUBLIC
         "Src/Logging/FileSink.ixx"
         
         "Src/Dnn/Quantization/Weight/Policies.ixx"
+        "Src/Dnn/Quantization/Weight/PrecisionPlan.ixx"
         "Src/Dnn/Quantization/KvCache/Policy.ixx"
         "Src/Dnn/Quantization/KvCache/QuantPolicy.ixx"
         "Src/Dnn/Quantization/Quantization.ixx"
+
+        "Src/Dnn/Quantization/Weight/CodebookPacking.ixx"
         "Src/Dnn/Core/LanguageModelConfig.ixx"
         
         "Src/Dnn/Core/SamplerBase.ixx"
         "Src/Dnn/Samplers/SamplingConfig.ixx"
         "Src/Dnn/Samplers/TokenSampler.ixx"
- "Src/Dnn/Models/GptModelConfig.ixx" "Src/Dnn/Core/GenerateStatus.ixx")
-
-# Initialize install file set args with core modules; backend blocks append to this.
-set( MILA_INSTALL_FILE_SET_ARGS
-    FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
+ "Src/Dnn/Models/Gpt/GptModelConfig.ixx" "Src/Dnn/Core/GenerateStatus.ixx")
 
 # ----------------------------------------------------------------------------
 # CPU backend modules
@@ -484,10 +512,12 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/CpuDevice.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuExecutionContext.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/CpuExecutionContext.Traits.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTypeTraits.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/CpuTensorDataTypeTraits.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Traits.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
@@ -513,7 +543,6 @@ if(MILA_HAS_CPU)
     )
 
     target_compile_definitions( Mila PUBLIC MILA_HAS_CPU)
-    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cpu_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
     message(STATUS "Added CPU backend modules")
 endif()
@@ -571,6 +600,8 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookGemv.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookDequantize.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Fp32.cu"
@@ -586,6 +617,9 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/Kernels/Sampling.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/Kernels/CausalConv1d.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/Kernels/CausalConv1d.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/DeltaNet/Kernels/GatedDeltaRule.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.warp.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.block.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cu"
@@ -624,6 +658,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookGemv.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookDequantize.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/Kernels/Geglu.cuh"
@@ -636,6 +672,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/Kernels/Sampling.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/Kernels/CausalConv1d.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/DeltaNet/Kernels/GatedDeltaRule.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
@@ -661,6 +699,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/CudaDevice.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.Traits.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Profiling/CudaTimer.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceMemoryResource.ixx"
@@ -671,6 +710,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Maps.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Traits.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Math.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
@@ -698,6 +738,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.Cache.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CodebookGemv.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/CudaGegluOp.ixx"
@@ -707,6 +748,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/CudaSoftmaxOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/CudaSamplingOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/CudaCausalConv1dOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/DeltaNet/CudaGatedDeltaRuleOp.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.Dispatch.ixx"
@@ -733,6 +776,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlan.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlanCache.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.Dispatch.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/CudaCausalConv1dOp.Dispatch.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/DeltaNet/CudaGatedDeltaRuleOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Plans.ixx"
@@ -742,11 +787,10 @@ if(MILA_HAS_CUDA)
     )
 
     # PUBLIC (like the Metal/ROCm backends below), not PRIVATE: Mila is a STATIC
-    # library, so a find_package consumer must (1) resolve cudart/cublas/curand
-    # symbols from Mila's .cu objects at its own final link, and (2) get the CUDA
-    # toolkit include dir as a usage requirement so the synthetic target that
-    # recompiles Mila's CUDA module units can find <cuda_fp16.h> etc. CUDA::* are
-    # re-established consumer-side by find_dependency(CUDAToolkit) in MilaConfig.
+    # library, so a consumer must (1) resolve cudart/cublas/curand symbols from
+    # Mila's .cu objects at its own final link, and (2) get the CUDA toolkit include
+    # dir as a usage requirement so the target that compiles Mila's CUDA module
+    # units can find <cuda_fp16.h> etc.
     target_link_libraries( Mila PUBLIC
         CUDA::cudart
         CUDA::cublas
@@ -759,11 +803,6 @@ if(MILA_HAS_CUDA)
     target_include_directories(Mila PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/Src/Dnn/Compute/Devices/Cuda/Helpers"
     )
-
-    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cuda_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
-    # Same destination root as the module file sets: the kernel headers must land at the
-    # same Src-relative offset so the module units' file-relative includes resolve.
-    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cuda_headers DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
     message(STATUS "Added CUDA backend modules")
 endif()
@@ -790,7 +829,6 @@ if(MILA_HAS_METAL)
     )
 
     target_compile_definitions(Mila PUBLIC MILA_HAS_METAL )
-    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET metal_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
     message(STATUS "Added Metal backend module partition (STUB)")
 endif()
@@ -878,7 +916,6 @@ if(MILA_HAS_ROCM)
     )
     
     target_compile_definitions( Mila PUBLIC MILA_HAS_ROCM )
-    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET rocm_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
     message(STATUS "Added ROCm backend modules")
 endif()
@@ -927,15 +964,13 @@ target_link_libraries( Mila
     #sentencepiece-static
 )
 
-# ZipSerializer.ixx is re-exported by Mila.ixx, so find_package consumers recompile
-# it; it includes <miniz.h>, which is multi-header (pulls miniz_common/_tdef/_tinfl/
-# _zip.h) plus a generated miniz_export.h in miniz's build dir. Propagate both the
-# source and build include dirs for our own build, and the shipped copy for
-# installed consumers (headers installed in the install section below).
+# ZipSerializer.ixx is re-exported by Mila.ixx, so every consumer recompiles it; it
+# includes <miniz.h>, which is multi-header (pulls miniz_common/_tdef/_tinfl/_zip.h)
+# plus a generated miniz_export.h in miniz's build dir. Propagate both the source and
+# build include dirs so a subproject consumer's recompile resolves them.
 target_include_directories( Mila INTERFACE
     $<BUILD_INTERFACE:${miniz_SOURCE_DIR}>
     $<BUILD_INTERFACE:${miniz_BINARY_DIR}>
-    $<INSTALL_INTERFACE:include/mila/modules/Deps/miniz>
 )
 
 # =============================================================================
@@ -961,108 +996,6 @@ target_compile_definitions(Mila PUBLIC
 )
 
 # =============================================================================
-# Installation
-# =============================================================================
-#
-# Gated on MILA_INSTALL (defaults to PROJECT_IS_TOP_LEVEL). A FetchContent /
-# add_subdirectory consumer builds Mila in-tree and does not want Mila's
-# targets, export set, or config files leaking into its own install tree.
-if(MILA_INSTALL)
-
-include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
-
-install( TARGETS 
-    miniz
-    #sentencepiece-static
-    EXPORT MilaTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-)
-
-if(MILA_HAS_CPU)
-    install(TARGETS Mila_Cpu EXPORT MilaTargets)
-endif()
-
-if(MILA_HAS_CUDA)
-    install(TARGETS Mila_Cuda EXPORT MilaTargets)
-endif()
-
-if(MILA_HAS_METAL)
-    install(TARGETS Mila_Metal EXPORT MilaTargets)
-endif()
-
-if(MILA_HAS_ROCM)
-    install(TARGETS Mila_Rocm EXPORT MilaTargets)
-endif()
-
-# Kernel headers ship via the cuda_headers HEADERS file set (see the CUDA block),
-# installed alongside the module units by the install(TARGETS) below. The old
-# install(DIRECTORY Src/ FILES_MATCHING *.cuh *.h) glob is gone: it dropped headers
-# under include/ on a different tree than the modules under include/mila/modules/Src,
-# which is exactly what broke the file-relative includes on the consumer side.
-
-# The install tree must mirror the source tree so the module units' file-relative
-# quoted includes resolve post-install. One piece sits outside the file sets:
-#   - The vendored nlohmann header: json.ixx includes "../../Deps/nlohmann/json.hpp",
-#     which from .../mila/modules/Src/Utils/json.ixx resolves to .../mila/modules/Deps.
-# (Version no longer needs a shipped header: it travels as PUBLIC compile
-# definitions on the exported target -- see the Versioning block above.)
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Deps/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules/Deps
-)
-
-# miniz headers for the recompiled ZipSerializer module: the 5 source headers plus
-# the generated miniz_export.h. Destination matches the INSTALL_INTERFACE include
-# dir set on the Mila target above.
-install(FILES
-    ${miniz_SOURCE_DIR}/miniz.h
-    ${miniz_SOURCE_DIR}/miniz_common.h
-    ${miniz_SOURCE_DIR}/miniz_tdef.h
-    ${miniz_SOURCE_DIR}/miniz_tinfl.h
-    ${miniz_SOURCE_DIR}/miniz_zip.h
-    ${miniz_BINARY_DIR}/miniz_export.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules/Deps/miniz
-)
-
-install(TARGETS Mila
-    EXPORT MilaTargets
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    ${MILA_INSTALL_FILE_SET_ARGS}
-)
-
-# Export targets
-install(EXPORT MilaTargets
-    FILE MilaTargets.cmake
-    NAMESPACE Mila::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Mila
-)
-
-# Generate config file
-configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/MilaConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/MilaConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Mila
-)
-
-# Generate version file
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/MilaConfigVersion.cmake
-    VERSION ${MILA_SEMVER}
-    COMPATIBILITY SameMajorVersion
-)
-
-# Install config files
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/MilaConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/MilaConfigVersion.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Mila
-)
-
-endif() # MILA_INSTALL
-
-# =============================================================================
 # Additional Targets and Subdirectories
 # =============================================================================
 
@@ -1076,9 +1009,10 @@ if(MILA_ENABLE_DOCS)
     add_subdirectory( Docs )
 endif()
 
-# Developer tooling (tokenize.exe, etc.) -- top-level builds only; an embedding
-# consumer just wants the library.
-if(PROJECT_IS_TOP_LEVEL)
+# Developer tooling (tokenize.exe, the mila CLI, ExportArtifact). Defaults to
+# PROJECT_IS_TOP_LEVEL; the option exists so a top-level build that packages nothing
+# from Tools (the wheel presets) can drop it.
+if(MILA_ENABLE_TOOLS)
     add_subdirectory( Tools )
 endif()
 

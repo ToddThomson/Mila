@@ -34,6 +34,7 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.IPackedKvInference;
 import Compute.IKvCacheLifecycle;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -54,16 +55,16 @@ namespace Mila::Dnn
      *   output shape == [B, T, embedding_dim]
      *
      * KV-cache inference is an optional backend capability. After build(),
-     * supportsKVCache() indicates whether the underlying operation implements
-     * both IPositionalUnaryOp (prefill/decode dispatch) and IKVCacheLifecycle
+     * supportsKvCache() indicates whether the underlying operation implements
+     * both IPositionalUnaryOp (prefill/decode dispatch) and IKvCacheLifecycle
      * (cache init/reset). Both pointers are resolved once at build time.
      *
-     * The KV cache lifecycle (initializeKVCache / resetKVCache) is intended
+     * The KV cache lifecycle (initializeKvCache / resetKvCache) is intended
      * to be driven exclusively by the owning transformer's generate() method.
      * forward() is the sole entry point for prefill; decode() handles
      * autoregressive single-token generation.
      *
-     * REVIEW: initializeKVCache() and resetKVCache() are currently public.
+     * REVIEW: initializeKvCache() and resetKvCache() are currently public.
      * When TransformerBase<> is introduced as the common base for GptTransformer,
      * LlamaTransformer, MistralTransformer etc., revisit whether these should
      * become private with 'friend class TransformerBase<TDeviceType, TPrecision>'
@@ -156,7 +157,11 @@ namespace Mila::Dnn
 
             operation_->forward( input, *owned_output_ );
 
-            return resolveOutputView( input.shape() );
+            auto& output = resolveOutputView( input.shape() );
+
+            this->publish( ComputePass::Forward, "output", output );
+
+            return output;
         }
 
         /**
@@ -219,24 +224,30 @@ namespace Mila::Dnn
                 positional_op_->decode( input, *owned_decode_output_, position );
                 decode_active_ = true;
 
+                this->publish( ComputePass::Decode, "output", *owned_decode_output_ );
+
                 return *owned_decode_output_;
             }
 
             // Fallback -- CpuMultiHeadAttentionOp or cache not yet initialized.
             operation_->forward( input, *owned_output_ );
 
-            return resolveOutputView( input.shape() );
+            auto& output = resolveOutputView( input.shape() );
+
+            this->publish( ComputePass::Decode, "output", output );
+
+            return output;
         }
 
         /**
          * @brief Returns true when the underlying operation implements both
-         * IPositionalUnaryOp and IKVCacheLifecycle.
+         * IPositionalUnaryOp and IKvCacheLifecycle.
          *
          * Resolved once at build time. CPU backends return false; CUDA backends
          * return true when CudaMultiHeadAttentionOp is in use. Safe to query before
          * calling generate() to determine which forward path is available.
          */
-        bool supportsKVCache() const noexcept
+        bool supportsKvCache() const noexcept
         {
             return kv_cache_op_ != nullptr && positional_op_ != nullptr;
         }
@@ -289,6 +300,28 @@ namespace Mila::Dnn
             return 0;
         }
 
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            std::vector<const ITensor*> outputs;
+
+            if ( owned_output_ != nullptr )
+            {
+                outputs.push_back( owned_output_.get() );
+            }
+
+            if ( owned_decode_output_ != nullptr )
+            {
+                outputs.push_back( owned_decode_output_.get() );
+            }
+
+            return outputs;
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward, ComputePass::Decode } } };
+        }
+
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;
@@ -320,7 +353,7 @@ namespace Mila::Dnn
             oss << "Model dimension: " << config_.getModelDim() << "\n";
             oss << "Number of heads: " << config_.getNumHeads() << "\n";
             oss << "Head size: " << (config_.getModelDim() / config_.getNumHeads()) << "\n";
-            oss << "Decode path: " << (supportsKVCache() ? "KV cache (fast)" : "fallback (forward)") << "\n";
+            oss << "Decode path: " << (supportsKvCache() ? "KV cache (fast)" : "fallback (forward)") << "\n";
             oss << "Parameter count: " << parameterCount() << "\n";
 
             return oss.str();

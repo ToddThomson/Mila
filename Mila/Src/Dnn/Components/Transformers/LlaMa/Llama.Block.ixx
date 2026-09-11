@@ -63,6 +63,7 @@ import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.GqaState;
+import Compute.Observation;
 import Dnn.Components.RmsNorm;
 import Dnn.Components.Rope;
 import Dnn.Components.Gqa;
@@ -247,6 +248,8 @@ namespace Mila::Dnn
             // 11. Second residual
             auto& res2_out = res2_->forward( res1_out, ffn_out );
             
+            this->publish( ComputePass::Prefill, "output", res2_out );
+
             return res2_out;
         }
 
@@ -314,6 +317,8 @@ namespace Mila::Dnn
             // Second residual -- res1_out + ffn_out, T=1
             auto& res2_out = res2_->forward( res1_out, ffn_out );
             //this->getExecutionContext()->synchronize();
+
+            this->publish( ComputePass::Decode, "output", res2_out );
 
             return res2_out;
         }
@@ -393,16 +398,16 @@ namespace Mila::Dnn
         // KV cache
         // ====================================================================
 
-        bool supportsKVCache() const noexcept
+        bool supportsKvCache() const noexcept
         {
-            return attn_ && attn_->supportsKVCache();
+            return attn_ && attn_->supportsKvCache();
         }
 
-        void resetKVCache()
+        void resetKvCache()
         {
             if ( attn_ )
             {
-                attn_->resetKVCache();
+                attn_->resetKvCache();
             }
         }
 
@@ -460,6 +465,11 @@ namespace Mila::Dnn
         const ComponentType getType() const override
         {
             return ComponentType::Transformer;
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Prefill, ComputePass::Decode } } };
         }
 
         MemoryStats getMemoryStats() const override

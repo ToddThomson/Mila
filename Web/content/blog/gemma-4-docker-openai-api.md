@@ -20,8 +20,6 @@ docker compose -f Docker/docker-compose.yml run --rm --publish 6452:6452 \
     -e MILA_PORT=6452 mila-dev mila-mis
 ```
 
-(There are `scripts/mis-build` and `scripts/mis-run` wrappers if you'd rather not type the compose line.)
-
 Then point whatever agent you already use at it:
 
 - Any **OpenAI-compatible** client → `http://localhost:6452/v1`

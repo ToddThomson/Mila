@@ -78,14 +78,20 @@ add_executable( MilaTests
     "Dnn/Components/Transformers/Gpt/GptTransformer.Cpu.cpp"
     "Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
     "Dnn/Components/Transformers/Gemma/Gemma.Config.cpp"
-    "Dnn/Components/Transformers/Gemma/Gemma.Protocol.cpp"
+    "Dnn/Components/Transformers/Qwen/Qwen.Config.cpp"
+    "Dnn/Components/Transformers/Qwen/Qwen.PrecisionPlan.cpp"
     "Dnn/Compute/Operations/OperationTraits.cpp"
     "Dnn/Core/Component.cpp"
     "Dnn/Core/ComponentConfig.cpp"
     "Dnn/Core/CompositeComponent.cpp"
+    # The stored-weights quantization rule: one shared refusal, four families, and a
+    # failure mode that loads and runs rather than erroring.
+    "Dnn/Core/LanguageModelConfig.cpp"
     # The only GptModel factory reachable without a converted .bin: a checkpoint
     # carries its own config, so fromCheckpoint needs nothing but an archive.
-    "Dnn/Models/GptModel.Cpu.cpp"
+    "Dnn/Models/Gpt/GptModel.Cpu.cpp"
+    "Dnn/Models/Gemma/Gemma.Protocol.cpp"
+    "Dnn/Models/Qwen/Qwen.Protocol.cpp"
     "Dnn/Modeling/Network.Cpu.cpp"
     "Dnn/Optimizers/AdamW.Cpu.cpp"
     # Covers both containers PretrainedModelReader accepts, including a hand-built
@@ -103,6 +109,9 @@ add_executable( MilaTests
     "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
     "Dnn/Tensors/TensorOps/Random.Cpu.cpp"
     "Dnn/Tensors/TensorOps/Zero.Cpu.cpp"
+    "Dnn/Quantization/CodebookOracle.Cpu.cpp"
+    "Dnn/Quantization/CodebookPacking.Cpu.cpp"
+    "Dnn/Quantization/PrecisionPlan.Cpu.cpp"
 
     # ==============================================================
     # Section 2 - Active, not yet revisited (pre-methodology)
@@ -112,6 +121,7 @@ add_executable( MilaTests
     "Data/Tokenizers/Bpe/BpeTokenizer.Gpt2.cpp"
     "Data/Tokenizers/Bpe/BpeTokenizer.Llama32.cpp"
     "Data/Tokenizers/Bpe/BpeTokenizer.Gemma.cpp"
+    "Data/Tokenizers/Bpe/BpeTokenizer.Qwen.cpp"
     "Data/Tokenizers/Bpe/BpeTrainer.cpp"
     "Data/Tokenizers/Bpe/BpeVocabulary.cpp"
     "Data/Tokenizers/Char/CharTokenizer.cpp"
@@ -190,6 +200,8 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Attention/GQA/CudaGqaOp.Cuda.cpp"
         "Dnn/Components/Attention/MHA/MultiHeadAttention.Cuda.cpp"
         "Dnn/Components/Connections/Residual.Cuda.cpp"
+        "Dnn/Components/Convolutions/CausalConv1d.Cuda.cpp"
+        "Dnn/Components/DeltaNet/GatedDeltaRule.Cuda.cpp"
         "Dnn/Components/Embeddings/TokenEmbedding.Cuda.cpp"
         "Dnn/Components/Encodings/Lpe/Lpe.Cuda.cpp"
         "Dnn/Components/Encodings/Rope/Rope.Cuda.cpp"
@@ -205,19 +217,36 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Transformers/Llama/Llama.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Block.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp"
+        "Dnn/Components/Transformers/Qwen/Qwen.Block.Cuda.cpp"
+        "Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.Cuda.cpp"
+        "Dnn/Components/Transformers/Qwen/Qwen.Cuda.cpp"
         "Dnn/Compute/Operations/OperationTraits.Cuda.cpp"
+        "Dnn/Components/Linear/CodebookGemv.Cuda.cpp"
+        "Dnn/Components/Linear/CudaLinearOp.Codebook.Cuda.cpp"
         # The saveParameterToArchive staging branch needs a device-only dtype (BF16),
         # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
         "Dnn/Core/Component.Cuda.cpp"
-        "Dnn/Models/GemmaModel.Parity.Cuda.cpp"
+        "Dnn/Models/Gemma/GemmaModel.Parity.Cuda.cpp"
         # Gate B: the reported footprint against cudaMemGetInfo. Both skip without a real
         # checkpoint, so neither runs in CI -- see Specifications/MemoryFootprint.md 7.
-        "Dnn/Models/GemmaModel.Footprint.Cuda.cpp"
-        "Dnn/Models/LlamaModel.Footprint.Cuda.cpp"
+        "Dnn/Models/Gemma/GemmaModel.Footprint.Cuda.cpp"
+        # Rates, all DISABLED: they exist so Qwen's have a comparator on the same card by
+        # the same subtraction. Common/GenerationRates.h is the one implementation.
+        "Dnn/Models/Gemma/GemmaModel.Rates.Cuda.cpp"
+        "Dnn/Models/LlaMa/LlamaModel.Footprint.Cuda.cpp"
+        # Qwen against a TRUNCATED real artifact -- the full 27B is 50 GiB at BF16 and fits
+        # no card here, so 4 layers (both block kinds) is what can be exercised. Skips
+        # without the fixture; see the file header for how to produce it.
+        "Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp"
+        "Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp"
+        # Observability's whole-model cost criterion. NOT under Models/: publication is a
+        # Component facility, so the two chassis it runs on are two samples of one
+        # measurement. DISABLED, and skips without a real checkpoint.
+        "Dnn/Observation/ObservationCost.Cuda.cpp"
         # The generation context bound. CUDA rather than CPU because the CPU operation
         # layer takes its extents from build(), so a CPU model cannot run a prompt
         # shorter than its built context and never reaches the loop under test.
-        "Dnn/Models/GptModel.Cuda.cpp"
+        "Dnn/Models/Gpt/GptModel.Cuda.cpp"
         # Net-new: the FP32 master-parameter path has no coverage in AdamW.Cuda.cpp.
         "Dnn/Optimizers/AdamW.MixedPrecision.Cuda.cpp"
         "Dnn/Samplers/Sampling.Cuda.cpp"
@@ -351,14 +380,14 @@ gtest_discover_tests( ChatRichTextTests
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
-# Packaging gates: the find_package(Mila) consumer (installs Mila, builds
-# Samples/QuickStart against the install) and the FetchContent subproject consumer.
-# Defined here, with the tests, rather than at the root: it is meaningful only when
-# MILA_ENABLE_TESTING is on, and that dependency is now structural -- this file is
-# reached only through the MILA_ENABLE_TESTING-gated add_subdirectory(Tests). Default
-# OFF because each gate is a full install/subproject reconfigure + rebuild (900-1800s);
-# unit-test runs should not pay that. The x64-validate preset (and CI) turns it on.
-option(MILA_ENABLE_PACKAGING_TEST "Build the packaging gates (embed Mila via FetchContent and build a consumer against it; the find_package gate is retired in place and does not run)." OFF)
+# Packaging gates: the FetchContent subproject consumer against the local tree, and the
+# opt-in CPM-by-tag consumer against a published release. Defined here, with the tests,
+# rather than at the root: it is meaningful only when MILA_ENABLE_TESTING is on, and that
+# dependency is now structural -- this file is reached only through the
+# MILA_ENABLE_TESTING-gated add_subdirectory(Tests). Default OFF because each gate is a
+# full subproject reconfigure + rebuild (up to 1800s); unit-test runs should not pay that.
+# The x64-validate preset (and CI) turns it on.
+option(MILA_ENABLE_PACKAGING_TEST "Build the packaging gates (embed Mila via FetchContent and build a consumer against it)." OFF)
 
 if(MILA_ENABLE_PACKAGING_TEST)
     add_subdirectory(Packaging)

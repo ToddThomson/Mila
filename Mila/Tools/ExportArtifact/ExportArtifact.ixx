@@ -8,7 +8,9 @@
  */
 
 module;
+#include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <cstdint>
 #include <cstdio>
@@ -16,7 +18,12 @@ module;
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <iterator>
+#include <limits>
+#include <map>
+#include <optional>
 #include <set>
+#include <utility>
 #include <string>
 #include <memory>
 #include <stdexcept>
@@ -85,8 +92,28 @@ namespace Mila::Tools
     };
 
     /**
-     * @brief Policy name as recorded in the artifact metadata.
+     * @brief The variant tag a plan's artifact carries, in a coordinate and in a manifest.
+     *
+     * A plan is per-role, so no single format names it and the tag has to name the
+     * allocation instead: Qwen 3.8 spends 2 and 3 bits across its codebook roles, which is
+     * what "cb2-3" says. Stated here for the reason `weightQuantizationName` states the
+     * scheme here -- one family has a plan today, and a second one is what forces both
+     * behind a family accessor.
      */
+    inline constexpr const char* kPlanVariantName = "cb2-3";
+
+    /**
+     * @brief Bytes as gibibytes -- the unit every size this tool prints is divided by.
+     *
+     * The divisor was written out at six call sites and the result labelled GB, so every
+     * figure read 7% low against the same file measured in GB. One helper, and the label
+     * beside it says GiB.
+     */
+    inline double gibibytes( std::uint64_t bytes )
+    {
+        return static_cast<double>( bytes ) / ( 1024.0 * 1024.0 * 1024.0 );
+    }
+
     /**
      * @brief Short variant key used in a coordinate and as the manifest variant name.
      */
@@ -94,17 +121,30 @@ namespace Mila::Tools
     {
         switch ( quantization )
         {
-            case WeightQuantization::FP4: return "fp4";
-            case WeightQuantization::FP8: return "fp8";
-            default:                      return "bf16";
+            case WeightQuantization::FP4:  return "fp4";
+            case WeightQuantization::FP8:  return "fp8";
+            case WeightQuantization::Plan: return kPlanVariantName;
+            default:                       return "bf16";
         }
     }
 
     /**
      * @brief Parse a quantization name, or report the accepted set.
+     *
+     * The plan is spellable two ways on purpose. "plan" is what the enumerator means -- the
+     * family's own per-role allocation, whichever family is being exported -- and "cb2-3" is
+     * what the resulting artifact is called, so a command line reads back as the thing it
+     * produced. Both resolve to the same load.
      */
     export bool parseQuantization( std::string_view text, WeightQuantization& out )
     {
+        if ( text == "plan" || text == kPlanVariantName )
+        {
+            out = WeightQuantization::Plan;
+
+            return true;
+        }
+
         if ( text == "fp4" )
         {
             out = WeightQuantization::FP4;
@@ -376,10 +416,9 @@ namespace Mila::Tools
                 std::cout << std::format( "  warning: {}\n", warning );
             }
 
-            std::cout << std::format( "  verified {} file(s), {:.2f} GB\n",
+            std::cout << std::format( "  verified {} file(s), {:.2f} GiB\n",
                 validation.files_verified,
-                static_cast<double>( validation.bytes_verified )
-                / ( 1024.0 * 1024.0 * 1024.0 ) );
+                gibibytes( validation.bytes_verified ) );
 
             if ( !validation.ok() )
             {
@@ -444,9 +483,8 @@ namespace Mila::Tools
                     installed.tokenizer_path.string() );
             }
 
-            std::cout << std::format( "  on disk       {:.2f} GB\n",
-                static_cast<double>( installed.bytes_on_disk )
-                / ( 1024.0 * 1024.0 * 1024.0 ) );
+            std::cout << std::format( "  on disk       {:.2f} GiB\n",
+                gibibytes( installed.bytes_on_disk ) );
 
             return installed.complete ? 0 : 3;
         }
@@ -551,12 +589,45 @@ namespace Mila::Tools
     }
 
     /**
+     * @brief Report what the artifact spends its bytes on, by storage type.
+     *
+     * The reconciliation above compares tensor NAMES, so an artifact carrying every tensor it
+     * owes while holding half of them at BF16 passes it -- which is the exact defect a plan
+     * export exists to remove. One line per storage type answers it: a finished artifact
+     * spends its bulk on packed codes, and the BF16 that remains should be only the tensors
+     * no policy quantizes.
+     */
+    void reportStorageCensus( Serialization::PretrainedModelReader& reader )
+    {
+        std::map<std::string, std::pair<uint64_t, uint64_t>> by_storage_type;
+
+        reader.streamTensorBlobs(
+            [&by_storage_type]( const std::string&, const Serialization::ITensorBlob& blob )
+            {
+                auto& entry = by_storage_type[
+                    tensorDataTypeToString( blob.getMetadata().dtype ) ];
+
+                entry.first += 1;
+                entry.second += blob.sizeBytes();
+            } );
+
+        std::cout << "Storage census\n";
+
+        for ( const auto& [ storage_type, entry ] : by_storage_type )
+        {
+            std::cout << std::format( "  {:<6} {:>5} tensors  {:>7.2f} GiB\n",
+                storage_type, entry.first, gibibytes( entry.second ) );
+        }
+    }
+
+    /**
      * @brief Rewrite a model file as a safetensors artifact, tensor for tensor.
      *
      * Family-agnostic on purpose, and the reason it can be: an unquantized export changes the
      * container, never the numbers. Nothing here builds a model, so no GPU is involved, no
      * architecture is named, and every family the reader can open transcodes the same way --
-     * which is what runExport, hardcoded to Gemma, cannot do.
+     * where runExport must name a chassis per architecture and so covers only the three it
+     * lists.
      *
      * Two passes because safetensors records byte ranges in its header: everything is declared,
      * the header is emitted, then bodies stream in declaration order. Both passes walk the
@@ -623,9 +694,8 @@ namespace Mila::Tools
 
             writer.close();
 
-            std::cout << std::format( "Wrote {} ({:.2f} GB)\n",
-                destination.string(),
-                static_cast<double>( written ) / ( 1024.0 * 1024.0 * 1024.0 ) );
+            std::cout << std::format( "Wrote {} ({:.2f} GiB)\n",
+                destination.string(), gibibytes( written ) );
 
             // Reopening is the only check that the header agrees with the data region, and the
             // reconciliation is what catches a tensor quietly dropped or duplicated.
@@ -741,9 +811,8 @@ namespace Mila::Tools
                 bytes += left_blob.sizeBytes();
             }
 
-            std::cout << std::format( "  {} identical, {} mismatched, {:.2f} GB compared\n",
-                compared, mismatched,
-                static_cast<double>( bytes ) / ( 1024.0 * 1024.0 * 1024.0 ) );
+            std::cout << std::format( "  {} identical, {} mismatched, {:.2f} GiB compared\n",
+                compared, mismatched, gibibytes( bytes ) );
 
             if ( mismatched > 0 )
             {
@@ -802,19 +871,23 @@ namespace Mila::Tools
      * does not, so the variant is its weight dtype -- taken from the largest tensor, because
      * that is the token embedding in every family here and it is unambiguously a weight, where
      * the first tensor in file order is whatever the converter happened to write first.
+     *
+     * The schemes are compared through weightQuantizationName rather than spelled out, so the
+     * scheme a model writes and the scheme this reads back are one string. A codebook artifact
+     * spelled here by hand is how it came to derive as "bf16": its largest tensor is the
+     * unquantized embedding table, and a scheme this does not recognize falls through to it.
      */
     std::string deriveVariantName( Serialization::PretrainedModelReader& reader )
     {
         const std::string& quantization = reader.getWeightQuantization();
 
-        if ( quantization == "per_group_fp4_128" )
+        for ( const auto candidate : { WeightQuantization::FP4, WeightQuantization::FP8,
+            WeightQuantization::Plan } )
         {
-            return "fp4";
-        }
-
-        if ( quantization == "per_channel_fp8_e4m3" )
-        {
-            return "fp8";
+            if ( quantization == weightQuantizationName( candidate ) )
+            {
+                return weightQuantizationVariantName( candidate );
+            }
         }
 
         TensorDataType widest{ TensorDataType::FP32 };
@@ -926,10 +999,160 @@ namespace Mila::Tools
     inline constexpr int64_t kExportContextLength = 512;
 
     /**
-     * @brief Load the source at the requested quantization and write the artifact.
+     * @brief Logits fingerprint for a fixed prompt, for comparing two loads of one model.
      *
-     * @return Process exit code.
+     * Two loads can hold byte-identical parameters and still compute differently, and only
+     * the activations show where they diverge. This runs one real generation step and reports
+     * what the model actually computed: a per-component NaN and range summary, the first
+     * component to produce a NaN, and a digest of the resulting logit row.
+     *
+     * Written against LanguageModel rather than a family. Everything it needs -- attach an
+     * observer, run a pass, read a published tensor -- is on the base, so this works for
+     * every chassis without the library carrying a diagnostic of its own.
+     *
+     * The digest covers the head's output as FP32, so two fingerprints are comparable when
+     * they come from the same build of this tool. It is not a stable identity for a model.
      */
+    template<DeviceType TDeviceType, TensorDataType TPrecision>
+    std::string fingerprintModel( LanguageModel<TDeviceType, TPrecision>& model,
+        const std::vector<int32_t>& probe )
+    {
+        using DeviceTensor =
+            Tensor<TPrecision, typename DeviceTypeTraits<TDeviceType>::memory_resource>;
+
+        std::string stages;
+        std::optional<std::string> first_nan_path;
+        std::vector<float> logits;
+
+        // The head is the last component of the prefill, so its first publication both IS
+        // the logit row this digests and marks the end of the pass worth summarizing --
+        // everything published after it belongs to a decode step.
+        bool recording = true;
+
+        const size_t observed = model.observe( "*", ComputePassMask::inference(),
+            [&]( std::string_view path, ComputePass, std::string_view stage,
+                const ITensor& value )
+            {
+                if ( !recording || stage != "output" )
+                {
+                    return;
+                }
+
+                // Reading VALUES needs the concrete type back, since the sink is handed an
+                // erased ITensor. A component publishing anything other than the model's
+                // compute precision is skipped rather than guessed at.
+                const auto* typed = dynamic_cast<const DeviceTensor*>( &value );
+
+                if ( typed == nullptr )
+                {
+                    return;
+                }
+
+                const auto host = toHost<TensorDataType::FP32>( *typed );
+                const float* elements = host.data();
+                const dim_t count = host.size();
+
+                int64_t nan_count = 0;
+                float lowest = std::numeric_limits<float>::infinity();
+                float highest = -std::numeric_limits<float>::infinity();
+
+                for ( dim_t i = 0; i < count; ++i )
+                {
+                    if ( std::isnan( elements[ i ] ) )
+                    {
+                        ++nan_count;
+                        continue;
+                    }
+
+                    lowest = std::min( lowest, elements[ i ] );
+                    highest = std::max( highest, elements[ i ] );
+                }
+
+                // Only the transition matters: report the first component reached, then
+                // every one carrying a NaN, and nothing in between.
+                if ( stages.empty() || nan_count > 0 )
+                {
+                    stages += std::format(
+                        "  {:<44} elements {:>8} | NaN {:>8} | range [{:.4f}, {:.4f}]\n",
+                        path, count, nan_count, lowest, highest );
+                }
+
+                if ( nan_count > 0 && !first_nan_path.has_value() )
+                {
+                    first_nan_path = std::string( path );
+                }
+
+                if ( path.ends_with( ".lm_head" ) )
+                {
+                    logits.assign( elements, elements + count );
+                    recording = false;
+                }
+            } );
+
+        // A pattern matching nothing is, downstream, indistinguishable from a run with
+        // nothing to report -- the false negative a NaN hunt must not have.
+        if ( observed == 0 )
+        {
+            model.stopObserving();
+
+            throw std::runtime_error(
+                "fingerprintModel: observation selected no components, so nothing would be "
+                "summarized." );
+        }
+
+        // One token, greedily: the prefill is what produces the row, and sampling shape must
+        // not enter a diagnostic meant to be identical across two loads.
+        GenerateParams params;
+        params.max_new_tokens = 1;
+        params.sampling.temperature = 0.0f;
+
+        // The sink holds references to locals of this call, so detachment cannot be left to
+        // the happy path.
+        try
+        {
+            [[maybe_unused]] const GenerateStatus status =
+                model.generate( probe, []( int32_t ) {}, params );
+        }
+        catch ( ... )
+        {
+            model.stopObserving();
+
+            throw;
+        }
+
+        model.stopObserving();
+
+        if ( logits.empty() )
+        {
+            throw std::runtime_error(
+                "fingerprintModel: the model's head published no output, so there is no "
+                "logit row to digest. See componentPaths() for what the tree offers." );
+        }
+
+        // FNV-1a rather than a real digest: this only has to distinguish two runs, and a
+        // model diagnostic should not depend on the model-download feature being compiled in.
+        uint64_t digest = 1469598103934665603ull;
+        const auto* bytes = reinterpret_cast<const uint8_t*>( logits.data() );
+
+        for ( size_t i = 0; i < logits.size() * sizeof( float ); ++i )
+        {
+            digest ^= bytes[ i ];
+            digest *= 1099511628211ull;
+        }
+
+        const auto best = std::max_element( logits.begin(), logits.end() );
+        const auto best_index = std::distance( logits.begin(), best );
+
+        const std::string origin = first_nan_path.has_value()
+            ? std::format( "  FIRST NaN AT: {}\n", *first_nan_path )
+            : std::string( "  no NaN in any observed component\n" );
+
+        return std::format(
+            "\n  observing {} components\n{}{}"
+            "  logits      fnv1a {:016x} | elements {} | argmax {} = {:.6f}",
+            observed, stages, origin, digest, logits.size(), best_index, *best );
+    }
+
     /**
      * @brief Load one family at the requested quantization and write the artifact.
      *
@@ -951,24 +1174,15 @@ namespace Mila::Tools
 
         if ( options.fingerprint_only )
         {
-            if constexpr ( requires { model->fingerprintPrefill( std::vector<int32_t>{} ); } )
-            {
-                // Fixed, arbitrary token ids: no tokenizer is involved, so two runs over
-                // different files are comparable by construction. Their meaning is irrelevant
-                // -- only that both loads see the same input.
-                const std::vector<int32_t> probe{ 2, 1000, 2000, 3000, 4000, 5000, 6000, 7000 };
+            // Fixed, arbitrary token ids: no tokenizer is involved, so two runs over
+            // different files are comparable by construction. Their meaning is irrelevant --
+            // only that both loads see the same input.
+            const std::vector<int32_t> probe{ 2, 1000, 2000, 3000, 4000, 5000, 6000, 7000 };
 
-                std::cout << std::format( "Fingerprint of {}\n", options.source.string() );
-                std::cout << "  " << model->fingerprintPrefill( probe ) << "\n";
+            std::cout << std::format( "Fingerprint of {}\n", options.source.string() );
+            std::cout << "  " << fingerprintModel( *model, probe ) << "\n";
 
-                return 0;
-            }
-            else
-            {
-                std::cerr << "--fingerprint is implemented on the Gemma chassis only.\n";
-
-                return 2;
-            }
+            return 0;
         }
 
         std::cout << std::format( "Writing {}\n", options.destination.string() );
@@ -1017,10 +1231,22 @@ namespace Mila::Tools
                     LlamaModel<DeviceType::Cuda, TensorDataType::BF16>, LlamaModelConfig>(
                         options );
             }
+            else if ( architecture == "qwen" )
+            {
+                // --quantization plan takes a FITTED source and finishes it. The codebooks
+                // are the one thing no load can produce -- they are chosen offline against
+                // calibration data -- so the packer emits them and leaves the rest of the
+                // model at BF16, and this pass quantizes those roles and writes an artifact
+                // that holds what its policy deploys. The packer is a fitter, not a second
+                // writer: every published artifact is written here.
+                written = loadAndWriteArtifact<
+                    QwenModel<DeviceType::Cuda, TensorDataType::BF16>, QwenModelConfig>(
+                        options );
+            }
             else
             {
                 std::cerr << std::format(
-                    "No chassis exports architecture '{}'. Supported: gemma, llama.\n",
+                    "No chassis exports architecture '{}'. Supported: gemma, llama, qwen.\n",
                     architecture.empty() ? "<unnamed>" : architecture );
 
                 return 2;
@@ -1033,8 +1259,7 @@ namespace Mila::Tools
 
             const auto bytes = std::filesystem::file_size( options.destination );
 
-            std::cout << std::format( "Wrote {:.2f} GB\n",
-                static_cast<double>( bytes ) / ( 1024.0 * 1024.0 * 1024.0 ) );
+            std::cout << std::format( "Wrote {:.2f} GiB\n", gibibytes( bytes ) );
 
             // Reopening is the only check that the header agrees with the data region; a
             // writer bug produces a file that looks finished and fails at load.
@@ -1050,6 +1275,8 @@ namespace Mila::Tools
             {
                 return reconciled;
             }
+
+            reportStorageCensus( verify );
 
             if ( !options.package_directory.empty() )
             {

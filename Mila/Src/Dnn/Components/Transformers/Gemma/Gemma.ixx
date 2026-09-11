@@ -9,7 +9,7 @@
  *    full-attention (global) blocks 5:1 over 48 layers (final layer global), and
  *    the two are distinct GemmaBlock instantiations (kGlobal false/true) that
  *    differ in head_dim / KV-head count / K=V / window / RoPE. The transformer
- *    drives them polymorphically through IDecoderLayer (one virtual call per layer
+ *    drives them polymorphically through ITransformerBlock (one virtual call per layer
  *    per token step, negligible against the per-layer GEMMs). See Gemma.md section 8.
  *
  *  - One shared GQA transient workspace serves both geometries. CudaGqaOp::setState
@@ -49,7 +49,7 @@ export module Dnn.Components.GemmaTransformer;
 
 import Dnn.Components.GemmaConfig;
 import Dnn.Components.GemmaBlock;
-import Dnn.Components.IDecoderLayer;
+import Dnn.Components.ITransformerBlock;
 
 import Dnn.Tensor;
 import Dnn.ITensor;
@@ -57,7 +57,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Logging.Logger;
-import Dnn.LanguageNetwork;
+import Dnn.LanguageModelNetwork;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.ModelType;
@@ -117,6 +117,15 @@ namespace Mila::Dnn
     // scratch and was blind to the terms that actually bound the chunk.
     inline constexpr int64_t kGemmaPrefillActivationBudgetBytes = int64_t{ 1536 } * 1024 * 1024;
 
+    // The chunk rungs, largest first. Named once because two callers walk them: the resolution
+    // that sizes the workspaces at build time, and the query a caller uses to choose a context
+    // length before anything is built.
+    inline constexpr int64_t kGemmaPrefillChunkRungs[] = { 1024, 512, 256, 128, 64 };
+
+    // Below this the GEMM M dimension is tensor-core-hostile on top of the weight re-read, so
+    // it is the floor rather than another rung: if it does not fit, warn instead of limping.
+    inline constexpr int64_t kGemmaPrefillChunkFloor = 64;
+
     /**
      * @brief Gemma 4 transformer (decoder-only) for autoregressive inference.
      *
@@ -128,11 +137,11 @@ namespace Mila::Dnn
     export template<DeviceType TDeviceType, TensorDataType TPrecision,
         WeightQuantPolicy TWeightQuantization = NoWeightQuant, KvCachePolicy TKvCachePolicy = NoKvCompression>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class GemmaTransformer : public LanguageNetwork<TDeviceType, TPrecision>
+    class GemmaTransformer : public LanguageModelNetwork<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using NetworkBase = LanguageNetwork<TDeviceType, TPrecision>;
+        using NetworkBase = LanguageModelNetwork<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
 
         // D4 Design B: weight-quantized bodies (FP4/FP8) convert the tied
@@ -140,8 +149,7 @@ namespace Mila::Dnn
         // one FP32 scale tensor read by both consumers. The NoWeightQuant body keeps
         // the BF16 table and head, preserving the exact HF token-parity oracle in
         // the reference configuration.
-        using TableQuantizationPolicy = std::conditional_t<
-            TWeightQuantization::kIsQuantized, PerChannelFp8<>, NoWeightQuant>;
+        using TableQuantizationPolicy = std::conditional_t<TWeightQuantization::kIsQuantized, PerChannelFp8<>, NoWeightQuant>;
 
         using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision, TableQuantizationPolicy>;
         using LmHeadLinearType = Linear<TDeviceType, TPrecision, TableQuantizationPolicy>;
@@ -150,9 +158,9 @@ namespace Mila::Dnn
         // bounded window, so their KV cache can be a ring (SlidingWindowKvCache.md D4).
         // GLOBAL (full-attention) layers attend the entire context and therefore always
         // use the full-context cache (NoKvCompression), regardless of the sliding policy.
-        using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, false, TWeightQuantization, TKvCachePolicy>;
-        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, true, TWeightQuantization, NoKvCompression>;
-        using DecoderLayerType = IDecoderLayer<TDeviceType, TPrecision>;
+        using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ false, TWeightQuantization, TKvCachePolicy>;
+        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ true, TWeightQuantization, NoKvCompression>;
+        using TransformerBlockType = ITransformerBlock<TDeviceType, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
@@ -197,14 +205,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Install a stage probe on the prefill path. Empty function clears it.
-         */
-        void setStageProbe( typename NetworkBase::StageProbe probe ) override
-        {
-            stage_probe_ = std::move( probe );
-        }
-
-        /**
          * @brief Chunked prefill starting at an absolute position (prompt-prefix reuse).
          *
          * `input` is the FULL prompt tensor, so the token index and the absolute
@@ -242,24 +242,10 @@ namespace Mila::Dnn
 
                 TensorType* block_input = &token_embedding_->forward( chunk_input );
 
-                if ( stage_probe_ )
+                for ( auto* block : blocks_ )
                 {
-                    stage_probe_( "embedding", *block_input );
-                }
-
-                int layer_index = 0;
-
-                for ( auto* layer : layers_ )
-                {
-                    auto& block_out = layer->prefill( *block_input, offset );
+                    auto& block_out = block->prefill( *block_input, offset );
                     block_input = &block_out;
-
-                    if ( stage_probe_ )
-                    {
-                        stage_probe_( std::format( "layer_{}", layer_index ), *block_input );
-                    }
-
-                    ++layer_index;
                 }
 
                 last_block_out = block_input;
@@ -285,9 +271,9 @@ namespace Mila::Dnn
 
             TensorType* block_input = &token_embedding_->forward( input );
 
-            for ( auto* layer : layers_ )
+            for ( auto* block : blocks_ )
             {
-                auto& block_out = layer->decode( *block_input, position );
+                auto& block_out = block->decode( *block_input, position );
                 block_input = &block_out;
             }
 
@@ -301,10 +287,10 @@ namespace Mila::Dnn
         // KV-cache orchestration
         // ====================================================================
 
-        void resetKVCache()
+        void resetKvCache()
         {
-            for ( auto* layer : layers_ )
-                layer->resetKVCache();
+            for ( auto* block : blocks_ )
+                block->resetKvCache();
         }
 
         /**
@@ -319,8 +305,8 @@ namespace Mila::Dnn
         {
             bool all_accepted = true;
 
-            for ( auto* layer : layers_ )
-                all_accepted = layer->rewindKvCache( position ) && all_accepted;
+            for ( auto* block : blocks_ )
+                all_accepted = block->rewindKvCache( position ) && all_accepted;
 
             return all_accepted;
         }
@@ -465,6 +451,82 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief The prefill chunk this context length would use, and the one it could have used.
+         *
+         * Pure arithmetic over the config -- no device is touched and nothing is allocated -- so
+         * a caller may ask before the network is built, which is the point: choosing a context
+         * length by memory alone can land on one where the chunk has walked down to its floor.
+         *
+         * Heuristic v2 (Gemma4InferenceReview.md section 6.4): the largest rung whose complete
+         * row cost fits the activation budget. The 1024 rung is enabled by the flash-prefill
+         * score-buffer reclaim (5.6): with the O(chunk x T_ctx) preatt/att gone on the global
+         * layers, the row cost drops far enough that a bigger chunk fits at long context. Its
+         * payoff is NOT linear-GEMM weight amortization (saturated by 512) but (a) halving the
+         * per-chunk FP4 weight DEQUANT passes (~14% of prefill at 16K, scales with chunk count)
+         * and (b) fattening each flash launch so its K/V loads amortize over more query rows.
+         *
+         * KV-AWARE BUDGET: the activation workspace shares VRAM with the KV cache, whose global
+         * term grows with T_ctx. Subtracting it from the fixed activation budget makes the
+         * effective budget shrink at long context, so the big-chunk rung self-limits (chunk 1024
+         * through ~40K, back to 512 at 64K where the bigger chunk would collide with the weight-
+         * load transient) -- no hard context cap needed. 2048 is the next rung.
+         */
+        PrefillChunking prefillChunking( int64_t B, int64_t T_ctx ) const
+        {
+            PrefillChunking chunking;
+
+            if constexpr ( kGemmaPrefillChunkOverride > 0 )
+            {
+                chunking.chunk_rows = std::min<int64_t>( kGemmaPrefillChunkOverride, T_ctx );
+                chunking.unconstrained_chunk_rows = chunking.chunk_rows;
+
+                return chunking;
+            }
+            else
+            {
+                // Short-context build: the whole context is a single chunk, and no rung applies.
+                if ( T_ctx < kGemmaPrefillChunkFloor )
+                {
+                    chunking.chunk_rows = T_ctx;
+                    chunking.unconstrained_chunk_rows = T_ctx;
+
+                    return chunking;
+                }
+
+                const int64_t row_cost = computeChunkRowCostBytes( B, T_ctx );
+                const int64_t kv_global = prefillGlobalKvBytes( B, T_ctx );
+                const int64_t budget = ( kGemmaPrefillActivationBudgetBytes > kv_global )
+                    ? ( kGemmaPrefillActivationBudgetBytes - kv_global )
+                    : int64_t{ 0 };
+
+                for ( int64_t candidate : kGemmaPrefillChunkRungs )
+                {
+                    if ( candidate > T_ctx )
+                        continue;
+
+                    // The first rung the context admits at all, budget aside. That it is reached
+                    // before any budget test is what makes it the unconstrained answer.
+                    if ( chunking.unconstrained_chunk_rows == 0 )
+                        chunking.unconstrained_chunk_rows = candidate;
+
+                    if ( row_cost * candidate <= budget )
+                    {
+                        chunking.chunk_rows = candidate;
+
+                        return chunking;
+                    }
+                }
+
+                // Nothing fit, including the floor. The floor is used regardless -- the caller
+                // that builds warns, the caller that is choosing a context reads the flag.
+                chunking.chunk_rows = kGemmaPrefillChunkFloor;
+                chunking.fits_activation_budget = false;
+
+                return chunking;
+            }
+        }
+
         // The base sums children; when tied, lm_head shares the embedding table, so its
         // elements would be counted twice. Subtract them once to match getMemoryStats (D7).
         dim_t parameterCount() const override
@@ -492,11 +554,6 @@ namespace Mila::Dnn
             }
 
             return oss.str();
-        }
-
-        IExecutionContext* getExecutionContext() const
-        {
-            return NetworkBase::getExecutionContext();
         }
 
         void loadParameters( PretrainedModelReader& reader )
@@ -595,8 +652,8 @@ namespace Mila::Dnn
             if ( context.isInferenceMode() )
                 allocateBlockWorkspace( B );
 
-            layers_.clear();
-            layers_.reserve( static_cast<size_t>(config_.getNumLayers()) );
+            blocks_.clear();
+            blocks_.reserve( static_cast<size_t>(config_.getNumLayers()) );
 
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
@@ -624,7 +681,7 @@ namespace Mila::Dnn
                         block->setUseFlashDecode( true );
                     }
 
-                    layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
+                    blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
                 }
                 else
                 {
@@ -647,7 +704,7 @@ namespace Mila::Dnn
                         block->setUseFlashDecode( true );
                     }
 
-                    layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
+                    blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
                 }
             }
 
@@ -713,13 +770,10 @@ namespace Mila::Dnn
         // threaded to child components via BuildContext::withPrefillSize().
         int64_t prefill_chunk_size_{ 0 };
 
-        // Diagnostic only; unset in normal operation, where it costs one null check per layer.
-        typename NetworkBase::StageProbe stage_probe_{};
-
         std::shared_ptr<TokenEmbeddingType> token_embedding_{ nullptr };
         // Non-owning, polymorphic view of the heterogeneous block list; the concrete
         // blocks are owned by the component tree (addComponent). Valid after build.
-        std::vector<DecoderLayerType*> layers_;
+        std::vector<TransformerBlockType*> blocks_;
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
         std::shared_ptr<LmHeadLinearType> lm_head_{ nullptr };
 
@@ -1003,55 +1057,23 @@ namespace Mila::Dnn
                 * T_ctx * config_.getGlobalHeadDim() * precision_bytes;
         }
 
-        // Heuristic v2 (Gemma4InferenceReview.md section 6.4): largest chunk in
-        // {1024, 512, 256, 128, 64} whose complete row cost fits the activation budget.
-        // 64 is the floor (below it the GEMM M dimension is tensor-core-hostile on top of
-        // the weight re-read) -- if 64 does not fit, warn instead of silently limping.
-        //
-        // The 1024 rung is enabled by the flash-prefill score-buffer reclaim (5.6): with the
-        // O(chunk x T_ctx) preatt/att gone on the global layers, the row cost drops far enough
-        // that a bigger chunk fits at long context. Its payoff is NOT linear-GEMM weight
-        // amortization (saturated by 512) but (a) halving the per-chunk FP4 weight DEQUANT
-        // passes (~14% of prefill at 16K, scales with chunk count) and (b) fattening each flash
-        // launch so its K/V loads amortize over more query rows.
-        //
-        // KV-AWARE BUDGET: the activation workspace shares VRAM with the KV cache, whose global
-        // term grows with T_ctx. Subtracting it from the fixed activation budget makes the
-        // effective budget shrink at long context, so the big-chunk rung self-limits (chunk
-        // 1024 through ~40K, back to 512 at 64K where the bigger chunk would collide with the
-        // weight-load transient) -- no hard context cap needed. 2048 is the next rung.
+        // The build-time reading of prefillChunking: same number, plus the warning. A prediction
+        // must not warn -- a scan asks this at a hundred context lengths the user never chose --
+        // so the warning belongs on the path that is about to allocate, not on the query.
         int64_t resolvePrefillChunkSize( int64_t B, int64_t T_ctx ) const
         {
-            if constexpr ( kGemmaPrefillChunkOverride > 0 )
+            const PrefillChunking chunking = prefillChunking( B, T_ctx );
+
+            if ( !chunking.fits_activation_budget )
             {
-                return std::min<int64_t>( kGemmaPrefillChunkOverride, T_ctx );
+                Logging::Logger::warning( std::format(
+                    "GemmaTransformer: the prefill chunk floor ({}) exceeds the activation budget "
+                    "(row cost {} bytes) -- this device/model combination cannot prefill efficiently",
+                    kGemmaPrefillChunkFloor,
+                    computeChunkRowCostBytes( B, T_ctx ) ) );
             }
 
-            // Short-context build: the whole context is a single chunk.
-            if ( T_ctx < 64 )
-                return T_ctx;
-
-            const int64_t row_cost = computeChunkRowCostBytes( B, T_ctx );
-            const int64_t kv_global = prefillGlobalKvBytes( B, T_ctx );
-            const int64_t budget = ( kGemmaPrefillActivationBudgetBytes > kv_global )
-                ? ( kGemmaPrefillActivationBudgetBytes - kv_global )
-                : int64_t{ 0 };
-
-            for ( int64_t candidate : { int64_t{ 1024 }, int64_t{ 512 }, int64_t{ 256 }, int64_t{ 128 }, int64_t{ 64 } } )
-            {
-                if ( candidate > T_ctx )
-                    continue;
-
-                if ( row_cost * candidate <= budget )
-                    return candidate;
-            }
-
-            Logging::Logger::warning( std::format(
-                "GemmaTransformer: the prefill chunk floor (64) exceeds the activation budget "
-                "(row cost {} bytes) -- this device/model combination cannot prefill efficiently",
-                row_cost ) );
-
-            return 64;
+            return chunking.chunk_rows;
         }
 
         void allocateBlockWorkspace( int64_t B )
@@ -1133,8 +1155,8 @@ namespace Mila::Dnn
             gqa_state.att_decode = gqa_att_decode_.get();
             gqa_state.v_out_decode = gqa_v_out_decode_.get();
 
-            for ( auto* layer : layers_ )
-                layer->setState( gqa_state );
+            for ( auto* block : blocks_ )
+                block->setState( gqa_state );
         }
 
         // ====================================================================

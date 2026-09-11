@@ -9,6 +9,8 @@ module;
 #include <thread>
 #include <chrono>
 #include <utility>
+#include <mutex>
+#include <functional>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -25,6 +27,19 @@ namespace Mila::ChatApp
     export class ConsoleRenderer
     {
     public:
+
+        /**
+         * @brief Stop the spinner, whatever else is unwinding.
+         *
+         * Without this a spinner running when a load fails outlives the renderer, and
+         * ~thread on a joinable thread calls std::terminate -- which is how a readable
+         * "context_length must be greater than zero" was followed by an abort. It also
+         * restores the cursor, which startSpinner() hid.
+         */
+        ~ConsoleRenderer()
+        {
+            stopSpinner();
+        }
 
         // ── User turn ─────────────────────────────────────────────────────────
 
@@ -45,6 +60,32 @@ namespace Mila::ChatApp
             std::cout << '\n';
         }
 
+        // ── Sharing stdout with the spinner ───────────────────────────────────
+
+        /**
+         * @brief Write to the console without corrupting a running spinner.
+         *
+         * The spinner owns a line and redraws it every 80 ms; anything else writing to stdout
+         * in that window lands mid-line. The library's log sink is exactly such a writer, and
+         * the result an evaluator saw was
+         * "Loading Llama-3.2-3B-Instruct-fp415:49:42.425 [WARN ] ...".
+         *
+         * This erases the spinner's line, runs @p emit, and returns -- the spinner redraws
+         * itself on its next frame, so nothing has to be restarted. Static because the console
+         * is a process resource: the writer that needs serialising is library code that has no
+         * renderer to ask.
+         */
+        static void writeAroundSpinner( const std::function<void()>& emit )
+        {
+            std::lock_guard<std::mutex> lock( consoleMutex() );
+
+            if ( spinnerActive().load( std::memory_order_relaxed ) )
+                std::cout << "\r\x1b[K";
+
+            emit();
+            std::cout.flush();
+        }
+
         // ── Progress spinner (turns and model loading) ────────────────────────
 
         /**
@@ -60,15 +101,36 @@ namespace Mila::ChatApp
          * outlive the startSpinner()/stopSpinner() window. A ticking count shows
          * generation is alive; a frozen count distinguishes a hang from a long response.
          */
+        /**
+         * @brief Suppress the progress animation, for output that is not a terminal.
+         *
+         * The spinner writes carriage returns and escape sequences to standard output. That is
+         * right for a person at a prompt and wrong for `-p` feeding a file or a pipe, where the
+         * answer is the whole point of the stream.
+         */
+        void setQuiet( bool quiet )
+        {
+            quiet_ = quiet;
+        }
+
         void startSpinner( std::string_view label = {}, const std::atomic<int>* progress_counter = nullptr )
         {
+            if ( quiet_ )
+                return;
+
             if ( spinner_thread_.joinable() )
                 stopSpinner();
 
             spinner_label_ = std::string( label );
             progress_counter_ = progress_counter;
-            std::cout << "\x1b[?25l" << std::flush;  // hide cursor — eliminates blink flicker
+
+            {
+                std::lock_guard<std::mutex> lock( consoleMutex() );
+                std::cout << "\x1b[?25l" << std::flush;  // hide cursor — eliminates blink flicker
+            }
+
             spinning_.store( true );
+            spinnerActive().store( true, std::memory_order_relaxed );
             spinner_thread_ = std::thread( [this]()
             {
                 // Braille dot frames: smooth weight transitions, all same display width
@@ -87,21 +149,28 @@ namespace Mila::ChatApp
                 int frame = 0;
                 while ( spinning_.load() )
                 {
-                    std::cout << '\r' << fg( 100, 115, 155 )
-                              << "  " << kFrames[ frame % 10 ];
-
-                    if ( !spinner_label_.empty() )
-                        std::cout << ' ' << spinner_label_;
-
-                    if ( progress_counter_ )
+                    // One frame is one critical section: a log record arriving mid-frame would
+                    // otherwise split the escape sequences it is made of.
                     {
-                        const int count = progress_counter_->load( std::memory_order_relaxed );
+                        std::lock_guard<std::mutex> lock( consoleMutex() );
 
-                        if ( count > 0 )
-                            std::cout << ' ' << count << " tok";
+                        std::cout << '\r' << fg( 100, 115, 155 )
+                                  << "  " << kFrames[ frame % 10 ];
+
+                        if ( !spinner_label_.empty() )
+                            std::cout << ' ' << spinner_label_;
+
+                        if ( progress_counter_ )
+                        {
+                            const int count = progress_counter_->load( std::memory_order_relaxed );
+
+                            if ( count > 0 )
+                                std::cout << ' ' << count << " tok";
+                        }
+
+                        std::cout << reset() << "\x1b[K" << std::flush;  // erase to end of line
                     }
 
-                    std::cout << reset() << "\x1b[K" << std::flush;  // erase to end of line
                     ++frame;
 
                     // Sliced sleep keeps stopSpinner() responsive (<= ~10 ms join):
@@ -110,6 +179,7 @@ namespace Mila::ChatApp
                     for ( int slice = 0; slice < 8 && spinning_.load(); ++slice )
                         std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
                 }
+                std::lock_guard<std::mutex> lock( consoleMutex() );
                 std::cout << "\r\x1b[K" << std::flush;  // clear the spinner line
             } );
         }
@@ -122,8 +192,17 @@ namespace Mila::ChatApp
 
             spinning_.store( false );
             spinner_thread_.join();
+
+            // Cleared only after the join: the flag guards the erase in writeAroundSpinner, and
+            // clearing it while the thread could still draw one more frame would leave that
+            // frame on screen with a log record appended to it.
+            spinnerActive().store( false, std::memory_order_relaxed );
             progress_counter_ = nullptr;
-            std::cout << "\x1b[?25h" << std::flush;  // restore cursor
+
+            {
+                std::lock_guard<std::mutex> lock( consoleMutex() );
+                std::cout << "\x1b[?25h" << std::flush;  // restore cursor
+            }
         }
 
         // ── Welcome box ───────────────────────────────────────────────────────
@@ -417,6 +496,29 @@ namespace Mila::ChatApp
 
     private:
 
+        /**
+         * @brief The one lock serialising writes to stdout, and the flag saying a spinner owns
+         *        the current line.
+         *
+         * Function-local statics rather than data members because the other party is the
+         * library's log sink, which has no renderer and must not need one. Only ONE renderer
+         * ever draws a spinner, so a process-wide guard costs nothing in contention.
+         */
+        static std::mutex& consoleMutex()
+        {
+            static std::mutex mutex;
+
+            return mutex;
+        }
+
+        static std::atomic<bool>& spinnerActive()
+        {
+            static std::atomic<bool> active{ false };
+
+            return active;
+        }
+
+        bool              quiet_{ false };
         std::atomic<bool> spinning_{ false };
         std::thread       spinner_thread_;
         std::string       spinner_label_;

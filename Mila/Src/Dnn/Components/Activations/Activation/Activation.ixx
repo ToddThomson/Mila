@@ -40,6 +40,7 @@ import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.OperationTraits;
 import Compute.CpuMemoryResource;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Tensor;
 import Serialization.Mode;
@@ -57,7 +58,7 @@ namespace Mila::Dnn
      * non-elementwise value (e.g. ActivationType::Swiglu) is a hard compile error,
      * matching the "missing specialization = hard compile error" dispatch contract.
      */
-    template<ActivationType TFn>
+    export template<ActivationType TFn>
     struct functor_of;
 
     template<> struct functor_of<ActivationType::None> { using type = Activations::Identity; };
@@ -69,7 +70,10 @@ namespace Mila::Dnn
     template<> struct functor_of<ActivationType::LeakyRelu> { using type = Activations::LeakyRelu; };
     template<> struct functor_of<ActivationType::Mish> { using type = Activations::Mish; };
 
-    template<ActivationType TFn>
+    // Exported because it is the enum->functor bridge for the WHOLE tree, not just for this
+    // component: AttentionOutputGate reaches the same elementwise backend through it, and a
+    // second copy of the map would be a second place for an activation to go missing.
+    export template<ActivationType TFn>
     using functor_of_t = typename functor_of<TFn>::type;
 
     /**
@@ -134,6 +138,8 @@ namespace Mila::Dnn
             }
 
             operation_->forward( input, *output_view_ );
+
+            this->publish( ComputePass::Forward, "output", *output_view_ );
 
             return *output_view_;
         }
@@ -235,6 +241,25 @@ namespace Mila::Dnn
         // Identification and Description
         // ====================================================================
 
+        /**
+         * @brief Install a shared output slot (activation pooling).
+         *
+         * Must be called before build(): onBuilding then skips output self-allocation
+         * after validating the slot's storage covers the build shape. forward() already
+         * re-views on a shape change, so a wider slot never leaks its geometry to callers.
+         * Mirrors Swiglu::installSharedOutput; self-allocation remains the default, and
+         * the slot is owned and memory-accounted by the installer.
+         */
+        void installSharedOutput( std::shared_ptr<TensorType> output )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error(
+                    "Activation '" + this->getName() + "': installSharedOutput must be called before build()" );
+
+            output_ = std::move( output );
+            output_installed_ = true;
+        }
+
         const ComponentType getType() const override
         {
             return ComponentType::Activation;
@@ -245,17 +270,60 @@ namespace Mila::Dnn
             return this->getExecutionContext()->getDeviceId();
         }
 
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            if ( output_ == nullptr )
+            {
+                return {};
+            }
+
+            return { output_.get() };
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward } } };
+        }
+
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;
 
-            if ( output_ != nullptr )
+            // An installed shared output slot is owned and counted by the installer.
+            if ( output_ != nullptr && !output_installed_ )
             {
                 stats.device_state_bytes += output_->getStorageSize();
             }
             if ( input_grad_ != nullptr )
             {
                 stats.device_gradient_bytes += input_grad_->getStorageSize();
+            }
+
+            return stats;
+        }
+
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * Elementwise, so the output carries the input's shape exactly.
+         *
+         * See Specifications/MemoryFootprint.md.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            MemoryStats stats;
+
+            // An installed shared output slot is owned and counted by the installer.
+            if ( !output_installed_ && !context.hasInstalledOutput() )
+            {
+                stats.device_state_bytes +=
+                    storageBytes<TPrecision>( elementCount( context.inputShape() ) );
+            }
+
+            if ( context.isTrainingMode() )
+            {
+                stats.device_gradient_bytes +=
+                    storageBytes<TPrecision>( elementCount( context.inputShape() ) );
             }
 
             return stats;
@@ -286,7 +354,17 @@ namespace Mila::Dnn
 
             DeviceId dev_id = this->getExecutionContext()->getDeviceId();
 
-            output_ = std::make_unique<TensorType>( dev_id, input_shape, this->getName() + ".output" );
+            if ( output_installed_ )
+            {
+                if ( !output_ || output_->size() < elementCount( input_shape ) )
+                    throw std::invalid_argument(
+                        "Activation '" + this->getName() + "': installed shared output slot is smaller than the build shape requires" );
+            }
+            else
+            {
+                output_ = std::make_shared<TensorType>( dev_id, input_shape, this->getName() + ".output" );
+            }
+
             output_view_.emplace( output_->view( input_shape ) );
 
             if ( build_context.isTrainingMode() )
@@ -312,7 +390,10 @@ namespace Mila::Dnn
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
         std::shared_ptr<OpType> operation_{ nullptr };
 
-        std::unique_ptr<TensorType> output_{ nullptr };
+        // Self-allocated at build, or an installed shared slot (installSharedOutput)
+        // that the component views a prefix of.
+        std::shared_ptr<TensorType> output_{ nullptr };
+        bool output_installed_{ false };
         std::optional<TensorType> output_view_;
         std::unique_ptr<TensorType> input_grad_{ nullptr };
 

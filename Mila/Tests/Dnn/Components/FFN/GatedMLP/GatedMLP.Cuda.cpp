@@ -21,9 +21,6 @@
 #include <string>
 
 import Mila;
-// Instantiating GatedMLP<Cuda, P> forces the child Linear/Swiglu CUDA op member
-// bodies, which call concrete ExecutionContext<Cuda> methods; complete the type here.
-import Compute.ExecutionContext;
 
 namespace Mila::Tests::Dnn::Components::FFN::GatedMLP
 {

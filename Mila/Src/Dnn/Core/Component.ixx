@@ -15,6 +15,7 @@ module;
 #include <atomic>
 #include <stdexcept>
 #include <format>
+#include <string_view>
 
 export module Dnn.Component;
 export import :TrainingMode;
@@ -33,6 +34,7 @@ import Compute.DeviceType;
 import Compute.CpuMemoryResource;
 import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
+import Compute.Observation;
 import Serialization.Tensor;
 import Serialization.ModelArchive;
 import Serialization.SafeTensors;
@@ -172,8 +174,7 @@ namespace Mila::Dnn
          * an always-compiled core module, which a CPU-only build cannot satisfy -- the
          * backend axis belongs in DeviceTypeTraits, which is itself backend-gated.
          */
-        using HostStagingMemoryResource =
-            typename DeviceTypeTraits<TDeviceType>::host_staging_memory_resource;
+        using HostStagingMemoryResource = typename DeviceTypeTraits<TDeviceType>::host_staging_memory_resource;
 
     public:
 
@@ -311,21 +312,6 @@ namespace Mila::Dnn
 
             return training_mode_;
         }
-
-        // REVIEW: Ambiguous and does not add value
-        ///**
-        // * @brief Convenience accessor -- true if currently in Eval mode.
-        // *
-        // * Equivalent to getTrainingMode() == TrainingMode::Eval.
-        // * Valid for both RuntimeMode::Inference and RuntimeMode::Training
-        // * built components.
-        // *
-        // * @return true if in Eval mode.
-        // */
-        //bool isEvalMode() const noexcept
-        //{
-        //    return getTrainingMode() == TrainingMode::Eval;
-        //}
 
         RuntimeMode getRuntimeMode() const noexcept
         {
@@ -656,8 +642,8 @@ namespace Mila::Dnn
          * - Precision conversion (blob dtype -> parameter dtype)
          * - Device upload (CPU bytes -> target device)
          *
-         * @param name Parameter name used to locate the target tensor.
-         * @param blob Serialized tensor metadata and raw bytes.
+         * Takes the parameter name used to locate the target tensor, and a blob
+         * holding serialized tensor metadata and raw bytes.
          *
          * @throws std::runtime_error if component has no parameters to load.
          * @throws std::runtime_error if blob shape doesn't match parameter shape.
@@ -700,6 +686,8 @@ namespace Mila::Dnn
          */
         virtual void requireSerializableParameters() const
         {
+            // REVIEW: This is currently a base class only method that either throws or doesn't!
+
             if ( parameterCount() > 0 && getParameterNames().empty() )
             {
                 throw std::runtime_error(
@@ -731,9 +719,124 @@ namespace Mila::Dnn
          */
         virtual std::vector<ITensor*> getGradients() const = 0;
 
+        // ====================================================================
+        // Observation -- Specifications/Observability.md
+        // ====================================================================
+
+        /**
+         * @brief Return non-owning pointers to the tensors this component produces.
+         *
+         * The counterpart to getParameters(): that reports what a component HOLDS, this
+         * reports what it PRODUCES. Tensors are the built allocations, so their extents are
+         * the ceiling a forward pass may narrow within -- an observer wanting the live value
+         * of a particular call receives it through publication instead.
+         *
+         * An empty result means the component does not describe itself. That absence cannot
+         * be mistaken for a finding -- a view renders no row for it -- so no distinction
+         * beyond empty is offered.
+         *
+         * @return Vector of output pointers; empty before build, and for undescribed components.
+         */
+        virtual std::vector<const ITensor*> getOutputs() const
+        {
+            return {};
+        }
+
+        /**
+         * @brief Stages this component publishes, and the passes each is published on.
+         *
+         * Lets a caller tell an uninstrumented component from a clean one before running
+         * anything. The pass qualifier is load-bearing rather than decorative: the stage set
+         * genuinely differs by pass, since a prefill can produce intermediates its decode
+         * never materializes.
+         *
+         * @return Vector of stages; empty for components that publish nothing.
+         */
+        virtual std::vector<ObservableStage> getObservableStages() const
+        {
+            return {};
+        }
+
+        /**
+         * @brief Select which passes this component publishes on.
+         *
+         * Set by the attach walk, which resolves an observer's path pattern and pass filter
+         * exactly once, so publication tests a mask instead of matching a path per call.
+         * An empty mask -- the default -- publishes nothing.
+         */
+        void setObservedPasses( Compute::ComputePassMask passes ) noexcept
+        {
+            observed_passes_ = passes;
+        }
+
+        /**
+         * @brief Get the shared execution context.
+         *
+         * Public because the context is the seam through which a caller reaches capabilities
+         * the component itself does not re-expose: constructing model-level orchestrator
+         * tools on the network's context (TokenSampler), and installing an activation
+         * observer (see IExecutionContext::setActivationObserver). Derived classes use it to
+         * query device information, create tensors on the correct device, pass it to backend
+         * operations, and synchronize device work.
+         *
+         * @return Non-owning pointer to execution context (guaranteed non-null).
+         *
+         * @throws std::runtime_error if context has not been set.
+         */
+        IExecutionContext* getExecutionContext() const
+        {
+            if ( !exec_context_ )
+            {
+                throw std::runtime_error(
+                    std::format(
+                        "Component::getExecutionContext: context not set for component '{}'. "
+                        "Call setExecutionContext() before accessing the context.",
+                        getName() ) );
+            }
+
+            return exec_context_;
+        }
+
+        [[nodiscard]] Compute::ComputePassMask getObservedPasses() const noexcept
+        {
+            return observed_passes_;
+        }
+
     protected:
 
+        /**
+         * @brief Publish one activation to the observer, if this pass is being observed.
+         *
+         * Call after the value is produced and before anything can overwrite it, passing the
+         * tensor that actually carries this call's result -- a narrowed view rather than the
+         * built allocation, where the two differ.
+         *
+         * Does NOT synchronize. The observer receives a borrowed tensor, valid for the
+         * duration of the call and ordered on this component's stream rather than valid on
+         * the host; synchronizing here would change what is being observed.
+         */
+        void publish( Compute::ComputePass pass, std::string_view stage, const ITensor& value ) const
+        {
+            if ( !observed_passes_.contains( pass ) )
+            {
+                return;
+            }
+
+            if ( exec_context_ == nullptr )
+            {
+                return;
+            }
+
+            const auto& observer = exec_context_->getActivationObserver();
+
+            if ( observer )
+            {
+                observer( getName(), pass, stage, value );
+            }
+        }
+
         // REVIEW: Does build_config_ need to be protected given our new access methods?
+
         /**
          * @brief The BuildContext stored at build time.
          *
@@ -752,15 +855,26 @@ namespace Mila::Dnn
          */
         BuildContext build_context_{ shape_t{ 1 }, RuntimeMode::Training };
 
-        // ====================================================================
-        // Execution Context
-        // ====================================================================
-
         /**
          * @brief Set the execution context for this component.
          *
          * Establishes the device and execution environment. Can only be called
          * once -- the execution context is immutable after setting.
+         *
+         * **One context, one model tree.** A context is reachable only by the tree that
+         * owns it: every network mints its own from a DeviceId, this setter is protected so
+         * nothing outside can inject one, and it throws rather than accept a second. That is
+         * a contract, not an artifact of how the constructors happen to be written today.
+         *
+         * It has to be stated because observation rides on the context
+         * (Specifications/Observability.md 6.3): an observer is installed on the context and
+         * every component in the tree publishes through it. An overload accepting an
+         * existing context -- a reasonable thing to want, for a CUDA stream shared between
+         * two models -- would therefore also merge their observation scopes, and a caller
+         * watching one model would silently receive the other's activations. A shared stream
+         * must be introduced some other way. A standalone component creates its own context
+         * and is its own observation scope, which is the right answer for a component under
+         * test.
          *
          * Called by:
          * - The component itself (standalone mode with owned context)
@@ -829,33 +943,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Get the shared execution context.
-         *
-         * Provides access to the execution context for derived classes to:
-         * - Query device information
-         * - Create tensors on the correct device
-         * - Pass to backend operations
-         * - Synchronize device work
-         *
-         * @return Non-owning pointer to execution context (guaranteed non-null).
-         *
-         * @throws std::runtime_error if context has not been set.
-         */
-        IExecutionContext* getExecutionContext() const
-        {
-            if ( !exec_context_ )
-            {
-                throw std::runtime_error(
-                    std::format(
-                        "Component::getExecutionContext: context not set for component '{}'. "
-                        "Call setExecutionContext() before accessing the context.",
-                        getName() ) );
-            }
-
-            return exec_context_;
-        }
-
-        /**
          * @brief Check if execution context has been set.
          *
          * @return true if context is set, false otherwise.
@@ -912,8 +999,8 @@ namespace Mila::Dnn
          * @note Implementations should either succeed fully or leave no partial
          *       state, as a failed build() may be retried.
          *
-         * @param config Build-time configuration. Use config.allocationSeqLen()
-         *               to obtain the correct output buffer sequence dimension.
+         * Takes the build-time configuration; use its allocationSeqLen() to obtain
+         * the correct output buffer sequence dimension.
          */
         virtual void onBuilding( const BuildContext& /*config*/ )
         {
@@ -929,7 +1016,7 @@ namespace Mila::Dnn
          *
          * The default implementation is a no-op.
          *
-         * @param mode The incoming TrainingMode.
+         * Takes the incoming TrainingMode.
          */
         virtual void onTrainingModeChanging( TrainingMode /*mode*/ )
         {}
@@ -1082,6 +1169,9 @@ namespace Mila::Dnn
 
         std::string name_;
         IExecutionContext* exec_context_{ nullptr };
+
+        // Which passes publish(). Set by the attach walk; empty means publish nothing.
+        Compute::ComputePassMask observed_passes_{};
         bool built_{ false };
         TrainingMode training_mode_{ TrainingMode::Normal };
         std::mutex training_mode_mutex_;

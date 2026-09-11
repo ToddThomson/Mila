@@ -54,6 +54,10 @@ namespace Mila::Dnn
         /**
          * @brief Set the scaling factor applied to the residual branch.
          *
+         * Only 1.0 is implemented; validate() rejects any other value. The setter is kept so
+         * that a serialized configuration carrying a scale still round-trips and is then
+         * refused where it would be used, rather than being silently read as 1.0.
+         *
          * @param factor Scaling factor (positive)
          * @return Self&& for method chaining
          */
@@ -97,6 +101,18 @@ namespace Mila::Dnn
             if ( scaling_factor_ <= 0.0f )
             {
                 throw std::invalid_argument( "ResidualConfig: scaling_factor must be > 0" );
+            }
+
+            // No backward applies the scale and the two devices disagree in forward: CUDA
+            // forward honours it, CUDA backward takes no scale, and the CPU operation ignores
+            // it entirely. The only guard was a debug-only assert, so a release build trained
+            // silently wrong. Refuse the value until one implementation exists on both
+            // devices and both directions.
+            if ( scaling_factor_ != 1.0f )
+            {
+                throw std::invalid_argument(
+                    "ResidualConfig: a scaling_factor other than 1.0 is not implemented -- "
+                    "the residual backward pass does not apply it" );
             }
         }
 

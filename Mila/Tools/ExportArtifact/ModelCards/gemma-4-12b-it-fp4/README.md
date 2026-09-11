@@ -11,8 +11,8 @@ library_name: mila
 
 # Gemma 4 12B Instruct — FP4 for Mila
 
-A pre-quantized [Mila](https://github.com/ToddThomson/Mila) artifact of
-`google/gemma-4-12b-it`, in safetensors format.
+`google/gemma-4-12b-it`, pre-quantized for [Mila](https://github.com/ToddThomson/Mila) and
+published in safetensors format.
 
 **6.33 GB**, down from 23.8 GB at BF16. The FP4 packing is done once here instead of on every
 load, so a Mila session starts near-instantly rather than quantizing 12 billion parameters first.

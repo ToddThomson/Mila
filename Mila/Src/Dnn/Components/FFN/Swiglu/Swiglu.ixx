@@ -37,6 +37,7 @@ import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.OperationTraits;
 import Compute.CpuMemoryResource;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Tensor;
 import Serialization.Mode;
@@ -107,7 +108,9 @@ namespace Mila::Dnn
             }
 
             operation_->forward( input, *output_view_ );
-            
+
+            this->publish( ComputePass::Forward, "output", *output_view_ );
+
             return *output_view_;
         }
 
@@ -225,6 +228,21 @@ namespace Mila::Dnn
         }
 
         /**
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            if ( output_ == nullptr )
+            {
+                return {};
+            }
+
+            return { output_.get() };
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward } } };
+        }
+
          * @brief Return memory allocation breakdown.
          */
         MemoryStats getMemoryStats() const override

@@ -35,6 +35,7 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.IKvInference;
 import Compute.IKvCacheLifecycle;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Dnn.Quantization.KvCache.Policy;
@@ -62,15 +63,15 @@ namespace Mila::Dnn
      * must accept this layout and produce the output above.
      *
      * KV-cache inference is an optional backend capability. After build(),
-     * supportsKVCache() indicates whether the underlying operation implements
-     * both IPositionalUnaryOp (prefill/decode dispatch) and IKVCacheLifecycle
+     * supportsKvCache() indicates whether the underlying operation implements
+     * both IPositionalUnaryOp (prefill/decode dispatch) and IKvCacheLifecycle
      * (cache init/reset). Both pointers are resolved once at build time.
      *
-     * The cache self-initializes on the first prefill/forward; resetKVCache() is
+     * The cache self-initializes on the first prefill/forward; resetKvCache() is
      * the public hook the owning decoder layer / transformer drives to start a new
      * generation session.
      *
-     * REVIEW: resetKVCache() is public (initialization stays internal to prefill).
+     * REVIEW: resetKvCache() is public (initialization stays internal to prefill).
      * When TransformerBase<> is introduced as the common base for GptTransformer,
      * LlamaTransformer, MistralTransformer etc., revisit whether it should
      * become private with 'friend class TransformerBase<TDeviceType, TPrecision>'
@@ -184,36 +185,34 @@ namespace Mila::Dnn
             }
 
             operation_->forward( input, *output_view_ );
+
+            this->publish( ComputePass::Forward, "output", *output_view_ );
+
             return *output_view_;
         }
 
         /**
-         * @brief Run backward pass and return the component-owned input-gradient tensor.
+         * @brief Not implemented -- GQA is inference only, and this is where that is decided.
          *
-         * @param input       Concatenated QKV input tensor used in forward.
-         * @param output_grad Gradient w.r.t. the module output.
-         * @return Reference to component-owned TensorType containing the input gradient.
+         * No GQA backend implements a backward pass. The refusal is stated here, at the
+         * component's own boundary, rather than reached by dispatching into an operation
+         * whose body is an unconditional throw: the built/training-mode guards below it were
+         * checking preconditions for a call that could never succeed, and the tail after the
+         * dispatch was unreachable code the compiler reported.
+         *
+         * The retired sketch ran on the expanded [B,NH,T,HS] layout that CudaGqaOp no longer
+         * allocates; whether a real backward keeps that layout for training or is derived on
+         * the compact NKV layout is an open design question recorded in GqaMemory.md.
+         *
+         * MultiHeadAttention implements both directions and is the component to train through.
+         *
+         * @throws std::runtime_error Always.
          */
-        TensorType& backward( const TensorType& input, const TensorType& output_grad )
+        TensorType& backward( const TensorType&, const TensorType& )
         {
-            if ( !this->isBuilt() )
-            {
-                throw std::runtime_error(
-                    "GroupedQueryAttention must be built before calling backward." );
-            }
-
-            if ( !this->isTrainingMode() )
-            {
-                throw std::runtime_error(
-                    "GroupedQueryAttention must be in training mode to call backward." );
-            }
-
-            validateConcatenatedQKVShape( input.shape() );
-
-            zero( *input_grad_ );
-            operation_->backward( input, output_grad, *input_grad_ );
-
-            return *input_grad_;
+            throw std::runtime_error(
+                "GroupedQueryAttention::backward is not implemented -- GQA is inference only. "
+                "Train through MultiHeadAttention, or drive GQA with prefill()/decode()." );
         }
 
         // ====================================================================
@@ -257,7 +256,9 @@ namespace Mila::Dnn
             }
 
             positional_op_->prefill( q, k, v, *output_view_, position_offset );
-            
+
+            this->publish( ComputePass::Prefill, "output", *output_view_ );
+
             return *output_view_;
         }
 
@@ -291,6 +292,8 @@ namespace Mila::Dnn
                 positional_op_->decode( q, k, v, *decode_output_, position_offset );
                 decode_active_ = true;
 
+                this->publish( ComputePass::Decode, "output", *decode_output_ );
+
                 return *decode_output_;
             }
 
@@ -313,12 +316,12 @@ namespace Mila::Dnn
 
         /**
          * @brief Returns true when the underlying operation implements both
-         * IPositionalUnaryOp and IKVCacheLifecycle.
+         * IPositionalUnaryOp and IKvCacheLifecycle.
          *
          * Resolved once at build time. CPU backends return false; CUDA backends
          * return true when CudaGroupedQueryAttentionOp is in use.
          */
-        bool supportsKVCache() const noexcept
+        bool supportsKvCache() const noexcept
         {
             return kv_cache_op_ != nullptr && positional_op_ != nullptr;
         }
@@ -373,7 +376,7 @@ namespace Mila::Dnn
          * sequence. A no-op on backends without KV-cache support, and harmless
          * when no decode session is active.
          */
-        void resetKVCache()
+        void resetKvCache()
         {
             if ( kv_cache_op_ && cache_initialized_ )
             {
@@ -385,7 +388,7 @@ namespace Mila::Dnn
 
         /**
          * @brief Rewind the cache fill position for prompt-prefix reuse
-         * (PromptCaching.md). Unlike resetKVCache() the cache session stays live:
+         * (PromptCaching.md). Unlike resetKvCache() the cache session stays live:
          * initialization state and device contents are untouched, and positions
          * [0, position) remain valid for a subsequent prefillFrom.
          *
@@ -512,6 +515,29 @@ namespace Mila::Dnn
             return stats;
         }
 
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            std::vector<const ITensor*> outputs;
+
+            if ( output_ != nullptr )
+            {
+                outputs.push_back( output_.get() );
+            }
+
+            if ( decode_output_ != nullptr )
+            {
+                outputs.push_back( decode_output_.get() );
+            }
+
+            return outputs;
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output",
+                ComputePassMask{ ComputePass::Forward, ComputePass::Prefill, ComputePass::Decode } } };
+        }
+
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;
@@ -545,7 +571,7 @@ namespace Mila::Dnn
             oss << "Num KV heads: " << config_.getNumKvHeads() << "\n";
             oss << "Head size: " << head_dim << "\n";
             oss << "Group size (Q heads per KV head): " << group_size << "\n";
-            oss << "Decode path: " << (supportsKVCache() ? "KV cache (fast)" : "fallback (forward)") << "\n";
+            oss << "Decode path: " << (supportsKvCache() ? "KV cache (fast)" : "fallback (forward)") << "\n";
             oss << "Parameter count: " << parameterCount() << "\n";
 
             return oss.str();

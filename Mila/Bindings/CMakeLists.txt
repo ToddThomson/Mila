@@ -1,5 +1,5 @@
 # CMake configuration for the MilaPy pybind11 extension module (module name: mila).
-# Requires CUDA; binds the Gemma 4 and Llama 3.x inference paths.
+# Requires CUDA; binds the Gemma 4, Llama 3.x and Qwen 3.8 inference paths.
 
 cmake_minimum_required(VERSION 4.0)
 
@@ -57,25 +57,26 @@ target_link_libraries(MilaPy PRIVATE Mila pybind11::module)
 set(MILA_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Package")
 set(MILA_PACKAGE_INIT "${MILA_PACKAGE_SOURCE_DIR}/src/mila/__init__.py")
 
-# The wheel version, derived from Version.txt rather than hand-maintained in
-# pyproject.toml -- where it had already drifted 18 builds. Written into the package
-# tree (not the build tree) because setup.py reads it, and because the wheel build
-# copies that tree; generated, so it is gitignored and a `pip wheel` without a CMake
-# build fails loudly rather than publishing a stale number.
-file(WRITE "${MILA_PACKAGE_SOURCE_DIR}/VERSION" "${MILA_PEP440_VERSION}\n")
-
 # 1. Into the package source tree, so `pip wheel Mila/Bindings/Package` packages a
 #    freshly built extension. The wheel build is a packaging step over the CMake
 #    build, not a second build system; setuptools never compiles anything here.
 #
-#    Top-level builds ONLY. This writes into the SOURCE tree, which a consumer that
-#    pulled Mila in via FetchContent has no business doing -- it would stage a wheel
-#    tree nobody in that build will package, into whatever directory Mila was fetched
-#    from. It also broke: PROJECT_SOURCE_DIR below was CMAKE_SOURCE_DIR, which is the
-#    TOP-LEVEL source dir, so under FetchContent it resolved to the consumer's root and
-#    looked for a License.md that is not there. That failed
-#    packaging_fetchcontent_consumer from 0.20.0-beta.2+17 until the guard was added.
+#    Top-level builds ONLY, VERSION and the POST_BUILD staging alike. Both write into
+#    the SOURCE tree, which a consumer that pulled Mila in via FetchContent has no
+#    business doing -- it would stage a wheel tree nobody in that build will package,
+#    into whatever directory Mila was fetched from. The staging also broke:
+#    PROJECT_SOURCE_DIR below was CMAKE_SOURCE_DIR, which is the TOP-LEVEL source dir,
+#    so under FetchContent it resolved to the consumer's root and looked for a
+#    License.md that is not there. That failed packaging_fetchcontent_consumer from
+#    0.20.0-beta.2+17 until the guard was added; VERSION sat outside it until +40.
 if(PROJECT_IS_TOP_LEVEL)
+    # The wheel version, derived from Version.txt rather than hand-maintained in
+    # pyproject.toml -- where it had already drifted 18 builds. Written into the package
+    # tree (not the build tree) because setup.py reads it, and because the wheel build
+    # copies that tree; generated, so it is gitignored and a `pip wheel` without a CMake
+    # build fails loudly rather than publishing a stale number.
+    file(WRITE "${MILA_PACKAGE_SOURCE_DIR}/VERSION" "${MILA_PEP440_VERSION}\n")
+
     add_custom_command(TARGET MilaPy POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:MilaPy>
@@ -90,7 +91,7 @@ endif()
 
 # 2. The neutral build-tree location, importable without installing anything: put
 #    ${CMAKE_BINARY_DIR}/python on sys.path and `import mila` works. Per build
-#    directory, so Debug and Release do not overwrite each other. Samples/Python
+#    directory, so Debug and Release do not overwrite each other. Samples/QuickStart/Python
 #    discovers it by glob; anything else can read MilaPy_PYTHON_DIR.
 set(MILA_PYTHON_PACKAGE_DIR "${CMAKE_BINARY_DIR}/python")
 
@@ -110,8 +111,9 @@ add_custom_command(TARGET MilaPy POST_BUILD
 )
 
 # There is deliberately no third destination. MIS used to receive its own copy of the
-# package beside main.py, which shadowed any installed mila-llm -- the server directory
-# is first on sys.path, so a stale copy always won over a correct install. MIS now
-# declares mila-llm as an ordinary dependency and a development checkout satisfies it
-# with an editable install of Package above, which picks up destination 1 on every
-# build. See Mila/Adaptors/Inference/Server/README.md.
+# package beside its entry point, which shadowed any installed mila-llm -- the server
+# directory was first on sys.path, so a stale copy always won over a correct install.
+# MIS now declares mila-llm as an ordinary dependency and ships as an src-layout package
+# of its own, so nothing it owns sits on sys.path ahead of site-packages; a development
+# checkout satisfies the dependency with an editable install of Package above, which
+# picks up destination 1 on every build. See Mila/Adaptors/Inference/Server/README.md.

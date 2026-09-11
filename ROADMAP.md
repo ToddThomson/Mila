@@ -18,10 +18,17 @@ The roadmap shows the **release in flight**, plus a **Future** tail. A release i
 Mila is a craft-mastery project — understanding LLMs at the metal — not a llama.cpp/vLLM competitor.
 For a project like this, "first release" means **complete and beautiful**, not a minimal slice. v0.20
 delivers everything Mila has implemented and validated, as one coherent, tested, documented package:
-**Gemma 4, Llama 3.x, and GPT-2** inference at FP32 / BF16 / FP8 / FP4, with tool calling; and
-**training for FP32 GPT-2 / MLP**. The two halves have deliberately different reach: inference spans
-every model and precision Mila supports, training covers the GPT-2 lineage at FP32. Reduced-precision
-and GQA training are a later release — see **Future**.
+**Gemma 4, Llama 3.x, Qwen 3.8 and GPT-2** inference from FP32 down to 2.82 bits per weight, with
+tool calling; and **training for FP32 GPT-2 / MLP**. The two halves have deliberately different
+reach: inference spans every model and precision Mila supports, training covers the GPT-2 lineage at
+FP32. Reduced-precision and GQA training are a later release — see **Future**.
+
+**The release makes one claim, and it is a pair.** A 27B model at an average 2.82 bits per weight
+runs on a 12 GB desk card — *and you can open it and read it*. Neither half stands alone. A capacity
+number on its own invites the throughput comparison Mila does not exist to win, and a runtime you can
+read that only runs small models is a teaching toy. Qwen 3.8-27B is what makes the first half true;
+Observability is what makes the second half literal rather than rhetorical — every activation in the
+composition tree reachable by name, from outside the model, with no scaffolding.
 
 This scope is a deliberate reunion of two bodies of work. The last year built the inference path
 (Llama, quantization, the `OperationTraits` dispatch, the chat harness). The year before built a
@@ -42,10 +49,20 @@ Pre-1.0, "production" means validated and polished, not API-frozen — breaking 
 acceptable. The release is reached through the themed workstreams below, in dependency order: the test
 suite is revived to become the correctness oracle; training is resurrected against green tests;
 documentation describes the stabilized surface; hardening validates and packages it for the public;
-and the MIS adaptor proves the product definition end-to-end. At `beta.1` **the library is frozen** —
-`Mila/Src` gains no new capability, only hardening. **Model Distribution is the one deliberate
-carve-in**, added during `beta.2` because a release nobody can get a model for is not an onboarding
-story, and because it was an alpha omission rather than a new idea.
+and the MIS adaptor proves the product definition end-to-end.
+
+At `beta.1` **the library is frozen** — `Mila/Src` gains no new capability, only hardening. Two
+carve-ins were made deliberately and named as such. **Model Distribution** landed during `beta.2`,
+because a release nobody can get a model for is not an onboarding story, and because it was an alpha
+omission rather than a new idea. **Observability** followed during `beta.3`, on the argument that a
+reference implementation which cannot be looked into is a contradiction in terms. A third carve-in
+would say the freeze was never load-bearing, and none is planned.
+
+**Qwen 3.8 is not one of those two, and the distinction is worth stating.** It was never carved in.
+It began as a specced research track the freeze did not reach — the freeze protects what the release
+claims, not the directory work happens in — on the standing understanding that it would ship only if
+it proved out against gates written before the measurements that tested them. It did, and it was
+promoted into the release.
 
 The freeze is drawn around the library, not the release. Everything that *consumes* Mila — the Chat
 and MIS adaptors, the Python binding, the samples and the tools — is polish and hardening by nature:
@@ -55,13 +72,21 @@ own adaptors reach is a defect in the demonstration rather than a feature reques
 
 ### Models
 
-*The model families Mila delivers, each proven token-for-token against HuggingFace at its target
-precision.*
+*The model families Mila delivers, each proven against a reference at its target precision — token
+for token where the reference fits on the hardware, and against a stated quality bar where it does
+not.*
 
+- **Qwen 3.8 27B** — the headline, and the largest model Mila runs on a 12 GB card. It fits because
+  of what it is, not only because of how it is stored: 48 of its 64 layers are Gated DeltaNet
+  recurrences carrying a fixed-size state rather than a growing KV cache, and only the remaining 16
+  are full attention. Storage does the rest — weights are quantized offline against fitted codebooks
+  to an average 2.82 bits, with precision declared **per role** by a plan struct rather than chosen
+  at load, so a projection that tolerates two bits and one that does not are different types rather
+  than different arguments. Its FP4 build on a 16 GB card is the quality oracle, not a second target.
 - **Gemma 4 12B** — the flagship, and the default chat target at FP4, fitting a 12 GB consumer card.
   Tool calling validated; the 26B-A4B MoE follow-on stays Future.
 - **Llama 3.1 8B, 3.2 3B, 3.2 1B** — the primary validated inference lineage; FP4 default with FP8 and
-  BF16 alternatives, tool calling validated.
+  BF16 alternatives.
 - **GPT-2** — the foundation model behind the MNIST and Bard training samples; FP32 / BF16, inference
   and train-from-scratch.
 
@@ -71,9 +96,53 @@ weights, KV cache, activation workspace — for a chosen context length, without
 without the weights present, and therefore for hardware the user does not yet own. The estimate comes
 from the same components that do the allocating, so it cannot drift into fiction.
 
-**Success criteria:** each family decodes token-for-token against HuggingFace at its target precision,
-captured as CI-guarded regression tests; tool calling validated on Gemma 4 and Llama 3.2 3B / 3.1 8B;
-a model's reported footprint matches what it actually allocates, held by test.
+**Success criteria:** each family decodes token-for-token against HuggingFace at its target precision
+— Gemma 4's agreement is held by a regression test, the rest were established by hand, and no parity
+test runs in CI, which has neither a GPU nor the reference weights; tool calling validated on Gemma 4;
+a model's reported footprint matches what it actually allocates, held by test **on the quantized
+loads the published models use** — the unquantized path is measured but not yet gated. Qwen 3.8 is gated
+differently and deliberately: a BF16 27B fits no card here, so token-for-token agreement is not
+available and the bar is a **perplexity ratio against its own FP4 oracle, held under 1.25 at the
+context the model is sold at**, on a fixed corpus and protocol, with the threshold written down
+before the sweep that tests it was read. That is a statement about the allocation being sound, never
+about the model being undamaged.
+
+### Observability
+
+*A model you can look into from outside it — the composition tree walked by name, and every
+activation published as it flows.*
+
+Every activation investigation in this repository was built as scaffolding outside `Mila/Src`: the
+Qwen rotary hunt, the attention-workspace reach-in, the memory diagnostics that construct a
+transformer directly rather than load a model, Gemma's fingerprint probe. Four times the same tax,
+which is the signal that a capability is missing rather than that the investigations were unusual. A
+runtime whose whole claim is that the path from prompt to kernel can be read should not need a
+private build to read it. That is why this is a feature rather than a diagnostic, and why it is
+stated alongside the headline model rather than beneath it.
+
+The design has two halves and one deliberate omission. **View** walks the composition tree from a
+model and names every component and its path. **Observe** attaches a sink by path pattern and by
+compute pass — prefill, decode, forward, backward — and delivers each published stage as a tensor
+while it flows. The omission is synchronization: publication never synchronizes, because
+synchronizing changes what is being observed. A sink receives a view ordered on the stream and
+synchronizes deliberately when it wants values.
+
+Two properties are load-bearing rather than incidental. Attaching returns a **match count**, so a
+pattern matching nothing is distinguishable from a run with nothing to report — the false negative
+that makes a silent probe worse than no probe at all. And the compute pass travels **in the record as
+an enum**, its cases declared complete while only inference is implemented, so observing training
+later is an addition rather than a signature change that quietly stops existing probes firing.
+
+The boundary is drawn where a carve-in stops being one: training and gradient observation, a
+compare-against-reference tool, and any exposure through the Python binding are all out.
+
+**Success criteria:** every component in the composition tree publishes its named stages, with the
+stage vocabulary **derived from the tensor names already in the code** rather than invented at the
+call site; a consumer outside the model walks the tree, attaches by pattern and pass, and reads
+activations without reaching through a protected accessor and without scaffolding in `Mila/Src`;
+attaching a sink that matches nothing says so rather than reporting silence; and instrumentation
+costs no measurable decode throughput, held against build-to-build drift on more than one chassis
+at the point where a fixed per-token cost would show up largest.
 
 ### Test Suite Revival
 
@@ -82,33 +151,41 @@ correctness oracle for everything after it.*
 
 The first year of Mila was test-driven; the authored suite was largely commented out during the
 inference-era refactors, leaving only ~24 of ~70 files active. This is recovery: the test *logic* is
-authored, and the work re-aligns it to the post-refactor API. Two new slices remain — the inference
-features built during the test drought (quantization, the Llama path) need coverage the old suite
-never had, and the authored suite was **forward-only**, so every `backward()` the training samples
-drive has zero coverage. A finite-difference gradient-check archetype is the precondition for Training
-Revival.
+authored, and the work re-aligns it to the post-refactor API. The authored suite was also
+**forward-only**, so every `backward()` the training samples drive has zero coverage; that half
+follows the training primitive suite out of this release.
 
-**Success criteria:** the authored component / tensor / tokenizer suites re-enabled and green against
-the current API; the redundant op-layer mirror tests retired (backend ops tested through the public
-component, the sole exception being the unreachable weight-quantization white-box); new coverage for
-the quantization and Llama inference paths; a per-component gradient-check archetype covering the
-training backward path (MNIST spine first, Bard transformer stack second); the suite gated in CI so a
-future API churn fails loudly instead of silently rotting coverage.
+**The recovered suite is the claim, and it stops at what is compiled.** Fourteen files were never
+re-enabled, and the coverage the old suite never had — the load-time quantization white-box and the
+Llama inference path — is not written. Both are deferred rather than declined, on the same reasoning
+the training scope was narrowed by: what ships is a suite that catches regressions in everything it
+covers, not a suite that covers everything. A release is entitled to say which of those it has.
+
+**Success criteria:** the authored component / tensor / tokenizer suites re-aligned to the current
+API and green; the redundant op-layer mirror tests retired (backend ops tested through the public
+component, the sole exception being the unreachable weight-quantization white-box); and the suite
+gated in CI so a future API churn fails loudly instead of silently rotting coverage. **Explicitly
+not in scope:** the fourteen still-commented-out files, new coverage for the quantization and Llama
+inference paths, and the gradient-check archetype for the backward path, which moves out with the
+training primitive suite.
 
 ### Training Revival
 
-*Resurrect the validated GPT-2 / MLP training path — MNIST and Bard — to current-API quality, proven
-by its own revived tests. Scope is **FP32 GPT-2 / MLP only**: Llama 3.1/3.2 training, GQA training,
+*Resurrect the validated GPT-2 / MLP training path — MNIST and Bard — to current-API quality, and
+demonstrate it end to end. Scope is **FP32 GPT-2 / MLP only**: Llama 3.1/3.2 training, GQA training,
 and reduced-precision (BF16) training all stay Future.*
 
 MNIST (MLP) and Bard (GPT-2 generation) were complete, working training samples that are now being
 revived. Reviving them reactivates the half of the library inference never exercises: the AdamW
 optimizer, the loss and backward kernels, gradient flow, and train-from-scratch parameter
-initialization. The revived **primitive/component tests** are the correctness oracle — the samples are
-usage demos and the bug-discovery mechanism, not the test target. The work is sequenced **MNIST first,
-then Bard**: MNIST is a pure MLP that exercises the full training spine on the smallest possible graph;
-Bard then stacks the `GptTransformer`, the BPE/char tokenizers, and the sequence loader on an
-already-proven spine.
+initialization. The work was sequenced **MNIST first, then Bard**: MNIST is a pure MLP that exercises
+the full training spine on the smallest possible graph; Bard then stacks the `GptTransformer`, the
+BPE/char tokenizers, and the sequence loader on an already-proven spine. Both now run.
+
+**The two samples are the claim, and the claim stops there.** A primitive suite pinning each piece
+independently — gradient checks, step-convergence, loader contracts — would say *which* part is
+wrong when one breaks, where a sample can only say that something is. That suite is deferred, so
+this release demonstrates training rather than gating it, and says so.
 
 **The precision boundary is FP32, and it is drawn deliberately rather than by omission.** Reduced-
 precision training touches machinery FP32 never does — FP32 master parameters, stochastic-rounding
@@ -120,13 +197,11 @@ path this release should claim. FP32 is also the better **reference** implementa
 point of the project: a reader learning how training works should not first have to understand why
 there are two copies of every weight.
 
-**Success criteria:** the training-path **primitive suite** is the green/red oracle — the
-gradient-check archetype, the AdamW step-convergence test, the concrete data-loader contract tests,
-and init-at-precision — with a small **sample-independent** training-loop integration test as
-composition/wiring insurance; train-from-scratch validated **at FP32**; all training-path tests
-CI-gated. The MNIST and Bard samples are re-enabled and **run** against the current API (MNIST trains
-to target accuracy, Bard generates coherent text). **Explicitly not in scope:** BF16 or FP8 training,
-GQA training (`CudaGqaOp::backward` throws by design), and Llama fine-tuning.
+**Success criteria:** the MNIST and Bard samples are re-enabled and **run** against the current API —
+MNIST trains to target accuracy, Bard generates coherent text — which is train-from-scratch at FP32
+demonstrated end to end. **Explicitly not in scope:** the training-path primitive suite and its CI
+gate, BF16 or FP8 training, GQA training (`CudaGqaOp::backward` throws by design), and Llama
+fine-tuning.
 
 ### API Documentation
 
@@ -145,27 +220,44 @@ the `OperationTraits` world and the spelled-out naming style; the published docs
 public API surface; the docs job renders C++23 module units faithfully and publishes from `master`;
 Doxygen's own warnings gated as errors so doc drift fails the build.
 
-### Production Hardening
+### Packaging & Distribution
 
-*Validate, package, and distribute for external contributors. No new library capability.*
+*Produce something a stranger can install. No new library capability.*
 
-The convergence workstream: prove the primary Llama and Gemma targets against the HuggingFace oracle as
-permanent regression tests, package Mila as a consumable source distribution (FetchContent is the
-supported path; `find_package` is parked), stand up the Linux/clang portability gates and the
-reproducible container build, and land the contributor-facing surface (coding standards, onboarding, a
-guided reading path through one token's journey). Python consumption is the other half of the same
-question and a different kind of artifact: a C++ consumer builds Mila from source, while `pip install
-mila-llm` hands over a compiled extension that has to carry its own CUDA and work on a machine that
-has none. Both platforms ship a wheel. Engineering detail lives in [BACKLOG.md](BACKLOG.md)
-under this bucket.
+A C++ consumer builds Mila from source, which makes FetchContent the one supported path there. A
+Python consumer gets a different kind of thing entirely: `pip install mila-llm` hands over a compiled
+extension that carries its own CUDA and has to work on a machine with none. The container is a third,
+and it is an onboarding path rather than a by-product of the build — for many people it is the
+shortest route from nothing to a model answering. Each has its own failure modes, and a published
+claim about any of them is immutable once uploaded, which is why the clean-room gates matter more
+here than anywhere else in the release.
 
-**Success criteria:** an external consumer can build against Mila via FetchContent; `pip install
-mila-llm` gives a working runtime on Windows and Linux with no CUDA Toolkit installed; the Linux/clang
-build is a first-class, CI-compiled + WSL-tested platform, with
-a reproducible container build; contributor onboarding (`CONTRIBUTING.md`, `getting-started.md`, a
-guided reading path) complete; the public export surface frozen at the narrowest defensible umbrella; a
-missing dispatch specialization reads as a sentence, not a constraint cascade. GPU-first: the CUDA
-backend is the validated inference path; full CPU op parity is not a gate.
+**Success criteria:** `pip install mila-llm` gives a working runtime on Windows and Linux with no
+CUDA Toolkit installed, both wheels proven in a clean room; a reproducible container build published
+to Docker Hub, running all three entrypoint verbs; every published metadata claim — wheel platforms,
+supported architectures, tags — true of the file it describes; each channel's authored landing page
+sourced from the repository rather than a browser; and every vendored dependency inside a published
+binary either current or pinned with the reason written down.
+
+### Consumer & Contributor Surface
+
+*What a person meets once they have Mila. No new library capability.*
+
+The other half of hardening, and the one that decides whether someone stays. A consumer's first
+contact is a build against their own translation unit; a contributor's is a tree they have to find
+their way into. Mila's positioning is the stack you can *read*, so a reader arriving with no map is
+a failure of the claim rather than a gap in the docs. Portability belongs here too: the compiler and
+platform matrix is a property of the source a consumer builds, not of anything Mila ships.
+
+**Success criteria:** an external consumer builds against Mila via FetchContent, with the MSVC
+module-consumption defect documented at the point of use and pinned by a gate that compiles a real
+consumer translation unit — so the workarounds it forces are visible, bounded, and will report the
+day they stop being needed; the Linux/clang build is a first-class, CI-compiled and WSL-tested
+platform; contributor onboarding
+(`CONTRIBUTING.md`, `getting-started.md`, a guided reading path through one token's journey)
+complete; the public export surface frozen at the narrowest defensible umbrella; a missing dispatch
+specialization reads as a sentence, not a constraint cascade. GPU-first: the CUDA backend is the
+validated inference path; full CPU op parity is not a gate.
 
 ### Model Distribution
 
@@ -209,10 +301,34 @@ v0.20 — Chat (human gate) and MIS (Python wire) — distinguished by who close
 Both are consumers of a frozen library, so both stay open to change: where an adaptor cannot reach
 something Mila already does, that gap is the work. The Agentic adaptor stays explicitly post-release.
 
+**Qwen 3.8 is the current instance of that rule.** The model is in the library, and until an adaptor
+reaches it, this workstream's own definition makes that a defect in the demonstration rather than a
+feature request. Both adaptors now reach it: both deployments install, load, generate and call tools
+on the terms every other model gets, from Chat and over the wire.
+
+**Closing that gap decided how a grammar reaches a host language, and the answer generalises.** A
+model's native grammar is a property of the model, so it lives in the library; a host renders a
+conversation and reimplements nothing, exactly as the store's transport delegate already works.
+Qwen's template and tool grammar are projected through the binding rather than written twice, which
+is what makes one prompt reach the model whichever adaptor built it. Gemma followed, and it is the
+case that shows why the rule is worth enforcing rather than merely tidy: its grammar had been
+written three times, and the copies had drifted far enough that the chat harness advertised tools
+as a JSON array while the inference server rendered the trained declaration form the model was
+actually tuned on. One model, two materially different prompts, decided by which adaptor a user
+happened to be holding.
+
+What Qwen still asks of a server is a question no previous model has. A recurrent state is a lossy
+summary and cannot be rewound, so Qwen refuses prompt-prefix reuse outright; a server that reuses
+prefixes must report that as a property of the model and plan around it, not discover it as a failed
+retry. Chat is exempt only because it reuses nothing -- it re-prefills every turn.
+
 **Success criteria:** a foreign harness (Codex CLI and Claude Code CLI over the OpenAI/Anthropic wire
 shapes) drives Gemma 4 12B FP4 through MIS across plain-chat, single-tool, and tool-result-resume flows
-with no leaked control tokens; the C++/Python grammar duplication is resolved by an explicit decision
-(single-sourced via pybind, or pinned by a cross-language parity test).
+with no leaked control tokens; Qwen 3.8 is selectable by name from the chat harness on the same terms
+as any other model — footprint reported before the load — and wherever an adaptor reuses a prompt
+prefix, Qwen's refusal surfaces as a model property; and no model's grammar is implemented twice --
+the runtime owns it and the binding projects it, so a prompt built by any adaptor is the same
+prompt.
 
 ---
 
@@ -221,6 +337,27 @@ with no leaked control tokens; the C++/Python grammar duplication is resolved by
 Uncommitted work — no release, no date. An item **promotes** into the Current release, acquiring its
 own version, date, and tag, when it is scheduled.
 
+- **One model handle, before the family grows again.** The first work after the v0.20 tag, and a
+  precondition for every model entry below. Naming a model is a runtime act; loading one is a
+  compile-time type, and something has to bridge the two — today that bridge is written three times
+  in two languages: Chat's `ModelVariant`, the binding's per-family session classes, and the
+  inference server's own family enum. Nothing keeps them in step, and the drift is already visible:
+  GPT-2 runs in Chat and is refused by the server, not by decision but because the second bridge was
+  never written for it. A gap that reads as a policy.
+  What makes this urgent is not the number of models. Under Mila's selection rule — the leading crest
+  of open models that suit an agentic workflow on hardware you already own, not every model in
+  existence — that list grows slowly and deliberately. The pressure is that each of those bridges
+  currently assumes every model does the same things. That assumption holds exactly until a model
+  arrives that does not, and the next two candidates both break it: one carries a vision tower, and
+  both reason in a channel only Gemma has today. Then every dispatch site in all three places grows a
+  per-family branch, and the cost of a new architecture stops being one chassis and becomes an edit
+  to every consumer of one.
+  So it lands first, in the runtime-adjacent agent core that Chat and the future Agentic adaptor
+  share, reading the model's declared capabilities from its manifest rather than inferring them from
+  its family. It leaves the thesis intact: the erasure is one call when a session opens, not one per
+  layer or per token, and everything inside the forward pass stays exactly as explicit as it is now.
+  Success bar: a new architecture is added in one place; the inference server serves every
+  architecture the chat harness does; and no dispatch site carries a per-family branch.
 - **Muse Glimmer 30B — the named next target.** Meta's Apache 2.0, ungated 30B, chosen for *why it
   exists* rather than for what it resembles: it is tuned for tool use, long tasks, and failure
   recovery, which is the model an on-device agentic loop actually needs. The
@@ -244,12 +381,19 @@ own version, date, and tag, when it is scheduled.
   Success bar: greedy text decode matches the reference token-for-token; image-conditioned generation
   validated against the same oracle; tool calling driven end-to-end through MIS; and the Agentic
   adaptor closing a multi-step task on-device.
-- **Qwen 3** — Mila's third architecture family: a Qwen 3 dense decoder with thinking mode,
-  model-agnostic tool calling, and FP8 KV cache compression, validated on Qwen 3 8B Instruct at BF16
-  and FP8. Reuses the Llama blocks (RMSNorm, SwiGLU, GQA, RoPE); the new work is the Chat layer (ChatML
-  template, `ToolCallParser`, thinking-mode suppression) and FP8 KV cache (`PerChannelKvFp8<>`).
-  Success bar: greedy decode at BF16 and FP8 each match HuggingFace token-for-token; tool calling
-  validated end-to-end; thinking-mode suppression confirmed; FP8 KV cache quality acceptable vs. BF16.
+- **Qwen — the compression tail and the dense members.** This entry used to describe Qwen as a future
+  third architecture family. The family shipped in v0.20 as the 3.8-27B hybrid, so what is left here
+  is the part that release marked stretch and did not build. **FP8 KV cache compression**
+  (`PerChannelKvFp8<>`) is the substantive half: on a card the weights already fill, the KV cache is
+  what buys context back, and halving it is the difference between a context length that is adequate
+  and one the model is actually sold at. The freed margin then has to be spent deliberately — more
+  context, or more bits where the quality gate says they are worth most, which is a decision this
+  release deliberately did not pre-empt. The smaller **dense Qwen members** are the other half and are
+  cheap by comparison: they reuse the Llama blocks rather than the DeltaNet chassis. Thinking mode and
+  model-agnostic tool calling are adaptor work and are in v0.20 by the freeze's own boundary, not here.
+  Success bar: FP8 KV cache quality acceptable against BF16 at the context it is claimed for, measured
+  the same way the weight allocation was; a dense Qwen member decodes token-for-token against
+  HuggingFace at BF16 and FP8.
 - **v0.20 library-frozen tails** — the Generation API surface tail (SamplerConfig rename, Llama/Gpt
   seedable sampling, eager sampler, accessor propagation), the Sample-API device-sampler migration for
   Llama/Gpt, a second module-compiler oracle (GCC 16) with a broadened Linux compiler matrix, and the
@@ -275,8 +419,11 @@ own version, date, and tag, when it is scheduled.
   Gemma 4 dense chassis is the precursor to the 26B-A4B MoE model, which reuses the chassis and swaps
   only the FFN block. Also: speculative decoding, additional attention variants.
 - **Performance** — Gemma 4 prefill/decode competitiveness levers (the fused W4A16 prefill GEMM, the
-  flash-attention global prefill kernel, the FP4 decode-matvec bandwidth campaign), tensor parallelism,
-  and deterministic gradient accumulation.
+  flash-attention global prefill kernel, the FP4 decode-matvec bandwidth campaign), the codebook path's
+  own two (staging to FP8 so the sub-4-bit projections reach the same tensor-core GEMM the FP4 path
+  already uses, and closing the codebook GEMV's bandwidth gap), tensor parallelism, and deterministic
+  gradient accumulation. Each of these is a measured gap rather than a suspicion; the numbers behind
+  them live in `Specifications/Qwen3.8.md` and BACKLOG.
 - **Native low-precision compute (Blackwell+)** — microscaling data-path support, finer per-arch gating
   (sm_120, CUTLASS 4.x), and the "compute precision as a first-class axis" design question.
 - **Compute backends beyond CUDA** — ROCm (AMD) and Metal (Apple silicon) device backends. Both are

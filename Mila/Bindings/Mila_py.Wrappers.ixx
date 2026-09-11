@@ -60,18 +60,182 @@ namespace Mila::Bindings
         double final_logit_softcapping;
     };
 
+    /**
+     * @brief Qwen 3.8's shape, including the axes no other family in this binding has.
+     *
+     * The DeltaNet fields describe the recurrent mixer that occupies three of every four
+     * layers, and full_attention_interval is what says how often the attention layer falls.
+     * They are reported rather than derived, because nothing outside the checkpoint knows them.
+     */
+    export struct QwenConfigInfo
+    {
+        int64_t vocab_size;
+        int64_t max_sequence_length;
+        int64_t model_dim;
+        int64_t num_layers;
+        int64_t num_heads;
+        int64_t num_kv_heads;
+        int64_t head_dim;
+        int64_t hidden_dim;
+        double rope_theta;
+        double partial_rotary_factor;
+        bool attention_output_gate;
+        int64_t full_attention_interval;
+        int64_t linear_num_key_heads;
+        int64_t linear_num_value_heads;
+        int64_t linear_head_dim;
+        int64_t linear_conv_kernel_dim;
+    };
+
     export void initialize( const std::string& log_level );
+
+    // ========================================================================
+    // Chat protocol -- the model's own grammar, projected rather than reimplemented
+    // ========================================================================
+
+    /**
+     * @brief One call the model asked for.
+     *
+     * Arguments are a JSON object as text, which is what the model wrote and what a host hands
+     * on. Parsing it into a typed value here could only lose something.
+     *
+     * No id: no template in the library renders one, so correlating a call with its result is
+     * the host's business and a host that needs an id mints it where it is needed.
+     */
+    export struct ToolCallInfo
+    {
+        std::string name;
+        std::string arguments;
+    };
+
+    /**
+     * @brief One turn of a conversation, in the shape a host already holds it.
+     *
+     * Role is a string -- "system", "user", "assistant", "tool" -- rather than an enum, because
+     * every wire protocol a host speaks already carries it that way. An enum would make Python
+     * translate twice for no gain.
+     */
+    export struct TurnInfo
+    {
+        std::string role;
+        std::string content;
+        std::vector<ToolCallInfo> tool_calls;
+    };
+
+    /**
+     * @brief The control tokens a family's grammar is built from.
+     *
+     * Exposed because a host that streams has to recognise them as they arrive -- generation
+     * stops at a closing tool-call marker, or the model fabricates the result itself. Reported
+     * from the runtime rather than written down again, which is the whole point of this section.
+     */
+    export struct ProtocolTokens
+    {
+        std::string turn_open;
+        std::string turn_close;
+        std::string reasoning_open;
+        std::string reasoning_close;
+        std::string tool_call_open;
+        std::string tool_call_close;
+        std::string tool_response_open;
+        std::string tool_response_close;
+    };
+
+    /**
+     * @brief Render a Qwen 3.8 conversation into the prompt its checkpoint was trained on.
+     *
+     * The whole template is here rather than in the caller: turn structure, the reasoning gate,
+     * the ordering of the system turn's parts, and the tools section's exact wording. A host
+     * supplies a conversation and gets a prompt, and reimplements nothing.
+     *
+     * @param reasoning_effort_scale 1..5. Mapped onto the three levels the checkpoint knows,
+     *        whose middle level deliberately emits no instruction at all.
+     * @param tools_json A JSON array of tool signature objects, or empty for none. Empty omits
+     *        the tools section, and that absence is what tells the model there are none.
+     *
+     * @throws std::runtime_error if a role is not one of the four, or if the history is empty
+     *         or ends on an assistant turn.
+     */
+    export std::string qwenFormatPrompt(
+        const std::vector<TurnInfo>& history,
+        bool enable_thinking,
+        int reasoning_effort_scale,
+        const std::string& tools_json );
+
+    /**
+     * @brief The first tool call in a Qwen response, or nothing when it holds none.
+     *
+     * @throws std::runtime_error if the span holds something that is not a call -- the model
+     *         failing at its own protocol, which is worth surfacing rather than reading as prose.
+     */
+    export std::optional<ToolCallInfo> qwenParseToolCall( const std::string& response );
+
+    /// Qwen's control tokens, as the checkpoint vocabulary registers them.
+    export ProtocolTokens qwenProtocolTokens();
+
+    /**
+     * @brief Render a Gemma 4 conversation into the prompt its checkpoint was trained on.
+     *
+     * The whole template is here rather than in the caller: turn structure, the role spellings,
+     * the empty-thought prime that opens a fresh model turn, and where declarations attach to
+     * the system turn. A host supplies a conversation and gets a prompt.
+     *
+     * @param tool_declarations What gemmaToolDeclarations returns, or empty for none.
+     * @param continue_open Emit the final turn OPEN so the next token continues it, which is
+     *        the shape after a tool response. No thought prime is emitted in that case -- the
+     *        turn already carries its channel, and a second one mid-turn is off-distribution.
+     *
+     * @throws std::runtime_error if a role is not one of the four, or if continue_open is set
+     *         on an empty history.
+     */
+    export std::string gemmaFormatPrompt(
+        const std::vector<TurnInfo>& history,
+        const std::string& tool_declarations,
+        bool continue_open );
+
+    /**
+     * @brief Tool schemas rendered in Gemma's trained <|tool>declaration:...<tool|> grammar.
+     *
+     * @param tools_json A JSON array of tool schemas, OpenAI function envelopes or bare
+     *        declarations. Which tools to advertise is the host's choice: a harness with
+     *        UI-only tools filters them out before calling.
+     */
+    export std::string gemmaToolDeclarations( const std::string& tools_json );
+
+    /// The most recent tool call in a Gemma response, or nothing when it holds none.
+    export std::optional<ToolCallInfo> gemmaParseToolCall( const std::string& response );
+
+    /// One assistant tool call rendered back into the native call grammar, for replay.
+    export std::string gemmaFormatToolCall( const std::string& name, const std::string& arguments );
+
+    /**
+     * @brief A client-executed tool result in Gemma's <|tool_response> grammar.
+     *
+     * A JSON envelope surfaces only its primary output field; metadata siblings are dropped, and
+     * a failed tool's `error` is surfaced explicitly so the model does not blind-retry.
+     */
+    export std::string gemmaFormatToolResponse( const std::string& name, const std::string& result );
+
+    /// A channel-structured response reduced to the user-facing answer.
+    export std::string gemmaExtractAnswer( const std::string& text );
+
+    /// Every registered control token removed from decoded text.
+    export std::string gemmaStripControlTokens( const std::string& text );
+
+    /// Gemma's control tokens, as the checkpoint vocabulary registers them.
+    export ProtocolTokens gemmaProtocolTokens();
 
     export class Tokenizer
     {
     public:
         static std::shared_ptr<Tokenizer> loadLlama32( const std::string& path );
         static std::shared_ptr<Tokenizer> loadGemma( const std::string& path );
+        static std::shared_ptr<Tokenizer> loadQwen( const std::string& path );
 
         /**
          * @brief The tokenizer of an installed model, by store name.
          *
-         * Which loader to use is a property of the artifact, not of the caller, so the
+         * Which loader to use is a property of the weights, not of the caller, so the
          * record decides it. That is what removes the pairing a consumer previously had to
          * keep correct by hand: a tokenizer path and a weights path that had to describe
          * the same model, with nothing checking that they did.
@@ -99,29 +263,29 @@ namespace Mila::Bindings
         std::unique_ptr<Impl> impl_;
     };
 
-    // Quantization is named the way the store names it -- "bf16", "fp8", "fp4" -- by both
-    // session entry points, so a variant means the same thing whether it came from a record
-    // or from a caller. "fp32" is rejected rather than ignored: these sessions are BF16
-    // instantiations, and loading an FP32 artifact at BF16 is a different model than the
-    // one asked for.
+    // Quantization is named the way the store names it -- "bf16", "fp8", "fp4", and for Qwen
+    // "cb2-3" -- by both session entry points, so a variant means the same thing
+    // whether it came from a record or from a caller. "fp32" is rejected rather than ignored:
+    // these sessions are BF16 instantiations, and loading FP32 weights at BF16 is a
+    // different model than the one asked for.
 
     export class LlamaSession
     {
     public:
         /**
-         * @param quantization Applied on the way in, against an unquantized artifact. A
-         *        pre-quantized artifact must be loaded through fromStore, which reads what
-         *        its bytes already are.
+         * @param quantization Applied on the way in, against unquantized weights.
+         *        Pre-quantized weights must be loaded through fromStore, which reads what
+         *        their bytes already are.
          */
         static std::unique_ptr<LlamaSession> fromPretrained(
             const std::string& path, int64_t context_length, int device_index,
             const std::string& quantization );
 
         /**
-         * @brief Load an installed model by store name, as the artifact itself is.
+         * @brief Load an installed model by store name, as its weights already are.
          *
          * The record decides the quantization, which is the whole point: a published
-         * artifact is already FP4 or FP8 bytes, and a caller-supplied flag could only agree
+         * model is already FP4 or FP8 bytes, and a caller-supplied flag could only agree
          * with them by luck. Nothing here reaches a network -- an uninstalled name is an
          * error, never a download.
          *
@@ -131,11 +295,16 @@ namespace Mila::Bindings
         static std::unique_ptr<LlamaSession> fromStore(
             const std::string& name, int64_t context_length, int device_index );
 
-        std::vector<int32_t> generate(
-            const std::vector<int32_t>& prompt_tokens,
-            std::size_t max_new_tokens, float temperature, int top_k, float top_p );
-
-        void generateStreaming(
+        /**
+         * @brief Generate from a prompt, streaming each token through on_token.
+         *
+         * The same shape as the library's own LanguageModel::generate: tokens leave
+         * through the callback and the return value is why generation stopped, which
+         * is the one outcome a caller cannot reconstruct from the token stream. The
+         * status crosses as its wire spelling -- "stop", "length", "context_limit" or
+         * "cancelled" -- so no enum has to cross with it.
+         */
+        std::string generate(
             const std::vector<int32_t>& prompt_tokens,
             const std::function<void( int32_t )>& on_token,
             std::size_t max_new_tokens, float temperature, int top_k, float top_p,
@@ -315,7 +484,7 @@ namespace Mila::Bindings
          * whichever transport this build was compiled with.
          *
          * @throws std::runtime_error if the name is path-shaped, the manifest is malformed, a
-         *         digest does not match, or the artifact requires a newer Mila.
+         *         digest does not match, or the model requires a newer Mila.
          */
         StoredModelInfo pull(
             const std::string& name,
@@ -347,7 +516,7 @@ namespace Mila::Bindings
     {
     public:
         /**
-         * @param quantization Applied on the way in, against an unquantized artifact.
+         * @param quantization Applied on the way in, against unquantized weights.
          *        Defaults to FP4 at the binding layer rather than to none: a BF16 Gemma 4
          *        12B needs ~24 GB and would OOM at load on the cards this targets.
          */
@@ -359,11 +528,8 @@ namespace Mila::Bindings
         static std::unique_ptr<GemmaSession> fromStore(
             const std::string& name, int64_t context_length, int device_index );
 
-        std::vector<int32_t> generate(
-            const std::vector<int32_t>& prompt_tokens,
-            std::size_t max_new_tokens, float temperature, int top_k, float top_p );
-
-        void generateStreaming(
+        /// As LlamaSession::generate -- tokens through the callback, why it stopped returned.
+        std::string generate(
             const std::vector<int32_t>& prompt_tokens,
             const std::function<void( int32_t )>& on_token,
             std::size_t max_new_tokens, float temperature, int top_k, float top_p,
@@ -377,6 +543,49 @@ namespace Mila::Bindings
     private:
         struct Impl;
         explicit GemmaSession( std::unique_ptr<Impl> impl );
+
+        std::unique_ptr<Impl> impl_;
+    };
+
+    /**
+     * @brief Qwen 3.8 inference session (CUDA, BF16).
+     *
+     * Mirrors GemmaSession. Two deployments are published -- a per-group FP4 build and a
+     * codebook build that spends 2 and 3 bits per weight across the body -- and both are
+     * pre-quantized, so fromStore is the entry point that matters.
+     */
+    export class QwenSession
+    {
+    public:
+        /**
+         * @param quantization Defaults to FP4 at the binding layer for the same reason
+         *        GemmaSession does: a BF16 27B does not fit any card this targets.
+         *        "cb2-3" names a plan fitted offline, so it selects packed
+         *        weights' format rather than applying anything on the way in.
+         */
+        static std::unique_ptr<QwenSession> fromPretrained(
+            const std::string& path, int64_t context_length, int device_index,
+            const std::string& quantization );
+
+        /// As GemmaSession::fromStore -- the record decides the quantization.
+        static std::unique_ptr<QwenSession> fromStore(
+            const std::string& name, int64_t context_length, int device_index );
+
+        /// As LlamaSession::generate -- tokens through the callback, why it stopped returned.
+        std::string generate(
+            const std::vector<int32_t>& prompt_tokens,
+            const std::function<void( int32_t )>& on_token,
+            std::size_t max_new_tokens, float temperature, int top_k, float top_p,
+            std::stop_token stop );
+
+        QwenConfigInfo getConfig() const;
+        std::string repr() const;
+
+        ~QwenSession();
+
+    private:
+        struct Impl;
+        explicit QwenSession( std::unique_ptr<Impl> impl );
 
         std::unique_ptr<Impl> impl_;
     };

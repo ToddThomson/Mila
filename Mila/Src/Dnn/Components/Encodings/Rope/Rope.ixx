@@ -35,6 +35,7 @@ import Compute.ExecutionContextFactory;
 import Compute.IPositionalPairedOp;
 import Compute.OperationTraits;
 import Compute.CpuMemoryResource;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -166,6 +167,11 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Rope: backend does not support positional inference." );
 
             positional_op_->prefill( Q, K, Q, K, position_offset );
+
+            // Rotated in place in the caller's buffers, so there is no owned output to
+            // report -- but two distinct values flowed out and each earns its own role.
+            this->publish( ComputePass::Prefill, "q", Q );
+            this->publish( ComputePass::Prefill, "k", K );
         }
 
         /**
@@ -187,6 +193,9 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Rope: backend does not support positional inference." );
 
             positional_op_->decode( Q, K, Q, K, position );
+
+            this->publish( ComputePass::Decode, "q", Q );
+            this->publish( ComputePass::Decode, "k", K );
         }
 
         // ====================================================================
@@ -230,6 +239,13 @@ namespace Mila::Dnn
         void synchronize() override
         {
             this->getExecutionContext()->synchronize();
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            const ComputePassMask passes{ ComputePass::Prefill, ComputePass::Decode };
+
+            return { { "q", passes }, { "k", passes } };
         }
 
         MemoryStats getMemoryStats() const override

@@ -19,7 +19,9 @@ set_target_properties( ProfileModel PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
 
-set( MODELS_DIR "${CMAKE_SOURCE_DIR}/Data/Models" )
+# MILA_DATA_DIR, not CMAKE_SOURCE_DIR: the latter is the consumer's root in a
+# subproject build, and Mila's models are not under it.
+set( MODELS_DIR "${MILA_DATA_DIR}/Models" )
 target_compile_definitions( ProfileModel PRIVATE MODELS_DIR="${MODELS_DIR}" )
 
 # Mila provides the model/tokenizer modules and the Profiling.NvtxRange module;

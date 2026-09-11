@@ -32,20 +32,21 @@ namespace Mila::Dnn::Compute::Cuda
     }
 
     /**
-     * @brief Sets the current CUDA device with thread-local caching
+     * @brief Bind the calling thread to a CUDA device.
      *
-     * Uses thread-local storage to avoid redundant cudaSetDevice calls.
-     * This is critical for performance when multiple memory operations
-     * occur in sequence on the same device.
+     * The current device is per-thread global state, so anything that allocates or launches
+     * must state which device it means rather than inherit whatever was set last. On a
+     * multi-GPU host the difference is not academic: a stream created under one device and
+     * pointers allocated under another produce an illegal memory access on first launch.
      *
      * @param device_id CUDA device ID to activate
+     * @throws std::invalid_argument If device_id is negative
      * @throws std::runtime_error If cudaSetDevice fails
      */
     export inline void setCurrentDevice( int device_id )
     {
-        // REVIEW: This seems overly defensive. Why are we even wrapping cudaSetDevice
-
-        // DEBUG: Validate device_id is non-negative (device enumeration should catch invalid IDs)
+        // NOTE: the wrapper earns its keep as the single place the contract above is stated;
+        // an earlier comment here described thread-local caching that was never implemented.
         if ( device_id < 0 )
         {
             throw std::invalid_argument( "Invalid CUDA device id: must be non-negative." );

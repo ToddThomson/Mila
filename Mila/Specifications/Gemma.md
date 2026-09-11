@@ -239,7 +239,7 @@ The Gemma FFN is `GatedMLP<..., TGate=GeluTanh>` with `intermediate_size 15360`.
 
 ---
 
-## 8. Heterogeneous layers — the `IDecoderLayer` boundary
+## 8. Heterogeneous layers — the `ITransformerBlock` boundary
 
 A local layer and a global layer are **different `GemmaBlock` instantiations** —
 they differ in `qkv_proj` width, the V split, the `GqaConfig` they construct, and
@@ -258,7 +258,7 @@ Because they are distinct types, Gemma (interleaving them 5:1 across 48 layers,
 final layer global) can no longer hold a homogeneous `vector<GemmaBlock>` the way
 `LlamaTransformer` / `GptTransformer` hold one block type.
 
-The mechanism is a small **virtual `IDecoderLayer` interface** (`prefill` /
+The mechanism is a small **virtual `ITransformerBlock` interface** (`prefill` /
 `decode` / `forward`) that both `GemmaBlock` instantiations implement; the
 transformer iterates the layer list polymorphically. The cost is **one virtual
 call per layer per token-step** — negligible against the per-layer GEMMs. The
@@ -293,7 +293,7 @@ reversible increment on the now-clean compact-NKV GQA op (alpha.6+69):
    kernel/op/component change; extends the existing `Rope`.
 4. **GeGLU** via `TGate` (Section 7).
 5. **`GemmaBlock`** assembling 0-4 + per-layer kind + `final_logit_softcapping`,
-   behind `IDecoderLayer` (Section 8); then `GemmaTransformer` and the converter.
+   behind `ITransformerBlock` (Section 8); then `GemmaTransformer` and the converter.
 
 ---
 

@@ -30,7 +30,6 @@
 #include <vector>
 
 import Mila;
-import Compute.ExecutionContext;
 
 namespace Mila::Tests::Dnn::Components::Attention::MHA
 {
@@ -222,7 +221,7 @@ namespace Mila::Tests::Dnn::Components::Attention::MHA
     {
         auto mha = this->builtMha( shape_t{ 2, 3, 3 * kModelDim }, RuntimeMode::Inference );
 
-        EXPECT_TRUE( mha->supportsKVCache() );
+        EXPECT_TRUE( mha->supportsKvCache() );
     }
 
     // ====================================================================

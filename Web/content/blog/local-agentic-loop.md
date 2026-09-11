@@ -7,7 +7,7 @@ discussion: "https://github.com/ToddThomson/Mila/discussions/11"
 
 **Date:** 2026-05-15
 **Status:** Proven / Experimental
-**Component:** `Mila/Inference/Server`
+**Component:** `Mila/Adaptors/Inference/Server`
 
 ## Overview
 

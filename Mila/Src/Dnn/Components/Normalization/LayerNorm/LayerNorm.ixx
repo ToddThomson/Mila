@@ -43,6 +43,7 @@ import Compute.ExecutionContextFactory;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Metadata;
 import Serialization.Mode;
@@ -135,6 +136,8 @@ namespace Mila::Dnn
 
             if ( input_shape == output_->shape() )
             {
+                this->publish( ComputePass::Forward, "output", *output_ );
+
                 return *output_;
             }
 
@@ -142,6 +145,8 @@ namespace Mila::Dnn
             {
                 output_view_.emplace( output_->view( input_shape ) );
             }
+
+            this->publish( ComputePass::Forward, "output", *output_view_ );
 
             return *output_view_;
         }
@@ -358,6 +363,21 @@ namespace Mila::Dnn
         void synchronize() override
         {
             this->getExecutionContext()->synchronize();
+        }
+
+        std::vector<const ITensor*> getOutputs() const override
+        {
+            if ( output_ == nullptr )
+            {
+                return {};
+            }
+
+            return { output_.get() };
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward } } };
         }
 
         MemoryStats getMemoryStats() const override

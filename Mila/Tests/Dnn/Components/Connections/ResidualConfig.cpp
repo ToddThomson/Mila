@@ -66,6 +66,15 @@ namespace Mila::Tests::Dnn::Components::Connections
         EXPECT_THROW( ResidualConfig().withScalingFactor( 0.0f ).validate(), std::invalid_argument );
     }
 
+    // No backward applies the scale and the two devices disagree in forward, so a value other
+    // than 1 is refused where it would be used. Pinned because the previous guard was a
+    // debug-only assert in the CUDA operation, which a release build does not run.
+    TEST_F( ResidualConfigTests, Validate_ThrowsForUnimplementedScale )
+    {
+        EXPECT_THROW( ResidualConfig().withScalingFactor( 0.5f ).validate(), std::invalid_argument );
+        EXPECT_THROW( ResidualConfig().withScalingFactor( 2.0f ).validate(), std::invalid_argument );
+    }
+
     // ====================================================================
     // H. Serialization round-trip
     // ====================================================================

@@ -156,18 +156,6 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
-        /**
-         * @brief Public access to the network's shared execution context.
-         *
-         * Exposes the Component-level context so model-level orchestrator tools
-         * (e.g. TokenSampler) can be constructed on the network's context. Wraps the
-         * protected Component accessor.
-         */
-        IExecutionContext* getExecutionContext() const
-        {
-            return this->CompositeBase::getExecutionContext();
-        }
-
         // ====================================================================
         // Training Setup
         // ====================================================================
@@ -381,7 +369,9 @@ namespace Mila::Dnn
          */
         void verifyArchitectureCompatibility( const PretrainedMetadata& metadata )
         {
-            // REVIEW: Required? 
+            // REVIEW: Required?
+
+            // 
             // Example checks - customize based on your Network's config
             // if ( metadata.num_layers != config_.num_layers ) {
             //     throw std::runtime_error("Layer count mismatch");
@@ -483,24 +473,6 @@ namespace Mila::Dnn
         }
         
         /**
-         * @brief Save component graph topology.
-         *
-         * Writes the component manifest (list of child components) and
-         * recursively saves each component's state with scoped namespacing.
-         *
-         * Archive structure:
-         * - network/architecture.json: Component manifest metadata
-         * - network/components_list.json: Array of component names (for ordering)
-         * - network/component_<name>.json: Individual component descriptor
-         * - components/<name>/...: Component state (via recursive save_)
-         *
-         * Components are saved in deterministic (sorted by name) order for
-         * reproducible archives.
-         *
-         * @param archive Archive to write to
-         * @param mode Serialization mode (passed to children)
-         */
-        /**
          * @brief Restore each child component from its `components/<name>` scope.
          *
          * The mirror of saveComponentGraph. Iterates the LIVE children rather than a
@@ -560,6 +532,24 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief Save component graph topology.
+         *
+         * Writes the component manifest (list of child components) and
+         * recursively saves each component's state with scoped namespacing.
+         *
+         * Archive structure:
+         * - network/architecture.json: Component manifest metadata
+         * - network/components_list.json: Array of component names (for ordering)
+         * - network/component_<name>.json: Individual component descriptor
+         * - components/<name>/...: Component state (via recursive save_)
+         *
+         * Components are saved in deterministic (sorted by name) order for
+         * reproducible archives.
+         *
+         * @param archive Archive to write to
+         * @param mode Serialization mode (passed to children)
+         */
         void saveComponentGraph( ModelArchive& archive, SerializationMode mode ) const
         {
             // Use the insertion-order component list API (getComponents) instead of the

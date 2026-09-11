@@ -1,6 +1,6 @@
 /**
  * @file ModelCoordinate.ixx
- * @brief How a hub repository is addressed: [hf:]<owner>/<repository>[@<revision>].
+ * @brief How a hub repository is addressed: `[hf:]<owner>/<repository>[@<revision>]`.
  *
  * This is the *fetch* grammar, not the store's. A model is named by a single flat name; the
  * owner is provenance that a consumer supplies and a user never types. Always compiled, because
@@ -56,7 +56,7 @@ namespace Mila::Distribution
     /**
      * @brief Parse a coordinate, or return nothing if the spec is not one.
      *
-     * Grammar: [hf:]<organization>/<repository>[@<revision>], where organization and repository
+     * Grammar: `[hf:]<organization>/<repository>[@<revision>]`, where organization and repository
      * allow only characters HuggingFace permits in a namespace. Anything path-shaped is rejected
      * on purpose, so a mistyped path reads as a path mistake rather than as a request against a
      * repository that does not exist.

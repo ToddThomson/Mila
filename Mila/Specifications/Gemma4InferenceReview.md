@@ -136,7 +136,7 @@ double copy). Prefill-only, once per call — minor.
 
 Each decode token costs two host round-trips:
 
-1. `getLanguageNetwork().synchronize()` — `cudaStreamSynchronize` on the
+1. `getNetwork().synchronize()` — `cudaStreamSynchronize` on the
    network stream (`GemmaModel::onGenerating`), required only because
 2. the sampling kernel runs on the **default** stream (`TokenSampler::sample`,
    the Phase A MSVC-reachability workaround), followed by a synchronous D2H

@@ -15,9 +15,8 @@ module;
 #include <format>
 #include <stdexcept>
 
-export module Compute.ExecutionContext:Cuda;
+export module Compute.CudaExecutionContext;
 
-import Compute.ExecutionContextTemplate;
 import Compute.IExecutionContext;
 import Compute.DeviceId;
 import Compute.DeviceType;
@@ -38,7 +37,7 @@ namespace Mila::Dnn::Compute
      * - Library handles are owned by the context and must not be used
      *   concurrently from multiple threads without external synchronization.
      */
-    template<> class ExecutionContext<DeviceType::Cuda> : public IExecutionContext
+    export class CudaExecutionContext : public IExecutionContext
     {
     public:
         /**
@@ -50,7 +49,7 @@ namespace Mila::Dnn::Compute
          * @throws std::invalid_argument If device_id type is not Cuda.
          * @throws std::runtime_error If CUDA stream creation fails.
          */
-        explicit ExecutionContext( DeviceId device_id )
+        explicit CudaExecutionContext( DeviceId device_id )
             : device_id_( validateDeviceId( device_id ) )
         {
             initializeResources();
@@ -59,15 +58,15 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Destructor with proper CUDA resource cleanup.
          */
-        ~ExecutionContext()
+        ~CudaExecutionContext()
         {
             releaseResources();
         }
 
-        ExecutionContext( const ExecutionContext& ) = delete;
-        ExecutionContext& operator=( const ExecutionContext& ) = delete;
-        ExecutionContext( ExecutionContext&& ) = delete;
-        ExecutionContext& operator=( ExecutionContext&& ) = delete;
+        CudaExecutionContext( const CudaExecutionContext& ) = delete;
+        CudaExecutionContext& operator=( const CudaExecutionContext& ) = delete;
+        CudaExecutionContext( CudaExecutionContext&& ) = delete;
+        CudaExecutionContext& operator=( CudaExecutionContext&& ) = delete;
 
         /**
          * @brief Gets the device identifier.
@@ -203,6 +202,20 @@ namespace Mila::Dnn::Compute
         }
 
         /**
+         * @brief High-water mark of the device scratch buffer, in bytes.
+         *
+         * The current size is the high-water by construction: the buffer grows on demand
+         * and is never shrunk, so device_scratch_size_ only ever increases until
+         * releaseResources(). Reported so the footprint tooling can attribute the gap
+         * between what a build allocates and what the driver says was consumed, rather
+         * than leaving it as an unexplained margin.
+         */
+        [[nodiscard]] std::size_t getScratchHighWaterBytes() const noexcept override
+        {
+            return device_scratch_size_;
+        }
+
+        /**
          * @brief Gets or grows a general-purpose device scratch buffer.
          *
          * Used by operations that need a temporary device buffer during forward passes
@@ -217,20 +230,6 @@ namespace Mila::Dnn::Compute
          * @return void* Device buffer of at least required_bytes.
          * @throws std::runtime_error If allocation fails.
          */
-        /**
-         * @brief High-water mark of the device scratch buffer, in bytes.
-         *
-         * The current size is the high-water by construction: the buffer grows on demand
-         * and is never shrunk, so device_scratch_size_ only ever increases until
-         * releaseResources(). Reported so the footprint tooling can attribute the gap
-         * between what a build allocates and what the driver says was consumed, rather
-         * than leaving it as an unexplained margin.
-         */
-        [[nodiscard]] std::size_t getScratchHighWaterBytes() const noexcept override
-        {
-            return device_scratch_size_;
-        }
-
         [[nodiscard]] void* getDeviceScratchBuffer( size_t required_bytes ) const
         {
             if ( required_bytes <= device_scratch_size_ )
@@ -365,6 +364,23 @@ namespace Mila::Dnn::Compute
 
         void initializeResources()
         {
+            // A CUDA stream belongs to whichever device is current when it is created, and
+            // nothing guarantees that is this context's device -- device enumeration leaves
+            // the last probed device current, so on a multi-GPU host a context for device 0
+            // would otherwise get a stream on the last device. Its memory resources bind
+            // correctly on every allocation, so the two would disagree and every launch
+            // would read pointers belonging to another device. Invisible with one GPU
+            // visible, an illegal memory access with two.
+            cudaError_t bind_error = cudaSetDevice( device_id_.index );
+
+            if ( bind_error != cudaSuccess )
+            {
+                throw std::runtime_error(
+                    std::format( "Failed to select CUDA device {} for this context: {}",
+                        device_id_.index, cudaGetErrorString( bind_error ) )
+                );
+            }
+
             cudaError_t error = cudaStreamCreateWithFlags( &stream_, cudaStreamDefault );
 
             if ( error != cudaSuccess )
@@ -440,7 +456,7 @@ namespace Mila::Dnn::Compute
                 if ( err != cudaSuccess )
                 {
                     std::fprintf( stderr,
-                        "ExecutionContext: Failed to synchronize CUDA stream: %s\n",
+                        "CudaExecutionContext: Failed to synchronize CUDA stream: %s\n",
                         cudaGetErrorString( err ) );
                 }
 
@@ -449,7 +465,7 @@ namespace Mila::Dnn::Compute
                 if ( err != cudaSuccess )
                 {
                     std::fprintf( stderr,
-                        "ExecutionContext: Failed to destroy CUDA stream: %s\n",
+                        "CudaExecutionContext: Failed to destroy CUDA stream: %s\n",
                         cudaGetErrorString( err ) );
                 }
 
@@ -458,6 +474,4 @@ namespace Mila::Dnn::Compute
             }
         }
     };
-
-    export using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 }

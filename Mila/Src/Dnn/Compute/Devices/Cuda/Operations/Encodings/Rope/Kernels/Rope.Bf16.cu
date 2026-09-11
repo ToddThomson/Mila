@@ -32,7 +32,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* __restrict__         cos_cache,
         const float* __restrict__         sin_cache,
         int total_heads,
-        int half_dim,
+        int pair_half,
+        int cache_stride,
+        int head_stride,
         int T,
         int n_heads,
         int position_offset )
@@ -40,17 +42,17 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         int bth = blockIdx.x * blockDim.x + threadIdx.x;
         int i = blockIdx.y * blockDim.y + threadIdx.y;
 
-        if ( bth >= total_heads || i >= half_dim ) return;
+        if ( bth >= total_heads || i >= pair_half ) return;
 
         int t = (bth / n_heads) % T;
         int abs_pos = t + position_offset;
 
-        float c = cos_cache[ abs_pos * half_dim + i ];
-        float s = sin_cache[ abs_pos * half_dim + i ];
+        float c = cos_cache[ abs_pos * cache_stride + i ];
+        float s = sin_cache[ abs_pos * cache_stride + i ];
 
-        int base_idx = bth * (half_dim * 2);
+        int base_idx = bth * head_stride;
         float x0 = __bfloat162float( in[ base_idx + i ] );
-        float x1 = __bfloat162float( in[ base_idx + i + half_dim ] );
+        float x1 = __bfloat162float( in[ base_idx + i + pair_half ] );
 
         float r0, r1;
 
@@ -66,7 +68,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         }
 
         out[ base_idx + i ] = __float2bfloat16( r0 );
-        out[ base_idx + i + half_dim ] = __float2bfloat16( r1 );
+        out[ base_idx + i + pair_half ] = __float2bfloat16( r1 );
     }
 
     /**
@@ -84,21 +86,23 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* __restrict__         cos_cache,
         const float* __restrict__         sin_cache,
         int total_heads,
-        int half_dim,
+        int pair_half,
+        int cache_stride,
+        int head_stride,
         int position,
         int n_heads )
     {
         int bh = blockIdx.x * blockDim.x + threadIdx.x;
         int i = blockIdx.y * blockDim.y + threadIdx.y;
 
-        if ( bh >= total_heads || i >= half_dim ) return;
+        if ( bh >= total_heads || i >= pair_half ) return;
 
-        float c = cos_cache[ position * half_dim + i ];
-        float s = sin_cache[ position * half_dim + i ];
+        float c = cos_cache[ position * cache_stride + i ];
+        float s = sin_cache[ position * cache_stride + i ];
 
-        int base_idx = bh * (half_dim * 2);
+        int base_idx = bh * head_stride;
         float x0 = __bfloat162float( in[ base_idx + i ] );
-        float x1 = __bfloat162float( in[ base_idx + i + half_dim ] );
+        float x1 = __bfloat162float( in[ base_idx + i + pair_half ] );
 
         float r0, r1;
 
@@ -114,7 +118,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         }
 
         out[ base_idx + i ] = __float2bfloat16( r0 );
-        out[ base_idx + i + half_dim ] = __float2bfloat16( r1 );
+        out[ base_idx + i + pair_half ] = __float2bfloat16( r1 );
     }
 
     // ========================================================================
@@ -131,11 +135,21 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
+        int rotary_dim, int rotary_layout,
         int position_offset,
         cudaStream_t stream )
     {
         assert( head_dim % 2 == 0 );
-        const int half_dim = head_dim / 2;
+
+        // Which channel pairs actually rotate. WholeHead spans the head and lets the cache
+        // carry identity beyond rotary_dim (Gemma); RotaryPrefix confines the rotation to the
+        // leading rotary_dim and pairs inside it (Qwen). The cache layout is head_dim/2 wide
+        // in both cases, so only the pairing offset and the bound change.
+        const int cache_stride = head_dim / 2;
+        const int head_stride = head_dim;
+        const int pair_half = ( rotary_layout == 1 && rotary_dim > 0 && rotary_dim < head_dim )
+            ? ( rotary_dim / 2 )
+            : cache_stride;
 
         constexpr int TX = 32;
         constexpr int TY = 16;
@@ -146,11 +160,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             dim3 block( TX, TY );
             dim3 grid(
                 (total + TX - 1) / TX,
-                (half_dim + TY - 1) / TY );
+                (pair_half + TY - 1) / TY );
 
             rope_rotate_bf16_kernel<negate_sin> << <grid, block, 0, stream >> > (
                 out_Q, in_Q, cos_cache, sin_cache,
-                total, half_dim, T, n_heads, position_offset);
+                total, pair_half, cache_stride, head_stride, T, n_heads, position_offset);
         }
 
         // --- K ---
@@ -159,11 +173,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             dim3 block( TX, TY );
             dim3 grid(
                 (total + TX - 1) / TX,
-                (half_dim + TY - 1) / TY );
+                (pair_half + TY - 1) / TY );
 
             rope_rotate_bf16_kernel<negate_sin> << <grid, block, 0, stream >> > (
                 out_K, in_K, cos_cache, sin_cache,
-                total, half_dim, T, n_kv_heads, position_offset);
+                total, pair_half, cache_stride, head_stride, T, n_kv_heads, position_offset);
         }
 
         cudaCheck( cudaGetLastError() );
@@ -179,10 +193,20 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int position,
         int n_heads, int n_kv_heads, int head_dim,
+        int rotary_dim, int rotary_layout,
         cudaStream_t stream )
     {
         assert( head_dim % 2 == 0 );
-        const int half_dim = head_dim / 2;
+
+        // Which channel pairs actually rotate. WholeHead spans the head and lets the cache
+        // carry identity beyond rotary_dim (Gemma); RotaryPrefix confines the rotation to the
+        // leading rotary_dim and pairs inside it (Qwen). The cache layout is head_dim/2 wide
+        // in both cases, so only the pairing offset and the bound change.
+        const int cache_stride = head_dim / 2;
+        const int head_stride = head_dim;
+        const int pair_half = ( rotary_layout == 1 && rotary_dim > 0 && rotary_dim < head_dim )
+            ? ( rotary_dim / 2 )
+            : cache_stride;
 
         constexpr int TX = 32;
         constexpr int TY = 16;
@@ -193,11 +217,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             dim3 block( TX, TY );
             dim3 grid(
                 (total + TX - 1) / TX,
-                (half_dim + TY - 1) / TY );
+                (pair_half + TY - 1) / TY );
 
             rope_decode_bf16_kernel<negate_sin> << <grid, block, 0, stream >> > (
                 out_Q, in_Q, cos_cache, sin_cache,
-                total, half_dim, position, n_heads);
+                total, pair_half, cache_stride, head_stride, position, n_heads);
         }
 
         // --- K ---
@@ -206,11 +230,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             dim3 block( TX, TY );
             dim3 grid(
                 (total + TX - 1) / TX,
-                (half_dim + TY - 1) / TY );
+                (pair_half + TY - 1) / TY );
 
             rope_decode_bf16_kernel<negate_sin> << <grid, block, 0, stream >> > (
                 out_K, in_K, cos_cache, sin_cache,
-                total, half_dim, position, n_kv_heads);
+                total, pair_half, cache_stride, head_stride, position, n_kv_heads);
         }
 
         cudaCheck( cudaGetLastError() );
@@ -229,13 +253,14 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
+        int rotary_dim, int rotary_layout,
         int position_offset,
         cudaStream_t stream )
     {
         launch_rotate_full_bf16<false>(
             Q_out, K_out, Q_in, K_in,
             cos_cache, sin_cache,
-            B, T, n_heads, n_kv_heads, head_dim, position_offset, stream );
+            B, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, position_offset, stream );
     }
 
     void cuda_rope_backward_bf16(
@@ -247,12 +272,13 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
+        int rotary_dim, int rotary_layout,
         cudaStream_t stream )
     {
         launch_rotate_full_bf16<true>(
             dQ_in, dK_in, dQ_out, dK_out,
             cos_cache, sin_cache,
-            B, T, n_heads, n_kv_heads, head_dim, 0, stream );
+            B, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, 0, stream );
     }
 
     void cuda_rope_decode_bf16(
@@ -264,11 +290,12 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int position,
         int n_heads, int n_kv_heads, int head_dim,
+        int rotary_dim, int rotary_layout,
         cudaStream_t stream )
     {
         launch_rotate_decode_bf16<false>(
             Q_out, K_out, Q_in, K_in,
             cos_cache, sin_cache,
-            B, position, n_heads, n_kv_heads, head_dim, stream );
+            B, position, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
     }
 }

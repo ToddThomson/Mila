@@ -47,6 +47,8 @@ namespace Mila::Data
      *   - Mila binary format produced by save() (load)
      *   - GPT-2 binary produced by convert_gpt2_tokenizer.py (loadGpt2)
      *   - Llama 3.2 binary produced by convert_llama_tokenizer.py (loadLlama32)
+     *   - Gemma 4 binary produced by Gemma/convert_tokenizer.py (loadGemma)
+     *   - Qwen 3.x binary produced by Qwen/convert_tokenizer.py (loadQwen)
      *
      * Special tokens are keyed on their string representation (e.g., "<|endoftext|>",
      * "<|begin_of_text|>") and exposed via getSpecialTokenList() for O(n) pre-pass
@@ -202,6 +204,30 @@ namespace Mila::Data
          * @throws std::runtime_error on I/O errors or an unsupported (Unigram) model type.
          */
         static BpeVocabulary loadGemma( const fs::path& path );
+
+        /**
+         * @brief Load a pretrained Qwen 3.x (byte-level BPE) vocabulary.
+         *
+         * Reads the same binary layout loadGemma does, produced by
+         * Qwen/convert_tokenizer.py:
+         * @code
+         *   Header: vocab_size (uint32), use_byte_fallback (uint8),
+         *           model_type (uint8: 1=BPE), num_merges (uint32)
+         *   For each token: token_length (uint32), token_bytes, score (float32), token_id (uint32)
+         *   For each merge:  left_length (uint32), left, right_length (uint32), right
+         *   has_bos/eos/pad/unk (uint32) + id (uint32, conditional)
+         * @endcode
+         *
+         * Configures the GPT-2 byte-level runtime (byte_level=true, the GPT-2 byte
+         * encoder) with Qwen's own split pattern, and takes the merge-by-rank path
+         * rather than Llama's max-munch: Qwen's `ignore_merges` is false and its
+         * vocabulary is not max-munch equivalent. Chat, thinking and tool-calling
+         * markers are registered from the loaded vocabulary.
+         *
+         * @param path Path to the converted Qwen tokenizer binary.
+         * @throws std::runtime_error on I/O errors or a non-BPE model type.
+         */
+        static BpeVocabulary loadQwen( const fs::path& path );
 
         /**
          * @brief Load a pretrained Mistral vocabulary.
@@ -1499,6 +1525,190 @@ namespace Mila::Data
 
         Logging::Logger::info( std::format(
             "Loaded Gemma vocabulary: {} tokens, {} merges, {} special tokens",
+            vocab_size, num_merges, vocab.special_token_ids_.size() ) );
+
+        return vocab;
+    }
+
+    BpeVocabulary BpeVocabulary::loadQwen( const fs::path& path )
+    {
+        std::ifstream file( path, std::ios::binary );
+
+        if ( !file )
+        {
+            throw std::runtime_error( "Cannot open Qwen tokenizer file: " + path.string() );
+        }
+
+        auto read_u32 = [&]( uint32_t& out )
+            {
+                file.read( reinterpret_cast<char*>(&out), sizeof( out ) );
+
+                if ( !file )
+                {
+                    throw std::runtime_error( "Unexpected EOF reading Qwen tokenizer: " + path.string() );
+                }
+            };
+
+        auto read_string = [&]( uint32_t len ) -> std::string
+            {
+                std::string s( len, '\0' );
+
+                if ( len > 0 )
+                {
+                    file.read( s.data(), static_cast<std::streamsize>(len) );
+
+                    if ( !file )
+                    {
+                        throw std::runtime_error( "Failed reading string in Qwen tokenizer" );
+                    }
+                }
+
+                return s;
+            };
+
+        uint32_t vocab_size = 0;
+        read_u32( vocab_size );
+
+        uint8_t use_byte_fallback = 0;
+        file.read( reinterpret_cast<char*>(&use_byte_fallback), sizeof( use_byte_fallback ) );
+
+        uint8_t model_type = 0;
+        file.read( reinterpret_cast<char*>(&model_type), sizeof( model_type ) );
+
+        if ( !file )
+        {
+            throw std::runtime_error( "Failed reading Qwen tokenizer header" );
+        }
+
+        // Shared header with the Gemma binary, where 2 = Unigram. Qwen is BPE and
+        // nothing else; a different code means the file is not what it claims.
+        if ( model_type != 1 )
+        {
+            throw std::runtime_error(
+                "BpeVocabulary::loadQwen: expected a BPE tokenizer (model_type 1); got "
+                + std::to_string( static_cast<int>(model_type) ) );
+        }
+
+        uint32_t num_merges = 0;
+        read_u32( num_merges );
+
+        if ( num_merges == 0 )
+        {
+            throw std::runtime_error(
+                "BpeVocabulary::loadQwen: the file carries no merge rules. Qwen encodes by "
+                "merge rank, so an empty merge table would silently fall back to a different "
+                "algorithm; regenerate with Qwen/convert_tokenizer.py." );
+        }
+
+        BpeVocabularyConfig config = BpeVocabularyConfig()
+            .withVocabSize( vocab_size )
+            .withByteLevel( true )
+            .withPreTokenization( PreTokenizationMode::Qwen3Regex )
+            .withPreTokenizationPattern( QWEN3_PRETOKENIZATION_PATTERN )
+            .withSpecialTokens( SpecialTokens::qwenStyle() );
+
+        BpeVocabulary vocab( config );
+        vocab.id_to_token_.resize( vocab_size );
+
+        for ( uint32_t i = 0; i < vocab_size; ++i )
+        {
+            uint32_t len = 0;
+            read_u32( len );
+            std::string token = read_string( len );
+
+            uint32_t token_id = 0;
+
+            // The score field is unused by BPE; it is present so this file and the
+            // Gemma one stay one layout rather than two.
+            float score = 0.0f;
+            file.read( reinterpret_cast<char*>(&score), sizeof( score ) );
+
+            read_u32( token_id );
+
+            if ( token_id >= vocab_size )
+            {
+                throw std::runtime_error(
+                    "Invalid token_id " + std::to_string( token_id ) +
+                    " at vocab position " + std::to_string( i ) );
+            }
+
+            vocab.id_to_token_[ token_id ] = token;
+            vocab.token_to_id_[ token ] = static_cast<TokenId>(token_id);
+        }
+
+        vocab.merges_.reserve( num_merges );
+
+        for ( uint32_t i = 0; i < num_merges; ++i )
+        {
+            uint32_t llen = 0;
+            read_u32( llen );
+            std::string left = read_string( llen );
+
+            uint32_t rlen = 0;
+            read_u32( rlen );
+            std::string right = read_string( rlen );
+
+            vocab.merges_.emplace_back( std::move( left ), std::move( right ) );
+        }
+
+        // Named special tokens (order matches Qwen/convert_tokenizer.py: BOS, EOS, PAD, UNK).
+        // Qwen supplies neither BOS nor UNK, so those two flags read as absent and nothing
+        // is registered under the placeholder names qwenStyle() leaves at their defaults.
+        const auto& st = vocab.config_.getSpecialTokens();
+
+        auto read_special = [&]( const std::string& token_str )
+            {
+                uint32_t has = 0;
+                read_u32( has );
+
+                if ( has )
+                {
+                    uint32_t id = 0;
+                    read_u32( id );
+                    vocab.special_token_ids_[ token_str ] = static_cast<TokenId>(id);
+                }
+            };
+
+        read_special( st.bos_token );
+        read_special( st.eos_token );
+        read_special( st.pad_token );
+        read_special( st.unk_token );
+
+        // Register Qwen's ChatML and reasoning markers from the loaded vocabulary so their
+        // ids come from the checkpoint rather than a constant, and so the encode pre-pass
+        // matches them atomically instead of as subword pieces. <|im_end|> and
+        // <|endoftext|> are QwenModel's stop set, and <think>/</think> gate the reasoning
+        // channel -- a token that encodes as fragments takes those features down silently.
+        std::string missing_list;
+
+        for ( const char* name : {
+                "<|endoftext|>", "<|im_start|>", "<|im_end|>",
+                "<think>", "</think>",
+                "<tool_call>", "</tool_call>",
+                "<tool_response>", "</tool_response>" } )
+        {
+            auto it = vocab.token_to_id_.find( name );
+
+            if ( it != vocab.token_to_id_.end() )
+            {
+                vocab.special_token_ids_[ name ] = it->second;
+            }
+            else
+            {
+                missing_list += missing_list.empty() ? "" : " ";
+                missing_list += name;
+            }
+        }
+
+        if ( !missing_list.empty() )
+            Logging::Logger::warning(
+                "Qwen control tokens absent from vocabulary (will encode as subwords): " + missing_list );
+
+        vocab.buildMergeMap();
+        vocab.buildSpecialTokenList();
+
+        Logging::Logger::info( std::format(
+            "Loaded Qwen vocabulary: {} tokens, {} merges, {} special tokens",
             vocab_size, num_merges, vocab.special_token_ids_.size() ) );
 
         return vocab;

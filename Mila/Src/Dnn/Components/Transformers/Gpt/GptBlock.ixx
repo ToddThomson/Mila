@@ -44,6 +44,7 @@ import Compute.ExecutionContext;
 import Compute.CpuMemoryResource;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
+import Compute.Observation;
 import Dnn.Components.LayerNorm;
 import Dnn.Components.MultiHeadAttention;
 import Dnn.Components.Residual;
@@ -73,8 +74,8 @@ namespace Mila::Dnn
      * - Optional owned ExecutionContext when a DeviceId is provided
      * - Shape-dependent build occurs in onBuilding()
      *
-     * KV cache support is surfaced via supportsKVCache() and managed via
-     * initializeKVCache() / resetKVCache(), which delegate to the contained
+     * KV cache support is surfaced via supportsKvCache() and managed via
+     * initializeKvCache() / resetKvCache(), which delegate to the contained
      * Attention component. The KV cache dispatch itself is entirely driven by
      * the AttentionForwardContext passed to forward() - GptBlock has no
      * separate forwardPrefill / forwardDecode methods.
@@ -180,6 +181,8 @@ namespace Mila::Dnn
 
             forward_executed_ = this->isTrainingMode();
 
+            this->publish( ComputePass::Forward, "output", res2_out );
+
             return res2_out;
         }
 
@@ -280,6 +283,8 @@ namespace Mila::Dnn
             auto& res2_out = res2_->forward( res1_out, ffn_out );
             this->getExecutionContext()->synchronize();
 
+            this->publish( ComputePass::Decode, "output", res2_out );
+
             return res2_out;
         }
 
@@ -287,12 +292,12 @@ namespace Mila::Dnn
          * @brief Returns true when the contained Attention supports KV caching.
          *
          * Propagates the capability query up from Attention without exposing
-         * IKVCacheable directly. GptTransformer uses this to decide whether
+         * IKvCacheable directly. GptTransformer uses this to decide whether
          * generate() can take the fast decode path.
          */
-        bool supportsKVCache() const noexcept
+        bool supportsKvCache() const noexcept
         {
-            return attn_ && attn_->supportsKVCache();
+            return attn_ && attn_->supportsKvCache();
         }
 
         /**
@@ -303,12 +308,12 @@ namespace Mila::Dnn
          *
          * @param max_seq_len Maximum sequence length the cache must accommodate.
          */
-        void initializeKVCache( int64_t max_seq_len )
+        void initializeKvCache( int64_t max_seq_len )
         {
             if ( !this->isBuilt() )
-                throw std::runtime_error( "GptBlock must be built before initializeKVCache()." );
+                throw std::runtime_error( "GptBlock must be built before initializeKvCache()." );
 
-            attn_->initializeKVCache( max_seq_len );
+            attn_->initializeKvCache( max_seq_len );
         }
 
         /**
@@ -317,9 +322,9 @@ namespace Mila::Dnn
          * Intended to be called exclusively by the owning transformer's generate()
          * between independent generation requests.
          */
-        void resetKVCache()
+        void resetKvCache()
         {
-            attn_->resetKVCache();
+            attn_->resetKvCache();
         }
 
         // ====================================================================
@@ -359,6 +364,11 @@ namespace Mila::Dnn
         const ComponentType getType() const override
         {
             return ComponentType::Transformer;
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward, ComputePass::Decode } } };
         }
 
         MemoryStats getMemoryStats() const override
@@ -403,7 +413,7 @@ namespace Mila::Dnn
             oss << "Number of heads: " << config_.getNumHeads() << "\n";
             oss << "MLP hidden dimension: " << config_.getHiddenSize() << "\n";
             oss << "Architecture: Pre-LN\n";
-            oss << "KV cache: " << (supportsKVCache() ? "supported" : "not supported") << "\n";
+            oss << "KV cache: " << (supportsKvCache() ? "supported" : "not supported") << "\n";
 
             if ( this->hasExecutionContext() )
                 oss << "Device: " << this->getDeviceId().toString() << "\n";

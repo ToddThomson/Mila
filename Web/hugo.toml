@@ -30,7 +30,7 @@ enableRobotsTXT = false
 [params]
   # No VRAM figure here. "12 GB" describes the development machine, not a capability bound, and
   # stating it reads as a ceiling. Keep this in step with the hero lede in layouts/index.html.
-  description = 'A C++23 and CUDA reference implementation of LLM inference - Gemma 4, Llama 3.x and GPT-2 built from explicit components you can read and understand, validated token-for-token against HuggingFace, on consumer hardware.'
+  description = 'A C++23 and CUDA reference implementation of LLM inference - Qwen 3.8, Gemma 4, Llama 3.x and GPT-2 built from explicit components you can read and understand, checked against HuggingFace references, on consumer hardware.'
   repo = 'https://github.com/ToddThomson/Mila'
   email = 'todd.thomson@me.com'
 
@@ -60,6 +60,10 @@ enableRobotsTXT = false
 
 # The validated surface, short form. The README table is the long form.
 [[params.models]]
+  name = 'Qwen3.8 27B Instruct'
+  precision = 'FP4'
+  note = 'The largest, on a 16 GB card. Hybrid attention: 48 Gated DeltaNet layers, 16 full.'
+[[params.models]]
   name = 'Gemma 4 12B Instruct'
   precision = 'FP4'
   note = 'Flagship, chat default. Sliding-window local/global attention, dual RoPE, GeGLU.'
@@ -81,20 +85,25 @@ enableRobotsTXT = false
   note = 'Where Mila started, and its training reference.'
 
 # Nav mirrors the hero's intent order: understand -> read -> build, then reference material.
-# "Documentation" is the NARRATIVE section (what Mila is, how it works, the reading path); the
-# generated Doxygen is "API reference". Pointing "Documentation" at a generated class index is a
-# mislabel -- it is not what a developer scanning that word expects to find.
+# "Design" and NOT "Documentation": that page argues a position -- the type is the configuration,
+# a library not a framework, what it buys and costs -- and carries no reference material at all.
+# Labelling it "Documentation" made it appear to CONTAIN "API reference", which is the only
+# reference material on the site, and delivered an essay to anyone who clicked expecting one.
+# The page has always titled itself "How Mila works"; the nav now agrees with it.
 # Contact dropped: it was only an anchor to the foot of the home page, and Discussions, Issues and
 # GitHub already cover reaching a person.
 [[params.nav]]
-  name = 'Documentation'
+  name = 'Design'
   url = 'docs/'
 [[params.nav]]
   name = 'Blog'
   url = 'blog/'
 [[params.nav]]
   name = 'Get started'
-  url = 'start/'
+  # The four tabs on the home page, not /start/. A reader clicking this wants the ways in;
+  # /start/ is one of them plus the toolchain reference, and is reached from the Clone tab
+  # and from Design.
+  url = '/#qs'
 [[params.nav]]
   name = 'API reference'
   url = 'api/'

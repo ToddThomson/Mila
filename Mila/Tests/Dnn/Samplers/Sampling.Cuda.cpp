@@ -30,7 +30,6 @@
 #include <vector>
 
 import Mila;
-import Compute.ExecutionContext;
 import Compute.CudaSamplingOp;
 import Dnn.Samplers.SamplingConfig;
 import Dnn.GenerateParams;

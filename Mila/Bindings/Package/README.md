@@ -22,17 +22,21 @@ mila.ModelStore().pull("gemma-4-12b-it-fp4", mila.default_hub_owner())
 tokenizer = mila.BpeTokenizer.from_store("gemma-4-12b-it-fp4")
 model = mila.GemmaModel.from_store("gemma-4-12b-it-fp4", 4096)
 
-model.generate_streaming(tokenizer.encode(prompt), print)
+reason = model.generate(tokenizer.encode(prompt), print)
 ```
 
 A model is named, not pathed. `from_store` reads the local store's record, which is
-what knows the artifact is already FP4 — so nothing pairs a weights path with a
+what knows the weights are already FP4 — so nothing pairs a weights path with a
 tokenizer path, and nothing has to be told what the bytes are. **Pull and load are
 separate verbs**: a load never reaches the network, so an uninstalled name is an
 error rather than a surprise download.
 
-The GIL is released around generation, so a streaming callback runs on a live
-interpreter and `StopController` cancels a decode loop already in flight.
+`generate` hands each token to the callback as it is produced and returns why it
+stopped — `stop`, `length`, `context_limit` or `cancelled` — which the tokens
+themselves cannot tell you.
+
+The GIL is released around generation, so the callback runs on a live interpreter
+and `StopController` cancels a decode loop already in flight.
 
 ## Requirements
 
@@ -49,9 +53,13 @@ is the smaller first run.
 | Symbol | Members |
 |---|---|
 | `mila.initialize` | `log_level` = `trace \| info \| warning \| error` |
-| `mila.BpeTokenizer` | `from_store(name)`, `load_llama32`, `load_gemma`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
-| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate`, `generate_streaming`, `get_config` |
-| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="bf16")`, `generate`, `generate_streaming`, `get_config` |
+| `mila.BpeTokenizer` | `from_store(name)`, `load_llama32`, `load_gemma`, `load_qwen`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
+| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `get_config` |
+| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `get_config` |
+| `mila.QwenModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `get_config` |
+| `mila.qwen_format_prompt` | `(history, enable_thinking=False, reasoning_effort=3, tools_json="")` — the runtime's own Qwen 3.8 template |
+| `mila.qwen_parse_tool_call` | `(response)` → `{call id, name, arguments}` or `None` |
+| `mila.qwen_protocol_tokens` | Qwen's control tokens, for a caller that streams |
 | `mila.ModelStore` | `root`, `list`, `locate`, `remove`, `usage`, `install`, `pull`, `list_hub_models` |
 | `mila.StopController` | `request_stop`, `stop_requested` |
 
@@ -67,8 +75,8 @@ Stated because the limits are documentation, not an omission from it.
   HTTP client of its own.
 - **A load never downloads.** `pull` and `from_store` are separate calls on purpose.
 - **No GPT-2.** It exists in the C++ library and is not bound.
-- **A published artifact's quantization is fixed** — its bytes are already FP4 or
-  FP8. Choosing a quantization applies only to an unquantized artifact loaded by path.
+- **A published model's quantization is fixed** — its bytes are already FP4 or
+  FP8. Choosing a quantization applies only to unquantized weights loaded by path.
 - **No training**, no batching, and a model instance is not thread-safe: serialize
   calls through a single worker thread.
 - **Text in, text out.** No embeddings, logits, or hidden-state access.

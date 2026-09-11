@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file Model.ixx
  * @brief Abstract base class for all Mila models.
  *
@@ -60,7 +60,6 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
 import Compute.DeviceId;
-//import Compute.DeviceTypeTraits;
 
 namespace Mila::Dnn
 {

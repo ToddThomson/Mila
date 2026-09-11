@@ -200,6 +200,70 @@ Note this makes the composite comparison in section 7 load-bearing rather than
 belt-and-braces. A block whose child list drifts from its context list produces a
 plausible number, not an obviously wrong one.
 
+**The flag has a second failure mode, and it is the expensive one.** `withInstalledOutput`
+is a *promise by the parent*, and nothing in the type system holds the parent to it.
+`QwenTransformer` passed it to every block while installing a workspace into only one of
+the two block kinds; the DeltaNet blocks predicted their twenty component outputs at zero
+and then allocated every one of them -- 138.2 MiB per layer, ~6.5 GiB across the 27B's 48
+DeltaNet layers. Unlike the double count, which overstates and merely refuses
+configurations that would fit, this *understates*, so the model loads and then
+oversubscribes the card: it capped the 27B at 512 context and made WDDM page the weights
+for a 5x decode penalty. It survived because Gate A only ever ran on an all-attention
+configuration, where one block kind and one workspace made the promise true by accident.
+
+The rule that follows: **a Gate A case is owed per BLOCK KIND, not per model.** A model
+whose stack is heterogeneous has as many pooling contracts as it has kinds, and a passing
+gate on one of them says nothing about the others. That rule survives whatever replaces
+the flag -- it is about heterogeneous stacks, not about how installation is signalled.
+
+**PROPOSED, NOT DECIDED -- remove the flag by splitting binding from allocation.**
+
+The account above stops one level short of the cause. The parent is not computing anything
+unknowable when it calls `withInstalledOutput`: the pooling predicate is `isInferenceMode()`,
+the same expression that guards the install twenty lines later. `QwenTransformer` writes it
+three times -- onto the block context (`Qwen.ixx:382`) and once per block kind at the install
+(`:602`, `:626`) -- and the ~6.5 GiB understatement above was the first site existing while
+the third did not. One concept, three authorings, nothing tying them together.
+
+Why the value has to travel at all is the deeper fact. `makeQwenDeltaNetBlockWorkspace()` does
+two things in one call: it **describes** the slot set, and it **allocates** it. The description
+is pure -- `(config, device, B, chunk, name_prefix)` in, a fixed set of named shapes out. The
+allocation is what makes the call impossible before the fit is known. From that fusion
+everything else follows: prediction must precede allocation, allocation *is* installation,
+so prediction precedes installation, so `output_installed_` is false at prediction time, so a
+parallel intent channel must exist.
+
+The proposal is to split the two:
+
+- the workspace factory returns slots **described and unallocated** -- shapes and names, no
+  device memory, consistent with the rule that construction allocates nothing;
+- `installSharedWorkspace` moves ahead of prediction and binds slot to child, setting
+  `output_installed_` as a **fact**, per slot;
+- `build()` materializes. `onBuilding` already validates that an installed slot covers the
+  build shape (`Linear.ixx:978`); it would allocate there rather than find memory waiting.
+
+What that deletes: `withInstalledOutput` / `hasInstalledOutput` and the `installed_output_`
+field (`Component.BuildContext.ixx:208`, `:219`); the `pooled` disjunction and re-stamping
+lambda in all three block predictors (`Gemma.Block.ixx:476`, `Qwen.AttentionBlock.ixx:530`,
+`Qwen.DeltaNetBlock.ixx:463`); and the duplicated predicate, leaving the install calls as the
+sole statement of the pooling decision. Every leaf's
+`!output_installed_ && !context.hasInstalledOutput()` collapses to `!output_installed_` --
+the same expression `getMemoryStats` already uses, so prediction and measurement read one
+source instead of two.
+
+It also removes a constraint the single bool cannot express. The flag is one value over a
+block's entire child set: the predictors stamp `pooled` onto every child unconditionally,
+which is sound only while a workspace covers every slot the block would otherwise
+self-allocate. A partial workspace understates, silently, in the expensive direction --
+the Qwen failure mode again, reachable without anyone breaking a promise. Binding per slot
+makes a partial workspace expressible and correct.
+
+The cost is a contract change to `installSharedWorkspace` and `onBuilding` across every
+pooled component, plus a split of each workspace factory. The argument for paying it is that
+the alternatives -- collapsing the predicate to one site, or asserting post-build that a
+declared installation happened -- both leave the promise in place and rely on convention to
+keep it true.
+
 ---
 
 ## 5. Entry Point
@@ -247,6 +311,12 @@ adaptor policy -- see section 6.5 -- and stays out of the runtime.
 every block via `block_context` (`Gemma.ixx:473-483`). It is a pure function of
 (B, T_ctx). `getRequiredMemory` must run it before recursing, or every block's
 attention scratch is sized against a default.
+
+Because it must run it anyway, the chunk is a value the prediction already holds.
+`getDeploymentFootprint` returns it beside the memory answer rather than discarding it;
+`getRequiredMemory` forwards to that and keeps its own signature. Both families expose the
+resolution as `prefillChunking(B, T_ctx)`, which is where the rung table now lives once.
+A caller choosing a context length needs it: see ChatConfiguration.md section 6.
 
 ### 6.2 Sharing makes a naive child-sum overcount
 
@@ -513,7 +583,7 @@ Two corrections that fell out of seeing it run:
   advice is quantization, named as the concrete command.
 
 Free VRAM reaches the adaptor through `Device::getMemoryInfo()` rather than
-`cudaMemGetInfo` in Chat: `ChatApp uses no CUDA APIs directly` is a stated property of
+`cudaMemGetInfo` in Chat: `mila-chat uses no CUDA APIs directly` is a stated property of
 that target, and the same accessor is what MIS and the `mila` CLI will need.
 
 ---

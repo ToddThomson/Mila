@@ -36,6 +36,7 @@ import Compute.ExecutionContextFactory;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
+import Compute.Observation;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -157,6 +158,10 @@ namespace Mila::Dnn
             }
 
             operation_->forward( input, output );
+
+            // The buffer belongs to the caller, so getOutputs() has nothing to report between
+            // calls -- but the value that flowed out of this component is still observable.
+            this->publish( ComputePass::Forward, "output", output );
         }
 
         /**
@@ -207,8 +212,8 @@ namespace Mila::Dnn
          * - Module type and version metadata
          * - Configuration (axis)
          *
-         * @param archive Archive to write to.
-         * @param mode Serialization mode (currently unused for stateless components).
+         * Takes the archive to write to, and a serialization mode that is currently unused
+         * for stateless components.
          */
         void save_( ModelArchive&, SerializationMode ) const override
         {
@@ -276,6 +281,11 @@ namespace Mila::Dnn
         DeviceId getDeviceId() const override
         {
             return this->getExecutionContext()->getDeviceId();
+        }
+
+        std::vector<ObservableStage> getObservableStages() const override
+        {
+            return { { "output", ComputePassMask{ ComputePass::Forward } } };
         }
 
         MemoryStats getMemoryStats() const override

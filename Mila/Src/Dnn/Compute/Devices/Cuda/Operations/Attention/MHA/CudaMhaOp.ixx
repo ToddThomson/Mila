@@ -110,23 +110,23 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         {
             if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "CudaAttentionOp::initializeKVCache requires build() to be called first" );
+                throw std::runtime_error( "CudaAttentionOp::initializeKvCache requires build() to be called first" );
             }
 
             if ( batch_size != B_ )
             {
-                throw std::invalid_argument( "CudaAttentionOp::initializeKVCache batch size mismatch" );
+                throw std::invalid_argument( "CudaAttentionOp::initializeKvCache batch size mismatch" );
             }
 
             if ( max_sequence_length <= 0 || max_sequence_length > T_ )
             {
-                throw std::invalid_argument( "CudaAttentionOp::initializeKVCache max_sequence_length out of range" );
+                throw std::invalid_argument( "CudaAttentionOp::initializeKvCache max_sequence_length out of range" );
             }
 
             //// DEBUG: start
             //// Dump batch_size and max_seq_length
             //Logging::Logger::debug( std::format(
-            //    "initializeKVCache(): B={} max_seq_length={}",
+            //    "initializeKvCache(): B={} max_seq_length={}",
             //    batch_size, max_sequence_length ) );
             //// DEBUG: end
 
@@ -156,7 +156,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         {
             const auto& input_shape = input.shape();
 
-            ensureKVCacheEnabled();
+            ensureKvCacheEnabled();
 
             validatePrefillInputShape( input_shape );
 
@@ -237,7 +237,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         {
             const auto& input_shape = input.shape();
 
-            ensureKVCacheEnabled();
+            ensureKvCacheEnabled();
 
             validateDecodeInputShape( input_shape );
 
@@ -747,7 +747,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             }
         }
 
-        void ensureKVCacheEnabled() const
+        void ensureKvCacheEnabled() const
         {
             if ( !kv_cache_enabled_ )
             {

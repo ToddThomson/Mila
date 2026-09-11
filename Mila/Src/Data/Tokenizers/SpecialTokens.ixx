@@ -299,6 +299,28 @@ namespace Mila::Data
         }
 
         /**
+         * @brief Qwen 3.x configuration.
+         *
+         * Qwen has no BOS and no UNK: `add_bos_token` is false in the checkpoint,
+         * and byte-level BPE leaves nothing for an UNK to stand in for. EOS is the
+         * turn end `<|im_end|>`, not the document terminator `<|endoftext|>` --
+         * which serves as PAD here and is Qwen's *second* stop token.
+         *
+         * The chat, thinking and tool-calling markers are NOT hardcoded --
+         * BpeVocabulary::loadQwen registers them from the loaded vocabulary so
+         * their ids come from the checkpoint.
+         */
+        static SpecialTokens qwenStyle()
+        {
+            return SpecialTokens{
+                .use_pad = true, .use_unk = false, .use_bos = false, .use_eos = true,
+                .use_mask = false, .use_sep = false, .use_cls = false,
+                .pad_token = "<|endoftext|>",
+                .eos_token = "<|im_end|>"
+            };
+        }
+
+        /**
          * @brief Configuration with no special tokens.
          */
         static SpecialTokens none()

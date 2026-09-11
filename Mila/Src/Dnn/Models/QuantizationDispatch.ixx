@@ -40,6 +40,8 @@ namespace Mila::Dnn
      *                         architecture property, not a deployment choice.
      * @tparam TResult         What the action returns -- a model, or a MemoryStats.
      *
+     * @param weight_quantization Runtime weight-quantization setting to resolve to a policy type.
+     * @param kv_cache_compression Runtime KV-cache setting accompanying it.
      * @param caller Prefix for error messages, e.g. "GemmaModel::fromPretrained".
      * @param action Invoked as action.template operator()<TWeightQuantization, TKvCachePolicy>().
      *
@@ -79,6 +81,16 @@ namespace Mila::Dnn
                     throw std::runtime_error( std::format(
                         "{}: FP8 weight quantization requires BF16 compute precision", caller ) );
                 }
+
+            case WeightQuantization::Plan:
+                // Explicit rather than left to the default: a per-role plan is a property of
+                // one family's design, and this dispatcher yields a single uniform policy. If
+                // Plan fell through it would build an UNQUANTIZED body and report success --
+                // the silent-wrong-build failure this file exists to prevent. A family that
+                // has a plan resolves it in its own dispatcher and never arrives here.
+                throw std::runtime_error( std::format(
+                    "{}: this model has no designed precision plan; ask for a uniform "
+                    "quantization mode, or load a family that defines one", caller ) );
 
             case WeightQuantization::None:
             default:

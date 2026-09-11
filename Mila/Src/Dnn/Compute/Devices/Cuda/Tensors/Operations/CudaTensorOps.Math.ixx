@@ -38,7 +38,6 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.ExecutionContext;
-//import Compute.CudaExecutionContext;
 import Compute.DeviceType;
 import Cuda.Helpers;
 import Cuda.Error;

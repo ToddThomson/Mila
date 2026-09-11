@@ -5,7 +5,7 @@
  * LlamaTransformer is the LLaMA decoder-only language network:
  *   TokenEmbedding -> RoPE -> N x LlamaBlock -> final RmsNorm -> lm_head (Linear)
  *
- * This tests the LlamaTransformer DELTA over the LanguageNetwork base: construction/
+ * This tests the LlamaTransformer DELTA over the LanguageModelNetwork base: construction/
  * validation, the rank-2 [B, T] build contract, the RuntimeMode/TrainingMode axis,
  * forward producing logits of shape [B, T, vocab], the component graph, and the
  * backward preconditions. The constituent components (TokenEmbedding, RoPE, GQA,

@@ -1,9 +1,10 @@
 # FetchContent / add_subdirectory consumer fixture for the packaging gate.
 #
-# Unlike Samples/QuickStart (which consumes an INSTALLED Mila via find_package),
-# this project embeds Mila as a subproject: FetchContent_MakeAvailable runs
+# This project embeds Mila as a subproject: FetchContent_MakeAvailable runs
 # add_subdirectory on the Mila source tree and links the in-tree Mila::Mila
-# target. It exists to prove Mila is subproject-friendly -- that nothing in
+# target -- the same mechanism Samples/QuickStart/Cpp shows a downstream app using,
+# differing only in fetching the local tree. It exists to prove Mila is
+# subproject-friendly -- that nothing in
 # Mila's CMake assumes it is the top-level project (CMAKE_SOURCE_DIR vs
 # PROJECT_SOURCE_DIR, PROJECT_IS_TOP_LEVEL gating, install-rule leakage).
 #

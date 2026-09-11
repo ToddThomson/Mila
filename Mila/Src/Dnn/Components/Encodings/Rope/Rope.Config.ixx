@@ -36,6 +36,31 @@ namespace Mila::Dnn
 {
     using Serialization::SerializationMetadata;
 
+    /**
+     * @brief Which dimension pairs a partial rotary rotates. Families genuinely disagree.
+     *
+     * Only meaningful when `rotary_dim` is below `head_dim`; the two coincide at full rotary.
+     * Getting it wrong is silent: both layouts rotate the same NUMBER of dimensions and
+     * produce a plausible result, and at a short prompt the angles are small enough that
+     * generation still looks correct. It diverges with context.
+     */
+    export enum class RotaryLayout
+    {
+        /**
+         * Rotation spans the whole head, pairing channel `i` with `i + head_dim/2`, and the
+         * partial width is expressed by zero frequencies in the cos/sin cache. Gemma:
+         * `(x * cos) + (rotate_half(x) * sin)` over the unsliced head.
+         */
+        WholeHead,
+
+        /**
+         * Rotation is confined to the leading `rotary_dim` channels, pairing `i` with
+         * `i + rotary_dim/2`; channels at or above `rotary_dim` pass through untouched.
+         * Qwen: `q[..., :rotary_dim]` then `rotate_half` inside that slice.
+         */
+        RotaryPrefix
+    };
+
     export class RopeConfig : public ComponentConfig
     {
     public:
@@ -83,6 +108,19 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        /**
+         * @brief Select which dimension pairs a partial rotary rotates.
+         *
+         * Default: WholeHead, which is what Gemma's reference does and what every family in
+         * the tree used before Qwen. Only Qwen needs RotaryPrefix.
+         */
+        template <typename Self>
+        decltype(auto) withRotaryLayout( this Self&& self, RotaryLayout rotary_layout )
+        {
+            self.rotary_layout_ = rotary_layout;
+            return std::forward<Self>( self );
+        }
+
         // ====================================================================
         // Accessors
         // ====================================================================
@@ -125,6 +163,11 @@ namespace Mila::Dnn
         dim_t getRotaryDim() const noexcept
         {
             return rotary_dim_;
+        }
+
+        RotaryLayout getRotaryLayout() const noexcept
+        {
+            return rotary_layout_;
         }
 
         float getBase() const noexcept
@@ -277,6 +320,7 @@ namespace Mila::Dnn
         dim_t n_kv_heads_{ 0 };
         dim_t max_seq_len_{ 0 };
         dim_t rotary_dim_{ 0 };        ///< 0 = use full head_dim
+        RotaryLayout rotary_layout_{ RotaryLayout::WholeHead };
         float base_{ 10000.0f };
     };
 }

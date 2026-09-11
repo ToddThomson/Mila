@@ -8,17 +8,15 @@ Mila is built for researchers, engineers, and developers who find high-level fra
 and write kernels that do precisely what they intend. No autograd engine. No runtime
 dispatch magic. Just C++23, CUDA, and full control.
 
-> *Currently in public beta (`0.20.0-beta.2`) — feature-frozen and hardening toward the v0.20 first
+> *Currently in public beta (`0.20.0-beta.3`) — feature-frozen and hardening toward the v0.20 first
 > production release. Pre-1.0: the API is not yet stable.*
 > *Active development lands on the [`dev`](https://github.com/ToddThomson/Mila/tree/dev) branch; `master` tracks tagged releases.*
 > *See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for current status and trajectory.*
 
 ---
 
-| Branch | Build | Test | Docs |
-|--------|-------|------|------|
-| master | ![Build](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master&job=build) | ![Test](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master&job=test) | ![Docs](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master&job=docs) |
-| dev    | ![Build](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev&job=build) | ![Test](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev&job=test) | ![Docs](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev&job=docs) |
+[![master](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master)](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml?query=branch%3Amaster)
+[![dev](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev)](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml?query=branch%3Adev)
 
 ---
 
@@ -73,16 +71,19 @@ in modern C++ and intends to stay there. No header soup. Fast incremental builds
 **CUDA-native.** Matrix operations via cuBLASLt. Hand-written kernels where control
 matters. Vectorized memory access throughout — float4 for FP32, uint4 for BF16.
 
-**Precision is deliberate.** BF16 is the primary reduced-precision compute target — it
+**Precision and quantization.** BF16 is the primary reduced-precision compute target — it
 matches FP32's exponent range, avoiding overflow and underflow without loss scaling, with
-native Tensor Core support on Ada Lovelace and newer. FP16 is not a Mila target; BF16
-supersedes it for all current use cases. Weight quantization is applied at model load time
-as a pure compile-time decision via a `TWeightQuant` policy on `Linear` — no runtime
-dispatch, no quantized checkpoint format. FP8 (`PerChannelFp8<>`) enables 8B-class models
-within a 12 GB VRAM budget via per-channel BF16→FP8_E4M3 quantization with cuBLASLt
-mixed-precision GEMM. FP4 E2M1 (`PerGroupFp4<>`) halves weight storage again — packed
-nibbles dequantized per-group inline at inference time, forward-compatible with Blackwell
-native FP4 compute when it becomes available.
+native Tensor Core support on Ampere and newer. FP16 is not a Mila target; BF16 supersedes
+it for all current use cases. Weight quantization is a compile-time decision — a
+`TWeightQuant` policy on `Linear`, with no runtime dispatch — and the weights arrive already
+quantized: `Tools/ExportArtifact` packs them offline into safetensors that declare their own
+policy, and a load refuses weights whose policy is not the one compiled in. FP8
+(`PerChannelFp8<>`) fits 8B-class models in a 12 GB budget through per-channel BF16→FP8_E4M3
+with cuBLASLt mixed-precision GEMM, and needs SM 8.9 or newer. FP4 E2M1 (`PerGroupFp4<128>`)
+halves weight storage again — packed nibbles dequantized per group inside the GEMM, on SM 8.0
+and newer. Below four bits, codebook policies (`PerGroupCodebook2`, `PerGroupCodebook3`) carry
+tables fitted offline against calibration data; a mixed 2/3-bit Qwen 3.8 27B averages 2.82 bits
+per weight.
 
 ---
 
@@ -90,6 +91,18 @@ native FP4 compute when it becomes available.
 
 Mila's validated targets, in priority order — the current best open models that fit home and edge
 hardware.
+
+### Qwen 3.8 27B — the largest
+
+The biggest model Mila runs, on a single 16 GB card at FP4. Its attention is hybrid: 48 of its 64
+layers are Gated DeltaNet recurrences carrying a fixed-size state, and only 16 are full attention,
+so context costs far less memory than the parameter count suggests. It reasons before it answers
+and it calls tools.
+
+Token-for-token comparison is not available here — a BF16 27B fits no card on hand to compare
+against — so the bar is perplexity on wikitext-2, held under a threshold written down before the
+sweep that tested it. Hidden states are checked against a HuggingFace reference one decoder block
+at a time.
 
 ### Gemma 4 12B — the flagship
 
@@ -111,11 +124,11 @@ GeGLU, RMSNorm, and final logit softcap — validated **token-for-token against 
 ### Llama 3.x
 
 Mila's primary validated inference lineage — Llama 3.2 1B, 3.2 3B, and 3.1 8B — built from RMSNorm,
-SwiGLU, Grouped Query Attention, and RoPE, with SentencePiece tokenization and HuggingFace weight
+SwiGLU, Grouped Query Attention, and RoPE, with BPE tokenization and HuggingFace weight
 conversion. Each is validated **token-for-token against HuggingFace**: 1B at FP32, 3B at BF16, and the
 quantized paths (FP8 E4M3 per-channel, FP4 E2M1 per-group) against that baseline. Llama 3.1 8B at FP4
 (~6 GB) is the small-footprint workhorse — it fits a 12 GB card with room to spare — with FP8 as the
-finer-precision alternative. Tool calling is validated on Llama 3.2 3B Instruct.
+finer-precision alternative.
 
 ### GPT-2 — where it started
 
@@ -129,7 +142,7 @@ place to read one token's journey end to end.
 
 ---
 
-## Current Status — Beta.2 (feature-frozen, hardening)
+## Current Status — Beta.3 (feature-frozen, hardening)
 
 Mila is in public beta, hardening toward a craft-complete first release (v0.20). The alpha
 phase built and validated the core architecture against known-good reference implementations; the
@@ -137,13 +150,13 @@ feature set is now **frozen**, and the remaining work is validation, packaging, 
 recovering the full GPT-2 / training foundation — so the first release ships everything Mila has
 built, inference and training, as one coherent, tested, documented package.
 
-**Hardening through beta (Production Hardening)**
-Feature-frozen: validation, packaging, and documentation only. **Model distribution is the one
-deliberate carve-in**, landed in `beta.2` — a release nobody can get a model for is not an onboarding
-story, and it was an alpha omission rather than a new idea. The v0.20 workstreams still in flight
-are test-suite revival, training revival (the MNIST and Bard GPT-2 samples re-aligned to the current
-API — Llama 3.1/3.2 training is not part of this release), API documentation, and production
-hardening itself, from which the `beta.X` and `rc.X` tags are cut. See
+**Hardening through beta**
+Feature-frozen: validation, packaging, and documentation only. **Two carve-ins were made
+deliberately** — model distribution in `beta.2`, because a release nobody can get a model for is not
+an onboarding story, and observability in `beta.3`. The test suite and the MNIST and Bard training
+samples are re-aligned to the current API and running; Llama 3.1/3.2 training is not part of this
+release. What is still in flight is validation, packaging and distribution, API documentation, and
+the surface a consumer meets. See
 [RELEASING.md](https://github.com/ToddThomson/Mila/blob/dev/RELEASING.md) for how stages and tags
 relate.
 
@@ -159,6 +172,8 @@ tokenizers, and tooling beneath them.
 
 | Capability | Status |
 |---|---|
+| Qwen 3.8 27B inference — FP4 E2M1 per-group quantization | Validated — 15.1 GiB, fits a 16 GB card |
+| Qwen 3.8 27B — hidden-state parity against HuggingFace | Validated — one decoder block at a time |
 | Gemma 4 12B Instruct inference — greedy decode | Validated against HuggingFace (token-for-token) |
 | Gemma 4 12B Instruct — FP4 E2M1 per-group quantization | Validated — chat CLI default; runs a large context window in 12 GB (weight-tying + bounded-KV ring) |
 | Llama 3.1 8B inference — FP4 E2M1 per-group quantization | Validated — ~6 GB, ~57 tok/s decode, fits 12 GB |
@@ -230,23 +245,29 @@ double as a ruthless validation oracle.
 
 ## Samples
 
-### MNIST Classifier
+Everything lives under [`Mila/Samples`](https://github.com/ToddThomson/Mila/blob/dev/Mila/Samples/README.md),
+split by what it is for.
 
-Located under `Mila/Samples/MNIST`. Trains a 3-layer MLP on MNIST to ~97.9% test accuracy.
-Demonstrates the full training loop: data loading, forward pass, loss, backward pass, AdamW step.
+### Quick Start — getting Mila running
 
-### Bard — GPT-2 character-level training
+[`Mila/Samples/QuickStart`](https://github.com/ToddThomson/Mila/blob/dev/Mila/Samples/QuickStart/README.md)
+holds one directory per path to a first run. Both do the same thing — one prompt in, tokens
+streamed out, same model and template — so they read side by side with only the language
+differing. **Python** is `pip install mila-llm` and a script; **C++** is a standalone CMake
+project whose `CMakeLists.txt` doubles as the worked example of depending on Mila with
+`FetchContent`, the supported consumption path for a C++23 module library. Both need a CUDA GPU
+and a model in the local store. See also
+[getting-started.md](https://github.com/ToddThomson/Mila/blob/dev/getting-started.md) for the
+long-form version, including building Mila from a clone.
 
-Located under `Mila/Samples/Bard`. Trains a small GPT-2-style transformer on Tiny Shakespeare to
+### Demonstrations — what Mila does
+
+**MNIST Classifier** (`Mila/Samples/MNIST`) trains a 3-layer MLP to ~97.9% test accuracy —
+the full training loop: data loading, forward pass, loss, backward pass, AdamW step.
+
+**Bard** (`Mila/Samples/Bard`) trains a small GPT-2-style transformer on Tiny Shakespeare to
 coherent, Shakespeare-structured text — the transformer counterpart to MNIST's MLP, revived to the
 current API as part of v0.20 Training Revival.
-
-### QuickStart — consume Mila via FetchContent
-
-Located under `Mila/Samples/QuickStart`. A standalone downstream project showing how to depend on Mila
-with `FetchContent` (the supported consumption path for a C++23 module library) and call its public
-API. See [getting-started.md §7](https://github.com/ToddThomson/Mila/blob/dev/getting-started.md) and the sample's
-[README](https://github.com/ToddThomson/Mila/blob/dev/Mila/Samples/QuickStart/README.md).
 
 ---
 
@@ -256,7 +277,7 @@ API. See [getting-started.md §7](https://github.com/ToddThomson/Mila/blob/dev/g
 
 | Requirement | Version |
 |---|---|
-| C++ compiler | MSVC (Visual Studio 2026 18.6.2+) on Windows, or Clang 19+ / GCC 16 on Linux |
+| C++ compiler | MSVC (Visual Studio 2026 18.6.2+) on Windows; Clang 19+ on Linux |
 | CUDA Toolkit | 13.0+ on Windows; 13.3+ on Linux (Ubuntu 26.04 / glibc 2.43) |
 | CMake | 4.0 or newer |
 | Git | 2.x or newer (validated on 2.54.0) |
@@ -272,16 +293,20 @@ to work but are not exhaustively validated. On Linux (Ubuntu 26.04 / glibc 2.43)
 is required — 13.0 fails to build there.
 
 On Windows, use Visual Studio 2026 18.6.2 or newer — earlier 2026 builds have a regression
-that breaks the C++23 module build. On Linux, the C++23 modules build with Clang 19+ or GCC 16;
-on Ubuntu 26.04 install the `gcc-16` package (GCC 15.2 and earlier cannot compile the modules).
+that breaks the C++23 module build.
+
+On Linux, **Clang compiles the C++23 module units and GCC is nvcc's host compiler for the `.cu`
+files**, which contain no modules. The two carry different requirements: CI and the container use
+clang-21 with gcc-15 as the host. GCC can compile the module units instead, and there the floor is
+**GCC 16** — 15.2 and earlier cannot, and 15.3 has not been tested.
 
 Git must be installed and on `PATH`: the first CMake configure fetches dependencies via CPM
 (`git clone`), so it is needed beyond the initial repository clone. GitHub Desktop is an
 optional convenience, not a requirement.
 
-Building the API docs is optional — enable it with `-DMILA_ENABLE_DOCS=ON` (default
-`OFF`), which requires Doxygen (and Graphviz for the call graphs). A normal
-library/test build needs neither.
+`MILA_ENABLE_DOCS` is `ON` by default, and building the API docs needs Doxygen. Without it
+installed you still get a normal library build — the configure prints a warning and offers no
+`docs` target. Graphviz is not needed; the Doxyfile disables the call graphs.
 
 ### Quick Start
 
@@ -293,8 +318,9 @@ cmake --build build
 ctest --test-dir build
 ```
 
-Tests are opt-in (`MILA_ENABLE_TESTING` defaults to `OFF`); omit the flag for a
-library-only build.
+`MILA_ENABLE_TESTING` is already `ON` for a clone like this one, so the flag above is explicit
+rather than required. It is `OFF` when Mila is embedded in another project, which is what keeps a
+consumer from building Mila's tests. Pass `-DMILA_ENABLE_TESTING=OFF` for a library-only build.
 
 ### Visual Studio
 
@@ -335,11 +361,12 @@ ctest --test-dir out/build/linux-release
 VS Code users can instead **Reopen in Container** — see `.devcontainer/`.
 
 Model weights are not included. The image sets `MILA_CACHE_DIR=/mila/Data/Models/Store`, which sits
-on the repo bind mount, so a model installed with `/install` survives `run --rm` and is the same
-store the host uses — install it once from either side.
+on the repo bind mount, so a model installed with `/model install` survives `run --rm` and is the
+same store the host uses — install it once from either side.
 
-> A slim, published runtime image — `docker run … mila` for users who only want to run
-> inference without building — is planned for the v0.20 release. See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md).
+> To run a model without building anything, use the slim runtime image published as
+> `toddthomson/mila-llm:<version>-runtime`. The two commands are on
+> [mila.toddt.me](https://mila.toddt.me/#evaluate).
 
 ---
 

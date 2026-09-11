@@ -112,10 +112,6 @@ namespace Mila::Dnn
             }
         }
 
-        // ====================================================================
-        // Shape
-        // ====================================================================
-
         /**
          * @brief The full input shape this component receives.
          */
@@ -164,23 +160,6 @@ namespace Mila::Dnn
             return copy;
         }
 
-        /*
-         * Retired in place. Return a copy of this context with a different
-         * quantization config; all other parameters preserved. Provided for
-         * sub-graphs that require a different quantization policy than the parent.
-         * Param: quantization -- replacement config. Returns the new BuildContext.
-         */
-        // DEPRECATED:
-        //[[nodiscard]] BuildContext withQuantization( QuantizationConfig quantization ) const
-        //{
-        //    return BuildContext(
-        //        input_shape_,
-        //        runtime_mode_,
-        //        //prefill_size_,
-        //        initialize_parameters_,
-        //        quantization );
-        //}
-
         // ====================================================================
         // RuntimeMode
         // ====================================================================
@@ -209,10 +188,6 @@ namespace Mila::Dnn
         {
             return runtime_mode_ == RuntimeMode::Training;
         }
-
-        // ====================================================================
-        // Prefill
-        // ====================================================================
 
         // ====================================================================
         // Output installation
@@ -269,22 +244,6 @@ namespace Mila::Dnn
         {
             return initialize_parameters_;
         }
-
-        // ====================================================================
-        // Quantization
-        // ====================================================================
-
-        /**
-         * @brief The weight storage dtype and scale allocation policy.
-         *
-         * Consumed by Linear::build() and Linear::loadParameters() only.
-         * All other components ignore this field.
-         */
-         // DEPRECATED:
-        /*const QuantizationConfig& getQuantization() const noexcept
-        {
-            return quantization_;
-        }*/
 
     private:
 

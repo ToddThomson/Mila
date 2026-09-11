@@ -6,7 +6,10 @@ model, whether it was fetched from a hub or built on the machine that loads it.
 Scoped 2026-07-29 after [ModelSerialization.md](ModelSerialization.md) Phase 7 made a pre-quantized
 safetensors artifact the thing worth distributing. Rewritten 2026-08-01, when distribution moved into
 the v0.20 release: the manifest became the only way a model is described, `.bin` stopped being a
-distributed form, and publishing joined retrieval.
+distributed form, and publishing joined retrieval. Extended 2026-09-09 with
+[Direction -- the family is the name](#direction----the-family-is-the-name), which separates the hub
+repository name from the name a user types; that section is direction only, and nothing in it is
+implemented.
 
 ---
 
@@ -79,6 +82,10 @@ need both suffixed.
 
 A `:variant` sub-grammar was tried and dropped: its benefits accrued in the store, which nobody looks
 at, and its costs landed on the hub page, which is the only place the naming is ever visible.
+
+This section describes one name serving both the hub and the user. That identification is revisited
+in [Direction -- the family is the name](#direction----the-family-is-the-name); everything here
+remains what is implemented.
 
 Variants sharing a tokenizer costs nothing under this scheme. **Deduplication is content addressing's
 doing, not the naming's** -- two repositories whose tokenizers are byte-identical collapse to one
@@ -653,6 +660,122 @@ already established.
 A family that cannot be republished is not a hole in the catalogue. It is a locally published model: the user
 converts it once, the store lists it exactly like a fetched one, and `publish` refuses the hub
 destination with the reason rather than failing at a 403.
+
+---
+
+## Direction -- the family is the name
+
+Added 2026-09-09. **Nothing in this section is implemented or committed to v0.20.** It records a
+direction and, more usefully, the two things that gate it, so the gates are known before anyone
+starts.
+
+### The position
+
+Mila supplies a programming API to a small, curated set of model families with optimized
+quantization. From that, two consequences:
+
+- **A user should not have to know anything about quantization.** Mila should. `fp4` and `cb2-3` are
+  compression mechanisms, and which one a given machine should run is a question with a computable
+  answer.
+- **The name a user types is the family**, at the family's own identity, with no quantization tag and
+  no tuning suffix.
+
+### Two namespaces, not one
+
+[The name](#the-name) makes the hub repository name and the string a user types the same string. That
+identification is the constraint to drop. They are separate namespaces answering to separate
+audiences:
+
+| | Answers to | Shape |
+|---|---|---|
+| **Hub repository name** | HuggingFace convention, the Llama Community License's `Llama` prefix clause, and people arriving from outside Mila | Mechanical, reversible: upstream repository name plus our quantization tag |
+| **Mila name** | Only Mila -- Chat, the binding, `from_store()`, MIS | The family, lowercased |
+
+The hub names stay as they are. The naming on HuggingFace is poor across the whole platform and Mila
+does not get to fix that; what Mila gets to fix is the string its own users type. Concretely:
+
+```
+qwen3.8-27b   gemma-4-12b   llama-3.2-3b   llama-3.1-8b   gpt2
+```
+
+The tuning suffix dissolves here rather than being dropped by fiat. `-it` and `-Instruct` are
+upstream's strings and belong to the hub coordinate; in Mila's own namespace over a curated list the
+card states the checkpoint is instruction-tuned, which is already how Qwen is handled.
+
+**A flat friendly namespace is only safe because the catalogue is curated.** Five families cannot
+collide, and a name that means one thing everywhere is what the store's uniqueness rule already
+requires. Curation is what earns the good names, and this scheme does not survive a catalogue that
+grows without bound.
+
+### What already exists
+
+The substrate is further along than the absence of the feature suggests.
+
+- **The family key is plumbed end to end.** `base_model` is on the published manifest
+  (`Distribution/ModelManifest.ixx:65`), on the store record (`Distribution/ModelStore.ixx:131`), and
+  on Chat's resolved model (`Chat.ModelCatalog.ixx:514`). Every installed model already declares which
+  family it realizes, so grouping variants by family needs no new field.
+- **Nothing loads by name.** The loader reads `variant` from the manifest, never the name, so
+  changing what a user types costs no caller anything.
+- **Runtime selection across compile-time policies already has a mechanism.**
+  `Models/QuantizationDispatch.ixx` keys on `LanguageModelConfig`'s own enum, so a resolver's output
+  is a value for that enum rather than a new dispatch layer.
+- **The fit half of the ranking is computed.** `Chat.Footprint.ixx` answers what a model would
+  allocate at a context length without allocating it.
+
+### The two gates
+
+**Every representation the resolver may choose must be compiled in.** That is the price of the
+compile-time type axes, paid in binary size and build time, and it bounds how wide "Mila decides" can
+range. It is a constraint on the design, not a defect in it.
+
+**There is no comparable quality figure, and this is the real gate.** Choosing the *best* variant
+requires knowing that FP4 outranks the 2.82-bit codebook build, and that is measured, not derivable
+from the bytes. Today it exists as prose in one model card. The one measurement that exists is the
+Qwen pair, teacher-forced over ~31,650 positions of wikitext-2 test, **with the FP4 build as the
+oracle rather than BF16** -- so it ranks two artifacts of one family against each other and does not
+compose onto a scale shared with Gemma or Llama. Ranking across the catalogue needs one common
+reference and a measurement program behind it.
+
+The distinction worth keeping: **fit is mechanical, best is not.** A resolver that only answers "what
+will run here" is buildable from what exists. A resolver that answers "what should run here" is
+blocked on measurement, and shipping the second while only having evidence for the first would be a
+quality claim Mila cannot support.
+
+### Rejected, so they are not re-proposed
+
+These came out of a design conversation on 2026-09-09 and are recorded with their reasons, because
+each is attractive on first contact.
+
+- **Effective bits as the name** (`Qwen3.8-27B-2.8bit`). 2.82 is a measurement of one build, not a
+  format. Re-fit the codebooks or move one layer's allocation and the name is either wrong or forces
+  a rename of published weights. It also fails the reversibility test the hub naming rule exists for.
+- **`4bit` in place of `fp4`.** The argument for it is that FP4, integer and codebook 4-bit are
+  materially different; the proposal then gives all three one name, collapsing the distinction it
+  rests on. Platform convention runs the other way for a reason -- `-GPTQ`, `-AWQ`, `-GGUF`,
+  `-bnb-4bit`, `-NVFP4` all name the mechanism, because the mechanism decides whether a loader can
+  open the file. Mila refuses weights whose stored policy is not the compiled one, which makes the
+  mechanism the most consequential fact on the hub page.
+- **A quality or optimization epithet** (`Qwen3.8-27B-Mila-Optimized`). Unfalsifiable on a published
+  surface -- optimized against which objective, measured how. Its advertised benefit, that the
+  quantizer can improve without a rename, is the same name denoting different bytes over time.
+- **A memory budget in the repository name** (`Qwen3.8-27B-Mila-12GB`). Footprint is not a property of
+  the weights. It is weights plus context length plus KV-cache policy, which is why
+  `Chat.Footprint.ixx` is a separate calculation, so a repository named `-12GB` makes a promise the
+  bytes cannot keep at a longer context.
+- **Publishing only base weights and compressing on the user's machine.** Codebook fitting is an
+  offline calibration run; moving it to load time is a workflow Mila deliberately does not have. See
+  [Quantization.md](Quantization.md).
+
+### Staging
+
+Family resolution is demonstrable in Chat with no `Mila/Src` change and no feature-freeze question:
+group installed records by `base_model`, rank the candidates on footprint against the selected
+device, load the winner. The quality half starts as a static per-family ordering, labelled as such.
+
+Promotion into `Mila/Src` as a library capability, multi-device selection, and the measurement
+program behind a real quality score are post-v0.20. Neither half is committed work until it appears
+in `BACKLOG.md`.
 
 ---
 

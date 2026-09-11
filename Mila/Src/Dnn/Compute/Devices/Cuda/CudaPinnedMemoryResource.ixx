@@ -70,7 +70,7 @@ namespace Mila::Dnn::Compute
          * faster transfers between host and device while remaining host-accessible.
          *
          * @param bytes Number of bytes to allocate
-         * @param alignment Memory alignment requirement (ignored by CUDA)
+         * The alignment argument is ignored: CUDA allocations are already suitably aligned.
          * @return Pointer to allocated pinned memory
          * @throws std::bad_alloc If allocation fails
          */
@@ -111,7 +111,7 @@ namespace Mila::Dnn::Compute
          * Ensures operation occurs on the correct device.
          *
          * @param ptr Pointer to pinned memory to deallocate
-         * @param alignment Alignment used during allocation (unused; kept for interface compatibility).
+         * The alignment argument is unused, and kept for interface compatibility.
          *
          * The size argument is unused and therefore intentionally unnamed.
          */
