@@ -92,6 +92,18 @@ per weight.
 Mila's validated targets, in priority order — the current best open models that fit home and edge
 hardware.
 
+### Qwen 3.8 27B — the largest
+
+The biggest model Mila runs, on a single 16 GB card at FP4. Its attention is hybrid: 48 of its 64
+layers are Gated DeltaNet recurrences carrying a fixed-size state, and only 16 are full attention,
+so context costs far less memory than the parameter count suggests. It reasons before it answers
+and it calls tools.
+
+Token-for-token comparison is not available here — a BF16 27B fits no card on hand to compare
+against — so the bar is perplexity on wikitext-2, held under a threshold written down before the
+sweep that tested it. Hidden states are checked against a HuggingFace reference one decoder block
+at a time.
+
 ### Gemma 4 12B — the flagship
 
 Gemma 4 12B Instruct is Mila's most capable inference target and the chat CLI default. It runs the
@@ -160,6 +172,8 @@ tokenizers, and tooling beneath them.
 
 | Capability | Status |
 |---|---|
+| Qwen 3.8 27B inference — FP4 E2M1 per-group quantization | Validated — 15.1 GiB, fits a 16 GB card |
+| Qwen 3.8 27B — hidden-state parity against HuggingFace | Validated — one decoder block at a time |
 | Gemma 4 12B Instruct inference — greedy decode | Validated against HuggingFace (token-for-token) |
 | Gemma 4 12B Instruct — FP4 E2M1 per-group quantization | Validated — chat CLI default; runs a large context window in 12 GB (weight-tying + bounded-KV ring) |
 | Llama 3.1 8B inference — FP4 E2M1 per-group quantization | Validated — ~6 GB, ~57 tok/s decode, fits 12 GB |

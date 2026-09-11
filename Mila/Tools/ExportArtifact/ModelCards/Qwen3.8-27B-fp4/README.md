@@ -11,52 +11,23 @@ library_name: mila
 
 # Qwen3.8 27B Instruct — FP4 for Mila
 
-`Qwen/Qwen3.8-27B` quantized to FP4 for [Mila](https://github.com/ToddThomson/Mila). It reasons
-before it answers, and it calls tools. (Qwen publishes the untuned model as `Qwen3.8-27B-Base`,
-so the plain name is the instruction-tuned one.)
+`Qwen/Qwen3.8-27B` quantized to FP4 for [Mila](https://github.com/ToddThomson/Mila), so 27B runs
+on a single 16 GB card. Nothing was fine-tuned or distilled.
 
-## What it needs
+## Requirements
 
-A **16 GB** card. The download is 15.1 GiB, down from 50.1 GiB at BF16.
+A 16 GB NVIDIA GPU, and Mila. The download is 15.1 GiB.
 
-For a 12 GB card, use [Qwen3.8-27B-cb2-3](https://huggingface.co/mila-llm/Qwen3.8-27B-cb2-3),
-which fits in less memory at 13.9% higher perplexity.
+This is Mila's own FP4 format, so `transformers` and vLLM cannot load it.
 
 ## Use
 
+Install it with the Mila command line, then run it in the Mila chat app:
+
 ```
-/model install Qwen3.8-27B-fp4
-/model load Qwen3.8-27B-fp4
+mila install Qwen3.8-27B-fp4
+mila-chat --model Qwen3.8-27B-fp4
 ```
-
-`/model list` shows what you have installed, `/model list --online` what you can install.
-
-Thinking is hidden by default. `/verbose thoughts` shows it, `/thinking off` turns it off.
-
-## Quality
-
-Perplexity on wikitext-2 test — lower is better:
-
-| Context | 4096 | 8192 | 16384 |
-|---|---|---|---|
-| | 6.439 | 6.126 | 5.686 |
-
-## Files
-
-| File | Purpose |
-|---|---|
-| `qwen38_27b_fp4.safetensors` | The weights |
-| `qwen38_tokenizer.bin` | Mila tokenizer |
-| `mila.json` | Manifest: file digests, quantization, minimum Mila version |
-| `LICENSE` | Apache 2.0, as published with the base model |
-
-## Quantization
-
-The transformer blocks' linear weights are FP4 E2M1, two values packed per byte, with FP32 absmax
-scales per group of 128 along the input axis. Norms and embeddings stay BF16. Nothing was
-fine-tuned, distilled or otherwise changed about what the model learned.
-
-This is Mila's own format — not NVFP4 or MXFP4 — so `transformers` and vLLM cannot load it.
 
 ## License
 

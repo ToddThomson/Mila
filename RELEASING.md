@@ -522,8 +522,14 @@ which shipped unready work in one direction and stayed silent for two weeks in t
 
 1. **Read back the strings step 2 wrote.** Five in `Web/layouts/index.html` (the C++ tab's `GIT_TAG`
    and sample output, the `-devel` tag, and both `-runtime` commands), plus any "not published yet"
-   flag the release has now falsified. Every model name in the copy must be one the store actually
-   serves — `gemma-4-12b-it-fp4` and `Llama-3.2-3B-Instruct-fp4` today.
+   flag the release has now falsified. Every model named in the copy must be **installable by a
+   stranger** — public on the Hub, not merely present in your own store. Today that is
+   `gemma-4-12b-it-fp4`, `Llama-3.2-3B-Instruct-fp4` and `Qwen3.8-27B-fp4`. Check the last one
+   anonymously: `curl -s -o /dev/null -w '%{http_code}' https://huggingface.co/api/models/mila-llm/<name>`
+   returns 200 when it is public and 401 when it is private *or absent* — the Hub hides the
+   difference, so a repo you can see while logged in tells you nothing. The site names Qwen in four
+   places (hero lede, SEO description, models band, `/docs/`), and it was published separately from
+   any release, so this is the check that stops the site advertising weights nobody can fetch.
 2. **Build it without deploying** — dispatch **`Mila Web`** (`web.yml`), which runs the same Hugo
    build and the same JSON-LD validation and never touches Pages. Inspect its artifact. This is the
    staging step the publish workflow structurally lacks.

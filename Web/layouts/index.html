@@ -11,8 +11,8 @@
          understanding is the value), and "consumer hardware you already own" rather than a VRAM
          figure -- naming the card states the dev box as a ceiling. No "the flagship" here: nothing
          has introduced it yet, so it dangles. That fact belongs on the Gemma chip below. */}}
-    <p class="lede">Gemma 4, Llama 3.x and GPT-2 — built from explicit C++23 components and
-    hand-written CUDA kernels you can read and understand, on the consumer hardware you already
+    <p class="lede">Qwen 3.8, Gemma 4, Llama 3.x and GPT-2 — built from explicit C++23 components
+    and hand-written CUDA kernels you can read and understand, on the consumer hardware you already
     own.</p>
     {{/* The CTA row was removed once, when nav, buttons and the destination boxes all pointed at
          the same off-page places. These two do not: both are bands on this page, and neither the
@@ -386,8 +386,8 @@ cmake --build build</code></pre>
 <section class="band">
   <div class="wrap wide">
     <h2>Model architectures implemented</h2>
-    <p class="sub">Three families, each raised from the metal and validated token-for-token against
-    a HuggingFace reference — a short, curated set rather than a model zoo.</p>
+    <p class="sub">Four families, each raised from the metal and checked against a HuggingFace
+    reference — a short, curated set rather than a model zoo.</p>
     <div class="chips">
       {{ range .Site.Params.models }}
       <a class="chip" href="{{ .url | default "https://github.com/ToddThomson/Mila#validated-capabilities" }}">

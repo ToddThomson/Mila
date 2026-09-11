@@ -57,9 +57,10 @@ component at a time and checking each against a reference.
 
 ## What that buys, and what it costs
 
-Three architecture families — Gemma 4, Llama 3.x and GPT-2 — each reproduce a HuggingFace reference
-token-for-token, on consumer hardware. Being fully explicit costs a few percent: Mila runs within
-1.03x of llama.cpp on decode and 1.14x on prefill at long context.
+Gemma 4, Llama 3.x and GPT-2 each reproduce a HuggingFace reference token-for-token, on consumer
+hardware; Qwen 3.8 is held to a perplexity bar instead, because a BF16 27B fits no card here to
+compare against. Being fully explicit costs a few percent: Mila runs within 1.03x of llama.cpp on
+decode and 1.14x on prefill at long context.
 
 It is not a breadth competitor. llama.cpp runs everything, everywhere; vLLM serves the datacenter.
 Mila runs a short, curated set and holds each one to parity, with the whole path readable.
