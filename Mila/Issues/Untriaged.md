@@ -10,6 +10,68 @@ pointer to its GitHub issue rather than a copy. Triage flow, categories and the 
 
 ---
 
+## The clang portability build has no parallelism cap and dies at the memory frontier
+
+`.github/workflows/build-pipeline.yml`, the `Build` step @ `2ff42c28`
+
+`cmake --build build -- -k 0 -j $(nproc)` is the only build path in the tree with no memory cap;
+`Docker/build-chat.sh:35` caps at 4 and explains why ("build parallelism is a MEMORY limit, not a
+core-count one"), and `Dockerfile.runtime` sets `CMAKE_BUILD_PARALLEL_LEVEL=4` after the uncapped
+build wedged Docker Desktop twice. The `ubuntu-24.04` runner is 4 vCPU / 16 GB and the tail
+translation units — the Qwen dispatch tree, `Mila_py.Wrappers.cpp` — cost several GB each.
+
+Found on the beta.3 release PR: run 34617000055 died `exit 137` at target `[1087/1246]`, with the
+last compiler output at 15:54:37 and the kill at 16:45:35 — fifty-one minutes of silence, which is
+thrash rather than a crash. The identical job had passed in 1h8m13s an hour earlier on the same
+content, so it is flaky at the frontier and this release is what pushed it there. Re-running cleared
+it; Todd chose that over changing the workflow mid-window.
+
+## Two dockerhub scripts cannot execute under WSL, because checkout gives them CRLF
+
+`scripts/dockerhub/verify-image.sh` @ `2ff42c28`
+
+`git ls-files --eol scripts/dockerhub/` reports `i/lf w/crlf` for `verify-image.sh` and
+`build-runtime-image.sh`, and `i/lf w/lf` for `publish-image.sh`. Running the first under WSL fails
+instantly with `env: $'bash\r': No such file or directory`. The stored form is LF, so a Linux clone
+is fine and no published artifact is affected — `.gitattributes` carries only `* text=auto`, so a
+Windows checkout writes CRLF. `publish-image.sh` escaped because a tool last wrote it with LF and
+the tag checkout rewrote nothing.
+
+Found running RELEASING step 9 on a Windows box. Worked around by extracting the stored blob
+(`git show <tag>:<path>`), which the release window required anyway since the tree had to stay clean
+for the push gate. `*.sh text eol=lf` in `.gitattributes` would close it.
+
+## A seven-level relative include leaves a consumer about thirty characters of path budget
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Elementwise/Kernels/ElementwiseActivation.cu:21` @ `2ff42c28`
+
+The include is `"../../../../../../../Components/Activations/Activation/Kernels/ElementwiseActivation.h"`,
+86 characters. MSVC opens the unresolved form rather than collapsing `../` first, so the limit
+applies to the whole string: in the CPM gate's cache the path reached 264 against MAX_PATH's 260 and
+threw C1083 on a header that exists at a 176-character resolved path. `LongPathsEnabled=1` does not
+help, because the compiler does not opt in through its manifest.
+
+The budget for a consumer's Mila source root is `260 - 86 - 76 = ~97` characters; a typical
+`…\myapp\out\build\x64-debug\_deps\mila-src` is about 66, so it fits with roughly thirty to spare and
+a deeper project path does not. Surfaced because `173b17c3` made the gate's CPM cache tag-keyed,
+adding exactly 15 characters — correctly, to stop a warm cache validating the previous release — and
+that tipped it over; at beta.2 the same path measured 249. Two other five-plus-level relative
+includes exist in `Src`.
+
+## Publishing the container images compiles the tree twice, about sixty-six minutes
+
+`scripts/dockerhub/publish-image.sh` @ `2ff42c28`
+
+`MILA_CLEAN_BUILD=1` is forced on every invocation to clear BuildKit's cache mounts, which
+`--no-cache` alone leaves intact — the mechanism that stopped two wrong images shipping from another
+tree's objects. RELEASING's flow is build-to-verify at step 9.3 then build-to-push at step 9.6, so
+each release pays that compile twice: measured 33m17s and then 38m45s, of which only five or six
+minutes was upload.
+
+A push-only mode would halve it, at the cost of weakening the guarantee that what ships is what was
+gated — which is the whole reason the forced rebuild exists, so this is a trade to think about
+rather than an obvious fix.
+
 ## The packaging fixtures are an unread detector for source-tree pollution
 
 `Mila/Tests/Packaging/{fetchcontent,cpm}_consumer/Mila/Adaptors/Inference/Server/mila.cp313-win_amd64.pyd`

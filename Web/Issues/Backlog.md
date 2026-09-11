@@ -75,6 +75,31 @@ library rather than here.
 
 `Web/content/blog/longer-context-fixed-the-crash.md`.
 
+## `[ ]` The models band calls Gemma 4 the chat default, and there is no default
+
+`layout`
+
+Nothing in the chat harness carries a compiled-in default model: a search of
+`Mila/Adaptors/Chat/Src/` for `default_model`, `defaultModel` and `DEFAULT_MODEL` finds nothing, and
+`CLAUDE.md:14` says so outright. Confirmed against the published runtime image — bare `chat` refuses
+and names the flag that fixes it. So a reader who installs Gemma, types `chat`, and expects it to be
+picked up gets a refusal instead.
+
+Deleting the two words is the whole fix; the rest of the entry already carries the weight.
+`Web/layouts/index.html`, the models band.
+
+## `[ ]` The precision column offers deployments a reader cannot reach
+
+`layout`
+
+`FP4 / FP8` on Llama 3.1 8B and `BF16 / FP8 / FP4` on Llama 3.2 3B sit under a heading about models
+you can run, so they read as precisions to choose between. `applyRequestedQuantization` refuses to
+reload pre-quantized weights as anything else, so every published model is FP4 at runtime and the
+others are converter capabilities.
+
+Mila's `BACKLOG.md` records this against `README.md:163,165` and does not know the website repeats
+it — widen that entry, or close both together. `Web/layouts/index.html`, the models band.
+
 ## `[ ]` Two orphaned brand assets still carry the old Achilles mark
 
 `brand`
