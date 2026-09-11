@@ -25,8 +25,9 @@ Triage runs at each `beta.N` / `rc.N` increment. It is an event, not a mood: ope
 give every line a destination, and leave the file shorter than you found it.
 
 **Promotion is one-way.** An item that reached `BACKLOG.md` never returns to `Untriaged.md` — that
-file is lossy, and demoting a considered item into it puts it on a delete-at-tag timer. If
-committed work turns out not to belong in the release, it goes to `Future.md` or a category below.
+file is lossy, and demoting a considered item into it puts it on a timer that expires at the
+production tag. If committed work turns out not to belong in the release, it goes to `Future.md`
+or a category below.
 
 ## Categories
 
@@ -99,9 +100,10 @@ undecodable, which is the lossiness rule destroying signal rather than noise.
 **Name the symbol, not just the location.** `matchesPath`'s glob outlives
 `CompositeComponent.ixx:405`, and both together cost one clause.
 
-**Lossy by design.** An entry still in `Untriaged.md` at the release tag is **deleted, unexamined** —
-not re-triaged. If nobody promoted it across a whole cycle it was noise, and rediscovering it
-later costs less than carrying it. This rule is what stops this file becoming a second backlog,
+**Lossy by design.** An entry still in `Untriaged.md` at the **production** release tag is
+**deleted, unexamined** — not re-triaged. A checkpoint tag on the pre-release ladder deletes
+nothing: the timer runs for a cycle, and a cycle ends at production. If nobody promoted an entry
+across a whole cycle it was noise, and rediscovering it later costs less than carrying it. This rule is what stops this file becoming a second backlog,
 and it is the one that will feel wrong.
 
 **Lossiness applies to `Untriaged.md` alone.** Every other file here keeps its own discipline, or the

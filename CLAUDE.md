@@ -210,7 +210,8 @@ later. **Never write a finding straight into `BACKLOG.md`.**
 - **`Mila/Issues/`** — everything upstream of that commitment; the funnel and its categories, with
   the flow and the rules in [`Mila/Issues/README.md`](Mila/Issues/README.md). `Untriaged.md` is
   untriaged capture, one line per entry, and is **lossy by design**: an entry still there at the
-  release tag is deleted unexamined. Triage runs at each `beta.N` / `rc.N` increment and gives every
+  **production** release tag is deleted unexamined — a checkpoint tag on the ladder deletes nothing.
+  Triage runs at each `beta.N` / `rc.N` increment and gives every
   line a destination — `BACKLOG.md`, a category file, or deletion. A category names **what happens
   to an item**, never what it is about.
 - **`CHANGELOG.md`** — one short entry per **production (unsuffixed) release**, generated from its
