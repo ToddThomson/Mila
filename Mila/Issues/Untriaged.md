@@ -196,3 +196,43 @@ a card. Either the scalar path is dead code behind a refusal, or there is a non-
 route that makes it live and nothing says which. Found deciding the published architecture lists,
 which now start at 80 and so compile it for nobody. Worth resolving before someone maintains a
 kernel that cannot execute.
+
+## Published binaries may not carry the third-party notices they are required to
+
+`NOTICE.md:39` @ `41c89f23`
+
+NOTICE.md closed with "Mila is distributed as source... **A binary distribution that
+linking them would need to carry their notices** -- that decision is open", pointing at a
+BACKLOG section the hard prune has since deleted. The premise expired when the project began
+publishing: the `mila-llm` wheels carry nlohmann/json, miniz, CUTLASS and pybind11, and the
+container images additionally carry curl. The paragraph is rewritten and the table is now
+mechanically gated, but **whether each published artifact actually ships the notices is
+untested and unknown** -- that is the part this entry is for. Triage should decide whether the
+wheel and image builds embed NOTICE.md, and whether anything already published needs a
+follow-up. Licence texts to be read at source, not from this file.
+
+## CUTLASS is five releases behind, and CI structurally cannot gate the bump
+
+`CMakeLists.txt:320` @ `41c89f23`
+
+The pin is v4.5.1; latest stable is v4.7.1. This is the one stale pin left after miniz and curl
+moved, and it is deferred rather than forgotten: bumping CUTLASS recompiles every CUDA kernel,
+and `build-pipeline.yml` says in its own header that GPU correctness tests are not run because
+hosted runners have no GPU. So no amount of green CI would mean anything here -- it needs the
+local suite on real hardware, which makes it a scheduled piece of work rather than a pin bump.
+Worth doing sooner than that implies: PR #3082 (`is_family_of()` for the SM12x block-scaled arch
+guard) sits somewhere in that range and bears directly on whether NVFP4 is reachable on the 5060
+Ti. googletest v1.17.0 -> v1.18.0 is also outstanding and is trivial by comparison; it can ride
+along or wait. The weekly `Dependency pins` workflow now reports both.
+
+## Llama prefill has no flash path and is 3.8x slower than a larger Gemma
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Gqa/` @ `41c89f23`
+
+Measured on the 5060 Ti, one build, both models FP4, 22496 tokens at 49152 context: Gemma 4
+12B reaches ~1461 tok/s and dispatches `gqa_flash_prefill_mma_bf16_kernel`, while Llama 3.1 8B
+reaches ~382 tok/s and falls to `Gqa::prefill_softmax_bf16_kernel`. A smaller model is 3.8x
+slower because flash prefill is wired on Gemma's blocks and not Llama's. Per-kernel shares at
+that length: Llama is 75.3% attention against Gemma's 59.5%. Found while sweeping GEMM share
+across length and family, not while looking at Llama -- so nothing here says whether the
+absence is a deliberate scoping decision or an oversight, which is what triage needs to settle.

@@ -269,17 +269,6 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-        // ====================================================================
-        // Profiling
-        // ====================================================================
-
-        void profilePrefill( const std::vector<int32_t>& token_ids )
-        {
-            auto input = makeTokenTensor( token_ids );
-            this->getNetwork().prefill( input );
-            this->getNetwork().synchronize();
-        }
-
     protected:
 
         GenerateStatus onGenerating(

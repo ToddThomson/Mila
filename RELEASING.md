@@ -238,6 +238,16 @@ because it clones from GitHub at the tag. At `beta.2` we tagged, published a Rel
 Discussion, and only then discovered the wheels could not be validated at all. Under this order that
 lands while nothing is immutable yet.
 
+**Before step 1, review the dependency pins.** Run
+`python scripts/dependencies/check_pins.py --check-upstream` and decide, per pin, whether it moves
+this cycle. This comes first for the same reason wheel validation does: a bump changes what the
+wheels and images contain, so taking one after validating them throws that validation away. The
+weekly `Dependency pins` workflow reports the same thing between releases, but a production tag is
+where the decision is actually owed — a pin left alone is a choice, not an oversight, once it has
+been looked at. A bump that touches CUDA needs the **local** GPU suite; CI has no GPU and cannot
+gate it. Whatever moves, move its `NOTICE.md` row in the same commit or the `notice-gate` CI job
+fails.
+
 1. **Validate the wheels from a `dev` snapshot, before anything is permanent.** Build all four from
    the current `dev` head — still carrying `+build`, so they version as `0.20.0b3.devN` — and take
    them through [Publishing the wheels](#publishing-the-wheels) steps 1, 2, 3 and 4. **TestPyPI takes

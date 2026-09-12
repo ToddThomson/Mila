@@ -10,16 +10,15 @@
  * kernel appears in the capture.
  *
  * Phases:
- *   prefill   profilePrefill() only (prompt forward pass + sync).
+ *   prefill   generate() capped at one new token; prompt forward pass only.
  *   decode    full generate(); decode loop dominates a long generation.
  *   generate  full generate(); alias of decode with a separate label.
  *
- * The public API exposes generate() (prefill + decode together) and
- * profilePrefill(), but not a decode-only entry point, so the decode and
- * generate phases both run the full generate path. generate() streams tokens
- * through a callback and returns only a finish reason; the profiler measures
- * prefill (call -> first token) and decode (first -> last token) timing from
- * the callback cadence.
+ * Every phase runs through generate(), the entry a consumer calls. It streams
+ * tokens through a callback and returns only a finish reason, so the profiler
+ * reads prefill (call -> first token) and decode (first -> last token) from the
+ * callback cadence. Prefill caps generation at one token and reports the first
+ * boundary, which costs one decode step and needs no profiling-only entry point.
  *
  * All Mila template instantiation (model loading via fromPretrained) is confined
  * to this module interface unit. See [[feedback-build-in-vs]]: the latest VS2026
@@ -60,9 +59,9 @@ namespace Mila::Profiling
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Data;
 
-    enum class ModelFamily { Llama, Gemma };
+    enum class ModelFamily { Llama, Gemma, Qwen };
     enum class Phase { Prefill, Decode, Generate };
-    enum class Quantization { None, FP8, FP4 };
+    enum class Quantization { None, FP8, FP4, Plan };
     enum class Precision { BF16, FP32 };
 
     struct Options
@@ -228,9 +227,10 @@ namespace Mila::Profiling
     {
         std::cerr
             << "Usage: " << program << " [options]\n"
-            << "  --model           llama | gemma.                Default: llama.\n"
+            << "  --model           llama | gemma | qwen.         Default: llama.\n"
             << "  --phase           prefill | decode | generate.  Default: decode.\n"
-            << "  --quantization    none | fp8 | fp4 (bf16 only). Default: fp4.\n"
+            << "  --quantization    none | fp8 | fp4 | plan (bf16 only). plan = qwen only.\n"
+            << "                                                  Default: fp4.\n"
             << "  --precision       bf16 | fp32 (llama only).     Default: bf16.\n"
             << "  --model-path      Weights file. Default: per --model family.\n"
             << "  --tokenizer       Tokenizer file. Default: per --model family.\n"
@@ -293,8 +293,10 @@ namespace Mila::Profiling
                     options.model_family = ModelFamily::Llama;
                 else if ( value == "gemma" )
                     options.model_family = ModelFamily::Gemma;
+                else if ( value == "qwen" )
+                    options.model_family = ModelFamily::Qwen;
                 else
-                    argError( std::format( "Unknown --model '{}'. Expected llama or gemma.", value ) );
+                    argError( std::format( "Unknown --model '{}'. Expected llama, gemma or qwen.", value ) );
             }
             else if ( arg == "--phase" )
             {
@@ -319,8 +321,10 @@ namespace Mila::Profiling
                     options.quantization = Quantization::FP8;
                 else if ( value == "fp4" )
                     options.quantization = Quantization::FP4;
+                else if ( value == "plan" )
+                    options.quantization = Quantization::Plan;
                 else
-                    argError( std::format( "Unknown --quantization '{}'. Expected none, fp8, or fp4.", value ) );
+                    argError( std::format( "Unknown --quantization '{}'. Expected none, fp8, fp4, or plan.", value ) );
             }
             else if ( arg == "--precision" )
             {
@@ -385,26 +389,50 @@ namespace Mila::Profiling
             }
         }
 
+        const std::filesystem::path models_dir( MODELS_DIR );
+
         if ( options.model_path.empty() )
         {
-            options.model_path = ( options.model_family == ModelFamily::Gemma )
-                ? std::filesystem::path( MODELS_DIR ) / "Gemma" / "gemma4_12b_it_bf16.bin"
-                : std::filesystem::path( MODELS_DIR ) / "llama" / "llama31_8b_instruct_bf16.bin";
+            switch ( options.model_family )
+            {
+                case ModelFamily::Gemma:
+                    options.model_path = models_dir / "Gemma" / "gemma4_12b_it_bf16.bin";
+                    break;
+
+                case ModelFamily::Qwen:
+                    options.model_path = models_dir / "Qwen" / "qwen38_27b_bf16.bin";
+                    break;
+
+                default:
+                    options.model_path = models_dir / "llama" / "llama31_8b_instruct_bf16.bin";
+                    break;
+            }
         }
 
         if ( options.tokenizer_path.empty() )
         {
-            options.tokenizer_path = ( options.model_family == ModelFamily::Gemma )
-                ? std::filesystem::path( MODELS_DIR ) / "Gemma" / "gemma_tokenizer.bin"
-                : std::filesystem::path( MODELS_DIR ) / "llama" / "llama32_tokenizer.bin";
+            switch ( options.model_family )
+            {
+                case ModelFamily::Gemma:
+                    options.tokenizer_path = models_dir / "Gemma" / "gemma_tokenizer.bin";
+                    break;
+
+                case ModelFamily::Qwen:
+                    options.tokenizer_path = models_dir / "Qwen" / "qwen38_tokenizer.bin";
+                    break;
+
+                default:
+                    options.tokenizer_path = models_dir / "llama" / "llama32_tokenizer.bin";
+                    break;
+            }
         }
 
         return options;
     }
 
-    // Shared phase driver. Model families differ only in construction; the
-    // measured surface (generate(), profilePrefill()) has the same shape on
-    // LlamaModel and GemmaModel, so the phases are family-agnostic.
+    // Shared phase driver. Model families differ only in construction; every phase
+    // is measured through generate(), the public entry a consumer calls, so the
+    // phases are family-agnostic and no family needs a profiling-only accessor.
     template<typename TModel>
     void runPhases( TModel& model, const Options& options, const std::vector<int32_t>& prompt_tokens )
     {
@@ -418,28 +446,67 @@ namespace Mila::Profiling
             if ( options.prefill_seq_len > 0 )
                 prefill_tokens.assign( options.prefill_seq_len, 0 );
 
-            // profilePrefill() runs the prompt forward pass and synchronizes, so a
-            // wall-clock bracket around it is a valid device-inclusive prefill time.
-            auto timedPrefill = [&]() -> float
+            // Measured through generate(), the entry a consumer actually has: the first
+            // token cannot be produced until the prompt forward pass has completed, so
+            // call -> first token IS the prefill. max_new_tokens = 1 buys that boundary
+            // for one decode step, which is under a percent of a long prompt.
+            //
+            // SALT: prefill reuses a matching KV prefix (prefillFrom( input, reuse )), so
+            // an unsalted repeat run would measure a cache hit and report it as prefill.
+            // Varying the first token forces a full prefill every run.
+            auto timedPrefill = [&]( int run_index ) -> float
             {
+                std::vector<int32_t> tokens = prefill_tokens;
+
+                // Measured 2026-09-12: without this line the same config reports 49.96 ms
+                // instead of 12914.53 ms -- runs after the first reuse the whole prefix and
+                // do no prefill at all. The salt is load-bearing, not a precaution.
+                if ( !tokens.empty() )
+                    tokens[ 0 ] = run_index + 1;
+
+                Mila::Dnn::GenerateParams gen_params;
+                gen_params.max_new_tokens = 1;
+                gen_params.sampling.temperature = 0.0f;
+                gen_params.sampling.top_k = 0;
+
                 const auto start = std::chrono::high_resolution_clock::now();
+                auto first_token_time = start;
+                bool produced = false;
 
                 {
                     Mila::Profiling::NvtxRange range( "prefill" );
-                    model.profilePrefill( prefill_tokens );
+                    [[maybe_unused]] const auto status = model.generate(
+                        tokens,
+                        [&]( int32_t )
+                        {
+                            if ( !produced )
+                            {
+                                first_token_time = std::chrono::high_resolution_clock::now();
+                                produced = true;
+                            }
+                        },
+                        gen_params,
+                        {} );
                 }
 
-                const auto stop = std::chrono::high_resolution_clock::now();
+                // on_token does not fire for EOS, so fall back to the call boundary
+                // rather than silently reporting a zero.
+                if ( !produced )
+                    first_token_time = std::chrono::high_resolution_clock::now();
 
-                return std::chrono::duration<float, std::milli>( stop - start ).count();
+                return std::chrono::duration<float, std::milli>( first_token_time - start ).count();
             };
 
             std::cout << std::format(
                 "[prefill] seq_len={} context_length={} warmup_runs={}\n",
                 prefill_tokens.size(), options.context_length, options.warmup_runs );
 
+            // One monotonic salt across warmup, measured and capture runs, so no run
+            // can reuse an earlier run's prefix.
+            int salt = 0;
+
             for ( int run = 0; run < options.warmup_runs; ++run )
-                timedPrefill();
+                timedPrefill( salt++ );
 
             // A few measured runs; report min (least noise) and mean. The tax-gone
             // sweep (GqaFlashAttention.md 10, item 2) reads min_ms across context
@@ -450,7 +517,7 @@ namespace Mila::Profiling
 
             for ( int run = 0; run < kMeasuredRuns; ++run )
             {
-                const float ms = timedPrefill();
+                const float ms = timedPrefill( salt++ );
                 min_ms = std::min( min_ms, ms );
                 sum_ms += ms;
             }
@@ -462,7 +529,7 @@ namespace Mila::Profiling
             // Final capture run for Nsight (--capture-range=cudaProfilerApi): the
             // attribution split (attention vs linear GEMM vs launch gaps) is read here.
             cudaProfilerStart();
-            timedPrefill();
+            timedPrefill( salt++ );
             cudaProfilerStop();
 
             return;
@@ -638,6 +705,54 @@ namespace Mila::Profiling
         printGpuMemory( "after run (includes cuBLASLt workspace growth)" );
     }
 
+    template<TensorDataType TPrecision>
+    void runProfileQwen( const Options& options )
+    {
+        using Model = QwenModel<DeviceType::Cuda, TPrecision>;
+
+        QwenModelConfig model_config( options.context_length );
+
+        if ( options.quantization == Quantization::FP8 )
+            model_config.withFP8Quantization();
+        else if ( options.quantization == Quantization::FP4 )
+            model_config.withFP4Quantization();
+        else if ( options.quantization == Quantization::Plan )
+            model_config.withPrecisionPlan();
+
+        const DeviceId device{ DeviceType::Cuda, 0 };
+
+        std::cout << "Loading model: " << options.model_path << "\n";
+
+        VramHighWaterSampler load_sampler;
+        load_sampler.start();
+        const auto load_start = std::chrono::high_resolution_clock::now();
+
+        // IIFE so the NVTX "model_load" range covers exactly the load (visible under
+        // nsys for the H2D memcpy breakdown) while keeping model in the outer scope.
+        auto model = [&]
+        {
+            NvtxRange range( "model_load" );
+            return Model::fromPretrained( options.model_path, model_config, device );
+        }();
+
+        const double load_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::high_resolution_clock::now() - load_start ).count();
+
+        std::cout << "Model loaded.\n";
+        reportLoad( options.model_path, load_ms );
+        load_sampler.stopAndReport( "during load window (transient high-water)" );
+        std::cout << model->toString();
+        printGpuMemory( "after model load (weights + KV cache + prefill workspace)" );
+
+        auto tokenizer = BpeTokenizer::loadQwen( options.tokenizer_path );
+        const auto encoded = tokenizer->encode( options.prompt );
+        const std::vector<int32_t> prompt_tokens( encoded.begin(), encoded.end() );
+
+        runPhases( *model, options, prompt_tokens );
+
+        printGpuMemory( "after run (includes cuBLASLt workspace growth)" );
+    }
+
     export int profileMain( int argc, char** argv )
     {
         try
@@ -660,6 +775,15 @@ namespace Mila::Profiling
                 return EXIT_FAILURE;
             }
 
+            // A precision plan allocates weight bits per role from a pre-quantized
+            // artifact; only Qwen 3.8 ships one.
+            if ( options.quantization == Quantization::Plan
+                 && options.model_family != ModelFamily::Qwen )
+            {
+                std::cerr << "Error: --quantization plan requires --model qwen.\n";
+                return EXIT_FAILURE;
+            }
+
             if ( options.precision == Precision::FP32 )
             {
                 if ( options.quantization != Quantization::None )
@@ -668,11 +792,12 @@ namespace Mila::Profiling
                     return EXIT_FAILURE;
                 }
 
-                // GemmaModel is only instantiated at BF16 anywhere in the tree (Chat is
-                // BF16-only); keep FP32 Llama-only rather than grow a new instantiation.
-                if ( options.model_family == ModelFamily::Gemma )
+                // GemmaModel and QwenModel are only instantiated at BF16 anywhere in the
+                // tree (Chat is BF16-only); keep FP32 Llama-only rather than grow a new
+                // instantiation.
+                if ( options.model_family != ModelFamily::Llama )
                 {
-                    std::cerr << "Error: --model gemma supports --precision bf16 only.\n";
+                    std::cerr << "Error: only --model llama supports --precision fp32.\n";
                     return EXIT_FAILURE;
                 }
 
@@ -681,6 +806,10 @@ namespace Mila::Profiling
             else if ( options.model_family == ModelFamily::Gemma )
             {
                 runProfileGemma<TensorDataType::BF16>( options );
+            }
+            else if ( options.model_family == ModelFamily::Qwen )
+            {
+                runProfileQwen<TensorDataType::BF16>( options );
             }
             else
             {

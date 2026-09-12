@@ -225,7 +225,7 @@ endif()
 CPMAddPackage(
     NAME miniz
     GITHUB_REPOSITORY richgel999/miniz
-    GIT_TAG master
+    GIT_TAG 3.1.2
 )
 
 CPMAddPackage(
@@ -264,11 +264,10 @@ if(MILA_ENABLE_LIBCURL)
     # Protocols are cut to HTTP/HTTPS. No nghttp2, brotli or zstd either: HuggingFace serves
     # LFS blobs uncompressed over HTTP/1.1, so each would be a dependency that buys nothing.
     #
-    # REVIEW: 8.21 is the latest GH release
     CPMAddPackage(
         NAME curl
         GITHUB_REPOSITORY curl/curl
-        GIT_TAG curl-8_11_1
+        GIT_TAG curl-8_22_0
         OPTIONS
             "BUILD_SHARED_LIBS OFF"
             "BUILD_STATIC_LIBS ON"

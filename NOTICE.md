@@ -31,12 +31,22 @@ what terms?" in one place.
 | Dependency | Version | License | When |
 |---|---|---|---|
 | [nlohmann/json](https://github.com/nlohmann/json) | 3.12.0 | MIT | Always |
-| [miniz](https://github.com/richgel999/miniz) | `master` | MIT | Always |
+| [miniz](https://github.com/richgel999/miniz) | 3.1.2 | MIT | Always |
+| [curl](https://github.com/curl/curl) | curl-8_22_0 | [curl](https://curl.se/docs/copyright.html) (SPDX `curl`) | `MILA_ENABLE_LIBCURL` |
 | [NVIDIA/cutlass](https://github.com/NVIDIA/cutlass) | v4.5.1 | BSD-3-Clause | CUDA builds |
-| [pybind11](https://github.com/pybind/pybind11) | v3.0.4 | BSD-3-Clause | `MILA_ENABLE_PYTHON_BINDINGS` |
+| [pybind11](https://github.com/pybind/pybind11) | v3.1.0 | BSD-3-Clause | `MILA_ENABLE_PYTHON_BINDINGS` |
 | [googletest](https://github.com/google/googletest) | v1.17.0 | BSD-3-Clause | Tests |
 
-Licenses are as declared by each project. Mila is distributed as source, so these arrive from their
-own repositories rather than from this one. **A binary distribution that links them would need to
-carry their notices** — that decision is open (see BACKLOG, *Project Hygiene & Contributor
-Readiness*).
+This table is checked mechanically against the build — `scripts/dependencies/check_pins.py
+--verify-notice` fails if a pin and its row disagree, or if a fetched dependency has no row.
+Change a pin and this table in the same commit.
+
+Licenses are as declared by each project; a build fetches each from its own repository rather than
+from this one.
+
+Mila is no longer distributed only as source. The `mila-llm` wheels on PyPI and the container images
+on Docker Hub are **binary distributions that link this material** — the wheels carry nlohmann/json,
+miniz, CUTLASS and pybind11, and the container images additionally carry curl. Those distributions
+have to carry these notices. Whether each published artifact does is recorded as an open item in
+[`Mila/Issues/Untriaged.md`](Mila/Issues/Untriaged.md); this table is the source it should be built
+from.

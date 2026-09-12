@@ -97,21 +97,24 @@ for; it is not what anyone has observed, because the dev box has only sm_89 and 
 A10G or A100 hour would settle whether an RTX 30-series card really runs a published FP4 model, and
 whether Turing's non-WMMA fallback is reachable at all or is dead code behind those throws.
 
-#### miniz serves an archive stack nothing reaches, and is the one unpinned dependency
+#### miniz serves an archive stack nothing reaches
 
 `open` · `build` · `architecture`
 
-`CPMAddPackage(NAME miniz GITHUB_REPOSITORY richgel999/miniz GIT_TAG master)` at
-`CMakeLists.txt:228` is the only unpinned dependency in the tree — nlohmann_json is `3.12.0`, curl
-`curl-8_11_1`, pybind11 `v3.1.0`, cutlass `v4.5.1`, and there is no `package-lock.cmake`. This
-theme's criterion requires every vendored dependency in a published binary to be current or pinned
-with the reason written down, and **removal is what satisfies it**, at the production release the
-criterion binds.
+`CPMAddPackage(NAME miniz GITHUB_REPOSITORY richgel999/miniz GIT_TAG 3.1.2)` at
+`CMakeLists.txt:228`. This theme's criterion requires every vendored dependency in a published
+binary to be current or pinned with the reason written down, and **removal is what satisfies
+it**, at the production release the criterion binds.
+
+The pin arrived incidentally — the tag went from `master` to `3.1.2` while `NOTICE.md` was being
+brought back into agreement with the build, so the entry no longer turns on miniz being the one
+unpinned dependency. That was the weaker half of the case anyway; the action is unchanged.
 
 **Pinning it first was considered and declined** (Todd, 2026-09-09) as inconsequential, and the
 reasoning is worth keeping so it is not re-proposed: unlike an ambient CUDA toolkit, a floating
 miniz cannot silently change a shipped artifact. A different revision either fails the build loudly
-or yields a serializer no code path reaches. So there is no interim step — the entry is one action.
+or yields a serializer no code path reaches. Pinning was never an interim step toward removal and
+is not one now — it bought nothing, which is exactly what "inconsequential" predicted.
 
 Remove it for the production release: delete
 `ZipSerializer.ixx` (the only `ArchiveSerializer` implementation and the only file naming miniz),

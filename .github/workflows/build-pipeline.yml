@@ -20,6 +20,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  notice-gate:
+    name: NOTICE.md matches the dependency pins
+    # Its own job, not a step in compile-and-gate: this is a two-second offline check
+    # and a separate job reports drift in seconds rather than after a 20-minute clang
+    # build. No toolchain, no container, no network.
+    #
+    # NOTICE.md is a release artifact, not a passive record -- the published wheels and
+    # container images link this material -- so a pin bumped without its NOTICE row
+    # ships a false statement about what the binary contains. That has already happened
+    # twice (pybind11 recorded a version the build had moved off; curl had no row at
+    # all), which is why this is a gate and not a release-checklist line.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify NOTICE.md against CMake pins
+        run: python3 scripts/dependencies/check_pins.py --verify-notice
+
   compile-and-gate:
     name: Compile (clang-21) + packaging gates
     runs-on: ubuntu-24.04
