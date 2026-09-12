@@ -195,10 +195,22 @@ def latest_release(slug, token):
 
         tag = release.get("tag_name", "")
 
-        if tag and "dev" not in tag.lower():
+        if tag and not is_development_tag(tag):
             return tag
 
     return None
+
+
+def is_development_tag(tag):
+    """Is this tag a development snapshot rather than a release?
+
+    NVIDIA publishes CUTLASS's in-progress branch as `vX.Y.0dev` with the GitHub
+    prerelease flag UNSET, so GitHub labels it "Latest" and the API returns it from
+    releases/latest. The suffix is the only reliable signal.
+    """
+    lowered = tag.lower()
+
+    return any(marker in lowered for marker in ("dev", "rc", "alpha", "beta", "nightly"))
 
 
 def check_upstream():
@@ -206,10 +218,19 @@ def check_upstream():
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
 
     behind = []
+    development = []
 
     print(f"Comparing {len(pins)} pins against upstream.\n")
 
     for slug, pin in sorted(pins.items()):
+        # A pin on a development tag is AHEAD of the newest release, so comparing it
+        # against one reports BEHIND forever. Name what it actually is instead -- a
+        # weekly false alarm is worse than no report, because it teaches you to skip it.
+        if is_development_tag(pin):
+            print(f"  DEV    {slug:<26} {pin}  (development snapshot, not a release)")
+            development.append((slug, pin))
+            continue
+
         latest = latest_release(slug, token)
 
         if latest is None:
@@ -234,6 +255,15 @@ def check_upstream():
 
         for slug, pin in floating:
             print(f"  - {slug} is pinned to {pin}")
+
+    if development:
+        print("\nPinned to a development snapshot rather than a release:\n")
+
+        for slug, pin in development:
+            print(f"  - {slug} is pinned to {pin}")
+
+        print("\nDeliberate while nothing compiles against it. Revisit before any code")
+        print("starts including its headers, and before a production tag.")
 
     if behind:
         print(f"\n{len(behind)} pin(s) behind upstream. Advisory only -- a bump that")

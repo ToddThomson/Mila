@@ -115,11 +115,23 @@ Gemma 4 path must not be built through a fuse-then-upload detour it does not
 need.
 
 **(b) "This maps directly onto the vendored CUTLASS grouped-GEMM kernels."**
-True for BF16, and true for block-scaled FP4 on SM100. **Not** true for
-block-scaled FP4 grouped GEMM on SM120, the validation card: those templates
-fail to initialize and emit garbage, and the known fix is not upstream
-(Section 7.2(c)). Treat CUTLASS as one candidate backend for the BF16 grouped
-path, not as the plan for the quantized one.
+**Correct as written, including for block-scaled FP4 on SM120.** An earlier
+revision of this document claimed otherwise; that claim was the error, not §8.
+
+Verified in the vendored tree:
+`include/cutlass/gemm/collective/sm120_blockscaled_mma_array_tma.hpp` (`_array_`
+is CUTLASS's name for the Ptr-Array/grouped variant), plus
+`builders/sm120_blockscaled_mma_builder.inl`. The official example is
+`examples/79_blackwell_geforce_gemm/79d_blackwell_geforce_nvfp4_grouped_gemm.cu`
+with `ArchTag = cutlass::arch::Sm120`, present since CUTLASS 3.9.0 and in every
+version Mila has pinned. The field reports of garbage output on SM120 trace to
+the **arch flag** (`compute_120a` versus `compute_120f`), not to a missing or
+defective kernel — Section 7.2(b).
+
+**CUTLASS remains the only route for the grouped path.** cuBLASLt has no
+grouped/varying-shape matmul in CUDA 13.3 or 13.4 (`cublasLtGemmGroupedBatchedEx`
+appears in documentation ahead of both headers), so unlike the dense path in
+Section 7.1 there is no library alternative here.
 
 **(c) §13 open decision, "whether shared experts are `GatedMLP` instances
 composed beside the router or a distinct always-on path."** **Decided:** the
@@ -258,14 +270,47 @@ the only writer, weights declare their policy in
 the compiled one. NVFP4 adds an export path and traits rows; it does not add a
 runtime mode.
 
+### 7.1a The DENSE path needs no kernel work at all — measured
+
+**cuBLASLt already performs native NVFP4 GEMM on SM120**, and the numbers are
+not marginal. `Mila/Profiling/Microbenchmarks/CublasLtScaleModes.cu`, both
+cards, CUDA 13.3, Gemma 4 12B prefill shapes at M=1024:
+
+| arm | 4070 (SM 8.9) | 5060 Ti (SM 12.0) |
+|---|---|---|
+| BF16 reference | 52.5-60.3 | 50.8-51.3 |
+| FP8 + `SCALAR_32F` (ships today) | 103.9-119.9 | 183.0-197.2 |
+| FP8 + `OUTER_VEC_32F` | no algorithm | no algorithm |
+| FP4 + `VEC16_UE4M3` | no algorithm | **329.3-361.3 TFLOP/s** |
+
+361 against the `mxf4nvf4` instruction ceiling of 415.6 is **88% of peak**, and
+**1.8x the FP8 path Mila ships**. The mechanism is one descriptor attribute —
+`CUBLASLT_MATMUL_DESC_A_SCALE_MODE = CUBLASLT_MATMUL_MATRIX_SCALE_VEC16_UE4M3`
+with A and B as `CUDA_R_4F_E2M1` — not a kernel project. Every mode that matters
+is in **CUDA 13.3**; 13.4 adds only packed MX-style layouts Mila does not use.
+
+Two consequences that reshape the rest of this section:
+
+- The dense expert GEMM, the shared-expert GEMM and every `Linear` in the model
+  reach NVFP4 through the library. **CUTLASS is needed only for the grouped
+  path** (Section 3(b)), where cuBLASLt has no equivalent.
+- The remaining risk is **numerics, not throughput**: this is W4A4, and
+  per-tensor FP8 activations already produced incoherent Gemma once. Block-16
+  scaling is a far finer instrument than what failed, so it is open rather than
+  lost — but it gates on token parity and coherent generation, never on the
+  per-layer tolerance alone.
+
+Also measured: `OUTER_VEC_32F` returns no algorithm on **either** card, so the
+per-token scale epilogue cannot be folded into the GEMM that way.
+`Fp8ActivationPrefill.md` attributes that limitation to Ada; it is not an Ada
+limitation.
+
 ### 7.2 The SM120 question
 
-The hardware is not in doubt. The RTX 5060 Ti (compute capability **12.0**,
-16311 MiB, 36 SMs) has the NVFP4 block-scaled tensor-core instruction, and
-dense block-scaled NVFP4 GEMM is known to work on SM120. What is in doubt is
-the **toolchain and the kernel authorship**, and three separate issues are
-routinely conflated into one. They are not the same problem and they do not
-have the same answer.
+The hardware is not in doubt, and Section 7.1a settles the dense path. What
+remains in doubt is the **toolchain** for the grouped path, where three separate
+issues are routinely conflated into one. They are not the same problem and they
+do not have the same answer.
 
 **(a) The `sm_100a` restriction is Python-DSL only — irrelevant to Mila.**
 CUTLASS `BlockScaledMmaOp` hard-codes `admissible_archs = [Arch.sm_100a]` in
@@ -296,59 +341,72 @@ published-artifact lists, where `120a` would pin to one architecture. This rig
 has **CUDA 13.4** and **CMake 4.0.1**, both of which support the `f` suffix, so
 this is expressible today with no toolchain upgrade.
 
-**(c) CUTLASS grouped block-scaled GEMM on SM120 — broken, with a known
-non-upstream fix.** TMA warp-specialized grouped GEMM tactics fail to
-initialize under `compute_120a`, producing garbage output rather than an error.
-Identical broken templates in CUTLASS 4.2.1 and 4.4.1. The fix is
-`compute_120f` (CUDA 13.0+), which restores the warp-specialized tactics:
-measured **14.6 -> 39.0 tok/s** single-user on an NVFP4 MoE model. It is **not
-upstream** — it required patching 10+ files across FlashInfer and vLLM.
-CUTLASS PR #3082 (`is_family_of()` for the SM12x arch guard) is the in-flight
-upstream correction; its status should be re-checked before this work starts.
+**(c) CUTLASS grouped block-scaled GEMM on SM120 — present and supported; the
+field failures are (b) in disguise.** The collective ships in every CUTLASS
+version Mila has pinned, and `79d_blackwell_geforce_nvfp4_grouped_gemm.cu` is
+an official SM120 example (Section 3(b) lists the verified paths). The reports
+of garbage output are builds using `compute_120a`, where the TMA
+warp-specialized tactics fail to initialize; `compute_120f` restores them,
+measured **14.6 -> 39.0 tok/s** on an NVFP4 MoE model.
+
+An earlier revision of this document called this a broken template with a
+non-upstream fix. That was wrong: it is the **same arch-flag trap as (b)**,
+which is the third place in this section where that flag turned out to be the
+actual story. Read (b) as the root cause and this as a symptom.
 
 Note that those numbers are from **RTX PRO 6000** (188 SMs, 96 GB). The 5060 Ti
 has 36 SMs. Do not transfer the throughput.
 
-### 7.3 Why this is a redirection rather than a blocker
+CUTLASS's documented SM120 constraints do apply and shape any grouped kernel:
+**TN layout only** (A row-major, B column-major), **cluster fixed at 1x1x1**
+(no multicast), NVFP4 tile shapes limited to `128x128x128`, `256x128x128` and
+`128x128x256`, and `EpilogueScheduleAuto` mandatory. The 128-row minimum tile
+is an independent reason the decode path cannot use the grouped kernel: at
+`M == 1` it would waste 127 of 128 rows, which is Section 6's gather-matvec
+split arrived at from the kernel side.
 
-Mila does not use CUTLASS grouped GEMM. It writes its own W4A16 GEMM and its
-own flash-attention kernels, and `FfnAndMoE.md` §8's "maps directly onto the
-vendored CUTLASS grouped-GEMM kernels" was a convenience assumption, not a
-constraint.
+### 7.3 What Mila writes, and what it does not
 
-That matters more than it sounds, because the two properties that broke
-everyone else's SM120 port are **design inputs** for a kernel written from
-scratch rather than porting problems:
+Nothing in Mila includes a CUTLASS header today; only the include directory is
+wired. That is a fact about the present, not a design position, and the split
+after Section 7.1a is clean:
 
-- SM120 uses warp-level `mma.sync`, **not** `tcgen05`/TMEM. Every SM100-derived
-  kernel (DeepGEMM, CUTLASS SM100 collectives, WGMMA flash attention) fails to
-  compile or crashes. This is the SM8x programming model **Mila's existing
-  kernels already use**.
-- SM120 has **99 KB shared memory per SM**, against SM100's 228 KB. Tile
-  designs inherited from SM100 do not fit. A kernel designed against 99 KB from
-  the start has no such inheritance.
+- **Dense GEMM — the library.** cuBLASLt reaches 88% of the instruction ceiling
+  on NVFP4 and 88-96% on FP8. Mila's own history says what happens to a hand
+  kernel here: the WMMA FP4 GEMM measured 4x slower at Stage 1 and 1.1-2x
+  slower at Stage 2, both against cuBLASLt. Do not re-litigate this.
+- **Grouped GEMM — CUTLASS.** No library alternative exists (Section 3(b)).
+- **Hand-written — only where neither serves.** The decode gather-matvec, whose
+  shape no GEMM library expresses and which the 128-row minimum tile rules out
+  of the grouped kernel anyway.
 
-The instruction is fixed-shape and non-tunable:
+Useful context if a hand-written kernel is ever reached for: SM120 uses
+warp-level `mma.sync`, **not** `tcgen05`/TMEM, so every SM100-derived kernel
+(DeepGEMM, CUTLASS SM100 collectives, WGMMA flash attention) fails to compile
+or crashes — while the SM8x programming model Mila's kernels already use ports
+directly. SM120 also has **99 KB shared memory per SM** against SM100's 228 KB,
+so inherited SM100 tile designs do not fit. The instruction is fixed-shape:
 `mma.sync.aligned.kind::mxf4nvf4.block_scale.scale_vec::4X.m16n8k64.row.col.f32.e2m1.e2m1.f32.ue4m3`,
-with quad-based scale-factor distribution (threads 0-1 supply SFA, thread 0
-SFB). Published SM12x reference kernels reach ~60% of peak, and the working
-consumer-Blackwell implementations got there with custom warp-level GEMMs
-rather than CUTLASS template inheritance — the same approach Mila would take.
+quad-based scale distribution, published SM12x references at ~60% of peak —
+which is the number to weigh against cuBLASLt's 88% before writing anything.
 
-**Decision required before any NVFP4 work is scheduled:** measure, on the 5060
-Ti, a hand-written SM120 NVFP4 blockscaled matvec against Mila's existing
-`PerGroupFp4<128>` W4A16 path. If NVFP4 does not beat the FP4 kernel Mila
-already has, the coupling buys nothing and MoE should land on
-`PerGroupFp4<128>` alone. **Measure the baseline before proposing**, and state
-the direction the number must move before running it.
+**The decision NVFP4 now gates on is numerics, not throughput.** Throughput is
+measured and favourable. Validate W4A4 against Gemma token parity and coherent
+generation before adopting it; if FP4 activations cannot hold, the dense path
+stays on `PerGroupFp4<128>` and MoE lands there unaffected.
 
 ### 7.4 Decoupling
 
 MoE and NVFP4 are **two milestones, not one**. MoE lands on the existing
 `PerGroupFp4<128>` and is complete and shippable there. NVFP4 is a policy
 addition that any `Linear` and the `MoeOp` can adopt afterwards, on any model.
-Coupling them makes the MoE milestone hostage to an unresolved kernel question
-on a single card. Land MoE first.
+
+The reason to keep them apart has changed but not weakened. It was "do not make
+MoE hostage to an unresolved kernel question"; the kernel question is now
+answered and the open one is whether FP4 **activations** hold their quality.
+That is a per-model numerics investigation with its own oracle runs, and
+nothing about the router, the expert bank or the grouped dispatch depends on
+its outcome. Land MoE first.
 
 ---
 
@@ -392,11 +450,59 @@ Only the 5 global layers scale with context. This is the strongest argument for
 the bounded-KV `TKvCachePolicy` sibling in `SlidingWindowKvCache.md` landing
 before, not after, this model.
 
+**NVFP4 KV does not help this model, and the reason is worth stating so it is
+not tried.** An NVFP4 KV cache halves KV against FP8 at under 1% accuracy loss,
+which is a real result — but Gemma 4's 5:1 sliding-window pattern has already
+made KV the cheap half here. Halving 0.83 GiB saves ~0.4 GiB against a weight
+problem measured in whole gigabytes. It is also not free: values are
+dequantized from NVFP4 to FP8 *before* attention, so it adds a pass of exactly
+the kind Section 7.1a removes elsewhere. Where it would matter is a family with
+unbounded KV — Llama 3.1 8B at 49152 context holds ~3.1 GiB of FP8 KV, and
+halving that is worth having. File it against Llama, not against this model.
+
+### 8.1 Expert residency — an open design axis
+
+Everything above assumes the whole expert bank is resident. That assumption is
+worth challenging rather than inheriting, because the **working set is far
+smaller than the resident set**: top-8 of 128 means a token touches 6.25% of
+each layer's experts.
+
+The arithmetic bounds it before any design work. Per decode token, 8 experts x
+5,947,392 parameters x 30 layers = **1.43B parameters**, or **~0.71 GB at 4
+bits**. The 5060 Ti negotiates **PCIe Gen5 x8 (~31.5 GB/s)** — measured, and
+better than the 4070's Gen4 x4 (~7.9 GB/s), which corrects a note that had the
+slots the other way round. That puts a hard ceiling of ~22.7 ms per token, so
+**~44 tokens/s if every active expert is streamed every token** — against 57.0
+tok/s measured for a resident 8B FP4 model. Streaming everything is therefore
+not a free lunch; it is roughly a halving, before any compute.
+
+Three things decide whether a partial-residency design beats that ceiling, and
+none is answered here:
+
+1. **Routing locality.** A resident cache of hot experts only pays if the hit
+   rate is high. Nothing in this document knows Gemma 4's routing entropy, and
+   it is measurable offline from the router weights plus a corpus — cheap, and
+   it gates the whole idea.
+2. **The prefetch window is closed by a serial dependency.** Layer N+1's router
+   consumes layer N's output, so the next layer's expert set is not knowable
+   while the current layer computes. There is no cross-layer prefetch without
+   speculating on the routing, which is a different and larger design.
+3. **Prefill does not benefit.** A 1024-token chunk with top-8-of-128 touches
+   essentially every expert in every layer, so the full bank must be resident
+   during prefill regardless. Residency streaming is a **decode-only**
+   technique, and it therefore cannot solve the fit problem Section 8 states —
+   only the steady-state one.
+
+The honest framing: this is an axis for running a model that **otherwise would
+not load at all**, not an optimization for one that fits. Decide it after the
+Section 8 table, not instead of it.
+
 `Chat.Footprint.ixx` and `MemoryFootprint.md` currently have **no term for a
 sparse layer** — no notion of resident-but-inactive parameters. Adding it is a
 prerequisite, not a follow-up: a footprint report that counts an MoE layer as
 dense is wrong by a factor of 14 on the only number a user checks before
-loading.
+loading. A residency design would need a second term on top, separating
+resident from active from streamed.
 
 ---
 
@@ -456,8 +562,10 @@ Each step is independently buildable and independently valuable.
 7. **`MoeOp` decode gather-matvec**, validated against step 6 at `M == 1`.
 8. **Converter + `fromPretrainedImpl`**, on `PerGroupFp4<128>`. **The model
    runs here.**
-9. **NVFP4** — only after the Section 7.3 measurement says it earns its place.
-   Its own step 0 is the `120f` build-flag correction of Section 7.2(b).
+9. **NVFP4** — throughput is already measured and favourable (Section 7.1a), so
+   this step is a **numerics** investigation: does W4A4 hold token parity and
+   coherent generation? Its own step 0 is the `120f` build-flag correction of
+   Section 7.2(b), without which none of it compiles.
 
 Steps 1-8 have no dependency on NVFP4 and no dependency on CUTLASS.
 

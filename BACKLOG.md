@@ -97,6 +97,29 @@ for; it is not what anyone has observed, because the dev box has only sm_89 and 
 A10G or A100 hour would settle whether an RTX 30-series card really runs a published FP4 model, and
 whether Turing's non-WMMA fallback is reachable at all or is dead code behind those throws.
 
+#### CUTLASS is fetched on every CUDA build and nothing includes it — decide at the rc.1 tag
+
+`open` · `build` · `ci`
+
+No translation unit in the tree carries a cutlass header; `Mila/CMakeLists.txt:77` wires the
+include directory and that is the whole of its use. It arrived in `e75938f3` alongside the WMMA
+FP4 GEMM work, which then hand-wrote `CudaW4A16Gemm.Wmma.cu` and never used it. The cost is
+**233 MB of the 753 MB `_deps` total**, cloned on every `MILA_HAS_CUDA` configure — every
+developer, every CI run, every container and wheel build, and every FetchContent consumer.
+`getting-started.md:85` and `Mila/Samples/QuickStart/Cpp/README.md:57` both name it to
+first-time readers. It has already shaped the build around itself: `linux-wheel`'s `binaryDir`
+is `/build` because its clone step fails across a Windows bind mount, and both the CI cache and
+`drive_cpm.cmake` exist partly to avoid re-cloning it.
+
+**Decision 2026-09-12: kept through rc.1, bumped to `v4.8.0dev`, and REMOVED AT THE rc.1 TAG IF
+STILL UNUSED.** Keeping it is not inertia — it is the only credible route to the two things
+cuBLASLt cannot express: the MoE grouped (Ptr-Array) GEMM, and a block-scaled GEMM that consumes
+scale factors natively and so absorbs the `dequantize_fp4_to_fp8` and `apply_per_token_scales`
+passes measured at 22-53% of prefill. Both are post-v0.20 and unscheduled, which is exactly why
+this is a gate rather than a commitment. Removal touches nine files: the CPM block,
+`Mila/CMakeLists.txt:77`, `NOTICE.md`, two `CMakePresets.json` descriptions, the CI cache
+comment, `drive_cpm.cmake`, `drive_fetchcontent.cmake`, and the two user-facing docs above.
+
 #### miniz serves an archive stack nothing reaches
 
 `open` · `build` · `architecture`

@@ -313,10 +313,18 @@ if(MILA_ENABLE_PYTHON_BINDINGS)
 endif()
 
 if( MILA_HAS_CUDA )
+    # Vendored but NOT YET INCLUDED BY ANYTHING -- no translation unit in Mila carries a
+    # cutlass header; only the include directory is wired (Mila/CMakeLists.txt). It is kept
+    # through rc.1 for the MoE grouped GEMM and block-scaled work that would use it, and is
+    # REMOVED AT THE rc.1 TAG IF STILL UNUSED (decision 2026-09-12; BACKLOG carries the gate).
+    #
+    # v4.8.0dev is a development snapshot, not a release: there is no v4.8.0, and GitHub
+    # labels it "Latest" only because NVIDIA leaves the prerelease flag unset. Chosen
+    # deliberately -- nothing compiles against it, so the newest surface costs nothing here.
     CPMAddPackage(
         NAME cutlass
         GITHUB_REPOSITORY NVIDIA/cutlass
-        GIT_TAG v4.5.1
+        GIT_TAG v4.8.0dev
         OPTIONS
             "CUTLASS_ENABLE_TESTS OFF"
             "CUTLASS_ENABLE_EXAMPLES OFF"

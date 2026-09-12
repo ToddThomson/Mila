@@ -33,7 +33,7 @@ what terms?" in one place.
 | [nlohmann/json](https://github.com/nlohmann/json) | 3.12.0 | MIT | Always |
 | [miniz](https://github.com/richgel999/miniz) | 3.1.2 | MIT | Always |
 | [curl](https://github.com/curl/curl) | curl-8_22_0 | [curl](https://curl.se/docs/copyright.html) (SPDX `curl`) | `MILA_ENABLE_LIBCURL` |
-| [NVIDIA/cutlass](https://github.com/NVIDIA/cutlass) | v4.5.1 | BSD-3-Clause | CUDA builds |
+| [NVIDIA/cutlass](https://github.com/NVIDIA/cutlass) | v4.8.0dev | BSD-3-Clause | CUDA builds |
 | [pybind11](https://github.com/pybind/pybind11) | v3.1.0 | BSD-3-Clause | `MILA_ENABLE_PYTHON_BINDINGS` |
 | [googletest](https://github.com/google/googletest) | v1.17.0 | BSD-3-Clause | Tests |
 
