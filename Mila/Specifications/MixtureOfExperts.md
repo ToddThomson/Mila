@@ -410,6 +410,76 @@ its outcome. Land MoE first.
 
 ---
 
+### 7.5 The NVFP4 pipeline — the activation half is what remains
+
+Mila is most of the way to an end-to-end NVFP4 pipeline already. Stating what
+ships is the point of this section, because the remaining work is far narrower
+than "add NVFP4" suggests and the architecture it plugs into is the one Qwen 3.8
+established.
+
+**Shipped:**
+
+- **Quantized weights, several formats.** `PerGroupFp4<128>` (E2M1 with an FP32
+  per-group scale), `PerChannelFp8<>`, `PerGroupCodebook2/3`. Offline through
+  `Tools/ExportArtifact`, declared in `__metadata__["mila_quantization"]`, and a
+  load refuses a policy that is not the compiled one.
+- **Companion-tensor traits.** `Policies.ixx` already serves a format whose
+  storage spills into a second plane, structurally detected, `if constexpr` at
+  every consumer. NVFP4's block-scale plane needs no new mechanism.
+- **Per-role bit allocation.** `WeightQuantization::Plan` and
+  `Qwen.PrecisionPlan.ixx` — a family's designed allocation read from a
+  pre-quantized artifact, with no quantize-on-load path because the codes are
+  fitted offline.
+- **Runtime activation quantization.** `cuda_quantize_bf16_to_fp8_per_token`
+  produces FP8 E4M3 with per-token absmax scales, shipped on and gated green.
+- **The GEMM.** Measured at 329.3-361.3 TFLOP/s for FP4 x FP4 with
+  `VEC16_UE4M3` (Section 7.1a). No kernel to write.
+
+**What remains is one kernel and one vocabulary extension.**
+
+**(a) An activation quantizer at block-16 granularity.** The existing quantizer
+emits one E4M3 scale per token; NVFP4 wants `e2m1` values with a `ue4m3` scale
+per 16 elements along K. Same shape of kernel — one pass over the activations,
+absmax then quantize — at a different granularity, writing the scale plane
+cuBLASLt expects. The layout is a contract, not a choice: the scale tensor must
+match what `VEC16_UE4M3` reads, and getting it wrong produces wrong numbers
+rather than an error, so it needs a CPU reference codec the way
+`CodebookPacking.ixx` has one.
+
+The cost trade is favourable and worth recording, because it inverts the usual
+objection to activation quantization. The pass this **deletes**
+(`dequantize_fp4_to_fp8`) is `O(weights)`; the pass it **adds** is
+`O(tokens x hidden)`. At a 512-token prompt that is the difference between
+51.6% of prefill and something near noise — the weight dequant is expensive
+precisely because it is paid per forward regardless of how few tokens are in
+flight.
+
+**(b) Plans must allocate activation precision, not only weight bits.**
+`LanguageModelConfig` is explicit that "a plan allocates WEIGHT bits", and that
+is the line NVFP4 crosses. A uniform W4A4 model is the aggressive variant; the
+useful one holds the layers that carry accuracy at higher precision and runs the
+rest at W4A4. That is the same idea a precision plan already encodes, extended
+one axis. The expert bank is 91% of this model's parameters and the obvious
+W4A4 candidate; the router, the norms and the embedding are the obvious
+holdouts.
+
+**What has to be validated, and why the FP8 result does not predict it.**
+Per-tensor FP8 activations failed here once: one outlier token set the tensor
+scale, crushed every other token's resolution, and the error compounded over 48
+layers. That is an argument about **granularity**, and NVFP4 moves granularity
+by three orders of magnitude — one scale per 16 elements against one per tensor.
+It is a reason to expect a different outcome, not the same one. The gate is
+unchanged and is not the per-layer tolerance: **token parity against the
+reference, and coherent generation**, because 30 layers of top-8 routing
+compound and a 5e-2 per-layer pass has already proven it can hide that.
+
+Sequencing note: (a) is independently useful. An NVFP4 activation quantizer plus
+the `VEC16_UE4M3` GEMM is a **dense-model** win on every `Linear` Mila has, on
+any Blackwell card, with no MoE machinery involved. It does not need this
+document's model to land.
+
+---
+
 ## 8. Memory Footprint
 
 Derived from Section 1-2 shapes. **Not measured.**
@@ -562,10 +632,17 @@ Each step is independently buildable and independently valuable.
 7. **`MoeOp` decode gather-matvec**, validated against step 6 at `M == 1`.
 8. **Converter + `fromPretrainedImpl`**, on `PerGroupFp4<128>`. **The model
    runs here.**
-9. **NVFP4** — throughput is already measured and favourable (Section 7.1a), so
-   this step is a **numerics** investigation: does W4A4 hold token parity and
-   coherent generation? Its own step 0 is the `120f` build-flag correction of
-   Section 7.2(b), without which none of it compiles.
+9. **NVFP4** — throughput is measured and favourable (Section 7.1a), and the
+   remaining work is scoped in Section 7.5: a block-16 activation quantizer with
+   its CPU reference codec, and precision plans extended to allocate activation
+   precision. Its own step 0 is the `120f` build-flag correction of Section
+   7.2(b), without which none of it compiles.
+
+   **This step does not belong to this model.** An NVFP4 activation quantizer
+   plus the `VEC16_UE4M3` GEMM is a dense-model win on every `Linear` in the
+   tree; it should land against a model that already works, where token parity
+   is a known quantity, rather than against a chassis being brought up at the
+   same time.
 
 Steps 1-8 have no dependency on NVFP4 and no dependency on CUTLASS.
 
