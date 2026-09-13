@@ -277,3 +277,40 @@ next family or quantization added breaks targets one at a time, and a consumer's
 `fromPretrained` -- the C++ quick start included -- inherits the same exposure with no flag. The
 decision owed is whether `Mila` exports `/bigobj` as a PUBLIC MSVC compile option, which changes
 the flags every consumer compiles with, or targets keep adding it as they cross.
+
+## A composite cannot keep a derived child out of its flat save without re-implementing the walk
+
+`Mila/Src/Dnn/Components/MixtureOfExperts/Router.ixx:185` @ `66d831b6`
+
+`Router` holds an `RmsNorm` child whose weight is derived from `scale` and must never be written, so
+it overrides `saveFlatTensors` and re-spells its children by hand (`owned_prefix + "proj"`) rather
+than calling the base walk. It has to, because `CompositeComponent::childFlatPrefix`
+(`CompositeComponent.ixx:1070`) is private and the base recursion (`:749`) has no way to exclude a
+child. The consequence is a second copy of the flat-naming rule that will not follow a change to the
+first. Applied silently during the router work and only now flagged. Candidate changes: a
+per-child "derived, not serialized" marker the base walk honours, or `childFlatPrefix` made
+protected so an override at least shares the naming rule.
+
+## The MoE expert bank reaches into Linear's kernel header to quantize
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Moe/CudaMoeOp.ixx:169` @ `66d831b6`
+
+`CudaMoeOp::quantize` includes `../Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh` by
+relative path and calls `Linear::cuda_quantize_fp4_per_group` directly, because the shared
+per-group FP4 quantizer only exists as a private detail of `CudaLinearOp:Quantize`, which is not
+exported. It works -- the quantizer is row-generic -- but one operation now depends on another
+operation's kernel namespace, and a change made for Linear lands silently in the expert bank. The
+E2M1 *decode* was lifted to `Helpers/Fp4E2M1.h` in the same work; the *encode* was not.
+`CudaTokenEmbeddingOp:Quantize` has its own copy of the same boundary pattern. Candidate change: move
+the per-group FP4 quantizer into a shared weight-quantization kernel location both operations import.
+
+## Llama still holds the GQA transient as seven loose members
+
+`Mila/Src/Dnn/Components/Transformers/LlaMa/Llama.ixx:710` @ `66d831b6`
+
+`GqaWorkspace` (`Compute.GqaWorkspace`) now owns the seven GQA scratch tensors as one unit for Qwen and
+Gemma, with `state()` and `deviceStorageBytes()`. Llama still declares them as separate `unique_ptr`
+members, builds the `GqaState` by hand (`:633-639`) and sums them in a hand-written list in
+`getMemoryStats` (`:361-363`) -- the list that under-counts silently when a tensor is added. Left alone
+when the workspace moved because the agreed scope was Qwen and Gemma, and Llama has no memory-footprint
+gates to catch a mistake. The change is mechanical: one member, one factory call, two accounting lines.

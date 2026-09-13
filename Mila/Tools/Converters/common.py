@@ -618,6 +618,25 @@ class ShardedCheckpoint:
 
         return self._handles[shard].get_tensor(name)
 
+    def rows(self, name: str, row_ids):
+        """Only the named rows of a 2-D tensor -- an embedding table need not be materialized."""
+        from safetensors import safe_open
+        import torch
+
+        shard = self.weight_map[name]
+
+        if shard not in self._handles:
+            self._handles[shard] = safe_open(self.root / shard, framework='pt')
+
+        rows = self._handles[shard].get_slice(name)
+
+        return torch.stack([rows[int(i):int(i) + 1][0] for i in row_ids])
+
+    def state_dict_for(self, prefix: str):
+        """Every tensor under `prefix`, keyed relative to it."""
+        return {name[len(prefix):]: self.tensor(name)
+                for name in self.weight_map if name.startswith(prefix)}
+
     def names(self):
         return set(self.weight_map)
 

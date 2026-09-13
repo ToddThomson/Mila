@@ -339,8 +339,8 @@ namespace Mila::Tests::Dnn::Models
             config, device, B, T, "parity.block_ws." );
 
         // score_width = T because flash prefill is switched off below; the two must agree.
-        auto gqa_workspace = makeQwenGqaWorkspace<DeviceType::Cuda, kPrecision>(
-            config, device, B, T, T, T, "parity.gqa_ws." );
+        auto gqa_workspace = makeGqaWorkspace<DeviceType::Cuda, kPrecision>(
+            device, B, config.getNumHeads(), config.getHeadDim(), T, T, T, "parity.gqa_ws." );
 
         // The full [B, T, model_dim] state, carried on the host across block lifetimes.
         std::vector<float> hidden;
@@ -515,8 +515,8 @@ namespace Mila::Tests::Dnn::Models
             // reusing it would compare against whatever survived.
             auto stage_workspace = makeQwenAttentionBlockWorkspace<DeviceType::Cuda, kPrecision>(
                 config, device, B, T, "parity.stage_ws." );
-            auto stage_gqa = makeQwenGqaWorkspace<DeviceType::Cuda, kPrecision>(
-                config, device, B, T, T, T, "parity.stage_gqa." );
+            auto stage_gqa = makeGqaWorkspace<DeviceType::Cuda, kPrecision>(
+                device, B, config.getNumHeads(), config.getHeadDim(), T, T, T, "parity.stage_gqa." );
 
             auto block = std::make_shared<AttentionBlock>(
                 std::format( "tf_layer_{}", dumped ), config, device );

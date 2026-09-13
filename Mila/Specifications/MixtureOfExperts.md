@@ -515,6 +515,13 @@ and driver):
 | `PerGroupFp4<128>` (11.30 GiB) | BF16 (4.46 GiB) | **15.76 GiB — does not fit** |
 | NVFP4 (11.97 GiB) | FP8 (2.23 GiB) | 14.20 GiB — fits, ~1 GiB headroom |
 | `PerGroupFp4<128>` (11.30 GiB) | FP8 (2.23 GiB) | 13.53 GiB — fits |
+| `PerGroupFp4<64>` (11.96 GiB) | `PerGroupFp4<64>` Linears 0.86 + FP8 table 0.69 + BF16 router 0.02 (1.57 GiB) | **13.54 GiB — what `WeightQuantization::FP4` builds** |
+
+The last row is the build that exists (`Gemma4MoE.md` Phase 8). Every width is a multiple of 64, not of 128, so
+the group is 64; `WeightQuantization::FP4` quantizes every `Linear` rather than only the experts, the tied
+table takes Gemma's per-row FP8, and the router projection stays unquantized. The expert term is exact from the
+packed layout — per layer, `[128, 1408, 1408]` + `[128, 1408, 44]` FP32 scales for `gate_up_proj` and
+`[128, 2816, 352]` + `[128, 2816, 11]` for `down_proj`, 428,212,224 bytes, x30 = 12,846,366,720 (11.96 GiB).
 
 **The "experts quantized, everything else BF16" recipe does not fit this card.**
 The non-expert mass is under 10% of the parameters but 4.46 GiB at BF16, and the

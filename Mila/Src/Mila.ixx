@@ -192,6 +192,7 @@ export import Dnn.ConnectionType;
 
 export import Dnn.Components.MultiHeadAttention;
 export import Dnn.Components.Gqa;
+export import Compute.GqaWorkspace;
 export import Dnn.Components.Lpe;
 export import Dnn.Components.Rope;
 export import Dnn.Components.Gelu;

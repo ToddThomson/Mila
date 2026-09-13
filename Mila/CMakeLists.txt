@@ -489,6 +489,7 @@ PUBLIC
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/GqaState.ixx"
+        "Src/Dnn/Compute/Operations/GqaWorkspace.ixx"
         
         "Src/Logging/NullSink.ixx"
         "Src/Logging/FileSink.ixx"

@@ -71,6 +71,7 @@ import Compute.DeviceType;
 import Compute.DeviceId;
 import Compute.DeviceTypeTraits;
 import Compute.GqaState;
+import Compute.GqaWorkspace;
 import Compute.CpuMemoryResource;
 #ifdef MILA_HAS_CUDA
 import Compute.CudaPinnedMemoryResource;
@@ -330,24 +331,8 @@ namespace Mila::Dnn
             for ( const auto& child : this->getComponents() )
                 stats += child->getMemoryStats();
 
-            for ( auto* t : { gqa_q_permute_.get(), gqa_preatt_.get(), gqa_att_.get(),
-                              gqa_v_out_.get(), gqa_preatt_decode_.get(),
-                              gqa_att_decode_.get(), gqa_v_out_decode_.get(),
-                              block_workspace_.q.get(), block_workspace_.k.get(),
-                              block_workspace_.v.get(), block_workspace_.normed.get(),
-                              block_workspace_.qkv.get(), block_workspace_.q_normed.get(),
-                              block_workspace_.k_normed.get(), block_workspace_.v_normed.get(),
-                              block_workspace_.attn.get(), block_workspace_.o.get(),
-                              block_workspace_.o_normed.get(), block_workspace_.res1.get(),
-                              block_workspace_.ffn_in.get(), block_workspace_.gate_up.get(),
-                              block_workspace_.ffn_act.get(), block_workspace_.ffn_down.get(),
-                              block_workspace_.ffn_normed.get(), block_workspace_.stream.get(),
-                              block_workspace_.ffn_dense_normed.get(), block_workspace_.ffn_expert_in.get(),
-                              block_workspace_.ffn_expert_normed.get(), block_workspace_.ffn_sum.get() } )
-            {
-                if ( t )
-                    stats.device_state_bytes += t->getStorageSize();
-            }
+            stats.device_state_bytes += block_workspace_.deviceStorageBytes();
+            stats.device_state_bytes += gqa_workspace_.deviceStorageBytes();
 
             // When tied, lm_head and token_embedding report the same shared allocation;
             // subtract the lm_head contribution once so it is not double-counted (D7).
@@ -794,13 +779,7 @@ namespace Mila::Dnn
         // Shared GQA transient workspace -- inference only, owned here, shared across
         // all blocks. q_permute/v_out are sized at the MAX head_dim (global) so the
         // local layers reuse a prefix; preatt/att are head_dim-independent.
-        std::unique_ptr<TensorType> gqa_q_permute_{ nullptr };
-        std::unique_ptr<TensorType> gqa_preatt_{ nullptr };
-        std::unique_ptr<TensorType> gqa_att_{ nullptr };
-        std::unique_ptr<TensorType> gqa_v_out_{ nullptr };
-        std::unique_ptr<TensorType> gqa_preatt_decode_{ nullptr };
-        std::unique_ptr<TensorType> gqa_att_decode_{ nullptr };
-        std::unique_ptr<TensorType> gqa_v_out_decode_{ nullptr };
+        GqaWorkspace<TDeviceType, TPrecision> gqa_workspace_{};
 
         // Activation pointers -- valid between prefill/decode and the next call.
         TensorType* normalized_ptr_{ nullptr };
@@ -869,51 +848,6 @@ namespace Mila::Dnn
         // Prefill chunk heuristic v2 + shared block scratch + GQA workspace
         // ====================================================================
 
-        // Max-geometry slot widths shared by the workspace allocation and the
-        // chunk heuristic's row-cost model, so the two cannot drift apart.
-        struct WorkspaceWidths
-        {
-            int64_t model_dim;
-            int64_t hidden_dim;
-            int64_t q_width;
-            int64_t kv_width;
-            int64_t qkv_width;
-
-            // Stream-wide slots the routed feed-forward adds; zero on a dense model.
-            int64_t routed_stream_slots;
-
-            // q + q_normed + attn; k + v + k_normed + v_normed; the eight
-            // model_dim-wide stream-side slots; qkv; gate_up (2h) + ffn_act (h).
-            int64_t totalRowElements() const
-            {
-                return 3 * q_width + 4 * kv_width + ( 8 + routed_stream_slots ) * model_dim + qkv_width + 3 * hidden_dim;
-            }
-        };
-
-        WorkspaceWidths computeWorkspaceWidths() const
-        {
-            const int64_t NH = config_.getNumHeads();
-
-            WorkspaceWidths widths;
-            widths.model_dim = config_.getModelDim();
-            widths.hidden_dim = config_.getHiddenDimension();
-            widths.q_width = NH * std::max( config_.getHeadDim(), config_.getGlobalHeadDim() );
-            widths.kv_width = std::max(
-                config_.getNumKVHeads() * config_.getHeadDim(),
-                config_.getNumGlobalKVHeads() * config_.getGlobalHeadDim() );
-
-            // Packed QKV width per layer kind: global K=V layers drop the V section.
-            const int64_t packed_local =
-                (NH + 2 * config_.getNumKVHeads()) * config_.getHeadDim();
-            const int64_t packed_global =
-                (NH + (config_.keyEqualsValue() ? 1 : 2) * config_.getNumGlobalKVHeads())
-                * config_.getGlobalHeadDim();
-            widths.qkv_width = std::max( packed_local, packed_global );
-            widths.routed_stream_slots = kMixtureOfExperts ? 4 : 0;
-
-            return widths;
-        }
-
         // Complete chunk-scaled activation cost per prefill chunk row
         // (Gemma4InferenceReview.md section 6.3, post-pooling constants): the shared
         // block workspace slots, the chunk-scaled GQA attention scratch
@@ -940,14 +874,13 @@ namespace Mila::Dnn
         /**
          * @brief Bytes the pooled per-block activation workspace would take.
          *
-         * Mirrors allocateBlockWorkspace(): eighteen slots, twenty-two with the routed feed-forward,
-         * each [B, chunk, width], summed
-         * through the same WorkspaceWidths the allocation uses.
+         * Mirrors makeGemmaBlockWorkspace(): eighteen slots, twenty-two with the routed feed-forward,
+         * each [B, chunk, width], summed through the gemmaBlockWorkspaceWidths() it allocates at.
          */
         std::size_t blockWorkspaceBytes( dim_t B, int64_t prefill_chunk ) const
         {
             return storageBytes<TPrecision>(
-                computeWorkspaceWidths().totalRowElements() * B * prefill_chunk );
+                gemmaBlockWorkspaceWidths( config_ ).totalRowElements() * B * prefill_chunk );
         }
 
         /**
@@ -1016,7 +949,7 @@ namespace Mila::Dnn
             const int64_t HS_max = std::max( config_.getHeadDim(), config_.getGlobalHeadDim() );
 
             const int64_t workspace_bytes =
-                computeWorkspaceWidths().totalRowElements() * B * precision_bytes;
+                gemmaBlockWorkspaceWidths( config_ ).totalRowElements() * B * precision_bytes;
             // With flash on the global layers, preatt/att shrink to the window-bounded
             // sliding width, so the chunk heuristic is no longer throttled by the O(T_ctx)
             // score span -- this is what decouples the prefill chunk size from long context.
@@ -1101,59 +1034,13 @@ namespace Mila::Dnn
 
         void allocateBlockWorkspace( int64_t B )
         {
-            const auto widths = computeWorkspaceWidths();
-            const int64_t model_dim = widths.model_dim;
-            const int64_t hidden_dim = widths.hidden_dim;
-            const int64_t q_width = widths.q_width;
-            const int64_t kv_width = widths.kv_width;
-            const int64_t qkv_width = widths.qkv_width;
-
-            auto device = this->getExecutionContext()->getDeviceId();
-            const std::string n = this->getName();
-
-            auto slot = [&]( int64_t width, const char* name )
-            {
-                return std::make_shared<TensorType>(
-                    device, shape_t{ B, prefill_chunk_size_, width }, n + ".block_ws." + name );
-            };
-
-            block_workspace_.q = slot( q_width, "q" );
-            block_workspace_.k = slot( kv_width, "k" );
-            block_workspace_.v = slot( kv_width, "v" );
-            block_workspace_.normed = slot( model_dim, "normed" );
-            block_workspace_.qkv = slot( qkv_width, "qkv" );
-            block_workspace_.q_normed = slot( q_width, "q_normed" );
-            block_workspace_.k_normed = slot( kv_width, "k_normed" );
-            block_workspace_.v_normed = slot( kv_width, "v_normed" );
-            block_workspace_.attn = slot( q_width, "attn" );
-            block_workspace_.o = slot( model_dim, "o" );
-            block_workspace_.o_normed = slot( model_dim, "o_normed" );
-            block_workspace_.res1 = slot( model_dim, "res1" );
-            block_workspace_.ffn_in = slot( model_dim, "ffn_in" );
-            block_workspace_.gate_up = slot( 2 * hidden_dim, "gate_up" );
-            block_workspace_.ffn_act = slot( hidden_dim, "ffn_act" );
-            block_workspace_.ffn_down = slot( model_dim, "ffn_down" );
-            block_workspace_.ffn_normed = slot( model_dim, "ffn_normed" );
-            block_workspace_.stream = slot( model_dim, "stream" );
-
-            if constexpr ( kMixtureOfExperts )
-            {
-                block_workspace_.ffn_dense_normed = slot( model_dim, "ffn_dense_normed" );
-                block_workspace_.ffn_expert_in = slot( model_dim, "ffn_expert_in" );
-                block_workspace_.ffn_expert_normed = slot( model_dim, "ffn_expert_normed" );
-                block_workspace_.ffn_sum = slot( model_dim, "ffn_sum" );
-            }
+            block_workspace_ = makeGemmaBlockWorkspace<TDeviceType, TPrecision>(
+                config_, this->getExecutionContext()->getDeviceId(), B, prefill_chunk_size_,
+                this->getName() + ".block_ws." );
         }
 
         void allocateAndWireGqaWorkspace( int64_t B, int64_t T_ctx )
         {
-            const int64_t NH = config_.getNumHeads();
-            const int64_t HS_max = std::max( config_.getHeadDim(), config_.getGlobalHeadDim() );
-            auto device = this->getExecutionContext()->getDeviceId();
-            const std::string n = this->getName();
-
-            gqa_q_permute_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, prefill_chunk_size_, HS_max }, n + ".gqa_ws.q_perm" );
             // preatt/att carry the O(chunk x score_width) score matrix for the cuBLASLt
             // path. With flash on the global layers, only the window-bounded sliding layers
             // still use these, so score_width collapses from T_ctx to the ring capacity --
@@ -1161,30 +1048,12 @@ namespace Mila::Dnn
             // decision (set on the global blocks in the build loop via setUseFlashPrefill) or
             // the cuBLASLt global path would overflow a narrow buffer; both derive from
             // useFlashPrefillForContext(T_ctx).
-            const int64_t score_width = prefillScoreWidth( T_ctx );
+            gqa_workspace_ = makeGqaWorkspace<TDeviceType, TPrecision>(
+                this->getExecutionContext()->getDeviceId(), B, config_.getNumHeads(),
+                std::max( config_.getHeadDim(), config_.getGlobalHeadDim() ),
+                T_ctx, prefill_chunk_size_, prefillScoreWidth( T_ctx ), this->getName() + ".gqa_ws." );
 
-            gqa_preatt_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, prefill_chunk_size_, score_width }, n + ".gqa_ws.preatt" );
-            gqa_att_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, prefill_chunk_size_, score_width }, n + ".gqa_ws.att" );
-            gqa_v_out_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, prefill_chunk_size_, HS_max }, n + ".gqa_ws.v_out" );
-
-            gqa_preatt_decode_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, 1, T_ctx }, n + ".gqa_ws.preatt_dec" );
-            gqa_att_decode_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, 1, T_ctx }, n + ".gqa_ws.att_dec" );
-            gqa_v_out_decode_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, 1, HS_max }, n + ".gqa_ws.v_out_dec" );
-
-            GqaState gqa_state;
-            gqa_state.q_permute = gqa_q_permute_.get();
-            gqa_state.preatt = gqa_preatt_.get();
-            gqa_state.att = gqa_att_.get();
-            gqa_state.v_out = gqa_v_out_.get();
-            gqa_state.preatt_decode = gqa_preatt_decode_.get();
-            gqa_state.att_decode = gqa_att_decode_.get();
-            gqa_state.v_out_decode = gqa_v_out_decode_.get();
+            const GqaState gqa_state = gqa_workspace_.state();
 
             for ( auto* block : blocks_ )
                 block->setState( gqa_state );

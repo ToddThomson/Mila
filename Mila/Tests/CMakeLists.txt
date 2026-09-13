@@ -236,6 +236,12 @@ if(MILA_ENABLE_CUDA)
         # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
         "Dnn/Core/Component.Cuda.cpp"
         "Dnn/Models/Gemma/GemmaModel.Parity.Cuda.cpp"
+        # Gemma 4 26B-A4B against a layer-streamed HuggingFace reference: 47 GiB of BF16 weights fit no card,
+        # so one block is resident at a time. Skips without the weights and both references.
+        "Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Parity.Cuda.cpp"
+        # The same model quantized to FP4 on load: footprint against the driver and the spec, greedy tokens
+        # against HuggingFace. Needs the BF16 weights and a 16 GiB card.
+        "Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp"
         # Gate B: the reported footprint against cudaMemGetInfo. Both skip without a real
         # checkpoint, so neither runs in CI -- see Specifications/MemoryFootprint.md 7.
         "Dnn/Models/Gemma/GemmaModel.Footprint.Cuda.cpp"

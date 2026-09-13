@@ -85,6 +85,7 @@ import Compute.DeviceType;
 import Compute.DeviceId;
 import Compute.DeviceTypeTraits;
 import Compute.GqaState;
+import Compute.GqaWorkspace;
 import Compute.CpuMemoryResource;
 #ifdef MILA_HAS_CUDA
 import Compute.CudaPinnedMemoryResource;
@@ -758,7 +759,7 @@ namespace Mila::Dnn
 
         // Shared GQA transient workspace -- inference only, owned here, shared across all
         // attention blocks (exactly one layer is live at a time on the sequential path).
-        QwenGqaWorkspace<TDeviceType, TPrecision> gqa_workspace_{};
+        GqaWorkspace<TDeviceType, TPrecision> gqa_workspace_{};
 
         // Activation pointers -- valid between prefill/decode and the next call.
         TensorType* normalized_ptr_{ nullptr };
@@ -1071,10 +1072,9 @@ namespace Mila::Dnn
             // score_width MUST match the op's flash decision (set on each block above via
             // setUseFlashPrefill) or the cuBLASLt path would overflow a narrow buffer; both
             // derive from useFlashPrefillForContext(T_ctx).
-            gqa_workspace_ = makeQwenGqaWorkspace<TDeviceType, TPrecision>(
-                config_, this->getExecutionContext()->getDeviceId(), B, T_ctx,
-                prefill_chunk_size_, prefillScoreWidth( T_ctx ),
-                this->getName() + ".gqa_ws." );
+            gqa_workspace_ = makeGqaWorkspace<TDeviceType, TPrecision>(
+                this->getExecutionContext()->getDeviceId(), B, config_.getNumHeads(), config_.getHeadDim(),
+                T_ctx, prefill_chunk_size_, prefillScoreWidth( T_ctx ), this->getName() + ".gqa_ws." );
 
             const GqaState gqa_state = gqa_workspace_.state();
 

@@ -281,6 +281,41 @@ namespace Mila::Dnn
             return static_cast<int64_t>( model_config_.getContextLength() );
         }
 
+        /**
+         * @brief The network geometry a load of this file builds.
+         *
+         * Public so a caller that constructs blocks itself -- the layer-streamed parity harness -- uses
+         * the geometry a real load would, rather than a second reading of the metadata.
+         */
+        static GemmaConfig configFromMetadata( const PretrainedMetadata& metadata )
+        {
+            GemmaConfig config(
+                static_cast<dim_t>(metadata.embedding_dim),
+                static_cast<dim_t>(metadata.num_layers) );
+
+            config.withVocabularyLength( static_cast<dim_t>(metadata.vocab_size) )
+                .withMaxSequenceLength( static_cast<dim_t>(metadata.max_seq_length) )
+                .withNumHeads( static_cast<dim_t>(metadata.num_heads) )
+                .withNumKVHeads( static_cast<dim_t>(metadata.num_kv_heads) )
+                .withHeadDim( static_cast<dim_t>(metadata.head_dim) )
+                .withGlobalHeadDim( static_cast<dim_t>(metadata.global_head_dim) )
+                .withNumGlobalKVHeads( static_cast<dim_t>(metadata.num_global_kv_heads) )
+                .withKeyEqualsValue( metadata.key_equals_value )
+                .withHiddenDimension( static_cast<dim_t>(metadata.hidden_dim) )
+                .withRMSNormEpsilon( metadata.norm_epsilon )
+                .withWindow( static_cast<dim_t>(metadata.window) )
+                .withSlidingWindowPattern( static_cast<dim_t>(metadata.sliding_window_pattern) )
+                .withGlobalRotaryDim( static_cast<dim_t>(metadata.global_rotary_dim) )
+                .withRoPETheta( metadata.rope_theta_local )
+                .withGlobalRoPETheta( metadata.rope_theta_global )
+                .withFinalLogitSoftcapping( metadata.final_logit_softcapping )
+                .withTieWordEmbeddings( metadata.tie_word_embeddings )
+                .withMixtureOfExperts( static_cast<dim_t>(metadata.num_experts),
+                    static_cast<dim_t>(metadata.top_k_experts), static_cast<dim_t>(metadata.expert_hidden_dim) );
+
+            return config;
+        }
+
         // ====================================================================
         // Diagnostics
         // ====================================================================
@@ -644,35 +679,6 @@ namespace Mila::Dnn
             copy( cpu_tensor, device_tensor );
 
             return device_tensor;
-        }
-
-        static GemmaConfig configFromMetadata( const PretrainedMetadata& metadata )
-        {
-            GemmaConfig config(
-                static_cast<dim_t>(metadata.embedding_dim),
-                static_cast<dim_t>(metadata.num_layers) );
-
-            config.withVocabularyLength( static_cast<dim_t>(metadata.vocab_size) )
-                .withMaxSequenceLength( static_cast<dim_t>(metadata.max_seq_length) )
-                .withNumHeads( static_cast<dim_t>(metadata.num_heads) )
-                .withNumKVHeads( static_cast<dim_t>(metadata.num_kv_heads) )
-                .withHeadDim( static_cast<dim_t>(metadata.head_dim) )
-                .withGlobalHeadDim( static_cast<dim_t>(metadata.global_head_dim) )
-                .withNumGlobalKVHeads( static_cast<dim_t>(metadata.num_global_kv_heads) )
-                .withKeyEqualsValue( metadata.key_equals_value )
-                .withHiddenDimension( static_cast<dim_t>(metadata.hidden_dim) )
-                .withRMSNormEpsilon( metadata.norm_epsilon )
-                .withWindow( static_cast<dim_t>(metadata.window) )
-                .withSlidingWindowPattern( static_cast<dim_t>(metadata.sliding_window_pattern) )
-                .withGlobalRotaryDim( static_cast<dim_t>(metadata.global_rotary_dim) )
-                .withRoPETheta( metadata.rope_theta_local )
-                .withGlobalRoPETheta( metadata.rope_theta_global )
-                .withFinalLogitSoftcapping( metadata.final_logit_softcapping )
-                .withTieWordEmbeddings( metadata.tie_word_embeddings )
-                .withMixtureOfExperts( static_cast<dim_t>(metadata.num_experts),
-                    static_cast<dim_t>(metadata.top_k_experts), static_cast<dim_t>(metadata.expert_hidden_dim) );
-
-            return config;
         }
     };
 }

@@ -1715,9 +1715,10 @@ rounding is fixed.
 #### What the harness cost the tree
 
 Four private `QwenTransformer` members held the workspace sizing, so a harness would either
-duplicate them or reach inside. Instead `makeQwenAttentionBlockWorkspace()`, `QwenGqaWorkspace`
-and `makeQwenGqaWorkspace()` now live in `Qwen.AttentionBlock.ixx` beside the struct they fill, and the
-transformer calls them — one source, no duplication. `QwenModel::configFromMetadata` moved from
+duplicate them or reach inside. Instead `makeQwenAttentionBlockWorkspace()` lives in `Qwen.AttentionBlock.ixx`
+beside the struct it fills, and the GQA transient is `GqaWorkspace` / `makeGqaWorkspace()` in `Compute.GqaWorkspace`
+(`QwenGqaWorkspace` until 2026-09-13, when Gemma's harness needed the same one); the transformer calls them —
+one source, no duplication. `QwenModel::configFromMetadata` moved from
 private to public so the harness builds blocks from the geometry a real load would use. All 73
 Qwen tests stayed green across the change.
 

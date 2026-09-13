@@ -35,6 +35,10 @@ needs no checkpoint download. Beside it, `hf_gemma_experts_reference.py` capture
 expert-bank reference from `Gemma4TextExperts` on seeded synthetic weights, offline, and
 `hf_gemma_moe_model_reference.py` captures the Phase 8 wiring reference: a tiny random Gemma 4 MoE
 model, its logits, and its own checkpoint converted by `Gemma/convert_weights.py` at FP32 and BF16.
+`hf_gemma_layer_stream.py` is the HuggingFace half of the 26B BF16 parity gate: it runs the real
+checkpoint one decoder layer at a time and writes each layer's last-token hidden state and the
+last-position logits. Run `--self-test` first — it proves the streamed driver bitwise against the whole
+model, with two negative controls.
 
 ## Quantization
 
