@@ -819,6 +819,56 @@ context admits the largest chunk, and the unpooled routed buffers scale with the
 2.197 GiB. Shared usage includes the loader's pinned staging as well as spill, so it overstates the spill by an
 unmeasured amount. Tokens were correct at both contexts.
 
+### RoPE tables sized to the built context — gate, written before any run
+
+Decided 2026-09-13: change RoPE and nothing else here. Routed-buffer pooling is a separate decision. `CudaRopeOp`
+sizes its cos/sin tables to its build context's sequence length and refuses a build longer than the trained maximum.
+Prefill and decode are bounded by that length, and it is part of the cache key. Every block builds `Rope` on a
+context-length-shaped context, the way attention is already built, in `onBuilding` and `getRequiredMemory` alike,
+and each transformer's RoPE deduplication takes the context length. A cache row is a function of its position alone
+(`angle = pos * theta_i`), so no value any consumer reads can change.
+
+- **The tables cover only the built length:** a `Rope` built for T predicts and reports T rows of state.
+- **Row T-1 is bit-identical** to the same row from an op built at the trained maximum, in prefill and in decode,
+  at FP32 and BF16.
+- **Position T is refused** in prefill and in decode; a build beyond the trained maximum is refused.
+- **The gate can fail:** tables sized to T-1 must fail the bit-identity and footprint tests.
+- **Gate A stays exact** in every Gemma, Qwen and Llama footprint test.
+- **26B FP4 at context 8192:** the predicted total drops by exactly 780,140,544 bytes, from 16,762,341,376 to
+  15,982,200,832 — the two caches from 262,144 rows to 8,192. That is still ~73 MiB above the in-process free
+  memory, so the fit criterion is expected to keep failing until the routed buffers are pooled.
+- **Nothing numeric moves:** Gemma 4 12B token parity, Qwen parity and the 26B BF16 layer-streamed harness
+  reproduce their printed numbers exactly, and the full suite passes.
+
+**First run (2026-09-13, RTX 5060 Ti pinned by UUID).** Every target builds clean (3 min 13 s). The Rope and
+footprint slice — the Rope CUDA and config tests, every `*Footprint*` and `*RequiredMemory*` test, and the Qwen block,
+Qwen transformer and Gemma transformer suites — **141 run, 141 pass, none skipped**. The table-length tests pass
+at FP32 and BF16: T rows predicted and reported; the last built row identical in every bit to the trained-maximum
+table in prefill and decode; position T refused in both; a build past the trained maximum refused.
+
+**Negative (tables sized to T-1, RTX 5060 Ti) — the gate fails, 20 of 34 Rope tests.** The table-length test reports
+192 bytes against the 224 predicted, at FP32 and BF16. The bit-identity test fails too, but by refusal, not by a
+differing bit: an op with too few rows refuses the last position rather than reading past its table, so a short
+table cannot silently produce a wrong rotation. The in-range prefill and decode checks, the four pre-existing
+numeric tests and the backward round trip fail the same way. The build refusal fails because the shift readmits the
+trained maximum plus one. **Reverted.**
+
+**After the revert (RTX 5060 Ti pinned by UUID) — every criterion passes.** All targets build clean (2 min 6 s).
+**Full suite 1959 run, 1957 pass, 1 fail, 1 skipped** (the long-standing Swiglu BF16 backward); the one failure is
+the 26B FP4 fit, which this change was not expected to close.
+
+| Criterion | Result |
+|---|---|
+| Gemma 4 12B token parity, Qwen layer stream, 26B BF16 layer stream | printed output identical to the `+7` run, line for line |
+| 26B FP4 predicted total | **15,982,200,832 bytes**, exactly the prediction; state 1,447,810,560 bytes (was 2.075 GiB) |
+| Gate A on the routed model | predicted = reported, 14.885 GiB |
+| Greedy tokens | `818 5279 529 7001 563 5213 50429 84750`, unchanged |
+| Fit | **still fails** — 15,982,200,832 against 15,894,315,008 free in process, 83.8 MiB over |
+
+The gate said ~73 MiB over; free memory before the load read 14.803 GiB in this run against 14.82 GiB in the first, and
+that difference is the whole discrepancy. The routed buffers (~0.49 GiB at chunk 512) are what remain between this
+model and the card.
+
 **Group plumbing result (2026-09-12, RTX 5060 Ti).** Loading the tiny routed model through
 `GemmaModel::fromPretrained` at FP4 reports `per_group_fp4_64`; the contract test holds that the group is
 part of the scheme in both directions; the delegated-FFN gates, including `PerGroupFp4<128>` bit-identity,

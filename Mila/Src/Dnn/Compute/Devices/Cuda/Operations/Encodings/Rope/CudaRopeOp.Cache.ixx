@@ -24,8 +24,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
     /**
      * @brief Process-wide shared cache for RoPE cos/sin frequency tables.
      *
-     * The cos/sin tables are a pure function of (device_id, max_seq_len, head_dim,
-     * base, precision). In a typical transformer every attention layer constructs a
+     * The cos/sin tables are a pure function of (device_id, table_rows, head_dim,
+     * rotary_dim, rotary_layout, base, precision). In a typical transformer every attention layer constructs a
      * CudaRopeOp with identical parameters; this registry ensures the tables are
      * allocated and filled exactly once per unique configuration and freed when the
      * last referencing op is destroyed.
@@ -41,7 +41,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         struct CacheKey
         {
             int                    device_id;
-            dim_t                  max_seq_len;
+            dim_t                  table_rows;   ///< the sequence length the owning op was built for
             dim_t                  head_dim;
             dim_t                  rotary_dim;   ///< 0 = full rotation; > 0 = partial-rotary
             int                    rotary_layout; ///< 0 = WholeHead, 1 = RotaryPrefix -- CHANGES THE FREQUENCIES
@@ -61,7 +61,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 };
 
                 std::size_t seed = std::hash<int>{}( k.device_id );
-                seed = mix( seed, std::hash<dim_t>{}( k.max_seq_len ) );
+                seed = mix( seed, std::hash<dim_t>{}( k.table_rows ) );
                 seed = mix( seed, std::hash<dim_t>{}( k.head_dim ) );
                 seed = mix( seed, std::hash<dim_t>{}( k.rotary_dim ) );
                 seed = mix( seed, std::hash<int>{}( k.rotary_layout ) );

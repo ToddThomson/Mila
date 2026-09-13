@@ -460,7 +460,7 @@ namespace Mila::Dnn
             stats += required( this->template getComponentAs<QkvProjectionType>( n + ".fc_qkv_proj" ), contexts.stream );
             stats += required( this->template getComponentAs<RmsNormType>( n + ".q_norm" ), contexts.qknorm );
             stats += required( this->template getComponentAs<RmsNormType>( n + ".k_norm" ), contexts.kknorm );
-            stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.qproj );
+            stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.rope );
             stats += required( this->template getComponentAs<AttentionType>( n + ".gqa" ), contexts.qkv );
             stats += required( this->template getComponentAs<OutputGateType>( n + ".output_gate" ), contexts.qproj );
             stats += required( this->template getComponentAs<OutputProjectionType>( n + ".fc_o_proj" ), contexts.qproj );
@@ -514,6 +514,7 @@ namespace Mila::Dnn
             BuildContext gate_up;
             BuildContext hidden;
             BuildContext qkv;
+            BuildContext rope;
             BuildContext qknorm;
             BuildContext kknorm;
 
@@ -560,6 +561,10 @@ namespace Mila::Dnn
             contexts.qkv = context.withShape(
                 shape_t{ B, input_shape[ 1 ], config_.getAttentionPackedQKVWidth() } );
 
+            // RoPE is sized by the context length as well: its tables hold one row per position
+            // it may rotate, and decode reaches every position of the context.
+            contexts.rope = context.withShape( shape_t{ B, input_shape[ 1 ], qProjWidth() } );
+
             return contexts;
         }
 
@@ -595,7 +600,7 @@ namespace Mila::Dnn
             k_norm_->build( contexts.kknorm );
 
             rope_ = this->template getComponentAs<RopeType>( n + ".rope" );
-            rope_->build( contexts.qproj );
+            rope_->build( contexts.rope );
 
             attn_ = this->template getComponentAs<AttentionType>( n + ".gqa" );
             install( attn_, workspace_.attn );

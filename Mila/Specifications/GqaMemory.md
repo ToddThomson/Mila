@@ -26,11 +26,13 @@ buffer groups account for ~3.2 GB and are eliminated in Phase 1 and Phase 2.
 **`LlamaBlock` — secondary cleanup.** Per-layer split and residual buffers account for
 ~28 MB and are eliminated in Phase 3.
 
-**`CudaRopeOp` — no changes required.** RoPE is correctly implemented:
+**`CudaRopeOp`:**
 
 - The cos/sin table is a single shared allocation via `RopeCacheRegistry`, not duplicated per layer.
 - Both `prefill` and `decode` write into caller-provided output tensors — RoPE owns no output buffers.
-- The shared table for Llama 3.2 at FP32 costs approximately 67 MB total across all 28 layers.
+- The table holds one row per context position: blocks build `Rope` at the context length, as they build
+  attention. For Llama 3.2 at context 4096 that is 2 MB (FP32, head_dim 128). Until 2026-09-13 it was sized to
+  the trained maximum of 131,072, which is 64 MB.
 
 ### Key Architectural Invariants
 
@@ -246,9 +248,10 @@ count within that allocation, not the allocation size.
 
 `active_max_seq_len_` is initialized from `parameter.max_seq_len`. Care must be taken to
 ensure this resolves to the model's actual context window (4,096 for Llama 3.2 3B, 8,192
-for Llama 3.1 8B) and never to the RoPE table size (131,072). The KV cache `T_` dimension
-and all cuBLASLt plan geometries must be sized against the model context window only.
-The RoPE table size is an independent concern owned entirely by `CudaRopeOp`.
+for Llama 3.1 8B) and never to the trained maximum (131,072). The KV cache `T_` dimension,
+all cuBLASLt plan geometries and the RoPE tables are sized against the context window.
+`CudaRopeOp` takes its row count from its build context and refuses one longer than the
+trained maximum, so the trained maximum is a bound, never a size.
 
 ---
 

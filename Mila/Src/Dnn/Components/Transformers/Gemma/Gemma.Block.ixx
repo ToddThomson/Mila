@@ -470,7 +470,7 @@ namespace Mila::Dnn
             stats += required( this->template getComponentAs<RmsNormType>( n + ".q_norm" ), contexts.qknorm );
             stats += required( this->template getComponentAs<RmsNormType>( n + ".k_norm" ), contexts.kknorm );
             stats += required( this->template getComponentAs<RmsNormType>( n + ".v_norm" ), contexts.kknorm );
-            stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.qproj );
+            stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.rope );
             stats += required( this->template getComponentAs<AttentionType>( n + ".gqa" ), contexts.qkv );
             stats += required( this->template getComponentAs<LinearType>( n + ".o_proj" ), contexts.qproj );
             stats += required( this->template getComponentAs<RmsNormType>( n + ".post_attn_norm" ), contexts.stream );
@@ -647,6 +647,7 @@ namespace Mila::Dnn
             BuildContext gate_up;
             BuildContext hidden;
             BuildContext qkv;
+            BuildContext rope;
 
             dim_t batch{ 0 };
             dim_t chunk{ 0 };
@@ -689,6 +690,10 @@ namespace Mila::Dnn
             // block packing -- so use that here regardless of kGlobal.
             contexts.qkv = context.withShape(
                 shape_t{ B, input_shape[ 1 ], ( NH + 2 * NKV ) * HD } );
+
+            // RoPE is sized by the context length as well: its tables hold one row per position
+            // it may rotate, and decode reaches every position of the context.
+            contexts.rope = context.withShape( shape_t{ B, input_shape[ 1 ], NH * HD } );
 
             return contexts;
         }
@@ -738,7 +743,7 @@ namespace Mila::Dnn
             v_norm_->build( kknorm_ctx );
 
             rope_ = this->template getComponentAs<RopeType>( n + ".rope" );
-            rope_->build( qproj_ctx );
+            rope_->build( contexts.rope );
 
             attn_ = this->template getComponentAs<AttentionType>( n + ".gqa" );
             install( attn_, workspace_.attn );

@@ -504,11 +504,11 @@ namespace Mila::Dnn
             }
 
             // RoPE cos/sin caches are process-wide, deduplicated by RopeCacheRegistry on
-            // (theta, max_seq_len, head_dim). Every block above reported one, but Qwen has a
+            // (theta, context length, head_dim). Every block above reported one, but Qwen has a
             // single base and a single head width, so exactly one is ever allocated.
             stats.device_state_bytes -=
                 std::max<dim_t>( config_.getNumFullAttentionLayers() - 1, 0 )
-                * ropeCacheBytes( config_.getHeadDim() );
+                * ropeCacheBytes( config_.getHeadDim(), T );
 
             return stats;
         }
@@ -914,14 +914,14 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Bytes one RoPE cos/sin cache occupies for a given head width.
+         * @brief Bytes one RoPE cos/sin cache occupies for a given head width and context length.
          *
          * MUST match CudaRopeOp::getRequiredStateMemorySize -- FP32 regardless of the model
-         * precision, half the head dimension, two caches.
+         * precision, one row per context position, half the head dimension, two caches.
          */
-        std::size_t ropeCacheBytes( dim_t head_dim ) const noexcept
+        std::size_t ropeCacheBytes( dim_t head_dim, dim_t T_ctx ) const noexcept
         {
-            const dim_t cache_elements = config_.getMaxSequenceLength() * ( head_dim / 2 );
+            const dim_t cache_elements = T_ctx * ( head_dim / 2 );
 
             return static_cast<std::size_t>( cache_elements ) * sizeof( float ) * 2;
         }

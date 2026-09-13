@@ -82,7 +82,7 @@ Gemma building its workspace inside the private `GemmaTransformer::allocateBlock
 (`Gemma.ixx:1110`), so a test has no way to construct one; it needs an exported factory.
 
 **`Rope`**, at leaf level — and it cannot be a plain predicted-equals-built assertion.
-`RopeCacheRegistry` keys on (theta, max_seq_len, head_dim) and only the first component to ask for
+`RopeCacheRegistry` keys on (theta, built sequence length, head_dim) and only the first component to ask for
 a given key allocates, so the answer depends on the order the test builds things in. Deduplication
 at transformer level is already in place.
 

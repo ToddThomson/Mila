@@ -137,13 +137,13 @@ namespace Mila::Tests::Dnn::Models
         std::cout << std::format(
             "[fp4] context {}  prefill chunk {} of {} rows  free before load {:.3f} GiB  free after {:.3f} GiB{}\n"
             "  weights   reported {:.3f} GiB  (s8 row {:.2f})  inactive {:.3f} GiB  active {:.3f} GiB\n"
-            "  state     reported {:.3f} GiB\n"
+            "  state     reported {:.3f} GiB  ({} bytes)  predicted total {} bytes\n"
             "  predicted {:.3f} GiB  reported {:.3f} GiB  consumed {:.3f} GiB  residual {:.3f} GiB  scratch high-water {:.3f} GiB\n",
             kContextLength, footprint.prefill.chunk_rows, footprint.prefill.unconstrained_chunk_rows,
             toGiB( free_before ), toGiB( free_after_load ), saturated ? "  (SATURATED)" : "",
             toGiB( reported.device_parameter_bytes ), kSection8WeightsGiB,
             toGiB( reported.device_inactive_parameter_bytes ), toGiB( reported.activeDeviceParameterBytes() ),
-            toGiB( reported.device_state_bytes ),
+            toGiB( reported.device_state_bytes ), reported.device_state_bytes, predicted.totalDeviceBytes(),
             toGiB( predicted.totalDeviceBytes() ), toGiB( reported.totalDeviceBytes() ), toGiB( consumed ),
             toGiB( residual ), toGiB( model->getScratchHighWaterBytes() ) ) << std::flush;
 

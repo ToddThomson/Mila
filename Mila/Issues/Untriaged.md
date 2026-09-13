@@ -314,3 +314,16 @@ members, builds the `GqaState` by hand (`:633-639`) and sums them in a hand-writ
 `getMemoryStats` (`:361-363`) -- the list that under-counts silently when a tensor is added. Left alone
 when the workspace moved because the agreed scope was Qwen and Gemma, and Llama has no memory-footprint
 gates to catch a mistake. The change is mechanical: one member, one factory call, two accounting lines.
+
+## Every family chooses its prefill chunk against a fixed activation budget blind to weights and device
+
+`Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.ixx:119` @ `bbdce9b6`
+
+Gemma and Llama cap chunk-scaled activations at 1536 MiB (`Gemma.ixx:119`, `Llama.ixx:67`), Qwen at a
+measured 512 MiB (`Qwen.ixx:134`). None knows how much of the device the weights already hold, so a
+constant that fits one model on one card is wrong for the next. On the RTX 5060 Ti the 26B-A4B FP4
+weights take 13.54 of 14.80 GiB free, the budget still admits 1,376 MiB of activations at context 8192,
+and the load predicts 83.8 MiB over; Qwen needed its own smaller constant for the same reason on the
+12 GB card. `Gemma.ixx:116` and `Gemma4InferenceReview.md:531` both call the live-memory version a
+BACKLOG follow-up, and `BACKLOG.md` has no such item. Direction agreed 2026-09-13, taken up in its own
+session: the largest rung whose whole predicted footprint fits the available memory.

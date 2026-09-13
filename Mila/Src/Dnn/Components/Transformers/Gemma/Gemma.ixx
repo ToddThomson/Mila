@@ -428,13 +428,13 @@ namespace Mila::Dnn
             }
 
             // Correction 2 -- RoPE cos/sin caches are process-wide, deduplicated by
-            // RopeCacheRegistry on (theta, max_seq_len, head_dim). Every block above reported
+            // RopeCacheRegistry on (theta, context length, head_dim). Every block above reported
             // one cache, but only one per distinct key is ever allocated: Gemma has two, the
             // local and global theta. Without this the sum invents (layers - 2) phantom caches.
             stats.device_state_bytes -=
-                std::max<dim_t>( local_layers - 1, 0 ) * ropeCacheBytes( config_.getHeadDim() );
+                std::max<dim_t>( local_layers - 1, 0 ) * ropeCacheBytes( config_.getHeadDim(), T );
             stats.device_state_bytes -=
-                std::max<dim_t>( global_layers - 1, 0 ) * ropeCacheBytes( config_.getGlobalHeadDim() );
+                std::max<dim_t>( global_layers - 1, 0 ) * ropeCacheBytes( config_.getGlobalHeadDim(), T );
 
             return stats;
         }
@@ -908,16 +908,17 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Bytes one RoPE cos/sin cache occupies for a given head width.
+         * @brief Bytes one RoPE cos/sin cache occupies for a given head width and context length.
          *
          * MUST match CudaRopeOp::getRequiredStateMemorySize -- FP32 regardless of the
-         * model precision, half the head dimension, two caches. Duplicated here because
-         * the deduplication is the transformer's to apply and it needs the per-key size;
-         * the model-level Gate A comparison is what holds the two together.
+         * model precision, one row per context position, half the head dimension, two
+         * caches. Duplicated here because the deduplication is the transformer's to apply
+         * and it needs the per-key size; the model-level Gate A comparison is what holds
+         * the two together.
          */
-        std::size_t ropeCacheBytes( dim_t head_dim ) const noexcept
+        std::size_t ropeCacheBytes( dim_t head_dim, dim_t T_ctx ) const noexcept
         {
-            const dim_t cache_elements = config_.getMaxSequenceLength() * ( head_dim / 2 );
+            const dim_t cache_elements = T_ctx * ( head_dim / 2 );
 
             return static_cast<std::size_t>( cache_elements ) * sizeof( float ) * 2;
         }

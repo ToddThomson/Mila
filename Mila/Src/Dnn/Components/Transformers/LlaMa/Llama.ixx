@@ -441,12 +441,10 @@ namespace Mila::Dnn
             }
 
             // RoPE cos/sin caches are process-wide, deduplicated by RopeCacheRegistry on
-            // (theta, max_seq_len, head_dim). Every layer above reported one, but Llama's
+            // (theta, context length, head_dim). Every layer above reported one, but Llama's
             // layers are homogeneous, so exactly one cache exists for the whole model.
-            // At 128K trained context that is 64 MiB a copy -- 1.94 GiB of caches that are
-            // never allocated if this correction is missing.
             stats.device_state_bytes -=
-                std::max<dim_t>( config_.getNumLayers() - 1, 0 ) * ropeCacheBytes( HS );
+                std::max<dim_t>( config_.getNumLayers() - 1, 0 ) * ropeCacheBytes( HS, T );
 
             return stats;
         }
@@ -536,16 +534,17 @@ namespace Mila::Dnn
     protected:
 
         /**
-         * @brief Bytes one RoPE cos/sin cache occupies for a given head width.
+         * @brief Bytes one RoPE cos/sin cache occupies for a given head width and context length.
          *
          * MUST match CudaRopeOp::getRequiredStateMemorySize -- FP32 regardless of the model
-         * precision, half the head dimension, two caches. Duplicated here because the
-         * deduplication is the transformer's to apply and it needs the per-key size; the
-         * model-level comparison against getMemoryStats is what holds the two together.
+         * precision, one row per context position, half the head dimension, two caches.
+         * Duplicated here because the deduplication is the transformer's to apply and it
+         * needs the per-key size; the model-level comparison against getMemoryStats is what
+         * holds the two together.
          */
-        std::size_t ropeCacheBytes( dim_t head_dim ) const noexcept
+        std::size_t ropeCacheBytes( dim_t head_dim, dim_t T_ctx ) const noexcept
         {
-            const dim_t cache_elements = config_.getMaxSequenceLength() * ( head_dim / 2 );
+            const dim_t cache_elements = T_ctx * ( head_dim / 2 );
 
             return static_cast<std::size_t>( cache_elements ) * sizeof( float ) * 2;
         }

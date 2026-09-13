@@ -531,7 +531,7 @@ namespace Mila::Dnn
 
             stats += required( this->template getComponentAs<RmsNormType>( n + ".rmsn_1" ), contexts.main );
             stats += required( this->template getComponentAs<LinearType>( n + ".fc_qkv_proj" ), contexts.main );
-            stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.main );
+            stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.rope );
             stats += required( this->template getComponentAs<AttentionType>( n + ".gqa" ), contexts.qkv );
             stats += required( this->template getComponentAs<LinearType>( n + ".fc_out_proj" ), contexts.main );
             stats += required( this->template getComponentAs<ResidualType>( n + ".res_1" ), contexts.main );
@@ -576,6 +576,7 @@ namespace Mila::Dnn
         struct BlockBuildContexts
         {
             BuildContext main;
+            BuildContext rope;
             BuildContext qkv;
             BuildContext gate_up;
             BuildContext hidden;
@@ -619,6 +620,10 @@ namespace Mila::Dnn
             // the KV cache, and it is why context length shows up in the footprint at all.
             contexts.qkv = context.withShape( shape_t{ B, context_length,
                 ( contexts.num_heads + 2 * contexts.num_kv_heads ) * contexts.head_dim } );
+
+            // RoPE too: its tables hold one row per position it may rotate, and decode reaches
+            // every position of the context, not only the first chunk.
+            contexts.rope = context.withShape( shape_t{ B, context_length, contexts.model_dim } );
 
             return contexts;
         }
@@ -670,7 +675,7 @@ namespace Mila::Dnn
                 qkv_proj_->build( prefill_context );
 
                 rope_ = this->template getComponentAs<RopeType>( this->getName() + ".rope" );
-                rope_->build( prefill_context );
+                rope_->build( contexts.rope );
 
                 attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".gqa" );
                 attn_->build( qkv_context );
@@ -726,7 +731,7 @@ namespace Mila::Dnn
                 qkv_proj_->build( training_context );
 
                 rope_ = this->template getComponentAs<RopeType>( this->getName() + ".rope" );
-                rope_->build( training_context );
+                rope_->build( contexts.rope );
 
                 attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".gqa" );
                 attn_->build( qkv_context );

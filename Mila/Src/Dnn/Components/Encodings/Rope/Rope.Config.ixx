@@ -71,7 +71,8 @@ namespace Mila::Dnn
          * @param channels     Total Q embedding width (n_heads * head_dim).
          * @param n_heads      Number of query heads.
          * @param n_kv_heads   Number of key/value heads (GQA: <= n_heads).
-         * @param max_seq_len  Maximum sequence length for cos/sin cache precomputation.
+         * @param max_seq_len  Trained maximum sequence length. A build longer than this is
+         *                     refused; the cos/sin tables are sized to the build's own length.
          */
         RopeConfig( dim_t channels, dim_t n_heads, dim_t n_kv_heads, dim_t max_seq_len )
             : channels_( channels ), n_heads_( n_heads ), n_kv_heads_( n_kv_heads ), max_seq_len_( max_seq_len )
