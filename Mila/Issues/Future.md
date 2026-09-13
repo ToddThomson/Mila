@@ -95,6 +95,9 @@ this is the re-run.
 The presumptive post-v0.20 tentpole: one router chassis unlocks Gemma 26B-A4B, Qwen3-30B-A3B and
 gpt-oss-20b. [[project_moe_tentpole_direction]]
 
+Design of record: `Specifications/MixtureOfExperts.md`. Gemma 26B-A4B implementation record, with its
+block topology resolved: `Specifications/Gemma4MoE.md`.
+
 ## Gemma 4 MTP
 
 `models` · `mila-src`

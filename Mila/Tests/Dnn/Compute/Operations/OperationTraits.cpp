@@ -53,6 +53,12 @@ namespace Mila::Tests::Dnn::Compute::Operations
     static_assert( OperationSupported<OperationType::MultiHeadAttentionOp, DeviceType::Cpu, TensorDataType::FP32, void> );
     static_assert( OperationSupported<OperationType::LpeOp, DeviceType::Cpu, TensorDataType::FP32, void> );
     static_assert( OperationSupported<OperationType::SamplingOp, DeviceType::Cpu, TensorDataType::FP32, void> );
+    static_assert( OperationSupported<OperationType::RouterOp, DeviceType::Cpu, TensorDataType::FP32, void> );
+    static_assert( !OperationSupported<OperationType::RouterOp, DeviceType::Cpu, TensorDataType::BF16, void> );
+    static_assert( OperationSupported<OperationType::RmsNormOp, DeviceType::Cpu, TensorDataType::FP32, void> );
+    static_assert( !OperationSupported<OperationType::RmsNormOp, DeviceType::Cpu, TensorDataType::BF16, void> );
+    static_assert( OperationSupported<OperationType::MoeOp, DeviceType::Cpu, TensorDataType::FP32, void> );
+    static_assert( !OperationSupported<OperationType::MoeOp, DeviceType::Cpu, TensorDataType::BF16, void> );
 
     // A functor-templated op registers `op_for` rather than `type`; OperationSupported
     // is documented to be satisfied by both, so this pins that half of the contract.
@@ -69,7 +75,6 @@ namespace Mila::Tests::Dnn::Compute::Operations
     // Llama-lineage CPU ops are the open [contributor] item in Production Hardening.
     // Their absence is the current contract, so it is pinned: when someone implements
     // them these lines fail and are deleted as part of that work.
-    static_assert( !OperationSupported<OperationType::RmsNormOp, DeviceType::Cpu, TensorDataType::FP32, void> );
     static_assert( !OperationSupported<OperationType::SwigluOp, DeviceType::Cpu, TensorDataType::FP32, void> );
     static_assert( !OperationSupported<OperationType::RopeOp, DeviceType::Cpu, TensorDataType::FP32, void> );
     static_assert( !OperationSupported<OperationType::TokenEmbeddingOp, DeviceType::Cpu,

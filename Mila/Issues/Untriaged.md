@@ -236,3 +236,29 @@ slower because flash prefill is wired on Gemma's blocks and not Llama's. Per-ker
 that length: Llama is 75.3% attention against Gemma's 59.5%. Found while sweeping GEMM share
 across length and family, not while looking at Llama -- so nothing here says whether the
 absence is a deliberate scoping decision or an oversight, which is what triage needs to settle.
+
+## User-facing surfaces call Gemma 4 12B "the flagship", ranking a model on the user's behalf
+
+`README.md:107` @ `5063ee29`
+
+Four end-user sites carry it: the `README.md:107` heading "Gemma 4 12B — the flagship",
+`Mila/Samples/QuickStart/Python/quickstart.py:20` and `Mila/Samples/QuickStart/Cpp/main.cpp:40`
+("The published flagship"), and the `Mila/Bindings/Mila_py.cpp:951` docstring "(the flagship)",
+which prints in Python's `help()`. Which model suits a reader is theirs to decide against their card;
+the label ranks one for them, and it dates from when Gemma was Chat's compiled-in default, which no
+longer exists. The samples name Gemma because an example needs a model, which is the fact to state.
+`main.cpp:40` also still gives `/install`, a verb that no longer exists. The website's copy of the
+same label is widened into `Web/Issues/Backlog.md`'s chat-default entry; the developer-doc uses were
+fixed in the same change that captured this.
+
+## CUDA RMSNorm backward ignores the unit offset its forward applies
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/RmsNormOp.ixx:334` @ `5063ee29`
+
+`forward` passes `config_.getUnitOffset()` to the kernel (`RmsNormOp.Dispatch.ixx:40` declares
+`weight_offset`), so the forward computes `x * rstd * (weight + offset)`. `backward` passes weight,
+rstd and geometry but no offset, so any norm configured with `withUnitOffset( 1.0f )` — every Qwen
+norm (`Qwen.ixx:807`, `Qwen.DeltaNetBlock.ixx:855`, `Qwen.AttentionBlock.ixx:889`) — differentiates
+as if the offset were zero. Nothing ships wrong today because Qwen is inference-only and no test
+trains through an offset norm; it is latent until one does. Found writing `CpuRmsNormOp`, whose
+backward applies the offset, so a CPU/CUDA gradient comparison on an offset norm would disagree.

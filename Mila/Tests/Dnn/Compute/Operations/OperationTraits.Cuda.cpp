@@ -108,6 +108,20 @@ namespace Mila::Tests::Dnn::Compute::Operations
         TensorDataType::BF16, NoWeightQuant> );
 
     // ====================================================================
+    // B2. RouterOp -- mixture-of-experts selection, one row per logit precision
+    // ====================================================================
+
+    static_assert( OperationSupported<OperationType::RouterOp, DeviceType::Cuda, TensorDataType::FP32, void> );
+    static_assert( OperationSupported<OperationType::RouterOp, DeviceType::Cuda, TensorDataType::BF16, void> );
+    static_assert( !std::is_same_v<
+        OperationTraits<OperationType::RouterOp, DeviceType::Cuda, TensorDataType::FP32, void>::type,
+        OperationTraits<OperationType::RouterOp, DeviceType::Cuda, TensorDataType::BF16, void>::type> );
+
+    // MoeOp registers op_for on the gate functor; OperationSupported holds for op_for rows too.
+    static_assert( OperationSupported<OperationType::MoeOp, DeviceType::Cuda, TensorDataType::FP32, void> );
+    static_assert( OperationSupported<OperationType::MoeOp, DeviceType::Cuda, TensorDataType::BF16, void> );
+
+    // ====================================================================
     // C. Token embedding -- the tied-table quantization row
     // ====================================================================
 

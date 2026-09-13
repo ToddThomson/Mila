@@ -237,6 +237,8 @@ export import Dnn.Components.Softmax;
 // ============================================================================
 export import Dnn.Components.MLP;
 export import Dnn.Components.GatedMLP;
+export import Dnn.Components.Router;
+export import Dnn.Components.MixtureOfExperts;
 export import Dnn.Components.GptBlock;
 
 // ============================================================================

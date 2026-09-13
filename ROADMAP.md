@@ -83,7 +83,7 @@ not.*
   to an average 2.82 bits, with precision declared **per role** by a plan struct rather than chosen
   at load, so a projection that tolerates two bits and one that does not are different types rather
   than different arguments. Its FP4 build on a 16 GB card is the quality oracle, not a second target.
-- **Gemma 4 12B** — the flagship, and the default chat target at FP4, fitting a 12 GB consumer card.
+- **Gemma 4 12B** — FP4, fitting a 12 GB consumer card.
   Tool calling validated; the 26B-A4B MoE follow-on stays Future.
 - **Llama 3.1 8B, 3.2 3B, 3.2 1B** — the primary validated inference lineage; FP4 default with FP8 and
   BF16 alternatives.

@@ -236,9 +236,16 @@ input [..., in] -> fc_gate_up Linear(in -> 2H, fused) -> Swiglu(split . gate_fn 
   SwiGLU (SiLU), GeGLU (GELU), ReGLU (ReLU), etc. by `TGate`.
 - `GatedMLPConfig`: `input_features`, `hidden_size`, `has_bias` (gated FFNs are
   typically bias-free), `gate_activation` (elementwise enum, serialized metadata).
-- `LlamaBlock` delegates its FFN to `GatedMLP`, deleting its inline
-  `fc_gate_up -> swiglu -> fc_down` wiring (and the per-step debug `synchronize()`
-  calls — see section 11).
+- **Planned, not landed:** `LlamaBlock` and `GemmaBlock` delegate their FFN to
+  `GatedMLP`, deleting their inline `fc_gate_up -> swiglu -> fc_down` wiring.
+  Today every gated block — Llama, Gemma and both Qwen blocks — still wires it
+  inline. The component is ready: it carries the blocks' weight quantization,
+  accepts their pooled activation slots, and predicts its own footprint. What
+  holds the switch is naming: a nested `GatedMLP` renames every published FFN
+  tensor (`tf_layer_i.fc_gate_up` becomes `tf_layer_i.mlp.fc_gate_up`), so it
+  lands after the 0.20.0 tag with a single republish of the affected families. Gemma's
+  delegated wiring is already built and tested behind `GemmaBlock`'s `kDelegatedFeedForward`
+  flag, off by default (`Gemma4MoE.md` Phase 2).
 
 ---
 
@@ -307,8 +314,8 @@ are a compile error only when actually instantiated, no longer dragged in by `ML
 
 ## 11. Block Integration and Debug-Sync Removal
 
-- `GptBlock` uses `MLP` (dense). `LlamaBlock` uses `GatedMLP` (gated), replacing its
-  inline FFN.
+- `GptBlock` uses `MLP` (dense). The gated blocks are to use `GatedMLP`, replacing
+  their inline FFN — not yet landed, see section 7.
 - Both `GptBlock::forward()`/`backward()` and `LlamaBlock::forward()`/`backward()`
   carry a `synchronize()` after **every** component step — bring-up debug
   scaffolding. Llama's `prefill()`/`decode()` already comment these out and run
@@ -333,7 +340,8 @@ in-flight Bard test revival without waiting on the full redesign.
    - Strip the per-step debug `synchronize()` from `GptBlock` (and `LlamaBlock`).
    - Relocate `MLP` Src + tests into `FFN/MLP/`.
 2. **GatedMLP:** add `GatedMLP` (fused gate+up -> `Swiglu` gate -> down) with the
-   section-9 seams; `LlamaBlock` delegates to it; delete Llama's inline FFN.
+   section-9 seams; `LlamaBlock` delegates to it; delete Llama's inline FFN. The
+   component has landed; the block delegation has not (section 7).
 3. **Activation unification:** collapse the eight elementwise activations into
    `Activation` + `ElementwiseActivationOp`; add the CPU `SwigluOp`. `Gelu` folds in.
 4. **MoE (deferred):** `Router`, `MixtureOfExperts`, `MoeOp` grouped GEMM, combine,

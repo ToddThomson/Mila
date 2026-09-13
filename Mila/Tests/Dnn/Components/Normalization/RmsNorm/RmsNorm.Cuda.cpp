@@ -2,9 +2,8 @@
  * @file RmsNorm.Cuda.cpp
  * @brief Concrete-component tests for RmsNorm<DeviceType::Cuda, {FP32, BF16}>.
  *
- * RmsNorm is CUDA-only (no CPU RmsNormOp), so there is no RmsNorm.Cpu.cpp -- this
- * is the whole concrete surface, a TYPED_TEST sweep over FP32 and BF16 (see
- * Linear.Cuda.cpp for the precision-sweep reference).
+ * A TYPED_TEST sweep over FP32 and BF16 (see Linear.Cuda.cpp for the precision-sweep
+ * reference). The CPU instantiation, FP32 only, is covered in RmsNorm.Cpu.cpp.
  *
  * RMS normalization over the trailing normalized dimension:
  *   rstd = 1 / sqrt( mean(x^2) + eps )

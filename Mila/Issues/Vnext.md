@@ -92,8 +92,8 @@ at transformer level is already in place.
 
 Every other family answers "will this fit on my card" before loading anything; GPT-2 does not
 implement `getRequiredMemory`, so installing `gpt2-small` and asking Chat about it gets silence.
-Nine of its components still throw the base class's by-design "not implemented" error — Gelu,
-MultiHeadAttention, Lpe, GatedMLP, MLP, SoftmaxCrossEntropy, LayerNorm, Softmax, GptBlock — and the
+Eight of its components still throw the base class's by-design "not implemented" error — Gelu,
+MultiHeadAttention, Lpe, MLP, SoftmaxCrossEntropy, LayerNorm, Softmax, GptBlock — and the
 contract has been landing one family at a time (`Core/Component.ixx:615`), with GPT-2 the one left.
 
 Its footprint is the simplest of the four: no quantization policy, no sliding-window ring, and

@@ -53,6 +53,8 @@ namespace Mila::Dnn
         // Composite components
         Mlp,
         GatedMlp,
+        Router,
+        MixtureOfExperts,
         Transformer,
 
         // Top-level networks
@@ -106,6 +108,10 @@ namespace Mila::Dnn
                 return "MLP";
             case ComponentType::GatedMlp:
                 return "GatedMLP";
+            case ComponentType::Router:
+                return "Router";
+            case ComponentType::MixtureOfExperts:
+                return "MixtureOfExperts";
             case ComponentType::Transformer:
                 return "Transformer";
             case ComponentType::TokenEmbedding :
@@ -166,6 +172,10 @@ namespace Mila::Dnn
             return ComponentType::Mlp;
         if ( low == "gatedmlp" )
             return ComponentType::GatedMlp;
+        if ( low == "router" )
+            return ComponentType::Router;
+        if ( low == "mixtureofexperts" )
+            return ComponentType::MixtureOfExperts;
         if ( low == "transformer" )
             return ComponentType::Transformer;
         if ( low == "tokenembedding" )
@@ -224,6 +234,10 @@ namespace Mila::Dnn
                 return "mlp";
             case ComponentType::GatedMlp:
                 return "gmlp";
+            case ComponentType::Router:
+                return "rtr";
+            case ComponentType::MixtureOfExperts:
+                return "moe";
             case ComponentType::Transformer:
                 return "tf";
             case ComponentType::TokenEmbedding:
@@ -282,6 +296,10 @@ namespace Mila::Dnn
             return ComponentType::Mlp;
         if ( s == "gmlp" )
             return ComponentType::GatedMlp;
+        if ( s == "rtr" )
+            return ComponentType::Router;
+        if ( s == "moe" )
+            return ComponentType::MixtureOfExperts;
         if ( s == "tf" )
             return ComponentType::Transformer;
         if ( s == "lpe" )

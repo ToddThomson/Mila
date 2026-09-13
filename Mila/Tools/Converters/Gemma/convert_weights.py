@@ -22,15 +22,11 @@ Gemma-specific transforms handled in this converter:
      the lm_head.weight blob is omitted and GemmaTransformer aliases at load time
      (WeightTying.md). Supersedes the earlier Step 5d converter-fold decision.
 
-  2. RAW RMSNorm weights: we write every norm weight AS-IS (all sandwich norms, both
-     QK-norms, and the final norm). Gemma's RMSNorm is x_norm * (1 + weight) (HF
-     Gemma3RMSNorm), but the +1 is NOT folded here -- Mila applies it at the kernel via
-     RmsNormConfig::withUnitOffset(1.0) on every Gemma norm, so the stored weights stay
-     identical to the HF checkpoint (zero-centered, directly comparable) and the shared
-     RmsNorm kernel stays Llama-safe (offset 0 = raw). Do NOT add 1.0 here. See
-     _rmsnorm_to_numpy. (Historical note: an earlier attempt folded +1 into the weights;
-     the parity garbage that was blamed on it was actually elsewhere -- the (1+w) convention
-     itself is correct, it just belongs at the kernel, not in the stored data.)
+  2. RAW RMSNorm weights: every norm weight is written AS-IS (all sandwich norms, both
+     QK-norms, and the final norm). Gemma 4's RMSNorm multiplies by the stored weight
+     directly (HF Gemma4RMSNorm: x_norm * weight), unlike Gemma 3's x_norm * (1 + weight),
+     and GemmaBlock runs every norm at RmsNormConfig unit offset 0. Do NOT add 1.0 here.
+     See _rmsnorm_to_numpy.
 
   3. K=V global layers: the 1-in-N global (full-attention) layers share K=V and
      have no v_proj. Their fused QKV blob is [Q | K] only; the sliding layers are
@@ -47,20 +43,22 @@ Mila tensor names (must match GemmaTransformer / GemmaBlock component paths):
         model.embed_tokens.weight (raw; scale applied at runtime)  -> temb.wte
 
     Per layer (i = 0..num_hidden_layers-1):
-        input_layernorm.weight            (+1)           -> tf_layer_{i}.input_norm.weight
+        input_layernorm.weight                           -> tf_layer_{i}.input_norm.weight
         self_attn.q_proj | k_proj [| v_proj]             -> tf_layer_{i}.qkv_proj.weight
                                                               (V section dropped for K=V global layers)
-        self_attn.q_norm.weight           (+1)           -> tf_layer_{i}.q_norm.weight
-        self_attn.k_norm.weight           (+1)           -> tf_layer_{i}.k_norm.weight
+        self_attn.q_norm.weight                          -> tf_layer_{i}.q_norm.weight
+        self_attn.k_norm.weight                          -> tf_layer_{i}.k_norm.weight
+        (none; unit weight written)                      -> tf_layer_{i}.v_norm.weight
         self_attn.o_proj.weight                          -> tf_layer_{i}.o_proj.weight
-        post_attention_layernorm.weight   (+1)           -> tf_layer_{i}.post_attn_norm.weight
-        pre_feedforward_layernorm.weight  (+1)           -> tf_layer_{i}.pre_ffn_norm.weight
+        post_attention_layernorm.weight                  -> tf_layer_{i}.post_attn_norm.weight
+        pre_feedforward_layernorm.weight                 -> tf_layer_{i}.pre_ffn_norm.weight
         mlp.gate_proj | mlp.up_proj                      -> tf_layer_{i}.fc_gate_up.weight
         mlp.down_proj.weight                             -> tf_layer_{i}.fc_down.weight
-        post_feedforward_layernorm.weight (+1)           -> tf_layer_{i}.post_ffn_norm.weight
+        post_feedforward_layernorm.weight                -> tf_layer_{i}.post_ffn_norm.weight
+        layer_scalar                                     -> tf_layer_{i}.layer_scalar (FP32)
 
     Final RMSNorm:
-        model.norm.weight                 (+1)           -> rmsn_final.weight
+        model.norm.weight                                -> rmsn_final.weight
 
     LM head:
         (tied: omitted -- shares temb.wte at load time)
@@ -116,14 +114,12 @@ def _tensor_to_numpy( tensor: torch.Tensor, dtype: str ):
 
 
 def _rmsnorm_to_numpy( weight: torch.Tensor, dtype: str ):
-    """Convert an RMSNorm weight AS-IS (raw, zero-centered) -- do NOT add 1.0 here.
+    """Convert an RMSNorm weight AS-IS (raw) -- do NOT add 1.0 here.
 
-    Gemma's RMSNorm is x_norm * (1 + weight) (HF Gemma3RMSNorm). Mila applies the +1 at the
-    kernel via RmsNormConfig::withUnitOffset(1.0) on every Gemma norm, so the stored weights
-    must remain RAW (identical to the HF checkpoint, directly comparable, and the shared
-    RmsNorm kernel stays Llama-safe with offset 0). All norms (sandwich + final + QK) write
-    the raw weight. Confirmed via output_hidden_states + an fp32 oracle: HF residual is small
-    (L0 ~= 88); raw-only gave ~1643 (18x), the missing +1 was the bug.
+    Gemma 4's RMSNorm is x_norm * weight (HF Gemma4RMSNorm), and GemmaBlock runs every Gemma
+    norm at unit offset 0, so the stored weight is the one the kernel multiplies by. Confirmed
+    at the QK norms: output RMS equals the raw weight (q 1.02, k 0.12), not 1 + weight
+    (2.03 / 1.12). The ~18x residual blow-up once blamed on this was the missing layer_scalar.
     """
     return _tensor_to_numpy( weight.to( torch.float32 ), dtype )
 

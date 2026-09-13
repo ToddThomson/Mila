@@ -10,7 +10,10 @@ checkpoint falsified (Section 3).
 
 Configuration and weight inventory in Sections 1-2 were read on **2026-09-12**
 from `google/gemma-4-26B-A4B-it` — `config.json` and
-`model.safetensors.index.json` — not from a summary of them. Parameter
+`model.safetensors.index.json` — not from a summary of them. Section 4's
+topology was resolved the same day from `modeling_gemma4.py` and the shard
+headers; that evidence, and the implementation that follows, is recorded in
+`Gemma4MoE.md`. Parameter
 arithmetic in Section 8 is derived from those shapes and is **not measured**;
 it is a sizing estimate, and `Chat.Footprint.ixx` remains the only authority on
 what a load actually allocates.
@@ -71,8 +74,8 @@ mlp.gate_proj.weight             <- dense branch, width 2112
 mlp.up_proj.weight
 mlp.down_proj.weight
 
-experts.gate_up_proj             <- STACKED [128, 2816, 1408]
-experts.down_proj                <- STACKED [128, 704, 2816]
+experts.gate_up_proj             <- STACKED [128, 1408, 2816]  [gate | up]
+experts.down_proj                <- STACKED [128, 2816, 704]
 
 router.proj.weight
 router.scale
@@ -145,33 +148,32 @@ extent the grouped kernel depends on.
 
 ## 4. Block Topology
 
-What is established:
+Resolved 2026-09-12 from `Gemma4TextDecoderLayer`, `Gemma4TextRouter` and
+`Gemma4TextExperts` in transformers 5.12.1, and from the layer 5 (global) and
+layer 6 (sliding) shard headers. The evidence is `Gemma4MoE.md` Phase 1.
 
-- The dense `mlp` branch and the routed-expert branch are **parallel, then
-  summed** — not sequential.
-- The router reads the **unnormalized** post-attention residual; the experts
-  read `pre_feedforward_layernorm_2(x)`.
-- The router is `RMSNorm(no scale) -> root-size scaling -> learnable scale ->
-  Linear -> softmax -> top-k -> renormalize`. `router.scale` is the learnable
-  scale in that chain.
+```
+residual = h                                     post-attention residual stream
+d = post_feedforward_layernorm_1( mlp( pre_feedforward_layernorm( residual ) ) )
+e = post_feedforward_layernorm_2( experts( pre_feedforward_layernorm_2( residual ), router( residual ) ) )
+h = ( residual + post_feedforward_layernorm( d + e ) ) * layer_scalar
+```
 
-What is **not** established and must not be guessed:
-
-- The exact assignment of the five feed-forward norms to the two branches. Four
-  are accounted for (`pre`/`post` per branch); `post_feedforward_layernorm_1`
-  is the fifth and its consumer is unconfirmed.
-- What `router.per_expert_scale` does — it is absent from the routing chain
-  quoted above.
-- What `layer_scalar` multiplies.
-- Whether a **global** layer carries a `v_proj` at all, given
-  `attention_k_eq_v: true`. Layer 0 is sliding; layers 5, 11, 17, 23 and 29
-  were not inspected.
-
-**Resolution method:** read `Gemma4MoEDecoderLayer.forward` in the HuggingFace
-`modeling_gemma4.py`, and read the tensor **shapes** (not just names) for one
-global layer from the safetensors header. Both are cheap and both are
-prerequisites to Section 11 step 1. Nothing below depends on the answers except
-the block wiring itself.
+- The dense and routed branches run **in parallel** from the same residual,
+  each with its own pre- and post-norm. Their sum passes through the unsuffixed
+  `post_feedforward_layernorm` — the norm the dense block already applies at
+  that position — before the residual add.
+- The router is `RMSNorm(no scale) -> x router.scale -> x hidden_size^-0.5 ->
+  proj -> softmax over all 128 -> top-8 -> renormalize -> x
+  per_expert_scale[index]`. `per_expert_scale` acts after selection: it changes
+  combine magnitudes, never which experts run, and the combine weights do not
+  sum to 1.
+- `layer_scalar` multiplies the whole layer output, exactly as in the dense
+  chassis (`Gemma.Block.ixx:241`). It is not a delta.
+- Global layers carry **no `v_proj`**: `V = v_norm(k_proj(x))`,
+  `K = RoPE(k_norm(k_proj(x)))`, as the dense chassis already does. K and V
+  differ after their norms, so both are cached.
+- Every norm multiplies by its raw weight; there is no `1 +` offset.
 
 ---
 
@@ -186,12 +188,14 @@ no dense/MoE interleave to model. The sliding/global split is the existing
 ```
 GemmaBlock (unchanged attention half)
   |
-  +-- pre_feedforward_layernorm    -> GatedMLP<..., Gelu>  (2112)  -+
-  |                                                                 |-- sum -> residual
-  +-- pre_feedforward_layernorm_2  -> MixtureOfExperts      (704)  -+
-                                        |
-                                        +-- Router      (proj + scale + top-k)
-                                        +-- MoeOp       (stacked [128, ...])
+  +-- pre_feedforward_layernorm   -> GatedMLP<..., Gelu> (2112) -> post_feedforward_layernorm_1 -+
+  |                                                                                              |
+  |                                                  sum -> post_feedforward_layernorm -> residual
+  |                                                                                              |
+  +-- pre_feedforward_layernorm_2 -> MixtureOfExperts    (704)  -> post_feedforward_layernorm_2 -+
+  |                                    +-- MoeOp  (stacked [128, ...])
+  |                                    ^ weights, indices
+  +-- Router (reads the residual itself; scale, top-k, per-expert scale)
 ```
 
 New components:
@@ -200,6 +204,12 @@ New components:
 |---|---|---|---|
 | Routing | `Router` | `RouterConfig` | `RouterOp` |
 | Expert bank + combine | `MixtureOfExperts` | `MixtureOfExpertsConfig` | `MoeOp` |
+
+**`Router` is a sibling of `MixtureOfExperts`, not its child** (decided in Phase 6,
+`Gemma4MoE.md`). Gemma routes on the raw residual while its experts read
+`pre_feedforward_layernorm_2` of it, so a bank that owned its router would need a
+family-specific two-input signature. `MixtureOfExperts` takes the router's weights and
+indices as input, and the block wires the two.
 
 `MixtureOfExperts` orchestrates; `MoeOp` holds the kernel. This is the division
 `Linear` established and `OperationDispatch.md` requires. There is **no**
@@ -484,28 +494,30 @@ document's model to land.
 
 Derived from Section 1-2 shapes. **Not measured.**
 
-Per layer: attention 34.6M (sliding) + dense branch 17.8M + experts 761.3M +
-router 0.4M = **814.1M**, of which **761.3M (93.5%) is the expert bank**.
+Per sliding layer: attention 34.6M + dense branch 17.8M + experts 761.3M +
+router 0.4M = **814.1M**, of which **761.3M (93.5%) is the expert bank**. A
+global layer's attention is 49.0M (no `v_proj`, but `global_head_dim` 512), for
+828.5M.
 
 | | Parameters |
 |---|---|
 | Expert banks (30 layers) | 22.84B |
-| Everything else (attention, dense branches, router, embedding) | 2.32B |
-| **Total** | **25.16B** |
-| Active per token | ~3.0B + head |
+| Everything else (attention, dense branches, router, embedding) | 2.40B |
+| **Total** | **25.23B** |
+| Active per token | ~3.1B + head |
 
 Weight residency, 5060 Ti (16 GiB, roughly 15.0-15.5 GiB usable after display
 and driver):
 
 | Experts | Rest | Total |
 |---|---|---|
-| NVFP4 (11.97 GiB) | BF16 (4.32 GiB) | **16.29 GiB — does not fit** |
-| `PerGroupFp4<128>` (11.30 GiB) | BF16 (4.32 GiB) | **15.62 GiB — does not fit** |
-| NVFP4 (11.97 GiB) | FP8 (2.16 GiB) | 14.13 GiB — fits, ~1 GiB headroom |
-| `PerGroupFp4<128>` (11.30 GiB) | FP8 (2.16 GiB) | 13.46 GiB — fits |
+| NVFP4 (11.97 GiB) | BF16 (4.46 GiB) | **16.43 GiB — does not fit** |
+| `PerGroupFp4<128>` (11.30 GiB) | BF16 (4.46 GiB) | **15.76 GiB — does not fit** |
+| NVFP4 (11.97 GiB) | FP8 (2.23 GiB) | 14.20 GiB — fits, ~1 GiB headroom |
+| `PerGroupFp4<128>` (11.30 GiB) | FP8 (2.23 GiB) | 13.53 GiB — fits |
 
 **The "experts quantized, everything else BF16" recipe does not fit this card.**
-The non-expert mass is only 9% of the parameters but 4.32 GiB at BF16, and the
+The non-expert mass is under 10% of the parameters but 4.46 GiB at BF16, and the
 embedding alone is 1.38 GiB of that. A 26B-A4B build for the 5060 Ti must
 quantize the non-expert mass too. This contradicts the upstream
 `nvfp4_experts_only` recipe, which targets cards with room to spare.
@@ -514,7 +526,8 @@ KV cache, by contrast, is the easy half — the bounded ring cache does the work
 
 - 25 sliding layers, capped at 1024 entries: **~0.20 GiB, independent of
   context length.**
-- 5 global layers at 32K context: ~0.63 GiB (~0.31 GiB if `k_eq_v` halves it).
+- 5 global layers at 32K context: ~0.63 GiB. `k_eq_v` does not halve it — K
+  and V leave their norms different and are both cached (Section 4).
 
 Only the 5 global layers scale with context. This is the strongest argument for
 the bounded-KV `TKvCachePolicy` sibling in `SlidingWindowKvCache.md` landing
@@ -584,16 +597,18 @@ Beyond the dense Gemma 4 chassis, which is otherwise reused unchanged:
 2. `Router` + `RouterOp`, including the `scale` / `per_expert_scale` semantics
    from Section 4.
 3. `MixtureOfExperts` + `MoeOp`, both paths of Section 6.
-4. Parallel dual-FFN wiring and its five norms.
-5. `layer_scalar`, semantics unknown.
-6. `GemmaConfig`: expert count, top-k, `moe_intermediate_size`, and the
+4. Parallel dual-FFN wiring: three new norms (`pre_feedforward_layernorm_2`,
+   `post_feedforward_layernorm_1`, `post_feedforward_layernorm_2`) and a sum
+   ahead of the existing post-FFN norm.
+5. `GemmaConfig`: expert count, top-k, `moe_intermediate_size`, and the
    dense-branch width as a field distinct from the expert width.
-7. Converter: direct stacked upload; `1.0 +` norm-weight convention extended to
-   the three new norms.
-8. Footprint: a sparse-layer term (Section 8).
+6. Converter: direct stacked upload, the three router tensors, and the three
+   new norms written raw like every other Gemma norm.
+7. Footprint: a sparse-layer term (Section 8).
 
-Items 1, 2, 3 and 8 are reusable by every future MoE family. Items 4, 5, 6 and
-7 are Gemma-specific.
+Items 1, 2, 3 and 7 are reusable by every future MoE family. Items 4, 5 and 6
+are Gemma-specific. `layer_scalar`, K=V global attention and `v_norm` are
+already in the dense chassis and are not deltas.
 
 ---
 
@@ -619,10 +634,12 @@ same weights, per `Testing.md`.
 
 Each step is independently buildable and independently valuable.
 
-1. **Resolve Section 4's open questions** — read `modeling_gemma4.py` and one
-   global layer's tensor shapes. Hours, no card, and it gates the block wiring.
+1. **Resolve Section 4's open questions.** Done 2026-09-12 — `Gemma4MoE.md`
+   Phase 1.
 2. **Delegate `GemmaBlock`'s FFN to `GatedMLP`.** No MoE risk; closes an
-   existing `FfnAndMoE.md` §7 asymmetry.
+   existing `FfnAndMoE.md` §7 asymmetry. Renames published FFN tensors, so the
+   component work lands first and the block switch after 0.20.0 (`Gemma4MoE.md`
+   Phase 2a/2b).
 3. **Bounded-KV `TKvCachePolicy` sibling**, if not already landed. Section 8
    shows it is what makes the context story work at all.
 4. **Footprint sparse-layer term.**
@@ -641,7 +658,7 @@ Each step is independently buildable and independently valuable.
    **This step does not belong to this model.** An NVFP4 activation quantizer
    plus the `VEC16_UE4M3` GEMM is a dense-model win on every `Linear` in the
    tree; it should land against a model that already works, where token parity
-   is a known quantity, rather than against a chassis being brought up at the
+   is a known quantity, rather than against a model being implemented at the
    same time.
 
 Steps 1-8 have no dependency on NVFP4 and no dependency on CUTLASS.
@@ -650,7 +667,8 @@ Steps 1-8 have no dependency on NVFP4 and no dependency on CUTLASS.
 
 ## 12. Open Decisions
 
-- The four Section 4 unknowns, with the resolution method named there.
+- Whether `per_expert_scale` stays in `RouterOp` or folds exactly into
+  `experts.down_proj` offline (`Gemma4MoE.md` Phase 1, Unknown 2).
 - Whether the non-expert mass quantizes to FP8 or FP4 (Section 8 requires one
   of them; which is a quality measurement, not a design choice).
 - Whether `RouterOp` earns a CPU specialization, or whether `Router<Cpu>` is a

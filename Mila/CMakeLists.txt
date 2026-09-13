@@ -218,6 +218,12 @@ PUBLIC
         "Src/Dnn/Components/Convolutions/CausalConv1d.Config.ixx"
         "Src/Dnn/Components/Convolutions/CausalConv1d.ixx"
 
+        # Components - MixtureOfExperts
+        "Src/Dnn/Components/MixtureOfExperts/Router.Config.ixx"
+        "Src/Dnn/Components/MixtureOfExperts/Router.ixx"
+        "Src/Dnn/Components/MixtureOfExperts/MixtureOfExperts.Config.ixx"
+        "Src/Dnn/Components/MixtureOfExperts/MixtureOfExperts.ixx"
+
         # Components - DeltaNet
         "Src/Dnn/Components/DeltaNet/GatedDeltaRule.Config.ixx"
         "Src/Dnn/Components/DeltaNet/GatedDeltaRule.ixx"
@@ -535,6 +541,9 @@ if(MILA_HAS_CPU)
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSamplingOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuRouterOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuRmsNormOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuMoeOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx"
 
@@ -620,6 +629,8 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/Kernels/CausalConv1d.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/Kernels/CausalConv1d.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/DeltaNet/Kernels/GatedDeltaRule.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Routing/Kernels/Router.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Moe/Kernels/Moe.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.warp.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.block.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cu"
@@ -674,6 +685,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/Kernels/CausalConv1d.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/DeltaNet/Kernels/GatedDeltaRule.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Routing/Kernels/Router.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Moe/Kernels/Moe.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
@@ -750,6 +763,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/CudaCausalConv1dOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/DeltaNet/CudaGatedDeltaRuleOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Routing/CudaRouterOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Moe/CudaMoeOp.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.Dispatch.ixx"
@@ -778,6 +793,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/CudaCausalConv1dOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/DeltaNet/CudaGatedDeltaRuleOp.Dispatch.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Routing/CudaRouterOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Plans.ixx"

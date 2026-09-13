@@ -282,7 +282,7 @@ getting-started paths name an instruct model, or `/install` says so before the t
 `open` · `gemma` · `distribution`
 
 The package directory carries the current one; `ModelCards/gemma-4-12b-it-fp4/mila.json` is the
-pre-package copy. Two sources of truth for the flagship model, and publishing from the stale one is a
+pre-package copy. Two sources of truth for a published model, and publishing from the stale one is a
 live risk. One has to go, and the card directory's `publish.json` flow goes with it.
 
 #### `NOTICE.md` omits curl, and may no longer need to

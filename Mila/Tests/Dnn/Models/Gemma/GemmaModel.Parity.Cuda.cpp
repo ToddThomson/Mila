@@ -8,7 +8,7 @@
  * captured ONCE from the HF run and hardcoded here (the same pattern the tokenizer
  * suite uses for its HF ground truth):
  *
- *   python Dev/Scripts/gemma_4_BF16/hf_gemma_greedy_validation.py
+ *   python Mila/Tools/Converters/Gemma/gemma_4_BF16/hf_gemma_greedy_validation.py
  *
  * and paste its "kPromptIds = {...}" / "kExpectedGen = {...}" lines below. The
  * tokenizer is validated separately (BpeTokenizerGemma), so feeding the reference
@@ -81,7 +81,7 @@ namespace Mila::Tests::Dnn::Models
             if ( kPromptIds.empty() || kExpectedGen.empty() )
             {
                 GTEST_SKIP() << "Populate kPromptIds / kExpectedGen from "
-                                "Dev/Scripts/gemma_4_BF16/hf_gemma_greedy_validation.py output.";
+                                "Mila/Tools/Converters/Gemma/gemma_4_BF16/hf_gemma_greedy_validation.py output.";
             }
 
             checkpoint_ = gemma_checkpoint_path();

@@ -75,7 +75,7 @@ library rather than here.
 
 `Web/content/blog/longer-context-fixed-the-crash.md`.
 
-## `[ ]` The models band calls Gemma 4 the chat default, and there is no default
+## `[ ]` The models band calls Gemma 4 the flagship and the chat default, and there is no default
 
 `layout`
 
@@ -85,8 +85,11 @@ Nothing in the chat harness carries a compiled-in default model: a search of
 and names the flag that fixes it. So a reader who installs Gemma, types `chat`, and expects it to be
 picked up gets a refusal instead.
 
-Deleting the two words is the whole fix; the rest of the entry already carries the weight.
-`Web/layouts/index.html`, the models band.
+"Flagship" in the same note is wrong in a different way: it ranks one model for a reader whose
+choice depends on their own card, and it dates from when that default existed. The text is
+`Web/hugo.toml:69` — `note = 'Flagship, chat default. ...'` — which the models band in
+`Web/layouts/index.html` renders; that page's own comment at `:12` already rules out "the flagship".
+Deleting the first sentence of the note is the whole fix.
 
 ## `[ ]` The precision column offers deployments a reader cannot reach
 

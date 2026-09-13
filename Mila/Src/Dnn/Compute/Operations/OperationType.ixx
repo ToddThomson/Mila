@@ -47,6 +47,8 @@ namespace Mila::Dnn::Compute
 		SoftmaxOp,					///< Softmax activation function
 		DropoutOp,					///< Dropout regularization operation
 		SamplingOp,					///< Device-side token sampling from logits
+		RouterOp,					///< Mixture-of-experts selection: router logits to top-k experts and weights
+		MoeOp,						///< Mixture-of-experts bank: each token through its selected experts, combined
 		SoftmaxCrossEntropyOp		///< WIP: Fused softmax + cross-entropy loss -- targeted for Llama training
 	};
 
@@ -73,6 +75,8 @@ namespace Mila::Dnn::Compute
 		constexpr std::string_view Softmax              = "SoftmaxOp";
 		constexpr std::string_view Dropout              = "DropoutOp";
 		constexpr std::string_view Sampling             = "SamplingOp";
+		constexpr std::string_view Router               = "RouterOp";
+		constexpr std::string_view Moe                  = "MoeOp";
 		constexpr std::string_view SoftmaxCrossEntropy  = "SoftmaxCrossEntropyOp"; ///< WIP -- targeted for Llama training
 	}
 
@@ -100,6 +104,8 @@ namespace Mila::Dnn::Compute
 			case OperationType::SoftmaxOp:               return OperationNames::Softmax;
 			case OperationType::DropoutOp:               return OperationNames::Dropout;
 			case OperationType::SamplingOp:              return OperationNames::Sampling;
+			case OperationType::RouterOp:                return OperationNames::Router;
+			case OperationType::MoeOp:                   return OperationNames::Moe;
 			case OperationType::SoftmaxCrossEntropyOp:   return OperationNames::SoftmaxCrossEntropy;
 			default:
 				throw std::runtime_error( "operationTypeToString: unrecognized OperationType" );

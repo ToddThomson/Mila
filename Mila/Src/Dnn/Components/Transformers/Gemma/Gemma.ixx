@@ -132,10 +132,11 @@ namespace Mila::Dnn
      * Graph: TokenEmbedding -> GemmaBlock x N (heterogeneous local/global) ->
      * RmsNorm -> Linear (lm_head). The embedding sqrt(d) scale and the final logit
      * softcap are handled by the converter and the sampler respectively (see the
-     * file header).
+     * file header). kDelegatedFeedForward is forwarded to every block (GemmaBlock).
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision,
-        WeightQuantPolicy TWeightQuantization = NoWeightQuant, KvCachePolicy TKvCachePolicy = NoKvCompression>
+        WeightQuantPolicy TWeightQuantization = NoWeightQuant, KvCachePolicy TKvCachePolicy = NoKvCompression,
+        bool kDelegatedFeedForward = false>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class GemmaTransformer : public LanguageModelNetwork<TDeviceType, TPrecision>
     {
@@ -158,8 +159,8 @@ namespace Mila::Dnn
         // bounded window, so their KV cache can be a ring (SlidingWindowKvCache.md D4).
         // GLOBAL (full-attention) layers attend the entire context and therefore always
         // use the full-context cache (NoKvCompression), regardless of the sliding policy.
-        using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ false, TWeightQuantization, TKvCachePolicy>;
-        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ true, TWeightQuantization, NoKvCompression>;
+        using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ false, TWeightQuantization, TKvCachePolicy, kDelegatedFeedForward>;
+        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ true, TWeightQuantization, NoKvCompression, kDelegatedFeedForward>;
         using TransformerBlockType = ITransformerBlock<TDeviceType, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
