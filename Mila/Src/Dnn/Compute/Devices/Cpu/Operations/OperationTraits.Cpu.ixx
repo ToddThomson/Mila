@@ -179,7 +179,9 @@ namespace Mila::Dnn::Compute
     template<>
     struct OperationTraits<OperationType::MoeOp, DeviceType::Cpu, TensorDataType::FP32, void>
     {
-        template<typename TFunctor>
+        // Quantized expert banks are CUDA-only, like quantized LinearOp.
+        template<typename TFunctor, typename TWeightQuantization = NoWeightQuant>
+            requires ( !TWeightQuantization::kIsQuantized )
         using op_for = CpuMoeOp<TFunctor>;
     };
 

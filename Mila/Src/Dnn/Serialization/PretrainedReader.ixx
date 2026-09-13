@@ -124,6 +124,12 @@ namespace Mila::Dnn::Serialization
         float    rope_theta_global;
         float    final_logit_softcapping;
 
+        // Routed feed-forward geometry, zero for a dense model (Gemma 4 26B-A4B: 128 experts, top 8,
+        // expert width 704). hidden_dim stays the width of the always-on dense branch.
+        uint32_t num_experts = 0;
+        uint32_t top_k_experts = 0;
+        uint32_t expert_hidden_dim = 0;
+
         // Qwen 3.8 geometry (0 / false for other architectures). This stack interleaves two
         // different MIXERS rather than two geometries of one mixer, so the Gated DeltaNet
         // fields are its own rather than variants of the attention ones above. See QwenConfig.
@@ -181,6 +187,10 @@ namespace Mila::Dnn::Serialization
         json[ "rope_theta_local" ] = metadata.rope_theta_local;
         json[ "rope_theta_global" ] = metadata.rope_theta_global;
         json[ "final_logit_softcapping" ] = metadata.final_logit_softcapping;
+
+        json[ "num_experts" ] = metadata.num_experts;
+        json[ "top_k_experts" ] = metadata.top_k_experts;
+        json[ "expert_hidden_dim" ] = metadata.expert_hidden_dim;
 
         json[ "attention_output_gate" ] = metadata.attention_output_gate;
         json[ "full_attention_interval" ] = metadata.full_attention_interval;
@@ -1267,6 +1277,10 @@ namespace Mila::Dnn::Serialization
             metadata_.rope_theta_local        = extract_float( "rope_theta_local" );
             metadata_.rope_theta_global       = extract_float( "rope_theta_global" );
             metadata_.final_logit_softcapping = extract_float( "final_logit_softcapping" );
+
+            metadata_.num_experts             = extract_int( "num_experts" );
+            metadata_.top_k_experts           = extract_int( "top_k_experts" );
+            metadata_.expert_hidden_dim       = extract_int( "expert_hidden_dim" );
 
             metadata_.attention_output_gate   = extract_bool( "attention_output_gate" );
             metadata_.full_attention_interval = extract_int( "full_attention_interval" );

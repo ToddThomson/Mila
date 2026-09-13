@@ -580,11 +580,12 @@ The honest framing: this is an axis for running a model that **otherwise would
 not load at all**, not an optimization for one that fits. Decide it after the
 Section 8 table, not instead of it.
 
-`Chat.Footprint.ixx` and `MemoryFootprint.md` currently have **no term for a
-sparse layer** — no notion of resident-but-inactive parameters. Adding it is a
-prerequisite, not a follow-up: a footprint report that counts an MoE layer as
-dense is wrong by a factor of 14 on the only number a user checks before
-loading. A residency design would need a second term on top, separating
+`MemoryStats` carries the **sparse-layer term** — resident-but-inactive
+parameter bytes (`MemoryFootprint.md` §4.6, `Gemma4MoE.md` Phase 4).
+`Chat.Footprint.ixx` does not report it yet; that lands with the first MoE
+configuration in Phase 8. It is a prerequisite, not a follow-up: a footprint
+report that counts an MoE layer as dense is wrong by a factor of 14 on the only
+number a user checks before loading. A residency design would need a second term on top, separating
 resident from active from streamed.
 
 ---
@@ -625,8 +626,10 @@ same weights, per `Testing.md`.
 - Routing is discrete, so a near-tie that flips one expert selection changes
   the output materially while the norms stay small. Generation must be
   validated, not just the oracle — 30 layers of top-8 compound.
-- The decode gather-matvec is validated against the prefill grouped path at
-  `M == 1`, which is the only comparison that isolates it.
+- The decode gather-matvec is validated against the prefill path at `M == 1`,
+  which is the only comparison that isolates it. Today both are the one two-pass
+  kernel, and the gate is bit-identity (`Gemma4MoE.md` Phase 7); a grouped GEMM
+  prefill is gated against that kernel when it lands.
 
 ---
 
@@ -643,10 +646,13 @@ Each step is independently buildable and independently valuable.
 3. **Bounded-KV `TKvCachePolicy` sibling**, if not already landed. Section 8
    shows it is what makes the context story work at all.
 4. **Footprint sparse-layer term.**
-5. **`Router` + `RouterOp`**, validated against HF routing in isolation.
+5. **`Router` + `RouterOp`**, validated against HF routing in isolation. Done
+   2026-09-12 — `Gemma4MoE.md` Phase 5.
 6. **`MixtureOfExperts` + `MoeOp` prefill path**, validated against the
-   `GatedMLP` oracle on CPU.
-7. **`MoeOp` decode gather-matvec**, validated against step 6 at `M == 1`.
+   `GatedMLP` oracle on CPU. Done 2026-09-12, against HF's eager experts and a
+   definition instead — `Gemma4MoE.md` Phase 6.
+7. **`MoeOp` decode gather-matvec**, validated against step 6 at `M == 1`. Done
+   2026-09-12 — `Gemma4MoE.md` Phase 7.
 8. **Converter + `fromPretrainedImpl`**, on `PerGroupFp4<128>`. **The model
    runs here.**
 9. **NVFP4** — throughput is measured and favourable (Section 7.1a), and the

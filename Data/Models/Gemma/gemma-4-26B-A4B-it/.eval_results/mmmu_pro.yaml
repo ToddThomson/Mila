@@ -1,0 +1,8 @@
+- dataset:
+    id: MMMU/MMMU_Pro
+    task_id: mmmu_pro_vision
+  value: 73.8
+  date: '2026-05-12'
+  source:
+    url: https://huggingface.co/google/gemma-4-26B-A4B-it
+    name: Model Card

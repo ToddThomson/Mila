@@ -264,6 +264,22 @@ the alternatives -- collapsing the predicate to one site, or asserting post-buil
 declared installation happened -- both leave the promise in place and rely on convention to
 keep it true.
 
+### 4.6 Sparse layers: resident is not active
+
+A mixture-of-experts layer holds every expert on the device and reads only `top_k` of them
+per token, so one parameter figure answers two different questions: whether the model
+loads, and what a token costs. `MemoryStats::device_inactive_parameter_bytes` is the part of
+`device_parameter_bytes` a single token does not read, and `activeDeviceParameterBytes()`
+is the rest.
+
+It is a **subset**, not a fourth category: nothing is allocated for it, so
+`totalDeviceBytes()` and every fit verdict are unchanged by it. `operator+=` sums it, which
+carries it through the composite aggregation in section 4.3 with no composite written for
+it. `MixtureOfExperts` is the only component that sets it, identically in `getMemoryStats`
+and `getRequiredMemory`; every dense component leaves it zero, so a dense report cannot
+change. A future residency design that streams experts would add its own term beside this
+one rather than reinterpret it. See `Gemma4MoE.md` Phase 4.
+
 ---
 
 ## 5. Entry Point

@@ -188,7 +188,7 @@ namespace Mila::Dnn
 
             writer.setMetadata(
                 Serialization::kMilaQuantizationMetadataKey,
-                weightQuantizationName( weight_quantization_ ) );
+                weightQuantizationScheme() );
 
             const auto& network = this->getNetwork();
 
@@ -201,6 +201,14 @@ namespace Mila::Dnn
             network.saveFlatTensors( writer, "", Serialization::TensorSavePass::Write );
 
             writer.close();
+        }
+
+        /**
+         * @brief The scheme name savePretrained records for these weights, e.g. "per_group_fp4_64".
+         */
+        std::string weightQuantizationScheme() const
+        {
+            return weightQuantizationName( weight_quantization_, fp4_group_size_ );
         }
 
         /**
@@ -230,8 +238,9 @@ namespace Mila::Dnn
          *                             savePretrained so the result loads by the same path.
          * @param weight_quantization  What the live weights actually are, which is a load-time
          *                             policy rather than a property of the source file.
+         * @param fp4_group_size       The FP4 group those weights were built at.
          *
-         * Both default, because a model reconstructed from a checkpoint has no pretrained
+         * All default, because a model reconstructed from a checkpoint has no pretrained
          * provenance to carry; savePretrained refuses rather than writing an artifact that
          * declares nothing.
          */
@@ -239,10 +248,12 @@ namespace Mila::Dnn
             std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             RuntimeMode runtime_mode,
             Serialization::PretrainedMetadata source_metadata = {},
-            WeightQuantization weight_quantization = WeightQuantization::None )
+            WeightQuantization weight_quantization = WeightQuantization::None,
+            int fp4_group_size = 128 )
             : Base( std::move( network ), runtime_mode )
             , source_metadata_( std::move( source_metadata ) )
             , weight_quantization_( weight_quantization )
+            , fp4_group_size_( fp4_group_size )
         {}
 
         // ====================================================================
@@ -366,6 +377,9 @@ namespace Mila::Dnn
 
         /// What the live weights are, not what the source file was.
         WeightQuantization weight_quantization_{ WeightQuantization::None };
+
+        /// The FP4 group the live weights were built at; meaningful only when they are FP4.
+        int fp4_group_size_{ 128 };
 
     private:
 

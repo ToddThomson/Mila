@@ -132,11 +132,11 @@ namespace Mila::Dnn
      * Graph: TokenEmbedding -> GemmaBlock x N (heterogeneous local/global) ->
      * RmsNorm -> Linear (lm_head). The embedding sqrt(d) scale and the final logit
      * softcap are handled by the converter and the sampler respectively (see the
-     * file header). kDelegatedFeedForward is forwarded to every block (GemmaBlock).
+     * file header). kDelegatedFeedForward and kMixtureOfExperts are forwarded to every block (GemmaBlock).
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision,
         WeightQuantPolicy TWeightQuantization = NoWeightQuant, KvCachePolicy TKvCachePolicy = NoKvCompression,
-        bool kDelegatedFeedForward = false>
+        bool kDelegatedFeedForward = false, bool kMixtureOfExperts = false>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class GemmaTransformer : public LanguageModelNetwork<TDeviceType, TPrecision>
     {
@@ -159,8 +159,8 @@ namespace Mila::Dnn
         // bounded window, so their KV cache can be a ring (SlidingWindowKvCache.md D4).
         // GLOBAL (full-attention) layers attend the entire context and therefore always
         // use the full-context cache (NoKvCompression), regardless of the sliding policy.
-        using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ false, TWeightQuantization, TKvCachePolicy, kDelegatedFeedForward>;
-        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ true, TWeightQuantization, NoKvCompression, kDelegatedFeedForward>;
+        using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ false, TWeightQuantization, TKvCachePolicy, kDelegatedFeedForward, kMixtureOfExperts>;
+        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ true, TWeightQuantization, NoKvCompression, kDelegatedFeedForward, kMixtureOfExperts>;
         using TransformerBlockType = ITransformerBlock<TDeviceType, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
@@ -341,7 +341,9 @@ namespace Mila::Dnn
                               block_workspace_.o_normed.get(), block_workspace_.res1.get(),
                               block_workspace_.ffn_in.get(), block_workspace_.gate_up.get(),
                               block_workspace_.ffn_act.get(), block_workspace_.ffn_down.get(),
-                              block_workspace_.ffn_normed.get(), block_workspace_.stream.get() } )
+                              block_workspace_.ffn_normed.get(), block_workspace_.stream.get(),
+                              block_workspace_.ffn_dense_normed.get(), block_workspace_.ffn_expert_in.get(),
+                              block_workspace_.ffn_expert_normed.get(), block_workspace_.ffn_sum.get() } )
             {
                 if ( t )
                     stats.device_state_bytes += t->getStorageSize();
@@ -877,11 +879,14 @@ namespace Mila::Dnn
             int64_t kv_width;
             int64_t qkv_width;
 
+            // Stream-wide slots the routed feed-forward adds; zero on a dense model.
+            int64_t routed_stream_slots;
+
             // q + q_normed + attn; k + v + k_normed + v_normed; the eight
             // model_dim-wide stream-side slots; qkv; gate_up (2h) + ffn_act (h).
             int64_t totalRowElements() const
             {
-                return 3 * q_width + 4 * kv_width + 8 * model_dim + qkv_width + 3 * hidden_dim;
+                return 3 * q_width + 4 * kv_width + ( 8 + routed_stream_slots ) * model_dim + qkv_width + 3 * hidden_dim;
             }
         };
 
@@ -904,6 +909,7 @@ namespace Mila::Dnn
                 (NH + (config_.keyEqualsValue() ? 1 : 2) * config_.getNumGlobalKVHeads())
                 * config_.getGlobalHeadDim();
             widths.qkv_width = std::max( packed_local, packed_global );
+            widths.routed_stream_slots = kMixtureOfExperts ? 4 : 0;
 
             return widths;
         }
@@ -934,7 +940,8 @@ namespace Mila::Dnn
         /**
          * @brief Bytes the pooled per-block activation workspace would take.
          *
-         * Mirrors allocateBlockWorkspace(): eighteen slots, each [B, chunk, width], summed
+         * Mirrors allocateBlockWorkspace(): eighteen slots, twenty-two with the routed feed-forward,
+         * each [B, chunk, width], summed
          * through the same WorkspaceWidths the allocation uses.
          */
         std::size_t blockWorkspaceBytes( dim_t B, int64_t prefill_chunk ) const
@@ -1033,7 +1040,22 @@ namespace Mila::Dnn
                     * config_.getHeadDim() * precision_bytes;
             }
 
-            return workspace_bytes + attention_bytes + ring_bytes;
+            int64_t routed_bytes = 0;
+
+            if constexpr ( kMixtureOfExperts )
+            {
+                // Router and MixtureOfExperts take no pooled slot, so every layer holds its own: the
+                // router's norm output, logits and routing, and the bank's output and FP32 gated scratch.
+                const int64_t top_k = config_.getTopKExperts();
+                const int64_t routed_row_bytes =
+                    ( 2 * config_.getModelDim() + config_.getNumExperts() + top_k ) * precision_bytes
+                    + top_k * static_cast<int64_t>( sizeof( int32_t ) )
+                    + top_k * config_.getExpertHiddenDimension() * static_cast<int64_t>( sizeof( float ) );
+
+                routed_bytes = config_.getNumLayers() * B * routed_row_bytes;
+            }
+
+            return workspace_bytes + attention_bytes + ring_bytes + routed_bytes;
         }
 
         // Global-layer KV cache bytes -- the context-dependent VRAM term. The global
@@ -1113,6 +1135,14 @@ namespace Mila::Dnn
             block_workspace_.ffn_down = slot( model_dim, "ffn_down" );
             block_workspace_.ffn_normed = slot( model_dim, "ffn_normed" );
             block_workspace_.stream = slot( model_dim, "stream" );
+
+            if constexpr ( kMixtureOfExperts )
+            {
+                block_workspace_.ffn_dense_normed = slot( model_dim, "ffn_dense_normed" );
+                block_workspace_.ffn_expert_in = slot( model_dim, "ffn_expert_in" );
+                block_workspace_.ffn_expert_normed = slot( model_dim, "ffn_expert_normed" );
+                block_workspace_.ffn_sum = slot( model_dim, "ffn_sum" );
+            }
         }
 
         void allocateAndWireGqaWorkspace( int64_t B, int64_t T_ctx )

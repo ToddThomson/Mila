@@ -78,6 +78,10 @@ namespace Mila::Dnn
         /// Allocated at construction. Static for the component lifetime.
         std::size_t device_parameter_bytes{ 0 };
 
+        /// Of device_parameter_bytes, what a single token does not read: the unselected
+        /// experts of a sparse layer. Resident, never a separate allocation; zero when dense.
+        std::size_t device_inactive_parameter_bytes{ 0 };
+
         /// Forward and decode output buffers, KV cache.
         /// Allocated at build(). Static after build().
         std::size_t device_state_bytes{ 0 };
@@ -112,6 +116,14 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Device parameter bytes a single token reads. Equals device_parameter_bytes when dense.
+         */
+        [[nodiscard]] std::size_t activeDeviceParameterBytes() const noexcept
+        {
+            return device_parameter_bytes - device_inactive_parameter_bytes;
+        }
+
+        /**
          * @brief Total host memory allocated by this component.
          */
         [[nodiscard]] std::size_t totalHostBytes() const noexcept
@@ -135,6 +147,7 @@ namespace Mila::Dnn
         MemoryStats& operator+=( const MemoryStats& rhs ) noexcept
         {
             device_parameter_bytes += rhs.device_parameter_bytes;
+            device_inactive_parameter_bytes += rhs.device_inactive_parameter_bytes;
             device_state_bytes += rhs.device_state_bytes;
             device_gradient_bytes += rhs.device_gradient_bytes;
             host_parameter_bytes += rhs.host_parameter_bytes;

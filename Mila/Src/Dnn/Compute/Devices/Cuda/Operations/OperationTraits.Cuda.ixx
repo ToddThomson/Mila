@@ -465,15 +465,15 @@ namespace Mila::Dnn::Compute
     template<>
     struct OperationTraits<OperationType::MoeOp, DeviceType::Cuda, TensorDataType::FP32, void>
     {
-        template<typename TFunctor>
-        using op_for = Cuda::Moe::CudaMoeOp<TensorDataType::FP32, TFunctor>;
+        template<typename TFunctor, typename TWeightQuantization = NoWeightQuant>
+        using op_for = Cuda::Moe::CudaMoeOp<TensorDataType::FP32, TFunctor, TWeightQuantization>;
     };
 
     template<>
     struct OperationTraits<OperationType::MoeOp, DeviceType::Cuda, TensorDataType::BF16, void>
     {
-        template<typename TFunctor>
-        using op_for = Cuda::Moe::CudaMoeOp<TensorDataType::BF16, TFunctor>;
+        template<typename TFunctor, typename TWeightQuantization = NoWeightQuant>
+        using op_for = Cuda::Moe::CudaMoeOp<TensorDataType::BF16, TFunctor, TWeightQuantization>;
     };
 
 }  // namespace Mila::Dnn::Compute

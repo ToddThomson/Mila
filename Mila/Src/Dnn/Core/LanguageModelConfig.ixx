@@ -81,7 +81,8 @@ namespace Mila::Dnn
      *
      *   None  -> NoWeightQuant        (BF16 weights, standard cuBLASLt plan)
      *   FP8   -> PerChannelFp8<>      (FP8_E4M3 weights, per-channel float32 scales)
-     *   FP4   -> PerGroupFp4<>        (future)
+     *   FP4   -> PerGroupFp4<128>     (FP4_E2M1 weights, per-group float32 scales), or <64> for a
+     *                                  model whose projection widths are not multiples of 128
      *
      * This enum is Mila API vocabulary. Callers set it via fluent methods on
      * the concrete model config -- they do not interact with the policy structs
@@ -116,12 +117,14 @@ namespace Mila::Dnn
      * refuses an artifact whose scheme disagrees with the build's compile-time policy, since
      * the bytes are packed differently per scheme and reinterpreting them produces a model
      * that runs and is wrong. It was previously spelled out in both places.
+     *
+     * @param fp4_group_size The FP4 group the model's geometry requires; ignored for other schemes.
      */
-    export inline std::string weightQuantizationName( WeightQuantization quantization )
+    export inline std::string weightQuantizationName( WeightQuantization quantization, int fp4_group_size = 128 )
     {
         switch ( quantization )
         {
-            case WeightQuantization::FP4: return "per_group_fp4_128";
+            case WeightQuantization::FP4: return std::format( "per_group_fp4_{}", fp4_group_size );
             case WeightQuantization::FP8: return "per_channel_fp8_e4m3";
 
             // A plan's artifact scheme is the FAMILY's, not this enum's -- Qwen 3.8 writes
@@ -178,14 +181,16 @@ namespace Mila::Dnn
      * @param weights_path Path to the weights being loaded.
      * @param stored_quantization Scheme the weights declare; empty for reference weights.
      * @param requested_quantization Policy this build was compiled for.
+     * @param fp4_group_size FP4 group this build was compiled for; FP4 at another group is refused.
      */
     export inline void requireStoredQuantizationMatches(
         std::string_view caller,
         std::string_view weights_path,
         std::string_view stored_quantization,
-        WeightQuantization requested_quantization )
+        WeightQuantization requested_quantization,
+        int fp4_group_size = 128 )
     {
-        const std::string requested = weightQuantizationName( requested_quantization );
+        const std::string requested = weightQuantizationName( requested_quantization, fp4_group_size );
 
         const bool weights_are_quantized = !stored_quantization.empty();
         const bool build_is_quantized = requested_quantization != WeightQuantization::None;

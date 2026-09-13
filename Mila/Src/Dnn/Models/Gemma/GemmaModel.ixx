@@ -146,15 +146,30 @@ namespace Mila::Dnn
             // Gemma's Linear children (qkv/o/gate_up/down) pick up the weight-quant policy;
             // quantized bodies additionally convert the tied embedding/lm_head table to
             // per-vocab-row FP8 (D4 Design B -- see GemmaTransformer::TableQuantizationPolicy).
-            return dispatchWeightQuantization<
-                    TPrecision, GemmaSlidingKvPolicy,
-                    std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>>(
+            // The routed chassis and its FP4 group are both the checkpoint's, so its geometry is
+            // read before the one dispatch.
+            using Result = std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>;
+
+            if ( isRoutedCheckpoint( path ) )
+            {
+                return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, Result, kRoutedFp4GroupSize>(
+                    model_config.getWeightQuantization(),
+                    model_config.getKvCacheCompression(),
+                    "GemmaModel::fromPretrained",
+                    [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                    {
+                        return fromPretrainedImpl<TWeightQuantization, TKvCachePolicy, true>(
+                            path, model_config, device_id );
+                    } );
+            }
+
+            return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, Result, kDenseFp4GroupSize>(
                 model_config.getWeightQuantization(),
                 model_config.getKvCacheCompression(),
                 "GemmaModel::fromPretrained",
                 [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
                 {
-                    return fromPretrainedImpl<TWeightQuantization, TKvCachePolicy>(
+                    return fromPretrainedImpl<TWeightQuantization, TKvCachePolicy, false>(
                         path, model_config, device_id );
                 } );
         }
@@ -220,14 +235,26 @@ namespace Mila::Dnn
             // Same dispatcher as fromPretrained, and deliberately so: the footprint path and
             // the load path must reach the identical template instantiation or a model reports
             // a figure it does not allocate.
-            return dispatchWeightQuantization<
-                    TPrecision, GemmaSlidingKvPolicy, DeploymentFootprint>(
+            if ( isRoutedCheckpoint( path ) )
+            {
+                return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, DeploymentFootprint, kRoutedFp4GroupSize>(
+                    model_config.getWeightQuantization(),
+                    model_config.getKvCacheCompression(),
+                    "GemmaModel::getDeploymentFootprint",
+                    [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                    {
+                        return deploymentFootprintImpl<TWeightQuantization, TKvCachePolicy, true>(
+                            path, model_config, device_id );
+                    } );
+            }
+
+            return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, DeploymentFootprint, kDenseFp4GroupSize>(
                 model_config.getWeightQuantization(),
                 model_config.getKvCacheCompression(),
                 "GemmaModel::getDeploymentFootprint",
                 [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
                 {
-                    return deploymentFootprintImpl<TWeightQuantization, TKvCachePolicy>(
+                    return deploymentFootprintImpl<TWeightQuantization, TKvCachePolicy, false>(
                         path, model_config, device_id );
                 } );
         }
@@ -422,20 +449,33 @@ namespace Mila::Dnn
 
     private:
 
+        // FP4 group per chassis. The routed model's expert width (704) and dense-branch width (2112) are
+        // not multiples of 128, which CudaLinearOp refuses; every Gemma 4 width is a multiple of 64.
+        static constexpr int kDenseFp4GroupSize = 128;
+        static constexpr int kRoutedFp4GroupSize = 64;
+
         explicit GemmaModel(
             std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             const GemmaConfig& config,
             const GemmaModelConfig& model_config,
             const PretrainedMetadata& source_metadata,
+            int fp4_group_size,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode,
-                source_metadata, model_config.getWeightQuantization() )
+                source_metadata, model_config.getWeightQuantization(), fp4_group_size )
             , config_( config )
             , model_config_( model_config )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
         {}
 
-        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
+        static bool isRoutedCheckpoint( const std::filesystem::path& path )
+        {
+            PretrainedModelReader reader( path );
+
+            return reader.getPretrainedMetadata().num_experts > 0;
+        }
+
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, bool kMixtureOfExperts>
         static std::unique_ptr<GemmaModel<TDeviceType, TPrecision>> fromPretrainedImpl(
             const std::filesystem::path& path,
             const GemmaModelConfig& model_config,
@@ -443,10 +483,11 @@ namespace Mila::Dnn
         {
             PretrainedModelReader reader( path );
             const auto& metadata = reader.getPretrainedMetadata();
+            const int fp4_group_size = kMixtureOfExperts ? kRoutedFp4GroupSize : kDenseFp4GroupSize;
 
             requireStoredQuantizationMatches(
                 "GemmaModel::fromPretrained", path.string(), reader.getWeightQuantization(),
-                model_config.getWeightQuantization() );
+                model_config.getWeightQuantization(), fp4_group_size );
 
             GemmaConfig network_config = configFromMetadata( metadata );
 
@@ -458,15 +499,18 @@ namespace Mila::Dnn
                     network_config.getMaxSequenceLength() ) );
             }
 
-            using ConcreteTransformerType = GemmaTransformer<TDeviceType, TPrecision, TWeightQuantization, TKvCachePolicy>;
-            auto network = std::make_unique<ConcreteTransformerType>( metadata.model_name, network_config, device_id );
-
             auto context_length = model_config.getContextLength();
 
             BuildContext build_context(
                 shape_t{ 1, context_length },
                 RuntimeMode::Inference,
                 false );
+
+            // A routed network delegates its dense branch, so both flags follow the chassis.
+            using ConcreteTransformerType = GemmaTransformer<TDeviceType, TPrecision,
+                TWeightQuantization, TKvCachePolicy, kMixtureOfExperts, kMixtureOfExperts>;
+
+            auto network = std::make_unique<ConcreteTransformerType>( metadata.model_name, network_config, device_id );
 
             network->build( build_context );
 
@@ -477,7 +521,7 @@ namespace Mila::Dnn
             return std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>(
                 new GemmaModel<TDeviceType, TPrecision>(
                     std::move( network ), network_config,
-                    model_config, metadata, RuntimeMode::Inference ) );
+                    model_config, metadata, fp4_group_size, RuntimeMode::Inference ) );
         }
 
         /**
@@ -487,7 +531,7 @@ namespace Mila::Dnn
          * artifact check, the geometry, and the context-length validation must be the ones a
          * real load would apply, or the reported figure describes a model that would not load.
          */
-        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, bool kMixtureOfExperts>
         static DeploymentFootprint deploymentFootprintImpl(
             const std::filesystem::path& path,
             const GemmaModelConfig& model_config,
@@ -498,7 +542,8 @@ namespace Mila::Dnn
 
             requireStoredQuantizationMatches(
                 "GemmaModel::getDeploymentFootprint", path.string(),
-                reader.getWeightQuantization(), model_config.getWeightQuantization() );
+                reader.getWeightQuantization(), model_config.getWeightQuantization(),
+                kMixtureOfExperts ? kRoutedFp4GroupSize : kDenseFp4GroupSize );
 
             GemmaConfig network_config = configFromMetadata( metadata );
 
@@ -510,20 +555,20 @@ namespace Mila::Dnn
                     network_config.getMaxSequenceLength() ) );
             }
 
-            using ConcreteTransformerType =
-                GemmaTransformer<TDeviceType, TPrecision, TWeightQuantization, TKvCachePolicy>;
-
-            // Construction commits no device memory -- that is the whole premise. The graph
-            // exists, correctly shaped, and is then asked rather than built.
-            auto network = std::make_unique<ConcreteTransformerType>(
-                metadata.model_name, network_config, device_id );
-
             const dim_t context_length = static_cast<dim_t>( model_config.getContextLength() );
 
             BuildContext build_context(
                 shape_t{ 1, context_length },
                 RuntimeMode::Inference,
                 false );
+
+            using ConcreteTransformerType = GemmaTransformer<TDeviceType, TPrecision,
+                TWeightQuantization, TKvCachePolicy, kMixtureOfExperts, kMixtureOfExperts>;
+
+            // Construction commits no device memory -- that is the whole premise. The graph
+            // exists, correctly shaped, and is then asked rather than built.
+            auto network = std::make_unique<ConcreteTransformerType>(
+                metadata.model_name, network_config, device_id );
 
             return DeploymentFootprint{
                 network->getRequiredMemory( build_context ),
@@ -623,7 +668,9 @@ namespace Mila::Dnn
                 .withRoPETheta( metadata.rope_theta_local )
                 .withGlobalRoPETheta( metadata.rope_theta_global )
                 .withFinalLogitSoftcapping( metadata.final_logit_softcapping )
-                .withTieWordEmbeddings( metadata.tie_word_embeddings );
+                .withTieWordEmbeddings( metadata.tie_word_embeddings )
+                .withMixtureOfExperts( static_cast<dim_t>(metadata.num_experts),
+                    static_cast<dim_t>(metadata.top_k_experts), static_cast<dim_t>(metadata.expert_hidden_dim) );
 
             return config;
         }

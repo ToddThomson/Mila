@@ -262,3 +262,18 @@ norm (`Qwen.ixx:807`, `Qwen.DeltaNetBlock.ixx:855`, `Qwen.AttentionBlock.ixx:889
 as if the offset were zero. Nothing ships wrong today because Qwen is inference-only and no test
 trains through an offset norm; it is latent until one does. Found writing `CpuRmsNormOp`, whose
 backward applies the offset, so a CPU/CUDA gradient comparison on an offset norm would disagree.
+
+## Any MSVC translation unit that loads a model is near the object section limit
+
+`Mila/Profiling/ProfileModel/CMakeLists.txt:32` @ `36d87f7a`
+
+`x64-profile` failed with C1128 on `ProfileModel.ixx` once the Gemma 4 MoE work gave `GemmaModel` a
+dense and a routed dispatch for every quantization. It now carries `/bigobj`, as `mila-chat` already
+did (`Mila/Adaptors/Chat/CMakeLists.txt:41`). Section counts, Release `x64-claude-verify` against
+RelWithDebInfo `x64-profile`, which runs about 1.28x higher: `ProfileModel.ixx` 51609 / ~66000,
+`ExportArtifact.ixx` 46926 / 59830, `Gemma.MixtureOfExperts.Cuda.cpp` 44694 / 56375,
+`Chat.ModelCatalog.ixx` 41647 / 52666 -- the limit is 65535 and Debug was not measured. So the
+next family or quantization added breaks targets one at a time, and a consumer's own app calling
+`fromPretrained` -- the C++ quick start included -- inherits the same exposure with no flag. The
+decision owed is whether `Mila` exports `/bigobj` as a PUBLIC MSVC compile option, which changes
+the flags every consumer compiles with, or targets keep adding it as they cross.

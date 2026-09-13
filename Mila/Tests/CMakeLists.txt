@@ -225,6 +225,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Transformers/Gemma/Gemma.Block.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.DelegatedFeedForward.Cuda.cpp"
+        "Dnn/Components/Transformers/Gemma/Gemma.MixtureOfExperts.Cuda.cpp"
         "Dnn/Components/Transformers/Qwen/Qwen.Block.Cuda.cpp"
         "Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.Cuda.cpp"
         "Dnn/Components/Transformers/Qwen/Qwen.Cuda.cpp"

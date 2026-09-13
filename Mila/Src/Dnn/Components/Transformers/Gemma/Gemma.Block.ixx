@@ -16,6 +16,9 @@
  *  - kDelegatedFeedForward selects the FFN wiring: false (the default, and what every published
  *    model loads) keeps the inline fc_gate_up -> geglu -> fc_down children; true delegates to a
  *    GatedMLP child named `mlp`, which renames the FFN tensors. See Gemma4MoE.md Phase 2.
+ *  - kMixtureOfExperts (requires kDelegatedFeedForward) adds the routed branch beside `mlp`: Router and
+ *    MixtureOfExperts read the post-attention residual, and the two branches' post-norms sum ahead of
+ *    post_ffn_norm. See Gemma4MoE.md Phase 1.
  *
  * Inference-only (Gemma is an inference target): implements ITransformerBlock's prefill/decode;
  * no training forward/backward. Gemma 4 RMSNorm is x_norm * weight (HF Gemma4RMSNorm), not
@@ -78,6 +81,8 @@ import Dnn.Components.Residual;
 import Dnn.Components.Linear;
 import Dnn.Components.Swiglu;
 import Dnn.Components.GatedMLP;
+import Dnn.Components.Router;
+import Dnn.Components.MixtureOfExperts;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Tensor;
@@ -97,7 +102,7 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision, bool kGlobal,
         WeightQuantPolicy TWeightQuant = NoWeightQuant, KvCachePolicy TKvPolicy = NoKvCompression,
-        bool kDelegatedFeedForward = false>
+        bool kDelegatedFeedForward = false, bool kMixtureOfExperts = false>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class GemmaBlock : public CompositeComponent<TDeviceType, TPrecision>, public ITransformerBlock<TDeviceType, TPrecision>
     {
@@ -112,11 +117,23 @@ namespace Mila::Dnn
         using LinearType = Linear<TDeviceType, TPrecision, TWeightQuant>;
         using GeGLUType = Swiglu<TDeviceType, TPrecision, ActivationType::Gelu>;
         using FeedForwardType = GatedMLP<TDeviceType, TPrecision, ActivationType::Gelu, TWeightQuant>;
+        using RouterType = Router<TDeviceType, TPrecision>;
+        using ExpertsType = MixtureOfExperts<TDeviceType, TPrecision, ActivationType::Gelu, TWeightQuant>;
+
+        static_assert( !kMixtureOfExperts || kDelegatedFeedForward,
+            "GemmaBlock: kMixtureOfExperts requires kDelegatedFeedForward -- the dense branch is the mlp child" );
 
         explicit GemmaBlock( const std::string& name, const GemmaConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : CompositeComponentBase( name ), config_( config )
         {
             config_.validate();
+
+            if ( config_.hasMixtureOfExperts() != kMixtureOfExperts )
+            {
+                throw std::invalid_argument( std::format(
+                    "GemmaBlock '{}': the config {} experts, but the block was instantiated {} kMixtureOfExperts",
+                    name, config_.hasMixtureOfExperts() ? "has" : "has no", kMixtureOfExperts ? "with" : "without" ) );
+            }
 
             createGraph();
 
@@ -234,9 +251,7 @@ namespace Mila::Dnn
             auto& res1 = res1_->forward( input, o_normed );
 
             // --- Feed-forward sub-block (GeGLU) -----------------------------
-            auto& ffn_in = pre_ffn_norm_->forward( res1 );
-            auto& ffn = feedForward( ffn_in );
-            auto& ffn_normed = post_ffn_norm_->forward( ffn );
+            auto& ffn_normed = feedForwardSublayer( res1 );
             auto& res2 = res2_->forward( res1, ffn_normed );
 
             // Gemma 4 Unified: per-layer learned output scale, hidden_states *= layer_scalar.
@@ -307,9 +322,7 @@ namespace Mila::Dnn
             auto& o_normed = post_attn_norm_->forward( o );
             auto& res1 = res1_->forward( input, o_normed );
 
-            auto& ffn_in = pre_ffn_norm_->forward( res1 );
-            auto& ffn = feedForward( ffn_in );
-            auto& ffn_normed = post_ffn_norm_->forward( ffn );
+            auto& ffn_normed = feedForwardSublayer( res1 );
             auto& res2 = res2_->forward( res1, ffn_normed );
 
             // Gemma 4 Unified per-layer learned output scale (see prefill).
@@ -472,6 +485,20 @@ namespace Mila::Dnn
                 stats += required( this->template getComponentAs<LinearType>( n + ".fc_gate_up" ), contexts.stream );
                 stats += required( this->template getComponentAs<GeGLUType>( n + ".geglu" ), contexts.gate_up );
                 stats += required( this->template getComponentAs<LinearType>( n + ".fc_down" ), contexts.hidden );
+            }
+
+            if constexpr ( kMixtureOfExperts )
+            {
+                // Router and MixtureOfExperts always allocate their own outputs, so they are asked
+                // without the pooled declaration that the norms and the branch sum honour.
+                const BuildContext unpooled = contexts.stream.withInstalledOutput( false );
+
+                stats += required( this->template getComponentAs<RmsNormType>( n + ".post_ffn_norm_1" ), contexts.stream );
+                stats += this->template getComponentAs<RouterType>( n + ".router" )->getRequiredMemory( unpooled );
+                stats += required( this->template getComponentAs<RmsNormType>( n + ".pre_ffn_norm_2" ), contexts.stream );
+                stats += this->template getComponentAs<ExpertsType>( n + ".experts" )->getRequiredMemory( unpooled );
+                stats += required( this->template getComponentAs<RmsNormType>( n + ".post_ffn_norm_2" ), contexts.stream );
+                stats += required( this->template getComponentAs<ResidualType>( n + ".ffn_sum" ), contexts.stream );
             }
 
             stats += required( this->template getComponentAs<RmsNormType>( n + ".post_ffn_norm" ), contexts.stream );
@@ -759,6 +786,31 @@ namespace Mila::Dnn
                 fc_down_->build( hidden_ctx );
             }
 
+            if constexpr ( kMixtureOfExperts )
+            {
+                post_ffn_norm_1_ = this->template getComponentAs<RmsNormType>( n + ".post_ffn_norm_1" );
+                install( post_ffn_norm_1_, workspace_.ffn_dense_normed );
+                post_ffn_norm_1_->build( stream_ctx );
+
+                router_ = this->template getComponentAs<RouterType>( n + ".router" );
+                router_->build( stream_ctx );
+
+                pre_ffn_norm_2_ = this->template getComponentAs<RmsNormType>( n + ".pre_ffn_norm_2" );
+                install( pre_ffn_norm_2_, workspace_.ffn_expert_in );
+                pre_ffn_norm_2_->build( stream_ctx );
+
+                experts_ = this->template getComponentAs<ExpertsType>( n + ".experts" );
+                experts_->build( stream_ctx );
+
+                post_ffn_norm_2_ = this->template getComponentAs<RmsNormType>( n + ".post_ffn_norm_2" );
+                install( post_ffn_norm_2_, workspace_.ffn_expert_normed );
+                post_ffn_norm_2_->build( stream_ctx );
+
+                ffn_sum_ = this->template getComponentAs<ResidualType>( n + ".ffn_sum" );
+                install( ffn_sum_, workspace_.ffn_sum );
+                ffn_sum_->build( stream_ctx );
+            }
+
             post_ffn_norm_ = this->template getComponentAs<RmsNormType>( n + ".post_ffn_norm" );
             install( post_ffn_norm_, workspace_.ffn_normed );
             post_ffn_norm_->build( stream_ctx );
@@ -830,6 +882,13 @@ namespace Mila::Dnn
         std::shared_ptr<LinearType> fc_down_{ nullptr };
         // Set only when kDelegatedFeedForward; the three inline members above stay null then.
         std::shared_ptr<FeedForwardType> mlp_{ nullptr };
+        // Set only when kMixtureOfExperts: the routed branch beside mlp_, and the sum of the two.
+        std::shared_ptr<RmsNormType> post_ffn_norm_1_{ nullptr };
+        std::shared_ptr<RouterType> router_{ nullptr };
+        std::shared_ptr<RmsNormType> pre_ffn_norm_2_{ nullptr };
+        std::shared_ptr<ExpertsType> experts_{ nullptr };
+        std::shared_ptr<RmsNormType> post_ffn_norm_2_{ nullptr };
+        std::shared_ptr<ResidualType> ffn_sum_{ nullptr };
         std::shared_ptr<RmsNormType> post_ffn_norm_{ nullptr };
         std::shared_ptr<ResidualType> res2_{ nullptr };
 
@@ -862,6 +921,30 @@ namespace Mila::Dnn
                 auto& activation = geglu_->forward( gate_up );
 
                 return fc_down_->forward( activation );
+            }
+        }
+
+        // pre_ffn_norm through post_ffn_norm. The router and pre_ffn_norm_2 read the unnormalized
+        // residual, not the dense branch's input (Gemma4MoE.md Phase 1).
+        TensorType& feedForwardSublayer( const TensorType& residual )
+        {
+            auto& ffn_in = pre_ffn_norm_->forward( residual );
+            auto& dense = feedForward( ffn_in );
+
+            if constexpr ( kMixtureOfExperts )
+            {
+                auto& dense_normed = post_ffn_norm_1_->forward( dense );
+                auto routing = router_->forward( residual );
+                auto& expert_in = pre_ffn_norm_2_->forward( residual );
+                auto& routed = experts_->forward( expert_in, routing.weights, routing.indices );
+                auto& routed_normed = post_ffn_norm_2_->forward( routed );
+                auto& combined = ffn_sum_->forward( dense_normed, routed_normed );
+
+                return post_ffn_norm_->forward( combined );
+            }
+            else
+            {
+                return post_ffn_norm_->forward( dense );
             }
         }
 
@@ -934,6 +1017,18 @@ namespace Mila::Dnn
                 this->addComponent( std::make_shared<GeGLUType>( n + ".geglu", SwigluConfig() ) );
                 this->addComponent( std::make_shared<LinearType>(
                     n + ".fc_down", LinearConfig( hidden_dim, model_dim ).withBias( false ) ) );
+            }
+
+            if constexpr ( kMixtureOfExperts )
+            {
+                this->addComponent( std::make_shared<RmsNormType>( n + ".post_ffn_norm_1", rms( shape_t{ model_dim } ) ) );
+                this->addComponent( std::make_shared<RouterType>( n + ".router",
+                    RouterConfig( model_dim, config_.getNumExperts(), config_.getTopKExperts() ).withEpsilon( eps ) ) );
+                this->addComponent( std::make_shared<RmsNormType>( n + ".pre_ffn_norm_2", rms( shape_t{ model_dim } ) ) );
+                this->addComponent( std::make_shared<ExpertsType>( n + ".experts", MixtureOfExpertsConfig(
+                    model_dim, config_.getExpertHiddenDimension(), config_.getNumExperts(), config_.getTopKExperts() ) ) );
+                this->addComponent( std::make_shared<RmsNormType>( n + ".post_ffn_norm_2", rms( shape_t{ model_dim } ) ) );
+                this->addComponent( std::make_shared<ResidualType>( n + ".ffn_sum", ResidualConfig{} ) );
             }
 
             this->addComponent( std::make_shared<ResidualType>( n + ".res_2", ResidualConfig{} ) );

@@ -73,6 +73,18 @@ namespace Mila::Tests::Dnn::Core
         EXPECT_THROW( check( "codebook", WeightQuantization::FP4 ), std::runtime_error );
     }
 
+    // The group is part of the scheme: FP4 at group 64 and at 128 are both U8 with different
+    // scale layouts, so a load built for one must refuse the other.
+    TEST( LanguageModelConfigQuantizationRule, Fp4GroupIsPartOfTheScheme )
+    {
+        EXPECT_EQ( weightQuantizationName( WeightQuantization::FP4 ), "per_group_fp4_128" );
+        EXPECT_EQ( weightQuantizationName( WeightQuantization::FP4, 64 ), "per_group_fp4_64" );
+
+        EXPECT_NO_THROW( requireStoredQuantizationMatches( kCaller, kPath, "per_group_fp4_64", WeightQuantization::FP4, 64 ) );
+        EXPECT_THROW( requireStoredQuantizationMatches( kCaller, kPath, "per_group_fp4_64", WeightQuantization::FP4, 128 ), std::runtime_error );
+        EXPECT_THROW( requireStoredQuantizationMatches( kCaller, kPath, "per_group_fp4_128", WeightQuantization::FP4, 64 ), std::runtime_error );
+    }
+
     // The direction GPT-2 takes: a family with no quantization policy at all must still
     // refuse weights that carry one, or it loads packed bytes as BF16.
     TEST( LanguageModelConfigQuantizationRule, QuantizedWeightsRefuseReferencePrecision )

@@ -60,5 +60,11 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> ffn_down;    // fc_down out          [B, chunk, model_dim]
         std::shared_ptr<TensorType> ffn_normed;  // post_ffn_norm out    [B, chunk, model_dim]
         std::shared_ptr<TensorType> stream;      // res_2 out            [B, chunk, model_dim]
+
+        // Routed feed-forward only (kMixtureOfExperts); null on a dense model.
+        std::shared_ptr<TensorType> ffn_dense_normed;  // post_ffn_norm_1 out  [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_expert_in;     // pre_ffn_norm_2 out   [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_expert_normed; // post_ffn_norm_2 out  [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_sum;           // ffn_sum out          [B, chunk, model_dim]
     };
 }

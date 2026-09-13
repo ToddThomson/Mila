@@ -10,20 +10,12 @@
 #include "device_launch_parameters.h"
 #include <cassert>
 #include <cstdint>
+#include "Fp4E2M1.h"
 
 namespace Mila::Dnn::Compute::Cuda::Linear
 {
     namespace
     {
-        // FP4 E2M1 nibble decode: bit3=sign, bits[2:1]=exponent, bit0=mantissa.
-        // Positive nibbles 0-7: {0, 0.5, 1, 1.5, 2, 3, 4, 6}; negatives are sign-magnitude.
-        __device__ __forceinline__ float fp4_e2m1_decode( uint8_t nibble )
-        {
-            static constexpr float kLut[8] = { 0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f };
-            const float mag = kLut[ nibble & 0x7u ];
-            return ( nibble & 0x8u ) ? -mag : mag;
-        }
-
         // Decodes 8 packed FP4-E2M1 nibbles (one uint32, low nibble = even column)
         // into four raw (unscaled) BF16 pairs via byte-permute table selects. All
         // eight E2M1 magnitudes {0, 0.5, 1, 1.5, 2, 3, 4, 6} are exact in BF16, so

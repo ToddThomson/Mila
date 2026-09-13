@@ -354,7 +354,12 @@ namespace Mila::Tools
         request.directory = options.package_directory;
         request.architecture = architecture;
         request.variant = weightQuantizationVariantName( options.quantization );
-        request.weight_quantization = weightQuantizationName( options.quantization );
+        // What the artifact records rather than what was requested: an FP4 model's group is its own.
+        const std::string stored_quantization =
+            Serialization::PretrainedModelReader( options.destination ).getWeightQuantization();
+        request.weight_quantization = stored_quantization.empty()
+            ? weightQuantizationName( WeightQuantization::None )
+            : stored_quantization;
         request.minimum_mila_version = kArtifactMinimumMilaVersion;
         request.weights = options.destination;
         request.tokenizer = options.tokenizer;
@@ -884,9 +889,13 @@ namespace Mila::Tools
         for ( const auto candidate : { WeightQuantization::FP4, WeightQuantization::FP8,
             WeightQuantization::Plan } )
         {
-            if ( quantization == weightQuantizationName( candidate ) )
+            // FP4 is one variant at either group a family builds it at.
+            for ( const int fp4_group_size : { 128, 64 } )
             {
-                return weightQuantizationVariantName( candidate );
+                if ( quantization == weightQuantizationName( candidate, fp4_group_size ) )
+                {
+                    return weightQuantizationVariantName( candidate );
+                }
             }
         }
 

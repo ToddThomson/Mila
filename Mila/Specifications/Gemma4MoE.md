@@ -52,9 +52,10 @@ ships after 0.20.0:
 gates. **Already landed** before this record began: `GemmaModel` routes `SlidingWindowKvCache` to
 the local layers (`GemmaModel.ixx:98`), and the 26B reuses that chassis.
 
-**Phase 4 — footprint sparse-layer term** (step 4). *Exit:* `Chat.Footprint.ixx` reports resident
-and active parameters separately for an MoE configuration; every dense family's report is
-unchanged.
+**Phase 4 — footprint sparse-layer term** (step 4). *Exit:* `MemoryStats` carries resident and
+active parameter bytes separately, predicted equal to built for `MixtureOfExperts`; every dense
+family's report is unchanged. Reporting it through `Chat.Footprint.ixx` moves to Phase 8, the first
+phase with an MoE configuration to report.
 
 **Phase 5 — `Router` + `RouterOp`** (step 5). *Exit:* on fixed hidden states and real layer
 weights, expert indices agree exactly with `Gemma4TextRouter` and combine weights agree within a
@@ -69,13 +70,15 @@ grouped GEMM is an optimization to gate against it later.
 
 **Phase 7 — `MoeOp` decode gather-matvec** (step 7). *Exit:* matches Phase 6 at `M == 1`. The
 Phase 6 CUDA kernel already reads each token's selected expert rows in place, which is the
-gather-matvec shape, so Phase 7 now reduces to its exit: gate `M == 1` explicitly.
+gather-matvec shape, so Phase 7 reduces to its exit. **Done 2026-09-12**, bit-identical on both cards —
+see Phase 7 below.
 
 **Phase 8 — converter + `fromPretrainedImpl`** (step 8). *Exit:* hidden-state parity against the HF
 reference on a short prompt at BF16, then a `PerGroupFp4<128>` load on the 16 GiB 5060 Ti with
 measured VRAM inside the `MixtureOfExperts.md` §8 row it was built for, and coherent generation.
-The BF16 model is ~47 GiB and fits neither card, so the reference runs layer-streamed —
-`Qwen3.8.md` §8, *The layer-streamed HF reference*, is the method.
+The BF16 model is ~47 GiB and fits neither card, so both the HF reference and the Mila side run
+layer-streamed — `Qwen3.8.md` §8 is the method. The `PerGroupFp4<128>` load needs an FP4 expert
+bank, which this phase builds (see Phase 8 below).
 
 ---
 
@@ -231,6 +234,47 @@ reused from the dense chassis untouched.
   Phases 5-8 must record which implementation produced their reference, or a numerics difference
   between HF's own paths reads as a Mila defect.
 - **Routing locality** (`MixtureOfExperts.md` §8.1). Needs a corpus run through the router weights.
+
+---
+
+## Phase 4 — Footprint sparse-layer term
+
+### Design (2026-09-12)
+
+**The term is bytes on `MemoryStats`, not a parameter count on `Component`.** The footprint
+pre-flight asks a constructed, unbuilt graph, and there `getRequiredMemory` answers while a
+composite's `parameterCount()` throws. `MemoryStats` gains `device_inactive_parameter_bytes`: the
+part of `device_parameter_bytes` a single token does not read. It is a subset, never a separate
+allocation, so `totalDeviceBytes()` is unchanged, and `activeDeviceParameterBytes()` is the
+difference. `operator+=` sums it, so it reaches a transformer through the existing aggregation.
+
+`MixtureOfExperts` is the only component that sets it: of `E` equal expert rows a token reads
+`top_k`, so `(E - top_k) / E` of the bank's bytes are inactive. Every dense component leaves it zero.
+
+**Split from its Chat half.** No model configuration carries an MoE layer until Phase 8, so
+`Chat.Footprint.ixx` has nothing to report yet; its wiring moves to Phase 8.
+
+### Gate, written before any run
+
+- **Component, CUDA BF16:** predicted equals built for the new field, and the built value is one
+  expert's bytes for a top-2-of-3 bank — 48 of 144 parameter bytes — with 96 active.
+- **Dense families unchanged:** every existing footprint drift gate passes untouched, and the full
+  suite stays green.
+- **The gate can fail:** reporting `top_k / E` as inactive instead of `(E - top_k) / E` fails the
+  component gate.
+
+### Result (2026-09-12)
+
+RTX 5060 Ti, pinned by UUID. `MixtureOfExperts.Cuda.cpp`'s BF16 footprint test: predicted equals built
+for the new field, and the built bank reports **144** parameter bytes, **48** inactive, **96** active.
+All 23 MoE tests pass. **Full suite 1933 run, 1932 pass / 0 fail / 1 skipped** (the long-standing
+Swiglu BF16 backward skip), with Gemma 4 12B's HuggingFace token parity passing — the dense families'
+reports did not move.
+
+**The gate can fail.** With `inactiveBytes` returning the `top_k` share, the CUDA test reports 96
+inactive and 48 active and fails on both. Predicted still equals built — one helper feeds both paths —
+so the literal byte counts, not the drift comparison, are what bound this defect; the CPU footprint
+test, which compares only predicted to built, stayed green. **Reverted.**
 
 ---
 
@@ -437,3 +481,229 @@ elements (worst 1.48) and the BF16 one on 2860 of 3072 (worst 1.47). The 212 BF1
 stayed inside tolerance are outputs small enough to sit under the rule's 0.01 absolute floor — which
 is why the FP32 and definition gates, not the BF16 one, are the ones that bound this defect class.
 The poisoning and footprint gates, which do not depend on the chunk order, stayed green.
+
+---
+
+## Phase 7 — Decode at `M == 1`
+
+### Design (2026-09-12)
+
+No new kernel. Both passes of the Phase 6 CUDA kernel compute a token from its own input row and
+its own routing row, read the selected expert rows in place, and accumulate in an order that does
+not depend on how many tokens are in the call. One decoding token is therefore the gather-matvec
+`MixtureOfExperts.md` §6 describes, and Phase 7 is its gate.
+
+### Gate, written before any run
+
+Because nothing in a token's arithmetic depends on the token count, the gate is **bit-identical**,
+not a tolerance:
+
+- **Prefill-built bank, decoding.** 48 synthetic tokens (hidden 64, intermediate 32, 16 experts,
+  top-4, fixed seed) run as one `[48, H]` call; then each token alone as `[1, 1, H]` through the same
+  bank. Every output bit equals its row of the prefill call, at FP32 and at BF16. This is how the
+  chassis decodes: the bank is built for the prompt and called one token at a time.
+- **Bank built for one token.** The same comparison with a second bank built at `[1, 1, H]`, which
+  sizes the gated scratch for exactly one token.
+- **The gate can fail.** A stride defect in the combine pass's scratch offset leaves token 0 correct
+  in both calls, so it must fail on the other 47 tokens.
+
+### Result (2026-09-12)
+
+`MixtureOfExperts.Cuda.cpp`, `*_DecodeMatchesPrefillRow_*`, each card pinned by UUID:
+
+| Gate | RTX 5060 Ti (SM 12.0) | RTX 4070 (SM 8.9) |
+|---|---|---|
+| FP32, bank built for prefill | **0 of 3072** elements differ | 0 of 3072 |
+| BF16, bank built for prefill | **0 of 3072** | 0 of 3072 |
+| FP32, bank built for one token | **0 of 3072** | 0 of 3072 |
+| BF16, bank built for one token | **0 of 3072** | 0 of 3072 |
+
+The Phase 6 gates in the same run were unchanged on both cards.
+
+**The gate can fail.** With the combine pass reading the gated scratch at `token * intermediate`
+instead of `token * top_k * intermediate` (5060 Ti), all four decode gates fail: FP32 on **3008** of
+3072 elements, exactly the 47 tokens after token 0, and BF16 on 3007 — one element of those tokens
+landed on the same bfloat16 value either way, which was not examined further. The definition and HuggingFace gates
+fail too; the poisoning and footprint gates stay green. **Reverted.**
+
+---
+
+## Phase 8 — Converter and `fromPretrainedImpl`
+
+### Decisions (2026-09-12)
+
+Reading the dense chassis against this checkpoint turned up four things the phasing did not price.
+All four were decided before any code:
+
+1. **A `PerGroupFp4<128>` expert bank is required, not an optimization.** `MixtureOfExperts` and
+   `MoeOp` carry no weight quantization, and the bank is ~45 GiB at BF16 — the model runs on neither
+   card without it. `MixtureOfExperts` gains `TWeightQuantization`, and the FP4 kernel is gated
+   against the Phase 6 BF16 kernel on synthetic weights, the way Phase 6 was gated against
+   HuggingFace.
+2. **The Mila half of the BF16 parity gate is layer-streamed too.** 47 GiB fits neither card on
+   either side. The method is `Qwen3.8.md` §8's: construct, load and run one block at a time
+   against the layer-streamed HuggingFace reference. It needs the workspace sizing that is private to
+   `GemmaTransformer` lifted into a type the transformer and the harness both construct — the cost
+   Qwen paid, and the reason it did not duplicate the sizing.
+3. **The converter reads safetensors tensor by tensor.** The dense converter materializes the whole
+   model through `from_pretrained`; the host has 31.8 GiB against a 48 GiB checkpoint.
+4. **Block wiring is a trailing `bool kMixtureOfExperts`** on `GemmaBlock` and `GemmaTransformer`,
+   beside `kDelegatedFeedForward`. Set, the block's FFN is the delegated `mlp` plus `Router`,
+   `MixtureOfExperts` and the three extra norms of Phase 1's topology. `PretrainedMetadata` gains the
+   expert count, top-k and expert width. **`per_expert_scale` stays in `RouterOp`**: folding it into
+   `down_proj` would make the exported weights differ from the checkpoint the Phase 5 and 6 oracles
+   compare against.
+
+### Wiring gate, written before any run
+
+The reference is a tiny `Gemma4ForCausalLM` with the MoE block enabled — hidden 128, two layers
+(sliding with window 8, then global), 8 experts of width 64 at top-2, a dense branch of 128, vocabulary
+128 — run with eager attention and eager experts. Every weight is drawn at random, and every norm,
+`router.scale`, `per_expert_scale` and `layer_scalar` is drawn away from 1, so a misplaced norm or scale
+cannot hide behind an identity. The script saves that model as a HuggingFace checkpoint and converts it
+with `Gemma/convert_weights.py`, so one capture holds the converter's names and the block's wiring. The
+12-token prompt is longer than the window, so the sliding mask is exercised.
+
+- **FP32:** the prefill's last-position logits and three decode steps' logits, each within `1e-4`
+  absolute of HuggingFace's logits before the final softcap.
+- **BF16** (the BF16 conversion of the same checkpoint): each step's logits within relative L2 `1e-2`,
+  with the same argmax.
+- **Names:** a routed transformer loaded from the converted file saves exactly the file's tensor names.
+- **Footprint, BF16:** predicted equals built for every category including inactive bytes, and the
+  inactive bytes are six of eight experts' share of both layers' banks.
+- **Refusals:** a routed config in a dense transformer, and a dense config in a routed one, both throw.
+- **Entry point:** `GemmaModel::getDeploymentFootprint` on the converted file reports inactive bytes, so
+  the geometry reaches the dispatch from the file's own metadata.
+- **Converter:** on a tiny dense checkpoint, the streaming converter's output is byte-identical to the
+  `from_pretrained` converter it replaces.
+- **The gate can fail:** routing on the dense branch's normalized input instead of the residual must
+  fail the FP32 logits gate.
+
+### Wiring result (2026-09-12)
+
+`Gemma.MixtureOfExperts.Cuda.cpp`, both cards pinned by UUID, identical on each except the fifth digit
+of one prefill number:
+
+| Gate | RTX 5060 Ti (SM 12.0) | RTX 4070 (SM 8.9) |
+|---|---|---|
+| FP32 logits, prefill + 3 decode steps | worst **5.8e-6** (tolerance 1e-4), every argmax equal | worst 5.5e-6, same |
+| BF16 logits, relative L2 per step | **2.4e-2, 1.4e-2, 2.4e-2, 5.6e-2 — FAILS the recorded 1e-2**; every argmax equal | 2.5e-2, 1.4e-2, 2.4e-2, 5.6e-2, same |
+| Names, footprint and inactive bytes, entry point, both refusals | pass | pass |
+
+**FP32 agrees with HuggingFace to about six digits** through prefill and three decode steps across a
+sliding and a global layer — the converter's names, the norm placement, the router's input, the
+expert bank, K=V global attention and the KV cache all hold.
+
+**The BF16 gate missed the tolerance written before the run, and the tolerance is not changed here.**
+HuggingFace's own bfloat16 run of the same checkpoint lands **3.0e-2, 1.4e-2, 2.3e-2, 4.1e-2** from its
+float32 run, relative L2 per step, with every argmax equal — the same order as Mila's BF16 figures. So
+the recorded 1e-2 underestimated bfloat16 on this model (logits of magnitude ~2, two layers whose
+`layer_scalar` rounds from 0.91594 to 0.91406) rather than exposing a Mila defect. What the BF16 gate
+should compare against, and at what tolerance, is open.
+
+**The gate can fail.** With the router reading the dense branch's normalized input instead of the
+residual (5060 Ti), the FP32 gate fails at every step — worst 0.22-0.57, relative L2 0.14-0.39 — and
+the step 2 argmax changes. The names, footprint, entry-point and refusal gates stay green. **Reverted.**
+
+**Full suite after the revert, RTX 5060 Ti:** 1940 run, 1938 pass, 1 skipped (the long-standing Swiglu
+BF16 backward skip), 1 failing — the BF16 wiring gate above. Gemma 4 12B's HuggingFace token parity
+passes, so the dense chassis did not move.
+
+**`PerGroupFp4<128>` cannot build this model.** `CudaLinearOp::build` refuses an FP4 projection whose
+input width is not a multiple of both 16 and the group size, and two of the 26B's widths are not
+multiples of 128: the dense branch's `fc_down` reads 2112 (16.5 groups) and every expert's `down_proj`
+reads 704 (5.5 groups). `QuantizationDispatch` maps `WeightQuantization::FP4` to `PerGroupFp4<128>`
+for every family, so an FP4 load of the 26B would throw at build. Every width is a multiple of 64 —
+2816, 2112, 704, 4096 and 8192 — and the FP4 kernels already support group 64. At group 64 a scale costs
+0.5 bits per weight instead of 0.25, so the expert bank is 11.97 GiB rather than the 11.30 GiB
+`MixtureOfExperts.md` §8 used — the same as its NVFP4 row, whose FP8-rest total of 14.20 GiB fits the
+5060 Ti.
+
+**Decided 2026-09-12, both on the evidence above:**
+
+- **The BF16 wiring gate stays against HuggingFace's float32 logits, at relative L2 `1e-1` per step with
+  the same argmax.** The original `1e-2` is replaced, not quietly widened: HuggingFace's own bfloat16 run
+  is 1.4e-2 to 4.1e-2 from its float32 run on this model, so `1e-2` would fail a correct bfloat16
+  implementation. Comparing against HuggingFace's bfloat16 run instead was rejected — that measures two
+  independent roundings against each other and is no tighter.
+- **The 26B's FP4 weights are `PerGroupFp4<64>`.** The published 12B stays at `PerGroupFp4<128>`.
+  `WeightQuantization::FP4` stays one API value — the group is a property of the model's geometry, not
+  a choice a caller makes — so the group travels at compile time: `dispatchWeightQuantization` takes a
+  trailing `kFp4GroupSize` (default 128), `weightQuantizationName` spells it (`per_group_fp4_64`), and
+  `requireStoredQuantizationMatches` compares against that spelling. `GemmaModel` reads the file's
+  geometry first and makes one dispatch — dense at 128, routed at 64 — so the build instantiates dense ×
+  {none, FP8, FP4<128>} and routed × {none, FP8, FP4<64>}, the same count as before, and a routed
+  FP4<128> body that could only throw at build is never compiled.
+
+**Converter on the real checkpoint (2026-09-12).** `--max-layers 6` over the downloaded
+`gemma-4-26B-A4B-it`: 122 Mila tensors, 10.50 GiB, 16 s. Every checkpoint tensor was accounted for — 133
+consumed, 356 skipped (355 `vision_tower`, 1 `embed_vision`), none unconsumed — and every declared shape
+matched the geometry the config implies: pattern 6 from `layer_types`, global rotary width 128 from the
+nested `rope_parameters`, 2 global KV heads, 128 experts of width 704 at top-8, text prefix
+`model.language_model.`.
+
+**Group plumbing result (2026-09-12, RTX 5060 Ti).** Loading the tiny routed model through
+`GemmaModel::fromPretrained` at FP4 reports `per_group_fp4_64`; the contract test holds that the group is
+part of the scheme in both directions; the delegated-FFN gates, including `PerGroupFp4<128>` bit-identity,
+are unchanged; the BF16 wiring gate passes at its revised tolerance. **Full suite 1942 run, 1941 pass,
+0 fail, 1 skipped** (the long-standing Swiglu BF16 backward skip); Gemma 4 12B token parity passes.
+
+### FP4 expert bank — design (2026-09-12)
+
+- **`MixtureOfExperts` gains `TWeightQuantization`** (default `NoWeightQuant`). Under `PerGroupFp4<g>`
+  the bank holds `gate_up_proj` U8 `[E, 2I, H/2]` with `gate_up_proj_scale` FP32 `[E, 2I, H/g]`, and
+  `down_proj` U8 `[E, H, I/2]` with `down_proj_scale` FP32 `[E, H, I/g]`. Every expert row is laid out
+  exactly as a `Linear` FP4 weight row, so a stacked tensor is `E × rows` output channels of the
+  existing per-group quantizer: BF16 reference weights quantize on load through the path `Linear`
+  already uses, and a pre-quantized file loads its packed and scale tensors as stored.
+- **`CudaMoeOp` keeps its two passes.** Under FP4 each pass decodes the selected expert's nibbles
+  against their group scales inline; nothing is dequantized ahead of the matvec. BF16 compute only,
+  as for an FP4 `Linear`.
+- **The E2M1 decode is stated once:** it moves out of `CudaMatVecBias.Bf16.cu` into a shared kernel
+  header that both kernels include.
+- `GemmaBlock` passes its `TWeightQuantization` to the bank; the router stays unquantized.
+
+### FP4 expert bank — gate, written before any run
+
+- **Exact, CUDA BF16:** weights built from the E2M1 grid with each group's largest magnitude `6 · 2^k`,
+  so the absmax quantizer is lossless and every dequantized value is exact in BF16. The FP4 bank's
+  output must be **bit-identical** to the Phase 6 BF16 bank on the same weights, over prefill and
+  one-token calls.
+- **Round trip:** a bank saved pre-quantized and loaded back produces bit-identical output.
+- **Footprint:** predicted equals built, with parameter bytes equal to the packed plus scale sizes
+  written as literals, and inactive bytes the unselected experts' share of both.
+- **Refusal:** an expert width that is not a multiple of the group throws at build.
+- **The gate can fail:** decoding the high nibble as the even column must fail the exact gate.
+
+### FP4 expert bank — result (2026-09-12, RTX 5060 Ti)
+
+`MixtureOfExperts.Cuda.cpp`, a `PerGroupFp4<64>` bank of 16 experts (hidden 128, width 64, top-4, 48
+tokens):
+
+| Gate | Result |
+|---|---|
+| Exact, against the BF16 bank | **0 of 6144** elements differ, prefill and one token at a time |
+| Round trip | saved names are the two packed tensors and their `_scale` companions; reload bit-identical |
+| Footprint | predicted equals built; 221,184 parameter bytes, 165,888 inactive |
+| Width refusal | an expert width of 96 at group 64 throws at build |
+| FP8 bank | refused at construction |
+
+The FP8 refusal was written expecting `std::invalid_argument`, which the operation throws, and failed
+its first run because `Component::setExecutionContext` rethrows any construction failure as
+`std::runtime_error` — its documented contract. The test now expects that type and checks the message
+names the refusal.
+
+**The gate can fail.** With the gated pass decoding the high nibble as the even column, the exact gate
+fails on 6140 of 6144 elements in both modes; the round trip, which compares the bank against itself,
+stays green, so the bit-identity gate is the one that bounds this defect. **Reverted.**
+
+After the revert the exact gate reads **0 of 6144 on both the RTX 5060 Ti and the RTX 4070**, each pinned
+by UUID, with all 23 MoE CUDA tests passing on each card. **Full suite, 5060 Ti: 1947 run, 1946 pass,
+0 fail, 1 skipped** (the long-standing Swiglu BF16 backward skip); Gemma 4 12B token parity passes.
+
+**Converter.** On a tiny dense checkpoint the streaming converter is byte-identical to the
+`from_pretrained` one at FP32, and at BF16 when the checkpoint itself is BF16 — how every published Gemma
+checkpoint is stored. Converting an FP32 checkpoint to BF16, the two differ only in the six
+`layer_scalar` tensors: the old converter loaded the whole model at bfloat16, so each scalar was rounded
+to bfloat16 before being written as FP32 (0.9458286 became 0.9453125); the streaming converter keeps the
+checkpoint's value.
