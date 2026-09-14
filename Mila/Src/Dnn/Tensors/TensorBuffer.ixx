@@ -194,8 +194,8 @@ namespace Mila::Dnn
 		/**
 		 * @brief Constructs buffer with owned memory
 		 *
-		 * Allocates optimally aligned memory using the specified memory resource
-		 * and initializes all memory to zero for deterministic behavior.
+		 * Allocates optimally aligned memory using the specified memory resource.
+		 * The contents are not initialized.
 		 * Memory alignment is optimized based on data type and target hardware.
 		 *
 		 * @param device_id Device identifier for memory resource initialization

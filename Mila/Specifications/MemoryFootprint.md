@@ -24,13 +24,15 @@ measurement to find, and a footprint report would have shown it without one.
 
 ## 2. What Decides The Answer
 
-| Term                      | Where it comes from                                  | Status                      |
-|---------------------------|------------------------------------------------------|-----------------------------|
-| Weights                   | geometry x quantization policy                        | exact, closed form          |
-| KV cache                  | geometry x context x KV policy                        | exact, closed form          |
-| Prefill activation        | `resolvePrefillChunkSize`, `computeChunkRowCostBytes` | exact, already pure functions |
-| cuBLASLt workspace        | `kCublasLtWorkspaceSize`                              | fixed 4 MB constant         |
-| Free VRAM                 | `cudaMemGetInfo`                                      | read live, never modeled    |
+| Term | Where it comes from | Status |
+|---|---|---|
+| Weights | geometry x quantization policy | exact, closed form |
+| KV cache | geometry x context x KV policy | exact, closed form |
+| Prefill activation | geometry x the chunk the rule in section 11 picks | exact at that chunk |
+| Scratch | the largest single operation request (11.4) | exact, closed form (draft) |
+| cuBLASLt workspace | `kCublasLtWorkspaceSize` | fixed 4 MB constant |
+| Driver allocation rounding | measured on Windows only, not documented (11.8) | open |
+| Available device memory | the caller's input, else `cudaMemGetInfo` at load (11.3) | read live, never modeled |
 
 The last row is a deliberate choice. The ~1176 MiB baseline measured on the 4070 is
 not a CUDA context -- it is the desktop compositor and whatever else is resident.
@@ -323,16 +325,20 @@ adaptor policy -- see section 6.5 -- and stays out of the runtime.
 
 ### 6.1 Prefill chunk resolution
 
-`resolvePrefillChunkSize` runs inside Gemma's `onBuilding` and threads its result to
-every block via `block_context` (`Gemma.ixx:473-483`). It is a pure function of
-(B, T_ctx). `getRequiredMemory` must run it before recursing, or every block's
-attention scratch is sized against a default.
+`resolvePrefillChunkSize` runs inside `onBuilding` and threads its result to every block
+via `block_context` (`Gemma.ixx:618-625`). `getRequiredMemory` must resolve the chunk
+before recursing, or every block's activation buffers are sized against a default.
 
-Because it must run it anyway, the chunk is a value the prediction already holds.
-`getDeploymentFootprint` returns it beside the memory answer rather than discarding it;
-`getRequiredMemory` forwards to that and keeps its own signature. Both families expose the
-resolution as `prefillChunking(B, T_ctx)`, which is where the rung table now lives once.
-A caller choosing a context length needs it: see ChatConfiguration.md section 6.
+Because it resolves it anyway, the chunk is a value the prediction already holds.
+`getDeploymentFootprint` returns it beside the memory answer; `getRequiredMemory` forwards
+to that and keeps its own signature. Every family exposes the resolution as
+`prefillChunking(B, T_ctx)`, where its rung table lives once. A caller choosing a context
+length needs it: see ChatConfiguration.md section 6.
+
+**Draft, section 11:** the resolution stops being a function of (B, T_ctx) alone. It also
+takes the available device memory, and it walks the rungs by asking this same prediction
+for the whole footprint at each one, so the chunk it resolves and the footprint it reports
+cannot disagree.
 
 ### 6.2 Sharing makes a naive child-sum overcount
 
@@ -356,16 +362,34 @@ Between `build()` and `loadParameters()` the two disagree and `getMemoryStats`
 double-counts ~2.0 GB on Gemma 4 12B. `getRequiredMemory` uses the config source,
 because that is the one available when the decision is actually made.
 
-### 6.4 The scratch buffer is not visible at build time -- and is not the residual
+### 6.4 The scratch buffer, and what the residual is
 
 `getDeviceScratchBuffer` grows on demand and is never shrunk
-(`CudaExecutionContext.ixx:220`), so the current size is its high-water by
-construction. `IExecutionContext::getScratchHighWaterBytes()` exposes it and
-`Model::getScratchHighWaterBytes()` passes it through -- kept out of `MemoryStats`,
-which reports what *components* allocate, where this buffer belongs to the shared
-execution context.
+(`CudaExecutionContext.ixx:233`), so its current size is its high-water.
+`IExecutionContext::getScratchHighWaterBytes()` exposes it and
+`Model::getScratchHighWaterBytes()` passes it through. It stays out of `MemoryStats`,
+which reports what components allocate; this buffer belongs to the execution context.
 
-**Measured 2026-08-04, and it falsified the standing hypothesis.** Scratch was
+**Draft, section 11.4:** scratch is predicted as the largest single request, because
+that is exactly what sizes the buffer.
+
+**Attributed 2026-09-13.** Temporary counters in the CUDA allocator split the residual on
+both cards, after a load and a full-chunk prefill (11.5):
+
+| Model, chunk, RTX 5060 Ti | Driver rounding | Scratch | Everything else, including the 4 MiB cuBLASLt workspace |
+|---|---|---|---|
+| Llama 3.1 8B FP4, 256 | 0.08 GiB | 0.11 GiB | 0.04 GiB |
+| Gemma 4 12B FP4, 1024 | 0.27 GiB | 0.11 GiB | 0.05 GiB |
+| Qwen 3.8 27B FP4, 256 | 0.57 GiB | 0.09 GiB | 0.04 GiB |
+| Qwen 3.8 27B cb2-3, 256 | 0.73 GiB | 0.07 GiB | 0.05 GiB |
+| Gemma 4 26B-A4B FP4, 64 | 0.29 GiB | 0.25 GiB | 0.07 GiB |
+
+Rounding is the largest term, and it follows the number and sizes of allocations, as the
+2026-08-04 note below suspected. The same runs on the RTX 4070 add about 0.31 GiB to the last
+column once more than about 8 GiB is written: the Windows budget cut in 11.5. The 2026-08-04
+figures were taken on the RTX 4070, with loads past 8 GiB, so they include that cut.
+
+**Measured 2026-08-04, and it falsified the standing hypothesis at the time.** Scratch was
 expected to be most of the residual, and to be larger for Gemma because Gemma
 quantizes its tied table to FP8 during load while Llama does not:
 
@@ -384,7 +408,7 @@ Gemma has roughly twice Llama's tensor count -- 48 layers with five norms and a
 five-way Linear set against 32 layers with two norms and four Linears -- and its
 unattributed remainder is roughly 2.3x Llama's. That correlation is suggestive rather
 than established; the cheap test is to read `MemoryAllocationStats::allocationCount`
-and divide.
+and divide. *Established 2026-09-13 by allocator counters instead: see the table above.*
 
 Note also the measurement noise floor: `consumed` moved 50-70 MiB between runs of the
 same configuration, so nothing below ~0.1 GiB should be read as signal.
@@ -442,6 +466,11 @@ is exact; the verdict needs a margin, and that margin exists to catch spill, not
 cover measurement error. Refuse only when weights alone exceed free VRAM; otherwise
 warn and proceed. A false refusal is worse than the problem being solved.
 
+**Two measured additions, 2026-09-13.** On a card that drives a display, Windows also lowers
+the process's video memory budget partway through a load (11.5), so a model that fitted the
+free memory read at the start can still spill. On Linux none of this section applies: there is
+no shared-memory fallback, and an allocation past the device's memory fails the load (11.10).
+
 ---
 
 ## 7. Test Strategy
@@ -456,8 +485,8 @@ device but no weights and no checkpoint.
 **Gate B -- reality.** The same figure against the `cudaMemGetInfo` delta across a
 real build. Catches what `MemoryStats` cannot see: allocator rounding, and the
 section 6.4 scratch high-water once a forward pass has run. Gate B is not expected
-to be exact; its job is to *quantify and bound* the residual, which is currently
-unattributed.
+to be exact; its job is to *quantify and bound* the residual, attributed 2026-09-13
+in section 6.4.
 
 Coverage must be over real components. A mock's `getRequiredMemory` agrees with its
 own `getMemoryStats` and proves nothing -- this repeats a defect already paid for
@@ -466,6 +495,17 @@ real composites bypassed it.
 
 Expect several build rounds before Gate A is green. The first disagreement is the
 useful output: its size identifies the tensor class that was missed.
+
+**Draft, section 11.** The chunk rule adds two comparisons and narrows one:
+
+- **Gate S -- scratch.** The predicted scratch (11.4) against `getScratchHighWaterBytes()`
+  after a load, a prefill of at least one full chunk, and decode. Exact, for every family,
+  with pre-quantized weights and with weights quantized during the load.
+- **The rule itself.** The same inputs give the same chunk. The chunk never grows when the
+  available memory shrinks. The chosen rung's predicted footprint plus scratch is at most the
+  available memory, and the next rung up exceeds it.
+- **Gate B** keeps bounding the residual, which no longer includes scratch once 11.4 lands.
+  Its bound stays generous until 11.8 is decided.
 
 ---
 
@@ -602,6 +642,26 @@ Free VRAM reaches the adaptor through `Device::getMemoryInfo()` rather than
 `cudaMemGetInfo` in Chat: `mila-chat uses no CUDA APIs directly` is a stated property of
 that target, and the same accessor is what MIS and the `mila` CLI will need.
 
+**Phase 6 -- prefill chunk rule. DRAFT, section 11.** Each step is separately verifiable.
+
+1. **Scratch prediction.** `getRequiredScratchBytes` on the four operations that request
+   scratch (11.4), combined by maximum and carried by `DeploymentFootprint`.
+   *Verifiable:* Gate S exact on Gemma, Qwen and Llama, with pre-quantized weights and with
+   weights quantized during the load.
+2. **The rule.** The available-memory input on `LanguageModelConfig` and `BuildContext`, the
+   rung walk over the whole footprint in all three transformers, the budget constants and
+   row-cost models deleted, `PrefillChunking` renamed. *Verifiable:* the rule tests in section 7,
+   and Gate A exact at every rung.
+3. **Callers.** Chat passes its budget to its scan and to its load; MIS and the binding take the
+   default. *Verifiable:* the chunk a scan reports equals the chunk the load builds, at the same
+   input.
+4. **Documents.** ChatConfiguration.md section 6, `Gemma4InferenceReview.md` 6.4, the budget
+   comments in `Gemma.ixx`, `Qwen.ixx` and `Llama.ixx`, and the `PrefillChunking` Doxygen describe
+   the rule instead of the budgets.
+5. **Driver rounding -- blocked on 11.8**, which also needs the Linux measurements in 11.10.
+
+The gates for each step are recorded before any run, in the implementation record.
+
 ---
 
 ## 10. Non-Goals
@@ -612,3 +672,217 @@ that target, and the same accessor is what MIS and the `mila` CLI will need.
   `setEvaluation( false )`, outside `build()`. The contract has a category for them
   and Phase 1-5 leave it zero.
 - **A `mila.json` schema change.** The geometry is already in the artifact header.
+- **Operating system memory policy.** Windows budget changes are measured and recorded (11.5), not
+  predicted. A caller that runs where they apply leaves headroom.
+
+---
+
+## 11. Prefill Chunk Rule
+
+**DRAFT 2026-09-13, for review. Section 11.8 is open.** Decided with Todd on 2026-09-13: the rule in
+11.2; that scratch is predicted rather than allowed for; that Mila predicts only its own allocations and
+leaves headroom for machine and operating system behaviour to the caller; and that no number measured on
+the development machine enters `Mila/Src`, because Mila is a static library inside the user's `main()`.
+Zero-filling memory to make the driver commit it was dropped earlier as redundant and slow; nothing here
+depends on it.
+
+### 11.1 What is wrong today
+
+Each family chooses its prefill chunk against a fixed activation budget: 1536 MiB for Gemma
+(`Gemma.ixx:119`) and Llama (`kPrefillScratchByteCap`, `Llama.ixx:67`), and 512 MiB for Qwen
+(`Qwen.ixx:134`), measured on the 12 GiB card. The budget caps the chunk-scaled buffers and knows nothing
+about the weights or the card, so a constant that fits one model on one card is wrong for the next. With
+the scratch measured in 11.4 added:
+
+- Gemma 4 26B-A4B FP4 at context 8192: the budget admits 512 rows, 15.14 GiB, against 14.82 GiB free on
+  the RTX 5060 Ti. It does not fit.
+- Llama 3.1 8B FP4 at context 16384: the cap admits 512 rows, 11.35 GiB, against 10.85 GiB free on the
+  RTX 4070. It does not fit.
+- Qwen 3.8 27B FP4 at context 8192 on the RTX 5060 Ti: the budget forces the 64-row floor and its
+  "cannot prefill efficiently" warning, 13.61 GiB, where 512 rows is 14.20 GiB and fits.
+
+`Gemma.ixx:116` and `Gemma4InferenceReview.md` 6.4 call a live-memory budget a BACKLOG follow-up. There is
+no such BACKLOG item.
+
+### 11.2 The rule
+
+**The chunk is the largest rung whose whole predicted device footprint fits the available device memory.**
+
+- **Rungs** stay per family: 1024, 512, 256, 128, 64 for Gemma and Qwen; 512, 256, 128 for Llama. A rung
+  longer than the context is skipped, as today.
+- **The whole predicted device footprint** at a rung is parameters, plus state -- KV caches, pooled
+  workspaces, the GQA transient and every chunk-scaled buffer -- plus predicted scratch (11.4). It comes
+  from the same `getRequiredMemory` arithmetic that reports the footprint, so the number the rule compares
+  is the number the footprint reports at that rung. There is no separate row-cost model to drift from it.
+- **Available device memory** is an input (11.3).
+
+The rungs are walked from the largest down, and the first that fits is the chunk. One rule serves Gemma,
+Qwen and Llama. Routed layers need nothing of their own: their per-layer buffers are already in the
+footprint.
+
+This deletes `kGemmaPrefillActivationBudgetBytes`, `kQwenPrefillActivationBudgetBytes` and the measured
+table above it, `kPrefillScratchByteCap`, the row-cost models (`computeChunkRowCostBytes` on Gemma and
+Qwen, the scratch arithmetic in Llama's `computePrefillChunking`), and the KV terms subtracted from the
+budgets (`prefillGlobalKvBytes`, `prefillKvBytes`). `kGemmaPrefillChunkOverride` stays as the debug
+override.
+
+A prediction now walks up to five rungs instead of one. Measured 2026-08-17, one Gemma 48-layer
+prediction costs 1-2 ms warm, so a full walk stays near 10 ms, and most walks stop at the first or second
+rung. What that does to Chat's automatic-context scan, which predicts at every candidate context, is not
+yet measured.
+
+### 11.3 Available device memory is an input
+
+`LanguageModelConfig` gains the device memory the caller allows the model to use,
+`withAvailableDeviceMemory( std::size_t bytes )`, and the model entry points pass it to the transformer
+through `BuildContext`, the way they pass the context length.
+
+- **Set by the caller:** used as given. This is how a caller keeps headroom for what the prediction does
+  not count (11.5): it passes less than the device has free.
+- **Not set:** `fromPretrained` and `getDeploymentFootprint` read the device's free memory through
+  `Device::getMemoryInfo()`, after constructing the network and before building it. A prediction then
+  describes the load that would happen at that moment. Two predictions made at different moments can
+  therefore disagree; a caller that scans, such as Chat, sets the input.
+- **A transformer built directly** without the input, as unit tests do, uses the largest rung the context
+  permits, so those builds stay deterministic.
+
+Only device bytes count. Host-resident allocations, such as Qwen's embedding table, do not.
+
+### 11.4 Scratch is predicted
+
+The execution context's scratch buffer (`CudaExecutionContext::getDeviceScratchBuffer`) is a single
+allocation that grows to the largest request any operation makes and never shrinks. Its cost is the
+largest request, not a sum, and every request is sized from shapes fixed at build time:
+
+| Request | Where | Bytes |
+|---|---|---|
+| Quantize-on-load staging, FP4 and FP8 `Linear` | `CudaLinearOp.ixx:475`, `:490` | min(BF16 source bytes, 256 MiB), plus 4 for FP8 per-channel |
+| Quantize-on-load staging, FP8 embedding table | `CudaTokenEmbeddingOp.ixx:184` | min(BF16 source bytes, 256 MiB) |
+| Quantize-on-load staging, FP4 expert bank | `CudaMoeOp.ixx:167` | min(BF16 source bytes, 256 MiB) |
+| Staged BF16 prefill GEMM | `CudaLinearOp.ixx:1310` | strip rows x input width x 2; one strip is the whole matrix unless that exceeds 256 MiB (32 MiB for codebook weights), then 16-row strips |
+| FP8-activation prefill, FP4 weights | `CudaLinearOp.ixx:795` | strip rows x input width, plus bucket(rows) x input width, each 16-byte aligned, plus bucket(rows) x 4 |
+| Fused decode attention | `CudaGqaOp.ixx:834` | batch x heads x 128 x (head width + 2) x 4 |
+
+The quantize-on-load rows apply only when the stored weights are unquantized and the policy quantizes; the
+entry point knows which from the weights header. The FP8-activation row is the one that changes with the
+chunk.
+
+`Operation` gains `getRequiredScratchBytes( const BuildContext& )`, defaulting to 0, the peer of
+`getRequiredStateMemorySize`. Components and composites combine their children by maximum, not sum.
+`MemoryStats` does not carry it, because that type is summed across the tree; `DeploymentFootprint` gains
+the predicted scratch beside `memory`, and the rule's total is `memory.totalDeviceBytes()` plus the
+scratch. The measured twin already exists: `Model::getScratchHighWaterBytes()`.
+
+Measured 2026-09-13 after a load and a full-chunk prefill: 0.07-0.11 GiB with pre-quantized weights
+(Qwen 3.8 cb2-3 and FP4, Gemma 4 12B, Llama 3.1 8B), and 0.25 GiB when the weights are quantized during
+the load, which is the 256 MiB staging cap.
+
+### 11.5 What the prediction does not count
+
+Measured 2026-09-13 with temporary counters in the CUDA allocator, on both cards, after a load and a
+full-chunk prefill. The prediction equals what Mila requests from its allocator to within 23 MiB; the
+difference is buffers that bypass the allocator, such as the RoPE tables, which the prediction does count.
+What remains between the prediction and the memory in use:
+
+| Term | Measured | Owner |
+|---|---|---|
+| Driver rounding of each allocation | 0.02-0.73 GiB across the models tested | open, 11.8 |
+| Scratch | 0.07-0.25 GiB | predicted, 11.4 |
+| Fixed remainder, including the 4 MiB cuBLASLt workspace | 0.02-0.07 GiB | caller headroom |
+| Windows budget cut on a card that drives a display | 313-319 MiB on the RTX 4070; none on the headless RTX 5060 Ti | caller headroom |
+
+**The fixed remainder** is the same after the load as after the prefill in every run; it does not grow
+with use.
+
+**The Windows budget cut is not memory Mila uses.** Reproduced without Mila on the RTX 4070 that drives the
+display: once the process has written about 8.1 GiB, Windows lowers the process's video memory budget by
+326 MiB, then returns 12 MiB. CUDA's free memory equals that budget less the process's usage at every
+reading, so it falls by the same amount. Memory that is allocated but never written does not trigger it.
+Reserving memory up front (`SetVideoMemoryReservation`) does not prevent it, and neither the trigger nor the
+size can be read before it happens. It is Windows policy on that machine, so `Mila/Src` does not model it;
+a caller on a display card leaves headroom. A caller that wants to know whether a card drives a display can
+ask NVML's display mode, which reported 1 for the RTX 4070 and 0 for the RTX 5060 Ti.
+
+None of the measured sizes in this section is a constant in `Mila/Src`. They are recorded so a caller can
+choose its headroom knowingly.
+
+### 11.6 Callers
+
+- **Chat** passes its budget -- the device total less the margin `resolveAutomaticContext` already
+  reserves -- to every prediction in a scan and to the load that follows, so the chunk the scan chose is the
+  chunk the load builds. `practicalDeviceBytes` and the automatic-context margin stay Chat policy; with
+  scratch predicted they are due a re-measure against Gate B. Whether Chat adds headroom on a display card
+  is Chat's decision. "Held to a full prefill chunk" keeps its meaning: the available memory forced a rung
+  below the largest the context permits.
+- **MIS and the Python binding** call `from_store( name, context_length, device_index )` without a memory
+  input, so they get the device-reported default. Exposing the input through the binding is not part of
+  this change.
+- **A user's own `main()`** gets the default, or sets the input.
+
+### 11.7 When nothing fits
+
+If the floor rung does not fit the available memory, the transformer builds at the floor, `PrefillChunking`
+reports that it does not fit, and the load logs one warning. What happens next depends on the platform: on
+Windows the load spills and runs slowly (6.5); on Linux the build throws `CudaBadAlloc` if the device really
+lacks the memory (11.10). The library does not refuse ahead of that, and whether to warn, proceed or refuse
+is the caller's decision. A prediction never warns.
+
+`PrefillChunking::fits_activation_budget` and `isBudgetConstrained()` are renamed to name available
+memory, since no activation budget remains.
+
+### 11.8 Open: driver allocation rounding
+
+Decision pending, Todd, 2026-09-13. The facts:
+
+- **Measured** on both cards, Windows, one driver version: a `cudaMalloc` larger than 1 MiB occupies the
+  next multiple of 2 MiB. Smaller ones are packed into shared 2 MiB blocks, how many per block depending on
+  the size. Across the models tested the rounding is 0.02 GiB (Llama 3.1 8B at 512 rows, 943 allocations)
+  to 0.73 GiB (Qwen 3.8 cb2-3, 2087 allocations), and it moves with the chunk: Gemma 4 12B is 0.27 GiB at
+  1024 rows and 0.40 GiB at 64.
+- **Documented:** `cudaMalloc` promises memory "suitably aligned for any kind of variable"
+  (`cuda_runtime_api.h`) and states no granularity. The virtual memory API does state one: `cuMemCreate`
+  sizes must be multiples of `cuMemGetAllocationGranularity`, which returned 2 MiB on both cards.
+- **Not measured:** Linux, and other driver versions.
+
+Until this is decided, the rule compares the unrounded footprint and rounding is part of the caller's
+headroom.
+
+### 11.9 What the rule picks on the measured models
+
+Predicted footprint plus the scratch measured for each model, identical on both cards. Free memory was
+measured inside the test process: 14.82 GiB on the RTX 5060 Ti, 10.85 GiB on the RTX 4070. "Rule" is the
+rung this section picks with that free memory as the input and nothing held back.
+
+| Model, context | Card | Today | Rule |
+|---|---|---|---|
+| Gemma 4 26B-A4B FP4, 8192 | RTX 5060 Ti | 512 rows, 15.14 GiB, does not fit | 256 rows, 14.67 GiB |
+| Gemma 4 12B FP4, 131072 | RTX 4070 | 64 rows, 10.12 GiB | 1024 rows, 10.78 GiB |
+| Qwen 3.8 27B FP4, 8192 | RTX 5060 Ti | 64 rows, 13.61 GiB | 512 rows, 14.20 GiB |
+| Qwen 3.8 27B cb2-3, 8192 | RTX 4070 | 64 rows, 9.57 GiB | 1024 rows, 10.81 GiB |
+| Llama 3.1 8B FP4, 16384 | RTX 4070 | 512 rows, 11.35 GiB, does not fit | 256 rows, 9.50 GiB |
+
+Three of the five picks -- the 26B, the 12B and cb2-3 -- leave less than 0.15 GiB of the free memory
+unused, and 11.5 measured more than that beyond prediction plus scratch for each: 0.36 GiB for the 26B on
+the RTX 5060 Ti, and on the RTX 4070 the rounding and fixed remainder plus about 0.31 GiB of budget cut. With
+nothing held back, those three loads would spill. The input exists so a caller can hold memory back; the
+rounding decision (11.8) sets how much of that is left to the caller.
+
+### 11.10 Linux
+
+Mila runs on Linux as well, and every measurement in this section was taken on Windows. What is known to
+differ, and what is not:
+
+- **No budget cut.** The cut in 11.5 is Windows policy for a card that drives a display. The Linux driver
+  has no per-process video memory budget.
+- **Running out fails instead of spilling.** An allocation past the device's memory throws `CudaBadAlloc`
+  during the build; there is no shared-memory fallback. Chat already words its warning for this
+  (`kDriverOversubscribesToHostMemory`, `Chat.Footprint.ixx`). On Linux the memory a caller holds back is
+  the difference between a load that runs and one that fails, not between fast and slow.
+- **Free memory is the whole device's.** `cudaMemGetInfo` reports what is free on the device across all
+  processes; there is no per-process budget to read.
+- **Driver rounding is unmeasured.** 11.8's measurements have to be repeated on the Linux driver before a
+  rounding decision can cover Linux.
+- **WSL2 does not stand in for it.** Mila's Linux build runs GPU work under WSL2 on the development
+  machine, but WSL2 reaches the GPU through the Windows driver, so it would measure the Windows driver
+  again. The Linux numbers need a native Linux machine with an NVIDIA GPU, and none is available as of
+  2026-09-13.

@@ -326,4 +326,5 @@ weights take 13.54 of 14.80 GiB free, the budget still admits 1,376 MiB of activ
 and the load predicts 83.8 MiB over; Qwen needed its own smaller constant for the same reason on the
 12 GB card. `Gemma.ixx:116` and `Gemma4InferenceReview.md:531` both call the live-memory version a
 BACKLOG follow-up, and `BACKLOG.md` has no such item. Direction agreed 2026-09-13, taken up in its own
-session: the largest rung whose whole predicted footprint fits the available memory.
+session: the largest rung whose whole predicted footprint fits the available memory. Specified as a draft in
+`Mila/Specifications/MemoryFootprint.md` section 11; driver allocation rounding (11.8) is still open.
