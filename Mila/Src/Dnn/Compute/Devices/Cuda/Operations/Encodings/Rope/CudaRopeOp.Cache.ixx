@@ -112,16 +112,23 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             void* cos_ptr = nullptr;
             void* sin_ptr = nullptr;
 
-            cudaCheckStatus( cudaMalloc( &cos_ptr, cache_bytes ) );
+            const cudaError_t cos_status = cudaMalloc( &cos_ptr, cache_bytes );
 
-            try
+            if ( cos_status != cudaSuccess )
             {
-                cudaCheckStatus( cudaMalloc( &sin_ptr, cache_bytes ) );
+                cudaDiscardLastError();
+
+                throw CudaError( cos_status );
             }
-            catch ( ... )
+
+            const cudaError_t sin_status = cudaMalloc( &sin_ptr, cache_bytes );
+
+            if ( sin_status != cudaSuccess )
             {
+                cudaDiscardLastError();
                 cudaFree( cos_ptr );
-                throw;
+
+                throw CudaError( sin_status );
             }
 
             entries_.emplace( key, CacheEntry{ cos_ptr, sin_ptr, 1 } );

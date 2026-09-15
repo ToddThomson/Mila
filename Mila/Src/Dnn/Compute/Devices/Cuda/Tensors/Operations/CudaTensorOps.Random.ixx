@@ -147,6 +147,7 @@ namespace Mila::Dnn::Compute::Cuda
 
                 if ( err != cudaSuccess )
                 {
+                    cudaDiscardLastError();
                     if ( owns_gen ) curandDestroyGenerator( gen );
                     throw std::runtime_error( "cudaMalloc failed for normal distribution scratch buffer" );
                 }
@@ -268,6 +269,7 @@ namespace Mila::Dnn::Compute::Cuda
 
                 if ( err != cudaSuccess )
                 {
+                    cudaDiscardLastError();
                     if ( owns_gen ) curandDestroyGenerator( gen );
                     throw std::runtime_error( "cudaMalloc failed for uniform distribution scratch buffer" );
                 }

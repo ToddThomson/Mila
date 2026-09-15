@@ -11,6 +11,9 @@
  */
 
 #include <gtest/gtest.h>
+#include <cuda_runtime.h>
+#include <cstddef>
+#include <new>
 #include <stdexcept>
 
 import Mila;
@@ -132,6 +135,61 @@ namespace Mila::Tests::Dnn::Tensors
 
         EXPECT_FALSE( fp16.is_host_accessible() );
         EXPECT_TRUE( fp16.is_device_accessible() );
+    }
+
+    // ====================================================================
+    // K. A failed allocation fails cleanly
+    // ====================================================================
+
+    // Larger than any card and than the host memory a single-GPU process spills into, so the
+    // allocation fails however many devices the process sees. Requested from the resource
+    // directly: TensorBuffer refuses a tensor this large before it reaches cudaMalloc.
+    constexpr std::size_t kUnallocatableBytes = std::size_t{ 1 } << 42;
+
+    TEST_F( TensorConstructorsCudaTests, FailedDeviceAllocation_LeavesNoCudaErrorBehind ) {
+        if ( !has_cuda_ ) {
+            GTEST_SKIP() << "CUDA device not available.";
+        }
+
+        CudaDeviceMemoryResource resource( 0 );
+
+        EXPECT_THROW( static_cast<void>( resource.allocate( kUnallocatableBytes ) ), std::bad_alloc );
+
+        // Every later check of CUDA's last error -- a kernel launch, a copy -- would otherwise
+        // report this allocation's failure as its own.
+        EXPECT_EQ( cudaGetLastError(), cudaSuccess );
+    }
+
+    TEST_F( TensorConstructorsCudaTests, FailedPinnedAllocation_LeavesNoCudaErrorBehind ) {
+        if ( !has_cuda_ ) {
+            GTEST_SKIP() << "CUDA device not available.";
+        }
+
+        CudaPinnedMemoryResource resource( 0 );
+
+        EXPECT_THROW( static_cast<void>( resource.allocate( kUnallocatableBytes ) ), std::bad_alloc );
+        EXPECT_EQ( cudaGetLastError(), cudaSuccess );
+    }
+
+    // A model too large for its device fails this way: parameters already allocated are freed
+    // while the allocation failure propagates, and a throw from that free ends the process.
+    TEST_F( TensorConstructorsCudaTests, FailedDeviceAllocation_PropagatesWhileTensorsAreFreed ) {
+        if ( !has_cuda_ ) {
+            GTEST_SKIP() << "CUDA device not available.";
+        }
+
+        const auto allocateWhileATensorIsLive = []
+        {
+            Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> live( Device::Cuda( 0 ), shape_t{ 2, 3 } );
+            CudaDeviceMemoryResource resource( 0 );
+            static_cast<void>( resource.allocate( kUnallocatableBytes ) );
+        };
+
+        EXPECT_THROW( allocateWhileATensorIsLive(), std::bad_alloc );
+
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> after( Device::Cuda( 0 ), shape_t{ 2, 3 } );
+
+        EXPECT_EQ( after.size(), 6 );
     }
 
     // ====================================================================

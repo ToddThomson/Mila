@@ -333,7 +333,8 @@ Its visible symptom, `GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp`, is now **disabl
 (`DISABLED_Fp4Load_FitsSection8AndMatchesHuggingFaceGreedy`, 2026-09-14, Todd: fix during rc.1). On the RTX 5060 Ti
 alone it fails only its fit: 16,009,596,928 bytes predicted against 15,894,315,008 free after Phase 6 steps 1 and
 2. In a normal run both GPUs are visible and CUDA's device 0 is the 12 GiB RTX 4070, where the load cannot be
-placed at all and the process aborts (see the `do_deallocate` entry below), taking the rest of the suite with it.
+placed at all. Until 2026-09-15 that aborted the whole test run; it now fails the test with the allocation error,
+and it fails the same way with the RTX 5060 Ti as device 0, where it does not fit without spilling either.
 Its fit assertions also skip rather than fail since the same day. Both must be undone when the rule lands.
 
 ## The scratch reservation test's growth check fails on a display card and cannot see a saturated one
@@ -382,28 +383,20 @@ the growth check above, this one still fails rather than skips, so it can turn a
 `Mila/Tests/Dnn/Models/ScratchReservation.Cuda.cpp:155` @ `c1e439e2`
 
 `DISABLED_Qwen38_27B_Fp4_Context8192` (2026-09-14) loads about 15 GiB. With both GPUs visible it runs on the RTX
-4070, the load's allocation fails, and the process aborts through the `do_deallocate` defect below; Todd's run hit
+4070 and the load's allocation fails -- until 2026-09-15 by aborting the whole run, now as a test failure; Todd's run hit
 this with the same two exceptions. It passed on the RTX 5060 Ti alone, and on the RTX 4070 alone only because a
 process that sees one GPU spills the overflow to host memory. The case needs a way to run where the model fits,
 or a skip when the device is too small, before it is re-enabled.
 
-## A failed device allocation aborts the process instead of failing the test
+## CudaExecutionContext allocates its buffers without selecting its device
 
-`Mila/Src/Dnn/Compute/Devices/Cuda/CudaDeviceMemoryResource.ixx:131` @ `c1e439e2`
+`Mila/Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx:274` @ `c1e439e2`
 
-When `do_allocate`'s `cudaMalloc` fails it throws `CudaBadAlloc` but leaves CUDA's last error set to out of memory.
-Unwinding destroys the tensors already built, and `do_deallocate` calls `cudaCheckLastError()` before `cudaFree`,
-reads that stale error and throws `CudaError` from inside a destructor while the first exception is still
-propagating, so the runtime calls `std::terminate` and the process exits with code 3. Captured under `cdb` on the
-Qwen FP4 case: `Linear::initializeParameters` -> `do_allocate` throws, then `~Tensor` -> `do_deallocate` ->
-`cudaCheckLastError` throws. A standalone probe confirmed the error stays set after a failed `cudaMalloc`. Any
-model too large for the device therefore takes the whole test run down with no gtest message: exit code 3 and
-nothing printed after the `[ RUN ]` line, which is how an oversized Qwen FP4 load on the RTX 4070 also presented on
-2026-08-25.
-
-Related, and in the same file family: `CudaExecutionContext`'s forward scratch, load staging buffer and scratch
-reservation call `cudaMalloc` without selecting the context's device, where `do_allocate` calls
-`Cuda::setCurrentDevice` first. In a process that sees two GPUs they allocate on whichever device is current.
+The forward scratch, load staging buffer and scratch reservation call `cudaMalloc` without selecting the
+context's device, where `CudaDeviceMemoryResource::do_allocate` calls `Cuda::setCurrentDevice` first. The
+constructor selects the device once (`initializeResources`), so in a process that sees two GPUs these buffers
+land on the wrong device only if something else changes the current device between construction and the
+allocation. Found 2026-09-14 chasing the allocation-failure abort, which it played no part in.
 
 ## A test comment still says Qwen 3.8 27B cb2-3 cannot load at context 2048 on the RTX 4070
 
@@ -425,3 +418,45 @@ scratch buffer covers both variants", which is how the dead path kept a live cos
 per-channel path moved to row blocks through the load-owned staging buffer, so it is now the one quantizer
 that still requires the whole BF16 tensor on the device. Found implementing Phase 6 step 1. The decision
 owed is deletion, or row blocks with a running maximum if a per-tensor path is wanted.
+
+## Two exception classes report the same CUDA runtime error
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Helpers/CudaUtils.h:15` @ `d531a026`
+
+`cudaCheck` (`CudaUtils.h:31`) throws `CudaException`, and it is what the 157 kernel launch sites call as
+`cudaCheck( cudaGetLastError() )`. `cudaCheckStatus` and `cudaCheckLastError` (`CudaError.ixx:133`, `:145`)
+throw `CudaError`, used from the module code. Both derive from `std::runtime_error`, both carry the error code
+and source location, and they format different messages ("[CUDA ERROR] at file" against "CUDA runtime API
+error"). `CudaError::getError()` is commented out, so only `CudaException` exposes the code. A caller that
+wants to catch a CUDA failure has to name both or fall back to `std::runtime_error`. Found 2026-09-15 surveying
+CUDA error handling after the allocation-failure abort.
+
+## Running out of CUDA memory arrives as four different exception types
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/CudaPinnedMemoryResource.ixx:101` @ `d531a026`
+
+`CudaDeviceMemoryResource` throws `CudaBadAlloc`, a `std::bad_alloc` carrying the size and device. The pinned
+(`:101`) and managed (`CudaManagedMemoryResource.ixx:89`) resources throw a bare `std::bad_alloc`; the managed
+one builds the same message and discards it. `CudaExecutionContext`'s scratch, load staging, pinned staging and
+cuBLASLt workspace throw `std::runtime_error`, as do the scratch buffers in `CudaTensorOps.Random.ixx`, and
+`RopeCacheRegistry::acquire` throws `CudaError`. So a caller cannot catch "the model does not fit" as one type,
+and `import Mila;` does not export `CudaBadAlloc`, so a consumer cannot name even the device one. Found
+2026-09-15, same survey.
+
+## Five device allocations ignore cudaMalloc's result
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx:1509` @ `d531a026`
+
+`CudaLinearOp.ixx:1509` and `:1510` (the FP8 scale scalars), `TensorOps.Fill.cu:112` and `:133` (fill staging)
+and `CudaLinearGelu.cu:62` (a cuBLASLt workspace) call `cudaMalloc` as a statement. A failure goes unnoticed,
+the pointer stays null and the next kernel or copy uses it. Found 2026-09-15 enumerating allocation sites for
+the allocation-failure fix, which clears the error only where a failure is detected.
+
+## A 4 GB single-tensor limit marked DEBUG ships in TensorBuffer
+
+`Mila/Src/Dnn/Tensors/TensorBuffer.ixx:224` @ `d531a026`
+
+Any tensor whose storage is 4 GiB or more throws `std::length_error` from the constructor. The check sits
+between `// DEBUG:` and `// END DEBUG:` comments with no condition around it, so every build carries it.
+Found 2026-09-15 writing the allocation-failure test, which had to call the memory resource directly because
+a tensor large enough to fail on the device never reaches `cudaMalloc`.

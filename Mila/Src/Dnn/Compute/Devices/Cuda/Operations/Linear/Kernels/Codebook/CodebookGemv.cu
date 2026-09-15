@@ -377,6 +377,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             cudaFree( device_scales );
             cudaFree( device_codebook );
 
+            // The returned status carries a failed allocation or copy; left recorded, it would be
+            // reported again by the next unrelated check of the last error.
+            if ( status != cudaSuccess )
+                cudaGetLastError();
+
             return static_cast<int>( status );
         }
     }

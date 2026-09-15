@@ -22,6 +22,7 @@ import Compute.IExecutionContext;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Core.RandomGenerator;
+import Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
@@ -223,6 +224,8 @@ namespace Mila::Dnn::Compute
 
                 if ( err != cudaSuccess )
                 {
+                    cudaDiscardLastError();
+
                     throw std::runtime_error(
                         std::format( "Failed to reserve device scratch buffer: {}", cudaGetErrorString( err ) ) );
                 }
@@ -275,6 +278,8 @@ namespace Mila::Dnn::Compute
 
             if ( err != cudaSuccess )
             {
+                cudaDiscardLastError();
+
                 throw std::runtime_error(
                     std::format( "Failed to allocate device scratch buffer: {}",
                         cudaGetErrorString( err ) ) );
@@ -323,6 +328,8 @@ namespace Mila::Dnn::Compute
 
             if ( err != cudaSuccess )
             {
+                cudaDiscardLastError();
+
                 throw std::runtime_error(
                     std::format( "Failed to allocate load staging buffer: {}", cudaGetErrorString( err ) ) );
             }
@@ -368,6 +375,8 @@ namespace Mila::Dnn::Compute
 
             if ( err != cudaSuccess )
             {
+                cudaDiscardLastError();
+
                 throw std::runtime_error(
                     std::format( "Failed to allocate pinned staging buffer: {}", cudaGetErrorString( err ) ) );
             }
@@ -487,6 +496,7 @@ namespace Mila::Dnn::Compute
 
             if ( ws_error != cudaSuccess )
             {
+                cudaDiscardLastError();
                 cublaslt_workspace_ = nullptr;
 
                 throw std::runtime_error(
