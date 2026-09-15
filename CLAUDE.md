@@ -81,7 +81,7 @@ Direction of travel, so new code moves with it rather than against it: the `Unar
 
 Weight quantization is offline: `Tools/ExportArtifact` produces pre-quantized safetensors weights that declare their policy in `__metadata__["mila_quantization"]`, a load refuses weights whose policy is not the compiled one, and `Linear::loadParameter` uploads packed bytes directly. Sub-4-bit codebook formats have no other path — their tables are fitted offline against calibration data by `Tools/Quantization`, and `ExportArtifact` is the only writer. Design of record: `Mila/Specifications/Quantization.md`.
 
-Quantize-on-load survives as the **exporter's own engine**, run once, for FP8 and FP4 only. Converters always write BF16; `Linear::loadParameter` branches on the stored dtype (`Linear.ixx:603`) and calls `operation_->quantize()`. It is not a deployment path — see `Quantization.md` for the per-format kernel detail.
+Quantize-on-load is a **supported user path** for FP8 and FP4 (decided 2026-09-14): it runs full-precision weights nobody has exported, and it is the exporter's own engine. Converters always write BF16; `Linear::loadParameter` branches on the stored dtype (`Linear.ixx:603`) and calls `operation_->quantize()`. Published models are still exported pre-quantized. Its staging buffer belongs to the load, not to the forward scratch — see `Quantization.md` *Load Pipeline* for that and the per-format kernel detail.
 
 **Trap:** the `getDeviceScratchBuffer()` grow-on-demand buffer in `ExecutionContext` backs the FP8 dequant staging — **fetch it at `forward()` time and never cache the pointer across calls**, since it is reallocated on grow.
 

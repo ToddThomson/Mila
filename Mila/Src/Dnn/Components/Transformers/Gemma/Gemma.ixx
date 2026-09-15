@@ -367,7 +367,8 @@ namespace Mila::Dnn
                 BuildContext( shape_t{ B, T, config_.getModelDim() },
                     context.getRuntimeMode(), context.shouldInitializeParameters() )
                 .withPrefillSize( prefill_chunk )
-                .withInstalledOutput( context.isInferenceMode() );
+                .withInstalledOutput( context.isInferenceMode() )
+                .withFusedDecode( context.isInferenceMode() );
 
             const shape_t final_shape = context.isInferenceMode()
                 ? shape_t{ B, 1, config_.getModelDim() }
@@ -582,6 +583,10 @@ namespace Mila::Dnn
                 this->getExecutionContext()->synchronize();
             }
 
+            // Every tensor has landed, so the buffer full-precision weights were fitted through is
+            // not held for the model's lifetime.
+            this->getExecutionContext()->releaseLoadStaging();
+
             // Tie lm_head to the (raw) embedding table after all blobs stream. When tied,
             // lm_head.weight is absent from the file, so nothing was loaded into lm_head's
             // own allocation; we replace it with the shared table here (WeightTying.md D2).
@@ -622,7 +627,8 @@ namespace Mila::Dnn
             shape_t block_shape = { B, T, config_.getModelDim() };
             BuildContext block_context =
                 BuildContext( block_shape, context.getRuntimeMode(), context.shouldInitializeParameters() )
-                .withPrefillSize( prefill_chunk_size_ );
+                .withPrefillSize( prefill_chunk_size_ )
+                .withFusedDecode( context.isInferenceMode() );
 
             // Inference: final_rmsnorm and lm_head only process the last position.
             shape_t final_shape = context.isInferenceMode() ?
@@ -661,12 +667,11 @@ namespace Mila::Dnn
                     // Global (unbounded) layers own the O(chunk x T_ctx) score buffer. Route
                     // them through fused flash prefill at long context so that buffer can be
                     // reclaimed -- MUST agree with prefillScoreWidth() in the workspace sizing.
-                    // Fused decode is unconditional (band-limited, no workspace coupling; the
-                    // BF16 op honors it, FP32 ignores it).
+                    // Fused decode is declared on block_context above, so its scratch is part of
+                    // the reservation.
                     if ( context.isInferenceMode() )
                     {
                         block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
-                        block->setUseFlashDecode( true );
                     }
 
                     blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
@@ -685,11 +690,9 @@ namespace Mila::Dnn
                     // GEMMs. They stop reading the shared preatt/att buffer when flashed;
                     // prefillScoreWidth() deliberately still sizes it for them so the
                     // cuBLASLt fallback stays valid (further reclaim tracked in BACKLOG).
-                    // Fused decode is unconditional, same as the global blocks above.
                     if ( context.isInferenceMode() )
                     {
                         block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
-                        block->setUseFlashDecode( true );
                     }
 
                     blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
@@ -730,6 +733,10 @@ namespace Mila::Dnn
 
             if ( context.isInferenceMode() )
                 allocateAndWireGqaWorkspace( B, input_shape[ 1 ] );
+
+            // Every operation shares the context's one scratch buffer. Reserving it at the largest
+            // request, the figure the footprint reports, is what puts it in the footprint.
+            this->getExecutionContext()->reserveScratch( this->getMemoryStats().device_scratch_bytes );
 
             normalized_ptr_ = nullptr;
             logits_ptr_ = nullptr;

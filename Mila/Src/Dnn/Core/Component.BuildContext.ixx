@@ -222,6 +222,28 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Declare that single-token decode attention runs the fused kernel.
+         *
+         * The transformer decides this before build rather than after, so the scratch the
+         * kernel requests is in both the prediction and the reservation the network makes.
+         */
+        [[nodiscard]] BuildContext withFusedDecode( bool fused ) const
+        {
+            BuildContext copy( *this );
+            copy.fused_decode_ = fused;
+
+            return copy;
+        }
+
+        /**
+         * @brief True if single-token decode attention runs the fused kernel.
+         */
+        bool usesFusedDecode() const noexcept
+        {
+            return fused_decode_;
+        }
+
+        /**
          * @brief Number of tokens processed per prefill pass.
          *
          * The tuned prefill chunk size, computed once at network build time and
@@ -252,5 +274,6 @@ namespace Mila::Dnn
         int64_t                  prefill_size_{ 0 };
         bool                     initialize_parameters_{ true };
         bool                     installed_output_{ false };
+        bool                     fused_decode_{ false };
     };
 }

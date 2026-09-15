@@ -490,6 +490,7 @@ namespace Mila::Dnn
             MemoryStats stats;
 
             stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+            stats.device_scratch_bytes = operation_->getRequiredScratchBytes( context );
 
             if ( context.isInferenceMode() )
             {
@@ -543,6 +544,7 @@ namespace Mila::Dnn
             MemoryStats stats;
 
             stats.device_state_bytes += operation_->getStateMemorySize();
+            stats.device_scratch_bytes = operation_->getScratchBytes();
 
             // An installed shared output slot is owned and counted by the installer.
             if ( output_ != nullptr && !output_installed_ )

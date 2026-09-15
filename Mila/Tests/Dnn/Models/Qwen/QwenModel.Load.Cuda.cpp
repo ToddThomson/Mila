@@ -880,7 +880,7 @@ namespace Mila::Tests::Dnn::Models
             "  predicted (getRequiredMemory) {:.3f} GiB  (params {:.3f} / state {:.3f})\n"
             "  reported  (getMemoryStats)    {:.3f} GiB  (params {:.3f} / state {:.3f})\n"
             "  consumed  (cudaMemGetInfo)    {:.3f} GiB\n"
-            "  scratch high-water            {:.3f} GiB\n",
+            "  scratch (reported)            {:.3f} GiB\n",
             static_cast<long long>( kContext ),
             predicted.totalDeviceBytes() / gib,
             predicted.device_parameter_bytes / gib,
@@ -889,10 +889,11 @@ namespace Mila::Tests::Dnn::Models
             reported.device_parameter_bytes / gib,
             reported.device_state_bytes / gib,
             consumed / gib,
-            model->getScratchHighWaterBytes() / gib ) << std::flush;
+            reported.device_scratch_bytes / gib ) << std::flush;
 
         EXPECT_EQ( predicted.device_parameter_bytes, reported.device_parameter_bytes );
         EXPECT_EQ( predicted.device_state_bytes, reported.device_state_bytes );
+        EXPECT_EQ( predicted.device_scratch_bytes, reported.device_scratch_bytes );
     }
 
     // Where a layer's device state actually sits, component by component.

@@ -328,3 +328,100 @@ and the load predicts 83.8 MiB over; Qwen needed its own smaller constant for th
 BACKLOG follow-up, and `BACKLOG.md` has no such item. Direction agreed 2026-09-13, taken up in its own
 session: the largest rung whose whole predicted footprint fits the available memory. Specified as a draft in
 `Mila/Specifications/MemoryFootprint.md` section 11; driver allocation rounding (11.8) is still open.
+
+Its visible symptom, `GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp`, is now **disabled**
+(`DISABLED_Fp4Load_FitsSection8AndMatchesHuggingFaceGreedy`, 2026-09-14, Todd: fix during rc.1). On the RTX 5060 Ti
+alone it fails only its fit: 16,009,596,928 bytes predicted against 15,894,315,008 free after Phase 6 steps 1 and
+2. In a normal run both GPUs are visible and CUDA's device 0 is the 12 GiB RTX 4070, where the load cannot be
+placed at all and the process aborts (see the `do_deallocate` entry below), taking the rest of the suite with it.
+Its fit assertions also skip rather than fail since the same day. Both must be undone when the rule lands.
+
+## The scratch reservation test's growth check fails on a display card and cannot see a saturated one
+
+`Mila/Tests/Dnn/Models/ScratchReservation.Cuda.cpp` @ `c1e439e2`
+
+The check that device memory does not grow during generation -- the only permanent detector of a network that
+fails to reserve its scratch -- read 29.1 MiB for Qwen 3.8 27B cb2-3 on the RTX 4070 at the end of a full
+suite run, and 0.0 MiB in three runs of that test alone and in one run straight after Qwen FP4. The 4070 drives
+the display, and MemoryFootprint.md 11.5 records Windows lowering that process's video memory budget once it
+has written about 8 GiB, which moves CUDA's free-memory reading by the same amount; the suite writes far more
+than that first. The opposite blind spot is a card the load saturates: Qwen FP4 on the 4070 read 0.0 MiB
+because a full card reports no change. The check **skips instead of failing** (2026-09-14, Todd: fix during
+rc.1), which also lets a genuinely missing reservation read as skipped. The proposed guard is to measure only on
+a card that is neither saturated nor driving a display, the second read from NVML's display mode, and to restore
+the failure.
+
+Two full runs of `x64-profile` with both GPUs visible (device 0 the RTX 4070) show which test it lands on is a
+matter of timing: the first skipped the Llama 3.1 8B case (47.6 MiB), the second skipped the Gemma 4 12B context
+8192 case and the cb2-3 case instead, while the Llama case passed. No test fails on it, but on that card it
+cannot catch a missing reservation either.
+
+## No permanent test catches a scratch reservation larger than any request
+
+`Mila/Tests/Dnn/Models/ScratchReservation.Cuda.cpp` @ `c1e439e2`
+
+Phase 6 step 2's third negative -- scratch summed across the tree instead of taking the maximum -- reserved
+12,386,304,000 bytes for Gemma 4 12B against a largest request of 121,901,056, and every permanent test passed:
+predicted still equals reported, nothing throws, memory does not grow. Only the temporary counters used during
+that run saw it. A per-model literal of the reserved bytes in the reservation test (121,901,056 for Gemma 4 12B
+FP4 at context 8192) would fail on it, as the other footprint literals do.
+
+## The quantize-on-load footprint test can fail on a card that drives a display
+
+`Mila/Tests/Dnn/Models/QuantizeOnLoad.Footprint.Cuda.cpp:132` @ `c1e439e2`
+
+`Gemma4_12B_FittedLoadSettlesAtExport` compares device memory consumed by a BF16 load against its exported form
+within 128 MiB. In a full `x64-profile` run with both GPUs visible, on the RTX 4070, it failed at 323 MiB after the
+load and 295 MiB after generation; in the next identical run it passed. 323 MiB is the Windows video memory budget
+cut MemoryFootprint.md 11.5 measured on that card (313-326 MiB), which lands wherever the process has written about
+8 GiB, so whichever comparison straddles it fails. On the headless RTX 5060 Ti the same test reads 0 MiB. Unlike
+the growth check above, this one still fails rather than skips, so it can turn a suite red by timing alone.
+
+## The Qwen 3.8 27B FP4 scratch reservation case is disabled because the model does not fit a 12 GiB card
+
+`Mila/Tests/Dnn/Models/ScratchReservation.Cuda.cpp:155` @ `c1e439e2`
+
+`DISABLED_Qwen38_27B_Fp4_Context8192` (2026-09-14) loads about 15 GiB. With both GPUs visible it runs on the RTX
+4070, the load's allocation fails, and the process aborts through the `do_deallocate` defect below; Todd's run hit
+this with the same two exceptions. It passed on the RTX 5060 Ti alone, and on the RTX 4070 alone only because a
+process that sees one GPU spills the overflow to host memory. The case needs a way to run where the model fits,
+or a skip when the device is too small, before it is re-enabled.
+
+## A failed device allocation aborts the process instead of failing the test
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/CudaDeviceMemoryResource.ixx:131` @ `c1e439e2`
+
+When `do_allocate`'s `cudaMalloc` fails it throws `CudaBadAlloc` but leaves CUDA's last error set to out of memory.
+Unwinding destroys the tensors already built, and `do_deallocate` calls `cudaCheckLastError()` before `cudaFree`,
+reads that stale error and throws `CudaError` from inside a destructor while the first exception is still
+propagating, so the runtime calls `std::terminate` and the process exits with code 3. Captured under `cdb` on the
+Qwen FP4 case: `Linear::initializeParameters` -> `do_allocate` throws, then `~Tensor` -> `do_deallocate` ->
+`cudaCheckLastError` throws. A standalone probe confirmed the error stays set after a failed `cudaMalloc`. Any
+model too large for the device therefore takes the whole test run down with no gtest message: exit code 3 and
+nothing printed after the `[ RUN ]` line, which is how an oversized Qwen FP4 load on the RTX 4070 also presented on
+2026-08-25.
+
+Related, and in the same file family: `CudaExecutionContext`'s forward scratch, load staging buffer and scratch
+reservation call `cudaMalloc` without selecting the context's device, where `do_allocate` calls
+`Cuda::setCurrentDevice` first. In a process that sees two GPUs they allocate on whichever device is current.
+
+## A test comment still says Qwen 3.8 27B cb2-3 cannot load at context 2048 on the RTX 4070
+
+`Mila/Tests/Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp:1468` @ `c1e439e2`
+
+The comment above `Generation_RunsAndStaysInsideTheVocabulary` says the load "dies" at context 2048, which is why
+that test uses 512. On 2026-09-14 `ScratchReservationCudaTests.Qwen38_27B_Codebook_Context4096` loaded and generated
+at context 4096 on the RTX 4070 with both GPUs visible. The comment predates the footprint reductions since
+(RoPE tables sized to the context among them) and misled a prediction about which tests would fail.
+
+## The FP8 per-tensor weight quantizer has no caller and still stages the whole tensor
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Quantize.ixx:106` @ `c1e439e2`
+
+`Detail::quantize_fp8_per_tensor` and `cuda_quantize_fp8_per_tensor` (`CudaFp8WeightQuantization.cu:251`)
+are exported, documented as the Ada cuBLASLt path, and called from nowhere: `CudaLinearOp::quantize` reaches
+only the per-channel bridge. The per-channel call site allocated four extra staging bytes "so the same
+scratch buffer covers both variants", which is how the dead path kept a live cost. Left untouched when the
+per-channel path moved to row blocks through the load-owned staging buffer, so it is now the one quantizer
+that still requires the whole BF16 tensor on the device. Found implementing Phase 6 step 1. The decision
+owed is deletion, or row blocks with a running maximum if a per-tensor path is wanted.

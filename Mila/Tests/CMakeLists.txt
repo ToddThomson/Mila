@@ -249,6 +249,12 @@ if(MILA_ENABLE_CUDA)
         # the same subtraction. Common/GenerationRates.h is the one implementation.
         "Dnn/Models/Gemma/GemmaModel.Rates.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Footprint.Cuda.cpp"
+        # A load that fits BF16 weights settles at its exported form's footprint: the load staging is freed.
+        # Needs both weights of each model -- see Specifications/MemoryFootprint.md Phase 6 step 1.
+        "Dnn/Models/QuantizeOnLoad.Footprint.Cuda.cpp"
+        # A built model reserves the scratch its footprint predicts and generation stays inside it.
+        # Needs exported weights -- see Specifications/MemoryFootprint.md Phase 6 step 2.
+        "Dnn/Models/ScratchReservation.Cuda.cpp"
         # Qwen against a TRUNCATED real artifact -- the full 27B is 50 GiB at BF16 and fits
         # no card here, so 4 layers (both block kinds) is what can be exercised. Skips
         # without the fixture; see the file header for how to produce it.

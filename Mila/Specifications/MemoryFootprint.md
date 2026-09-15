@@ -364,11 +364,12 @@ because that is the one available when the decision is actually made.
 
 ### 6.4 The scratch buffer, and what the residual is
 
-`getDeviceScratchBuffer` grows on demand and is never shrunk
-(`CudaExecutionContext.ixx:233`), so its current size is its high-water.
-`IExecutionContext::getScratchHighWaterBytes()` exposes it and
-`Model::getScratchHighWaterBytes()` passes it through. It stays out of `MemoryStats`,
-which reports what components allocate; this buffer belongs to the execution context.
+`getDeviceScratchBuffer` (`CudaExecutionContext.ixx`) serves one buffer to every operation on a
+context. Before Phase 6 step 2 it grew on demand during forward passes, stayed out of
+`MemoryStats`, and was visible only through a `getScratchHighWaterBytes()` accessor. Since step 2
+every network reserves it at `build()` to the largest request its operations make, reports it as
+`MemoryStats::device_scratch_bytes`, and a larger request throws; the accessor is deleted. A
+permanent allocation is accounted for, not inspected.
 
 **Draft, section 11.4:** scratch is predicted as the largest single request, because
 that is exactly what sizes the buffer.
@@ -463,13 +464,21 @@ leave the user to discover it by waiting. Warn.
 WDDM oversubscribes into shared host memory rather than failing. Contexts of 65536
 and above measured 12282/0 MiB and kept running, pathologically slowly. The number
 is exact; the verdict needs a margin, and that margin exists to catch spill, not to
-cover measurement error. Refuse only when weights alone exceed free VRAM; otherwise
+cover measurement error. *Superseded for the margin's size by 11.6:* headroom is held only
+for identified causes that apply to the device, never as a fixed percentage. Refuse only when weights alone exceed free VRAM; otherwise
 warn and proceed. A false refusal is worse than the problem being solved.
 
 **Two measured additions, 2026-09-13.** On a card that drives a display, Windows also lowers
 the process's video memory budget partway through a load (11.5), so a model that fitted the
 free memory read at the start can still spill. On Linux none of this section applies: there is
 no shared-memory fallback, and an allocation past the device's memory fails the load (11.10).
+
+**Measured 2026-09-14: the spill happens only in a process that sees one GPU.** A standalone probe
+allocating and writing 1 GiB blocks: the RTX 4070 alone held 20 GiB, as did the RTX 5060 Ti alone;
+with both GPUs visible, the RTX 4070 failed after 11 GiB and the RTX 5060 Ti after 15, and listing
+both UUIDs in `CUDA_VISIBLE_DEVICES` failed the same way. So on a machine with two GPUs, a Windows
+process behaves like Linux here: an allocation past the device fails the load. Everything above about
+spilling was measured with one GPU visible.
 
 ---
 
@@ -483,8 +492,8 @@ model. Catches a wrong formula in a leaf and a missing child in a composite. Nee
 device but no weights and no checkpoint.
 
 **Gate B -- reality.** The same figure against the `cudaMemGetInfo` delta across a
-real build. Catches what `MemoryStats` cannot see: allocator rounding, and the
-section 6.4 scratch high-water once a forward pass has run. Gate B is not expected
+real build. Catches what `MemoryStats` cannot see: allocator rounding, and, until Phase 6
+step 2 reserves it at build, the section 6.4 scratch buffer once a forward pass has run. Gate B is not expected
 to be exact; its job is to *quantify and bound* the residual, attributed 2026-09-13
 in section 6.4.
 
@@ -498,9 +507,10 @@ useful output: its size identifies the tensor class that was missed.
 
 **Draft, section 11.** The chunk rule adds two comparisons and narrows one:
 
-- **Gate S -- scratch.** The predicted scratch (11.4) against `getScratchHighWaterBytes()`
-  after a load, a prefill of at least one full chunk, and decode. Exact, for every family,
-  with pre-quantized weights and with weights quantized during the load.
+- **Scratch joins Gate A.** Reserved at `build()` to its prediction and reported (11.4), so
+  predicted equals reported covers it, for every family, with pre-quantized weights and with
+  weights quantized during the load. A prediction that is too small throws at the first forward
+  that needs more, after a load, a prefill of at least one full chunk, and decode.
 - **The rule itself.** The same inputs give the same chunk. The chunk never grows when the
   available memory shrinks. The chosen rung's predicted footprint plus scratch is at most the
   available memory, and the next rung up exceeds it.
@@ -644,23 +654,263 @@ that target, and the same accessor is what MIS and the `mila` CLI will need.
 
 **Phase 6 -- prefill chunk rule. DRAFT, section 11.** Each step is separately verifiable.
 
-1. **Scratch prediction.** `getRequiredScratchBytes` on the four operations that request
-   scratch (11.4), combined by maximum and carried by `DeploymentFootprint`.
-   *Verifiable:* Gate S exact on Gemma, Qwen and Llama, with pre-quantized weights and with
-   weights quantized during the load.
-2. **The rule.** The available-memory input on `LanguageModelConfig` and `BuildContext`, the
+1. **Load-owned staging.** The quantize-on-load staging buffer is a buffer of its own on the
+   execution context, grown during the load and freed by `releaseLoadStaging()` when the load
+   returns, and the FP8 per-channel site stages in row blocks like FP4 (11.4). *Verifiable:* weights and scales bit-identical to the current
+   path; after a load from BF16 weights, device memory consumed equals that of exported weights
+   within noise; load time measured at more than one staging size before one is chosen.
+2. **Scratch accounted.** `getRequiredScratchBytes` on the operations that request forward
+   scratch (11.4), combined by maximum. The network reserves the execution context's scratch to
+   that maximum during `build()` and reports it once in `getMemoryStats()` and
+   `getRequiredMemory()`, so Gate A covers it like every other allocation, and a request above
+   the reserved size throws instead of growing. `getScratchHighWaterBytes()` is deleted from
+   `IExecutionContext`, `CudaExecutionContext` and `Model`, with its four test uses: a permanent
+   allocation is accounted for, not inspected. The load staging peak is predicted beside the
+   footprint, never reported by an accessor.
+   *Verifiable:* Gate A exact with scratch included, on Gemma, Qwen and Llama at every rung, with
+   exported weights and with weights quantized during the load; a full-chunk prefill and decode
+   on each run without the reserved size being exceeded; an operation predicting one byte less
+   than it requests makes the first forward that needs it throw (negative, reverted).
+3. **The rule.** The available-memory input on `LanguageModelConfig` and `BuildContext`, the
    rung walk over the whole footprint in all three transformers, the budget constants and
    row-cost models deleted, `PrefillChunking` renamed. *Verifiable:* the rule tests in section 7,
    and Gate A exact at every rung.
-3. **Callers.** Chat passes its budget to its scan and to its load; MIS and the binding take the
-   default. *Verifiable:* the chunk a scan reports equals the chunk the load builds, at the same
-   input.
-4. **Documents.** ChatConfiguration.md section 6, `Gemma4InferenceReview.md` 6.4, the budget
+4. **Callers.** Chat passes its budget to its scan and to its load; MIS and the binding take the
+   default. Chat's fixed allowances are removed: the 10% of the device total that
+   `resolveAutomaticContext` holds back (at least 512 MiB) and the 12.5% of the prediction that
+   `practicalDeviceBytes` (`Chat.Footprint.ixx:102`) adds. They stack, and they guess. On the
+   headless RTX 5060 Ti they grade Gemma 4 26B-A4B FP4 at context 8192 and chunk 64 as 15.83 GiB
+   against a 14.34 GiB budget, so the scan finds no context, while section 11.9's measurements put
+   the load at chunk 128 about 0.17 GiB under the free memory (derived, with exported weights).
+   Chat's budget becomes the free memory in its process less the identified headroom in 11.6.
+   Grading the model catalogue against device capacity rather than free memory
+   (`Chat.Footprint.ixx:145`) is a separate question and is not changed here. *Verifiable:* the
+   chunk a scan reports equals the chunk the load builds, at the same input; no fixed percentage
+   remains in Chat's fit path; the 26B on the RTX 5060 Ti grades as fitting at the context and
+   chunk the rule picks, and does not spill there; a configuration that measurably spills still
+   grades as not fitting.
+5. **Documents.** ChatConfiguration.md section 6, `Gemma4InferenceReview.md` 6.4, the budget
    comments in `Gemma.ixx`, `Qwen.ixx` and `Llama.ixx`, and the `PrefillChunking` Doxygen describe
    the rule instead of the budgets.
-5. **Driver rounding -- blocked on 11.8**, which also needs the Linux measurements in 11.10.
+6. **Driver rounding -- blocked on 11.8**, which also needs the Linux measurements in 11.10.
 
-The gates for each step are recorded before any run, in the implementation record.
+The gates for each step are recorded before any run, below.
+
+**Phase 6 step 1 gate -- load-owned staging. Written 2026-09-14, before any run.**
+
+*What it assumes, to confirm before code:*
+
+- The staging size is not a public input. The load owns one buffer of a fixed size, 256 MiB today,
+  the ceiling the three capped sites already use. For the sweep below, a temporary change lets the
+  test set that size; it is removed after the run, and the size the sweep chooses stays internal to
+  the load.
+- No accessor is added to `Mila/Src` for any of this. What a criterion needs to observe beyond
+  exported bytes, tokens and free device memory is read through temporary counters, removed after
+  the run.
+
+*Where:* the RTX 5060 Ti pinned by UUID for every model-level criterion. The component criteria run
+in the full suite on both cards. The reference for bit identity is an export from a build of the
+committed tree before the change, taken at a short path without touching the working tree.
+
+*Criteria:*
+
+1. **Nothing fitted changes.** `ExportArtifact` output is byte-identical before and after the
+   change at the default staging size, for:
+   - Llama 3.2 3B from BF16 at FP4 and at FP8 (the FP8 per-channel site)
+   - Gemma 4 12B from BF16 at FP4 (the FP4 `Linear` site and the FP8 embedding table)
+   - Qwen 3.8 27B `plan` from the fitted source (the 2.54 GiB head through the FP4 site)
+
+   With the temporary sweep change set to 16 MiB, Llama 3.2 3B at FP4 and at FP8 is also
+   byte-identical, which forces row blocks through every site that was previously staged whole.
+2. **The expert bank is unchanged.** The FP4 bank gates in `MixtureOfExperts.Cuda.cpp` pass
+   unchanged at the default size and at 1 MiB.
+3. **A fitted load settles where its export does.** For each BF16 and exported pair (Llama 3.2 3B,
+   Llama 3.1 8B and Gemma 4 12B at FP4, context 8192), loaded in turn in one process:
+   - device memory consumed after the load differs by less than half the staging size
+   - after the same full-chunk prefill and eight greedy decode steps, consumed memory still differs
+     by less than half the staging size, and the generated tokens are identical
+
+   The noise floor is 50-70 MiB (6.4), so half of 256 MiB separates staging returned from
+   staging kept.
+4. **Staging is bounded by its size.** Temporary counters on the staging allocation, the method
+   used to attribute the residual on 2026-09-13, show the buffer never exceeds the staging size,
+   at 256 MiB and, through the temporary change, at 16 MiB, on every load in criteria 1 and 3, and
+   on the 26B from BF16 at 256 MiB.
+5. **The gate can fail.** Each of these edits must fail the criterion named, and is reverted:
+   - the staging buffer not freed at the end of the load: criterion 3
+   - the FP8 per-channel site left staging the whole tensor: criterion 4 at 16 MiB on Llama 3.2
+     3B FP8
+   - a row block starting one row late: criterion 1 at 16 MiB
+6. **Nothing else moves.** The full suite passes on both cards, Gemma 4 12B token parity and every
+   Gemma, Qwen and Llama footprint literal included, with the temporary sweep change and counters
+   removed.
+
+*Measured and recorded, not asserted:* load time of Llama 3.1 8B and Gemma 4 12B from BF16 at FP4,
+at staging sizes of 256, 64 and 16 MiB set through the temporary change. Timed after one discarded
+load, with the source file resident in host memory, and the file's residency stated beside each
+number. The size the load keeps is chosen from these results, as a separate decision after the run.
+
+**Phase 6 step 1 result (2026-09-14, RTX 5060 Ti pinned by UUID).** The reference exports came from a build
+of the working tree before the change, whose `Mila/Src` was identical to the committed tree, so no
+repository operation was needed.
+
+| Criterion | Result |
+|---|---|
+| 1. Nothing fitted changes | **byte-identical, 6 of 6**: Llama 3.2 3B FP4 and FP8, Gemma 4 12B FP4, Qwen 3.8 27B `plan` at the default size; Llama 3.2 3B FP4 and FP8 at 16 MiB |
+| 2. Expert bank unchanged | the FP4 bank, FP8 table and quantized `Linear` tests, 21 of 21, at the default size and at 1 MiB |
+| 3. A fitted load settles where its export does | consumed-memory difference after load and after generation: Llama 3.2 3B 14 MiB, Llama 3.1 8B 0 MiB, Gemma 4 12B 0 MiB; tokens identical for all three |
+| 4. Staging bounded by its size | high-water at the default size: Llama 3.2 3B 96 MiB, Llama 3.1 8B 224 MiB, Gemma 4 12B, Qwen `plan` and the 26B 256 MiB; at 16 MiB, 16 MiB |
+
+The 26B FP4 test still fails only its fit criterion, 15,982,200,832 predicted bytes against 15,908,995,072
+free, as it did before the change; its weights, expert-bank bytes and eight greedy tokens are unchanged.
+
+**The negatives fail the criteria named.**
+
+- Staging not freed: criterion 3 fails on Llama 3.1 8B (224 MiB kept) and Gemma 4 12B (256 MiB kept).
+  Llama 3.2 3B keeps 82 MiB, under the 128 MiB bound, so this criterion cannot see a model whose largest
+  fitted tensor is that small.
+- The FP8 per-channel site staging the whole tensor: criterion 4 fails, 96 MiB against a 16 MiB limit on
+  Llama 3.2 3B FP8. Its export stays byte-identical, as it should: staging more changes no fitted byte.
+- Every row block after the first starting one row early, in the FP8 per-channel kernel: criterion 1 fails,
+  the Llama 3.2 3B FP8 export at 16 MiB no longer matches the reference. One row early rather than late,
+  because late reads past the end of the source on the last block.
+
+**Load time does not depend on the staging size** on these models. Warm, after one discarded load, source
+files held in the host file cache:
+
+| Model, from BF16 at FP4 | 256 MiB | 64 MiB | 16 MiB |
+|---|---|---|---|
+| Llama 3.1 8B | 4.19, 4.18 s | 4.21, 4.17 s | 4.26, 4.29 s |
+| Gemma 4 12B | 12.34, 12.34 s | 12.31, 12.33 s | 12.30, 12.57 s |
+
+The spread is under 2% at every size, so the staging size is free to be chosen on memory alone.
+
+**Criterion 6, with every temporary change and negative removed.** All targets build clean. The full suite
+runs 1962 tests on each card, pinned by UUID: 1960 pass, 1 skipped (the long-standing Swiglu BF16 backward)
+and 1 fails, the 26B FP4 fit, on its two fit assertions only -- 83.8 MiB over free memory on the RTX 5060 Ti,
+and unreachable on the 12 GiB RTX 4070. Gemma 4 12B token parity, the Qwen and 26B layer-streamed harnesses
+and every footprint literal pass on both. The new `QuantizeOnLoad.Footprint.Cuda.cpp` passes on both.
+
+**Phase 6 step 2 gate -- scratch accounted. Written 2026-09-14, before any run.**
+
+*What the code does today, which the gate is written against.* Three operations request forward
+scratch, and every size is fixed once the operation is built:
+
+| Request | Where | Bytes | When |
+|---|---|---|---|
+| Staged prefill GEMM | `CudaLinearOp.ixx:1295` | strip rows x input width x 2 | `kUsesStagedPrefill`: FP8 per-channel without the W8A16 GEMM, codebook, FP4 without the FP8-activation or fused path |
+| FP8-activation prefill | `CudaLinearOp.ixx:791` | strip rows x input width, plus bucket x input width, each 16-byte aligned, plus bucket x 4 | `kUseFp8ActivationPrefillPath`; the bucket is the plan bucket of the prefill chunk |
+| Fused decode attention | `CudaGqaOp.ixx:834` | B x heads x `kMaxDecodeSplits` x (head width + 2) x 4 | BF16, `use_flash_decode_`, and a supported head geometry |
+
+The strip width comes from the operation's own `max_staging_bytes_`, a constructor argument tests
+override, so a prediction reads the instance's value, never `kMaxStagingBytes`. Load staging is not
+forward scratch (step 1).
+
+*What it assumes, to confirm before code:*
+
+- `MemoryStats` gains `device_scratch_bytes`, counted in `totalDeviceBytes()`. Only a network sets it;
+  no component or operation does, so summing across the tree cannot count it twice. `Operation` gains
+  `getRequiredScratchBytes( const BuildContext& )`, defaulting to 0, and composites combine it by maximum.
+- `IExecutionContext` gains `reserveScratch( std::size_t bytes )`, a no-op on CPU. A context that has
+  reserved -- zero bytes included -- throws `std::logic_error` naming the requested and reserved bytes on
+  any larger request; a context that never reserved keeps growing on demand, which is what a component
+  built directly in a test gets. The reservation is made in `onBuilding` of every transformer: Gemma,
+  Llama, Qwen and GPT-2, which reserves its prediction even when that is zero, so no network is left
+  growing unaccounted.
+- `getScratchHighWaterBytes()` is deleted from `IExecutionContext`, `CudaExecutionContext` and `Model`,
+  and its four test uses with it. No accessor replaces it: what a criterion needs beyond `MemoryStats`
+  is read through temporary counters, removed after the run.
+
+*Where:* the RTX 5060 Ti pinned by UUID for the model criteria; Qwen 3.8 27B cb2-3 on the RTX 4070, the
+card that model is measured on. The component criteria run in the full suite on both cards.
+
+*Criteria:*
+
+1. **Gate A holds with scratch in it.** Predicted equals reported, every category including
+   `device_scratch_bytes`, in every existing component and transformer footprint test and at model level
+   for Gemma 4 12B FP4, Llama 3.1 8B FP4 and Qwen 3.8 27B FP4 from exported weights, Gemma 4 12B FP4 from
+   BF16 weights, and Qwen 3.8 27B cb2-3. Gemma 4 12B is also taken at context 512, where the prefill
+   chunk and so the FP8-activation bucket differ from context 8192. *Amended during the run: the gate
+   first named context 1024, but Gemma takes a 1024-row chunk at context 8192 as well, so that case
+   repeated the same bucket.*
+2. **The reservation is exactly what forward uses.** Temporary counters record the largest scratch request
+   each context receives. After a prompt that fills one prefill chunk and eight decode steps, the largest
+   request equals `device_scratch_bytes`, exactly, on every model load in criterion 1. `Linear.Cuda.cpp`'s
+   footprint tests do the same for one operation at the default strip width and at a `max_staging_bytes`
+   that forces strips.
+3. **No request exceeds the reservation.** Every generation in the full suite on both cards runs under the
+   throw, GPT-2 included.
+4. **Scratch moves from generation to build.** Against step 1's recorded consumption on the RTX 5060 Ti, the
+   growth from after the load to after generation in `QuantizeOnLoad.Footprint.Cuda.cpp` -- Llama 3.2 3B
+   +50 MiB, Llama 3.1 8B +116 MiB, Gemma 4 12B +120 MiB -- falls by `device_scratch_bytes` rounded up to
+   2 MiB, within 16 MiB, for both weight sources.
+5. **The accessor is gone.** A search of the tree finds no `getScratchHighWaterBytes`, and the Gate B tests
+   report their residual against a prediction that now includes scratch.
+6. **The gate can fail.** Each of these edits must fail the criterion named, and is reverted:
+   - `CudaLinearOp::getRequiredScratchBytes` one byte short of the FP8-activation request: criterion 3,
+     the first full-chunk prefill on Gemma 4 12B FP4 throws
+   - Gemma's transformer not reserving: criterion 4, scratch is allocated during generation again, which
+     `ScratchReservation.Cuda.cpp` asserts as device memory growth under 16 MiB. *Amended during the run:
+     the gate first named criterion 1, but reported scratch comes from the operations rather than from the
+     reservation, so criterion 1 cannot see a missing reservation and criterion 3 cannot either.*
+   - a composite summing its children's scratch instead of taking the maximum: criterion 2, the
+     reservation exceeds the largest request
+7. **Nothing else moves.** All targets build; the full suite passes on both cards with temporary counters
+   and negatives removed, Gemma 4 12B token parity, the Qwen and 26B layer-streamed harnesses and
+   `QuantizeOnLoad.Footprint.Cuda.cpp` included. Footprint literals that change by exactly the scratch
+   term are updated to the new totals and listed in the result, each with its scratch bytes.
+
+**Phase 6 step 2 result (2026-09-14).** The design landed with one change from the assumptions above:
+`device_scratch_bytes` is combined by maximum inside `MemoryStats::operator+=` and set by the two leaf
+components whose operations request scratch, `Linear` and `GroupedQueryAttention`, instead of by a
+network-only traversal. Every composite already aggregates its children through `operator+=`, so the field
+reaches the network with no composite changed. Fused decode is declared on the build context with
+`BuildContext::withFusedDecode`, which Gemma and Qwen set on their block contexts in `onBuilding` and in
+`getRequiredMemory` alike; the calls to `setUseFlashDecode( true )` after build are gone.
+
+| Criterion | Result |
+|---|---|
+| 1. Gate A with scratch | predicted equals reported: Gemma 4 12B FP4 at context 8192 and 512, Llama 3.1 8B FP4, Qwen 3.8 27B FP4 (RTX 5060 Ti), Qwen 3.8 27B cb2-3 at context 4096 (RTX 4070), and the loads from BF16 weights of Llama 3.2 3B, Llama 3.1 8B and Gemma 4 12B; `Linear.Cuda.cpp` asserts it per category |
+| 2. Reservation equals the largest request | exactly, on every load in criterion 1: Gemma 4 12B 121,901,056 bytes at context 8192 and 119,932,928 at 512, Llama 3.1 8B 119,539,712, Qwen FP4 90,243,328, cb2-3 74,712,064, Llama 3.2 3B 51,906,560 |
+| 3. No request exceeds the reservation | every generation above, and the full suite on the RTX 5060 Ti, runs under the throw |
+| 4. Scratch moves from generation to build | growth from load to generation, against step 1: Llama 3.2 3B +50 to +0 MiB, Llama 3.1 8B +116 to +0 MiB, Gemma 4 12B +120 to +2 MiB; each fall is the scratch rounded up to 2 MiB, within 2 MiB |
+| 5. The accessor is gone | no `getScratchHighWaterBytes` remains in the tree's code |
+
+No existing footprint literal changed: the literal tests compare parameter and state bytes, which scratch
+does not enter. The 26B FP4 prediction rose by exactly its scratch, 27,396,096 bytes, to 16,009,596,928.
+
+The per-operation counter check in `Linear.Cuda.cpp` at a forced strip width was not added: every quantized
+`Linear` shape of the five models is held to the same equality through the model runs.
+
+**Negatives.**
+
+- `CudaLinearOp`'s FP8-activation scratch one byte short: criterion 3 fails. Gemma 4 12B reserves
+  121,901,055 bytes and the first full-chunk prefill throws, naming the 121,901,056-byte request.
+- Gemma's transformer not reserving: criterion 4 fails, 120 MiB of growth during generation against the
+  16 MiB bound. Predicted still equals reported, as the amended criterion says it must.
+- Scratch summed across the tree instead of taking the maximum: criterion 2 fails, and only criterion 2.
+  Gemma 4 12B reserves 12,386,304,000 bytes against a largest request of 121,901,056, and Llama 3.1 8B
+  7,415,791,616 against 119,539,712. Both reservations succeed, predicted still equals reported, nothing
+  throws and memory does not grow, so both reservation tests pass. **No permanent test catches an
+  over-reservation**: criterion 2 is observable only through the temporary counters, which are removed.
+
+**Criterion 7, with every temporary change and negative removed.** All targets build clean. Every GPU run above,
+and the first two full suites, **saw one GPU at a time** through `CUDA_VISIBLE_DEVICES`: 1967 tests on each card,
+1965 pass, 0 fail, 2 skipped. That is not how the suite normally runs, and it hid two aborts. A process that sees
+one GPU places an allocation past the device's memory in host memory; a process that sees both fails it (a
+standalone probe: the RTX 4070 alone held 20 GiB, the RTX 4070 with both visible failed after 11 GiB, and so did
+listing both UUIDs). With both visible, CUDA's device 0 is the 12 GiB RTX 4070.
+
+The run that counts is Todd's: a clean `x64-profile` build, both GPUs visible. Its first run aborted in the 26B FP4
+test and, with that disabled, in `ScratchReservationCudaTests.Qwen38_27B_Fp4_Context8192` -- both load about 15
+GiB, the allocation fails, and `CudaDeviceMemoryResource::do_deallocate` rethrows from a destructor. With both
+**disabled**, 1965 tests run: 1962 pass, 0 fail, 3 skipped (Swiglu BF16 backward, and the growth check on the Gemma
+4 12B context 8192 and cb2-3 cases), 24 disabled. Which cases the growth check skips, and whether
+`QuantizeOnLoad.Footprint.Cuda.cpp`'s Gemma 4 12B comparison fails (323 MiB in one run, a pass in the next),
+depends on when the Windows budget cut lands on that display card. All of it is tracked in
+`Mila/Issues/Untriaged.md` for rc.1. The cb2-3 tests, including the new context 4096 case, pass on the RTX 4070
+with both GPUs visible. Chat: `ChatRichTextTests` 33 of 33, and piped sessions with Gemma 4 12B FP4 and Llama 3.2
+3B FP4 answer a factual question and write a correct function, both with one GPU visible and with both.
 
 ---
 
@@ -756,7 +1006,8 @@ largest request, not a sum, and every request is sized from shapes fixed at buil
 
 | Request | Where | Bytes |
 |---|---|---|
-| Quantize-on-load staging, FP4 and FP8 `Linear` | `CudaLinearOp.ixx:475`, `:490` | min(BF16 source bytes, 256 MiB), plus 4 for FP8 per-channel |
+| Quantize-on-load staging, FP4 `Linear` | `CudaLinearOp.ixx:490` | min(BF16 source bytes, 256 MiB) |
+| Quantize-on-load staging, FP8 per-channel `Linear` | `CudaLinearOp.ixx:475` | BF16 source bytes plus 4, no ceiling |
 | Quantize-on-load staging, FP8 embedding table | `CudaTokenEmbeddingOp.ixx:184` | min(BF16 source bytes, 256 MiB) |
 | Quantize-on-load staging, FP4 expert bank | `CudaMoeOp.ixx:167` | min(BF16 source bytes, 256 MiB) |
 | Staged BF16 prefill GEMM | `CudaLinearOp.ixx:1310` | strip rows x input width x 2; one strip is the whole matrix unless that exceeds 256 MiB (32 MiB for codebook weights), then 16-row strips |
@@ -767,15 +1018,28 @@ The quantize-on-load rows apply only when the stored weights are unquantized and
 entry point knows which from the weights header. The FP8-activation row is the one that changes with the
 chunk.
 
+**Load staging is not forward scratch, decided 2026-09-14.** The four quantize-on-load rows share the forward
+buffer today, so their staging stays allocated after the load. `Quantization.md` *Load Pipeline* moves it
+to a buffer the load owns and frees. After that change the rule's total counts forward scratch only -- the
+last three rows -- and a load from full-precision weights settles at the same footprint as its exported
+form. The staging buffer becomes a load peak on top of the built model, because `build()` allocates before
+`loadParameters()`. On Windows the overshoot spills and returns; on Linux it decides whether the load
+succeeds (11.10). The prediction reports that peak beside the steady footprint. Whether the rule also
+checks it is decided together with the staging size.
+
 `Operation` gains `getRequiredScratchBytes( const BuildContext& )`, defaulting to 0, the peer of
-`getRequiredStateMemorySize`. Components and composites combine their children by maximum, not sum.
-`MemoryStats` does not carry it, because that type is summed across the tree; `DeploymentFootprint` gains
-the predicted scratch beside `memory`, and the rule's total is `memory.totalDeviceBytes()` plus the
-scratch. The measured twin already exists: `Model::getScratchHighWaterBytes()`.
+`getRequiredStateMemorySize`. Components and composites combine their children by maximum, not sum, so
+no child reports it in `MemoryStats`, which is summed across the tree. The network reserves the execution
+context's scratch to that maximum during `build()` and reports it once, at its own level, in
+`getMemoryStats()` and `getRequiredMemory()`; the rule's total is then `memory.totalDeviceBytes()` with
+nothing added. A request above the reserved size throws, which is how an under-prediction shows. A
+component built directly, with no network to reserve for it, keeps today's grow-on-demand buffer.
+`getScratchHighWaterBytes()` is deleted (Phase 6 step 2).
 
 Measured 2026-09-13 after a load and a full-chunk prefill: 0.07-0.11 GiB with pre-quantized weights
 (Qwen 3.8 cb2-3 and FP4, Gemma 4 12B, Llama 3.1 8B), and 0.25 GiB when the weights are quantized during
-the load, which is the 256 MiB staging cap.
+the load, which is the 256 MiB staging cap -- the load staging the paragraph above moves out of the steady
+footprint.
 
 ### 11.5 What the prediction does not count
 
@@ -808,11 +1072,13 @@ choose its headroom knowingly.
 
 ### 11.6 Callers
 
-- **Chat** passes its budget -- the device total less the margin `resolveAutomaticContext` already
-  reserves -- to every prediction in a scan and to the load that follows, so the chunk the scan chose is the
-  chunk the load builds. `practicalDeviceBytes` and the automatic-context margin stay Chat policy; with
-  scratch predicted they are due a re-measure against Gate B. Whether Chat adds headroom on a display card
-  is Chat's decision. "Held to a full prefill chunk" keeps its meaning: the available memory forced a rung
+- **Chat** passes one budget to every prediction in a scan and to the load that follows, so the chunk the
+  scan chose is the chunk the load builds. The budget is the device's free memory read in Chat's process,
+  less headroom only for causes that are identified and apply to this device: the Windows budget cut when
+  the card drives a display (11.5), and driver rounding as 11.8 decides. The fixed allowances Chat uses
+  today -- 10% of the device total in `resolveAutomaticContext` and 12.5% of the prediction in
+  `practicalDeviceBytes` -- are removed, not re-tuned (Phase 6 step 4). They stood in for scratch, rounding
+  and the display cut without knowing which applied, so a headless card paid for all three. "Held to a full prefill chunk" keeps its meaning: the available memory forced a rung
   below the largest the context permits.
 - **MIS and the Python binding** call `from_store( name, context_length, device_index )` without a memory
   input, so they get the device-reported default. Exposing the input through the binding is not part of
@@ -823,8 +1089,9 @@ choose its headroom knowingly.
 
 If the floor rung does not fit the available memory, the transformer builds at the floor, `PrefillChunking`
 reports that it does not fit, and the load logs one warning. What happens next depends on the platform: on
-Windows the load spills and runs slowly (6.5); on Linux the build throws `CudaBadAlloc` if the device really
-lacks the memory (11.10). The library does not refuse ahead of that, and whether to warn, proceed or refuse
+Windows, in a process that sees one GPU, the load spills and runs slowly (6.5); on Linux, and on Windows in a
+process that sees more than one GPU, the build throws `CudaBadAlloc` if the device really lacks the memory (6.5,
+11.10). The library does not refuse ahead of that, and whether to warn, proceed or refuse
 is the caller's decision. A prediction never warns.
 
 `PrefillChunking::fits_activation_budget` and `isBudgetConstrained()` are renamed to name available
@@ -866,6 +1133,10 @@ unused, and 11.5 measured more than that beyond prediction plus scratch for each
 the RTX 5060 Ti, and on the RTX 4070 the rounding and fixed remainder plus about 0.31 GiB of budget cut. With
 nothing held back, those three loads would spill. The input exists so a caller can hold memory back; the
 rounding decision (11.8) sets how much of that is left to the caller.
+
+The 26B row was measured quantizing on load, so its scratch is 0.25 GiB of load staging. Once staging
+belongs to the load (11.4) it is expected to fall to the 0.07-0.11 GiB the exported models measured. That
+has not been measured on the 26B, and no exported 26B FP4 weights exist yet.
 
 ### 11.10 Linux
 

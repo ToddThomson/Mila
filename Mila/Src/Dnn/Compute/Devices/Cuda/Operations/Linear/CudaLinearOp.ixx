@@ -444,16 +444,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * @param scales_out     Device scale tensor at TWeightQuant::kScaleDtype.
          * @param expected_shape Logical weight shape, for validation.
          */
-        /**
-         * @brief Ceiling on the BF16 staging buffer a quantize-on-load pass may take.
-         *
-         * The shared scratch is grow-on-demand and never shrinks, so whatever this pass asks
-         * for is paid for the life of the process. A vocabulary-sized output axis makes the
-         * whole-tensor request gigabytes; row blocks under this ceiling cost the same total
-         * bandwidth and a bounded footprint. Mirrors CudaTokenEmbeddingOp's identical cap.
-         */
-        static constexpr size_t kQuantizeStagingLimitBytes = size_t{ 256 } * 1024 * 1024;
-
         void quantize(
             const ITensorBlob& blob,
             ITensor& weight_out,
@@ -467,27 +457,22 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             cudaStream_t stream = context_->getStream();
 
+            // Staged through the load's own buffer, in row blocks under its limit: the buffer is
+            // freed when the load returns, and the limit bounds the load's peak. Qwen 3.8's lm_head
+            // is 2.54 GiB of BF16 source, so a whole-tensor request would not be a small transient.
+            const size_t staging_bytes = std::min( src_bytes, context_->getLoadStagingLimitBytes() );
+
             if constexpr ( kIsPerChannelQuantized )
             {
                 // FP8 per-channel: scale[o] = max(|W[o,:]|) / 448.0f
-                // per_tensor needs 4 extra bytes for the atomicMax scratch -- allocate the
-                // larger size so the same scratch buffer covers both variants.
-                void* staging = context_->getDeviceScratchBuffer( src_bytes + sizeof( unsigned int ) );
+                void* staging = context_->getLoadStagingBuffer( staging_bytes );
                 Detail::quantize_fp8_per_channel( blob, weight_out, scales_out, expected_shape,
-                                                  staging, stream );
+                                                  staging, staging_bytes, stream );
             }
             else if constexpr ( kIsPerGroupQuantized && TWeightQuant::kIsFp4E2M1 )
             {
                 // FP4 E2M1 per-group: scale[n,g] = max(|W[n,g*gs..(g+1)*gs)|) / 6.0f
-                //
-                // Staged in row blocks under a ceiling rather than whole. The scratch buffer
-                // is grow-only, so a request sized to the tensor is not a transient at all --
-                // it raises steady-state VRAM for the life of the process. Qwen 3.8's lm_head
-                // is 2.54 GiB of BF16 source, which put a 27B load 300 MiB over a 12 GiB card
-                // and killed it. Same ceiling and same reasoning as the FP8 table path in
-                // CudaTokenEmbeddingOp.
-                const size_t staging_bytes = std::min( src_bytes, kQuantizeStagingLimitBytes );
-                void* staging = context_->getDeviceScratchBuffer( staging_bytes );
+                void* staging = context_->getLoadStagingBuffer( staging_bytes );
                 Detail::quantize_fp4_per_group(
                     blob, weight_out, scales_out, expected_shape,
                     TWeightQuant::kQuantizationGroupSize,
@@ -565,6 +550,31 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     bias_grad_ = nullptr;
                 }
             }
+        }
+
+        std::size_t getScratchBytes() const override
+        {
+            return scratchBytesFor( out_features_, cached_in_features_, cached_outer_size_, max_staging_bytes_ );
+        }
+
+        std::size_t getRequiredScratchBytes( const BuildContext& build_context ) const override
+        {
+            const auto& input_shape = build_context.inputShape();
+
+            if ( input_shape.empty() )
+            {
+                return 0;
+            }
+
+            int64_t outer_size = 1;
+
+            for ( size_t i = 0; i + 1 < input_shape.size(); ++i )
+            {
+                outer_size *= static_cast<int64_t>( input_shape[ i ] );
+            }
+
+            return scratchBytesFor( static_cast<int>( config_.getOutputFeatures() ),
+                static_cast<int>( input_shape.back() ), static_cast<int>( outer_size ), max_staging_bytes_ );
         }
 
         void build( const BuildContext& build_context ) override
@@ -1203,27 +1213,70 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          */
         void planStripWidths()
         {
-            const std::size_t full_bytes = static_cast<std::size_t>( out_features_ )
-                * static_cast<std::size_t>( cached_in_features_ ) * sizeof( __nv_bfloat16 );
-
-            if ( max_staging_bytes_ >= full_bytes )
-            {
-                strip_rows_ = out_features_;
-                trailing_strip_rows_ = out_features_;
-                return;
-            }
-
-            const std::size_t strip_count =
-                ( full_bytes + max_staging_bytes_ - 1 ) / max_staging_bytes_;
-
-            const int even = ( out_features_ + static_cast<int>( strip_count ) - 1 )
-                / static_cast<int>( strip_count );
-
-            strip_rows_ = std::min( out_features_,
-                ( ( even + kStripAlignment - 1 ) / kStripAlignment ) * kStripAlignment );
+            strip_rows_ = stripRowsFor( out_features_, cached_in_features_, max_staging_bytes_ );
 
             const int remainder = out_features_ % strip_rows_;
             trailing_strip_rows_ = ( remainder == 0 ) ? strip_rows_ : remainder;
+        }
+
+        /// The strip width planStripWidths() chooses, from the geometry alone, so a prediction
+        /// and a build cannot disagree.
+        static int stripRowsFor( int out_features, int in_features, std::size_t max_staging_bytes ) noexcept
+        {
+            const std::size_t full_bytes = static_cast<std::size_t>( out_features )
+                * static_cast<std::size_t>( in_features ) * sizeof( __nv_bfloat16 );
+
+            if ( max_staging_bytes >= full_bytes )
+            {
+                return out_features;
+            }
+
+            const std::size_t strip_count = ( full_bytes + max_staging_bytes - 1 ) / max_staging_bytes;
+
+            const int even = ( out_features + static_cast<int>( strip_count ) - 1 )
+                / static_cast<int>( strip_count );
+
+            return std::min( out_features,
+                ( ( even + kStripAlignment - 1 ) / kStripAlignment ) * kStripAlignment );
+        }
+
+        /**
+         * @brief The largest scratch request forward() makes for this geometry.
+         *
+         * One row always takes a decode kernel, which stages nothing. Above one row the staged
+         * prefill holds one strip of BF16 weights, and the FP8-activation prefill holds one
+         * strip of FP8 weights plus the FP8 activations and per-token scales of the plan's
+         * row bucket, whose largest value is the built row count itself.
+         */
+        static std::size_t scratchBytesFor(
+            int out_features, int in_features, int outer_size, std::size_t max_staging_bytes ) noexcept
+        {
+            if ( outer_size <= 1 || out_features <= 0 || in_features <= 0 )
+            {
+                return 0;
+            }
+
+            if constexpr ( kUsesStagedPrefill )
+            {
+                return static_cast<std::size_t>( stripRowsFor( out_features, in_features, max_staging_bytes ) )
+                    * static_cast<std::size_t>( in_features ) * sizeof( __nv_bfloat16 );
+            }
+            else if constexpr ( kUseFp8ActivationPrefillPath )
+            {
+                const auto aligned = []( std::size_t bytes ) { return ( bytes + 15u ) & ~static_cast<std::size_t>( 15u ); };
+
+                const std::size_t weight_bytes = aligned(
+                    static_cast<std::size_t>( stripRowsFor( out_features, in_features, max_staging_bytes ) )
+                    * static_cast<std::size_t>( in_features ) );
+                const std::size_t activation_bytes = aligned(
+                    static_cast<std::size_t>( outer_size ) * static_cast<std::size_t>( in_features ) );
+
+                return weight_bytes + activation_bytes + static_cast<std::size_t>( outer_size ) * sizeof( float );
+            }
+            else
+            {
+                return 0;
+            }
         }
 
         /**

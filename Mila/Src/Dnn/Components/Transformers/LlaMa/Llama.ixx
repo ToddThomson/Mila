@@ -529,6 +529,10 @@ namespace Mila::Dnn
             {
                 this->getExecutionContext()->synchronize();
             }
+
+            // Every tensor has landed, so the buffer full-precision weights were fitted through is
+            // not held for the model's lifetime.
+            this->getExecutionContext()->releaseLoadStaging();
         }
 
     protected:
@@ -640,6 +644,10 @@ namespace Mila::Dnn
                 for ( auto& block : transformer_blocks_ )
                     block->setState( gqa_state );
             }
+
+            // Every operation shares the context's one scratch buffer. Reserving it at the largest
+            // request, the figure the footprint reports, is what puts it in the footprint.
+            this->getExecutionContext()->reserveScratch( this->getMemoryStats().device_scratch_bytes );
 
             block_input_ptrs_.assign( transformer_blocks_.size(), nullptr );
             block_output_ptrs_.assign( transformer_blocks_.size(), nullptr );

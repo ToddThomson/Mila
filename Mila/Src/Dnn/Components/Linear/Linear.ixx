@@ -823,6 +823,11 @@ namespace Mila::Dnn
                 stats.device_state_bytes += output_->getStorageSize();
             }
 
+            if ( operation_ )
+            {
+                stats.device_scratch_bytes = operation_->getScratchBytes();
+            }
+
             if ( input_grad_ != nullptr )
             {
                 stats.device_gradient_bytes += input_grad_->getStorageSize();
@@ -935,6 +940,7 @@ namespace Mila::Dnn
             if ( operation_ )
             {
                 stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+                stats.device_scratch_bytes = operation_->getRequiredScratchBytes( context );
             }
 
             if ( context.isTrainingMode() )

@@ -94,10 +94,10 @@ namespace Mila::ChatApp
     /**
      * @brief The predicted total plus an allowance for what the model does not account for.
      *
-     * Gate B measured the unmodelled remainder at 6-13% of what a load consumes -- allocator
-     * rounding and lazily grown scratch, which scale with the model rather than being a fixed
-     * cost. A proportional allowance is closer to right than a constant, and erring high here
-     * only costs a warning.
+     * Gate B measured the unmodelled remainder at 6-13% of what a load consumes, when that
+     * remainder still included the forward scratch; the prediction now reserves and reports
+     * scratch, and driver allocation rounding is most of what is left. MemoryFootprint.md
+     * Phase 6 step 4 replaces this allowance.
      */
     export inline std::size_t practicalDeviceBytes( const MemoryStats& required )
     {

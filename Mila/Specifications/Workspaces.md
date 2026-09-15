@@ -68,15 +68,14 @@ rather than being copied a third time.
 
 `CudaExecutionContext::getDeviceScratchBuffer` (`CudaExecutionContext.ixx:234`).
 
-Raw `cudaMalloc`, `mutable`, grown on demand and never shrunk. On a grow it frees the
-old pointer and allocates a new one, so **the returned pointer is invalidated by any
-later call with a larger request**. Callers must fetch at `forward()` time and must not
-cache across calls. Reuse across sequential operations is safe because the context has
-one stream.
-
-`getScratchHighWaterBytes()` (`:214`) exists specifically so the footprint tooling can
-attribute this buffer after the fact. That is attribution, not prediction: the value is
-only meaningful once something has run.
+Raw `cudaMalloc`, `mutable`. A network reserves it at the end of `build()` through
+`IExecutionContext::reserveScratch`, at the largest request any of its operations makes, and
+reports it as `MemoryStats::device_scratch_bytes`; a request above the reservation throws
+(`MemoryFootprint.md` Phase 6 step 2). A component built with no network to reserve for it
+keeps the older behaviour: grown on demand and never shrunk, and on a grow the old pointer
+is freed, so **the returned pointer is invalidated by any later call with a larger
+request**. Callers must fetch at `forward()` time and must not cache across calls either
+way. Reuse across sequential operations is safe because the context has one stream.
 
 Known consumers include the FP8 two-phase dequantization staging buffer and the GQA
 decode split path (`CudaGqaOp.ixx:834`).

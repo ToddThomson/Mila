@@ -9,6 +9,7 @@
  */
 
 module;
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <format>
@@ -90,6 +91,11 @@ namespace Mila::Dnn
         /// Allocated lazily on first setTraining(true). Retained thereafter.
         std::size_t device_gradient_bytes{ 0 };
 
+        /// The execution context's forward scratch: one buffer shared by every operation on
+        /// the context, sized by the largest single request. Combined by maximum, never summed.
+        /// Reserved when a network is built.
+        std::size_t device_scratch_bytes{ 0 };
+
         // ----------------------------------------------------------------
         // Host memory (CPU)
         // ----------------------------------------------------------------
@@ -112,7 +118,7 @@ namespace Mila::Dnn
          */
         [[nodiscard]] std::size_t totalDeviceBytes() const noexcept
         {
-            return device_parameter_bytes + device_state_bytes + device_gradient_bytes;
+            return device_parameter_bytes + device_state_bytes + device_gradient_bytes + device_scratch_bytes;
         }
 
         /**
@@ -142,7 +148,8 @@ namespace Mila::Dnn
         /**
          * @brief Accumulate another MemoryStats into this one.
          *
-         * Used by CompositeComponent and Network to aggregate child stats.
+         * Used by CompositeComponent and Network to aggregate child stats. Scratch is taken
+         * by maximum: every operation of a tree shares the one buffer.
          */
         MemoryStats& operator+=( const MemoryStats& rhs ) noexcept
         {
@@ -150,6 +157,7 @@ namespace Mila::Dnn
             device_inactive_parameter_bytes += rhs.device_inactive_parameter_bytes;
             device_state_bytes += rhs.device_state_bytes;
             device_gradient_bytes += rhs.device_gradient_bytes;
+            device_scratch_bytes = std::max( device_scratch_bytes, rhs.device_scratch_bytes );
             host_parameter_bytes += rhs.host_parameter_bytes;
             host_state_bytes += rhs.host_state_bytes;
             host_gradient_bytes += rhs.host_gradient_bytes;
@@ -195,6 +203,7 @@ namespace Mila::Dnn
                 + row( "Parameters", device_parameter_bytes, host_parameter_bytes )
                 + row( "State", device_state_bytes, host_state_bytes )
                 + row( "Gradients", device_gradient_bytes, host_gradient_bytes )
+                + row( "Scratch", device_scratch_bytes, 0 )
                 + sep
                 + row( "Total", totalDeviceBytes(), totalHostBytes() )
                 + sep

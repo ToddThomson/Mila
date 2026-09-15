@@ -510,6 +510,8 @@ namespace Mila::Tests::Dnn::Components::Linear
                     << "state, bias=" << has_bias;
                 EXPECT_EQ( predicted.device_gradient_bytes, actual.device_gradient_bytes )
                     << "gradients, bias=" << has_bias;
+                EXPECT_EQ( predicted.device_scratch_bytes, actual.device_scratch_bytes )
+                    << "scratch, bias=" << has_bias;
             }
         }
     }

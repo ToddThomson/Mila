@@ -458,7 +458,8 @@ namespace Mila::Dnn
                 BuildContext( shape_t{ B, T, config_.getModelDim() },
                     context.getRuntimeMode(), context.shouldInitializeParameters() )
                 .withPrefillSize( prefill_chunk )
-                .withInstalledOutput( context.isInferenceMode() );
+                .withInstalledOutput( context.isInferenceMode() )
+                .withFusedDecode( context.isInferenceMode() );
 
             const shape_t final_shape = context.isInferenceMode()
                 ? shape_t{ B, resolveLanguageModelHeadPositions( prefill_chunk ), config_.getModelDim() }
@@ -623,6 +624,10 @@ namespace Mila::Dnn
                 this->getExecutionContext()->synchronize();
             }
 
+            // Every tensor has landed, so the buffer full-precision weights were fitted through is
+            // not held for the model's lifetime.
+            this->getExecutionContext()->releaseLoadStaging();
+
             // No tying step: Qwen's tables are independent and both arrive from the file.
         }
 
@@ -643,7 +648,8 @@ namespace Mila::Dnn
             BuildContext block_context =
                 BuildContext( shape_t{ B, T, config_.getModelDim() },
                     context.getRuntimeMode(), context.shouldInitializeParameters() )
-                .withPrefillSize( prefill_chunk_size_ );
+                .withPrefillSize( prefill_chunk_size_ )
+                .withFusedDecode( context.isInferenceMode() );
 
             // Inference: final_rmsnorm and lm_head process the configured head positions,
             // which is one row for generation. MUST agree with getRequiredMemory().
@@ -683,9 +689,8 @@ namespace Mila::Dnn
                     {
                         // The full-attention layers are unbounded, so the flash decision is
                         // one number for the whole stack and MUST agree with
-                        // prefillScoreWidth() below.
+                        // prefillScoreWidth() below. Fused decode is declared on block_context.
                         block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
-                        block->setUseFlashDecode( true );
                     }
 
                     blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
@@ -714,6 +719,10 @@ namespace Mila::Dnn
 
             if ( context.isInferenceMode() )
                 allocateAndWireGqaWorkspace( B, T );
+
+            // Every operation shares the context's one scratch buffer. Reserving it at the largest
+            // request, the figure the footprint reports, is what puts it in the footprint.
+            this->getExecutionContext()->reserveScratch( this->getMemoryStats().device_scratch_bytes );
 
             normalized_ptr_ = nullptr;
             logits_ptr_ = nullptr;

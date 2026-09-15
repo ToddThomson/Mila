@@ -147,19 +147,13 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             table_scales_ = static_cast<const float*>(scales->rawData());
         }
 
-        // Staging cap for quantize-on-load. The shared context scratch is grow-only,
-        // so staging the full BF16 table (~2 GB on the 12B build) would permanently
-        // inflate steady-state VRAM past what the prefill dequant path already forces
-        // (~470 MB) -- more than the FP8 table saves. The quantize loops row chunks
-        // through a buffer of at most this size instead.
-        static constexpr size_t kQuantizeStagingLimitBytes = size_t{ 256 } * 1024 * 1024;
-
         /**
          * @brief Quantize a BF16 host table blob to FP8_E4M3 with per-vocab-row FP32 scales.
          *
          * Runs once at model load time. Delegates to Detail::quantize_table_fp8_per_row()
          * (pre-compiled by NVCC in the :Quantize partition), which chunks the table over
-         * rows so the shared scratch never grows past kQuantizeStagingLimitBytes. All
+         * rows through the load's staging buffer, under its limit; the full BF16 table is
+         * about 2 GB on the 12B build, so staging it whole would set the load's peak. All
          * device work is issued on the execution context stream; the caller synchronizes
          * after loading (the BF16 source blob is uploaded asynchronously and never
          * retained on device).
@@ -179,9 +173,9 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             const int64_t embedding_dim = static_cast<int64_t>( expected_shape[ 1 ] );
 
             const size_t src_bytes = static_cast<size_t>( vocab_size * embedding_dim ) * sizeof( uint16_t );
-            const size_t staging_bytes = std::min( src_bytes, kQuantizeStagingLimitBytes );
+            const size_t staging_bytes = std::min( src_bytes, context_->getLoadStagingLimitBytes() );
 
-            void* staging = context_->getDeviceScratchBuffer( staging_bytes );
+            void* staging = context_->getLoadStagingBuffer( staging_bytes );
 
             Detail::quantize_table_fp8_per_row( blob, table_out, scales_out, expected_shape,
                 staging, staging_bytes, context_->getStream() );

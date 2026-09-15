@@ -138,9 +138,6 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             return storageBytes<TensorDataType::FP32>( gatedElements( build_context ) );
         }
 
-        /// Ceiling on one quantize-on-load staging request; the shared scratch is grow-only (see CudaLinearOp).
-        static constexpr std::size_t kQuantizeStagingLimitBytes = std::size_t{ 256 } * 1024 * 1024;
-
         /**
          * @brief Quantize a BF16 stacked projection into packed FP4 and its per-group scales.
          *
@@ -163,8 +160,8 @@ namespace Mila::Dnn::Compute::Cuda::Moe
                     source_bytes, rows, columns, blob.sizeBytes(), tensorDataTypeToString( metadata.dtype ) ) );
             }
 
-            const std::size_t staging_bytes = std::min( source_bytes, kQuantizeStagingLimitBytes );
-            void* staging = context_->getDeviceScratchBuffer( staging_bytes );
+            const std::size_t staging_bytes = std::min( source_bytes, context_->getLoadStagingLimitBytes() );
+            void* staging = context_->getLoadStagingBuffer( staging_bytes );
 
             Linear::cuda_quantize_fp4_per_group(
                 blob.data(), packed_out.rawData(), static_cast<float*>( scales_out.rawData() ),

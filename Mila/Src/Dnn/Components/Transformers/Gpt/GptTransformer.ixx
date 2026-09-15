@@ -730,6 +730,10 @@ namespace Mila::Dnn
                 this->getName() + ".lm_head" );
             lm_head_->build( embedding_context );
 
+            // Reserved even when nothing here requests scratch, so a request would throw rather
+            // than grow outside the footprint.
+            this->getExecutionContext()->reserveScratch( this->getMemoryStats().device_scratch_bytes );
+
             block_input_ptrs_.assign( transformer_blocks_.size(), nullptr );
             block_output_ptrs_.assign( transformer_blocks_.size(), nullptr );
             encoder_out_ptr_ = nullptr;
