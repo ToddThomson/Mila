@@ -56,6 +56,7 @@ import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.CompositeComponent;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -489,18 +490,18 @@ namespace Mila::Dnn
             {
                 if ( t )
                 {
-                    stats.device_state_bytes += t->getStorageSize();
+                    stats.device_state_bytes += occupiedTensorBytes( *t );
                 }
             }
 
             if ( d_res1_accum_ != nullptr )
             {
-                stats.device_gradient_bytes += d_res1_accum_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *d_res1_accum_ );
             }
 
             if ( d_input_ != nullptr )
             {
-                stats.device_gradient_bytes += d_input_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *d_input_ );
             }
 
             return stats;
@@ -544,21 +545,24 @@ namespace Mila::Dnn
             // Prefill-only scratch. Llama does not pool activations across layers the way
             // Gemma does, so every block owns these outright -- which is part of why the
             // Llama footprint sits higher per layer.
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+
             if ( context.isInferenceMode() )
             {
                 const dim_t rows = contexts.batch * contexts.sequence;
 
-                stats.device_state_bytes += storageBytes<TPrecision>( rows * contexts.model_dim );
                 stats.device_state_bytes +=
-                    storageBytes<TPrecision>( rows * contexts.num_heads * contexts.head_dim );
-                stats.device_state_bytes +=
-                    2 * storageBytes<TPrecision>( rows * contexts.num_kv_heads * contexts.head_dim );
+                    occupiedDeviceBytes( storageBytes<TPrecision>( rows * contexts.model_dim ), granularity );
+                stats.device_state_bytes += occupiedDeviceBytes(
+                    storageBytes<TPrecision>( rows * contexts.num_heads * contexts.head_dim ), granularity );
+                stats.device_state_bytes += 2 * occupiedDeviceBytes(
+                    storageBytes<TPrecision>( rows * contexts.num_kv_heads * contexts.head_dim ), granularity );
             }
             else
             {
                 // Backward scratch: d_res1_accum and d_input, both at the full training shape.
-                stats.device_gradient_bytes +=
-                    2 * storageBytes<TPrecision>( elementCount( contexts.main.inputShape() ) );
+                stats.device_gradient_bytes += 2 * occupiedDeviceBytes(
+                    storageBytes<TPrecision>( elementCount( contexts.main.inputShape() ) ), granularity );
             }
 
             return stats;

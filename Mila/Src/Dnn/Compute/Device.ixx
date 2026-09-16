@@ -80,6 +80,16 @@ namespace Mila::Dnn::Compute
             return {};
         }
 
+        /**
+         * @brief The multiple the driver rounds a device allocation larger than 1 MiB up to.
+         *
+         * Zero for a device whose allocations are not rounded. See Specifications/MemoryFootprint.md 11.8.
+         */
+        virtual std::size_t getAllocationGranularity() const
+        {
+            return 0;
+        }
+
         // ====================================================================
         // Static Factory Methods - Primary API for Device Identification
         // ====================================================================

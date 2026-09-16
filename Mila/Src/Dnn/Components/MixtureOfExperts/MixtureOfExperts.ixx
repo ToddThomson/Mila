@@ -34,6 +34,7 @@ import Dnn.TensorOps;
 import Dnn.ActivationType;
 import Dnn.Components.Activation;
 import Dnn.Quantization.Weight.Policies;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -272,14 +273,14 @@ namespace Mila::Dnn
 
             for ( const ITensor* parameter : getParameters() )
             {
-                stats.device_parameter_bytes += parameter->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *parameter );
             }
 
             stats.device_inactive_parameter_bytes = inactiveBytes( stats.device_parameter_bytes );
 
             if ( output_ )
             {
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
             }
 
             if ( operation_ )
@@ -298,16 +299,20 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+
             if ( !gate_up_proj_ )
             {
                 const dim_t hidden = config_.getHiddenSize();
                 const dim_t intermediate = config_.getExpertIntermediateSize();
 
-                stats.device_parameter_bytes += projectionBytes( 2 * intermediate, hidden ) + projectionBytes( hidden, intermediate );
+                stats.device_parameter_bytes += projectionBytes( 2 * intermediate, hidden, granularity )
+                    + projectionBytes( hidden, intermediate, granularity );
                 stats.device_inactive_parameter_bytes = inactiveBytes( stats.device_parameter_bytes );
             }
 
-            stats.device_state_bytes += storageBytes<TPrecision>( elementCount( input_shape ) );
+            stats.device_state_bytes +=
+                occupiedDeviceBytes( storageBytes<TPrecision>( elementCount( input_shape ) ), granularity );
 
             if ( operation_ )
             {
@@ -455,12 +460,14 @@ namespace Mila::Dnn
             }
         }
 
-        std::size_t projectionBytes( dim_t rows, dim_t columns ) const
+        // The stacked weight and its scales are two allocations.
+        std::size_t projectionBytes( dim_t rows, dim_t columns, std::size_t granularity ) const
         {
             const dim_t experts = config_.getNumExperts();
 
-            return storageBytes<kWeightDtype>( experts * rows * storedColumns( columns ) )
-                + storageBytes<TensorDataType::FP32>( experts * rows * groupsPerRow( columns ) );
+            return occupiedDeviceBytes( storageBytes<kWeightDtype>( experts * rows * storedColumns( columns ) ), granularity )
+                + occupiedDeviceBytes(
+                    storageBytes<TensorDataType::FP32>( experts * rows * groupsPerRow( columns ) ), granularity );
         }
 
         // A token reads top_k of the experts' equal rows; the rest are resident and untouched.

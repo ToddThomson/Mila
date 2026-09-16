@@ -207,8 +207,8 @@ namespace Mila::Dnn
          *
          * The second half is what a caller choosing a context length needs and memory alone
          * cannot tell it: the largest context that fits can be one where the chunk has walked
-         * down to its floor, because the activation budget shrinks as the KV cache it shares
-         * VRAM with grows. See Specifications/ChatConfiguration.md section 6.
+         * down to its floor, because a longer context leaves less of the free memory for the
+         * chunk. See Specifications/MemoryFootprint.md section 11.
          *
          * @throws std::invalid_argument on device type mismatch or zero context length.
          * @throws std::runtime_error    on an unreadable artifact or unsupported quantization.

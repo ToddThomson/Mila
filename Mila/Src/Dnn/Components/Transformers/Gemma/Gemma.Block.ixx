@@ -62,6 +62,7 @@ import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.CompositeComponent;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -428,7 +429,7 @@ namespace Mila::Dnn
                 for ( auto* t : { q_.get(), k_.get(), v_.get() } )
                 {
                     if ( t )
-                        stats.device_state_bytes += t->getStorageSize();
+                        stats.device_state_bytes += occupiedTensorBytes( *t );
                 }
             }
 
@@ -510,12 +511,15 @@ namespace Mila::Dnn
             // Split scratch. An installed workspace is owned and counted by the transformer.
             if ( !pooled )
             {
-                stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitQElements() );
-                stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitKvElements() );
+                const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+                const std::size_t kv_bytes = occupiedDeviceBytes( storageBytes<TPrecision>( contexts.splitKvElements() ), granularity );
+
+                stats.device_state_bytes += occupiedDeviceBytes( storageBytes<TPrecision>( contexts.splitQElements() ), granularity );
+                stats.device_state_bytes += kv_bytes;
 
                 if constexpr ( !kGlobal )
                 {
-                    stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitKvElements() );
+                    stats.device_state_bytes += kv_bytes;
                 }
             }
 

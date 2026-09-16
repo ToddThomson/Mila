@@ -54,6 +54,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -357,22 +358,22 @@ namespace Mila::Dnn
 
             if ( A_log_ )
             {
-                stats.device_parameter_bytes += A_log_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *A_log_ );
             }
 
             if ( dt_bias_ )
             {
-                stats.device_parameter_bytes += dt_bias_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *dt_bias_ );
             }
 
             if ( state_ )
             {
-                stats.device_state_bytes += state_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *state_ );
             }
 
             if ( output_ && !output_installed_ )
             {
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
             }
 
             return stats;
@@ -386,22 +387,25 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+
             if ( !A_log_ )
             {
                 stats.device_parameter_bytes +=
-                    2 * storageBytes<TPrecision>( config_.getNumValueHeads() );
+                    2 * occupiedDeviceBytes( storageBytes<TPrecision>( config_.getNumValueHeads() ), granularity );
             }
 
             // Flat in context length -- the property the layer kind exists for.
             if ( !state_ )
             {
-                stats.device_state_bytes += storageBytes<TensorDataType::FP32>(
-                    input_shape[ 0 ] * config_.getStateElementsPerBatch() );
+                stats.device_state_bytes += occupiedDeviceBytes( storageBytes<TensorDataType::FP32>(
+                    input_shape[ 0 ] * config_.getStateElementsPerBatch() ), granularity );
             }
 
             if ( !output_installed_ && !context.hasInstalledOutput() )
             {
-                stats.device_state_bytes += storageBytes<TPrecision>( elementCount( input_shape ) );
+                stats.device_state_bytes +=
+                    occupiedDeviceBytes( storageBytes<TPrecision>( elementCount( input_shape ) ), granularity );
             }
 
             return stats;

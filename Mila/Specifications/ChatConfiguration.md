@@ -221,15 +221,18 @@ guessed years earlier on different hardware.
 
 ### What auto resolves to
 
-The largest context that fits **comfortably**, bounded above by
-`min( family max_context, model maximum_context_length )`.
+The largest context whose whole predicted footprint fits the device's **free memory**, bounded
+above by `min( family max_context, model maximum_context_length )`.
 
-Comfortably needs a number, because 11.07 of 11.99 GB is a fit by arithmetic and a bad
-experience in practice — that is a 92% claim on a card that also drives a display. **Auto
-targets leaving the greater of 10% of total device memory or 512 MB free**, measured against
-`practicalDeviceBytes`, which already carries the residual the predictor does not model.
-A user who writes an explicit number is not held to this: the margin is what auto chooses for
-you, not a policy imposed on what you chose.
+**Nothing is held back, since 2026-09-15.** The prediction counts everything Mila allocates,
+including the driver's rounding of each allocation, and reports a chunk chosen against that same
+free memory (MemoryFootprint.md section 11). The 10%-or-512 MB margin this used to leave stood in
+for scratch, rounding and the Windows display-card budget cut without knowing which applied, so a
+headless card paid for all three.
+
+**The scan runs with nothing resident.** A prediction taken while a model is loaded measures a card
+that still holds it, so a model switch and `/context auto` release first; `/context` reports the
+scan the last load ran rather than taking a new one.
 
 `predictFootprint` reads the artifact header and allocates nothing on the device. Measured
 2026-08-15: the `/models` listing's ten predictions cost about 25 ms in total, a few milliseconds
@@ -256,6 +259,10 @@ one.
 
 ### What auto resolves to on a 12 GB card
 
+*Superseded 2026-09-15 by MemoryFootprint.md section 11: the scan budgets against the device's free
+memory with nothing resident, and holds nothing back, because the prediction now counts the driver's
+rounding of every allocation. The margin below is what it replaced.*
+
 Leaving the greater of 10% or 512 MB free gives a 10.79 GB budget on the card above. Against the
 measured curve, `gemma-4-12b-it-fp4` fits between 65536 and 131072 — where the compiled default is
 **512**, which is the truncation defect this specification opens with. `Llama-3.1-8B-Instruct-fp4`,
@@ -265,6 +272,11 @@ which has no sliding window and grows at 0.22 GB per 1024, lands between 4096 an
 
 Measured 2026-08-15, with auto bounded on memory alone: `gemma-4-12b-it-fp4` resolved to **95232**,
 loaded, and answered. It was still the wrong number, and the reason was not memory.
+
+*Superseded 2026-09-15: the fixed activation budget described here is gone. A transformer now takes
+the largest rung whose WHOLE predicted footprint fits the device's free memory (MemoryFootprint.md
+section 11), so the chunk still walks down as context grows -- the KV cache leaves less room -- but
+against measured memory rather than a constant. The measurements below stand as what the budget did.*
 
 `GemmaTransformer::resolvePrefillChunkSize` (`Gemma.ixx:1023`) picks a prefill chunk from the rungs
 1024 / 512 / 256 / 128 / 64 rows, against an activation budget of 1536 MB **minus the global KV
@@ -293,10 +305,11 @@ it reports — and then discarded it (`Gemma.ixx:386`, `Llama.ixx:365`). Nothing
 a `PrefillChunking` carrying the chunk this context would use, the largest rung the context permits,
 and whether the budget forced the difference.
 
-**The same shape covers both families, though the mechanism differs.** Gemma's budget shrinks as the
-global KV term grows against a fixed activation cap; Llama's per-row scratch carries a
-`2 * context_length` term against the same cap. Either way a longer context buys a smaller chunk, so
-the overshoot was never a Gemma defect. Measured 2026-08-15 on an RTX 4070, 11.99 GB, before and
+**The same shape covers both families, and since 2026-09-15 the same rule.** Gemma's budget shrank as
+the global KV term grew against a fixed activation cap; Llama's per-row scratch carried a
+`2 * context_length` term against the same cap; both are now the one rule in MemoryFootprint.md
+section 11. Either way a longer context buys a smaller chunk, so the overshoot was never a Gemma
+defect. Measured 2026-08-15 on an RTX 4070, 11.99 GB, before and
 after the bound:
 
 | model | auto, memory only | auto, chunk-bounded | chunk at the old number |

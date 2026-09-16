@@ -105,9 +105,11 @@ for version in ${INTERPRETERS}; do
     # auditwheel sets the manylinux tag from the glibc actually linked. The CUDA libraries
     # are EXCLUDED because they arrive from the nvidia-cublas / nvidia-curand wheels the
     # package depends on; vendoring them instead would add ~400 MB and defeat that design.
+    # libcuda belongs to the installed NVIDIA driver and must match it, so it is never vendored.
     # Run per interpreter so the unrepaired linux_x86_64 wheel never outlives its loop
     # iteration and get repaired twice.
     auditwheel repair "${OUT}"/mila_llm-*-linux_x86_64.whl \
+        --exclude libcuda.so.1 \
         --exclude libcublas.so.13 \
         --exclude libcublasLt.so.13 \
         --exclude libcurand.so.10 \

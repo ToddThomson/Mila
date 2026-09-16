@@ -37,6 +37,7 @@ import Dnn.CompositeComponent;
 import Dnn.ActivationType;
 import Compute.MemoryResource;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -382,12 +383,12 @@ namespace Mila::Dnn
 
             if ( d_res1_accum_ != nullptr )
             {
-                stats.device_gradient_bytes += d_res1_accum_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *d_res1_accum_ );
             }
 
             if ( d_input_ != nullptr )
             {
-                stats.device_gradient_bytes += d_input_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *d_input_ );
             }
 
             return stats;

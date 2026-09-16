@@ -38,6 +38,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorTypes;
 import Dnn.TensorOps;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -231,7 +232,7 @@ namespace Mila::Dnn
             // An installed shared output slot is owned and counted by the installer.
             if ( output_ != nullptr && !output_installed_ )
             {
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
             }
 
             return stats;
@@ -249,8 +250,9 @@ namespace Mila::Dnn
 
             if ( !output_installed_ && !context.hasInstalledOutput() )
             {
-                stats.device_state_bytes +=
-                    storageBytes<TPrecision>( elementCount( context.inputShape() ) );
+                stats.device_state_bytes += occupiedDeviceBytes(
+                    storageBytes<TPrecision>( elementCount( context.inputShape() ) ),
+                    allocationGranularity( this->getDeviceId() ) );
             }
 
             if ( operation_ )

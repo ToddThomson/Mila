@@ -140,13 +140,11 @@ namespace Mila::Tests::Dnn::Models
             toGiB( large.totalDeviceBytes() ) );
     }
 
-    // The chunk the prediction resolves on its way to sizing the activation workspaces, and
-    // used to discard. `context_length: "auto"` bounds on it, because memory alone cannot say
-    // that the largest context which fits is one where prefill has walked down toward its floor.
-    //
-    // Device-independent by construction: the budget is a fixed constant less the global KV
-    // term, both computed from the checkpoint's geometry, so these numbers do not depend on
-    // which card runs the test. See Specifications/ChatConfiguration.md section 6.
+    // The chunk the rule picks against the device's free memory, reported beside the memory
+    // (MemoryFootprint.md section 11). What it picks depends on the card and on what else is
+    // resident, so this holds the rule's properties rather than a chunk: it is no larger than the
+    // context permits, a pick that fits keeps the prediction within the memory that was free, and a
+    // longer context never buys a larger chunk.
     TEST_F( GemmaFootprintCudaTests, GetDeploymentFootprint_ReportsPrefillChunkAndAgreesOnMemory )
     {
         auto footprintAt = []( const fs::path& path, dim_t context_length )
@@ -163,6 +161,9 @@ namespace Mila::Tests::Dnn::Models
         config.withContextLength( 8192 )
             .withWeightQuantization( WeightQuantization::FP4 );
 
+        cudaFree( nullptr );
+
+        const std::size_t free_before = freeDeviceBytes();
         const DeploymentFootprint short_context = footprintAt( checkpoint_, 8192 );
         const MemoryStats memory_only =
             GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory(
@@ -175,14 +176,16 @@ namespace Mila::Tests::Dnn::Models
         EXPECT_LE( short_context.prefill.chunk_rows,
                    short_context.prefill.unconstrained_chunk_rows );
 
-        // The property auto depends on. Without it the throughput bound would be a constant and
-        // the scan would have nothing to find.
+        if ( short_context.prefill.fits_available_memory )
+        {
+            EXPECT_LE( short_context.memory.totalDeviceBytes(), free_before )
+                << "a chunk that fits must keep the prediction within the free memory";
+        }
+
         const DeploymentFootprint long_context = footprintAt( checkpoint_, 131072 );
 
-        EXPECT_LT( long_context.prefill.chunk_rows, short_context.prefill.chunk_rows )
-            << "the prefill chunk must walk down as the KV cache eats the activation budget";
-        EXPECT_TRUE( long_context.prefill.isBudgetConstrained() )
-            << "at the trained maximum the chunk is expected to be budget-bound";
+        EXPECT_LE( long_context.prefill.chunk_rows, short_context.prefill.chunk_rows )
+            << "a longer context must never buy a larger prefill chunk";
 
         std::cout << std::format(
             "[prefill] ctx 8192   chunk {} of {} rows\n"
@@ -252,10 +255,14 @@ namespace Mila::Tests::Dnn::Models
             << "prediction exceeded actual consumption -- an overestimate refuses "
                "configurations that fit";
 
-        // Bound the unmodelled terms. Generous by design: this is not an equality test,
-        // and the number that matters is the one printed above. Tighten only when the
-        // residual has been attributed.
-        EXPECT_LT( residual, consumed / 4 )
-            << "unmodelled memory exceeded 25% of what was consumed";
+        // What Mila does not predict: the share of packed small allocations and the fixed remainder,
+        // together under 30 MiB once rounding is predicted (MemoryFootprint.md 11.8), plus -- on a card
+        // that drives a display -- the Windows budget cut, measured at 224 MiB on the RTX 4070 (11.5).
+        // The bound covers a display card because this runs wherever the suite runs; the 64 MiB figure
+        // is checked on a headless card in the Phase 6 step 3 gate runs.
+        constexpr std::size_t kResidualBoundBytes = std::size_t{ 512 } * 1024 * 1024;
+
+        EXPECT_LT( residual, kResidualBoundBytes )
+            << "unmodelled memory exceeded 512 MiB";
     }
 }

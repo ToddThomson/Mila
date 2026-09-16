@@ -28,6 +28,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.OperationBase;
+import Compute.DeviceAllocation;
 import Compute.IPositionalPairedOp;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
@@ -380,7 +381,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
          */
         std::size_t getRequiredStateMemorySize( const BuildContext& build_context ) const override
         {
-            return tableBytes( build_context.inputShape()[ 1 ] ) * 2; // cos and sin caches
+            // cos and sin caches, two allocations
+            return 2 * occupiedDeviceBytes(
+                tableBytes( build_context.inputShape()[ 1 ] ), allocationGranularity( context_->getDeviceId() ) );
         }
 
         std::size_t getStateMemorySize() const override
@@ -388,7 +391,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             if ( !owns_cache_ )
                 return 0;
 
-            return tableBytes( seq_length_ ) * 2; // cos and sin caches
+            return 2 * occupiedDeviceBytes( tableBytes( seq_length_ ), allocationGranularity( context_->getDeviceId() ) );
         }
 
     private:

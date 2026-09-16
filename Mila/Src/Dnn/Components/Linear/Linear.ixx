@@ -29,6 +29,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
 import Dnn.Quantization.Weight.Policies;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -804,43 +805,56 @@ namespace Mila::Dnn
 
             if ( weight_ != nullptr )
             {
-                stats.device_parameter_bytes += weight_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *weight_ );
             }
 
             if ( weight_scales_ != nullptr )
             {
-                stats.device_parameter_bytes += weight_scales_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *weight_scales_ );
+            }
+
+            // A codebook format's companions are allocations of their own, which getRequiredMemory()
+            // already counts.
+            if ( weight_codebook_ != nullptr )
+            {
+                stats.device_parameter_bytes += occupiedTensorBytes( *weight_codebook_ );
+            }
+
+            if ( weight_high_plane_ != nullptr )
+            {
+                stats.device_parameter_bytes += occupiedTensorBytes( *weight_high_plane_ );
             }
 
             if ( bias_ != nullptr )
             {
-                stats.device_parameter_bytes += bias_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *bias_ );
             }
 
             // An installed shared output slot is owned and counted by the installer.
             if ( output_ != nullptr && !output_installed_ )
             {
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
             }
 
             if ( operation_ )
             {
-                stats.device_scratch_bytes = operation_->getScratchBytes();
+                stats.device_scratch_bytes = occupiedDeviceBytes(
+                    operation_->getScratchBytes(), allocationGranularity( this->getDeviceId() ) );
             }
 
             if ( input_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += input_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *input_grad_ );
             }
 
             if ( weight_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += weight_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *weight_grad_ );
             }
 
             if ( bias_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += bias_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *bias_grad_ );
             }
 
             return stats;
@@ -859,6 +873,7 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
             const dim_t input_features = config_.getInputFeatures();
             const dim_t output_features = config_.getOutputFeatures();
 
@@ -869,11 +884,11 @@ namespace Mila::Dnn
             // from the model total instead of being counted a single time.
             if ( weight_installed_ && weight_ )
             {
-                stats.device_parameter_bytes += weight_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *weight_ );
 
                 if ( weight_scales_ )
                 {
-                    stats.device_parameter_bytes += weight_scales_->getStorageSize();
+                    stats.device_parameter_bytes += occupiedTensorBytes( *weight_scales_ );
                 }
             }
             else
@@ -887,14 +902,14 @@ namespace Mila::Dnn
                     : input_features;
 
                 stats.device_parameter_bytes +=
-                    storageBytes<kWeightDtype>( output_features * weight_cols );
+                    occupiedDeviceBytes( storageBytes<kWeightDtype>( output_features * weight_cols ), granularity );
 
                 if constexpr ( kIsQuantized )
                 {
                     if constexpr ( TWeightQuant::kPerChannel )
                     {
                         stats.device_parameter_bytes +=
-                            storageBytes<TWeightQuant::kScaleDtype>( output_features );
+                            occupiedDeviceBytes( storageBytes<TWeightQuant::kScaleDtype>( output_features ), granularity );
                     }
                     else
                     {
@@ -902,7 +917,7 @@ namespace Mila::Dnn
                             input_features / TWeightQuant::kQuantizationGroupSize;
 
                         stats.device_parameter_bytes +=
-                            storageBytes<TWeightQuant::kScaleDtype>( output_features * num_groups );
+                            occupiedDeviceBytes( storageBytes<TWeightQuant::kScaleDtype>( output_features * num_groups ), granularity );
                     }
                 }
 
@@ -911,20 +926,20 @@ namespace Mila::Dnn
                 if constexpr ( HasCodebookTable<TWeightQuant> )
                 {
                     stats.device_parameter_bytes +=
-                        storageBytes<TensorDataType::FP32>( TWeightQuant::kCodebookEntries );
+                        occupiedDeviceBytes( storageBytes<TensorDataType::FP32>( TWeightQuant::kCodebookEntries ), granularity );
                 }
 
                 if constexpr ( HasHighBitPlane<TWeightQuant> )
                 {
                     stats.device_parameter_bytes +=
-                        storageBytes<TensorDataType::UINT8>( output_features * ( input_features / 8 ) );
+                        occupiedDeviceBytes( storageBytes<TensorDataType::UINT8>( output_features * ( input_features / 8 ) ), granularity );
                 }
             }
 
             if ( config_.hasBias() )
             {
                 stats.device_parameter_bytes +=
-                    storageBytes<TComputePrecision>( output_features );
+                    occupiedDeviceBytes( storageBytes<TComputePrecision>( output_features ), granularity );
             }
 
             // An installed shared output slot is owned and counted by the installer.
@@ -934,27 +949,28 @@ namespace Mila::Dnn
                 output_shape.back() = output_features;
 
                 stats.device_state_bytes +=
-                    storageBytes<TComputePrecision>( elementCount( output_shape ) );
+                    occupiedDeviceBytes( storageBytes<TComputePrecision>( elementCount( output_shape ) ), granularity );
             }
 
             if ( operation_ )
             {
                 stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
-                stats.device_scratch_bytes = operation_->getRequiredScratchBytes( context );
+                stats.device_scratch_bytes =
+                    occupiedDeviceBytes( operation_->getRequiredScratchBytes( context ), granularity );
             }
 
             if ( context.isTrainingMode() )
             {
                 stats.device_gradient_bytes +=
-                    storageBytes<TComputePrecision>( elementCount( context.inputShape() ) );
+                    occupiedDeviceBytes( storageBytes<TComputePrecision>( elementCount( context.inputShape() ) ), granularity );
 
                 stats.device_gradient_bytes +=
-                    storageBytes<TComputePrecision>( output_features * input_features );
+                    occupiedDeviceBytes( storageBytes<TComputePrecision>( output_features * input_features ), granularity );
 
                 if ( config_.hasBias() )
                 {
                     stats.device_gradient_bytes +=
-                        storageBytes<TComputePrecision>( output_features );
+                        occupiedDeviceBytes( storageBytes<TComputePrecision>( output_features ), granularity );
                 }
             }
 

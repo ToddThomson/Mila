@@ -36,6 +36,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
 import Dnn.Quantization.Weight.Policies;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -524,28 +525,28 @@ namespace Mila::Dnn
                 }
                 else
                 {
-                    stats.device_parameter_bytes += wte_->getStorageSize();
+                    stats.device_parameter_bytes += occupiedTensorBytes( *wte_ );
                 }
             }
 
             if ( wte_scales_ != nullptr )
             {
-                stats.device_parameter_bytes += wte_scales_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *wte_scales_ );
             }
 
             if ( output_ != nullptr )
             {
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
             }
 
             if ( wte_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += wte_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *wte_grad_ );
             }
 
             if ( input_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += input_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *input_grad_ );
             }
 
             return stats;
@@ -572,6 +573,8 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+
             // The whole point of host residency is that this number is not on the card,
             // so a footprint prediction that counted it under device bytes would report
             // the arrangement as costing exactly what it was chosen to avoid.
@@ -583,18 +586,18 @@ namespace Mila::Dnn
             else
             {
                 stats.device_parameter_bytes +=
-                    storageBytes<kTableDtype>( vocabulary_size * embedding_dim );
+                    occupiedDeviceBytes( storageBytes<kTableDtype>( vocabulary_size * embedding_dim ), granularity );
             }
 
             if constexpr ( kIsQuantized )
             {
                 // One scale per vocabulary row.
                 stats.device_parameter_bytes +=
-                    storageBytes<TTableQuantization::kScaleDtype>( vocabulary_size );
+                    occupiedDeviceBytes( storageBytes<TTableQuantization::kScaleDtype>( vocabulary_size ), granularity );
             }
 
             stats.device_state_bytes +=
-                storageBytes<TPrecision>( batch_size * sequence_length * embedding_dim );
+                occupiedDeviceBytes( storageBytes<TPrecision>( batch_size * sequence_length * embedding_dim ), granularity );
 
             if ( operation_ )
             {
@@ -606,10 +609,10 @@ namespace Mila::Dnn
                 if constexpr ( !kIsQuantized )
                 {
                     stats.device_gradient_bytes +=
-                        storageBytes<TPrecision>( vocabulary_size * embedding_dim );
+                        occupiedDeviceBytes( storageBytes<TPrecision>( vocabulary_size * embedding_dim ), granularity );
 
                     stats.device_gradient_bytes +=
-                        storageBytes<TIndex>( batch_size * sequence_length );
+                        occupiedDeviceBytes( storageBytes<TIndex>( batch_size * sequence_length ), granularity );
                 }
             }
 

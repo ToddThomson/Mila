@@ -127,13 +127,8 @@ namespace Mila::Tests::Dnn::Models
             toGiB( large.device_state_bytes - small.device_state_bytes ) );
     }
 
-    // The Llama half of the prefill-chunk question. Its mechanism differs from Gemma's -- the
-    // scratch cost per chunk row carries a 2 * context_length term against a fixed cap, rather
-    // than a budget shrinking under a growing KV cache -- but the consequence is the same and is
-    // what `context_length: "auto"` bounds on: a longer context silently buys a smaller chunk.
-    //
-    // Device-independent by construction: cap and row cost both come from the checkpoint's
-    // geometry, so these numbers do not depend on which card runs the test.
+    // The Llama half of the prefill-chunk question: the same rule and the same properties as the
+    // Gemma test, since what the rule picks depends on the card and on what else is resident.
     TEST_F( LlamaFootprintCudaTests, GetDeploymentFootprint_ReportsPrefillChunkAndAgreesOnMemory )
     {
         auto footprintAt = []( const fs::path& path, dim_t context_length )
@@ -144,6 +139,9 @@ namespace Mila::Tests::Dnn::Models
                     .withWeightQuantization( WeightQuantization::FP4 ) );
         };
 
+        cudaFree( nullptr );
+
+        const std::size_t free_before = freeDeviceBytes();
         const DeploymentFootprint short_context = footprintAt( checkpoint_, 8192 );
 
         EXPECT_EQ( short_context.memory.totalDeviceBytes(),
@@ -151,15 +149,19 @@ namespace Mila::Tests::Dnn::Models
             << "the two entry points must answer from the same arithmetic";
 
         EXPECT_GT( short_context.prefill.chunk_rows, 0 );
-        EXPECT_FALSE( short_context.prefill.isBudgetConstrained() )
-            << "8192 is expected to hold the top rung on this checkpoint";
+        EXPECT_LE( short_context.prefill.chunk_rows,
+                   short_context.prefill.unconstrained_chunk_rows );
+
+        if ( short_context.prefill.fits_available_memory )
+        {
+            EXPECT_LE( short_context.memory.totalDeviceBytes(), free_before )
+                << "a chunk that fits must keep the prediction within the free memory";
+        }
 
         const DeploymentFootprint long_context = footprintAt( checkpoint_, 131072 );
 
-        EXPECT_LT( long_context.prefill.chunk_rows, short_context.prefill.chunk_rows )
-            << "the prefill chunk must walk down as context grows";
-        EXPECT_TRUE( long_context.prefill.isBudgetConstrained() )
-            << "at the trained maximum the chunk is expected to be cap-bound";
+        EXPECT_LE( long_context.prefill.chunk_rows, short_context.prefill.chunk_rows )
+            << "a longer context must never buy a larger prefill chunk";
 
         std::cout << std::format(
             "[prefill] ctx 8192   chunk {} of {} rows\n"
@@ -256,7 +258,14 @@ namespace Mila::Tests::Dnn::Models
             << "prediction exceeded actual consumption -- an overestimate refuses "
                "configurations that fit";
 
-        EXPECT_LT( residual, consumed / 4 )
-            << "unmodelled memory exceeded 25% of what was consumed";
+        // What Mila does not predict: the share of packed small allocations and the fixed remainder,
+        // together under 30 MiB once rounding is predicted (MemoryFootprint.md 11.8), plus -- on a card
+        // that drives a display -- the Windows budget cut, measured at 225 MiB on the RTX 4070 (11.5).
+        // The bound covers a display card because this runs wherever the suite runs; the 64 MiB figure
+        // is checked on a headless card in the Phase 6 step 3 gate runs.
+        constexpr std::size_t kResidualBoundBytes = std::size_t{ 512 } * 1024 * 1024;
+
+        EXPECT_LT( residual, kResidualBoundBytes )
+            << "unmodelled memory exceeded 512 MiB";
     }
 }

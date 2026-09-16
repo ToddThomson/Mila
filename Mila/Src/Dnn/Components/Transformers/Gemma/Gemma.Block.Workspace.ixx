@@ -10,6 +10,7 @@ module;
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <vector>
 
 export module Dnn.Components.GemmaBlock:Workspace;
 
@@ -18,6 +19,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.Components.GemmaConfig;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -84,7 +86,7 @@ namespace Mila::Dnn
                                     ffn_expert_normed.get(), ffn_sum.get() } )
             {
                 if ( t )
-                    total += t->getStorageSize();
+                    total += occupiedTensorBytes( *t );
             }
 
             return total;
@@ -92,7 +94,7 @@ namespace Mila::Dnn
     };
 
     /**
-     * @brief Max-geometry slot widths, shared by the allocation and the transformer's chunk row-cost model.
+     * @brief Max-geometry slot widths, shared by the allocation and the transformer's footprint.
      */
     export struct GemmaBlockWorkspaceWidths
     {
@@ -105,11 +107,16 @@ namespace Mila::Dnn
         // Stream-wide slots the routed feed-forward adds; zero on a dense model.
         dim_t routed_stream_slots{ 0 };
 
-        // q + q_normed + attn; k + v + k_normed + v_normed; the eight
-        // model_dim-wide stream-side slots; qkv; gate_up (2h) + ffn_act (h).
-        dim_t totalRowElements() const
+        // One entry per slot makeGemmaBlockWorkspace allocates, each a separate allocation.
+        std::vector<dim_t> slotWidths() const
         {
-            return 3 * q_width + 4 * kv_width + ( 8 + routed_stream_slots ) * model_dim + qkv_width + 3 * hidden_dim;
+            std::vector<dim_t> widths = { q_width, kv_width, kv_width, model_dim, qkv_width, q_width, kv_width,
+                kv_width, q_width, model_dim, model_dim, model_dim, model_dim, 2 * hidden_dim, hidden_dim, model_dim,
+                model_dim, model_dim };
+
+            widths.insert( widths.end(), static_cast<std::size_t>( routed_stream_slots ), model_dim );
+
+            return widths;
         }
     };
 

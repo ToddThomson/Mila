@@ -42,10 +42,11 @@ namespace Mila::Tests::Dnn::Models
         constexpr dim_t kContextLength = 8192;
         constexpr dim_t kLayers = 30;
 
-        // The packed PerGroupFp4<64> bank of one layer, from the layout alone: gate_up_proj [128, 1408, 1408] bytes
-        // (253,755,392) + [128, 1408, 44] FP32 scales (31,719,424), and down_proj [128, 2816, 352] (126,877,696)
-        // + [128, 2816, 11] (15,859,712).
-        constexpr std::size_t kLayerBankBytes = 428'212'224;
+        // The packed PerGroupFp4<64> bank of one layer, from the layout alone, each of its four allocations rounded up
+        // to the 2 MiB granularity of both cards (MemoryFootprint.md 11.8): gate_up_proj [128, 1408, 1408] bytes
+        // (253,755,392, already a multiple) + [128, 1408, 44] FP32 scales (31,719,424 -> 33,554,432), and down_proj
+        // [128, 2816, 352] (126,877,696 -> 127,926,272) + [128, 2816, 11] (15,859,712 -> 16,777,216).
+        constexpr std::size_t kLayerBankBytes = 432'013'312;
         constexpr std::size_t kLayerInactiveBytes = kLayerBankBytes / 128 * 120;
 
         // MixtureOfExperts.md s8, the PerGroupFp4<64> row: bank 11.96 + Linears 0.86 + FP8 table 0.69 + router 0.02.
@@ -191,13 +192,9 @@ namespace Mila::Tests::Dnn::Models
             EXPECT_EQ( generated[ i ], kExpectedGen[ i ] ) << "greedy divergence at generated token " << i;
         }
 
-        // Fitting is judged on the prediction, because consumption cannot be read past a full card. Skipped rather
-        // than failed until the prefill chunk rule lands, tracked in Mila/Issues/Untriaged.md for rc.1, which
-        // restores it as a failure.
-        if ( predicted.totalDeviceBytes() >= free_before || saturated )
-        {
-            GTEST_SKIP() << std::format( "does not fit this card yet: {} bytes predicted against {} free{}",
-                predicted.totalDeviceBytes(), free_before, saturated ? ", card saturated after the load" : "" );
-        }
+        // Fitting is judged on the prediction, because consumption cannot be read past a full card. The prefill chunk
+        // rule picks the largest rung that fits the free memory, so a card this model fits at all is left nearly full.
+        EXPECT_LT( predicted.totalDeviceBytes(), free_before ) << std::format(
+            "does not fit this card: {} bytes predicted against {} free", predicted.totalDeviceBytes(), free_before );
     }
 }

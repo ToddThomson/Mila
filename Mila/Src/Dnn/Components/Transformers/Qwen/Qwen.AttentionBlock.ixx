@@ -71,6 +71,7 @@ import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.CompositeComponent;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -154,7 +155,7 @@ namespace Mila::Dnn
                                     gate_up.get(), ffn_act.get(), ffn_down.get(), stream.get() } )
             {
                 if ( t )
-                    total += t->getStorageSize();
+                    total += occupiedTensorBytes( *t );
             }
 
             return total;
@@ -422,7 +423,7 @@ namespace Mila::Dnn
                 for ( auto* t : { q_.get(), gate_.get(), k_.get(), v_.get(), query_gate_.get() } )
                 {
                     if ( t )
-                        stats.device_state_bytes += t->getStorageSize();
+                        stats.device_state_bytes += occupiedTensorBytes( *t );
                 }
             }
 
@@ -474,11 +475,16 @@ namespace Mila::Dnn
             // Split scratch. An installed workspace is owned and counted by the transformer.
             if ( !pooled )
             {
-                stats.device_state_bytes += storageBytes<TPrecision>( 2 * contexts.splitQElements() );  // query_gate
-                stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitQElements() );      // q
-                stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitQElements() );      // gate
-                stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitKvElements() );     // k
-                stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitKvElements() );     // v
+                const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+                const std::size_t q_bytes = occupiedDeviceBytes( storageBytes<TPrecision>( contexts.splitQElements() ), granularity );
+                const std::size_t kv_bytes = occupiedDeviceBytes( storageBytes<TPrecision>( contexts.splitKvElements() ), granularity );
+
+                stats.device_state_bytes +=
+                    occupiedDeviceBytes( storageBytes<TPrecision>( 2 * contexts.splitQElements() ), granularity );  // query_gate
+                stats.device_state_bytes += q_bytes;   // q
+                stats.device_state_bytes += q_bytes;   // gate
+                stats.device_state_bytes += kv_bytes;  // k
+                stats.device_state_bytes += kv_bytes;  // v
             }
 
             return stats;

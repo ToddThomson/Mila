@@ -17,6 +17,7 @@ import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -68,7 +69,7 @@ namespace Mila::Dnn::Compute
                                     preatt_decode.get(), att_decode.get(), v_out_decode.get() } )
             {
                 if ( t )
-                    total += t->getStorageSize();
+                    total += occupiedTensorBytes( *t );
             }
 
             return total;
@@ -110,5 +111,26 @@ namespace Mila::Dnn::Compute
             device, shape_t{ B, num_heads, 1, head_dim }, name_prefix + "v_out_dec" );
 
         return workspace;
+    }
+
+    /**
+     * @brief Device bytes makeGqaWorkspace would allocate with the same arguments, without allocating.
+     *
+     * @param granularity The allocation granularity of the device the workspace would live on.
+     */
+    export template<TensorDataType TPrecision>
+    std::size_t gqaWorkspaceDeviceBytes( std::size_t granularity, dim_t B, dim_t num_heads, dim_t head_dim,
+        dim_t T_ctx, dim_t prefill_chunk, dim_t score_width )
+    {
+        const auto occupied = [&]( dim_t elements )
+        {
+            return occupiedDeviceBytes(
+                static_cast<std::size_t>( elements ) * TensorDataTypeTraits<TPrecision>::size_in_bytes, granularity );
+        };
+
+        return 2 * occupied( B * num_heads * prefill_chunk * head_dim )    // q_permute, v_out
+            + 2 * occupied( B * num_heads * prefill_chunk * score_width )  // preatt, att
+            + 2 * occupied( B * num_heads * T_ctx )                        // preatt_decode, att_decode
+            + occupied( B * num_heads * head_dim );                        // v_out_decode
     }
 }

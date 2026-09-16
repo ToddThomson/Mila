@@ -33,6 +33,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
 import Dnn.Components.RmsNorm;
 import Dnn.Components.Linear;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -220,18 +221,18 @@ namespace Mila::Dnn
             {
                 if ( tensor )
                 {
-                    stats.device_parameter_bytes += tensor->getStorageSize();
+                    stats.device_parameter_bytes += occupiedTensorBytes( *tensor );
                 }
             }
 
             if ( weights_ )
             {
-                stats.device_state_bytes += weights_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *weights_ );
             }
 
             if ( indices_ )
             {
-                stats.device_state_bytes += indices_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *indices_ );
             }
 
             return stats;
@@ -255,16 +256,21 @@ namespace Mila::Dnn
             stats += this->template getComponentAs<RmsNormType>( n + ".norm" )->getRequiredMemory( context );
             stats += this->template getComponentAs<LinearType>( n + ".proj" )->getRequiredMemory( context );
 
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+
+            // scale and per_expert_scale are two allocations.
             if ( !scale_ )
             {
                 stats.device_parameter_bytes +=
-                    storageBytes<TPrecision>( config_.getHiddenSize() + config_.getNumExperts() );
+                    occupiedDeviceBytes( storageBytes<TPrecision>( config_.getHiddenSize() ), granularity )
+                    + occupiedDeviceBytes( storageBytes<TPrecision>( config_.getNumExperts() ), granularity );
             }
 
             const dim_t routing_elements = elementCount( input_shape ) / config_.getHiddenSize() * config_.getTopK();
 
-            stats.device_state_bytes += storageBytes<TPrecision>( routing_elements );
-            stats.device_state_bytes += storageBytes<TensorDataType::INT32>( routing_elements );
+            stats.device_state_bytes += occupiedDeviceBytes( storageBytes<TPrecision>( routing_elements ), granularity );
+            stats.device_state_bytes +=
+                occupiedDeviceBytes( storageBytes<TensorDataType::INT32>( routing_elements ), granularity );
 
             return stats;
         }

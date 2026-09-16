@@ -275,6 +275,7 @@ PUBLIC
         # Dnn / Compute (core)
         #---------------------------------------------------------------
         "Src/Dnn/Compute/Device.ixx"
+        "Src/Dnn/Compute/DeviceAllocation.ixx"
         "Src/Dnn/Compute/DeviceType.ixx"
         "Src/Dnn/Compute/DeviceId.ixx"
 
@@ -807,8 +808,10 @@ if(MILA_HAS_CUDA)
     # library, so a consumer must (1) resolve cudart/cublas/curand symbols from
     # Mila's .cu objects at its own final link, and (2) get the CUDA toolkit include
     # dir as a usage requirement so the target that compiles Mila's CUDA module
-    # units can find <cuda_fp16.h> etc.
+    # units can find <cuda_fp16.h> etc. cuda_driver is for cuMemGetAllocationGranularity
+    # (MemoryFootprint.md 11.8); the library it names comes with the NVIDIA driver.
     target_link_libraries( Mila PUBLIC
+        CUDA::cuda_driver
         CUDA::cudart
         CUDA::cublas
         CUDA::curand

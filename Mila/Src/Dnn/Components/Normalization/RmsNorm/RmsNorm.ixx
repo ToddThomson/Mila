@@ -34,6 +34,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorPartitioning;
 import Dnn.TensorOps;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -350,33 +351,33 @@ namespace Mila::Dnn
 
             if ( weight_ != nullptr )
             {
-                stats.device_parameter_bytes += weight_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *weight_ );
             }
 
             if ( bias_ != nullptr )
             {
-                stats.device_parameter_bytes += bias_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *bias_ );
             }
 
             // An installed shared output slot is owned and counted by the installer.
             if ( output_ != nullptr && !output_installed_ )
             {
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
             }
 
             if ( input_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += input_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *input_grad_ );
             }
 
             if ( weight_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += weight_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *weight_grad_ );
             }
 
             if ( bias_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += bias_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *bias_grad_ );
             }
 
             return stats;
@@ -396,6 +397,8 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+
             // A weight already present is not reallocated -- allocateParameters() returns
             // early -- so it costs this build nothing.
             if ( !weight_ )
@@ -403,12 +406,12 @@ namespace Mila::Dnn
                 const NormalizedPartition partition = resolveNormalizedPartition( &input_shape );
 
                 stats.device_parameter_bytes +=
-                    storageBytes<TPrecision>( partition.channels );
+                    occupiedDeviceBytes( storageBytes<TPrecision>( partition.channels ), granularity );
 
                 if ( config_.hasBias() )
                 {
                     stats.device_parameter_bytes +=
-                        storageBytes<TPrecision>( partition.channels );
+                        occupiedDeviceBytes( storageBytes<TPrecision>( partition.channels ), granularity );
                 }
             }
 
@@ -416,7 +419,7 @@ namespace Mila::Dnn
             if ( !output_installed_ && !context.hasInstalledOutput() )
             {
                 stats.device_state_bytes +=
-                    storageBytes<TPrecision>( elementCount( input_shape ) );
+                    occupiedDeviceBytes( storageBytes<TPrecision>( elementCount( input_shape ) ), granularity );
             }
 
             if ( operation_ )
@@ -429,15 +432,15 @@ namespace Mila::Dnn
                 const NormalizedPartition partition = resolveNormalizedPartition( &input_shape );
 
                 stats.device_gradient_bytes +=
-                    storageBytes<TPrecision>( elementCount( input_shape ) );
+                    occupiedDeviceBytes( storageBytes<TPrecision>( elementCount( input_shape ) ), granularity );
 
                 stats.device_gradient_bytes +=
-                    storageBytes<TPrecision>( partition.channels );
+                    occupiedDeviceBytes( storageBytes<TPrecision>( partition.channels ), granularity );
 
                 if ( config_.hasBias() )
                 {
                     stats.device_gradient_bytes +=
-                        storageBytes<TPrecision>( partition.channels );
+                        occupiedDeviceBytes( storageBytes<TPrecision>( partition.channels ), granularity );
                 }
             }
 

@@ -30,6 +30,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.Component;
 import Dnn.Quantization.Weight.Policies;
 import Compute.OperationBase;
+import Compute.DeviceAllocation;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.OperationType;
@@ -130,12 +131,13 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
         std::size_t getStateMemorySize() const override
         {
-            return gated_ ? gated_->getStorageSize() : 0;
+            return gated_ ? occupiedTensorBytes( *gated_ ) : 0;
         }
 
         std::size_t getRequiredStateMemorySize( const BuildContext& build_context ) const override
         {
-            return storageBytes<TensorDataType::FP32>( gatedElements( build_context ) );
+            return occupiedDeviceBytes( storageBytes<TensorDataType::FP32>( gatedElements( build_context ) ),
+                allocationGranularity( context_->getDeviceId() ) );
         }
 
         /**

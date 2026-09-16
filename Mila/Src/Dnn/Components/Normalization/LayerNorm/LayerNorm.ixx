@@ -34,6 +34,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorPartitioning;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -386,32 +387,32 @@ namespace Mila::Dnn
 
             if ( weight_ != nullptr )
             {
-                stats.device_parameter_bytes += weight_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *weight_ );
             }
 
             if ( bias_ != nullptr )
             {
-                stats.device_parameter_bytes += bias_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *bias_ );
             }
 
             if ( output_ != nullptr )
             {
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
             }
 
             if ( input_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += input_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *input_grad_ );
             }
 
             if ( weight_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += weight_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *weight_grad_ );
             }
 
             if ( bias_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += bias_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *bias_grad_ );
             }
 
             return stats;

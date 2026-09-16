@@ -24,6 +24,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -489,19 +490,21 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+
             stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
-            stats.device_scratch_bytes = operation_->getRequiredScratchBytes( context );
+            stats.device_scratch_bytes = occupiedDeviceBytes( operation_->getRequiredScratchBytes( context ), granularity );
 
             if ( context.isInferenceMode() )
             {
                 // Decode output is T=1 and always component-owned -- never pooled.
-                stats.device_state_bytes += storageBytes<TComputePrecision>( batch * model_dim );
+                stats.device_state_bytes += occupiedDeviceBytes( storageBytes<TComputePrecision>( batch * model_dim ), granularity );
 
                 // Prefill output is one chunk wide, not the whole context.
                 if ( !output_installed_ && !context.hasInstalledOutput() )
                 {
                     stats.device_state_bytes +=
-                        storageBytes<TComputePrecision>( batch * context.getPrefillSize() * model_dim );
+                        occupiedDeviceBytes( storageBytes<TComputePrecision>( batch * context.getPrefillSize() * model_dim ), granularity );
                 }
             }
             else
@@ -510,7 +513,7 @@ namespace Mila::Dnn
                 output_shape.back() = model_dim;
 
                 stats.device_state_bytes +=
-                    storageBytes<TComputePrecision>( elementCount( output_shape ) );
+                    occupiedDeviceBytes( storageBytes<TComputePrecision>( elementCount( output_shape ) ), granularity );
             }
 
             return stats;
@@ -544,17 +547,18 @@ namespace Mila::Dnn
             MemoryStats stats;
 
             stats.device_state_bytes += operation_->getStateMemorySize();
-            stats.device_scratch_bytes = operation_->getScratchBytes();
+            stats.device_scratch_bytes =
+                occupiedDeviceBytes( operation_->getScratchBytes(), allocationGranularity( this->getDeviceId() ) );
 
             // An installed shared output slot is owned and counted by the installer.
             if ( output_ != nullptr && !output_installed_ )
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
 
             if ( decode_output_ != nullptr )
-                stats.device_state_bytes += decode_output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *decode_output_ );
 
             if ( input_grad_ != nullptr )
-                stats.device_gradient_bytes += input_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *input_grad_ );
 
             return stats;
         }

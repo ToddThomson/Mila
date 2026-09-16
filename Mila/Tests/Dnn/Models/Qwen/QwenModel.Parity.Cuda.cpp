@@ -29,7 +29,7 @@
  *    not matter here and would matter in `ProfileModel`.
  *  - The hidden state travels between layers THROUGH THE HOST. A block's output buffer is owned
  *    by the block and dies with it, which is the price of holding one at a time.
- *  - Prefill runs in ONE chunk. The transformer picks a chunk from an activation budget; a
+ *  - Prefill runs in ONE chunk. The transformer picks a chunk against free device memory; a
  *    short prompt needs no ladder, and chunk-boundary equivalence is already pinned by the
  *    Phase 3 block tests rather than being this test's subject.
  *  - Flash prefill is off, and the GQA score width is the full context to match. The two MUST

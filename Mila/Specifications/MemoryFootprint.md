@@ -31,8 +31,8 @@ measurement to find, and a footprint report would have shown it without one.
 | Prefill activation | geometry x the chunk the rule in section 11 picks | exact at that chunk |
 | Scratch | the largest single operation request (11.4) | exact, closed form (draft) |
 | cuBLASLt workspace | `kCublasLtWorkspaceSize` | fixed 4 MB constant |
-| Driver allocation rounding | measured on Windows only, not documented (11.8) | open |
-| Available device memory | the caller's input, else `cudaMemGetInfo` at load (11.3) | read live, never modeled |
+| Driver allocation rounding | each allocation over 1 MiB rounded up to the device's allocation granularity (11.8) | exact on Windows, measured |
+| Available device memory | read from the device by Mila when the chunk is resolved (11.3) | read live, never modeled |
 
 The last row is a deliberate choice. The ~1176 MiB baseline measured on the 4070 is
 not a CUDA context -- it is the desktop compositor and whatever else is resident.
@@ -464,8 +464,8 @@ leave the user to discover it by waiting. Warn.
 WDDM oversubscribes into shared host memory rather than failing. Contexts of 65536
 and above measured 12282/0 MiB and kept running, pathologically slowly. The number
 is exact; the verdict needs a margin, and that margin exists to catch spill, not to
-cover measurement error. *Superseded for the margin's size by 11.6:* headroom is held only
-for identified causes that apply to the device, never as a fixed percentage. Refuse only when weights alone exceed free VRAM; otherwise
+cover measurement error. *Superseded by 11.6:* Chat holds no margin; the prediction includes rounding (11.8)
+and is compared with free memory as read. Refuse only when weights alone exceed free VRAM; otherwise
 warn and proceed. A false refusal is worse than the problem being solved.
 
 **Two measured additions, 2026-09-13.** On a card that drives a display, Windows also lowers
@@ -515,7 +515,8 @@ useful output: its size identifies the tensor class that was missed.
   available memory shrinks. The chosen rung's predicted footprint plus scratch is at most the
   available memory, and the next rung up exceeds it.
 - **Gate B** keeps bounding the residual, which no longer includes scratch once 11.4 lands.
-  Its bound stays generous until 11.8 is decided.
+  Once rounding is predicted (11.8) the residual is the small-allocation overhead and the fixed remainder,
+  under 30 MiB on the two models measured.
 
 ---
 
@@ -671,28 +672,31 @@ that target, and the same accessor is what MIS and the `mila` CLI will need.
    exported weights and with weights quantized during the load; a full-chunk prefill and decode
    on each run without the reserved size being exceeded; an operation predicting one byte less
    than it requests makes the first forward that needs it throw (negative, reverted).
-3. **The rule.** The available-memory input on `LanguageModelConfig` and `BuildContext`, the
-   rung walk over the whole footprint in all three transformers, the budget constants and
-   row-cost models deleted, `PrefillChunking` renamed. *Verifiable:* the rule tests in section 7,
+3. **The rule.** Free device memory read by Mila (11.3), the rung walk over the whole footprint
+   with rounding included (11.8) in all three transformers, the budget constants and row-cost
+   models deleted, and `PrefillChunking`'s members renamed `fits_available_memory` and
+   `isMemoryConstrained()`. No public input is added. *Verifiable:* the rule tests in section 7,
    and Gate A exact at every rung.
-4. **Callers.** Chat passes its budget to its scan and to its load; MIS and the binding take the
-   default. Chat's fixed allowances are removed: the 10% of the device total that
+4. **Callers.** Chat's automatic-context scan runs after a switch releases the outgoing model, so
+   each prediction reads the free memory the load will see; MIS and the binding change nothing.
+   Chat's fixed allowances are removed: the 10% of the device total that
    `resolveAutomaticContext` holds back (at least 512 MiB) and the 12.5% of the prediction that
    `practicalDeviceBytes` (`Chat.Footprint.ixx:102`) adds. They stack, and they guess. On the
    headless RTX 5060 Ti they grade Gemma 4 26B-A4B FP4 at context 8192 and chunk 64 as 15.83 GiB
    against a 14.34 GiB budget, so the scan finds no context, while section 11.9's measurements put
    the load at chunk 128 about 0.17 GiB under the free memory (derived, with exported weights).
-   Chat's budget becomes the free memory in its process less the identified headroom in 11.6.
    Grading the model catalogue against device capacity rather than free memory
    (`Chat.Footprint.ixx:145`) is a separate question and is not changed here. *Verifiable:* the
-   chunk a scan reports equals the chunk the load builds, at the same input; no fixed percentage
+   chunk a scan reports equals the chunk the load builds when free memory has not changed between
+   them; no fixed percentage
    remains in Chat's fit path; the 26B on the RTX 5060 Ti grades as fitting at the context and
    chunk the rule picks, and does not spill there; a configuration that measurably spills still
    grades as not fitting.
 5. **Documents.** ChatConfiguration.md section 6, `Gemma4InferenceReview.md` 6.4, the budget
    comments in `Gemma.ixx`, `Qwen.ixx` and `Llama.ixx`, and the `PrefillChunking` Doxygen describe
    the rule instead of the budgets.
-6. **Driver rounding -- blocked on 11.8**, which also needs the Linux measurements in 11.10.
+6. **Driver rounding (11.8)** lands with step 3, and step 3's gate covers it. The Linux measurement in 11.10
+   is still owed and does not block it.
 
 The gates for each step are recorded before any run, below.
 
@@ -912,6 +916,185 @@ depends on when the Windows budget cut lands on that display card. All of it is 
 with both GPUs visible. Chat: `ChatRichTextTests` 33 of 33, and piped sessions with Gemma 4 12B FP4 and Llama 3.2
 3B FP4 answer a factual question and write a correct function, both with one GPU visible and with both.
 
+**Phase 6 step 3 gate -- the rule. Written 2026-09-15, before any code or run.**
+
+*What the code does today, which the gate is written against.* Each transformer resolves its chunk in
+`prefillChunking( B, T_ctx )` from a row-cost model and a fixed budget: `Gemma.ixx:464` (budget `:119`, row cost
+`:952`, global KV `:1007`), `Qwen.ixx:525` (budget `:134`, row cost `:938`, KV `:967`) and Llama's free function
+`computePrefillChunking` (`Llama.ixx:85`, cap `:67`). `getRequiredMemory` resolves the chunk first and then sizes
+everything at it (`Gemma.ixx:352`, `Qwen.ixx:447`, `Llama.ixx:383`); `onBuilding` resolves it the same way; the
+model entry points return `prefillChunking( 1, context_length )` beside the memory (`GemmaModel.ixx:610`,
+`QwenModel.ixx:627`, `LlamaModel.ixx:506`). Predicted bytes come from `storageBytes` (68 sites in `Mila/Src`),
+reported bytes from `getStorageSize()` (76 sites in `Mila/Src/Dnn/Components`), and neither rounds. Nothing in
+`Mila/Src` queries the allocation granularity. Chat reads `isBudgetConstrained()` (`Chat.Footprint.ixx:527`), and
+two footprint tests assert that a long context is budget-constrained (`GemmaModel.Footprint.Cuda.cpp:184`,
+`LlamaModel.Footprint.Cuda.cpp:161`).
+
+*What it assumes, to confirm before code:*
+
+- **Free memory reaches the walk inside the transformer.** Chunk resolution reads
+  `DeviceRegistry::instance().getDevice( device )->getMemoryInfo()` for the transformer's own device, at the moment
+  it resolves -- in `getRequiredMemory` and at the start of `onBuilding`, before anything is allocated. The rung walk
+  is a private function that takes the bytes as an argument. `LanguageModelConfig`, `BuildContext`, the entry
+  points and `prefillChunking( B, T_ctx )`'s signature do not change. A reading with `total_bytes == 0` (the CPU
+  device, or a failed query) takes the largest rung the context permits and reports that it fits. A transformer a
+  unit test builds directly reads free memory like any other; its footprint is small, so it takes the largest rung.
+- **The walk asks the prediction.** The body of each `getRequiredMemory` becomes a footprint at a given chunk; the
+  walk calls it from the largest rung down and stops at the first whose `totalDeviceBytes()` is at most the free
+  memory. `getRequiredMemory`, `onBuilding` and `prefillChunking` all go through the walk, so the chunk reported,
+  the chunk built and the footprint reported cannot disagree. Deleted: the three budgets, both `computeChunkRowCostBytes`,
+  `prefillGlobalKvBytes`, `prefillKvBytes`, `computePrefillChunking`, the measured table above `kQwenPrefillActivationBudgetBytes`,
+  and the budget comments. Kept: the rung tables, the floors, `kGemmaPrefillChunkOverride`.
+- **Rounding is applied on both sides of Gate A by one rule.** A helper beside `storageBytes` rounds one
+  allocation's bytes up to a multiple of the granularity when it exceeds 1 MiB, and every prediction and report of a
+  device allocation goes through it, one allocation at a time -- the 68 and 76 sites, the workspaces'
+  `deviceStorageBytes()`, `ropeCacheBytes`, and the scratch reservation. Predicted equals reported therefore still
+  holds exactly, and a site that sums two allocations before rounding breaks it. The CUDA device reads its
+  granularity once with `cuMemGetAllocationGranularity`; how it reaches the helper inside `Mila/Src` is proposed at
+  code time, not assumed here. A device with no granularity (CPU) rounds nothing.
+- **Mila links the CUDA driver API, decided with Todd 2026-09-15.** `cuMemGetAllocationGranularity` is declared in
+  `cuda.h` (CUDA 13.3 `include/cuda.h:13544`), not in the runtime API Mila uses, so `CUDA::cuda_driver` joins the
+  `PUBLIC` CUDA libraries (`Mila/CMakeLists.txt:811`). It adds no compiled unit: `cuda.h` is included by
+  `CudaDevice.ixx` alone, beside a runtime header of the same size. The driver library comes with the NVIDIA
+  driver, so no artifact ships it: the Linux wheel's `auditwheel repair` gains `--exclude libcuda.so.1`
+  (`Docker/build-wheel.sh:110`), and the Windows wheel, which has no repair step, needs nothing.
+  Rejected: the documented 2 MiB written as a constant (a number from the development machine), and measuring
+  one allocation against free memory at run time (anything else allocating in between corrupts it).
+- **Load staging stays outside the rule.** The rule compares the footprint after the load. A load that quantizes
+  its weights adds up to the staging size on top while it runs (11.4); where the driver does not spill, a pick
+  within that of the free memory fails the load. That is left open with the staging size, as 11.4 already says.
+- **Steps 3 and 4 land in one commit.** From step 3 on, Chat's scan reads free memory through the prediction, and
+  today it scans before releasing the outgoing model (`Chat.ixx:1490`), so a switch would scan against the old
+  model's memory until step 4 moves it.
+- **Renames:** `fits_activation_budget` to `fits_available_memory`, `isBudgetConstrained()` to
+  `isMemoryConstrained()`, at their definitions and their three uses.
+
+*Where:* the RTX 5060 Ti pinned by UUID for criteria 1-5, which drives no display, so the Windows budget cut does
+not enter; Qwen 3.8 27B cb2-3 also on the RTX 4070 for criterion 1, the card it is measured on. Criterion 7 in Todd's
+environment: a clean `x64-profile` build with both GPUs visible.
+
+*Criteria:*
+
+1. **Gate A holds with rounding, at every rung.** Predicted equals reported, every category, in every existing
+   component and transformer footprint test, and at model level at each rung the context permits -- forced through
+   a temporary change to the free memory the walk is given, removed after the run -- for Gemma 4 12B FP4 (context
+   8192, rungs 1024 to 64), Qwen 3.8 27B FP4 (context 8192) and cb2-3 (context 4096), and Llama 3.1 8B FP4
+   (context 8192, rungs 512 to 128), from exported weights, and Gemma 4 12B from BF16 weights at its natural pick.
+   The predicted totals at adjacent rungs differ, so equal totals identify the rung built.
+2. **The prediction meets the driver.** After a load, a prefill of one full chunk and eight decode steps,
+   consumed device memory less the predicted total is at least 0 and under 64 MiB, for Gemma 4 12B FP4, Qwen 3.8
+   27B FP4 and cb2-3, and Llama 3.1 8B FP4 at their natural pick. Measured 2026-09-15, the same quantity is 300
+   MiB and 780 MiB without rounding (11.8), so the bound separates predicted rounding from absent rounding.
+   `GetRequiredMemory_BoundsActualConsumption` in both footprint tests keeps its `predicted <= consumed` and
+   tightens its residual bound from a quarter of consumption to 64 MiB.
+3. **The rule picks what 11.2 says.** For each model in criterion 2 at contexts 4096 and 8192, and Gemma 4 12B and
+   Llama 3.1 8B at 16384: the chosen rung's predicted total is at most the free memory read, and either the next
+   rung up exceeds it or the chunk is the largest rung the context permits. Through the temporary change, with the
+   free memory stepped down in 64 MiB steps from the device's total to the weights alone, the chunk never grows as
+   memory shrinks, and below the floor's total the floor is returned with `fits_available_memory` false.
+4. **Prediction and load agree, and only the load warns.** `getDeploymentFootprint` then `fromPretrained`, with
+   nothing allocated between, give equal totals (criterion 1) on every load in criterion 2. A prediction whose floor
+   does not fit logs nothing; the build of the same deployment logs exactly one warning.
+5. **Section 11.9 comes true.** With one GPU visible, Qwen 3.8 27B FP4 at context 8192 on the RTX 5060 Ti takes a
+   rung above 64 and generates; Gemma 4 26B-A4B FP4 at context 8192 takes a rung whose predicted total fits its free
+   memory and its load consumes no more than the free memory it read. Each pick is recorded against 11.9's.
+6. **The gate can fail.** Each of these edits must fail the criterion named, and is reverted:
+   - rounding removed from the helper, on both sides at once: criterion 2 (Gate A still passes, which is why
+     criterion 2 exists)
+   - one site rounding the sum of two allocations instead of each: criterion 1
+   - the walk returning the rung above the first that fits: criterion 3
+   - `onBuilding` resolving against a fixed free-memory figure instead of the reading: criterion 4
+7. **Nothing else moves.** All targets build. The full suite passes in Todd's environment with zero failures and
+   nothing newly disabled or skipped, with the temporary change and negatives removed; Gemma 4 12B token parity,
+   the Qwen and 26B layer-streamed harnesses, `QuantizeOnLoad.Footprint.Cuda.cpp` and `ScratchReservation.Cuda.cpp`
+   included. The two tests that assert a budget-constrained long context are rewritten to criterion 3's properties
+   against the free memory they read. Footprint literals that change by exactly their rounding are updated and
+   listed with the rounding bytes. The new link reaches every consumer: the FetchContent and CPM packaging
+   gates configure, build and link; the Linux CUDA build links in WSL with CI's configure; a Linux wheel built by
+   `Docker/build-wheel.sh` does not contain `libcuda`; the Windows wheel imports in a clean environment. The
+   peak memory of a clean `x64-profile` build is recorded before and after the change. Chat: `ChatRichTextTests`, and a piped session with Gemma 4 12B FP4 and Llama 3.2
+   3B FP4 under automatic context, including a switch between them.
+
+*Measured and recorded, not asserted:* the time one chunk resolution takes on Gemma 4 12B, the 26B and Qwen 3.8 27B,
+warm; and the wall time of Chat's automatic-context scan for Gemma 4 12B FP4 before and after, since 11.2 says a walk
+multiplies the cost of each prediction and that cost inside the scan was never measured.
+
+**Phase 6 step 3 result, criteria 1-6 (2026-09-15, RTX 5060 Ti with one GPU visible unless named).** Criterion 7,
+the measured costs and step 4 are not done; this is not a green result.
+
+| Criterion | Result |
+|---|---|
+| 1. Gate A with rounding, every rung | predicted equals reported, every category, to the byte: Gemma 4 12B FP4 at context 8192, rungs 64-1024; Llama 3.1 8B FP4 at 8192, rungs 128-512; Qwen 3.8 27B FP4 at 8192, rungs 64-512; cb2-3 at 4096, rungs 64-1024 on the RTX 5060 Ti and 64-512 on the RTX 4070. Not loaded because the rung exceeds the card's free memory: Qwen FP4 rung 1024 (15.397 GiB against 14.816 free) and cb2-3 rung 1024 on the RTX 4070 (by 5 MiB). The full suite, every existing footprint test included, passed before the codebook fix below: 1968 run, 1967 pass, 1 skipped (Swiglu BF16 backward); it is rerun under criterion 7. |
+| 2. The prediction meets the driver | consumed less predicted, after a full-chunk prefill and eight decode steps: Gemma 4 12B 22.3 MiB, Llama 3.1 8B 22.0, cb2-3 32.5, Qwen FP4 42.6, all at context 8192. After the load alone, in the two Gate B tests: Gemma 4 12B 6 MiB, Llama 3.1 8B 8 MiB, from 298 and 33 MiB before rounding. |
+| 3. The rule picks what 11.2 says | zero violations over free memory stepped down in 64 MiB from the device total to the weights: Gemma 4 12B and Llama 3.1 8B at 4096, 8192 and 16384; Qwen FP4 and cb2-3 at 4096 and 8192. Every drop in chunk happened where the larger rung's total first exceeded the free memory. |
+| 4. Prediction and load agree, only the load warns | equal totals on every load in criterion 1. With free memory below Gemma 4 12B's floor: the prediction logged no warning, the build of the same deployment exactly one. |
+| 5. Section 11.9 comes true | Qwen 3.8 27B FP4 at 8192 takes 512 rows (64 before; 11.9 predicted 512) and generates. Gemma 4 26B-A4B FP4 at 8192 takes 256 rows (11.9 predicted 256): 14.777 GiB predicted against 14.803 free, 14.791 consumed, 12 MiB left, greedy tokens unchanged. |
+
+**Negatives, criterion 6.** Each failed the criterion named, and was reverted:
+
+- rounding removed from the helper on both sides: criterion 2, residual 306.8 MiB on Gemma 4 12B, while Gate A still
+  held at all five rungs -- which is why criterion 2 exists
+- Linear's weight and scales rounded as one allocation: criterion 1, parameter bytes 6,830,943,744 predicted against
+  7,090,695,680 reported on Gemma 4 12B, at every rung
+- Qwen's walk returning the rung above the first that fits: criterion 3, 20 picks whose total exceeded the free memory
+- Llama's build resolving with no free-memory reading: criterion 4 (read through Gate A at forced rungs), state
+  2,004,363,776 predicted against 4,577,569,280 built at rung 128, the build having taken 512
+
+**A defect criterion 1 found, fixed.** `Linear::getMemoryStats` never reported a codebook format's table and high-bit
+plane, which `getRequiredMemory` has always counted, so a loaded cb2-3 reported 960 MiB fewer parameter bytes than it
+holds, on both cards. No earlier test compared cb2-3's parameter bytes. Both are now reported.
+
+**Changes the result forced.** The Gemma 4 26B-A4B FP4 test's three layout literals changed by exactly their rounding
+(one layer's bank 428,212,224 to 432,013,312 bytes), and its skip on not fitting became the failure its comment
+promised once this rule landed. The test stays disabled: in a process that sees both GPUs it targets the 12 GiB card.
+
+**Open, found by the run.** On the RTX 4070, which drives a display, the two Gate B tests measure 224 and 225 MiB
+beyond the prediction, the Windows budget cut in 11.5, and fail the 64 MiB bound criterion 2 set for them. How the
+permanent tests treat a display card is undecided.
+
+**Criterion 7, in progress.** Every Windows target builds, and the full suite passes on the RTX 5060 Ti pinned by
+UUID: 1968 run, 1967 pass, 1 skipped. The FetchContent consumer configures, builds and links, with the driver
+library on its link line. In WSL with CI's configure, the CUDA build passes in 1520 seconds and the CPU-only build
+in 469; clang caught one portability defect this change introduced, a missing `import Dnn.RuntimeMode;` in the three
+transformers, since fixed. Two deviations from CI, both recorded rather than worked around: the local CUDA configure
+turns the Python bindings off, because this machine has no Python development headers, and the local CPU suite run
+under `ctest -j 4` fails 15 tests that pass on Windows from the same tree and pass when rerun alone, which is test
+parallelism rather than this change. A full rebuild with the change peaks at 1,410 MiB in its largest compiler process
+and 12,108 MiB across every compiler process at once, at ninja's default parallelism on ten cores.
+
+**Not run, and why.** Three of criterion 7's checks were declined rather than forced, Todd 2026-09-15:
+
+- **The before-and-after build memory comparison.** The "before" half needs the committed tree built separately, and
+  the figure above is the "after" half alone. What the link adds is one library on the link line and no new translation
+  unit, and the largest single compiler process sets a build's memory floor.
+- **The Linux wheel.** `Docker/build-wheel.sh` clears `out/wheel/mila_llm-*linux*.whl` before building, and that
+  directory holds the released beta.3 wheels. The `--exclude libcuda.so.1` line is therefore reviewed, not exercised;
+  the next release build exercises it.
+- **The Windows wheel import.** Its script builds into the `x64-wheel` preset directory, which is not this session's
+  to overwrite.
+
+**The two measured costs are not measured.** The gate asks for the time of one chunk resolution and for Chat's
+automatic-context scan before and after. The "before" scan cannot be timed without the committed tree, for the same
+reason as the build comparison, and neither figure gates anything: the walk asks the same prediction at up to five
+rungs, and the scan's own probes are what dominate it.
+
+Still owed: the run in Todd's environment.
+
+**Phase 6 step 4 result (2026-09-15).** Chat's two fixed allowances are gone: `resolveAutomaticContext` budgets against
+the device's free memory with nothing held back, and `practicalDeviceBytes` -- the 12.5% it added to every prediction --
+is deleted, so `gradeFootprint` grades the prediction itself. Because every prediction now picks its chunk against free
+memory, a scan taken while a model is resident measures a card that still holds it, so Chat releases first: a model
+switch releases before the scan it already released before the load, and `/context auto` releases, scans, then loads.
+`/context` and the "context N would fit" suggestion read the scan the last load ran, carried in one session member,
+rather than taking a new one; before the first such scan, `/context` reports the number startup resolved. MIS, the
+Python binding and the catalogue's grading against device capacity are unchanged.
+
+Verified in piped sessions on the RTX 5060 Ti: Llama 3.2 3B FP4 opens at 62464 under auto and `/context` names it as
+measured at startup; `/model load gemma-4-12b-it-fp4` switches, resolves 131072 for Gemma after the release, and
+`/context` then reports 131072 from that scan; the switched-in model answers correctly. `/context auto` on Llama
+releases, scans, reloads, and `/context` afterwards reports that scan, held back to keep a full prefill chunk.
+`ChatRichTextTests` passes 33 of 33, and the full suite passes 1967 with none failing.
+
 ---
 
 ## 10. Non-Goals
@@ -923,18 +1106,18 @@ with both GPUs visible. Chat: `ChatRichTextTests` 33 of 33, and piped sessions w
   and Phase 1-5 leave it zero.
 - **A `mila.json` schema change.** The geometry is already in the artifact header.
 - **Operating system memory policy.** Windows budget changes are measured and recorded (11.5), not
-  predicted. A caller that runs where they apply leaves headroom.
+  predicted, and Mila holds no memory back for them (11.3).
 
 ---
 
 ## 11. Prefill Chunk Rule
 
-**DRAFT 2026-09-13, for review. Section 11.8 is open.** Decided with Todd on 2026-09-13: the rule in
-11.2; that scratch is predicted rather than allowed for; that Mila predicts only its own allocations and
-leaves headroom for machine and operating system behaviour to the caller; and that no number measured on
+**DRAFT 2026-09-13, for review.** Decided with Todd on 2026-09-13: the rule in 11.2; that scratch is
+predicted rather than allowed for; that Mila predicts only its own allocations; and that no number measured on
 the development machine enters `Mila/Src`, because Mila is a static library inside the user's `main()`.
 Zero-filling memory to make the driver commit it was dropped earlier as redundant and slow; nothing here
-depends on it.
+depends on it. Decided on 2026-09-15: available memory is read by Mila with no public input (11.3), and the
+driver's rounding of Mila's allocations is predicted (11.8).
 
 ### 11.1 What is wrong today
 
@@ -964,7 +1147,7 @@ no such BACKLOG item.
   workspaces, the GQA transient and every chunk-scaled buffer -- plus predicted scratch (11.4). It comes
   from the same `getRequiredMemory` arithmetic that reports the footprint, so the number the rule compares
   is the number the footprint reports at that rung. There is no separate row-cost model to drift from it.
-- **Available device memory** is an input (11.3).
+- **Available device memory** is the device's free memory, read by Mila (11.3).
 
 The rungs are walked from the largest down, and the first that fits is the chunk. One rule serves Gemma,
 Qwen and Llama. Routed layers need nothing of their own: their per-layer buffers are already in the
@@ -981,22 +1164,27 @@ prediction costs 1-2 ms warm, so a full walk stays near 10 ms, and most walks st
 rung. What that does to Chat's automatic-context scan, which predicts at every candidate context, is not
 yet measured.
 
-### 11.3 Available device memory is an input
+### 11.3 Available device memory is read by Mila
 
-`LanguageModelConfig` gains the device memory the caller allows the model to use,
-`withAvailableDeviceMemory( std::size_t bytes )`, and the model entry points pass it to the transformer
-through `BuildContext`, the way they pass the context length.
+**Decided with Todd, 2026-09-15: there is no public input.** Nothing on `LanguageModelConfig`, the model
+entry points or the Python binding changes. An input was drafted here so a caller could hold memory back for
+what the prediction leaves out; no end user was found who would set it, and the largest term it would have
+covered, driver rounding, is predicted instead (11.8).
 
-- **Set by the caller:** used as given. This is how a caller keeps headroom for what the prediction does
-  not count (11.5): it passes less than the device has free.
-- **Not set:** `fromPretrained` and `getDeploymentFootprint` read the device's free memory through
-  `Device::getMemoryInfo()`, after constructing the network and before building it. A prediction then
-  describes the load that would happen at that moment. Two predictions made at different moments can
-  therefore disagree; a caller that scans, such as Chat, sets the input.
-- **A transformer built directly** without the input, as unit tests do, uses the largest rung the context
-  permits, so those builds stay deterministic.
+- **What is read:** the device's free memory, through `Device::getMemoryInfo()`, when the chunk is resolved --
+  in `fromPretrained` and in `getDeploymentFootprint`. A prediction describes the load that would happen at
+  that moment, so two predictions made at different moments can disagree.
+- **What is left out:** the fixed remainder (11.5) and the small-allocation overhead (11.8), under 30 MiB
+  together on the models measured, and on a card that drives a display the Windows budget cut (11.5). Mila
+  holds nothing back for any of them. A pick that leaves less than the cut free on a display card spills once
+  Windows lowers the budget; a pick that leaves less than the shortfall free fails where the driver does not
+  spill (11.10).
+- **Only device bytes count.** Host-resident allocations, such as Qwen's embedding table, do not.
 
-Only device bytes count. Host-resident allocations, such as Qwen's embedding table, do not.
+**Open for the Phase 6 step 3 gate:** how the free memory reaches each transformer's rung walk without a
+public addition, and what a transformer built directly, as unit tests do, uses. To confirm there: the
+transformer reads it from its own device where it resolves the chunk, and the rung walk takes it as an
+argument so the rule tests in section 7 can give it a fixed value.
 
 ### 11.4 Scratch is predicted
 
@@ -1050,10 +1238,10 @@ What remains between the prediction and the memory in use:
 
 | Term | Measured | Owner |
 |---|---|---|
-| Driver rounding of each allocation | 0.02-0.73 GiB across the models tested | open, 11.8 |
+| Driver rounding of each allocation | 0.02-0.73 GiB across the models tested | predicted, 11.8 |
 | Scratch | 0.07-0.25 GiB | predicted, 11.4 |
-| Fixed remainder, including the 4 MiB cuBLASLt workspace | 0.02-0.07 GiB | caller headroom |
-| Windows budget cut on a card that drives a display | 313-319 MiB on the RTX 4070; none on the headless RTX 5060 Ti | caller headroom |
+| Fixed remainder, including the 4 MiB cuBLASLt workspace | 0.02-0.07 GiB | not predicted (11.3) |
+| Windows budget cut on a card that drives a display | 313-319 MiB on the RTX 4070; none on the headless RTX 5060 Ti | not predicted (11.3) |
 
 **The fixed remainder** is the same after the load as after the prefill in every run; it does not grow
 with use.
@@ -1063,27 +1251,26 @@ display: once the process has written about 8.1 GiB, Windows lowers the process'
 326 MiB, then returns 12 MiB. CUDA's free memory equals that budget less the process's usage at every
 reading, so it falls by the same amount. Memory that is allocated but never written does not trigger it.
 Reserving memory up front (`SetVideoMemoryReservation`) does not prevent it, and neither the trigger nor the
-size can be read before it happens. It is Windows policy on that machine, so `Mila/Src` does not model it;
-a caller on a display card leaves headroom. A caller that wants to know whether a card drives a display can
+size can be read before it happens. It is Windows policy on that machine, so `Mila/Src` neither models it nor
+holds memory back for it (11.3). A caller that wants to know whether a card drives a display can
 ask NVML's display mode, which reported 1 for the RTX 4070 and 0 for the RTX 5060 Ti.
 
-None of the measured sizes in this section is a constant in `Mila/Src`. They are recorded so a caller can
-choose its headroom knowingly.
+None of the measured sizes in this section is a constant in `Mila/Src`. They record the size of what the
+prediction leaves out.
 
 ### 11.6 Callers
 
-- **Chat** passes one budget to every prediction in a scan and to the load that follows, so the chunk the
-  scan chose is the chunk the load builds. The budget is the device's free memory read in Chat's process,
-  less headroom only for causes that are identified and apply to this device: the Windows budget cut when
-  the card drives a display (11.5), and driver rounding as 11.8 decides. The fixed allowances Chat uses
-  today -- 10% of the device total in `resolveAutomaticContext` and 12.5% of the prediction in
-  `practicalDeviceBytes` -- are removed, not re-tuned (Phase 6 step 4). They stood in for scratch, rounding
-  and the display cut without knowing which applied, so a headless card paid for all three. "Held to a full prefill chunk" keeps its meaning: the available memory forced a rung
-  below the largest the context permits.
-- **MIS and the Python binding** call `from_store( name, context_length, device_index )` without a memory
-  input, so they get the device-reported default. Exposing the input through the binding is not part of
-  this change.
-- **A user's own `main()`** gets the default, or sets the input.
+- **Chat** predicts against the free memory the load will see. Under automatic context a model switch
+  releases the outgoing model before the scan; today the scan runs first, against device capacity
+  (`Chat.ixx:1490`). The chunk a scan reports is then the chunk the load builds, as long as free memory does
+  not change in between. The fixed allowances Chat uses today -- 10% of the device total in
+  `resolveAutomaticContext` and 12.5% of the prediction in `practicalDeviceBytes` -- are removed, not
+  re-tuned (Phase 6 step 4). They stood in for scratch, rounding and the display cut without knowing which
+  applied, so a headless card paid for all three. What Chat tells the user on a card that drives a display
+  is decided at the step 4 gate. "Held to a full prefill chunk" keeps its meaning: the available memory
+  forced a rung below the largest the context permits.
+- **MIS, the Python binding and a user's own `main()`** change nothing: the entry points they already call
+  read the free memory.
 
 ### 11.7 When nothing fits
 
@@ -1094,31 +1281,61 @@ process that sees more than one GPU, the build throws `CudaBadAlloc` if the devi
 11.10). The library does not refuse ahead of that, and whether to warn, proceed or refuse
 is the caller's decision. A prediction never warns.
 
-`PrefillChunking::fits_activation_budget` and `isBudgetConstrained()` are renamed to name available
-memory, since no activation budget remains.
+`PrefillChunking::fits_activation_budget` and `isBudgetConstrained()` are renamed `fits_available_memory`
+and `isMemoryConstrained()` (confirmed 2026-09-15), since no activation budget remains.
 
-### 11.8 Open: driver allocation rounding
+### 11.8 Driver allocation rounding
 
-Decision pending, Todd, 2026-09-13. The facts:
+**Decided with Todd, 2026-09-15: the footprint predicts rounding.** A device allocation larger than 1 MiB
+counts as its size rounded up to a multiple of the device's allocation granularity. An allocation of 1 MiB or
+less counts as its size.
 
-- **Measured** on both cards, Windows, one driver version: a `cudaMalloc` larger than 1 MiB occupies the
-  next multiple of 2 MiB. Smaller ones are packed into shared 2 MiB blocks, how many per block depending on
-  the size. Across the models tested the rounding is 0.02 GiB (Llama 3.1 8B at 512 rows, 943 allocations)
-  to 0.73 GiB (Qwen 3.8 cb2-3, 2087 allocations), and it moves with the chunk: Gemma 4 12B is 0.27 GiB at
-  1024 rows and 0.40 GiB at 64.
-- **Documented:** `cudaMalloc` promises memory "suitably aligned for any kind of variable"
-  (`cuda_runtime_api.h`) and states no granularity. The virtual memory API does state one: `cuMemCreate`
-  sizes must be multiples of `cuMemGetAllocationGranularity`, which returned 2 MiB on both cards.
+- **Documented:** CUDA packs requests of 1 MiB or less into shared blocks and rounds larger ones up to the
+  allocation granularity. `cuMemGetAllocationGranularity` returned 2 MiB on both cards.
+- **Size:** across the models tested the rounding is 0.02 GiB (Llama 3.1 8B at 512 rows) to 0.73 GiB
+  (Qwen 3.8 cb2-3), and it moves with the chunk: Gemma 4 12B is 0.27 GiB at 1024 rows and 0.40 GiB at 64.
 - **Not measured:** Linux, and other driver versions.
 
-Until this is decided, the rule compares the unrounded footprint and rounding is part of the caller's
-headroom.
+**Measured 2026-09-15** on the RTX 5060 Ti, which drives no display. Every device allocation site was logged
+by temporary code, since removed. The allocations live after a load and a full-chunk prefill were replayed
+in their original order in a process with nothing else on the device; each replay ran twice with identical
+results.
+
+| Model, chunk | Allocations over 1 MiB | Their rounding, measured | Rounded up to 2 MiB, predicted | Allocations of 1 MiB or less | Their packing overhead | Model process beyond the replay |
+|---|---|---|---|---|---|---|
+| Qwen 3.8 27B cb2-3, 256 | 876 | 765.6 MiB | 765.6 MiB | 1284 | 12.7 MiB | about 14 MiB |
+| Gemma 4 12B FP4, 1024 | 414 | 284.4 MiB | 284.4 MiB | 1212 | 2.1 MiB | about 14 MiB |
+
+The rule for large allocations is exact. The prediction therefore falls short of what a load consumes by the
+small-allocation overhead and the fixed remainder (11.5), under 30 MiB on both models and below the 50-70 MiB
+run-to-run noise in free memory (6.4). The shortfall is always in the same direction; nothing models it.
+
+**How accurate the rule needs to be.** The prediction only chooses a rung, so it needs to be accurate enough to
+choose the right one. Prefill time for a 4096-token prompt at context 8192, measured the same day on the same
+card, each rung against the one above it, three runs each with a spread under 0.3%:
+
+| Step | Gemma 4 12B FP4 | Qwen 3.8 27B cb2-3 |
+|---|---|---|
+| 1024 to 512 | +3% | +8% |
+| 512 to 256 | +29% | +15% |
+| 256 to 128 | +63% | +37% |
+| 128 to 64 | +84% | +55% |
+
+Qwen 3.8 cb2-3 on the RTX 4070 at context 4096 followed the same shape (+9%, +24%, +38%, +63%), but its
+1024-row load left no free memory, so its first step may include spill. Unpredicted, rounding exceeds a rung's
+memory step on Qwen, so leaving it to the caller either costs rungs worth 15% or more or makes the load spill.
+Predicted, what remains is too small to change a rung.
+
+Carried to the Phase 6 step 3 gate, to confirm there: rounding is applied per allocation by one helper beside
+`storageBytes`, including the allocations that bypass the allocator (scratch, RoPE tables, the cuBLASLt
+workspace); the granularity is read from the device, not written as a constant; the rounded bytes are reported
+in the existing `MemoryStats` fields rather than a new one; and Linux takes the same rule (11.10).
 
 ### 11.9 What the rule picks on the measured models
 
 Predicted footprint plus the scratch measured for each model, identical on both cards. Free memory was
 measured inside the test process: 14.82 GiB on the RTX 5060 Ti, 10.85 GiB on the RTX 4070. "Rule" is the
-rung this section picks with that free memory as the input and nothing held back.
+rung this section picks with that free memory as the available memory.
 
 | Model, context | Card | Today | Rule |
 |---|---|---|---|
@@ -1131,8 +1348,8 @@ rung this section picks with that free memory as the input and nothing held back
 Three of the five picks -- the 26B, the 12B and cb2-3 -- leave less than 0.15 GiB of the free memory
 unused, and 11.5 measured more than that beyond prediction plus scratch for each: 0.36 GiB for the 26B on
 the RTX 5060 Ti, and on the RTX 4070 the rounding and fixed remainder plus about 0.31 GiB of budget cut. With
-nothing held back, those three loads would spill. The input exists so a caller can hold memory back; the
-rounding decision (11.8) sets how much of that is left to the caller.
+nothing held back, those three loads would spill. Rounding, the largest of those terms, is predicted (11.8);
+the picks in this table predate that decision and do not include it.
 
 The 26B row was measured quantizing on load, so its scratch is 0.25 GiB of load staging. Once staging
 belongs to the load (11.4) it is expected to fall to the 0.07-0.11 GiB the exported models measured. That
@@ -1147,12 +1364,15 @@ differ, and what is not:
   has no per-process video memory budget.
 - **Running out fails instead of spilling.** An allocation past the device's memory throws `CudaBadAlloc`
   during the build; there is no shared-memory fallback. Chat already words its warning for this
-  (`kDriverOversubscribesToHostMemory`, `Chat.Footprint.ixx`). On Linux the memory a caller holds back is
-  the difference between a load that runs and one that fails, not between fast and slow.
+  (`kDriverOversubscribesToHostMemory`, `Chat.Footprint.ixx`). On Linux, and on Windows in a process that
+  sees more than one GPU, a prediction that falls short of consumption is the difference between a load that
+  runs and one that fails, not between fast and slow. With rounding predicted (11.8) the shortfall measured
+  on Windows is under 30 MiB, and nothing holds it back (11.3).
 - **Free memory is the whole device's.** `cudaMemGetInfo` reports what is free on the device across all
   processes; there is no per-process budget to read.
-- **Driver rounding is unmeasured.** 11.8's measurements have to be repeated on the Linux driver before a
-  rounding decision can cover Linux.
+- **Driver rounding is unmeasured.** Linux takes the rule in 11.8. A driver that rounds finer than the
+  granularity it reports makes the prediction high, which costs at most a rung; one that rounds coarser makes
+  it low. Only a measurement on the Linux driver tells which.
 - **WSL2 does not stand in for it.** Mila's Linux build runs GPU work under WSL2 on the development
   machine, but WSL2 reaches the GPU through the Windows driver, so it would measure the Windows driver
   again. The Linux numbers need a native Linux machine with an NVIDIA GPU, and none is available as of

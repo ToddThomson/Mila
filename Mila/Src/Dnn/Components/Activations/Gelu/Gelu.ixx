@@ -30,6 +30,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorTypes;
 import Dnn.ApproximationMethod;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -451,11 +452,11 @@ namespace Mila::Dnn
 
             if ( output_ != nullptr )
             {
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
             }
             if ( input_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += input_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *input_grad_ );
             }
             
             return stats;

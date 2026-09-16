@@ -227,26 +227,26 @@ namespace Mila::Dnn
      * and a chunk size is a single decision the transformer makes rather than a quantity
      * children contribute to.
      *
-     * Both families resolve the chunk by walking a rung table downward and taking the largest
-     * rung whose row cost fits an activation budget. The budget shrinks as context grows,
-     * because the KV cache it shares VRAM with grows, so a longer context can silently buy a
-     * smaller chunk. That is the fact this type exists to make askable.
+     * Every family takes the largest rung of its table whose whole predicted footprint fits the
+     * device's free memory. A longer context, or less free memory, can therefore buy a smaller
+     * chunk, and that is the fact this type exists to make askable. See
+     * Specifications/MemoryFootprint.md section 11.
      */
     export struct PrefillChunking
     {
         /// Rows per prefill chunk this context length would use.
         dim_t chunk_rows{ 0 };
 
-        /// The largest rung this context length permits before the activation budget is
-        /// applied. Equal to chunk_rows when the budget did not reduce the chunk.
+        /// The largest rung this context length permits, memory aside. Equal to chunk_rows when
+        /// the free memory did not reduce the chunk.
         dim_t unconstrained_chunk_rows{ 0 };
 
-        /// False when even the floor rung exceeds the budget, so chunk_rows is the floor used
-        /// in spite of the budget rather than one that fits under it.
-        bool fits_activation_budget{ true };
+        /// False when even the floor rung does not fit the free memory, so chunk_rows is the floor
+        /// used in spite of it rather than one that fits.
+        bool fits_available_memory{ true };
 
-        /// True when the activation budget forced a smaller chunk than the context permits.
-        [[nodiscard]] bool isBudgetConstrained() const noexcept
+        /// True when the free memory forced a smaller chunk than the context permits.
+        [[nodiscard]] bool isMemoryConstrained() const noexcept
         {
             return chunk_rows < unconstrained_chunk_rows;
         }

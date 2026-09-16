@@ -327,7 +327,7 @@ and the load predicts 83.8 MiB over; Qwen needed its own smaller constant for th
 12 GB card. `Gemma.ixx:116` and `Gemma4InferenceReview.md:531` both call the live-memory version a
 BACKLOG follow-up, and `BACKLOG.md` has no such item. Direction agreed 2026-09-13, taken up in its own
 session: the largest rung whose whole predicted footprint fits the available memory. Specified as a draft in
-`Mila/Specifications/MemoryFootprint.md` section 11; driver allocation rounding (11.8) is still open.
+`Mila/Specifications/MemoryFootprint.md` section 11; driver allocation rounding (11.8) decided 2026-09-15: predicted.
 
 Its visible symptom, `GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp`, is now **disabled**
 (`DISABLED_Fp4Load_FitsSection8AndMatchesHuggingFaceGreedy`, 2026-09-14, Todd: fix during rc.1). On the RTX 5060 Ti

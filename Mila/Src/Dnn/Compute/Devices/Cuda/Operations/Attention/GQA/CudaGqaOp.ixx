@@ -32,6 +32,7 @@ import Dnn.TensorOps;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
@@ -367,7 +368,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const dim_t kv_heads = config_.getNumKvHeads();
             const dim_t head_dim = config_.getHeadDim();
 
-            return 2 * storageBytes<TPrecision>( batch * kv_heads * capacity * head_dim );
+            return 2 * occupiedDeviceBytes( storageBytes<TPrecision>( batch * kv_heads * capacity * head_dim ),
+                allocationGranularity( context_->getDeviceId() ) );
         }
 
         std::size_t getScratchBytes() const override
@@ -642,7 +644,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             auto make = [&]( const shape_t& shape, const std::string& name )
                 {
                     auto tensor = std::make_shared<TensorType>( device, shape, name );
-                    state_memory_size_ += tensor->getStorageSize();
+                    state_memory_size_ += occupiedTensorBytes( *tensor );
 
                     return tensor;
                 };
