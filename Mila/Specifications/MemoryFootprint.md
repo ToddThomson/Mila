@@ -912,7 +912,7 @@ GiB, the allocation fails, and `CudaDeviceMemoryResource::do_deallocate` rethrow
 4 12B context 8192 and cb2-3 cases), 24 disabled. Which cases the growth check skips, and whether
 `QuantizeOnLoad.Footprint.Cuda.cpp`'s Gemma 4 12B comparison fails (323 MiB in one run, a pass in the next),
 depends on when the Windows budget cut lands on that display card. All of it is tracked in
-`Mila/Issues/Untriaged.md` for rc.1. The cb2-3 tests, including the new context 4096 case, pass on the RTX 4070
+`BACKLOG.md` for rc.1. The cb2-3 tests, including the new context 4096 case, pass on the RTX 4070
 with both GPUs visible. Chat: `ChatRichTextTests` 33 of 33, and piped sessions with Gemma 4 12B FP4 and Llama 3.2
 3B FP4 answer a factual question and write a correct function, both with one GPU visible and with both.
 

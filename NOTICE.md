@@ -48,5 +48,4 @@ Mila is no longer distributed only as source. The `mila-llm` wheels on PyPI and 
 on Docker Hub are **binary distributions that link this material** — the wheels carry nlohmann/json,
 miniz, CUTLASS and pybind11, and the container images additionally carry curl. Those distributions
 have to carry these notices. Whether each published artifact does is recorded as an open item in
-[`Mila/Issues/Untriaged.md`](Mila/Issues/Untriaged.md); this table is the source it should be built
-from.
+[`BACKLOG.md`](BACKLOG.md); this table is the source it should be built from.

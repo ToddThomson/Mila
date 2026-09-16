@@ -141,16 +141,6 @@ Drop `Json.ixx` from the target and import `nlohmann.json` everywhere.
 It needs a file with a backdated write time. Make the threshold a constructor parameter so a test
 can set it to zero — a better shape than backdating with `last_write_time()`.
 
-## Two CUDA memory resources throw an allocation failure with no message
-
-`mila-src`
-
-`CudaManagedMemoryResource.ixx:85` builds a detailed error message and then throws a bare
-`std::bad_alloc`, discarding it; `CudaPinnedMemoryResource.ixx:101` throws with no message at all.
-
-`CudaDeviceMemoryResource` gets this right — align both on `CudaBadAlloc` so an OOM says which
-device, which size, which resource.
-
 ## `actions/setup-python@v5` still declares Node 20, which GitHub has deprecated
 
 `ci`

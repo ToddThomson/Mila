@@ -98,6 +98,13 @@ gpt-oss-20b. [[project_moe_tentpole_direction]]
 Design of record: `Specifications/MixtureOfExperts.md`. Gemma 26B-A4B implementation record, with its
 block topology resolved: `Specifications/Gemma4MoE.md`.
 
+The expert bank borrows Linear's quantizer by reaching into its kernel header:
+`CudaMoeOp::quantize` includes `../Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh` and
+calls `Linear::cuda_quantize_fp4_per_group` (`CudaMoeOp.ixx:169`), so a change made for Linear lands
+silently in the MoE bank. The E2M1 decode was lifted to `Helpers/Fp4E2M1.h`; the encode was not, and
+`CudaTokenEmbeddingOp:Quantize` has its own copy. Move the per-group FP4 quantizer to a shared
+location both import.
+
 ## Gemma 4 MTP
 
 `models` · `mila-src`
@@ -150,7 +157,7 @@ TWeightQuantization` is erased only at the session PIMPL. `Mila_py.Wrappers.ixx:
 
 `api` · `mila-src` · `breaking`
 
-The pre-1.0 consistency pass, and the precursor to any API-stability promise. Three named items.
+The pre-1.0 consistency pass, and the precursor to any API-stability promise. Named items:
 
 **`loadModel`/`saveModel` and `loadCheckpoint`/`saveCheckpoint`** — verb plus what you get, both
 directions. "Pretrained" is relative to a fine-tuning stage Mila does not have and is doubly wrong
@@ -179,6 +186,20 @@ indistinguishable. `TransformerApiReadiness.md` item 8 argues this at network le
 **`AttentionOutputGate` has two callers and one of them is not attention.** `QwenDeltaNetBlock` uses
 it for the mixer's output gate. The component is mechanically generic (`out = TGate(gate) * value`);
 the name is not. Rename, or accept the mismatch deliberately. `Components/Attention/OutputGate/`
+
+**A public component method takes a type the umbrella does not export.**
+`QwenDeltaNetBlock::setState( const GqaState& )` (`Qwen.DeltaNetBlock.ixx:363`) is public, but
+`Mila.ixx` never exports `Compute.GqaState`, so an `import Mila;` consumer cannot call it. MSVC
+accepts the name through the component modules and clang does not, so the class fails asymmetrically
+and goes unnoticed. Either `GqaState` joins the export list or `setState` leaves the public surface —
+and the same question applies to every type named in a public component signature, since nothing
+checks it. Do not narrow the umbrella to answer it; that was measured and reverted.
+
+**A composite cannot keep a derived child out of its flat save.** `Router` holds an `RmsNorm` whose
+weight is derived from `scale`, so it overrides `saveFlatTensors` and re-spells its children by hand
+(`Router.ixx:185`), because `CompositeComponent::childFlatPrefix` (`CompositeComponent.ixx:1070`) is
+private and the base walk (`:749`) cannot exclude a child. That is a second copy of the flat-naming
+rule. A per-child "derived, not serialized" marker, or `childFlatPrefix` made protected.
 
 ## `#ifdef` inside module purviews
 
@@ -232,6 +253,11 @@ policy and are untied. Three fixes, each mirroring Gemma — pass the policy to 
 
 Llama's `preatt`/`att` also span the full context where Gemma's ring does not. Separate, and
 dominant at long context. [[project_llama_chassis_memory_gates]]
+
+Llama also still holds the GQA transient as seven loose `unique_ptr` members (`Llama.ixx:710`),
+builds `GqaState` by hand and sums them in a hand-written `getMemoryStats` list — the list that
+under-counts silently when a tensor is added. Qwen and Gemma moved to `GqaWorkspace`; for Llama it is
+one member, one factory call, two accounting lines.
 
 ## `FamilyTraits::default_context` is a compiled-in guess
 
@@ -365,6 +391,21 @@ Docker build context until `.dockerignore` excluded them.
 
 Clean stale ones on build, or stage outside the source tree.
 
+The same class once left two 16 MB `.pyd` fossils under
+`Mila/Tests/Packaging/{fetchcontent,cpm}_consumer/Mila/Adaptors/Inference/Server/` for six weeks,
+from a source-relative copy that a subproject build pointed at the consumer's root. They are gone;
+nothing would notice the next ones. A packaging gate that asserts the fixture directories are clean
+afterwards would.
+
+## Publishing the container images compiles the tree twice
+
+`ci` · `build`
+
+`publish-image.sh` forces `MILA_CLEAN_BUILD=1` on every run, because `--no-cache` leaves BuildKit's
+cache mounts intact and that once shipped wrong images. RELEASING builds to verify at step 9.3 and
+again to push at step 9.6: 33m17s then 38m45s, five or six minutes of it upload. A push-only mode
+halves it at the cost of the guarantee that what ships is what was gated — a trade, not a fix.
+
 ## Stage model weights off the Windows bind mount for the container
 
 `perf` · `build`
@@ -413,8 +454,13 @@ in docs.
 
 `build`
 
-It is per-target on `ChatApp` today. If `MilaTests`, `ProfileModel` or `ExportArtifact` hit it,
-switch to one `add_compile_options`. **Todd's call** — it touches every target's flags.
+It is per-target on `ChatApp` and, since the Gemma 4 MoE dispatch, on `ProfileModel`
+(`Mila/Profiling/ProfileModel/CMakeLists.txt:32`). Section counts against the 65535 limit, Release /
+RelWithDebInfo: `ProfileModel.ixx` 51609 / ~66000, `ExportArtifact.ixx` 46926 / 59830,
+`Gemma.MixtureOfExperts.Cuda.cpp` 44694 / 56375, `Chat.ModelCatalog.ixx` 41647 / 52666; Debug not
+measured. So the next family or quantization breaks targets one at a time, and a consumer calling
+`fromPretrained` inherits the exposure with no flag. The choice is a PUBLIC MSVC compile option on
+`Mila`, which changes every consumer's flags, or targets adding it as they cross. **Todd's call.**
 
 ## `CLAUDE.md` documents the retired Chat alias set
 
@@ -661,6 +707,11 @@ Training-only, and authored from scratch rather than revived.
 `training` · `mila-src`
 
 Llama fine-tuning, loss-function GPU migration, gradient checkpointing, and BF16/GQA training.
+
+Qwen training would meet a latent defect first: CUDA RMSNorm's `forward` applies
+`config_.getUnitOffset()` and its `backward` does not (`RmsNormOp.ixx:334`), so every Qwen norm
+differentiates as if the offset were zero. `CpuRmsNormOp`'s backward applies it, so a CPU/CUDA
+gradient comparison on an offset norm would disagree.
 
 ## Performance
 

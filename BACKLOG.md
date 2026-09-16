@@ -38,6 +38,28 @@ never committed.
 
 ## Current release (v0.20.0)
 
+### Models
+
+#### The memory tests skip or stay disabled on a card that drives a display
+
+`open` · `models` · `ci`
+
+The generation-growth check in `ScratchReservation.Cuda.cpp:112` skips instead of failing, because on
+the display card Windows moves free memory by itself (29.1 MiB on cb2-3, 47.6 MiB on Llama 3.1 8B,
+timing-dependent) and a saturated card reports no growth at all. That makes it blind to a missing
+scratch reservation on a published quantized load. The Gemma and Llama footprint tests already solve
+the same problem with `Tests/Common/DeviceWithoutDisplay.h`; apply it here and restore the failure.
+
+The same fix lets two disabled loads run: `DISABLED_Qwen38_27B_Fp4_Context8192` (`:155`, about
+15 GiB, fits only the 16 GiB card) and `DISABLED_Fp4Load_FitsSection8AndMatchesHuggingFaceGreedy`
+(`GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp:102`), whose fit assertions also skip. The 26B was
+blocked on the prefill chunk rule, which landed at `+12`. Each needs a skip when no device is large
+enough. And `QwenModel.Load.Cuda.cpp:1468` still pins the cb2-3 generation test to context 512,
+saying the load dies at 2048 because of an unattributed residual; the residual is attributed now,
+and a ctx-4096 cb2-3 load has run on the 4070.
+
+---
+
 ### Observability
 
 #### `observe()` documents a path pattern that does not work the way it says
@@ -76,26 +98,18 @@ neither CUDA nor CMake.
 
 ### Packaging & Distribution
 
-#### PyPI advertises a Linux wheel that does not exist
-
-`open` · `binding` · `ci`
-
-`pyproject.toml:37` declares `POSIX :: Linux` while the only published file is `win_amd64`, and
-release metadata is immutable once uploaded. Linux is clean-room proven under `python:3.13-slim`;
-Windows has never had a clean-room run and cannot get one locally, since Windows 11 Home has neither
-Containers nor Hyper-V. Both resolve only through a release cycle, so the matrix needs
-`wheel-cleanroom.yml` running on `master`.
-
 #### No Ampere or Turing card has ever run Mila, and the published lists assume one answer
 
 `open` · `binding` · `build`
 
 The published-artifact architecture list is `80;86;89;90;120` on the reasoning that SM 8.0 is the
 floor Mila's kernels draw — the FP4 GEMM gates on `major >= 8` (`CudaLinearOp.ixx:661`) and both
-GQA flash prefill paths throw below it (`Gqa.Flash.Fa2.cu:513`). That is what the code is written
-for; it is not what anyone has observed, because the dev box has only sm_89 and sm_120. A rented
-A10G or A100 hour would settle whether an RTX 30-series card really runs a published FP4 model, and
-whether Turing's non-WMMA fallback is reachable at all or is dead code behind those throws.
+GQA flash prefill paths throw below it (`Gqa.Flash.Fa2.cu:513`, `Gqa.Flash.Wmma.cu:632`). That is
+what the code is written for; it is not what anyone has observed, because the dev box has only sm_89
+and sm_120. A rented A10G or A100 hour would settle whether an RTX 30-series card really runs a
+published FP4 model, and whether Turing's non-WMMA fallback (`cuda_fp4a16_gemm`, dispatched at
+`CudaLinearOp.ixx:882`) is reachable at all or is dead code behind those throws — every bound model
+uses GQA, and the published list starts at 80, so today it compiles for nobody.
 
 #### CUTLASS is fetched on every CUDA build and nothing includes it — decide at the rc.1 tag
 
@@ -152,54 +166,14 @@ attempting it here would be a core `Mila/Src` change under the freeze. The cost 
 deliberately: roughly 46 test usages across 10 files construct a `ZipSerializer` to exercise the
 component save/load round trip, and that coverage goes with it until the migration restores it.
 
-#### The Docker runtime image has never had a publish build
-
-`in progress` · `build` · `ci`
-
-The image builds and all three entrypoint verbs are verified in a container: `install` pulled into a
-fresh volume, `chat` listed that store, and `serve` bound 6452 and answered a real
-`/v1/chat/completions` from a read-only mount of the host store. What has never been built is a
-*publishable* image — verification used single-arch `89`, where a published one needs
-`80;86;89;90;120` and `MILA_CLEAN_BUILD=1`, since `--no-cache` leaves BuildKit cache mounts intact and has already
-produced two silently wrong images in one day. The website's devel cost figures come from that
-build, via `docker manifest inspect` and `docker images`.
-
-#### Every container build path defaults to an architecture a published image cannot use
+#### Two release scripts cannot run under WSL, because a Windows checkout gives them CRLF
 
 `open` · `build` · `ci`
 
-`Docker/build-chat.sh:25` defaults `MILA_CUDA_ARCH=native` and passes it to both
-`CMAKE_CUDA_ARCHITECTURES` and `MILA_LIBRARY_CUDA_ARCHITECTURES`, so an image carries kernels only
-for the GPU that happened to build it — and `native` does not resolve at all on the GPU-less builder
-a publish runs on. The publish pipeline has to set the portable list explicitly.
-
-#### The runtime image ships a binding that cannot import, and the gate calls it fine
-
-`in progress` · `build` · `binding`
-
-`site-packages/mila/` holds only `__init__.py`, so `install` and `serve` both die on
-`ImportError: No module named 'mila._mila'`. The extension reaches the image only as a `POST_BUILD`
-side-effect into the source tree, which a cache-warm compile never re-runs. Install from
-`/build/python/mila`, where the build actually writes it.
-
-#### The shared-library gate passes when the file it checks is missing
-
-`open` · `build` · `ci`
-
-`Dockerfile.runtime`'s runtime stage greps `ldd` output for `"not found"`. An unmatched glob makes
-the shell hand `ldd` a literal pattern, `ldd` answers `"No such file or directory"`, and the grep
-finds nothing — so the gate printed "Shared library check passed" over a missing extension. Assert
-the file exists first, then check its NEEDED entries.
-
-#### `build-mis.sh` installs a package the container's Python is too new for
-
-`open` · `build` · `binding`
-
-`Docker/build-mis.sh:76` runs `pip install --no-deps -e Mila/Bindings/Package` under Python 3.14,
-and `mila-llm`'s `requires-python` is `>=3.12,<3.14`; `--no-deps` does not suppress that check. The
-script's own comment shows the ceiling was handled for the server dependencies and missed for the
-package. Verify in a container, then add `--ignore-requires-python` as the runtime image already
-does.
+`.gitattributes` carries only `* text=auto`, so `scripts/dockerhub/verify-image.sh` and
+`build-runtime-image.sh` check out as CRLF and die at once under WSL with `env: $'bash\r'`. The
+stored form is LF, so no published image is affected, but RELEASING step 9 runs them from this
+machine and beta.3 had to extract the blobs from the tag to get through. `*.sh text eol=lf` closes it.
 
 #### The Docker Hub Overview page is authored in a browser with no source in the repo
 
@@ -208,16 +182,6 @@ does.
 It is what container search shows, and it carries the container-distribution message. Hand-editing
 it in the browser is exactly how the HuggingFace organization card came to need a rewrite.
 [[project_four_channel_roles]]
-
-#### curl is pinned three years behind in what the container ships
-
-`open` · `build`
-
-`CMakeLists.txt:266` holds 8.11.1 under a `REVIEW:` marker naming 8.21 as current. A vendored
-TLS-adjacent dependency is the one pin where staleness carries a security cost rather than a
-maintenance one, and the container links it even though both wheel presets no longer do. Bump it, or
-record why 8.11.1 stands. Settle **after** the `NOTICE.md` entry below, which establishes where curl
-actually ships.
 
 #### The container build is not yet reproducible from a clean tree
 
@@ -238,17 +202,54 @@ Mila's positioning is the stack you can read, and nothing shows a reader where t
 journey — embed, attend, sample, decode — through the real source, followable by a strong C++
 developer unaided. No anchor: the finding is an absence.
 
+#### The Linux CI build has no parallelism cap and is killed at the memory limit
+
+`open` · `build` · `ci`
+
+`build-pipeline.yml:120` and `:208` run `-j $(nproc)` on a 4 vCPU / 16 GB runner, the only build
+path in the tree without a memory cap (`Docker/build-chat.sh` and `Dockerfile.runtime` both cap at
+4, after the uncapped build wedged Docker Desktop twice). The beta.3 release PR died `exit 137` at
+target 1087/1246 after 51 minutes of thrashing; the same content had passed an hour earlier, so it
+is flaky at the edge, and the Qwen dispatch tree and the binding wrapper are what pushed it there.
+
+#### A consumer's path budget is about thirty characters, spent by one seven-level include
+
+`open` · `build`
+
+`ElementwiseActivation.cu:21` includes an 86-character `../../../../../../../` path, and MSVC applies
+MAX_PATH to the unresolved string, so a FetchContent consumer with a source root deeper than about 97
+characters gets C1083 on a header that exists. It tipped the CPM gate over at beta.3 (264 against
+260). Two other five-plus-level relative includes exist in `Mila/Src`; an include directory and
+short includes close all three.
+
 ---
 
 ### Model Distribution
 
-#### The published model cards still tell users to run `/install`
+#### The model cards, README and quick starts tell users to run `/install`, which Chat does not have
 
 `open` · `distribution` · `docs`
 
-The card sources in the repository are correct; the live copies on huggingface.co only change when a
-model is re-published. Those copies are what a new user reads *before* they have Mila at all, so the
-first instruction they follow is the wrong one. Fold the card refresh into the next publish.
+Chat's command is `/model install <name>`. The card sources in the repository are correct; the live
+copies on huggingface.co only change when a model is re-published, and they are what a new user
+reads *before* they have Mila at all. Fold the card refresh into the next publish.
+
+The repository's own user surfaces still say `/install`: `README.md:232`,
+`Samples/QuickStart/Python/README.md:60`, `common.py:25`, `:200`, `:254`, and
+`Samples/QuickStart/Cpp/main.cpp:40`. The same lines call Gemma 4 12B "the flagship", as do
+`README.md:107`, `quickstart.py:20` and the `Mila_py.cpp:951` docstring that prints in `help()` — a
+ranking that dates from Chat's compiled-in default, which no longer exists. The samples name Gemma
+because an example needs a model, and that is the fact to state.
+
+#### A failed `--model` names a remedy the user cannot type
+
+`open` · `distribution` · `adaptors`
+
+`resolveStoredName`'s refusals advise `/model install <name>` and `/model list --online`
+(`Chat.ModelCatalog.ixx:479`, `:487`). On the command-line path `main.cpp:828` exits instead of
+opening a session, so the user is back at a shell where neither command exists. In the published
+container the reachable remedy is the image's own `install` verb, step 1 of the website's Evaluating
+band, and the message never names it. Found running that band's step 2 before step 1.
 
 #### `--instruct` is missing from the packaging tool's option list, and its absence is silent
 
@@ -285,15 +286,16 @@ The package directory carries the current one; `ModelCards/gemma-4-12b-it-fp4/mi
 pre-package copy. Two sources of truth for a published model, and publishing from the stale one is a
 live risk. One has to go, and the card directory's `publish.json` flow goes with it.
 
-#### `NOTICE.md` omits curl, and may no longer need to
+#### Nothing checks that published wheels and images carry the notices they owe
 
 `open` · `docs` · `distribution`
 
-The note at `:33` treats notice-carrying as open for "a binary distribution that links them", but
-both wheel presets are now `MILA_ENABLE_LIBCURL=OFF`, so a wheel built today contains no curl at all
-— while the container still does. Establish whether the published wheel predates that change; the
-answer decides whether this is an obligation or a non-issue. The note also points at a bucket that no
-longer exists, which needs fixing either way.
+`NOTICE.md:39` no longer pretends Mila ships only as source, and its table is gated, but whether each
+published file actually carries the notices is untested: the wheels bundle nlohmann/json, miniz,
+CUTLASS and pybind11, and the container images add curl. Both wheel presets are now
+`MILA_ENABLE_LIBCURL=OFF`, so a wheel built today has no curl — establish whether the published
+`0.20.0b3` wheels predate that change, and whether the wheel and image builds embed `NOTICE.md` at
+all. The licence texts are read at source, not from `NOTICE.md`.
 
 #### The README promises FP8 and BF16 deployments nobody can reach
 

@@ -270,7 +270,7 @@ asks and currently answers for itself.
 
 The anti-pattern this section rules out is already in the tree at a smaller scale: when cuBLASLt's
 heuristic returns no algorithm, `CublasLtPlan.ixx:333-337` logs "will use default at execution" and
-continues, deciding again at execution. Recorded in `Mila/Issues/Untriaged.md`.
+continues, deciding again at execution. Recorded in `Mila/Issues/Vnext.md`.
 
 ---
 

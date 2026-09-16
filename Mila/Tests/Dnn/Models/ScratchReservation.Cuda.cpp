@@ -108,7 +108,7 @@ namespace Mila::Tests::Dnn::Models
 
             // Skipped rather than failed: on a card that drives a display, Windows can lower the video memory
             // budget during generation, and a saturated card reports no growth at all. Tracked in
-            // Mila/Issues/Untriaged.md for rc.1, which guards the measurement and restores this as a failure.
+            // BACKLOG.md for rc.1, which guards the measurement and restores this as a failure.
             if ( growth >= kGenerationGrowthBytes )
             {
                 GTEST_SKIP() << std::format(

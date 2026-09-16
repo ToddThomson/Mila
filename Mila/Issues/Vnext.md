@@ -42,6 +42,14 @@ diagnostics.
 it self-clears when the GQA training path is built, where a suppression would have to be remembered.
 A blanket `/WX` forces it silent; escalating only the defect-class codes leaves it visible.
 
+**Only `RelWithDebInfo` reports C4702, and no watched preset is `RelWithDebInfo`.** Eleven
+`unreachable code` warnings appeared there and in no other build type on the identical tree, and only
+with testing, samples, adaptors, tools and profiling enabled. Ten were the `copyFromBlob`
+fall-through fixed at `+42`; the eleventh was `GroupedQueryAttention::backward`, resolved at `+43` by
+refusing at the component boundary — unverified whether MSVC now deduces never-returns through
+`attn_->backward` at `Llama.Block.ixx:373` instead. `x64-validate` is Release, so the ratchet has to
+decide which build type it watches.
+
 ## v0.20 library-frozen tails
 
 `api` · `mila-src`
@@ -350,6 +358,12 @@ v0.20 ships MIS drivable from source and from the container, which is what the r
 Only the tests build today, so a sample can stop compiling without anything noticing — and the
 QuickStart samples are a published surface the website's Get Started tabs link to.
 
+The C++ quick start is the sharpest case: it is a standalone FetchContent project, so neither
+`x64-validate` nor CI adds it, and `packaging_fetchcontent_consumer` compiles its own `main.cpp`
+rather than this one. Its only builder is `Dockerfile.runtime`, which copies it into the devel image.
+Configuring it with `-DFETCHCONTENT_SOURCE_DIR_MILA=<tree>` needs no network, which is what a gate
+would do. `Samples/QuickStart/Cpp/main.cpp`
+
 ## Public Doxygen still describes a world that was refactored away
 
 `docs`
@@ -558,3 +572,99 @@ computed rather than looked up, so there is no positional table to run off the e
 crashes. Where GPT-2 crashes, Llama overruns the cache quietly, so absence of reports is not
 evidence. `Tests/Dnn/Models/GptModel.Cuda.cpp` is the template: a weightless checkpoint at a small
 deployment context.
+
+## Llama prefill has no flash path and is 3.8x slower than a larger Gemma
+
+`llama` · `perf` · `mila-src` · `measured`
+
+On the RTX 5060 Ti, one build, both FP4, 22496 tokens at context 49152: Gemma 4 12B prefills at
+~1461 tok/s through `gqa_flash_prefill_mma_bf16_kernel`, Llama 3.1 8B at ~382 tok/s through
+`Gqa::prefill_softmax_bf16_kernel`. Attention is 75.3% of Llama's prefill against Gemma's 59.5%.
+Flash prefill is wired on Gemma's blocks and not Llama's. `Compute/Devices/Cuda/Operations/Gqa/`
+
+## MIS reports every response as finished naturally, including truncated ones
+
+`adaptors`
+
+Five sites hardcode `finish_reason: "stop"` — `chat.py:66`, `completions.py:49`, `factory.py:137`,
+`:155`, `:200` — and the Anthropic path returns `stop_reason: "end_turn"` the same way, so a client
+is told a reply ended when it was cut off by `max_tokens` or the context. The binding's `generate` now
+returns `GenerateStatus`; `ModelWorker.generate` and `generate_streaming` are where it would be
+threaded to the routes. OpenAI spells the cap `length`, Anthropic `max_tokens`, and neither has a
+spelling for a context overflow — that mapping is the decision owed.
+
+## A download that fails part-way does not say that running it again resumes
+
+`distribution`
+
+`install` died at 35% of a 2.86 GiB transfer with `Transferred a partial file (TransportError)`
+(`ModelStore.ixx:457`). The partial is named by digest precisely so the next run resumes (`:342`),
+but the message says none of that, and on the evaluation path a raw transport error reads as broken.
+Whether resume engages on the container's named volume is untested — `verify-image.sh` uses a
+throwaway volume by design.
+
+## A CUDA allocation failure is reported four ways, and in five places not at all
+
+`architecture` · `api` · `mila-src`
+
+`CudaDeviceMemoryResource` throws `CudaBadAlloc`; the pinned (`CudaPinnedMemoryResource.ixx:101`,
+no message) and managed (`CudaManagedMemoryResource.ixx:89`, builds a message and discards it)
+resources throw bare `std::bad_alloc`; `CudaExecutionContext`'s scratch, staging and cuBLASLt
+workspace and the `CudaTensorOps.Random` buffers throw `std::runtime_error`; `RopeCacheRegistry`
+throws `CudaError`. So "the model does not fit" cannot be caught as one type, and `import Mila;`
+does not export `CudaBadAlloc` at all.
+
+Underneath, two exception classes carry the same CUDA runtime error: `cudaCheck`
+(`CudaUtils.h:31`, 157 kernel launch sites) throws `CudaException`, `cudaCheckStatus` /
+`cudaCheckLastError` (`CudaError.ixx:133`, `:145`) throw `CudaError`, with different message formats,
+and only `CudaException` exposes the code. And five allocations ignore `cudaMalloc`'s result entirely
+— `CudaLinearOp.ixx:1509`, `:1510`, `TensorOps.Fill.cu:112`, `:133`, `CudaLinearGelu.cu:62` — so a
+failure leaves a null pointer for the next kernel.
+
+## `CudaExecutionContext` allocates its buffers without selecting its device
+
+`architecture` · `mila-src`
+
+The forward scratch, load staging buffer and scratch reservation call `cudaMalloc` without
+`Cuda::setCurrentDevice`, where `CudaDeviceMemoryResource::do_allocate` selects first
+(`CudaExecutionContext.ixx:274`). The constructor selects once, so in a two-GPU process a buffer lands
+on the wrong card only if something changes the current device in between. Latent today; the layer
+split (`LayerSplit.md`) makes it live.
+
+## A 4 GiB single-tensor limit marked DEBUG ships in `TensorBuffer`
+
+`architecture` · `mila-src`
+
+Any tensor whose storage reaches 4 GiB throws `std::length_error` from the constructor
+(`TensorBuffer.ixx:224`). The check sits between `// DEBUG:` and `// END DEBUG:` with no condition, so
+every build carries it, and a tensor large enough to fail on the device never reaches `cudaMalloc`.
+
+## The FP8 per-tensor weight quantizer has no caller and still stages the whole tensor
+
+`quantization` · `mila-src`
+
+`Detail::quantize_fp8_per_tensor` (`CudaLinearOp.Quantize.ixx:106`) and
+`cuda_quantize_fp8_per_tensor` (`CudaFp8WeightQuantization.cu:251`) are exported and documented as
+the Ada cuBLASLt path, and called from nowhere. When the per-channel path moved to row blocks it was
+left alone, so it is the one quantizer that still needs the whole BF16 tensor on the device. Delete
+it, or give it row blocks with a running maximum if a per-tensor path is wanted.
+
+## A cuBLASLt plan with no algorithm defers the choice to every execution
+
+`perf` · `mila-src`
+
+When the heuristic succeeds with no algorithm, the builder logs "will use default at execution" and
+returns `has_algorithm = false`, and execution passes a null algorithm to `cublasLtMatmul`
+(`CublasLtPlan.ixx:333`, `:383`; also `CublasLtLinearPlan.ixx:441`, `:514`, and the FP8 prefill
+builder at `:646`, `:681`). A plan built without a decision looks like one built with one, except for
+a warning at build. `Deployment.md` §7 rules the same shape out for deployment plans.
+
+## No test catches a scratch reservation larger than any request
+
+`models`
+
+Phase 6 step 2's negative — scratch summed across the tree instead of taking the maximum — reserved
+12,386,304,000 bytes for Gemma 4 12B against a largest request of 121,901,056, and every permanent
+test passed: predicted equals reported, nothing throws, memory does not grow. A per-model literal of
+the reserved bytes in `ScratchReservation.Cuda.cpp` would fail on it, as the other footprint literals
+do.

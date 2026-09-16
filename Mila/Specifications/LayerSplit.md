@@ -185,7 +185,7 @@ change it without restoring:
   so a table keyed to one device can land on another. The key already carries `device_id`
   (`:43`); the allocation does not use it.
 - `CudaExecutionContext`'s scratch, staging and reservation buffers allocate without binding
-  (`Mila/Issues/Untriaged.md`, "CudaExecutionContext allocates its buffers without selecting its
+  (`Mila/Issues/Vnext.md`, "`CudaExecutionContext` allocates its buffers without selecting its
   device").
 
 **The rule: a stage binds its device on entry, in prefill, decode, scoring and build alike, and every
