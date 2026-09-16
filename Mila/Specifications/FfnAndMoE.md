@@ -358,5 +358,7 @@ in-flight Bard test revival without waiting on the full redesign.
 - **Shared-expert modeling** (DeepSeek): whether shared experts are `GatedMLP`
   instances composed beside the router or a distinct always-on path. Decide when MoE
   is scheduled.
-- **Expert parallelism across devices** is out of scope (Mila targets single-GPU);
-  the layout must not preclude it but need not enable it now.
+- **Expert parallelism across devices** is out of scope: at batch 1 over PCIe without
+  peer access it costs two crossings per MoE layer. Running a model across devices splits
+  it between blocks instead (`LayerSplit.md`). The layout must not preclude expert
+  parallelism but need not enable it.

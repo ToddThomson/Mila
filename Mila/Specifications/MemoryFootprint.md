@@ -1048,9 +1048,16 @@ holds, on both cards. No earlier test compared cb2-3's parameter bytes. Both are
 (one layer's bank 428,212,224 to 432,013,312 bytes), and its skip on not fitting became the failure its comment
 promised once this rule landed. The test stays disabled: in a process that sees both GPUs it targets the 12 GiB card.
 
-**Open, found by the run.** On the RTX 4070, which drives a display, the two Gate B tests measure 224 and 225 MiB
-beyond the prediction, the Windows budget cut in 11.5, and fail the 64 MiB bound criterion 2 set for them. How the
-permanent tests treat a display card is undecided.
+**Found by the run, decided 2026-09-16.** On the RTX 4070, which drives a display, the two Gate B tests measure 224 and 225 MiB
+beyond the prediction, the Windows budget cut in 11.5, and fail the 64 MiB bound criterion 2 set for them. On
+2026-09-16 the same tests read 720-1180 MiB there (11.5), with nothing in Mila changed. Decided: both tests run on the
+lowest CUDA device that drives no display (`Mila/Tests/Common/DeviceWithoutDisplay.h`, NVML display active, matched
+by PCI address), hold the 64 MiB bound there, and skip the bound, printing the residual, where every visible device
+drives one. The exact agreements with `getMemoryStats` are asserted on any device. Measured after the change, both
+GPUs visible: Gemma 4 12B 6 MiB and Llama 3.1 8B 21 MiB on CUDA 1, the RTX 5060 Ti. The step 1 criterion 3 test
+(`QuantizeOnLoad.Footprint.Cuda.cpp`) follows the same rule: on the RTX 4070 its Llama 3.1 8B exported arm read
+10389.6 MiB after generation in one run and 10679.0 MiB in the next and failed the 128 MiB comparison; on the RTX
+5060 Ti the two arms differ by 0.0-14.0 MiB for all three models, and token agreement is asserted on any device.
 
 **Criterion 7, in progress.** Every Windows target builds, and the full suite passes on the RTX 5060 Ti pinned by
 UUID: 1968 run, 1967 pass, 1 skipped. The FetchContent consumer configures, builds and links, with the driver
@@ -1118,6 +1125,11 @@ the development machine enters `Mila/Src`, because Mila is a static library insi
 Zero-filling memory to make the driver commit it was dropped earlier as redundant and slow; nothing here
 depends on it. Decided on 2026-09-15: available memory is read by Mila with no public input (11.3), and the
 driver's rounding of Mila's allocations is predicted (11.8).
+
+**Post-v0.20 direction (2026-09-16): `Deployment.md`.** The rule below stays the rule, but where it runs
+moves. Deployment planning takes one free-memory reading per device and resolves the chunk before
+construction, the build executes the chunk it is given, and pricing stops reading the bound context
+(`Deployment.md` sections 4 and 7, Phases 1-2). Until then this section describes the tree as it is.
 
 ### 11.1 What is wrong today
 
@@ -1241,7 +1253,7 @@ What remains between the prediction and the memory in use:
 | Driver rounding of each allocation | 0.02-0.73 GiB across the models tested | predicted, 11.8 |
 | Scratch | 0.07-0.25 GiB | predicted, 11.4 |
 | Fixed remainder, including the 4 MiB cuBLASLt workspace | 0.02-0.07 GiB | not predicted (11.3) |
-| Windows budget cut on a card that drives a display | 313-319 MiB on the RTX 4070; none on the headless RTX 5060 Ti | not predicted (11.3) |
+| Windows budget cut on a card that drives a display | 313-319 MiB on the RTX 4070; none on the headless RTX 5060 Ti. 2026-09-16, Gate B after a load on the RTX 4070: Gemma 4 12B 354-1180 MiB over ten runs, Llama 3.1 8B 321 and 369 MiB; on the RTX 5060 Ti, 6-20 and 21 MiB | not predicted (11.3) |
 
 **The fixed remainder** is the same after the load as after the prefill in every run; it does not grow
 with use.
@@ -1253,7 +1265,16 @@ reading, so it falls by the same amount. Memory that is allocated but never writ
 Reserving memory up front (`SetVideoMemoryReservation`) does not prevent it, and neither the trigger nor the
 size can be read before it happens. It is Windows policy on that machine, so `Mila/Src` neither models it nor
 holds memory back for it (11.3). A caller that wants to know whether a card drives a display can
-ask NVML's display mode, which reported 1 for the RTX 4070 and 0 for the RTX 5060 Ti.
+ask NVML, which reported the RTX 4070 as driving one and the RTX 5060 Ti as not. Display mode, asked
+first, is deprecated on driver 610.88; display active answers.
+
+**The cut moves with the desktop.** On 2026-09-16 the residual on the RTX 4070 read 720 MiB twice with
+about 1450 MiB of the card in use before the run, and 1025 MiB with 1805 MiB in use, the card then
+holding Visual Studio, the Claude app, three Edge WebView2 hosts and Docker Desktop. During the 1025 MiB
+run NVML showed the process physically take 8914 MiB, CUDA context included, while CUDA's free memory fell
+by 9563 MiB: the difference is budget, not allocation. Usage alone does not predict the size, since 224
+MiB was read at a similar figure the day before. A measurement of consumption on a display card is a
+measurement of that desktop.
 
 None of the measured sizes in this section is a constant in `Mila/Src`. They record the size of what the
 prediction leaves out.

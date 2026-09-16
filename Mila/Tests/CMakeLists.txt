@@ -340,7 +340,9 @@ endif()
 target_link_libraries( MilaTests PRIVATE Mila gtest )
 
 if(MILA_ENABLE_CUDA)
-    target_link_libraries( MilaTests PRIVATE CUDA::cudart )
+    # NVML answers which device drives a display, for the Gate B tests (Common/DeviceWithoutDisplay.h).
+    # The test binary alone links it; the library does not.
+    target_link_libraries( MilaTests PRIVATE CUDA::cudart CUDA::nvml )
 endif()
 
 # Visual Studio native C++ code coverage instruments only binaries linked with

@@ -24,6 +24,9 @@
 #include <format>
 #include <iostream>
 #include <memory>
+#include <optional>
+
+#include "Common/DeviceWithoutDisplay.h"
 
 import Mila;
 
@@ -52,6 +55,16 @@ namespace Mila::Tests::Dnn::Models
             }
 
             return free_bytes;
+        }
+
+        std::size_t freeDeviceBytesOn( int ordinal )
+        {
+            if ( cudaSetDevice( ordinal ) != cudaSuccess )
+            {
+                return 0;
+            }
+
+            return freeDeviceBytes();
         }
 
         double toGiB( std::size_t bytes )
@@ -89,13 +102,15 @@ namespace Mila::Tests::Dnn::Models
 
     TEST_F( LlamaFootprintCudaTests, GetRequiredMemory_AllocatesNothing )
     {
+        const Common::ScopedCurrentCudaDevice current( 0 );
+
         cudaFree( nullptr );
 
-        const std::size_t free_before = freeDeviceBytes();
+        const std::size_t free_before = freeDeviceBytesOn( 0 );
 
         const MemoryStats predicted = predictAt( checkpoint_, 8192, WeightQuantization::FP4 );
 
-        const std::size_t free_after = freeDeviceBytes();
+        const std::size_t free_after = freeDeviceBytesOn( 0 );
 
         EXPECT_GT( predicted.totalDeviceBytes(), 0u );
         EXPECT_EQ( free_before, free_after )
@@ -139,9 +154,11 @@ namespace Mila::Tests::Dnn::Models
                     .withWeightQuantization( WeightQuantization::FP4 ) );
         };
 
+        const Common::ScopedCurrentCudaDevice current( 0 );
+
         cudaFree( nullptr );
 
-        const std::size_t free_before = freeDeviceBytes();
+        const std::size_t free_before = freeDeviceBytesOn( 0 );
         const DeploymentFootprint short_context = footprintAt( checkpoint_, 8192 );
 
         EXPECT_EQ( short_context.memory.totalDeviceBytes(),
@@ -209,23 +226,35 @@ namespace Mila::Tests::Dnn::Models
             << "FP4 weights must be smaller than BF16 weights";
     }
 
+    // Runs on a device that drives no display, for the reason GemmaModel.Footprint.Cuda.cpp gives.
     TEST_F( LlamaFootprintCudaTests, GetRequiredMemory_BoundsActualConsumption )
     {
         constexpr dim_t kContextLength = 8192;
 
+        const std::optional<int> without_display = Common::findCudaDeviceWithoutDisplay();
+        const int ordinal = without_display.value_or( 0 );
+        const DeviceId device{ DeviceType::Cuda, ordinal };
+
+        const Common::ScopedCurrentCudaDevice current( ordinal );
+
+        ASSERT_TRUE( current.selected() );
+
         cudaFree( nullptr );
 
-        const MemoryStats predicted = predictAt( checkpoint_, kContextLength, WeightQuantization::FP4 );
+        const LlamaModelConfig config =
+            LlamaModelConfig( kContextLength ).withWeightQuantization( WeightQuantization::FP4 );
 
-        const std::size_t free_before = freeDeviceBytes();
+        const MemoryStats predicted =
+            LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory( checkpoint_, config, device );
+
+        const std::size_t free_before = freeDeviceBytesOn( ordinal );
 
         auto model = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
-            checkpoint_,
-            LlamaModelConfig( kContextLength ).withWeightQuantization( WeightQuantization::FP4 ) );
+            checkpoint_, config, device );
 
         ASSERT_NE( model, nullptr );
 
-        const std::size_t free_after_load = freeDeviceBytes();
+        const std::size_t free_after_load = freeDeviceBytesOn( ordinal );
         const std::size_t consumed = free_before - free_after_load;
 
         const MemoryStats reported = model->getMemoryStats();
@@ -234,12 +263,12 @@ namespace Mila::Tests::Dnn::Models
             : 0;
 
         std::cout << std::format(
-            "[gate B] context {}\n"
+            "[gate B] context {}, CUDA device {}{}\n"
             "  predicted (getRequiredMemory) {:.3f} GiB\n"
             "  reported  (getMemoryStats)    {:.3f} GiB\n"
             "  consumed  (cudaMemGetInfo)    {:.3f} GiB\n"
             "  residual  (unmodelled)        {:.3f} GiB  ({:.1f}% of consumed)\n",
-            kContextLength,
+            kContextLength, ordinal, without_display ? "" : " (drives a display)",
             toGiB( predicted.totalDeviceBytes() ),
             toGiB( reported.totalDeviceBytes() ),
             toGiB( consumed ),
@@ -258,14 +287,18 @@ namespace Mila::Tests::Dnn::Models
             << "prediction exceeded actual consumption -- an overestimate refuses "
                "configurations that fit";
 
-        // What Mila does not predict: the share of packed small allocations and the fixed remainder,
-        // together under 30 MiB once rounding is predicted (MemoryFootprint.md 11.8), plus -- on a card
-        // that drives a display -- the Windows budget cut, measured at 225 MiB on the RTX 4070 (11.5).
-        // The bound covers a display card because this runs wherever the suite runs; the 64 MiB figure
-        // is checked on a headless card in the Phase 6 step 3 gate runs.
-        constexpr std::size_t kResidualBoundBytes = std::size_t{ 512 } * 1024 * 1024;
+        if ( !without_display )
+        {
+            GTEST_SKIP() << "every visible CUDA device drives a display, so the residual measures the "
+                            "Windows budget as well as Mila; measured " << residual / ( 1024 * 1024 ) << " MiB";
+        }
+
+        // What Mila does not predict on a device without a display: the share of packed small allocations
+        // and the fixed remainder, together under 30 MiB once rounding is predicted (MemoryFootprint.md
+        // 11.8). The bound is Phase 6 step 3's criterion 2.
+        constexpr std::size_t kResidualBoundBytes = std::size_t{ 64 } * 1024 * 1024;
 
         EXPECT_LT( residual, kResidualBoundBytes )
-            << "unmodelled memory exceeded 512 MiB";
+            << "unmodelled memory exceeded 64 MiB";
     }
 }

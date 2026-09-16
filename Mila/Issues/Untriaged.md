@@ -367,17 +367,6 @@ predicted still equals reported, nothing throws, memory does not grow. Only the 
 that run saw it. A per-model literal of the reserved bytes in the reservation test (121,901,056 for Gemma 4 12B
 FP4 at context 8192) would fail on it, as the other footprint literals do.
 
-## The quantize-on-load footprint test can fail on a card that drives a display
-
-`Mila/Tests/Dnn/Models/QuantizeOnLoad.Footprint.Cuda.cpp:132` @ `c1e439e2`
-
-`Gemma4_12B_FittedLoadSettlesAtExport` compares device memory consumed by a BF16 load against its exported form
-within 128 MiB. In a full `x64-profile` run with both GPUs visible, on the RTX 4070, it failed at 323 MiB after the
-load and 295 MiB after generation; in the next identical run it passed. 323 MiB is the Windows video memory budget
-cut MemoryFootprint.md 11.5 measured on that card (313-326 MiB), which lands wherever the process has written about
-8 GiB, so whichever comparison straddles it fails. On the headless RTX 5060 Ti the same test reads 0 MiB. Unlike
-the growth check above, this one still fails rather than skips, so it can turn a suite red by timing alone.
-
 ## The Qwen 3.8 27B FP4 scratch reservation case is disabled because the model does not fit a 12 GiB card
 
 `Mila/Tests/Dnn/Models/ScratchReservation.Cuda.cpp:155` @ `c1e439e2`
@@ -460,3 +449,14 @@ Any tensor whose storage is 4 GiB or more throws `std::length_error` from the co
 between `// DEBUG:` and `// END DEBUG:` comments with no condition around it, so every build carries it.
 Found 2026-09-15 writing the allocation-failure test, which had to call the memory resource directly because
 a tensor large enough to fail on the device never reaches `cudaMalloc`.
+
+## A cuBLASLt plan with no algorithm defers the choice to every execution
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlan.ixx:333` @ `c6f53c7c`
+
+When `cublasLtMatmulAlgoGetHeuristic` succeeds with no algorithm, the builder logs "will use default at
+execution" and returns a plan with `has_algorithm = false`; execution then passes a null algorithm to
+`cublasLtMatmul` (`:383`), which leaves the choice to cuBLASLt on each call. The same pattern is in
+`CublasLtLinearPlan.ixx:441`/`:514` and the FP8 prefill builder at `:646`/`:681`. A plan built without a
+decision is not distinguishable from one built with one, except by a warning at build. Found 2026-09-16
+writing `Specifications/Deployment.md` section 7, which rules the same shape out for deployment plans.

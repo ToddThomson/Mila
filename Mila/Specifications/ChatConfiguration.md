@@ -209,6 +209,13 @@ duplicated per adaptor.
 
 ## 6. `context_length: "auto"`
 
+**Post-v0.20 direction (2026-09-16): `Deployment.md`.** What `"auto"` resolves to, described below, moves
+into the library's deployment planner unchanged (its Phase 3, gated on reproducing Chat's choices), where
+MIS and the Python binding get it too, and where `"device": "auto"` joins it (`LayerSplit.md` section 8).
+One behaviour changes then (decided 2026-09-16, `Deployment.md` 12.2): an explicit `context_length` that
+will not fit is refused, naming the binding constraint, where it is honoured with a warning today. Until
+then this section describes Chat as it is.
+
 Neither a family nor a model default knows the user's card. Gemma 4 12B FP4 at 8192 measured
 **11.07 of 11.99 GB** on an RTX 4070 — at the edge. The same model on 24 GB could take far
 more; on 8 GB it fits nothing. No constant compiled into an adaptor can be right for all
