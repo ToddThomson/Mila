@@ -916,6 +916,15 @@ depends on when the Windows budget cut lands on that display card. All of it is 
 with both GPUs visible. Chat: `ChatRichTextTests` 33 of 33, and piped sessions with Gemma 4 12B FP4 and Llama 3.2
 3B FP4 answer a factual question and write a correct function, both with one GPU visible and with both.
 
+**Resolved at `0.20.0-rc.1+15`.** `ScratchReservation.Cuda.cpp` measures on the device without a display
+(`Tests/Common/DeviceWithoutDisplay.h`), skips a case whose weights exceed free memory, and fails again on growth;
+it skips the growth bound only where every device drives a display or the card has under 16 MiB free. Both 15 GiB
+loads are re-enabled on the same terms. Both GPUs visible, the growth read 0.0-4.0 MiB on the RTX 5060 Ti, the Qwen
+FP4 case passing with 32 MiB left. **Negative:** `reserveScratch` made a no-op fails all five cases with growth equal
+to each scratch at 2 MiB granularity (120, 116, 116, 98, 76 MiB), while predicted and reported scratch still agree --
+the growth check is the only detector of a missing reservation. The 26B FP4 load fits at chunk 256 with 14.801 GiB
+free and matches HuggingFace's eight greedy tokens.
+
 **Phase 6 step 3 gate -- the rule. Written 2026-09-15, before any code or run.**
 
 *What the code does today, which the gate is written against.* Each transformer resolves its chunk in

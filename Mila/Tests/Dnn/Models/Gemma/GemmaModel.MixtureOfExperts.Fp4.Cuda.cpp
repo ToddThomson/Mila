@@ -14,8 +14,11 @@
 #include <format>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
+
+#include "Common/DeviceWithoutDisplay.h"
 
 import Mila;
 
@@ -99,14 +102,24 @@ namespace Mila::Tests::Dnn::Models
 
     // One load serves both halves: quantizing 47 GiB on load is the expensive part, and the footprint it leaves is
     // the one generation runs in.
-    TEST_F( GemmaMixtureOfExpertsFp4CudaTests, DISABLED_Fp4Load_FitsSection8AndMatchesHuggingFaceGreedy )
+    //
+    // It runs on a device that drives no display where there is one, for the reason GemmaModel.Footprint.Cuda.cpp
+    // gives, and that is the 16 GiB card on the machine the s8 row was measured on.
+    TEST_F( GemmaMixtureOfExpertsFp4CudaTests, Fp4Load_FitsSection8AndMatchesHuggingFaceGreedy )
     {
+        const std::optional<int> without_display = Common::findCudaDeviceWithoutDisplay();
+        const int ordinal = without_display.value_or( 0 );
+        const DeviceId device{ DeviceType::Cuda, ordinal };
+        const Common::ScopedCurrentCudaDevice current( ordinal );
+
+        ASSERT_TRUE( current.selected() );
+
         cudaFree( nullptr );
 
         // One layer's bank, asked of the component before any model exists, so a model-level mismatch is attributable
         // to the bank or to what surrounds it.
         {
-            ExpertBankType bank( "probe.experts", MixtureOfExpertsConfig( 2816, 704, 128, 8 ), DeviceId{ DeviceType::Cuda, 0 } );
+            ExpertBankType bank( "probe.experts", MixtureOfExpertsConfig( 2816, 704, 128, 8 ), device );
             const MemoryStats layer = bank.getRequiredMemory(
                 BuildContext( shape_t{ 1, 1, 2816 }, RuntimeMode::Inference, false ) );
 
@@ -122,11 +135,19 @@ namespace Mila::Tests::Dnn::Models
         config.withContextLength( kContextLength )
             .withWeightQuantization( WeightQuantization::FP4 );
 
-        const DeploymentFootprint footprint = GemmaCudaBf16::getDeploymentFootprint( weights_, config );
+        const DeploymentFootprint footprint = GemmaCudaBf16::getDeploymentFootprint( weights_, config, device );
         const MemoryStats& predicted = footprint.memory;
         const std::size_t free_before = freeDeviceBytes();
 
-        auto model = GemmaCudaBf16::fromPretrained( weights_, config );
+        // The prefill chunk shrinks to fit the device; the weights cannot. Past this, a device that holds the weights
+        // is one the model must fit, which the last assertion holds.
+        if ( predicted.device_parameter_bytes >= free_before )
+        {
+            GTEST_SKIP() << std::format( "weights need {} bytes and CUDA device {} has {} free",
+                predicted.device_parameter_bytes, ordinal, free_before );
+        }
+
+        auto model = GemmaCudaBf16::fromPretrained( weights_, config, device );
         ASSERT_NE( model, nullptr );
 
         const std::size_t free_after_load = freeDeviceBytes();
@@ -134,6 +155,8 @@ namespace Mila::Tests::Dnn::Models
         const bool saturated = free_after_load < kSaturatedFreeBytes;
         const MemoryStats reported = model->getMemoryStats();
         const std::size_t residual = consumed > predicted.totalDeviceBytes() ? consumed - predicted.totalDeviceBytes() : 0;
+
+        std::cout << std::format( "[fp4] CUDA device {}{}\n", ordinal, without_display ? "" : " (drives a display)" );
 
         std::cout << std::format(
             "[fp4] context {}  prefill chunk {} of {} rows  free before load {:.3f} GiB  free after {:.3f} GiB{}\n"

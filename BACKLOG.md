@@ -38,28 +38,6 @@ never committed.
 
 ## Current release (v0.20.0)
 
-### Models
-
-#### The memory tests skip or stay disabled on a card that drives a display
-
-`open` · `models` · `ci`
-
-The generation-growth check in `ScratchReservation.Cuda.cpp:112` skips instead of failing, because on
-the display card Windows moves free memory by itself (29.1 MiB on cb2-3, 47.6 MiB on Llama 3.1 8B,
-timing-dependent) and a saturated card reports no growth at all. That makes it blind to a missing
-scratch reservation on a published quantized load. The Gemma and Llama footprint tests already solve
-the same problem with `Tests/Common/DeviceWithoutDisplay.h`; apply it here and restore the failure.
-
-The same fix lets two disabled loads run: `DISABLED_Qwen38_27B_Fp4_Context8192` (`:155`, about
-15 GiB, fits only the 16 GiB card) and `DISABLED_Fp4Load_FitsSection8AndMatchesHuggingFaceGreedy`
-(`GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp:102`), whose fit assertions also skip. The 26B was
-blocked on the prefill chunk rule, which landed at `+12`. Each needs a skip when no device is large
-enough. And `QwenModel.Load.Cuda.cpp:1468` still pins the cb2-3 generation test to context 512,
-saying the load dies at 2048 because of an unattributed residual; the residual is attributed now,
-and a ctx-4096 cb2-3 load has run on the 4070.
-
----
-
 ### Observability
 
 #### `observe()` documents a path pattern that does not work the way it says

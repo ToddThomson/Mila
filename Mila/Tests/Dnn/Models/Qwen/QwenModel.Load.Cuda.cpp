@@ -1467,17 +1467,14 @@ namespace Mila::Tests::Dnn::Models
 
     // The whole claim, end to end: 27B on a 12 GiB card, generating.
     //
-    // 512 CONTEXT, NOT THE 16K BASELINE, and the number is measured rather than chosen.
-    // getDeploymentFootprint predicts 9.94 GiB here and the load actually consumes the whole
-    // 10.85 GiB the card has free with a desktop running -- a ~0.9 GiB gap that the model's
-    // own accounting does not see (the CUDA context, the cuBLASLt workspace, per-allocation
-    // rounding; the same residual BACKLOG records as unattributed on Gemma). At 2048 the
-    // prediction is 10.12 GiB and the load dies, so the gap, not the prediction, is what
-    // bounds the context today. Raise this the moment the residual is attributed or the run
-    // moves to a headless card.
+    // Context 4096, where this once ran at 512 because the load died at 2048. That limit was an
+    // unmodelled residual of ~0.9 GiB, since accounted for: driver rounding is predicted
+    // (MemoryFootprint.md 11.8), the rest is the display card's video memory budget (11.5), and
+    // the prefill chunk now follows free memory. The cb2-3 scratch reservation case loaded and
+    // generated at 4096 on the RTX 4070 with the desktop running.
     TEST_F( QwenPackedArtifactTests, Generation_RunsAndStaysInsideTheVocabulary )
     {
-        QwenModelConfig model_config( 512 );
+        QwenModelConfig model_config( 4096 );
         model_config.withPrecisionPlan();
 
         size_t free_before = 0;
@@ -1514,7 +1511,7 @@ namespace Mila::Tests::Dnn::Models
             params,
             std::stop_token{} );
 
-        // Eight new tokens from a five-token prompt at 2048 context: the run ends either by
+        // Eight new tokens from a five-token prompt at 4096 context: the run ends either by
         // reaching the cap or on a stop token. ContextOverflow here would mean the bound
         // arithmetic is wrong, which is the one outcome that would not be visible in the
         // tokens themselves.
