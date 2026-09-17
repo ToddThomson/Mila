@@ -820,7 +820,10 @@ static ChatConfig buildConfig( const CommandLine& line )
     {
         try
         {
-            resolved = resolveModel( name, requested_quantization );
+            resolved = resolveModel(
+                name,
+                requested_quantization,
+                line.model_given ? RefusalAudience::Shell : RefusalAudience::Session );
         }
         catch ( const std::exception& e )
         {

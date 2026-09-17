@@ -425,6 +425,17 @@ namespace Mila::ChatApp
     }
 
     /**
+     * @brief Where the user stands when a refusal is read, which decides the commands it names.
+     *
+     * A `--model` that does not resolve exits to the shell, where no slash command exists.
+     */
+    export enum class RefusalAudience
+    {
+        Session,
+        Shell
+    };
+
+    /**
      * @brief Resolve a model name against the store.
      *
      * The store is the only source. Nothing here consults a hub, reads a models directory or
@@ -433,14 +444,19 @@ namespace Mila::ChatApp
      *
      * @param requested_quantization Quantize unquantized weights on the way in. Empty loads
      *        the weights as they are.
+     * @param audience Whether a refusal is read inside a session or at the shell.
      *
      * @throws std::runtime_error if no model of that name is installed, if this build cannot
      *         load what the record describes, or if the requested quantization contradicts it.
      */
     export ResolvedModel resolveModel(
         const std::string& requested_name,
-        std::optional<QuantizationMode> requested_quantization = std::nullopt )
+        std::optional<QuantizationMode> requested_quantization = std::nullopt,
+        RefusalAudience audience = RefusalAudience::Session )
     {
+        const bool at_shell = ( audience == RefusalAudience::Shell );
+        const std::string_view install_command = at_shell ? "mila install" : "/model install";
+
         Mila::Distribution::ModelStore store;
 
         // Folded to the store's own spelling before anything else, so every message below names
@@ -464,8 +480,8 @@ namespace Mila::ChatApp
                 {
                     throw std::runtime_error( std::format(
                         "'{}' is installed but its files are missing, so it cannot be loaded.\n"
-                        "Reinstall it with /model install {}, or drop the record with "
-                        "/model remove {}.", name, name, name ) );
+                        "Reinstall it with {} {}, or drop the record with /model remove {}{}.",
+                        name, install_command, name, name, at_shell ? " inside mila-chat" : "" ) );
                 }
 
                 available += available.empty() ? "" : ", ";
@@ -476,15 +492,16 @@ namespace Mila::ChatApp
             {
                 throw std::runtime_error( std::format(
                     "No model named '{}' is installed, and neither is anything else.\n"
-                    "Install one with /model install <name>, or from a package you built with "
-                    "ExportArtifact --install.", name ) );
+                    "Install one with {} <name>, or from a package you built with "
+                    "ExportArtifact --install.", name, install_command ) );
             }
 
             // Deliberately does not ask the publisher whether the name exists there. A load is the
             // offline command, and a typo must not become a network wait.
             throw std::runtime_error( std::format(
                 "No model named '{}' is installed.\nInstalled: {}\n"
-                "/model list --online shows what can be installed.", name, available ) );
+                "{} shows what can be installed.", name, available,
+                at_shell ? "mila models --online" : "/model list --online" ) );
         }
 
         const auto& record = installed->record;

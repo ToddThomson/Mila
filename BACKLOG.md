@@ -194,25 +194,6 @@ sources in the repository are correct; the live copies on huggingface.co only ch
 re-published, and they are what a new user reads *before* they have Mila at all. Fold the card
 refresh into the next publish of each: `Mila/Tools/ExportArtifact/ModelCards/`.
 
-#### A failed `--model` names a remedy the user cannot type
-
-`open` · `distribution` · `adaptors`
-
-`resolveStoredName`'s refusals advise `/model install <name>` and `/model list --online`
-(`Chat.ModelCatalog.ixx:479`, `:487`). On the command-line path `main.cpp:828` exits instead of
-opening a session, so the user is back at a shell where neither command exists. In the published
-container the reachable remedy is the image's own `install` verb, step 1 of the website's Evaluating
-band, and the message never names it. Found running that band's step 2 before step 1.
-
-#### `--instruct` is missing from the packaging tool's option list, and its absence is silent
-
-`open` · `distribution`
-
-The flag is parsed (`ExportArtifact.cpp:142`) but absent from the `--package` option list
-(`:42-56`), so leaving it off writes `instruct: false` into the manifest with no warning — which
-changes the prompt template every consumer of that model applies. Document it, and consider refusing
-a model whose name says instruct while its manifest says otherwise.
-
 #### A mistyped model name is reported as an authentication failure
 
 `open` · `distribution`
