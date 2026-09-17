@@ -887,8 +887,8 @@ namespace Mila::ChatApp
 
         if ( models.empty() )
         {
-            // Points at the listing rather than at /install, because this is the first-run state
-            // and a user with an empty store has no name to pass to /install yet.
+            // Points at the listing rather than at /model install, because this is the first-run
+            // state and a user with an empty store has no name to pass to /model install yet.
             listing.table.push_back(
                 "No models installed. /model list --online lists what can be installed." );
 

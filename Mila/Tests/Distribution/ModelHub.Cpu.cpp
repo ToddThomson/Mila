@@ -4,7 +4,7 @@
  *
  * The listing body is the real one returned by
  * https://huggingface.co/api/models?author=mila-llm&full=true on 2026-08-01, so a change in
- * the shape Mila depends on fails here rather than at a user's first `/models`.
+ * the shape Mila depends on fails here rather than at a user's first `/model list --online`.
  *
  * CPU only, so this rides the MILA_ENABLE_CUDA=OFF CI gate.
  */

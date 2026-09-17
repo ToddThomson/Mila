@@ -144,15 +144,6 @@ attempting it here would be a core `Mila/Src` change under the freeze. The cost 
 deliberately: roughly 46 test usages across 10 files construct a `ZipSerializer` to exercise the
 component save/load round trip, and that coverage goes with it until the migration restores it.
 
-#### Two release scripts cannot run under WSL, because a Windows checkout gives them CRLF
-
-`open` · `build` · `ci`
-
-`.gitattributes` carries only `* text=auto`, so `scripts/dockerhub/verify-image.sh` and
-`build-runtime-image.sh` check out as CRLF and die at once under WSL with `env: $'bash\r'`. The
-stored form is LF, so no published image is affected, but RELEASING step 9 runs them from this
-machine and beta.3 had to extract the blobs from the tag to get through. `*.sh text eol=lf` closes it.
-
 #### The Docker Hub Overview page is authored in a browser with no source in the repo
 
 `open` · `docs` · `distribution`
@@ -180,16 +171,6 @@ Mila's positioning is the stack you can read, and nothing shows a reader where t
 journey — embed, attend, sample, decode — through the real source, followable by a strong C++
 developer unaided. No anchor: the finding is an absence.
 
-#### The Linux CI build has no parallelism cap and is killed at the memory limit
-
-`open` · `build` · `ci`
-
-`build-pipeline.yml:120` and `:208` run `-j $(nproc)` on a 4 vCPU / 16 GB runner, the only build
-path in the tree without a memory cap (`Docker/build-chat.sh` and `Dockerfile.runtime` both cap at
-4, after the uncapped build wedged Docker Desktop twice). The beta.3 release PR died `exit 137` at
-target 1087/1246 after 51 minutes of thrashing; the same content had passed an hour earlier, so it
-is flaky at the edge, and the Qwen dispatch tree and the binding wrapper are what pushed it there.
-
 #### A consumer's path budget is about thirty characters, spent by one seven-level include
 
 `open` · `build`
@@ -204,20 +185,14 @@ short includes close all three.
 
 ### Model Distribution
 
-#### The model cards, README and quick starts tell users to run `/install`, which Chat does not have
+#### The published model cards tell users to run `/install` and `/models`, which Chat does not have
 
 `open` · `distribution` · `docs`
 
-Chat's command is `/model install <name>`. The card sources in the repository are correct; the live
-copies on huggingface.co only change when a model is re-published, and they are what a new user
-reads *before* they have Mila at all. Fold the card refresh into the next publish.
-
-The repository's own user surfaces still say `/install`: `README.md:232`,
-`Samples/QuickStart/Python/README.md:60`, `common.py:25`, `:200`, `:254`, and
-`Samples/QuickStart/Cpp/main.cpp:40`. The same lines call Gemma 4 12B "the flagship", as do
-`README.md:107`, `quickstart.py:20` and the `Mila_py.cpp:951` docstring that prints in `help()` — a
-ranking that dates from Chat's compiled-in default, which no longer exists. The samples name Gemma
-because an example needs a model, and that is the fact to state.
+Chat's commands are `/model install <name>`, `/model load <name>` and `/model list`. The card
+sources in the repository are correct; the live copies on huggingface.co only change when a model is
+re-published, and they are what a new user reads *before* they have Mila at all. Fold the card
+refresh into the next publish of each: `Mila/Tools/ExportArtifact/ModelCards/`.
 
 #### A failed `--model` names a remedy the user cannot type
 
@@ -253,8 +228,8 @@ sent and the owner is `mila-llm`, lead with the name being wrong.
 `open` · `distribution` · `docs`
 
 It names `gpt2-small`, which installs and then cannot be used from Chat: Chat refuses base models by
-design, and `/models` says so in the row — but only *after* 623 MB has transferred. Either the
-getting-started paths name an instruct model, or `/install` says so before the transfer starts.
+design, and `/model list` says so in the row — but only *after* 623 MB has transferred. Either the
+getting-started paths name an instruct model, or `/model install` says so before the transfer starts.
 
 #### `gemma-4-12b-it-fp4` has two manifests and they no longer match
 
@@ -274,15 +249,6 @@ CUTLASS and pybind11, and the container images add curl. Both wheel presets are 
 `MILA_ENABLE_LIBCURL=OFF`, so a wheel built today has no curl — establish whether the published
 `0.20.0b3` wheels predate that change, and whether the wheel and image builds embed `NOTICE.md` at
 all. The licence texts are read at source, not from `NOTICE.md`.
-
-#### The README promises FP8 and BF16 deployments nobody can reach
-
-`open` · `docs` · `distribution`
-
-`applyRequestedQuantization` refuses to reload pre-quantized weights as anything else, so after the
-FP4-only publishing decision every published model is FP4 at runtime. The FP8 rows at
-`README.md:163,165` are converter-only capabilities presented as deployment options. Say so, or the
-table describes a path that does not exist.
 
 ---
 

@@ -57,7 +57,7 @@ store = mila.ModelStore()
 store.pull("gemma-4-12b-it-fp4", mila.default_hub_owner())
 ```
 
-`/install <name>` in the chat harness does the same thing. Then name it:
+`/model install <name>` in the chat harness does the same thing. Then name it:
 
 ```bash
 python Mila/Samples/QuickStart/Python/chat.py --model gemma-4-12b-it-fp4

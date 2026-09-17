@@ -47,7 +47,7 @@ if store.locate('${MILA_MODEL}') is None:
     sys.exit(1)
 "; then
     echo "MIS loads only what is already installed; it never downloads." >&2
-    echo "Install it with the chat harness (/install ${MILA_MODEL}) or set MILA_MODEL." >&2
+    echo "Install it with the chat harness (/model install ${MILA_MODEL}) or set MILA_MODEL." >&2
     exit 1
 fi
 

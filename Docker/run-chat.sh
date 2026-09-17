@@ -10,7 +10,7 @@
 #
 # Models come from the local Mila store at MILA_CACHE_DIR (/mila/Data/Models/Store, set
 # in the image), which the bind-mounted repo supplies and MIS shares. Chat opens on an
-# empty store: install the default with `/install gemma-4-12b-it-fp4` at the prompt.
+# empty store: install one with `/model install <name>` at the prompt (there is no default).
 # Any argument (e.g. --settings other.json, --system-prompt tools, --help) is forwarded on.
 set -euo pipefail
 

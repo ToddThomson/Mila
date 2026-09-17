@@ -415,8 +415,6 @@ A model is named, not aliased — what `/model list` shows is what you type:
 /help
 ```
 
-The default is `gemma-4-12b-it-fp4`.
-
 The MNIST training sample (`Samples/MNIST`) is another good way to exercise a full
 forward + backward + AdamW loop.
 

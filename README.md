@@ -75,9 +75,10 @@ matters. Vectorized memory access throughout — float4 for FP32, uint4 for BF16
 matches FP32's exponent range, avoiding overflow and underflow without loss scaling, with
 native Tensor Core support on Ampere and newer. FP16 is not a Mila target; BF16 supersedes
 it for all current use cases. Weight quantization is a compile-time decision — a
-`TWeightQuant` policy on `Linear`, with no runtime dispatch — and the weights arrive already
-quantized: `Tools/ExportArtifact` packs them offline into safetensors that declare their own
-policy, and a load refuses weights whose policy is not the one compiled in. FP8
+`TWeightQuantization` policy on `Linear`, with no runtime dispatch. Weights reach it one of two
+ways: a published model arrives already quantized, in safetensors that declare their policy, and
+refuses to load as anything else; BF16 weights you convert yourself are quantized to FP8 or FP4 as
+they load. FP8
 (`PerChannelFp8<>`) fits 8B-class models in a 12 GB budget through per-channel BF16→FP8_E4M3
 with cuBLASLt mixed-precision GEMM, and needs SM 8.9 or newer. FP4 E2M1 (`PerGroupFp4<128>`)
 halves weight storage again — packed nibbles dequantized per group inside the GEMM, on SM 8.0
@@ -104,10 +105,9 @@ against — so the bar is perplexity on wikitext-2, held under a threshold writt
 sweep that tested it. Hidden states are checked against a HuggingFace reference one decoder block
 at a time.
 
-### Gemma 4 12B — the flagship
+### Gemma 4 12B
 
-Gemma 4 12B Instruct is Mila's most capable inference target and the chat CLI default. It runs the
-full Gemma 4 architecture — per-layer sliding-window local/global attention, dual local/global RoPE,
+Gemma 4 12B Instruct runs the full Gemma 4 architecture — per-layer sliding-window local/global attention, dual local/global RoPE,
 GeGLU, RMSNorm, and final logit softcap — validated **token-for-token against HuggingFace**.
 
 - **Fits a 12 GB consumer card at FP4**, with a large context window: weight-tying reclaims ~2 GB and
@@ -175,7 +175,7 @@ tokenizers, and tooling beneath them.
 | Qwen 3.8 27B inference — FP4 E2M1 per-group quantization | Validated — 15.1 GiB, fits a 16 GB card |
 | Qwen 3.8 27B — hidden-state parity against HuggingFace | Validated — one decoder block at a time |
 | Gemma 4 12B Instruct inference — greedy decode | Validated against HuggingFace (token-for-token) |
-| Gemma 4 12B Instruct — FP4 E2M1 per-group quantization | Validated — chat CLI default; runs a large context window in 12 GB (weight-tying + bounded-KV ring) |
+| Gemma 4 12B Instruct — FP4 E2M1 per-group quantization | Validated — runs a large context window in 12 GB (weight-tying + bounded-KV ring) |
 | Llama 3.1 8B inference — FP4 E2M1 per-group quantization | Validated — ~6 GB, ~57 tok/s decode, fits 12 GB |
 | Llama 3.1 8B inference — FP8 E4M3 per-channel quantization | Validated — ~11.6 GB at ctx 8192 |
 | Llama 3.2 3B inference — FP4 E2M1 per-group quantization | Validated — coherent generation, 44–48 tok/s decode |
@@ -209,6 +209,10 @@ tokenizers, and tooling beneath them.
 | BPE tokenizer | Complete |
 | SentencePiece tokenizer | Complete |
 
+Published models are FP4, as the published-models row lists. The FP8 and BF16 rows are reached by
+converting a checkpoint yourself ([getting-started.md](https://github.com/ToddThomson/Mila/blob/dev/getting-started.md), section 5b) and choosing
+the precision at load.
+
 ---
 
 ## Adaptors
@@ -226,10 +230,10 @@ Mila: It stores the key and value tensors from earlier tokens so each new token 
 ```
 
 Located under `Mila/Adaptors/Chat`. An instruction-following chat harness that closes the
-loop in-process with a human in the gate — the default model is Gemma 4 12B Instruct at FP4,
-loaded via the two-phase (prefill + decode) KV-cache pipeline, with model hot-switching
-(`/model <name> [quant]`) and tool calling. Models come from the local store: `/models --online`
-lists what Mila publishes, `/install <name>` downloads one, and `/models` shows what is installed and
+loop in-process with a human in the gate — models load through the two-phase (prefill + decode)
+KV-cache pipeline, with model hot-switching (`/model load <name> [quant]`) and tool calling. Models
+come from the local store, and a fresh store has none: `/model list --online` lists what Mila
+publishes, `/model install <name>` downloads one, and `/model list` shows what is installed and
 what each costs in memory. On a 12 GB card, Gemma 4 12B FP4 runs a large context
 window — its two memory-fit gates, weight-tying and the bounded-KV sliding-window ring cache, landed
 in the alpha.6 line.

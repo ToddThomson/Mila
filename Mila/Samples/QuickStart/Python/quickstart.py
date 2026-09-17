@@ -17,7 +17,7 @@ import sys
 
 import common
 
-# The published flagship. Loading never downloads, so an uninstalled name is an error
+# A published model, because an example needs one. Loading never downloads, so an uninstalled name is an error
 # rather than a surprise multi-gigabyte transfer -- pull it deliberately:
 #   mila.ModelStore().pull(MODEL, mila.default_hub_owner())
 MODEL = "gemma-4-12b-it-fp4"

@@ -950,7 +950,7 @@ PYBIND11_MODULE( _mila, m )
     m.doc() =
         "Mila inference bindings for CUDA.\n\n"
         "Models:\n"
-        "    GemmaModel  Gemma 4 Instruct, BF16 compute with FP4 weights (the flagship).\n"
+        "    GemmaModel  Gemma 4 Instruct, BF16 compute with FP4 weights.\n"
         "    LlamaModel  Llama 3.x Instruct, BF16 compute, optional FP8 or FP4 weights.\n"
         "    QwenModel   Qwen 3.8, BF16 compute, FP4 or a 2/3-bit codebook.\n\n"
         "Load an installed model by name with from_store(), which reads the store record\n"

@@ -34,7 +34,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #                 without it. This image builds Chat at the MILA_ENABLE_LIBCURL default
 #                 (ON), unlike Dockerfile.wheel which omits OpenSSL deliberately because
 #                 the wheel forces it OFF. Chat in the container needs a real transport:
-#                 /install pulls into the store on the bind mount.
+#                 /model install pulls into the store on the bind mount.
 # gdb/less are dev-shell niceties. Dependencies (GoogleTest, nlohmann_json, miniz,
 # CUTLASS) are fetched by CPM/FetchContent at configure time and are not installed.
 RUN apt-get update \

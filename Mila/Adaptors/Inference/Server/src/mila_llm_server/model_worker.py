@@ -110,7 +110,7 @@ class ModelWorker:
         Resolve the configured name against the local store and load what it names.
 
         MIS never pulls. A model arrives in the store through a deliberate act -- Chat's
-        /install, or ExportArtifact --install -- and a server that downloaded 6 GB because
+        /model install, or ExportArtifact --install -- and a server that downloaded 6 GB because
         a name was misspelled would be a worse failure than refusing to start.
         """
         store = mila.ModelStore()
@@ -123,7 +123,7 @@ class ModelWorker:
                 f"No model named '{settings.model}' is installed in the Mila store "
                 f"({store.root}). Installed: {installed or 'nothing'}.\n"
                 "MIS loads only what is already installed. Install one with the chat "
-                "harness (/install <name>), or with ExportArtifact --install from a "
+                "harness (/model install <name>), or with ExportArtifact --install from a "
                 "source build, then start again. In a container, chat is a second "
                 "entrypoint of this same image and shares this store."
             )

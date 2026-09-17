@@ -44,11 +44,11 @@ It is also the one to reach for when what you are testing is Mila rather than th
 
 ## Use
 
-From the Mila chat harness — `/install` works, `/model` will refuse it, and that refusal is the
-documented behaviour above:
+From the Mila chat harness — `/model install` works, `/model load` will refuse it, and that refusal
+is the documented behaviour above:
 
 ```
-/install gpt2-small
+/model install gpt2-small
 ```
 
 From the library:

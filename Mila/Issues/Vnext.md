@@ -668,3 +668,27 @@ Phase 6 step 2's negative — scratch summed across the tree instead of taking t
 test passed: predicted equals reported, nothing throws, memory does not grow. A per-model literal of
 the reserved bytes in `ScratchReservation.Cuda.cpp` would fail on it, as the other footprint literals
 do.
+
+## The published binaries are built on CUDA 13.3 while 13.4 is current
+
+`build` · `ci` · `distribution` · `blocked`
+
+Move the declared toolkit to 13.4.2. Held for v0.20 (Todd, 2026-09-17): on that date Docker Hub's
+`nvidia/cuda` had no 13.4 tag for any OS, and the Linux wheels, runtime image, dev container and CI
+all build `FROM` it. Unblocks when `13.4.2-devel-ubuntu26.04` and `-runtime-ubuntu26.04` exist —
+not by an apt-installed toolkit on a plain base.
+
+Moves together (RELEASING.md, toolkit paragraph): `$cudaVersion` in
+`scripts/pypi/build-wheel-windows.ps1:59`, `Docker/Dockerfile.wheel:23`, `Docker/Dockerfile.runtime:21`,
+`Docker/Dockerfile:18`, `build-pipeline.yml:47`, and the docs naming 13.3 — `README.md:280`,
+`:290-292`, `getting-started.md:34`, `:119-134`, `:183-191`, `:241`, `CONTRIBUTING.md:46`,
+`Docker/README.md:15`, `:20`, `Web/content/start.md:15`, `RELEASING.md:382`.
+
+Consequences to carry into the work. Wheel users see nothing (the `nvidia-*` dependencies and minor
+version compatibility). Image users' driver floor rises: the base image's `NVIDIA_REQUIRE_CUDA`
+becomes `cuda>=13.4`, and the container toolkit refuses a GeForce driver below it. Every local build
+directory is configured against v13.3 while `CUDA_PATH` names v13.4 (13.4.1 installed), so a fresh
+configure already drifts — reconfigure all of them deliberately. Published tok/s figures and the
+cuBLASLt findings in the specs are 13.3 measurements; re-measure or label them. CI's first run
+starts with a cold ccache. The patch levels already differ today: Windows pins resolve to 13.3.1,
+the Linux images to 13.3.0.
