@@ -692,3 +692,69 @@ configure already drifts — reconfigure all of them deliberately. Published tok
 cuBLASLt findings in the specs are 13.3 measurements; re-measure or label them. CI's first run
 starts with a cold ccache. The patch levels already differ today: Windows pins resolve to 13.3.1,
 the Linux images to 13.3.0.
+
+## Gemma 4 12B decodes one token per forward pass, and Google ships a drafter for it
+
+`gemma` · `perf` · `mila-src` · `models`
+
+Every Gemma 4 size ships a dedicated draft model for speculative decoding (ai.google.dev/gemma/docs/core,
+read 2026-09-17). `SpeculativeDecoding.md` is a DRAFT that places Google's drafter last (phase E) behind
+prompt lookup and EAGLE; with a published drafter it moves forward. First step, before any code: measure
+what a K-token verify forward costs against K decodes on the 5060 Ti with today's prefill path, since
+FP4 decode is bandwidth-bound and the verify goes through prefill GEMM — if K=4 costs near 4 decodes
+there is no win. Then pin the drafter checkpoint layout (tensor names, how it combines the target's last
+hidden state). Work: draft/verify/accept/rewind loop in `generate()`, logits at every verify position,
+wrap-safe rewind on the sliding ring (`rewindKvCache` exists; speculative wrap unverified), drafter KV
+cache, the target's last hidden state exposed, converter/footprint/Chat stats. Gate: greedy output
+token-for-token identical to plain decode.
+
+## Gemma 4 12B is multimodal and Mila drops its image and audio weights
+
+`gemma` · `mila-src` · `models` · `adaptors`
+
+The 12B is **encoder-free** (`Gemma4UnifiedForConditionalGeneration`): no vision tower. Images enter
+through `vision_embedder` (`patch_dense`, `patch_ln1`, `patch_ln2`, `pos_norm`) and
+`embed_vision.embedding_projection` into the decoder itself — `patch_size` 16, `model_patch_size` 48,
+280 soft tokens, `mm_embed_dim` 3840; audio through `embed_audio` (`audio_embed_dim` 640).
+`convert_weights.py:116` skips `model.embed_vision.` and `model.embed_audio.`. Open before sizing:
+whether image soft tokens attend bidirectionally within a prefill (every Mila attention path is causal),
+the position scheme for image spans, and the audio front end. Work: patch embedding component, soft-token
+placement before layer 0, image decode/resize/normalize (a vendored decoder is a NOTICE entry; decode
+belongs in adaptors), template image tokens, Chat attach, MIS image content blocks for both protocols,
+converter keeps the embedders, manifest declares modality, footprint counts image prefill. Gate:
+embedder parity against HuggingFace, then token-for-token on an image prompt.
+
+## Google's quantization-aware 4-bit Gemma 4 cannot be loaded without losing what QAT bought
+
+`gemma` · `quantization` · `mila-src` · `distribution`
+
+`google/gemma-4-12b-it-qat-w4a16-ct` (compressed-tensors, read 2026-09-17): `pack-quantized`, `int`,
+`num_bits` 4, `symmetric`, `strategy` group, `group_size` 32, targets `Linear`; `lm_head` and the
+image/audio embedders ignored. Mila's FP4 is E2M1 at group 128 — re-quantizing QAT weights onto that
+grid discards the training that fitted them to the int4 grid. Measure first: wikitext perplexity of
+the QAT checkpoint against Mila's published FP4 and BF16; if QAT does not beat FP4, stop. Work: a
+`PerGroupInt4<32>` symmetric policy (OperationTraits rows, W4A16 GEMM with an int4 value table and
+group-32 scales — the FP4 kernel's nibble lookup is the part that changes), ExportArtifact transcoding
+int32 `pack-quantized` into Mila's nibble layout with `mila_quantization` metadata, footprint (4.5 bits
+per weight with 16-bit scales against FP4's 4.25 — scale dtype unverified). The embedding stays Mila's
+FP8 tied table, which the QAT build leaves unquantized. Publish as its own model. Depends on the
+compressed-tensors import below.
+
+## Mila cannot import the format most quantized models on the Hub are published in
+
+`quantization` · `distribution` · `mila-src`
+
+compressed-tensors (the vLLM project's format) is safetensors plus a `quantization_config` in
+`config.json`: a `format` (`pack-quantized`, `int-quantized`, `float-quantized`,
+`nvfp4-pack-quantized`), per-group schemes (bits, `int`/`float`, symmetric, strategy tensor/channel/
+group/block, `group_size`), and `targets`/`ignore`. A packed int4 Linear carries `weight_packed` (int32,
+eight values each), `weight_scale` per group, `weight_shape`, and `weight_zero_point` only when
+asymmetric. Packing order and scale dtype are from memory — settle them with a safetensors header read
+before code.
+
+Import it in `ExportArtifact` only, as a transcode into Mila's own safetensors with
+`mila_quantization` metadata; the load contract, loaders, store and adaptors stay untouched, and a
+layout mismatch surfaces at export rather than at load. Mapping, per format: `pack-quantized` int4
+symmetric -> a new `PerGroupInt4<G>` (first consumer: the Gemma 4 QAT entry above);
+`float-quantized` FP8 per-channel -> the existing `PerChannelFp8` (check scale shape and dtype agree);
+`nvfp4-pack-quantized` -> the native NVFP4 direction on SM120 (`Fp8ActivationPrefill.md`). Refuse any scheme with no matching policy, naming the scheme.
