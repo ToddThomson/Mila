@@ -379,6 +379,9 @@ namespace Mila::Bindings
 
         /// Paths the platform refused to delete, most often a blob a live process still maps.
         std::vector<std::string> retained;
+
+        /// Record files that could not be read; while any exist, no blob is deleted.
+        std::vector<std::string> unreadable_records;
     };
 
     /**

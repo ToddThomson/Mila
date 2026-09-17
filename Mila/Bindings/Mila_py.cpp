@@ -285,7 +285,9 @@ static void bind_distribution( py::module_& m )
         .def_readonly( "files_removed", &Mila::Bindings::RemovalReportInfo::files_removed )
         .def_readonly( "bytes_reclaimed", &Mila::Bindings::RemovalReportInfo::bytes_reclaimed )
         .def_readonly( "retained", &Mila::Bindings::RemovalReportInfo::retained,
-            "Paths the platform refused to delete, most often a blob a live process maps." );
+            "Paths the platform refused to delete, most often a blob a live process maps." )
+        .def_readonly( "unreadable_records", &Mila::Bindings::RemovalReportInfo::unreadable_records,
+            "Record files that could not be read. While any exist, no model file is deleted." );
 
     py::class_<Mila::Bindings::ModelStoreHandle>( m, "ModelStore" )
         .def( py::init<const std::string&>(), py::arg( "root" ) = std::string{},
@@ -298,7 +300,7 @@ static void bind_distribution( py::module_& m )
         .def( "locate", &Mila::Bindings::ModelStoreHandle::locate, py::arg( "name" ),
             "The model under this name, or None when it is absent or a blob is missing." )
         .def( "remove", &Mila::Bindings::ModelStoreHandle::remove, py::arg( "name" ),
-            "Remove a model, reclaiming only blobs no surviving record references." )
+            "Remove a model and the files only it uses. Files another model uses stay." )
         .def( "usage", &Mila::Bindings::ModelStoreHandle::usage,
             "What the store holds and what could be reclaimed." )
         .def( "install",

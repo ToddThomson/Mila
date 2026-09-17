@@ -949,13 +949,9 @@ namespace Mila::ChatApp
         // Disk stays in the total and off the rows. The aggregate is refcounted and answers the
         // only question a byte count here serves -- what is this store costing me -- while a
         // per-row size is not what removing that row would return, because blobs are shared.
-        listing.table.push_back( std::format( "  {} model(s), {} on disk{}",
+        listing.table.push_back( std::format( "  {} model(s), {} on disk",
             usage.model_count,
-            formatBytes( usage.blob_bytes ),
-            usage.reclaimable_bytes > 0
-                ? std::format( ", {} reclaimable with /rm --prune",
-                    formatBytes( usage.reclaimable_bytes ) )
-                : std::string{} ) );
+            formatBytes( usage.blob_bytes ) ) );
 
         // The card the column is about, and the only line beneath the table. Everything else that
         // stood here -- the context basis, the quantization legend, a per-row reason for an
@@ -1455,19 +1451,34 @@ namespace Mila::ChatApp
 
         const auto report = store.remove( name );
 
-        if ( report.records_removed == 0 )
+        if ( report.records_removed == 0 && report.retained.empty() )
         {
             lines.push_back( std::format( "{} is not installed.", name ) );
 
             return lines;
         }
 
-        lines.push_back( std::format( "Removed {} -- {} blob(s), {} reclaimed.",
-            name, report.blobs_removed, formatBytes( report.bytes_reclaimed ) ) );
-
-        // Shared blobs survive by design; saying so pre-empts "why did that free so little".
-        if ( report.blobs_removed == 0 )
+        if ( report.records_removed == 0 )
         {
+            lines.push_back( std::format(
+                "{} was not removed: some of its files are in use. Close whatever has it loaded, "
+                "then remove it again.", name ) );
+        } else {
+            lines.push_back( std::format( "Removed {} -- {} blob(s), {} reclaimed.",
+                name, report.blobs_removed, formatBytes( report.bytes_reclaimed ) ) );
+        }
+
+        if ( !report.unreadable_records.empty() )
+        {
+            lines.push_back(
+                "  Its files were kept, because these records cannot be read:" );
+
+            for ( const auto& unreadable : report.unreadable_records )
+            {
+                lines.push_back( std::format( "    {}", unreadable ) );
+            }
+        } else if ( report.records_removed == 1 && report.blobs_removed == 0 ) {
+            // Shared blobs survive by design; saying so pre-empts "why did that free so little".
             lines.push_back(
                 "  Its files are shared with another installed model, so none were deleted." );
         }

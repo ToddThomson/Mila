@@ -235,8 +235,7 @@ Root resolution, first match wins:
 what produced a `Mila\models\models` tree.
 
 **The name is the key, and it is flat and unique.** One name is one model, so a name that is taken
-is refused rather than namespaced -- silently replacing would leave the displaced model's blobs
-unreferenced for the next prune to reclaim. Two cases are not collisions: a hub model reinstalled
+is refused rather than namespaced -- silently replacing would delete the displaced model's blobs. Two cases are not collisions: a hub model reinstalled
 from the same repository is a refresh, and identical content under the same name is the same model,
 which is what keeps a local re-install idempotent.
 
@@ -267,10 +266,21 @@ for a good one. That is the failure the design is chosen to make impossible rath
 Deduplication stops being free the moment removal exists: deleting `gemma-4-12b-it-fp4` must not
 delete the tokenizer blob that `gemma-4-12b-it-fp8` also references.
 
-Removal unlinks the record, then sweeps blobs that no surviving record names. Mark-and-sweep over the
-record tree is exact and cheap -- records are kilobytes -- and it makes `remove` and `prune` the same
-primitive. The sweep also reclaims what nothing else ever will: `.rejected` files from digest
-mismatches, and `tmp/` partials from transfers that were abandoned rather than resumed.
+**Removing a model touches only that model.** `remove(name)` deletes the blobs its record names that no
+other record names, then the record. Blobs go first, so an interrupted removal leaves a record listed as
+incomplete, which removing again finishes, rather than blobs nothing names. Writing a record over
+another -- a refresh, or an install with `replace` -- does the same for the blobs only the replaced
+record named. Checking the other records is exact and cheap: records are kilobytes.
+
+**Nothing sweeps `blobs/` for files no record names.** A store that predates records, or holds a record
+that no longer parses, is indistinguishable from one full of garbage, and a sweep deleted every model
+in exactly that state (decided 2026-09-16). For the same reason, while any record file cannot be read
+-- including one below `models/` in a layout this store does not read -- no blob is deleted, and the
+report names the files. A blob left behind costs disk; a blob wrongly deleted costs a model.
+
+`clean()` reclaims what belongs to no record at all: `.rejected` files from digest mismatches, locks
+left by a crashed process, and on request `tmp/` partials from transfers abandoned rather than resumed.
+It is a library operation today; a `mila store clean` verb is the user surface it waits for.
 
 ### Concurrent processes
 
@@ -516,9 +526,9 @@ ModelStore                     filesystem only, always available
   list()                    -> [StoredModel]     every installed record
   locate(name)              -> StoredModel?      paths, or nothing
   describe(record)          -> StoredModel       a record plus its resolved blob paths
-  remove(name)              -> RemovalReport     record, then sweep
-  prune()                   -> RemovalReport     unreferenced blobs, rejects, stale partials
-  diskUsage()               -> StoreUsage        by model and in total
+  remove(name)              -> RemovalReport     blobs only it names, then the record
+  clean(options)            -> RemovalReport     rejects, abandoned locks, partials on request
+  usage()                   -> StoreUsage        in total, and what clean() would free
   install(package, options) -> StoredModel       verify, adopt, record
   ensureBlob(what, digest, fetcher) -> path      resumable, verified, published on match
 
@@ -594,7 +604,7 @@ The split is by dependency, not by theme, and **the only optional thing is the t
 
 - **Always compiled** -- `Sha256`, `Environment`, `ModelCoordinate`, `ModelManifest`,
   `ModelPackage`, `ModelStore`, `ModelHub`, `ModelResolver`, `HttpTransport` and
-  **`HuggingFaceHub`**: naming, the schema, layout, records, list, locate, remove, prune,
+  **`HuggingFaceHub`**: naming, the schema, layout, records, list, locate, remove, clean,
   package, validate, install, `pull` itself, and every HuggingFace URL shape, token rule,
   listing quirk and status meaning. None of it performs I/O. `HuggingFaceHub` holds an
   `IHttpTransport` and asks it for bytes.
@@ -805,10 +815,10 @@ and write a record on every successful pull.
 *Done when:* a pulled model appears in `list()`, and a build with no HTTP transport still lists
 and locates it.
 
-**Phase 7 -- management.** `remove`, `prune`, `diskUsage`, refcounted sweep, transfer lock.
+**Phase 7 -- management.** `remove`, `clean`, `usage`, reference-checked removal, transfer lock.
 *Done when:* removing one of two models sharing a tokenizer leaves the tokenizer blob in place;
-prune reclaims a `.rejected` file and a stale partial; two processes pulling one blob do not corrupt
-each other.
+removing a model leaves a blob no record names; clean reclaims a `.rejected` file and a stale
+partial; two processes pulling one blob do not corrupt each other.
 
 **Phase 8 -- the hub interface.** `IModelHub` with `HuggingFaceHub` behind it, plus `listModels`.
 *Done when:* the resolver names no HuggingFace URL, and listing `mila-llm` reports the published

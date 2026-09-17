@@ -728,7 +728,7 @@ namespace Mila::Tests::Distribution
         EXPECT_FALSE( store.contains( fp4_digest ) );
 
         // ...and the tokenizer is not, because fp8 still names it. This is the failure the
-        // sweep exists to prevent, and it is silent if it is ever got wrong.
+        // reference check exists to prevent, and it is silent if it is ever got wrong.
         EXPECT_TRUE( store.contains( tokenizer_digest ) );
         EXPECT_TRUE( store.contains( fp8_digest ) );
         EXPECT_TRUE( store.locate( "gemma-4-12b-it-fp8" ).has_value() );
@@ -781,19 +781,105 @@ namespace Mila::Tests::Distribution
         EXPECT_TRUE( store.contains( digest ) );
     }
 
-    TEST( ModelStore, PruneReclaimsUnreferencedBlobsAndRejectedTransfers )
+    // The data loss this guards against: a sweep for blobs no readable record names deleted every
+    // model in a store that predates records. Removal now deletes only what the removed model named.
+    TEST( ModelStore, RemovingAModelLeavesABlobNoRecordNames )
     {
         ScratchStoreRoot scratch;
         ModelStore store( scratch.path() );
 
-        const std::string kept_digest = seedBlob( store, "referenced by a record" );
-        const std::string orphan_digest = seedBlob( store, "referenced by nothing" );
+        const std::string removed_digest = seedBlob( store, "the removed model's weights" );
+        const std::string unnamed_digest = seedBlob( store, "a model installed before records existed" );
 
         ModelRecord record;
-        record.name = "kept-bf16";
-        record.files.push_back( makeFile( "weights", "w.safetensors", kept_digest, 22 ) );
+        record.name = "removed-bf16";
+        record.files.push_back( makeFile( "weights", "w.safetensors", removed_digest, 27 ) );
 
         store.writeRecord( record );
+
+        const RemovalReport report = store.remove( "removed-bf16" );
+
+        EXPECT_EQ( report.records_removed, 1 );
+        EXPECT_EQ( report.blobs_removed, 1 );
+        EXPECT_FALSE( store.contains( removed_digest ) );
+        EXPECT_TRUE( store.contains( unnamed_digest ) );
+    }
+
+    TEST( ModelStore, RemovingAModelKeepsItsBlobsWhileAnotherRecordCannotBeRead )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        const std::string shared_digest = seedBlob( store, "weights the unreadable record may name" );
+
+        ModelRecord record;
+        record.name = "removed-bf16";
+        record.files.push_back( makeFile( "weights", "w.safetensors", shared_digest, 38 ) );
+
+        store.writeRecord( record );
+
+        const auto unreadable = scratch.path() / "models" / "damaged.json";
+        writeWholeFile( unreadable, "{ this is not a record" );
+
+        // A record from a layout this store does not read is unknown in the same way.
+        const auto nested = scratch.path() / "models" / "owner" / "repository" / "variant.json";
+        writeWholeFile( nested, "{}" );
+
+        const RemovalReport report = store.remove( "removed-bf16" );
+
+        EXPECT_EQ( report.records_removed, 1 );
+        EXPECT_EQ( report.blobs_removed, 0 );
+        EXPECT_EQ( report.unreadable_records.size(), 2u );
+        EXPECT_TRUE( store.contains( shared_digest ) );
+    }
+
+    TEST( ModelStore, WritingARecordOverAnotherDeletesTheBlobsOnlyTheReplacedOneNamed )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        const std::string old_weights = seedBlob( store, "revision one weights" );
+        const std::string new_weights = seedBlob( store, "revision two weights" );
+        const std::string tokenizer = seedBlob( store, "the tokenizer both revisions carry" );
+        const std::string shared = seedBlob( store, "a file another model also names" );
+        const std::string other_tokenizer = seedBlob( store, "the other model's own tokenizer" );
+
+        ModelRecord first;
+        first.name = "refreshed-fp4";
+        first.files.push_back( makeFile( "weights", "w.safetensors", old_weights, 20 ) );
+        first.files.push_back( makeFile( "tokenizer", "t.bin", tokenizer, 34 ) );
+        first.files.push_back( makeFile( "extra", "e.bin", shared, 31 ) );
+
+        store.writeRecord( first );
+
+        ModelRecord other;
+        other.name = "other-fp4";
+        other.files.push_back( makeFile( "weights", "w.safetensors", shared, 31 ) );
+        other.files.push_back( makeFile( "tokenizer", "t.bin", other_tokenizer, 31 ) );
+
+        store.writeRecord( other );
+
+        ModelRecord second;
+        second.name = "refreshed-fp4";
+        second.files.push_back( makeFile( "weights", "w.safetensors", new_weights, 20 ) );
+        second.files.push_back( makeFile( "tokenizer", "t.bin", tokenizer, 34 ) );
+
+        store.writeRecord( second );
+
+        EXPECT_FALSE( store.contains( old_weights ) );
+        EXPECT_TRUE( store.contains( new_weights ) );
+        EXPECT_TRUE( store.contains( tokenizer ) );
+        EXPECT_TRUE( store.contains( shared ) );
+        EXPECT_TRUE( store.locate( "refreshed-fp4" ).has_value() );
+        EXPECT_TRUE( store.locate( "other-fp4" ).has_value() );
+    }
+
+    TEST( ModelStore, CleanReclaimsRejectedTransfersAndNeverTouchesBlobs )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        const std::string unnamed_digest = seedBlob( store, "referenced by nothing" );
 
         const auto rejected = scratch.path() / "tmp" / "sha256-whatever.partial.rejected";
         writeWholeFile( rejected, "bytes that failed their digest" );
@@ -801,24 +887,24 @@ namespace Mila::Tests::Distribution
         const auto partial = scratch.path() / "tmp" / "sha256-inflight.partial";
         writeWholeFile( partial, "a resumable prefix" );
 
-        const RemovalReport report = store.prune();
+        const RemovalReport report = store.clean();
 
-        EXPECT_EQ( report.blobs_removed, 1 );
+        EXPECT_EQ( report.blobs_removed, 0 );
         EXPECT_EQ( report.files_removed, 1 );
-        EXPECT_TRUE( store.contains( kept_digest ) );
-        EXPECT_FALSE( store.contains( orphan_digest ) );
+        EXPECT_TRUE( store.contains( unnamed_digest ) );
         EXPECT_FALSE( std::filesystem::exists( rejected ) );
 
-        // A partial is good bytes a retry resumes onto, so pruning must not silently turn a
+        // A partial is good bytes a retry resumes onto, so cleaning must not silently turn a
         // cheap retry into a full re-download.
         EXPECT_TRUE( std::filesystem::exists( partial ) );
 
-        PruneOptions discard;
+        CleanOptions discard;
         discard.discard_partials = true;
 
-        store.prune( discard );
+        store.clean( discard );
 
         EXPECT_FALSE( std::filesystem::exists( partial ) );
+        EXPECT_TRUE( store.contains( unnamed_digest ) );
     }
 
     TEST( ModelStore, ReportsWhatItHoldsAndWhatCanBeReclaimed )
@@ -827,7 +913,7 @@ namespace Mila::Tests::Distribution
         ModelStore store( scratch.path() );
 
         const std::string kept_digest = seedBlob( store, "referenced" );
-        seedBlob( store, "orphaned" );
+        seedBlob( store, "unnamed" );
 
         ModelRecord record;
         record.name = "kept-bf16";
@@ -836,14 +922,18 @@ namespace Mila::Tests::Distribution
         store.writeRecord( record );
 
         writeWholeFile( scratch.path() / "tmp" / "sha256-x.partial", "partial bytes" );
+        writeWholeFile( scratch.path() / "tmp" / "sha256-y.partial.rejected", "rejected bytes" );
 
         const StoreUsage usage = store.usage();
 
         EXPECT_EQ( usage.model_count, 1 );
         EXPECT_EQ( usage.blob_count, 2 );
         EXPECT_EQ( usage.blob_bytes, std::string( "referenced" ).size()
-            + std::string( "orphaned" ).size() );
-        EXPECT_EQ( usage.reclaimable_bytes, std::string( "orphaned" ).size() );
+            + std::string( "unnamed" ).size() );
+
+        // Only what clean() would free. A blob no record names is not reclaimable, because nothing
+        // can tell it from a model whose record is missing.
+        EXPECT_EQ( usage.reclaimable_bytes, std::string( "rejected bytes" ).size() );
         EXPECT_EQ( usage.partial_bytes, std::string( "partial bytes" ).size() );
     }
 }

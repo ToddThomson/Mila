@@ -300,8 +300,8 @@ six-rung ladder is ~12 ms per row. Only worth it if users pick models by context
 `distribution`
 
 If one ever returns: the blobs that model alone references. That is what deciding-what-to-delete
-wants, and prune's mark-and-sweep already computes the refcount — it is simply not exposed as a
-per-model query.
+wants, and removal already computes it (`ModelStore::reclaimBlobsOnlyNamedBy`) — it is simply not
+exposed as a per-model query.
 
 ## GQA's standalone `forward()` paths are unverified
 
@@ -543,13 +543,19 @@ Card source is `.internal/Marketing/HuggingFaceOrgCard.md`.
 ~50 s of the ~60 s Llama 3B migration, ~2 minutes on the 8B. Neither check is wrong alone, so the fix
 is a combined verb. `publish_model.py` has the same defect for its own reason.
 
-## The store has no garbage collector
+## `mila store clean`, and blobs no record names
 
 `distribution`
 
-A 15.09 GiB blob is orphaned locally — no record references the pre-export cb2-3 weights since the
-11.05 GiB build replaced them — and nothing reclaims it. The general gap, not the one file. A `mila`
-verb that lists unreferenced blobs and removes them on request is the shape.
+`ModelStore::clean()` reclaims rejected transfers, abandoned locks and on request partials, and no
+user command reaches it. A `mila store clean` verb is its surface.
+
+Blobs no record names are the harder half, and `clean()` deliberately never touches them: they are
+indistinguishable from a model whose record is missing or no longer parses. Removal and reinstall now
+delete the blobs only their record named, so new ones come only from an interrupted reinstall or
+from before that change — a 15.09 GiB pre-export cb2-3 blob is one locally. A verb that **lists**
+them, and deletes one only when the user names it, is the shape; a sweep is not
+(`ModelDistribution.md`, "Removal is refcounted").
 
 ## Buffer Gemma Anthropic streaming only when tools are present
 

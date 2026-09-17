@@ -204,7 +204,7 @@ namespace Mila::Distribution
         /// Records unlinked.
         int records_removed{ 0 };
 
-        /// Blobs no surviving record referenced.
+        /// Blobs the removed model named and no other record does.
         int blobs_removed{ 0 };
 
         /// Rejected transfers and abandoned locks, which belong to no record at all.
@@ -214,11 +214,17 @@ namespace Mila::Distribution
 
         /// Paths the platform refused to delete, most often a blob still mapped by a live process.
         std::vector<std::string> retained;
+
+        /// Record files that could not be read. While any exist no blob is deleted, since one of
+        /// them may name it.
+        std::vector<std::string> unreadable_records;
     };
 
     export struct StoreUsage
     {
         uint64_t blob_bytes{ 0 };
+
+        /// What clean() would free: rejected transfers and abandoned locks.
         uint64_t reclaimable_bytes{ 0 };
         uint64_t partial_bytes{ 0 };
         int model_count{ 0 };
@@ -255,7 +261,7 @@ namespace Mila::Distribution
         bool move_files{ true };
     };
 
-    export struct PruneOptions
+    export struct CleanOptions
     {
         /**
          * @brief Also discard in-flight partials.
@@ -271,10 +277,15 @@ namespace Mila::Distribution
      *
      * Layout:
      * @verbatim
-     *   models/<owner>/<repository>/<variant>.json   the records -- the index
-     *   blobs/sha256-<hex>                           the content
-     *   tmp/                                         in-flight transfers and their locks
+     *   models/<name>.json      the records -- the index, keyed by the folded name
+     *   blobs/sha256-<hex>      the content
+     *   tmp/                    in-flight transfers and their locks
      * @endverbatim
+     *
+     * A blob is deleted only by the operation that retires the record naming it: removing that
+     * model, or installing over it. Nothing sweeps `blobs/` for files no record names, because a
+     * store that predates records, or holds a record that no longer parses, looks exactly like one
+     * full of garbage.
      */
     export class ModelStore
     {
@@ -685,16 +696,15 @@ namespace Mila::Distribution
         // -------------------------------------------------------------------
 
         /**
-         * @brief Write a record, stamping the install time.
+         * @brief Persist a record, stamping the install time, and hand back what was written.
          *
          * Written to tmp/ and renamed, because a peer process may be listing the store while this
-         * one installs, and a half-written record must never be readable.
-         */
-        /**
-         * @brief Persist a record, and hand back what was actually written.
+         * one installs, and a half-written record must never be readable. Returns the record
+         * rather than void because the install time is stamped here: a caller that kept its own
+         * copy would hold one that disagrees with the store.
          *
-         * Returns the record rather than void because the install time is stamped here: a
-         * caller that kept its own copy would hold one that disagrees with the store.
+         * A record written over another -- a refresh, or an install with replace -- deletes the
+         * blobs the replaced record named that neither the new record nor any other names.
          */
         ModelRecord writeRecord( ModelRecord record )
         {
@@ -706,6 +716,7 @@ namespace Mila::Distribution
             }
 
             const auto destination = recordPath( record.name );
+            const std::optional<ModelRecord> replaced = readRecordFile( destination );
 
             std::filesystem::create_directories( destination.parent_path() );
             std::filesystem::create_directories( root_ / "tmp" );
@@ -748,6 +759,22 @@ namespace Mila::Distribution
                 throw std::runtime_error( std::format(
                     "ModelStore: cannot publish record {}: {}",
                     destination.string(), rename_error.message() ) );
+            }
+
+            if ( replaced.has_value() )
+            {
+                // The new record sits at the path the walk excludes, so its blobs are taken out of the
+                // replaced set here. A blob left behind only costs disk; the record is already in place.
+                ModelRecord retired = *replaced;
+
+                std::erase_if( retired.files, [&record]( const ModelFile& file )
+                {
+                    return std::any_of( record.files.begin(), record.files.end(),
+                        [&file]( const ModelFile& kept ) { return kept.sha256 == file.sha256; } );
+                } );
+
+                RemovalReport discarded;
+                reclaimBlobsOnlyNamedBy( retired, destination, discarded );
             }
 
             return record;
@@ -925,10 +952,15 @@ namespace Mila::Distribution
         // -------------------------------------------------------------------
 
         /**
-         * @brief Remove one installed model, then reclaim what nothing else references.
+         * @brief Remove one installed model and the blobs only it named.
          *
-         * The sweep is what makes this safe. Deduplication means a tokenizer blob may back several
-         * models, so removal cannot delete a model's files simply because that model is going.
+         * Touches nothing the model did not name. Deduplication means a tokenizer blob may back
+         * several models, so a blob another record names stays. The blobs go before the record: an
+         * interrupted removal leaves a record listed as incomplete, which removing again finishes,
+         * rather than blobs nothing names.
+         *
+         * A record that cannot be read is unlinked and its blobs stay, because nothing says which
+         * they are. A blob that cannot be deleted keeps the record, so the removal can be retried.
          */
         RemovalReport remove( const std::string& name )
         {
@@ -943,6 +975,18 @@ namespace Mila::Distribution
                 return report;
             }
 
+            if ( const std::optional<ModelRecord> record = readRecordFile( record_path ) )
+            {
+                reclaimBlobsOnlyNamedBy( *record, record_path, report );
+
+                if ( !report.retained.empty() )
+                {
+                    return report;
+                }
+            } else {
+                report.unreadable_records.push_back( record_path.string() );
+            }
+
             std::error_code remove_error;
             std::filesystem::remove( record_path, remove_error );
 
@@ -955,66 +999,20 @@ namespace Mila::Distribution
 
             report.records_removed = 1;
 
-            const RemovalReport swept = prune();
-
-            report.blobs_removed = swept.blobs_removed;
-            report.bytes_reclaimed = swept.bytes_reclaimed;
-            report.retained.insert(
-                report.retained.end(), swept.retained.begin(), swept.retained.end() );
-
             return report;
         }
 
         /**
-         * @brief Reclaim blobs no record names, rejected transfers, and abandoned locks.
+         * @brief Reclaim rejected transfers and abandoned locks, and on request partials.
          *
-         * Mark-and-sweep over the record tree is exact and costs a directory walk: records are
-         * kilobytes, and the alternative -- a reference count maintained by hand -- is a number
-         * that can be wrong.
+         * Never touches `blobs/`: a blob is deleted only with the record that named it (see
+         * remove and writeRecord).
          */
-        RemovalReport prune( const PruneOptions& options = {} )
+        RemovalReport clean( const CleanOptions& options = {} )
         {
             RemovalReport report;
 
-            std::set<std::string> referenced;
-
-            for ( const auto& model : list() )
-            {
-                for ( const auto& file : model.record.files )
-                {
-                    referenced.insert( file.sha256 );
-                }
-            }
-
             std::error_code ignored;
-
-            const auto blobs_root = root_ / "blobs";
-
-            if ( std::filesystem::exists( blobs_root, ignored ) )
-            {
-                for ( const auto& entry :
-                    std::filesystem::directory_iterator( blobs_root, ignored ) )
-                {
-                    if ( !entry.is_regular_file() )
-                    {
-                        continue;
-                    }
-
-                    const std::string name = entry.path().filename().string();
-
-                    if ( !name.starts_with( "sha256-" ) )
-                    {
-                        continue;
-                    }
-
-                    if ( referenced.contains( name.substr( 7 ) ) )
-                    {
-                        continue;
-                    }
-
-                    reclaim( entry.path(), report, report.blobs_removed );
-                }
-            }
 
             const auto tmp_root = root_ / "tmp";
 
@@ -1057,17 +1055,7 @@ namespace Mila::Distribution
         {
             StoreUsage totals;
 
-            std::set<std::string> referenced;
-
-            for ( const auto& model : list() )
-            {
-                ++totals.model_count;
-
-                for ( const auto& file : model.record.files )
-                {
-                    referenced.insert( file.sha256 );
-                }
-            }
+            totals.model_count = static_cast<int>( list().size() );
 
             std::error_code ignored;
 
@@ -1094,11 +1082,6 @@ namespace Mila::Distribution
 
                     ++totals.blob_count;
                     totals.blob_bytes += bytes;
-
-                    if ( !referenced.contains( name.substr( 7 ) ) )
-                    {
-                        totals.reclaimable_bytes += bytes;
-                    }
                 }
             }
 
@@ -1199,6 +1182,80 @@ namespace Mila::Distribution
                 > std::chrono::hours( 24 );
         }
 
+        /**
+         * @brief Delete the blobs a retired record named that no other record names.
+         *
+         * `retired_path` is excluded from the walk, so the record being removed or replaced does
+         * not protect its own blobs. When any other record cannot be read, nothing is deleted: it
+         * may name any of these blobs.
+         */
+        void reclaimBlobsOnlyNamedBy(
+            const ModelRecord& retired, const std::filesystem::path& retired_path, RemovalReport& report ) const
+        {
+            std::set<std::string> referenced;
+
+            const auto models_root = root_ / "models";
+
+            std::error_code ignored;
+
+            if ( std::filesystem::exists( models_root, ignored ) )
+            {
+                for ( const auto& entry :
+                    std::filesystem::recursive_directory_iterator( models_root, ignored ) )
+                {
+                    if ( !entry.is_regular_file() || entry.path().extension() != ".json" )
+                    {
+                        continue;
+                    }
+
+                    if ( std::filesystem::equivalent( entry.path(), retired_path, ignored ) )
+                    {
+                        continue;
+                    }
+
+                    // A record below the top level is from a layout this store does not read, so it
+                    // counts as unreadable rather than as absent.
+                    const std::optional<ModelRecord> other = entry.path().parent_path() == models_root
+                        ? readRecordFile( entry.path() )
+                        : std::optional<ModelRecord>{};
+
+                    if ( !other.has_value() )
+                    {
+                        report.unreadable_records.push_back( entry.path().string() );
+
+                        continue;
+                    }
+
+                    for ( const auto& file : other->files )
+                    {
+                        referenced.insert( file.sha256 );
+                    }
+                }
+            }
+
+            if ( !report.unreadable_records.empty() )
+            {
+                return;
+            }
+
+            std::set<std::string> reclaimed;
+
+            for ( const auto& file : retired.files )
+            {
+                if ( referenced.contains( file.sha256 ) || !reclaimed.insert( file.sha256 ).second )
+                {
+                    continue;
+                }
+
+                const auto path = blobPath( file.sha256 );
+
+                if ( std::filesystem::exists( path, ignored ) )
+                {
+                    reclaim( path, report, report.blobs_removed );
+                }
+            }
+        }
+
         static void reclaim(
             const std::filesystem::path& path, RemovalReport& report, int& counter )
         {
@@ -1267,8 +1324,8 @@ namespace Mila::Distribution
          *
          * A collision is refused rather than namespaced, because a store where one name means
          * two things is the state this layout exists to make impossible. Silently replacing
-         * would be worse than refusing: the displaced model's blobs become unreferenced and the
-         * next prune reclaims them.
+         * would be worse than refusing: writing the new record deletes the displaced model's
+         * blobs.
          *
          * Two cases are not collisions. A hub model reinstalled from the same repository is a
          * refresh, possibly at a newer revision. And identical content under the same name is

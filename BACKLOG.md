@@ -284,15 +284,6 @@ FP4-only publishing decision every published model is FP4 at runtime. The FP8 ro
 `README.md:163,165` are converter-only capabilities presented as deployment options. Say so, or the
 table describes a path that does not exist.
 
-#### `prune()` deletes every model on a store that predates records
-
-`open` · `distribution`
-
-Every pre-record blob is by definition unreferenced, so the first sweep on an upgraded store reclaims
-all of it — 6.33 GB in the case observed. A documented command destroying a user's models is not a
-sweep, it is data loss. Blobs-with-zero-records is a recognizable state and should be reported rather
-than silently collected.
-
 ---
 
 ### Product Family — Adaptor Validation

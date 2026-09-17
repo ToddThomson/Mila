@@ -508,6 +508,7 @@ namespace Mila::Bindings
         info.files_removed = report.files_removed;
         info.bytes_reclaimed = report.bytes_reclaimed;
         info.retained = report.retained;
+        info.unreadable_records = report.unreadable_records;
 
         return info;
     }
