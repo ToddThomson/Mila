@@ -375,7 +375,9 @@ Token discovery, first match wins: `MILA_HF_TOKEN`, `HF_TOKEN`, then `~/.cache/h
 
 Two failures that need different messages, because conflating them wastes an afternoon:
 
-- **401** -- no token, or the token is invalid. Say how to obtain one.
+- **401** -- no token, or the token is invalid. With a token, say how to obtain a valid one. Without
+  one, lead with the name: HuggingFace hides whether a repository exists from anonymous callers, so
+  a mistyped name arrives as a 401 too, and it is the likelier cause on the evaluation path.
 - **403** -- the token is valid but the repository's terms have not been accepted. Name the model page
   to accept on.
 

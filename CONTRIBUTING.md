@@ -41,9 +41,9 @@ first PR — see [getting-started.md](getting-started.md).
 ## Development Environment
 
 ### Required Components
-* A C++23 compiler with module support: **MSVC** (Visual Studio 2026 18.6.2+), **Clang 19+**, or **GCC 15.3+**. GCC 15.2 and earlier cannot compile Mila's C++23 modules; on Ubuntu 26.04 install the `gcc-16` package. (In CUDA builds the C++ compiler handles the modules; nvcc uses a separate host compiler for `.cu` files, where an older GCC is acceptable.)
+* A C++23 compiler with module support: **MSVC** (Visual Studio 2026 18.6.2+), **Clang 19+**, or **GCC 16+**. GCC 15.2 and earlier cannot compile Mila's C++23 modules, and 15.3 has never been built; on Ubuntu 26.04 install the `gcc-16` package. (In CUDA builds the C++ compiler handles the modules; nvcc uses a separate host compiler for `.cu` files, where an older GCC is acceptable.)
 * Git 2.x or newer, on `PATH` (validated on 2.54.0; used to clone, and required at CMake configure time — CPM fetches dependencies via `git clone`). GitHub Desktop is an optional convenience
-* NVIDIA CUDA Toolkit 13.0 or newer (CI-tested on 13.0, developed on 13.3)
+* NVIDIA CUDA Toolkit 13.3 (the version CI builds with)
 * CMake 4.0 or newer
 * Ninja (required for fast C++23 module incremental builds)
 * GTest 1.17.0 for unit testing
@@ -55,7 +55,7 @@ first PR — see [getting-started.md](getting-started.md).
 
 1. **Prerequisites**
    - Visual Studio 2026 18.6.2 or newer with "Desktop development with C++" workload (earlier 2026 builds have a C++23 module regression that breaks the build)
-   - CUDA Toolkit 13.0 or newer
+   - CUDA Toolkit 13.3
    - CMake 4.0 or newer (included with Visual Studio)
 
 2. **Open the Project**
@@ -82,7 +82,7 @@ first PR — see [getting-started.md](getting-started.md).
    - Visual Studio Code 1.122 or newer
    - C/C++ extension
    - CMake Tools extension
-   - CUDA Toolkit 13.0 or newer
+   - CUDA Toolkit 13.3
    - CMake 4.0 or newer
 
 2. **Open the Project**

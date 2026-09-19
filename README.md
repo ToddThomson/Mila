@@ -282,7 +282,7 @@ current API as part of v0.20 Training Revival.
 | Requirement | Version |
 |---|---|
 | C++ compiler | MSVC (Visual Studio 2026 18.6.2+) on Windows; Clang 19+ on Linux |
-| CUDA Toolkit | 13.0+ on Windows; 13.3+ on Linux (Ubuntu 26.04 / glibc 2.43) |
+| CUDA Toolkit | 13.3 |
 | CMake | 4.0 or newer |
 | Git | 2.x or newer (validated on 2.54.0) |
 | GTest | 1.17.0 |
@@ -292,9 +292,8 @@ current API as part of v0.20 Training Revival.
 Ninja is the recommended generator — significantly faster than MSBuild for
 incremental C++23 module builds.
 
-Mila is CI-tested on CUDA 13.0 and developed on 13.3; newer 13.x releases are expected
-to work but are not exhaustively validated. On Linux (Ubuntu 26.04 / glibc 2.43), CUDA 13.3
-is required — 13.0 fails to build there.
+Mila builds against CUDA 13.3, the version its CI builds with, and moves to each new CUDA
+release once NVIDIA publishes its Ubuntu 26.04 build image.
 
 On Windows, use Visual Studio 2026 18.6.2 or newer — earlier 2026 builds have a regression
 that breaks the C++23 module build.
@@ -334,7 +333,7 @@ Select the Ninja generator and Release configuration. Build with F7.
 ### Linux (native / WSL)
 
 On Linux — including WSL 2 — build with Clang against the bundled CMake presets. Requires
-Clang 19+ (or GCC 16) and CUDA 13.3+:
+Clang 19+ (or GCC 16) and CUDA 13.3:
 
 ```bash
 cmake --preset linux-clang-release

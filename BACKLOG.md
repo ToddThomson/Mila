@@ -112,38 +112,6 @@ this is a gate rather than a commitment. Removal touches nine files: the CPM blo
 `Mila/CMakeLists.txt:77`, `NOTICE.md`, two `CMakePresets.json` descriptions, the CI cache
 comment, `drive_cpm.cmake`, `drive_fetchcontent.cmake`, and the two user-facing docs above.
 
-#### miniz serves an archive stack nothing reaches
-
-`open` · `build` · `architecture`
-
-`CPMAddPackage(NAME miniz GITHUB_REPOSITORY richgel999/miniz GIT_TAG 3.1.2)` at
-`CMakeLists.txt:228`. This theme's criterion requires every vendored dependency in a published
-binary to be current or pinned with the reason written down, and **removal is what satisfies
-it**, at the production release the criterion binds.
-
-The pin arrived incidentally — the tag went from `master` to `3.1.2` while `NOTICE.md` was being
-brought back into agreement with the build, so the entry no longer turns on miniz being the one
-unpinned dependency. That was the weaker half of the case anyway; the action is unchanged.
-
-**Pinning it first was considered and declined** (Todd, 2026-09-09) as inconsequential, and the
-reasoning is worth keeping so it is not re-proposed: unlike an ambient CUDA toolkit, a floating
-miniz cannot silently change a shipped artifact. A different revision either fails the build loudly
-or yields a serializer no code path reaches. Pinning was never an interim step toward removal and
-is not one now — it bought nothing, which is exactly what "inconsequential" predicted.
-
-Remove it for the production release: delete
-`ZipSerializer.ixx` (the only `ArchiveSerializer` implementation and the only file naming miniz),
-`GptModel::fromCheckpoint` / `saveCheckpoint` (`GptModel.ixx:177`, `:231`), the `Mila.ixx:309`
-re-export, and the `PUBLIC` link plus the two `INTERFACE` include directories at
-`Mila/CMakeLists.txt:962` and `:971-973` — which is what currently makes every consumer's
-`import Mila;` recompile a module that includes `<miniz.h>`.
-
-`ModelArchive` and the 24 public pure-virtual `save_` implementations **stay** and go inert; giving
-them a safetensors backend is the Vnext entry "Saving never followed loading to safetensors", and
-attempting it here would be a core `Mila/Src` change under the freeze. The cost to accept
-deliberately: roughly 46 test usages across 10 files construct a `ZipSerializer` to exercise the
-component save/load round trip, and that coverage goes with it until the migration restores it.
-
 #### The Docker Hub Overview page is authored in a browser with no source in the repo
 
 `open` · `docs` · `distribution`
@@ -152,12 +120,13 @@ It is what container search shows, and it carries the container-distribution mes
 it in the browser is exactly how the HuggingFace organization card came to need a rewrite.
 [[project_four_channel_roles]]
 
-#### The container build is not yet reproducible from a clean tree
+#### The dev container has not been shown to build the bind-mounted tree
 
-`in progress` · `build` · `ci`
+`in progress` · `build`
 
-Validated on a clang-21 + gcc-15 host at CUDA 13.3. Remaining: build against the bind-mounted tree,
-and have CI build `FROM` the image rather than apt-installing its dependencies again.
+`getting-started.md` §4 tells a reader to configure and build under `/mila`, the repository bind
+mount. Validated on a clang-21 + gcc-15 host at CUDA 13.3 into a container-local directory only, and
+the CUTLASS clone is known to fail across a Windows bind mount (why `linux-wheel` builds in `/build`).
 
 ---
 
@@ -193,16 +162,6 @@ Chat's commands are `/model install <name>`, `/model load <name>` and `/model li
 sources in the repository are correct; the live copies on huggingface.co only change when a model is
 re-published, and they are what a new user reads *before* they have Mila at all. Fold the card
 refresh into the next publish of each: `Mila/Tools/ExportArtifact/ModelCards/`.
-
-#### A mistyped model name is reported as an authentication failure
-
-`open` · `distribution`
-
-`HuggingFaceHub.ixx:283` maps every 401 to "no valid HuggingFace token", and HuggingFace hides
-repository existence from strangers. So an authenticated caller gets a 404 and the right message,
-while a new user gets sent to obtain a token they never needed — and a typo is the likeliest failure
-on the evaluation path. Invisible to anyone who has run `huggingface-cli login`. When no token was
-sent and the owner is `mila-llm`, lead with the name being wrong.
 
 #### The getting-started walkthrough ends in a download and no conversation
 
@@ -244,30 +203,10 @@ Google's multi-turn rule is to strip thoughts from *prior* turns and keep the cu
 leading run, so a model working through a multi-step tool sequence starts each step without the
 reasoning that led to it.
 
-#### MIS tool calling is not yet validated across the full set of Gemma 4 flows
+#### Codex CLI has not been driven against Gemma's reconciled tool grammar
 
-`in progress` · `gemma` · `adaptors`
+`open` · `gemma` · `adaptors`
 
-Codex and Claude Code CLI round-trips are live, and the native grammar is reconciled to Google's
-canonical template and pinned by an oracle. Three gaps remain: N sequential distinct tool calls
-within one turn, channel-content parser polish, and Codex-CLI re-validation against the reconciled
-grammar rather than the one it was first driven on.
-
-#### Qwen refuses prompt-prefix reuse and never says so
-
-`open` · `qwen` · `adaptors`
-
-`QwenDeltaNetBlock::rewindKvCache` always returns false — correctly, since a recurrent state is a
-lossy summary and cannot be rewound — and `QwenTransformer::rewindKvCache` ANDs that into a refusal
-for the whole stack. A server that reuses prefixes has to read this as a property of the model and
-plan around it, not discover it as a failed retry. Chat is exempt: it re-prefills every turn. The
-per-block mechanism exists (`snapshotState`/`restoreState`); a whole-model policy does not.
-
-#### `mila serve <args>` loses every argument on Windows
-
-`open` · `adaptors` · `build`
-
-`runProgram` (`Cli.ixx:100`) hands a concatenated string to `std::system`, so `cmd.exe` strips the
-outer quotes of the whole command line and nothing survives; the code returned is the shell's rather
-than the server's. Launch with an argument vector — `CreateProcessW` or `posix_spawn` — behind a
-CMake-selected module partition, since module code carries no `#ifdef`.
+The Codex CLI round-trips the release criterion names were validated before the native grammar was
+reconciled to Google's canonical template. Re-run plain-chat, single-tool and tool-result-resume
+through MIS against the current grammar.

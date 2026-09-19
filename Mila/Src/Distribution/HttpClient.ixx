@@ -423,7 +423,9 @@ namespace Mila::Distribution
 
                 case 401:
                     result.status = HttpStatus::Unauthorized;
-                    result.message = "401: no valid HuggingFace token";
+                    // Not keyed on request.token: the cross-host rule may have dropped it on
+                    // the hop that answered, so the client cannot say which case this is.
+                    result.message = "401: unauthorized -- no token, or one the server refused";
 
                     return result;
 

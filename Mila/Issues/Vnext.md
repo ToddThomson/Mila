@@ -253,10 +253,17 @@ Two things to settle first. Whether component-level checkpoints survive at all: 
 thing that wants them, `GptModel` is the only model exposing them, and `savePretrained` already
 refuses a model reconstructed from a checkpoint (`LanguageModel.ixx:364`). And where the ~46 test
 usages across 10 files that construct a `ZipSerializer` go — that round-trip coverage is real and
-should move rather than evaporate. Note the v0.20 cycle removes miniz ahead of this by deleting the
-zip backend outright, so `save_` arrives here already inert; that is the state this entry starts
-from, not a second problem. `ModelSerialization.md` is the design of record and needs amending
+should move rather than evaporate. `ModelSerialization.md` is the design of record and needs amending
 either way — its Phase 7 is stale for a different reason, recorded below.
+
+**miniz goes with it** (moved from the v0.20 backlog at `rc.1+21`; the pin at 3.1.2 is current
+upstream, which already meets the release's vendored-dependency criterion). Delete `ZipSerializer.ixx`
+(the only `ArchiveSerializer` implementation and the only file naming miniz), the CPM block at
+`CMakeLists.txt:228`, the `Mila.ixx:309` re-export, and the `PUBLIC` link plus the two `INTERFACE`
+include directories at `Mila/CMakeLists.txt:962` and `:971-973` — which is what makes every
+consumer's `import Mila;` recompile a module that includes `<miniz.h>`. Pinning before removal was
+declined (Todd, 2026-09-09): a different miniz revision fails the build loudly or yields a
+serializer no published path reaches, so it cannot silently change a shipped artifact.
 
 ## `ModelSerialization.md` Phase 7 describes shipped work as unwritten
 
@@ -350,6 +357,47 @@ itself: RELEASING covers the four CUDA wheels and says nothing about the server.
 file from `python -m build`, uploaded beside the wheels.
 
 v0.20 ships MIS drivable from source and from the container, which is what the release bar asks for.
+
+## CI installs the container's toolchain again instead of building `FROM` the image
+
+`ci` · `build`
+
+`build-pipeline.yml:47` starts from the bare `nvidia/cuda` devel image and apt-installs clang, gcc,
+CMake and the rest on every run — the same set `Docker/Dockerfile` already bakes into the dev image.
+Two definitions of one toolchain that can drift. Moved from the v0.20 backlog at `rc.1+21`.
+
+## `mila serve <args>` loses every argument on Windows
+
+`adaptors` · `build`
+
+`runProgram` (`Cli.ixx:100`) hands a concatenated string to `std::system`, so `cmd.exe` strips the
+outer quotes of the whole command line and nothing survives; the code returned is the shell's rather
+than the server's. Launch with an argument vector — `CreateProcessW` or `posix_spawn` — behind a
+CMake-selected module partition, since module code carries no `#ifdef`. Moved from the v0.20
+backlog at `rc.1+21`: `Mila/Tools` does not ship, and the runtime image is Linux.
+
+## Qwen refuses prompt-prefix reuse and never says so
+
+`qwen` · `adaptors` · `mila-src`
+
+`QwenDeltaNetBlock::rewindKvCache` always returns false — correctly, since a recurrent state is a
+lossy summary and cannot be rewound — and `QwenTransformer::rewindKvCache` ANDs that into a refusal
+for the whole stack. A server that reuses prefixes has to read this as a property of the model and
+plan around it, not discover it as a failed retry. The per-block mechanism exists
+(`snapshotState`/`restoreState`); a whole-model policy does not. Moved from the v0.20 backlog at
+`rc.1+21`: prefix reuse lives inside each model's `generate` — Gemma's is transparent
+(`GemmaModel.ixx:364`) and Qwen's always prefills from 0 (`QwenModel.ixx:355`) — and no adaptor or
+the binding calls `rewindKvCache`, so nothing can meet the refusal as a failed retry. It becomes live
+work when an adaptor manages reuse itself (`Direction.md:211` plans the agent core reading it from
+the manifest).
+
+## MIS tool calling beyond the three flows the release names
+
+`gemma` · `adaptors`
+
+N sequential distinct tool calls within one turn, and channel-content parser polish. Moved from the
+v0.20 backlog at `rc.1+21`: the release criterion names plain-chat, single-tool and
+tool-result-resume only.
 
 ## The samples are not built in CI
 
@@ -680,9 +728,10 @@ not by an apt-installed toolkit on a plain base.
 
 Moves together (RELEASING.md, toolkit paragraph): `$cudaVersion` in
 `scripts/pypi/build-wheel-windows.ps1:59`, `Docker/Dockerfile.wheel:23`, `Docker/Dockerfile.runtime:21`,
-`Docker/Dockerfile:18`, `build-pipeline.yml:47`, and the docs naming 13.3 — `README.md:280`,
-`:290-292`, `getting-started.md:34`, `:119-134`, `:183-191`, `:241`, `CONTRIBUTING.md:46`,
-`Docker/README.md:15`, `:20`, `Web/content/start.md:15`, `RELEASING.md:382`.
+`Docker/Dockerfile:18`, `build-pipeline.yml:47`, and the docs naming 13.3 — `README.md:285`,
+`:295`, `:336`, `:350`, `getting-started.md:26`, `:34`, `:119-134`, `:183-191`, `:241`,
+`CONTRIBUTING.md:46`, `:58`, `:85`, `Docker/README.md:15`, `:20`, `Web/content/start.md:15`,
+`RELEASING.md:382`.
 
 Consequences to carry into the work. Wheel users see nothing (the `nvidia-*` dependencies and minor
 version compatibility). Image users' driver floor rises: the base image's `NVIDIA_REQUIRE_CUDA`

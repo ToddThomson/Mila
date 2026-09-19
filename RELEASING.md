@@ -387,8 +387,9 @@ never inside a release window** — `MILA_WHEEL_CUDA_VERSION` overrides the Wind
 maintainer on a different box, and whichever is used gets printed at the top of the run.
 
 **What the declared toolkit is not.** It constrains the six published binaries and nothing else: a
-FetchContent or clone consumer builds with their own CUDA, and `getting-started.md` states the
-user-facing floor (13.0 or newer) independently of it. A wheel user needs **no toolkit at all** —
+FetchContent or clone consumer builds with their own CUDA. The user-facing docs
+(`getting-started.md`, `README.md`, `CONTRIBUTING.md`, `Web/content/start.md`) name the same
+version CI builds with, so a toolkit move edits them too. A wheel user needs **no toolkit at all** —
 `pyproject.toml`'s `nvidia-*` dependencies supply the runtime, so what they need is a driver. The
 minor version is therefore invisible downstream (CUDA minor version compatibility holds within 13),
 and only the **major** is load-bearing, since those dependencies pin `>=13.0,<14.0`; the wheel

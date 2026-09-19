@@ -23,7 +23,7 @@ changes are still expected — backward compatibility is not yet a goal.
 | VS Code | 1.122 or newer | Linux / WSL path — with the WSL, C/C++, and CMake Tools extensions |
 | Git | 2.x or newer | Git for Windows (validated on 2.54.0) / distro `git`. Required at configure time — CPM fetches dependencies via `git`. GitHub Desktop is optional |
 | Docker | Docker Desktop (WSL2) or native `docker-ce` in WSL | Optional — only for the Docker dev-container path (Section 4); GPU access also needs the NVIDIA Container Toolkit |
-| CUDA Toolkit | 13.0 or newer | Required for the CUDA backend |
+| CUDA Toolkit | 13.3 | Required for the CUDA backend |
 | CMake | 4.0 or newer | Bundled with recent Visual Studio |
 | Ninja | latest | Required for fast C++23 module incremental builds |
 | GTest | 1.17.0 | Fetched by the build |
@@ -31,8 +31,8 @@ changes are still expected — backward compatibility is not yet a goal.
 | C++ Standard | C++23 | Modules, deducing-this, concepts |
 | Python | 3.10+ | Only needed to convert a checkpoint Mila does not publish (Section 5b); validated on 3.14.5 |
 
-Mila requires CUDA Toolkit 13.0 or newer. It is CI-tested on 13.0 and developed on 13.3;
-newer 13.x releases are expected to work but are not exhaustively validated.
+Mila builds against CUDA Toolkit 13.3, the version its CI builds with, and moves to each new
+CUDA release once NVIDIA publishes its Ubuntu 26.04 build image.
 
 **Supported C++ compilers** — Mila's C++23 modules require a recent compiler:
 
