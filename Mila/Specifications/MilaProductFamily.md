@@ -3,6 +3,8 @@
 **Date:** 2026-07-06 (locked 2026-07-07)
 **Status:** Locked positioning for the v0.20 first production release — stable in shape,
 refinable in detail. The Definition below is the product identity v0.20 ships under.
+From v0.50 on, `Direction.md` replaces its layering and positioning; its Agentic design carries
+forward by reference.
 **Component:** whole-project positioning (`Mila/Src`, `Mila/Adaptors/Inference`, `Mila/Adaptors/Chat`, future agent)
 
 ## Definition

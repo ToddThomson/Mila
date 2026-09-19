@@ -322,13 +322,16 @@ remains in doubt is the **toolchain** for the grouped path, where three separate
 issues are routinely conflated into one. They are not the same problem and they
 do not have the same answer.
 
-**(a) The `sm_100a` restriction is Python-DSL only — irrelevant to Mila.**
-CUTLASS `BlockScaledMmaOp` hard-codes `admissible_archs = [Arch.sm_100a]` in
-`python/CuTeDSL/cutlass/cute/nvgpu/tcgen05/mma.py`, blocking `sm_120a` and
-`sm_121a`. Open since 2025-11-22, no maintainer response. **The C++ API is not
-restricted** and is what vLLM already uses for FP4 on SM120. Mila is C++; this
-one does not touch us. An earlier reading of this spec treated it as a
-general CUTLASS restriction — it is not.
+**(a) `tcgen05` is absent from SM120 hardware — not a toolchain restriction.**
+The CuTeDSL `tcgen05` MMA ops (`python/CuTeDSL/cutlass/cute/nvgpu/tcgen05/mma.py`)
+admit only datacenter Blackwell: `BlockScaledMmaOp` lists `sm_100a`, `sm_100f`,
+`sm_103a`, `sm_107a` and `sm_110a`. That list reflects the silicon — SM120 and
+SM121 have no TMEM / UMMA, so no API, Python or C++, can emit `tcgen05.mma` for
+them, and the DSL's own error redirects to the warp-level ops
+(`cute/nvgpu/warp/mma.py`, admitting only `sm_120a/f` and `sm_121a/f`). Block-scaled
+FP4 on SM120 is reachable, but through `mma.sync` (Section 7.3), and that is what
+the C++ SM120 paths emit. An earlier revision of this spec read the arch list as
+a Python-DSL-only restriction the C++ API escapes; it is not.
 
 **(b) The build flag is a live trap, and Mila is currently in it.** Plain
 `sm_120` does **not** carry the block-scaled MMA capability; it needs the `a`
