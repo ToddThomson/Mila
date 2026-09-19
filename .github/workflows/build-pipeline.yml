@@ -38,6 +38,33 @@ jobs:
       - name: Verify NOTICE.md against CMake pins
         run: python3 scripts/dependencies/check_pins.py --verify-notice
 
+  doxygen-gate:
+    name: Doxygen warnings are errors
+    # The same run publish-site.yml does, without the deploy. That workflow is manual, so a
+    # doc break from a Src/** or README.md change used to surface only at the next publish --
+    # three accumulated unseen between beta.3 and rc.1+22. Doxygen needs no CUDA and no CMake,
+    # so this is its own job and reports in about a minute.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # The version is read from publish-site.yml, where it is pinned once, so the gate can
+      # never validate with a different Doxygen than the one that publishes.
+      - name: Install Doxygen (version pinned in publish-site.yml)
+        run: |
+          DOXYGEN_VERSION=$(sed -n 's/^[[:space:]]*DOXYGEN_VERSION:[[:space:]]*//p' .github/workflows/publish-site.yml)
+          test -n "$DOXYGEN_VERSION"
+          wget -q "https://github.com/doxygen/doxygen/releases/download/Release_${DOXYGEN_VERSION//./_}/doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"
+          tar -xzf "doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"
+          sudo cp "doxygen-${DOXYGEN_VERSION}/bin/doxygen" /usr/local/bin/
+          doxygen --version
+
+      # WARN_AS_ERROR in the Doxyfile fails this step on any doc warning.
+      - name: Generate documentation
+        run: |
+          mkdir -p build/docs
+          doxygen Mila/Docs/Doxyfile
+
   compile-and-gate:
     name: Compile (clang-21) + packaging gates
     runs-on: ubuntu-24.04

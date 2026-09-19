@@ -79,10 +79,16 @@ namespace Mila::Dnn::Compute
     /**
      * @brief Allocate the shared GQA transient.
      *
-     * @param head_dim    The widest head any layer of the stack uses; narrower layers view a prefix.
-     * @param score_width The caller's flash decision made concrete: the flash path reads no score buffer,
-     *                    while the cuBLASLt path needs the full context and would overflow a narrow one.
-     *                    Taken explicitly so a caller cannot allocate for one path and then run the other.
+     * @param device The device every workspace tensor is allocated on.
+     * @param B Batch size.
+     * @param num_heads Query heads.
+     * @param head_dim The widest head any layer of the stack uses; narrower layers view a prefix.
+     * @param T_ctx Context length; sizes the decode score buffers.
+     * @param prefill_chunk Tokens per prefill chunk; sizes the prefill buffers.
+     * @param score_width The caller's flash decision made concrete: the flash path reads no score
+     *     buffer, while the cuBLASLt path needs the full context and would overflow a narrow one.
+     *     Taken explicitly so a caller cannot allocate for one path and then run the other.
+     * @param name_prefix Prepended to each tensor's name.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -117,6 +123,7 @@ namespace Mila::Dnn::Compute
      * @brief Device bytes makeGqaWorkspace would allocate with the same arguments, without allocating.
      *
      * @param granularity The allocation granularity of the device the workspace would live on.
+     * @param B,num_heads,head_dim,T_ctx,prefill_chunk,score_width As for makeGqaWorkspace.
      */
     export template<TensorDataType TPrecision>
     std::size_t gqaWorkspaceDeviceBytes( std::size_t granularity, dim_t B, dim_t num_heads, dim_t head_dim,

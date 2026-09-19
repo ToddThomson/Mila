@@ -8,20 +8,18 @@ repository listing afterwards, and skips anything the Hub already holds at the s
 it is the normal way to finish an interrupted upload.
 
 ```
-python publish_model.py <directory> [--repo <owner>/<name>] [--dry-run]
+python publish_model.py <package-dir> --repo <owner>/<name> [--dry-run]
 ```
 
-## The two directory shapes
+It takes a package directory built by `ExportArtifact --package`, and nothing else: the `mila.json`
+published is the one the package was assembled with, so there is no second copy of it to drift.
+`ModelCards/<name>/` holds only the hand-written sources — `README.md`, and `LICENSE` for a family
+with no directory under `Licenses/` — and is never published directly.
 
-Both are accepted, and the difference is only where the multi-gigabyte files live.
-
-**A package directory** — built by `ExportArtifact --package`, holds every file it declares. Needs
-`--repo`, because it carries no `publish.json`. This is the shape to use.
-
-**A card directory** — `Mila/Tools/ExportArtifact/ModelCards/<name>/`, holds the small files and a
-`publish.json` mapping Hub paths to weights kept outside the repository. `gemma-4-12b-it-fp4` was
-published this way. Mapped paths resolve against the Mila repository root, which the script derives
-as four parents above the card directory, so a card directory only works at its established depth.
+The package must carry `README.md`. The card is not declared in the manifest, so the script refuses
+a package without one rather than publish a model with no description. The Qwen packages were
+assembled without `--model-card`: copy `ModelCards/<name>/README.md` into the package directory
+before publishing one, which changes no declared file.
 
 ## Preparing a model
 

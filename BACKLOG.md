@@ -38,42 +38,6 @@ never committed.
 
 ## Current release (v0.20.0)
 
-### Observability
-
-#### `observe()` documents a path pattern that does not work the way it says
-
-`open` · `observability` · `docs`
-
-The Doxygen on the public `CompositeComponent::observe` teaches `"qwen.blk_*"` as "every block, but
-not their children", and offers `"qwen.blk_*.*"` for the children (`CompositeComponent.ixx:405-406`).
-Both are false — `*` matches dots, so the two patterns select the same set. Measured:
-`"*.tf_layer_*"` selected 816 components on a 48-layer Gemma 4 12B. Either `*` stops at a dot or the
-examples describe what it actually does; `Observability.md` §11 carries the same claim.
-
----
-
-### API Documentation
-
-#### `Component` documents a compute contract it does not declare
-
-`open` · `api` · `docs`
-
-`Component.ixx:132-133` and `:728` teach that `forward()` requires `build()` and that `backward()`
-requires `isTrainingMode()`. Neither the base class, `CompositeComponent`, nor `Network` declares
-those methods, so the prose describes a contract a reader cannot find. Correct it to name the
-concrete methods it means — this is the class every component derives from.
-
-#### Nothing checks Doxygen when doc drift is introduced
-
-`open` · `docs` · `ci`
-
-A break from a `Src/**` or `README.md` change is caught only by `publish-site.yml`, which is now
-manual — so nothing exercises Doxygen between publishes at all. Seventy-five errors once
-accumulated unseen and then blocked the site. A non-deploying check in `build-pipeline.yml` needs
-neither CUDA nor CMake.
-
----
-
 ### Packaging & Distribution
 
 #### No Ampere or Turing card has ever run Mila, and the published lists assume one answer
@@ -162,22 +126,6 @@ Chat's commands are `/model install <name>`, `/model load <name>` and `/model li
 sources in the repository are correct; the live copies on huggingface.co only change when a model is
 re-published, and they are what a new user reads *before* they have Mila at all. Fold the card
 refresh into the next publish of each: `Mila/Tools/ExportArtifact/ModelCards/`.
-
-#### The getting-started walkthrough ends in a download and no conversation
-
-`open` · `distribution` · `docs`
-
-It names `gpt2-small`, which installs and then cannot be used from Chat: Chat refuses base models by
-design, and `/model list` says so in the row — but only *after* 623 MB has transferred. Either the
-getting-started paths name an instruct model, or `/model install` says so before the transfer starts.
-
-#### `gemma-4-12b-it-fp4` has two manifests and they no longer match
-
-`open` · `gemma` · `distribution`
-
-The package directory carries the current one; `ModelCards/gemma-4-12b-it-fp4/mila.json` is the
-pre-package copy. Two sources of truth for a published model, and publishing from the stale one is a
-live risk. One has to go, and the card directory's `publish.json` flow goes with it.
 
 #### Nothing checks that published wheels and images carry the notices they owe
 

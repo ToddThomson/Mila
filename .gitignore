@@ -23,8 +23,8 @@ Data/**/*.exe
 *.bin
 *.safetensors
 
-# Manifests emitted beside exported weights. Derived from the bytes by
-# --emit-manifest; the publishable copy is tracked under Tools/ExportArtifact/ModelCards.
+# Manifests emitted beside exported weights. Derived from the bytes by --emit-manifest or
+# ExportArtifact --package; the package's copy is the one published, and none is tracked.
 Data/Models/**/mila.json
 
 # Visual Studio scratch directory.

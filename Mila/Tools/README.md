@@ -8,7 +8,7 @@ FetchContent never configures it.
 | `Cli/` | C++ | The `mila` command: the local model store and the server front door |
 | `Converters/` | Python | HuggingFace weights and tokenizers to Mila format, per family |
 | `ExportArtifact/` | C++ | Artifact, package and local-store lifecycle |
-| `Publishing/` | Python | Uploads a prepared model card directory to the HuggingFace Hub |
+| `Publishing/` | Python | Uploads a model package to the HuggingFace Hub |
 | `Quantization/` | Python | Fits, encodes and gates a sub-4-bit weight quantization scheme |
 | `Tokenize/` | C++ | Trains, encodes and decodes vocabularies |
 
@@ -86,10 +86,9 @@ uploads.
 
 ## Publishing
 
-`publish_model.py <directory> [--repo <owner>/<name>] [--dry-run]` validates before it uploads and
-verifies after, and is safe to re-run — anything already correct on the Hub is skipped. It takes
-either a package directory built by `ExportArtifact --package`, or a card directory carrying a
-`publish.json` that maps Hub paths to large files kept outside the repository.
+`publish_model.py <package-dir> --repo <owner>/<name> [--dry-run]` validates before it uploads and
+verifies after, and is safe to re-run — anything already correct on the Hub is skipped. It takes a
+package directory built by `ExportArtifact --package`, and nothing else.
 
 `Publishing/README.md` is the process end to end: convert, quantize, card, package, install, publish.
 

@@ -512,8 +512,9 @@ check that already happened.
 `Tools/Publishing/publish_model.py` does the upload through `huggingface_hub`: it validates digests
 before uploading, skips files the hub already holds, and verifies afterward. The library contributes
 the package and the validation; it does not contain an HTTP method that writes. It takes a package
-directory and `--repo <owner>/<name>`; the older card directory, whose `publish.json` maps hub paths
-onto large files kept outside it, still works and is what a package makes unnecessary.
+directory and `--repo <owner>/<name>`, and nothing else. The older card directory, whose `publish.json`
+mapped hub paths onto large files kept outside it, was retired at `rc.1+23`: it carried a second
+`mila.json`, and Gemma's had already drifted from the published one by the whole `license` role.
 
 The division is deliberate. Uploading to HuggingFace means the preupload check, the LFS batch API,
 multipart transfer and a commit call -- a large failure surface, for a workflow a maintainer runs by

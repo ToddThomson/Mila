@@ -1,4 +1,4 @@
-"""Publish a Mila model card and its weights to the HuggingFace Hub.
+"""Publish a Mila model package to the HuggingFace Hub.
 
 Every failure during the first manual publish was a mismatch nobody checked: a stale
 digest, a path that differed between the manifest and the upload, a file quietly missing.
@@ -11,11 +11,12 @@ exists keeps whatever visibility it has: taking a live model private to replace 
 would be an outage caused by the tool meant to maintain it.
 
 Usage:
-    python publish_model.py <directory> [--repo <owner>/<name>] [--dry-run]
+    python publish_model.py <package-dir> --repo <owner>/<name> [--dry-run]
 
-The card directory holds the files published verbatim (README.md, mila.json, LICENSE)
-plus publish.json, which names the repository and maps Hub paths to local sources for
-the large files that live outside the repository.
+The package directory is the one ExportArtifact --package builds: mila.json and every file it
+declares, plus the model card (README.md) and any NOTICE. It is the only shape accepted -- the
+manifest published is the one the package was assembled with, so there is no second copy of it
+to drift.
 
 Authentication: HF_TOKEN, MILA_HF_TOKEN, or a stored `hf auth login` token. The token
 needs write access to the target repository and is never printed.
@@ -37,17 +38,14 @@ except ImportError:
         "  Mila/Tools/Converters/.venv/Scripts/python.exe -m pip install -U huggingface_hub"
     )
 
-# Files in the card directory that are published verbatim, in upload order. Small, so
-# they go first: a mistake in them is then visible before a multi-gigabyte transfer.
+# Small files published verbatim from the package directory, in upload order. They go first:
+# a mistake in them is then visible before a multi-gigabyte transfer.
 #
 # NOTICE is here because a license can require its attribution to travel in a file of that
 # name rather than inside LICENSE -- Llama does. Absent from this list it would sit in the
-# card directory and never be uploaded, which is the shape of failure this script exists to
+# package directory and never be uploaded, which is the shape of failure this script exists to
 # prevent: a repository that looks published and is not compliant.
-CARD_FILES = ["mila.json", "README.md", "LICENSE", "NOTICE"]
-
-# publish.json describes the upload; it is not itself published.
-EXCLUDED_FROM_CARD = {"publish.json"}
+PACKAGE_FILES = ["mila.json", "README.md", "LICENSE", "NOTICE"]
 
 
 def sha256_of(path: Path, chunk=1 << 24) -> str:
@@ -58,10 +56,10 @@ def sha256_of(path: Path, chunk=1 << 24) -> str:
     return digest.hexdigest()
 
 
-def load_manifest(card_dir: Path) -> dict:
-    manifest_path = card_dir / "mila.json"
+def load_manifest(package_dir: Path) -> dict:
+    manifest_path = package_dir / "mila.json"
     if not manifest_path.is_file():
-        sys.exit(f"No mila.json in {card_dir}. Run ExportArtifact --emit-manifest first.")
+        sys.exit(f"No mila.json in {package_dir}. Build the package with ExportArtifact --package.")
     return json.loads(manifest_path.read_text(encoding="utf-8"))
 
 
@@ -81,7 +79,7 @@ def declared_files(manifest: dict) -> dict:
     return out
 
 
-def validate(card_dir: Path, repo_root: Path, manifest: dict, sources: dict) -> list:
+def validate(package_dir: Path, manifest: dict) -> list:
     """Check every declared file exists locally and matches its recorded digest.
 
     A manifest that disagrees with the bytes produces a repository that fails
@@ -99,20 +97,20 @@ def validate(card_dir: Path, repo_root: Path, manifest: dict, sources: dict) -> 
         )
         return problems, resolved
 
+    # The card is not declared in the manifest, so nothing else would notice it missing, and a
+    # new repository would go public with no description of what it holds.
+    if not (package_dir / "README.md").is_file():
+        problems.append(
+            "README.md: no model card in the package directory. Copy "
+            "Mila/Tools/ExportArtifact/ModelCards/<name>/README.md into it, or rebuild the "
+            "package with --model-card."
+        )
+
     for hub_path, (expected_sha, expected_bytes) in declared.items():
-        local = card_dir / hub_path
+        local = package_dir / hub_path
         if not local.is_file():
-            mapped = sources.get(hub_path)
-            if mapped is None:
-                problems.append(
-                    f"{hub_path}: declared in mila.json but not in the card directory "
-                    f"and not mapped in publish.json"
-                )
-                continue
-            local = (repo_root / mapped).resolve()
-            if not local.is_file():
-                problems.append(f"{hub_path}: mapped to {local}, which does not exist")
-                continue
+            problems.append(f"{hub_path}: declared in mila.json but not in the package directory")
+            continue
 
         actual_bytes = local.stat().st_size
         if expected_bytes is not None and actual_bytes != expected_bytes:
@@ -157,44 +155,26 @@ def already_current(api: HfApi, repo_id: str, hub_path: str, local: Path) -> boo
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("card", type=Path,
-                        help="Model card directory, or a package directory built by "
-                             "ExportArtifact --package")
-    parser.add_argument("--repo", help="Target repository as <owner>/<name>. Required for a "
-                                       "package directory, which carries no publish.json.")
+    parser.add_argument("package", type=Path,
+                        help="Package directory built by ExportArtifact --package")
+    parser.add_argument("--repo", required=True,
+                        help="Target repository as <owner>/<name>")
     parser.add_argument("--dry-run", action="store_true",
                         help="Validate and report, upload nothing")
     args = parser.parse_args()
 
-    card_dir = args.card.resolve()
-    if not card_dir.is_dir():
-        sys.exit(f"Not a directory: {card_dir}")
+    package_dir = args.package.resolve()
+    if not package_dir.is_dir():
+        sys.exit(f"Not a directory: {package_dir}")
 
-    publish_path = card_dir / "publish.json"
-    publish = {}
+    repo_id = args.repo
+    repo_type = "model"
 
-    if publish_path.is_file():
-        publish = json.loads(publish_path.read_text(encoding="utf-8"))
-    elif not args.repo:
-        sys.exit(
-            f"No publish.json in {card_dir}, and no --repo given.\n"
-            f"A package directory holds every declared file, so it needs only the "
-            f"repository: --repo <owner>/<name>."
-        )
+    manifest = load_manifest(package_dir)
 
-    repo_id = args.repo or publish["repo_id"]
-
-    # Only mapped sources are resolved against it; a package directory has none, because it
-    # holds the files it declares.
-    repo_root = card_dir.parents[4] if len(card_dir.parents) > 4 else card_dir
-
-    sources = {k: v for k, v in publish.get("sources", {}).items() if not k.startswith("//")}
-
-    manifest = load_manifest(card_dir)
-
-    print(f"Publishing {card_dir.name} -> {repo_id}")
+    print(f"Publishing {package_dir.name} -> {repo_id}")
     print("\nValidating declared files against mila.json")
-    problems, resolved = validate(card_dir, repo_root, manifest, sources)
+    problems, resolved = validate(package_dir, manifest)
 
     if problems:
         print("\nValidation failed:", file=sys.stderr)
@@ -203,35 +183,32 @@ def main() -> int:
         return 2
 
     # A manifest that declares LICENSE and NOTICE has already put them in `resolved`, digest
-    # checked. Uploading them again from the card list would be a second round trip for the same
-    # bytes, so the declaration wins wherever both describe a file.
+    # checked. Uploading them again from the small-file list would be a second round trip for the
+    # same bytes, so the declaration wins wherever both describe a file.
     declared_paths = set(declared_files(manifest))
 
-    card_uploads = [
-        (name, card_dir / name)
-        for name in CARD_FILES
-        if (card_dir / name).is_file()
-        and name not in EXCLUDED_FROM_CARD
+    small_uploads = [
+        (name, package_dir / name)
+        for name in PACKAGE_FILES
+        if (package_dir / name).is_file()
         and name not in declared_paths
     ]
 
     # NOTICE is absent legitimately for most licenses, so noting it every time would train
     # the reader to skip notes. It is only worth saying when the license asks for one.
     license_id = manifest.get("license", "")
-    optional_card = set() if license_id.startswith("llama") else {"NOTICE"}
+    optional = set() if license_id.startswith("llama") else {"NOTICE"}
 
-    missing_card = [
-        n for n in CARD_FILES
-        if not (card_dir / n).is_file() and n not in optional_card
+    missing_small = [
+        n for n in PACKAGE_FILES
+        if not (package_dir / n).is_file() and n not in optional
     ]
-    for name in missing_card:
-        print(f"  note: {name} absent from the card directory, skipping")
-
-    repo_type = publish.get("repo_type", "model")
+    for name in missing_small:
+        print(f"  note: {name} absent from the package directory, skipping")
 
     if args.dry_run:
         print("\nDry run. Would upload:")
-        for hub_path, local in card_uploads + resolved:
+        for hub_path, local in small_uploads + resolved:
             print(f"  {hub_path:<40} {local}")
         return 0
 
@@ -262,8 +239,8 @@ def main() -> int:
     else:
         print(f"  exists  {repo_id}")
 
-    # Card files first: small, and a mistake in them is visible before a long transfer.
-    for hub_path, local in card_uploads + resolved:
+    # Small files first: a mistake in them is visible before a long transfer.
+    for hub_path, local in small_uploads + resolved:
         if already_current(api, repo_id, hub_path, local):
             print(f"  skip    {hub_path} (already current)")
             continue
@@ -281,7 +258,7 @@ def main() -> int:
     print("\nVerifying the published repository")
     remote = {s.rfilename for s in api.model_info(repo_id, files_metadata=False).siblings}
 
-    expected = {hub_path for hub_path, _ in card_uploads + resolved}
+    expected = {hub_path for hub_path, _ in small_uploads + resolved}
     missing = sorted(expected - remote)
 
     if missing:

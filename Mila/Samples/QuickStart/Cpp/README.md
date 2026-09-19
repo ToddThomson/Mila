@@ -29,7 +29,7 @@ template and the same defaults, so the two read side by side.
 
 ## What it needs
 
-A **CUDA GPU** and **`gemma-4-12b-it-fp4` installed** (~6.3 GB). Loading never downloads, so an
+A **CUDA GPU** and **`gemma-4-12b-it-fp4` installed** (~6.8 GB). Loading never downloads, so an
 uninstalled name is an error rather than a surprise transfer — see
 [the Quick Start index](../README.md#getting-a-model) for how to install one.
 

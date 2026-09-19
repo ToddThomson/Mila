@@ -122,6 +122,12 @@ namespace Mila::Dnn
      *
      * ### Stage 4 -- Forward / Decode / Backward
      *
+     * Not declared on this class. Each concrete component declares its own compute methods
+     * with the arity its inputs need -- Linear's forward( input ), Residual's
+     * forward( input_a, input_b ) -- and decode-capable components add decode(). Those
+     * methods require build() to have completed, and backward() requires a component built
+     * for ExecutionMode::Training.
+     *
      * Runtime dimensions are read from the input tensor shape on each call.
      * No shape information is cached from build time beyond what is in
      * build_config_.
@@ -131,9 +137,6 @@ namespace Mila::Dnn
      *   build()                  requires ExecutionContext to be set
      *   setEvaluation()          requires build() to have completed
      *   setEvaluation()          requires ExecutionMode::Training
-     *   forward()                requires build() to have completed
-     *   backward()               requires isTrainingMode() == true
-     *   decode()                 requires build() to have completed
      *
      * ## Base class provides
      *
@@ -841,8 +844,8 @@ namespace Mila::Dnn
          * @brief The BuildContext stored at build time.
          *
          * Available to derived classes throughout the component lifetime --
-         * in onBuilding(), onEvaluationChanging(), forward(), backward(),
-         * and any other method that needs build-time configuration.
+         * in onBuilding(), onEvaluationChanging(), the compute methods a derived component
+         * declares, and any other method that needs build-time configuration.
          *
          * Key uses:
          * - build_config_.allocationSeqLen() -- use when sizing output buffers

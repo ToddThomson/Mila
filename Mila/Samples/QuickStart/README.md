@@ -34,8 +34,8 @@ mila.ModelStore().pull("gemma-4-12b-it-fp4", mila.default_hub_owner())
 ```
 
 Or from the chat harness — `/model list --online` to see what is published, `/model install <name>`
-to take one. Published today: `gemma-4-12b-it-fp4` (~6.3 GB), `Llama-3.2-3B-Instruct-fp4`,
-`Llama-3.1-8B-Instruct-fp4`, and `gpt2-small`.
+to take one. Published today: `gemma-4-12b-it-fp4` (~6.8 GB), `Llama-3.2-3B-Instruct-fp4`,
+`Llama-3.1-8B-Instruct-fp4`, and `Qwen3.8-27B-fp4`.
 
 ## After the quick start
 

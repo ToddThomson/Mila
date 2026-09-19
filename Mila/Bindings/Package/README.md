@@ -16,7 +16,7 @@ import mila
 
 mila.initialize("warning")
 
-# Once: fetch a published model into the local store (~6.3 GB).
+# Once: fetch a published model into the local store (~6.8 GB).
 mila.ModelStore().pull("gemma-4-12b-it-fp4", mila.default_hub_owner())
 
 tokenizer = mila.BpeTokenizer.from_store("gemma-4-12b-it-fp4")

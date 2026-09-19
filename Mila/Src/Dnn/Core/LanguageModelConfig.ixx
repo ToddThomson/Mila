@@ -110,14 +110,15 @@ namespace Mila::Dnn
     };
 
     /**
-     * @brief The scheme name recorded in an artifact and in its manifest.
+     * @brief The scheme name recorded in a model's weights and in its manifest.
      *
-     * It lives beside the enum because it is written by the model that saves the artifact and
-     * read by the tool that packages it, and those two must agree exactly: the load side
-     * refuses an artifact whose scheme disagrees with the build's compile-time policy, since
+     * It lives beside the enum because it is written by the model that saves the weights and
+     * read by the tool that packages them, and those two must agree exactly: the load side
+     * refuses weights whose scheme disagrees with the build's compile-time policy, since
      * the bytes are packed differently per scheme and reinterpreting them produces a model
      * that runs and is wrong. It was previously spelled out in both places.
      *
+     * @param quantization The scheme to name.
      * @param fp4_group_size The FP4 group the model's geometry requires; ignored for other schemes.
      */
     export inline std::string weightQuantizationName( WeightQuantization quantization, int fp4_group_size = 128 )
