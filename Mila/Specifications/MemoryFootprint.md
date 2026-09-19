@@ -286,7 +286,7 @@ one rather than reinterpret it. See `Gemma4MoE.md` Phase 4.
 
 ## 5. Entry Point
 
-A static sibling of `fromPretrainedImpl` that shares its prologue verbatim and stops
+A static sibling of `loadImpl` that shares its prologue verbatim and stops
 one line early:
 
 ```cpp
@@ -308,12 +308,12 @@ static MemoryStats requiredMemoryImpl(
 }
 ```
 
-The public entry reuses `fromPretrained`'s existing runtime-to-compile-time
+The public entry reuses `load`'s existing runtime-to-compile-time
 quantization dispatch, so the probe and the load resolve to the same template
 combination by construction.
 
 Only the artifact header is read. The safetensors `__metadata__` block carries the
-full `PretrainedMetadata` geometry and sits at the front of the file, so the
+full `WeightsMetadata` geometry and sits at the front of the file, so the
 pre-download case is a range request, not a schema change to `mila.json`.
 
 The library returns measurements. Whether a given headroom counts as "too tight" is
@@ -1001,7 +1001,7 @@ environment: a clean `x64-profile` build with both GPUs visible.
    rung up exceeds it or the chunk is the largest rung the context permits. Through the temporary change, with the
    free memory stepped down in 64 MiB steps from the device's total to the weights alone, the chunk never grows as
    memory shrinks, and below the floor's total the floor is returned with `fits_available_memory` false.
-4. **Prediction and load agree, and only the load warns.** `getDeploymentFootprint` then `fromPretrained`, with
+4. **Prediction and load agree, and only the load warns.** `getDeploymentFootprint` then `load`, with
    nothing allocated between, give equal totals (criterion 1) on every load in criterion 2. A prediction whose floor
    does not fit logs nothing; the build of the same deployment logs exactly one warning.
 5. **Section 11.9 comes true.** With one GPU visible, Qwen 3.8 27B FP4 at context 8192 on the RTX 5060 Ti takes a
@@ -1193,7 +1193,7 @@ what the prediction leaves out; no end user was found who would set it, and the 
 covered, driver rounding, is predicted instead (11.8).
 
 - **What is read:** the device's free memory, through `Device::getMemoryInfo()`, when the chunk is resolved --
-  in `fromPretrained` and in `getDeploymentFootprint`. A prediction describes the load that would happen at
+  in `load` and in `getDeploymentFootprint`. A prediction describes the load that would happen at
   that moment, so two predictions made at different moments can disagree.
 - **What is left out:** the fixed remainder (11.5) and the small-allocation overhead (11.8), under 30 MiB
   together on the models measured, and on a card that drives a display the Windows budget cut (11.5). Mila

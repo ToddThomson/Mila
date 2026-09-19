@@ -20,7 +20,7 @@
  * callback cadence. Prefill caps generation at one token and reports the first
  * boundary, which costs one decode step and needs no profiling-only entry point.
  *
- * All Mila template instantiation (model loading via fromPretrained) is confined
+ * All Mila template instantiation (model loading via load) is confined
  * to this module interface unit. See [[feedback-build-in-vs]]: the latest VS2026
  * MSVC raises C2079 (basic_istream::sentry undefined) when a plain .cpp consumer
  * instantiates the readTensorBlob/seekg template, so model loading must live in
@@ -638,7 +638,7 @@ namespace Mila::Profiling
         auto model = [&]
         {
             NvtxRange range( "model_load" );
-            return Model::fromPretrained( options.model_path, model_config, device );
+            return Model::load( options.model_path, model_config, device );
         }();
 
         const double load_ms = std::chrono::duration<double, std::milli>(
@@ -684,7 +684,7 @@ namespace Mila::Profiling
         auto model = [&]
         {
             NvtxRange range( "model_load" );
-            return Model::fromPretrained( options.model_path, model_config, device );
+            return Model::load( options.model_path, model_config, device );
         }();
 
         const double load_ms = std::chrono::duration<double, std::milli>(
@@ -732,7 +732,7 @@ namespace Mila::Profiling
         auto model = [&]
         {
             NvtxRange range( "model_load" );
-            return Model::fromPretrained( options.model_path, model_config, device );
+            return Model::load( options.model_path, model_config, device );
         }();
 
         const double load_ms = std::chrono::duration<double, std::milli>(

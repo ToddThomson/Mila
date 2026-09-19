@@ -70,7 +70,7 @@ committed to a device.
 
 ```cpp
 DeploymentPlan plan = GemmaModel<Cuda, BF16>::planDeployment( path, request );   // decides; allocates nothing
-auto model = GemmaModel<Cuda, BF16>::fromPretrained( path, plan );               // executes exactly this plan
+auto model = GemmaModel<Cuda, BF16>::load( path, plan );               // executes exactly this plan
 ```
 
 The plan is decided once, from one reading of each device's free memory, and the load executes it.
@@ -154,7 +154,7 @@ of it visible:
 
 ```cpp
 // 1. Just run it: every plannable knob auto.
-auto model = GemmaModel<Cuda, BF16>::fromPretrained( path, DeploymentRequest{} );
+auto model = GemmaModel<Cuda, BF16>::load( path, DeploymentRequest{} );
 
 // 2. Look first: plan, inspect, then run exactly that.
 DeploymentPlan plan = GemmaModel<Cuda, BF16>::planDeployment( path,
@@ -163,10 +163,10 @@ DeploymentPlan plan = GemmaModel<Cuda, BF16>::planDeployment( path,
 if ( !plan.feasible() )
     report( plan.bindingConstraint() );
 
-auto model = GemmaModel<Cuda, BF16>::fromPretrained( path, plan );
+auto model = GemmaModel<Cuda, BF16>::load( path, plan );
 
 // 3. Choose among trades: take an alternative the objective ranked second.
-auto model = GemmaModel<Cuda, BF16>::fromPretrained( path, plan.alternatives()[ 0 ] );
+auto model = GemmaModel<Cuda, BF16>::load( path, plan.alternatives()[ 0 ] );
 ```
 
 (Names illustrate the shape; section 12 leaves them open.)
@@ -180,7 +180,7 @@ Three rules keep it consistent:
 - **A model reports the plan it runs.** A loaded model exposes its `DeploymentPlan`, so what an adaptor
   shows is the object that ran, not a second derivation of it.
 
-Per family the surface is two entry points, `planDeployment` and `fromPretrained`, and three types.
+Per family the surface is two entry points, `planDeployment` and `load`, and three types.
 Nothing else is added.
 
 ---
@@ -254,14 +254,14 @@ asks and currently answers for itself.
 
 ## 7. The Load Executes The Plan
 
-- **Check.** `fromPretrained( path, plan )` first compares the package's facts with the ones the plan was
+- **Check.** `load( path, plan )` first compares the package's facts with the ones the plan was
   priced for, and refuses a mismatch naming both. It refuses an infeasible plan, naming its binding
   constraint. It never substitutes a value of its own: no fallback chunk, no default device.
 - **Execute.** It dispatches on the plan's weight format, constructs with the plan's `DevicePlacement`,
   builds with the plan's `BuildContext` (context length and resolved chunk), loads, and keeps the plan.
-- **`fromPretrained( path, request )`** is `planDeployment` followed by the same check and execute.
+- **`load( path, request )`** is `planDeployment` followed by the same check and execute.
 - **A fully fixed request is not a second path.** Every knob set explicitly, including a single device, is
-  still planned and checked; the planner's job reduces to pricing it. `fromPretrained( path, config,
+  still planned and checked; the planner's job reduces to pricing it. `load( path, config,
   device )` becomes exactly that request.
 - **The build uses the chunk it is given.** `resolvePrefillChunkSize` is deleted from `onBuilding`; a
   `BuildContext` without a resolved chunk is a programming error, not an invitation to decide.
@@ -276,7 +276,7 @@ continues, deciding again at execution. Recorded in `Mila/Issues/Vnext.md`.
 
 ## 8. Entry Points And Adaptors
 
-- **Library.** `planDeployment( path, request )` per family, beside `fromPretrained` and
+- **Library.** `planDeployment( path, request )` per family, beside `load` and
   `getDeploymentFootprint`. The family comes from the package; a family-neutral entry point that reads
   it from the metadata is an open question (section 12).
 - **Chat.** `"auto"` for `context_length` and for `device` both become fields of one request. An explicit
@@ -328,7 +328,7 @@ fail once. Bounds are written here before any run.
   when free memory is changed between plan and build. N2: rules 3 and 4 swapped — G2 fails. N3:
   granularity taken from the bound context — G3 fails. N4: a plan priced for Gemma 4 12B passed with
   Llama 3.1 8B's package — the load refuses before constructing anything. N5: an infeasible plan passed
-  to `fromPretrained` — refused, and no device memory is allocated.
+  to `load` — refused, and no device memory is allocated.
 
 ---
 

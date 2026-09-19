@@ -68,7 +68,7 @@ at `:720`).
 
 **So the "locked door" is one accessor.** `LanguageModel::getNetwork()` is protected
 (`LanguageModel.ixx:257`), and the model's entire public surface is `generate`,
-`savePretrained` and `seedSampler`. A consumer holding the object the library asks them to
+`save` and `seedSampler`. A consumer holding the object the library asks them to
 hold cannot reach a tree that is otherwise fully public and fully navigable. That is why
 every diagnostic in this repository constructs a transformer directly instead of loading a
 model — not because introspection is missing, but because the handle users actually have

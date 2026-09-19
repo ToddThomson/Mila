@@ -170,7 +170,7 @@ namespace Mila::Tests::Dnn::Observation
         LlamaModelConfig config( kContextLength );
         config.withWeightQuantization( WeightQuantization::FP4 );
 
-        auto model = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
+        auto model = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
             checkpoint, config );
 
         ASSERT_NE( model, nullptr );
@@ -194,7 +194,7 @@ namespace Mila::Tests::Dnn::Observation
         config.withContextLength( kContextLength )
             .withWeightQuantization( WeightQuantization::FP4 );
 
-        auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
+        auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
             checkpoint, config );
 
         ASSERT_NE( model, nullptr );

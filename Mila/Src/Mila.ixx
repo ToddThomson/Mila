@@ -311,7 +311,7 @@ export import Serialization.Tensor;
 export import Serialization.ArchiveSerializer;
 export import Serialization.ZipSerializer;
 export import Serialization.SafeTensors;
-export import Serialization.PretrainedReader;
+export import Serialization.WeightsReader;
 
 // ============================================================================
 // Distribution - the store, pull, and HuggingFace itself, none of which move bytes

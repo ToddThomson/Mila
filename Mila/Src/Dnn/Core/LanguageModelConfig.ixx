@@ -37,7 +37,7 @@
  *
  * LanguageModelConfig is the public API surface for deployment configuration.
  * BuildContext is the internal carrier through the component tree.
- * fromPretrained() projects LanguageModelConfig into BuildContext once --
+ * load() projects LanguageModelConfig into BuildContext once --
  * they are never the same object.
  *
  * ## Quantization Presets vs Fine-Grained Control
@@ -77,7 +77,7 @@ namespace Mila::Dnn
      * @brief Weight storage and matmul strategy for Linear components.
      *
      * Maps to the TWeightQuant template parameter on Linear and CudaLinearOp
-     * via the fromPretrained() runtime->compile-time bridge. The mapping is:
+     * via the load() runtime->compile-time bridge. The mapping is:
      *
      *   None  -> NoWeightQuant        (BF16 weights, standard cuBLASLt plan)
      *   FP8   -> PerChannelFp8<>      (FP8_E4M3 weights, per-channel float32 scales)
@@ -222,7 +222,7 @@ namespace Mila::Dnn
      * @brief KV cache storage and compression strategy for GroupedQueryAttention.
      *
      * Maps to the TKvPolicy template parameter on GroupedQueryAttention and
-     * CudaGqaOp via the fromPretrained() runtime->compile-time bridge. The mapping is:
+     * CudaGqaOp via the load() runtime->compile-time bridge. The mapping is:
      *
      *   None  -> NoKvCompression      (BF16 cache, no compression overhead)
      *   FP8   -> PerChannelKvFp8<>   (FP8_E4M3 cache, per-head per-token float32 scales)
@@ -280,7 +280,7 @@ namespace Mila::Dnn
         /**
          * @brief Set the maximum sequence length.
          *
-         * Required before passing the config to fromPretrained(). RoPE embeddings
+         * Required before passing the config to load(). RoPE embeddings
          * and KV cache buffers are sized to this value at build time.
          *
          * @param context_length  Maximum sequence length in tokens. Must be > 0.

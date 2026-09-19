@@ -55,7 +55,7 @@ import Compute.CpuMemoryResource;
 import Compute.DeviceTypeTraits.Cuda;
 #endif
 import Compute.ExecutionContextFactory;
-import Serialization.PretrainedReader;
+import Serialization.WeightsReader;
 import Serialization.SafeTensors;
 import Serialization.Mode;
 import Logging.Logger;
@@ -72,7 +72,7 @@ namespace Mila::Dnn
      *
      * Owns a loaded, built GemmaTransformer and drives the prefill + KV-cache
      * decode two-phase generation loop. Construction is only possible via
-     * fromPretrained(); the network is always built, weights-loaded, and in
+     * load(); the network is always built, weights-loaded, and in
      * inference mode when generation runs.
      *
      * Thread safety: not thread-safe; external synchronization required if shared.
@@ -110,13 +110,13 @@ namespace Mila::Dnn
         ~GemmaModel() = default;
 
         /**
-         * @brief Load from a Mila-converted Gemma 4 pretrained artifact.
+         * @brief Load Gemma 4 from a Mila weights file.
          *
          * The model_config carries the deployment decisions (context length,
          * weight quantization, KV-cache compression); every architectural
          * parameter is read from the checkpoint metadata.
          *
-         * @param path          Path to the pretrained Gemma model artifact.
+         * @param path          Path to the Gemma weights file.
          * @param model_config  Deployment configuration for this load.
          * @param device_id     Target device; must match TDeviceType.
          * @return              Inference-ready GemmaModel.
@@ -124,7 +124,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument on device type mismatch or zero context length.
          * @throws std::runtime_error    on load failure or unsupported quantization.
          */
-        static std::unique_ptr<GemmaModel<TDeviceType, TPrecision>> fromPretrained(
+        static std::unique_ptr<GemmaModel<TDeviceType, TPrecision>> load(
             const std::filesystem::path& path,
             const GemmaModelConfig& model_config,
             DeviceId device_id = DeviceId{ TDeviceType, 0 } )
@@ -132,7 +132,7 @@ namespace Mila::Dnn
             if ( device_id.type != TDeviceType )
             {
                 throw std::invalid_argument( std::format(
-                    "GemmaModel::fromPretrained: device type mismatch: expected {}, got {}",
+                    "GemmaModel::load: device type mismatch: expected {}, got {}",
                     deviceTypeToString( TDeviceType ),
                     deviceTypeToString( device_id.type ) ) );
             }
@@ -140,7 +140,7 @@ namespace Mila::Dnn
             if ( model_config.getContextLength() == 0 )
             {
                 throw std::invalid_argument(
-                    "GemmaModel::fromPretrained: context_length must be greater than zero" );
+                    "GemmaModel::load: context_length must be greater than zero" );
             }
 
             // Gemma's Linear children (qkv/o/gate_up/down) pick up the weight-quant policy;
@@ -155,10 +155,10 @@ namespace Mila::Dnn
                 return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, Result, kRoutedFp4GroupSize>(
                     model_config.getWeightQuantization(),
                     model_config.getKvCacheCompression(),
-                    "GemmaModel::fromPretrained",
+                    "GemmaModel::load",
                     [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
                     {
-                        return fromPretrainedImpl<TWeightQuantization, TKvCachePolicy, true>(
+                        return loadImpl<TWeightQuantization, TKvCachePolicy, true>(
                             path, model_config, device_id );
                     } );
             }
@@ -166,10 +166,10 @@ namespace Mila::Dnn
             return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, Result, kDenseFp4GroupSize>(
                 model_config.getWeightQuantization(),
                 model_config.getKvCacheCompression(),
-                "GemmaModel::fromPretrained",
+                "GemmaModel::load",
                 [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
                 {
-                    return fromPretrainedImpl<TWeightQuantization, TKvCachePolicy, false>(
+                    return loadImpl<TWeightQuantization, TKvCachePolicy, false>(
                         path, model_config, device_id );
                 } );
         }
@@ -232,7 +232,7 @@ namespace Mila::Dnn
                     "GemmaModel::getDeploymentFootprint: context_length must be greater than zero" );
             }
 
-            // Same dispatcher as fromPretrained, and deliberately so: the footprint path and
+            // Same dispatcher as load, and deliberately so: the footprint path and
             // the load path must reach the identical template instantiation or a model reports
             // a figure it does not allocate.
             if ( isRoutedCheckpoint( path ) )
@@ -287,7 +287,7 @@ namespace Mila::Dnn
          * Public so a caller that constructs blocks itself -- the layer-streamed parity harness -- uses
          * the geometry a real load would, rather than a second reading of the metadata.
          */
-        static GemmaConfig configFromMetadata( const PretrainedMetadata& metadata )
+        static GemmaConfig configFromMetadata( const WeightsMetadata& metadata )
         {
             GemmaConfig config(
                 static_cast<dim_t>(metadata.embedding_dim),
@@ -493,7 +493,7 @@ namespace Mila::Dnn
             std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             const GemmaConfig& config,
             const GemmaModelConfig& model_config,
-            const PretrainedMetadata& source_metadata,
+            const WeightsMetadata& source_metadata,
             int fp4_group_size,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode,
@@ -505,23 +505,23 @@ namespace Mila::Dnn
 
         static bool isRoutedCheckpoint( const std::filesystem::path& path )
         {
-            PretrainedModelReader reader( path );
+            WeightsReader reader( path );
 
-            return reader.getPretrainedMetadata().num_experts > 0;
+            return reader.getWeightsMetadata().num_experts > 0;
         }
 
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, bool kMixtureOfExperts>
-        static std::unique_ptr<GemmaModel<TDeviceType, TPrecision>> fromPretrainedImpl(
+        static std::unique_ptr<GemmaModel<TDeviceType, TPrecision>> loadImpl(
             const std::filesystem::path& path,
             const GemmaModelConfig& model_config,
             DeviceId device_id )
         {
-            PretrainedModelReader reader( path );
-            const auto& metadata = reader.getPretrainedMetadata();
+            WeightsReader reader( path );
+            const auto& metadata = reader.getWeightsMetadata();
             const int fp4_group_size = kMixtureOfExperts ? kRoutedFp4GroupSize : kDenseFp4GroupSize;
 
             requireStoredQuantizationMatches(
-                "GemmaModel::fromPretrained", path.string(), reader.getWeightQuantization(),
+                "GemmaModel::load", path.string(), reader.getWeightQuantization(),
                 model_config.getWeightQuantization(), fp4_group_size );
 
             GemmaConfig network_config = configFromMetadata( metadata );
@@ -529,7 +529,7 @@ namespace Mila::Dnn
             if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
             {
                 throw std::invalid_argument( std::format(
-                    "GemmaModel::fromPretrained: context_length {} exceeds trained max_seq_len {}",
+                    "GemmaModel::load: context_length {} exceeds trained max_seq_len {}",
                     model_config.getContextLength(),
                     network_config.getMaxSequenceLength() ) );
             }
@@ -560,7 +560,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief The footprint sibling of fromPretrainedImpl: same prologue, stops before build().
+         * @brief The footprint sibling of loadImpl: same prologue, stops before build().
          *
          * Everything above network->build() is shared with the load path deliberately -- the
          * artifact check, the geometry, and the context-length validation must be the ones a
@@ -572,8 +572,8 @@ namespace Mila::Dnn
             const GemmaModelConfig& model_config,
             DeviceId device_id )
         {
-            PretrainedModelReader reader( path );
-            const auto& metadata = reader.getPretrainedMetadata();
+            WeightsReader reader( path );
+            const auto& metadata = reader.getWeightsMetadata();
 
             requireStoredQuantizationMatches(
                 "GemmaModel::getDeploymentFootprint", path.string(),

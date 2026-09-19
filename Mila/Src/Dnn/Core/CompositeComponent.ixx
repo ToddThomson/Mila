@@ -733,7 +733,7 @@ namespace Mila::Dnn
          * @brief Recurse into children, extending the flat dotted prefix.
          *
          * A composite contributes no tensors of its own. It exists here to turn the component
-         * tree into the flat vocabulary the pretrained format uses -- the same dotted paths
+         * tree into the flat vocabulary the weights format uses -- the same dotted paths
          * loadParameters() splits with parseParameterPath() and resolves with findComponent(),
          * so what this writes is exactly what that reads.
          *

@@ -47,11 +47,10 @@ table.** The compiler above compiles the C++23 module units. nvcc uses a separat
 for the `.cu` files, which contain no modules — CI and the dev container pair clang-21 with
 gcc-15 in that role, and its version is nvcc's business rather than the module floor's.
 
-A CUDA-capable NVIDIA GPU is needed to run the CUDA inference paths. The library builds
-without a GPU, but the validated inference targets (Llama, GPT-2) run on CUDA. BF16 compute
-and FP4 weights need an Ampere (SM 8.0) or newer GPU — an RTX 30-series card or better.
-FP8 weights need Ada Lovelace (SM 8.9) or newer, because that path runs through cuBLASLt's
-FP8 kernels.
+A CUDA-capable NVIDIA GPU is needed to run a model; the library builds without one. Mila is
+tested on RTX 40-series (SM 8.9) and RTX 50-series (SM 12.0) cards. BF16 compute and FP4
+weights need SM 8.0 or newer, and FP8 weights need Ada Lovelace (SM 8.9) or newer, because
+that path runs through cuBLASLt's FP8 kernels.
 
 > **Prefer not to install the toolchain by hand?** Section 4 covers the Docker / dev
 > container path, which gives you a reproducible Linux build environment (it still builds
@@ -82,7 +81,7 @@ handle C++23 modules reliably. `MILA_ENABLE_TESTING` is `ON` for a clone of this
 `OFF` when Mila is embedded in another project, so `ctest` finds the suite without a flag.
 
 The first configure fetches dependencies through CPM (GoogleTest, nlohmann_json, miniz,
-CUTLASS, and others), which runs `git clone` under the hood — so **`git` must be installed
+curl, and others), which runs `git clone` under the hood — so **`git` must be installed
 and on `PATH`**, and network access is required, even though you already cloned the repo.
 
 ### Windows (Visual Studio)
@@ -425,7 +424,7 @@ forward + backward + AdamW loop.
 To build your own application against Mila, pull it in with **FetchContent** — the supported way
 to depend on Mila. Mila compiles once, in your project's own toolchain (no install step, no
 prebuilt/recompiled ABI split); this is the same mechanism Mila uses for its own dependencies
-(googletest, CUTLASS, nlohmann).
+(googletest, nlohmann, curl).
 
 ```cmake
 cmake_minimum_required(VERSION 4.0)

@@ -528,7 +528,7 @@ namespace Mila::Dnn
             operation_->build( build_config );
 
             // Positional encodings are initialized only for train-from-scratch; the
-            // pretrained load path overwrites wte/wpe immediately after build().
+            // weights load path overwrites wte/wpe immediately after build().
             if ( build_config.shouldInitializeParameters() )
             {
                 const float std_dev = 1.0f / std::sqrt( static_cast<float>( config_.getEmbeddingDim() ) );

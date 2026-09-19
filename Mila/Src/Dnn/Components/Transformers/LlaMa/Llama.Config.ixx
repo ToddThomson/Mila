@@ -93,13 +93,13 @@ namespace Mila::Dnn
         /**
          * @brief Sets the trained maximum sequence length for this model.
          *
-         * @details This value is sourced from the pretrained model metadata
+         * @details This value is sourced from the weights file's metadata
          * and represents the architectural ceiling on context length -- the furthest position
          * for which RoPE embeddings were trained.
          *
          * This is not a deployment parameter. The runtime context length is a
          * deployment decision carried by BuildContext, and must not exceed this
-         * value. LlamaModel::fromPretrained() enforces that invariant.
+         * value. LlamaModel::load() enforces that invariant.
          *
          * @tparam Self  Deduced type of the builder ( supports both lvalue and rvalue chains ).
          * @param max_seq_len  The trained maximum sequence length. Must be > 0.

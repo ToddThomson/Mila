@@ -3,7 +3,7 @@
  * @brief Deployment configuration for Gemma language models.
  *
  * GemmaModelConfig is the concrete configuration type passed to
- * GemmaModel::fromPretrained(). It inherits all universal language model
+ * GemmaModel::load(). It inherits all universal language model
  * deployment concerns from LanguageModelConfig<GemmaModelConfig>:
  *
  *   - context_length        -- maximum sequence length

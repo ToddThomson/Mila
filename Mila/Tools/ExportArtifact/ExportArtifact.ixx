@@ -356,7 +356,7 @@ namespace Mila::Tools
         request.variant = weightQuantizationVariantName( options.quantization );
         // What the artifact records rather than what was requested: an FP4 model's group is its own.
         const std::string stored_quantization =
-            Serialization::PretrainedModelReader( options.destination ).getWeightQuantization();
+            Serialization::WeightsReader( options.destination ).getWeightQuantization();
         request.weight_quantization = stored_quantization.empty()
             ? weightQuantizationName( WeightQuantization::None )
             : stored_quantization;
@@ -519,9 +519,9 @@ namespace Mila::Tools
      */
     int compareAgainstSource(
         const std::filesystem::path& source_path,
-        Serialization::PretrainedModelReader& artifact )
+        Serialization::WeightsReader& artifact )
     {
-        Serialization::PretrainedModelReader source( source_path );
+        Serialization::WeightsReader source( source_path );
 
         const auto source_names = source.getTensorNames();
         const auto artifact_names = artifact.getTensorNames();
@@ -602,7 +602,7 @@ namespace Mila::Tools
      * spends its bulk on packed codes, and the BF16 that remains should be only the tensors
      * no policy quantizes.
      */
-    void reportStorageCensus( Serialization::PretrainedModelReader& reader )
+    void reportStorageCensus( Serialization::WeightsReader& reader )
     {
         std::map<std::string, std::pair<uint64_t, uint64_t>> by_storage_type;
 
@@ -655,9 +655,9 @@ namespace Mila::Tools
         {
             std::cout << std::format( "Reading {}\n", source.string() );
 
-            Serialization::PretrainedModelReader reader( source );
+            Serialization::WeightsReader reader( source );
 
-            const auto& metadata = reader.getPretrainedMetadata();
+            const auto& metadata = reader.getWeightsMetadata();
 
             std::cout << std::format( "  architecture {}\n  tensors      {}\n",
                 metadata.architecture, reader.getTensorNames().size() );
@@ -704,7 +704,7 @@ namespace Mila::Tools
 
             // Reopening is the only check that the header agrees with the data region, and the
             // reconciliation is what catches a tensor quietly dropped or duplicated.
-            Serialization::PretrainedModelReader verify( destination );
+            Serialization::WeightsReader verify( destination );
 
             return compareAgainstSource( source, verify );
         }
@@ -764,8 +764,8 @@ namespace Mila::Tools
     {
         try
         {
-            Serialization::PretrainedModelReader left( left_path );
-            Serialization::PretrainedModelReader right( right_path );
+            Serialization::WeightsReader left( left_path );
+            Serialization::WeightsReader right( right_path );
 
             const auto left_names = left.getTensorNames();
 
@@ -882,7 +882,7 @@ namespace Mila::Tools
      * spelled here by hand is how it came to derive as "bf16": its largest tensor is the
      * unquantized embedding table, and a scheme this does not recognize falls through to it.
      */
-    std::string deriveVariantName( Serialization::PretrainedModelReader& reader )
+    std::string deriveVariantName( Serialization::WeightsReader& reader )
     {
         const std::string& quantization = reader.getWeightQuantization();
 
@@ -938,9 +938,9 @@ namespace Mila::Tools
 
         try
         {
-            Serialization::PretrainedModelReader reader( request.weights );
+            Serialization::WeightsReader reader( request.weights );
 
-            const std::string architecture = reader.getPretrainedMetadata().architecture;
+            const std::string architecture = reader.getWeightsMetadata().architecture;
 
             const std::string variant = request.variant.empty()
                 ? deriveVariantName( reader ) : request.variant;
@@ -1178,7 +1178,7 @@ namespace Mila::Tools
             .withWeightQuantization( options.quantization )
             .withKvCacheCompression( KvCacheCompression::None );
 
-        auto model = TModel::fromPretrained(
+        auto model = TModel::load(
             options.source, model_config, DeviceId{ DeviceType::Cuda, 0 } );
 
         if ( options.fingerprint_only )
@@ -1196,7 +1196,7 @@ namespace Mila::Tools
 
         std::cout << std::format( "Writing {}\n", options.destination.string() );
 
-        model->savePretrained( options.destination );
+        model->save( options.destination );
 
         return 0;
     }
@@ -1220,8 +1220,8 @@ namespace Mila::Tools
             // header rather than a load. Without this the export built a Gemma config for
             // every file and a Llama failed inside GemmaConfig's validation, naming a field
             // rather than the mismatch.
-            const std::string architecture = Serialization::PretrainedModelReader(
-                options.source ).getPretrainedMetadata().architecture;
+            const std::string architecture = Serialization::WeightsReader(
+                options.source ).getWeightsMetadata().architecture;
 
             std::cout << std::format( "Loading {} ({})\n",
                 options.source.string(), architecture );
@@ -1272,11 +1272,11 @@ namespace Mila::Tools
 
             // Reopening is the only check that the header agrees with the data region; a
             // writer bug produces a file that looks finished and fails at load.
-            Serialization::PretrainedModelReader verify( options.destination );
+            Serialization::WeightsReader verify( options.destination );
 
             std::cout << std::format( "Verified {} tensors, architecture '{}'\n",
                 verify.getTensorNames().size(),
-                verify.getPretrainedMetadata().architecture );
+                verify.getWeightsMetadata().architecture );
 
             const int reconciled = compareAgainstSource( options.source, verify );
 
@@ -1289,7 +1289,7 @@ namespace Mila::Tools
 
             if ( !options.package_directory.empty() )
             {
-                return writePackage( options, verify.getPretrainedMetadata().architecture );
+                return writePackage( options, verify.getWeightsMetadata().architecture );
             }
 
             return 0;

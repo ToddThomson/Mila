@@ -563,7 +563,7 @@ namespace Mila::Dnn
          * Bias is always stored and loaded at TComputePrecision regardless of TWeightQuant.
          *
          * @param name Parameter name: "weight" or "bias".
-         * @param blob Serialized tensor blob from PretrainedModelReader.
+         * @param blob Serialized tensor blob from WeightsReader.
          *
          * @throws std::invalid_argument if the blob dtype does not match the expected
          *         source precision, if the blob shape does not match the config, or if

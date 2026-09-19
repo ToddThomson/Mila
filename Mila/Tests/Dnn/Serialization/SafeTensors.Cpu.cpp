@@ -2,7 +2,7 @@
  * @file SafeTensors.Cpu.cpp
  * @brief safetensors writer/reader round trip, and a regression guard on the MILA path.
  *
- * PretrainedModelReader now accepts two containers, sniffed by the leading magic. The
+ * WeightsReader now accepts two containers, sniffed by the leading magic. The
  * risk that carries is not that the new path is wrong -- a wrong new path fails loudly
  * on its own tests -- but that adding it quietly breaks reading of the .bin files
  * already on disk, which no test covered because every one of them needs a converted
@@ -154,7 +154,7 @@ namespace Mila::Tests::Dnn::Serialization
             writer.close();
         }
 
-        PretrainedModelReader reader( scratch.path() );
+        WeightsReader reader( scratch.path() );
 
         EXPECT_TRUE( reader.hasTensor( "block.weight" ) );
         EXPECT_TRUE( reader.hasTensor( "block.weight.packed" ) );
@@ -203,8 +203,8 @@ namespace Mila::Tests::Dnn::Serialization
             writer.close();
         }
 
-        PretrainedModelReader reader( scratch.path() );
-        const auto& metadata = reader.getPretrainedMetadata();
+        WeightsReader reader( scratch.path() );
+        const auto& metadata = reader.getWeightsMetadata();
 
         EXPECT_EQ( metadata.architecture, "llama" );
         EXPECT_EQ( metadata.model_name, "tiny" );
@@ -233,10 +233,10 @@ namespace Mila::Tests::Dnn::Serialization
 
         // A foreign safetensors file is still readable as tensors; only the architecture
         // metadata is absent, which a model factory rejects on its own terms.
-        PretrainedModelReader reader( scratch.path() );
+        WeightsReader reader( scratch.path() );
 
         EXPECT_TRUE( reader.hasTensor( "w" ) );
-        EXPECT_TRUE( reader.getPretrainedMetadata().architecture.empty() );
+        EXPECT_TRUE( reader.getWeightsMetadata().architecture.empty() );
     }
 
     TEST( SafeTensors, MetadataSurvivesAFullWriteReadCycle )
@@ -245,7 +245,7 @@ namespace Mila::Tests::Dnn::Serialization
 
         // Every field the parser extracts, with distinct values so a field crossing into
         // its neighbour is visible rather than masked by a shared default.
-        PretrainedMetadata original;
+        WeightsMetadata original;
         original.architecture = "gemma";
         original.model_name = "gemma-4-12b";
         original.vocab_size = 262144;
@@ -285,8 +285,8 @@ namespace Mila::Tests::Dnn::Serialization
             writer.close();
         }
 
-        PretrainedModelReader reader( scratch.path() );
-        const auto& restored = reader.getPretrainedMetadata();
+        WeightsReader reader( scratch.path() );
+        const auto& restored = reader.getWeightsMetadata();
 
         EXPECT_EQ( restored.architecture, original.architecture );
         EXPECT_EQ( restored.model_name, original.model_name );
@@ -332,7 +332,7 @@ namespace Mila::Tests::Dnn::Serialization
             writer.close();
         }
 
-        PretrainedModelReader reader( scratch.path() );
+        WeightsReader reader( scratch.path() );
 
         EXPECT_EQ( reader.getWeightQuantization(), "per_group_fp4_128" );
     }
@@ -361,8 +361,8 @@ namespace Mila::Tests::Dnn::Serialization
 
         // "none" and an absent key must be indistinguishable, so every caller has a single
         // test for "quantize on load" rather than two.
-        EXPECT_TRUE( PretrainedModelReader( declared.path() ).getWeightQuantization().empty() );
-        EXPECT_TRUE( PretrainedModelReader( omitted.path() ).getWeightQuantization().empty() );
+        EXPECT_TRUE( WeightsReader( declared.path() ).getWeightQuantization().empty() );
+        EXPECT_TRUE( WeightsReader( omitted.path() ).getWeightQuantization().empty() );
     }
 
     TEST( SafeTensors, LegacyMilaContainerDeclaresNoQuantization )
@@ -374,7 +374,7 @@ namespace Mila::Tests::Dnn::Serialization
 
         // Every .bin on disk is a full-precision source; the load path must keep
         // quantizing them on load exactly as before.
-        EXPECT_TRUE( PretrainedModelReader( scratch.path() ).getWeightQuantization().empty() );
+        EXPECT_TRUE( WeightsReader( scratch.path() ).getWeightQuantization().empty() );
     }
 
     // ================================================================
@@ -472,7 +472,7 @@ namespace Mila::Tests::Dnn::Serialization
             std::fwrite( junk.data(), 1, junk.size(), file.get() );
         }
 
-        EXPECT_THROW( PretrainedModelReader reader( scratch.path() ), std::runtime_error );
+        EXPECT_THROW( WeightsReader reader( scratch.path() ), std::runtime_error );
     }
 
     TEST( SafeTensors, RejectsATensorExtendingPastEndOfFile )
@@ -492,7 +492,7 @@ namespace Mila::Tests::Dnn::Serialization
         const auto full_size = std::filesystem::file_size( scratch.path() );
         std::filesystem::resize_file( scratch.path(), full_size - sizeof( float ) );
 
-        EXPECT_THROW( PretrainedModelReader reader( scratch.path() ), std::runtime_error );
+        EXPECT_THROW( WeightsReader reader( scratch.path() ), std::runtime_error );
     }
 
     // ================================================================
@@ -510,11 +510,11 @@ namespace Mila::Tests::Dnn::Serialization
 
         writeMilaFormatFile( scratch.path(), metadata, "lenc.wte.weight", values );
 
-        PretrainedModelReader reader( scratch.path() );
+        WeightsReader reader( scratch.path() );
 
-        EXPECT_EQ( reader.getPretrainedMetadata().architecture, "gpt2" );
-        EXPECT_EQ( reader.getPretrainedMetadata().vocab_size, 50257u );
-        EXPECT_EQ( reader.getPretrainedMetadata().num_layers, 12u );
+        EXPECT_EQ( reader.getWeightsMetadata().architecture, "gpt2" );
+        EXPECT_EQ( reader.getWeightsMetadata().vocab_size, 50257u );
+        EXPECT_EQ( reader.getWeightsMetadata().num_layers, 12u );
 
         ASSERT_TRUE( reader.hasTensor( "lenc.wte.weight" ) );
 
@@ -547,6 +547,6 @@ namespace Mila::Tests::Dnn::Serialization
             std::fwrite( &bad_version, sizeof( bad_version ), 1, file.get() );
         }
 
-        EXPECT_THROW( PretrainedModelReader reader( scratch.path() ), std::runtime_error );
+        EXPECT_THROW( WeightsReader reader( scratch.path() ), std::runtime_error );
     }
 }

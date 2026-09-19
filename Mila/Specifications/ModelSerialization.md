@@ -1,7 +1,7 @@
 # Model Serialization
 
 Design notes and build plan for saving and restoring a Mila model: the `ModelArchive` checkpoint
-path, its relationship to the flat `.bin` pretrained path, and the sequenced work to make either one
+path, its relationship to the flat `.bin` weights path, and the sequenced work to make either one
 trustworthy.
 
 Scoped 2026-07-29 from a read of the shipped code. Defects found during that read are tracked in
@@ -38,10 +38,10 @@ These want different formats. Conflating them is the main risk this document exi
 | Compatibility | may break between versions | must not |
 | Access pattern | read once, sequentially | memory-mapped, random access by tensor name |
 | Size pressure | none — it is a local file | decisive — it is a download |
-| Fit | `ModelArchive` (zip, per-component blobs) | flat `.bin` + `PretrainedModelReader` |
+| Fit | `ModelArchive` (zip, per-component blobs) | flat `.bin` + `WeightsReader` |
 
 The flat path already exists and is good: a `MILA` magic header, a tensor index, mmap plus a pinned
-double-buffered staging thread (`PretrainedReader.ixx:148`, `:392`). Routing distribution through
+double-buffered staging thread (`WeightsReader.ixx:148`, `:392`). Routing distribution through
 `ModelArchive` would replace a memory-mapped read with zip decompression into a heap buffer, and
 produce a 22 GB zip file. **`ModelArchive` is the checkpoint format. The flat `.bin` is the
 distribution format. `WeightsOnly` on the archive is a debugging convenience, not the delivery
@@ -67,7 +67,7 @@ More exists than a first look suggests. The pieces below are shipped and working
 | `Component::loadParameter( name, ITensorBlob& )` | `Core/Component.ixx:509` | implemented by all five parameter-owning components |
 | `Network::save()` | `Core/Network.ixx:273` | writes `network/meta.json`, `architecture.json`, then recurses |
 | `ComponentFactory::readComponentMeta` | `Core/ComponentFactory.ixx:68` | reads a component's `meta.json` under its scope |
-| `PretrainedModelReader` | `Serialization/PretrainedReader.ixx` | the flat `.bin` path; mmap + pinned double-buffer |
+| `WeightsReader` | `Serialization/WeightsReader.ixx` | the flat `.bin` path; mmap + pinned double-buffer |
 
 **The load side is further along than "absent".** `ITensorBlob` is already the virtual boundary
 between a byte source and a component, `readTensorBlob` already produces one from an archive, and
@@ -75,7 +75,7 @@ between a byte source and a component, `readTensorBlob` already produces one fro
 `Lpe` — exactly the five components that own parameters. What is missing is not a load mechanism but
 the **traversal** that walks an archive and drives those five implementations. The flat path has such
 a traversal (`Gemma.ixx:383`, `Llama.ixx:377`, `GptTransformer.ixx:532`, each hardcoded to
-`PretrainedModelReader&`); the archive path has none.
+`WeightsReader&`); the archive path has none.
 
 ---
 
@@ -95,7 +95,7 @@ a traversal (`Gemma.ixx:383`, `Llama.ixx:377`, `GptTransformer.ixx:532`, each ha
   weights + optimizer state". `AdamWConfig` serializes hyperparameters; the moments, step count and
   master parameters have no representation. `Checkpoint` cannot currently mean what it says.
 - **The transformer load traversals are welded to the flat reader.** `loadParameters(
-  PretrainedModelReader& )` takes a concrete type, not a blob source, so nothing can feed it from an
+  WeightsReader& )` takes a concrete type, not a blob source, so nothing can feed it from an
   archive.
 - **No quantized tensor representation** in either format. A `PerGroupFp4<128>` weight is packed
   nibbles plus per-group scales; a `PerChannelFp8<>` weight is FP8 plus FP32 scales. Neither
@@ -151,11 +151,11 @@ read the same vector. Implementing it is the precondition for both, not a tidy-u
 registry mapping `"network_type"` to a factory lambda — the same pattern
 [CLAUDE.md](../../CLAUDE.md) records as being phased out with `OperationRegistry`. It is also
 unnecessary here: `GemmaModel::fromCheckpoint` knows its own type at compile time, exactly as
-`fromPretrained` does. Leave the factory in place for the generic `Network` case that MNIST uses;
+`load` does. Leave the factory in place for the generic `Network` case that MNIST uses;
 route concrete models through their own static factory.
 
 **Saving stays a member, loading stays a static factory.** `saveCheckpoint( path )` on the model;
-`fromCheckpoint( path, ... )` as a static, matching `fromPretrained`. The asymmetry is correct —
+`fromCheckpoint( path, ... )` as a static, matching `load`. The asymmetry is correct —
 loading constructs an object, saving does not. Both are thin wrappers over
 `save( ModelArchive&, SerializationMode )`. Do not name the general API after
 `SerializationMode::Checkpoint`, which is one mode of three. `GptModel.ixx:164` already declares
@@ -286,7 +286,7 @@ device state with the names the artifact wants:
 
 So this phase computes nothing new. It moves two existing tensors to disk and back.
 
-**The bulk of the work is a writer that does not exist.** `PretrainedReader.ixx` is read-only, and the
+**The bulk of the work is a writer that does not exist.** `WeightsReader.ixx` is read-only, and the
 only `MILA` magic under `Mila/Src` is `Data/Core/FileHeader.ixx`, which is the dataset header and
 unrelated. The flat format is written exclusively by `MilaWeightWriter` in Python — but the quantized
 bytes only exist *after* a device-side `operation_->quantize()`, so producing them in Python means
@@ -298,7 +298,7 @@ it emits.
 
 The remainder is bounded:
 
-- **Dtype codes.** The flat enum carries four (`PretrainedReader.ixx` `DType`, mirrored in
+- **Dtype codes.** The flat enum carries four (`WeightsReader.ixx` `DType`, mirrored in
   `common.py`). safetensors supplies `F8_E4M3` natively; packed FP4 rides as `U8`. Decide and document
   whether the recorded shape is logical or physical columns for packed nibbles.
 - **The pairing needs no index change.** `.weight` and `.weight.scales` are already the names
@@ -342,7 +342,7 @@ safetensors is a `u64` header length (little-endian), that many bytes of UTF-8 J
 data region. Each index entry is `{"dtype","shape","data_offsets":[begin,end]}`, offsets relative to
 the start of the data region. The flat format is `MILA` magic + version + tensor count + a JSON
 metadata blob + a binary index of `(name, dtype, ndim, shape, offset, nbytes)` + concatenated blobs
-(`PretrainedReader.ixx:139`, `Tools/Converters/common.py`). Same structure, differing in two places:
+(`WeightsReader.ixx:139`, `Tools/Converters/common.py`). Same structure, differing in two places:
 the index is JSON rather than binary, and offsets are data-relative rather than absolute.
 
 The consequence is that `readHeader()` / `readMetadata()` / `readTensorIndex()` collapse into a single
@@ -354,7 +354,7 @@ Everything the format costs, having gone looking for reasons not to adopt it. Al
 and none is structural:
 
 - **No format version of its own.** The flat format carries `MAGIC` + `VERSION` and refuses a mismatch
-  (`PretrainedReader.ixx:392`, `:805`). safetensors has no version field, so a Mila format version
+  (`WeightsReader.ixx:392`, `:805`). safetensors has no version field, so a Mila format version
   lives in `__metadata__` and must be validated deliberately rather than by construction. This is
   Open Decision 3 and does not become easier by ignoring it.
 - **No padding for alignment.** The reference validator expects tensors to tile the data region
@@ -363,7 +363,7 @@ and none is structural:
   a closed door, and the oversized-blob path that reads straight from the mapped view must therefore
   not assume alignment. Confirm both behaviours against the reference validator before relying on
   either.
-- **`__metadata__` is string to string only.** `PretrainedMetadata` goes in as one stringified JSON
+- **`__metadata__` is string to string only.** `WeightsMetadata` goes in as one stringified JSON
   value under a Mila-owned key, or as a sidecar. Foreign readers ignore unknown keys either way.
 
 Against that: no new third-party dependency (a writer is a `u64`, an nlohmann dump, and the blobs),
@@ -427,7 +427,7 @@ bytes, and it is architecture-specific:
   (`Gpt2/convert_weights.py:121`, `:132`, `:153`, `:162`). A host-side transpose at load time is a
   code path that does not exist. GPT-2 is the least important target — leaving it converter-only is
   defensible.
-- **`config.json`.** `PretrainedMetadata` is Mila-shaped: `rope_theta_local`/`_global`,
+- **`config.json`.** `WeightsMetadata` is Mila-shaped: `rope_theta_local`/`_global`,
   `sliding_window_pattern`, `final_logit_softcapping`, `key_equals_value`, and a `head_dim` decoupled
   from `embedding_dim / num_heads`. Direct ingest means a per-architecture HF-config mapper in C++,
   tracking HF's key drift — the Gemma converter already reaches through `text_config`. **This is the
@@ -504,6 +504,6 @@ means.
    phased out. If concrete models reconstruct themselves through `fromCheckpoint`, `Architecture`
    mode has no caller.
 3. **Checkpoint format versioning.** The flat format has `MAGIC` + `VERSION` and rejects mismatches
-   (`PretrainedReader.ixx:392`, `:805`). The archive has `network/meta.json` with a version field that
+   (`WeightsReader.ixx:392`, `:805`). The archive has `network/meta.json` with a version field that
    nothing validates. Decide the compatibility promise before the first checkpoint is written by a
    user, not after.

@@ -13,7 +13,7 @@ resident: it materializes layer i straight from the shards, runs it on the hidde
 state, frees it and moves on. Peak residency is one layer (~1.6 GiB at bfloat16) plus
 the tied 1.37 GiB table at the end. Method of record: Specifications/Qwen3.8.md s8.
 
-WHAT IT EMITS. A MILA `.bin` container, read by `PretrainedModelReader`, holding the
+WHAT IT EMITS. A MILA `.bin` container, read by `WeightsReader`, holding the
 last-token hidden state after every layer, after the final norm, and the last-position
 logits BEFORE the final softcap (Mila applies the softcap at the sampler).
 

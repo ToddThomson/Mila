@@ -5,7 +5,7 @@ name: Dependency pins
 # months and 11 minor releases behind before anyone did.
 #
 # This opens an ISSUE, never a pull request, and never fails. That is deliberate:
-# CI has no GPU (see build-pipeline.yml), so a CUTLASS bump cannot be validated here
+# CI has no GPU (see build-pipeline.yml), so a bump that touches CUDA cannot be validated here
 # and a green PR would imply a gate that does not exist. The honest artifact is a
 # report a human acts on, with the GPU validation run locally.
 #
@@ -36,7 +36,7 @@ jobs:
       - name: Compare pins against upstream releases
         id: check
         env:
-          # Authenticated so the six release queries do not meet the 60/hour
+          # Authenticated so the five release queries do not meet the 60/hour
           # unauthenticated rate limit on a busy runner.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

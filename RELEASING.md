@@ -506,6 +506,10 @@ it came from anywhere but a public tag there is nothing for them to reproduce ag
    It asks for the version string rather than a `y/n`, because a reflexive "y" is not a decision.
    **A pushed tag cannot be withdrawn, only superseded** — which is the one thing here that is
    gentler than PyPI, and the reason a re-publish over a bad image is a real remedy.
+7. **Update the Overview page.** Its source is `scripts/dockerhub/overview.md`, and the short
+   description is `scripts/dockerhub/description.txt`. Move the image tags in `overview.md` to the new
+   version in the release commit, then paste both into the repository's settings on Docker Hub. Never
+   edit the page in the browser without the file: the file is the record.
 
 **No `latest`.** A bare `docker run toddthomson/mila-llm` resolves to it, so pointing it at a
 pre-release makes the beta the default for everyone who does not read the tag list. It starts

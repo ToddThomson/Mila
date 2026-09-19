@@ -50,7 +50,7 @@ describes the reader and not the builder.
 | | v0.20 | v0.50 | v0.80 |
 |---|---|---|---|
 | The developer | reads Mila | builds on Mila | delegates tasks to Mila |
-| Enters at | a model: `GemmaModel<...>::fromPretrained`, or components | `Mila::AI`, or components | `Mila::AI` with tools and a policy, or components |
+| Enters at | a model: `GemmaModel<...>::load`, or components | `Mila::AI`, or components | `Mila::AI` with tools and a policy, or components |
 | Headline claim | a 27B model at 2.82 bits on a 12 GB card, and you can read it | a local model at work in your program in ten lines, and one call from there to the kernel | an agent finishes a multi-step task in your process without re-reading its history, and every step is auditable |
 
 **What does not change.** Validation stays token-for-token against the reference implementation.
@@ -78,7 +78,7 @@ Applications      Chat      MIS (wire)      your program      Python / other lan
 Mila.AI            Mila::AI  -- conversation, tools, agent core, autonomy policy
                    Model handle + factory (architecture -> concrete type, from the manifest)
                                          |
-Mila (Src)         planDeployment -> DeploymentPlan -> fromPretrained
+Mila (Src)         planDeployment -> DeploymentPlan -> load
                    Models, Components, Operations, Tensors, Compute
                                          |
                    CUDA / CPU

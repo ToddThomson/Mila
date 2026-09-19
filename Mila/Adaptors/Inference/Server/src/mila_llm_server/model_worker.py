@@ -155,7 +155,7 @@ class ModelWorker:
 
         session = getattr(mila, SESSION_FOR[loaded.family])
 
-        # from_store, not from_pretrained: every published model is already quantized,
+        # from_store, not load: every published model is already quantized,
         # and only the record knows to what.
         self._model = session.from_store(
             record.name,

@@ -148,7 +148,9 @@ Out of scope (explicitly):
      it on the RTX 4070 (SM 8.9) and the RTX 5060 Ti (SM 12.0) alike** — measured at these exact shapes by
      `Mila/Profiling/Microbenchmarks/CublasLtScaleModes.cu`. It is not an Ada limitation and Blackwell does
      not lift it, so the epilogue is not waiting on a card upgrade. Re-run that probe before assuming
-     otherwise. The same probe found `VEC16_UE4M3` **does** work on SM120 — see `MixtureOfExperts.md` §7.1a,
+     otherwise. Folding the scales into the GEMM therefore needs a GEMM whose epilogue Mila controls —
+     a CUTLASS epilogue or a hand-written kernel — and CUTLASS is not in the build
+     (`MixtureOfExperts.md` §7.3). The same probe found `VEC16_UE4M3` **does** work on SM120 — see `MixtureOfExperts.md` §7.1a,
      which is the path that removes the flanking passes.
 
 3. **Scratch buffers.** Reuse `ExecutionContext::getDeviceScratchBuffer` (grow-on-demand) for the FP8 weight

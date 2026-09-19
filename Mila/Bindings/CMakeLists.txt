@@ -77,6 +77,21 @@ if(PROJECT_IS_TOP_LEVEL)
     # build fails loudly rather than publishing a stale number.
     file(WRITE "${MILA_PACKAGE_SOURCE_DIR}/VERSION" "${MILA_PEP440_VERSION}\n")
 
+    # The extension links this code into the binary, and a binary redistribution owes each
+    # its licence text (pybind11's BSD-3 says so outright). Taken from the fetched source at
+    # its pinned version, so the text always matches what was compiled; pyproject.toml's
+    # license-files puts them in the wheel's .dist-info/licenses. Staged at configure, like
+    # VERSION, because a POST_BUILD step never re-runs on an up-to-date extension and the
+    # wheel would then be packaged without them. Generated and gitignored.
+    set(MILA_THIRD_PARTY_LICENSES "${MILA_PACKAGE_SOURCE_DIR}/third_party_licenses")
+
+    configure_file("${pybind11_SOURCE_DIR}/LICENSE"
+        "${MILA_THIRD_PARTY_LICENSES}/pybind11/LICENSE" COPYONLY)
+    configure_file("${nlohmann_json_SOURCE_DIR}/LICENSE.MIT"
+        "${MILA_THIRD_PARTY_LICENSES}/nlohmann_json/LICENSE.MIT" COPYONLY)
+    configure_file("${miniz_SOURCE_DIR}/LICENSE"
+        "${MILA_THIRD_PARTY_LICENSES}/miniz/LICENSE" COPYONLY)
+
     add_custom_command(TARGET MilaPy POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:MilaPy>

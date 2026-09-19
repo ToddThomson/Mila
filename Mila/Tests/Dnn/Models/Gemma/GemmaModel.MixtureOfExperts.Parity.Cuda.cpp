@@ -69,7 +69,7 @@ namespace Mila::Tests::Dnn::Models
             ASSERT_EQ( cudaDeviceSynchronize(), cudaSuccess );
         }
 
-        std::vector<float> readReferenceVector( PretrainedModelReader& reader, const std::string& name )
+        std::vector<float> readReferenceVector( WeightsReader& reader, const std::string& name )
         {
             auto blob = reader.readTensorBlob<CpuMemoryResource>( name );
 
@@ -79,7 +79,7 @@ namespace Mila::Tests::Dnn::Models
             return values;
         }
 
-        std::vector<int32_t> readPromptIds( PretrainedModelReader& reader )
+        std::vector<int32_t> readPromptIds( WeightsReader& reader )
         {
             auto blob = reader.readTensorBlob<CpuMemoryResource>( "prompt_ids" );
 
@@ -134,7 +134,7 @@ namespace Mila::Tests::Dnn::Models
 
         /// Load every weight under `prefix` into the component named for it.
         void loadComponentParameters(
-            PretrainedModelReader& reader, LoadableComponent& component, const std::string& prefix )
+            WeightsReader& reader, LoadableComponent& component, const std::string& prefix )
         {
             size_t loaded = 0;
 
@@ -206,11 +206,11 @@ namespace Mila::Tests::Dnn::Models
     // prompt. The workspaces come from the factories GemmaTransformer itself calls.
     TEST_F( GemmaMixtureOfExpertsParityCudaTests, LayerStream_MatchesHuggingFaceReference )
     {
-        PretrainedModelReader weights( weights_ );
-        PretrainedModelReader reference( reference_ );
-        PretrainedModelReader truth( truth_ );
+        WeightsReader weights( weights_ );
+        WeightsReader reference( reference_ );
+        WeightsReader truth( truth_ );
 
-        const GemmaConfig config = GemmaBf16::configFromMetadata( weights.getPretrainedMetadata() );
+        const GemmaConfig config = GemmaBf16::configFromMetadata( weights.getWeightsMetadata() );
         ASSERT_TRUE( config.hasMixtureOfExperts() ) << "these weights are not the routed chassis";
         ASSERT_TRUE( config.getTieWordEmbeddings() );
 

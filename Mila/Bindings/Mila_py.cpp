@@ -368,7 +368,7 @@ static void bind_distribution( py::module_& m )
 static void bind_llama_model( py::module_& m )
 {
     py::class_<LlamaSession>( m, "LlamaModel" )
-        .def_static( "from_pretrained",
+        .def_static( "load",
             []( const std::string& path,
                 int64_t context_length,
                 int device_index,
@@ -376,16 +376,16 @@ static void bind_llama_model( py::module_& m )
             {
                 py::gil_scoped_release _;
 
-                return LlamaSession::fromPretrained(
+                return LlamaSession::load(
                     path, context_length, device_index, quantization );
             },
             py::arg( "path" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "bf16",
-            "Load Llama 3.x Instruct weights from an unquantized Mila model file.\n\n"
+            "Load Llama 3.x Instruct weights from an unquantized Mila weights file.\n\n"
             "Args:\n"
-            "    path:           Path to the Mila pretrained weights.\n"
+            "    path:           Path to a Mila weights file.\n"
             "    context_length: Maximum sequence length to build for.\n"
             "    device_index:   CUDA device index (default: 0).\n"
             "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
@@ -478,7 +478,7 @@ static void bind_llama_model( py::module_& m )
 static void bind_gemma_model( py::module_& m )
 {
     py::class_<GemmaSession>( m, "GemmaModel" )
-        .def_static( "from_pretrained",
+        .def_static( "load",
             []( const std::string& path,
                 int64_t context_length,
                 int device_index,
@@ -486,16 +486,16 @@ static void bind_gemma_model( py::module_& m )
             {
                 py::gil_scoped_release _;
 
-                return GemmaSession::fromPretrained(
+                return GemmaSession::load(
                     path, context_length, device_index, quantization );
             },
             py::arg( "path" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "fp4",
-            "Load Gemma 4 weights from an unquantized Mila model file.\n\n"
+            "Load Gemma 4 weights from an unquantized Mila weights file.\n\n"
             "Args:\n"
-            "    path:           Path to the Mila pretrained weights.\n"
+            "    path:           Path to a Mila weights file.\n"
             "    context_length: Maximum sequence length to build for.\n"
             "    device_index:   CUDA device index (default: 0).\n"
             "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
@@ -589,7 +589,7 @@ static void bind_gemma_model( py::module_& m )
 static void bind_qwen_model( py::module_& m )
 {
     py::class_<QwenSession>( m, "QwenModel" )
-        .def_static( "from_pretrained",
+        .def_static( "load",
             []( const std::string& path,
                 int64_t context_length,
                 int device_index,
@@ -597,16 +597,16 @@ static void bind_qwen_model( py::module_& m )
             {
                 py::gil_scoped_release _;
 
-                return QwenSession::fromPretrained(
+                return QwenSession::load(
                     path, context_length, device_index, quantization );
             },
             py::arg( "path" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "fp4",
-            "Load Qwen 3.8 weights from a Mila model file.\n\n"
+            "Load Qwen 3.8 weights from a Mila weights file.\n\n"
             "Args:\n"
-            "    path:           Path to the Mila pretrained weights.\n"
+            "    path:           Path to a Mila weights file.\n"
             "    context_length: Maximum sequence length to build for.\n"
             "    device_index:   CUDA device index (default: 0).\n"
             "    quantization:   'bf16', 'fp8', 'fp4' or 'cb2-3'\n"
@@ -955,7 +955,7 @@ PYBIND11_MODULE( _mila, m )
         "    QwenModel   Qwen 3.8, BF16 compute, FP4 or a 2/3-bit codebook.\n\n"
         "Load an installed model by name with from_store(), which reads the store record\n"
         "and so knows what the weights already are -- a published model is pre-quantized,\n"
-        "and only its record says to what. from_pretrained() remains for a loose weights\n"
+        "and only its record says to what. load() remains for a loose weights\n"
         "file, where the quantization is the caller's choice. BpeTokenizer.from_store()\n"
         "takes the same name, so nothing pairs two paths by hand. The GIL is released\n"
         "around generation, so streaming callbacks, a StopController and Ctrl-C all work\n"

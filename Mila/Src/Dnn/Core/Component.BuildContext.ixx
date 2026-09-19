@@ -37,7 +37,7 @@ namespace Mila::Dnn
      *
      * 4. **Parameter initialization** -- whether components should initialize parameter
      *                                   tensors after allocation. Set to false when
-     *                                   building for a pretrained weight load to avoid
+     *                                   building for a weights load to avoid
      *                                   computing initializers (Xavier, normal, zeros)
      *                                   that are immediately overwritten by loadParameter().
      *                                   When not specified, the default is derived from
@@ -83,7 +83,7 @@ namespace Mila::Dnn
          * @brief Construct from all six concerns explicitly.
          *
          * precision_policy and quantization are extracted from ModelConfig
-         * by fromPretrained() and passed here as raw values, keeping
+         * by load() and passed here as raw values, keeping
          * BuildContext free of any model-layer dependency.
          *
          * @param input_shape            Complete input shape this component receives.

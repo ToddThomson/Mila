@@ -7,7 +7,7 @@
  * a caller actually uses and which the network-level tests bypass entirely.
  *
  * fromCheckpoint is the only GptModel factory reachable without a converted .bin:
- * fromPretrained needs a PretrainedModelReader over real weights, while a checkpoint
+ * load needs a WeightsReader over real weights, while a checkpoint
  * carries its own config, so a model can be reconstructed from nothing but an archive
  * this suite writes. That property is the whole point of the phase and is what is
  * asserted here.
@@ -134,7 +134,7 @@ namespace Mila::Tests::Dnn::Models
         writeCheckpoint( path );
 
         // No config passed: the archive carries it. That is the property separating
-        // fromCheckpoint from fromPretrained, which must be handed the geometry.
+        // fromCheckpoint from load, which must be handed the geometry.
         auto model = GptModelCpu::fromCheckpoint( path );
 
         ASSERT_NE( model, nullptr );

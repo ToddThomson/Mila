@@ -188,7 +188,7 @@ at `:36`, plus `CudaOps.h:30`, `Linear.cuh:83`, `Component.ixx:299` and
 
 `docs` · `api`
 
-`fromPretrained`'s default `DeviceId{ Cuda, 0 }` picks whichever card CUDA enumerates first, which
+`load`'s default `DeviceId{ Cuda, 0 }` picks whichever card CUDA enumerates first, which
 on a mixed-capacity machine can be the smaller one. A load sized for the larger card then aborts in
 about two seconds with no diagnostic, and reads as a model defect rather than a device choice.
 

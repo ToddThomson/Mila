@@ -260,7 +260,8 @@ grouped GEMM over stacked expert weights**, not a loop over N component instance
   also host always-on shared experts (DeepSeek style).
 - **`MoeOp`**, resolved via `OperationTraits` like every other operation, owns the
   **grouped/segmented GEMM over stacked expert weights** `[E, in, 2H]` and
-  `[E, H, in]`. This maps directly onto the vendored CUTLASS grouped-GEMM kernels.
+  `[E, H, in]`. This maps directly onto CUTLASS's grouped-GEMM kernels, which join the build with
+  the first grouped kernel (`MixtureOfExperts.md` §7.3).
   The hot path operates on stacked *data*, not N `GatedMLP` instances.
 - `GatedMLP` remains the **single-expert reference and CPU semantics** — the
   correctness oracle the grouped op is validated against, and the small-`E` / CPU
@@ -269,7 +270,7 @@ grouped GEMM over stacked expert weights**, not a loop over N component instance
 
 This decision constrains `GatedMLP`'s weight layout **now**: per-expert gate/up and
 down weights must be packable into the grouped tensors, the same way `fc_gate_up`
-already fuses gate+up. The converter / `PretrainedReader` fuses E experts into the
+already fuses gate+up. The converter / `WeightsReader` fuses E experts into the
 stacked tensors at load time.
 
 ---

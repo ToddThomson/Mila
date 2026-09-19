@@ -392,7 +392,7 @@ Every surface sends the same `DeploymentRequest`; none decides anything itself (
 section 8). Adaptor work is outside the feature freeze by definition.
 
 - **C++.** `planDeployment( path, request )` with `devices` set to a list or `auto`, then
-  `fromPretrained( path, plan )`. A single `DeviceId` still works. A request that cannot be met anywhere
+  `load( path, plan )`. A single `DeviceId` still works. A request that cannot be met anywhere
   yields a plan that says so, with the per-device shortfall.
 - **Chat.** `--device 1,0` or `"device": [1, 0]`, and `"device": "auto"`. A single number still means one
   card, as today. `ChatConfig::device_index` (`Chat.Config.ixx:217`) becomes the request's device field,

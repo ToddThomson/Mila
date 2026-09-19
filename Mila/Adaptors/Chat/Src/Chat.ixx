@@ -2724,7 +2724,7 @@ namespace Mila::ChatApp
             {
                 case ModelType::Gpt:
                 {
-                    auto gpt = GptModelFP32Type::fromPretrained(
+                    auto gpt = GptModelFP32Type::load(
                         config_.model_path,
                         config_.context_length,
                         device,
@@ -2749,7 +2749,7 @@ namespace Mila::ChatApp
 
                     if ( config_.precision == ModelPrecision::BF16 )
                     {
-                        auto llama_bf16 = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
+                        auto llama_bf16 = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
                             config_.model_path, llama_config, device );
                         if ( config_.detail == DetailLevel::All )
                         {
@@ -2759,7 +2759,7 @@ namespace Mila::ChatApp
                         model_ = std::move( llama_bf16 );
                     }
                     else
-                        model_ = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::fromPretrained(
+                        model_ = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::load(
                             config_.model_path, llama_config, device );
 
                     break;
@@ -2774,7 +2774,7 @@ namespace Mila::ChatApp
                     else if ( config_.quantization_mode == QuantizationMode::FP4 )
                         gemma_config.withFP4Quantization();
 
-                    auto gemma = GemmaModelBF16Type::fromPretrained(
+                    auto gemma = GemmaModelBF16Type::load(
                         config_.model_path, gemma_config, device );
                     if ( config_.detail == DetailLevel::All )
                     {
@@ -2791,7 +2791,7 @@ namespace Mila::ChatApp
 
                     applyQwenQuantization( qwen_config, config_.quantization_mode );
 
-                    auto qwen = QwenModelBF16Type::fromPretrained(
+                    auto qwen = QwenModelBF16Type::load(
                         config_.model_path, qwen_config, device );
                     if ( config_.detail == DetailLevel::All )
                     {

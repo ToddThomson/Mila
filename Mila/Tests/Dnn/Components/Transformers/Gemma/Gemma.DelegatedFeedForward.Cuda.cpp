@@ -121,7 +121,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         template<typename TNetwork>
         void loadNetwork( TNetwork& network, const fs::path& path, TensorDataType precision, bool delegated )
         {
-            Serialization::PretrainedModelReader reader( path );
+            Serialization::WeightsReader reader( path );
 
             for ( const auto& name : reader.getTensorNames() )
             {
@@ -360,7 +360,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         std::vector<std::string> expected;
         {
-            Serialization::PretrainedModelReader reader( source_path_ );
+            Serialization::WeightsReader reader( source_path_ );
 
             for ( const auto& name : reader.getTensorNames() )
             {
@@ -370,7 +370,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         std::vector<std::string> actual;
         {
-            Serialization::PretrainedModelReader reader( delegated_path );
+            Serialization::WeightsReader reader( delegated_path );
             actual = reader.getTensorNames();
         }
 

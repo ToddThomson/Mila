@@ -17,8 +17,8 @@
  * workspace. This suite therefore covers the network's public contract and logits
  * shape only -- a value/convergence oracle belongs with the loss-on-device work.
  *
- * fromPretrained is NOT tested here: LlamaTransformer::fromPretrained is retired
- * (commented out in Src); LlamaModel::fromPretrained is the supported load path.
+ * load is NOT tested here: LlamaTransformer::load is retired
+ * (commented out in Src); LlamaModel::load is the supported load path.
  *
  * CUDA device tests -- skipped when no CUDA device is present.
  */

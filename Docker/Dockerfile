@@ -26,8 +26,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   ninja      -- the C++23 module-dyndep generator the build requires
 #   ccache     -- persists .cu object codegen across runs (CUDA launcher only;
 #                 ccache's module-unit support is unreliable, so C++ is unwrapped)
-#   python3    -- CUTLASS's configure needs find_package(Python3 REQUIRED); also the
-#                 interpreter the mila binding is built against + MIS runs under
+#   python3    -- the interpreter the mila binding is built against + MIS runs under
 #   python3-venv -- so mila-build-mis can create the MIS server venv (Debian/Ubuntu
 #                 split venv/ensurepip out of the base python3 package)
 #   libssl-dev -- curl's configure does find_package(OpenSSL) and fails the whole build
@@ -36,7 +35,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #                 the wheel forces it OFF. Chat in the container needs a real transport:
 #                 /model install pulls into the store on the bind mount.
 # gdb/less are dev-shell niceties. Dependencies (GoogleTest, nlohmann_json, miniz,
-# CUTLASS) are fetched by CPM/FetchContent at configure time and are not installed.
+# curl, pybind11) are fetched by CPM/FetchContent at configure time and are not installed.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \

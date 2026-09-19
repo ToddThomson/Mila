@@ -90,14 +90,14 @@ namespace Mila::Tests::Dnn::Models
     using QwenBf16 = QwenModel<DeviceType::Cuda, TensorDataType::BF16>;
 
     // The geometry the artifact declares must survive the round trip through the converter's
-    // metadata and PretrainedMetadata into QwenConfig. Three of these fields are invisible in
+    // metadata and WeightsMetadata into QwenConfig. Three of these fields are invisible in
     // the HF config.json and were read from the checkpoint, so a silent zero here is exactly
     // the failure this checks for -- a zeroed interleave would build the wrong block kinds.
     TEST_F( QwenModelLoadCudaTests, Metadata_CarriesTheQwenGeometry )
     {
         QwenModelConfig model_config( kContextLength );
 
-        auto model = QwenBf16::fromPretrained( fixture_, model_config );
+        auto model = QwenBf16::load( fixture_, model_config );
         const QwenConfig& config = model->getNetworkConfig();
 
         EXPECT_EQ( config.getModelDim(), 5120 );
@@ -156,7 +156,7 @@ namespace Mila::Tests::Dnn::Models
     {
         QwenModelConfig model_config( kContextLength );
 
-        auto model = QwenBf16::fromPretrained( fixture_, model_config );
+        auto model = QwenBf16::load( fixture_, model_config );
 
         const std::vector<int32_t> prompt{ 9707, 11, 1879, 0 };
         std::vector<int32_t> produced;
@@ -190,7 +190,7 @@ namespace Mila::Tests::Dnn::Models
     {
         QwenModelConfig model_config( kContextLength );
 
-        auto model = QwenBf16::fromPretrained( fixture_, model_config );
+        auto model = QwenBf16::load( fixture_, model_config );
 
         const std::vector<int32_t> prompt{ 9707, 11, 1879, 0 };
 
@@ -228,7 +228,7 @@ namespace Mila::Tests::Dnn::Models
         model_config.withWeightQuantization( WeightQuantization::FP4 );
 
         EXPECT_THROW(
-            QwenBf16::fromPretrained( "does-not-exist.bin", model_config ),
+            QwenBf16::load( "does-not-exist.bin", model_config ),
             std::runtime_error );
 
         QwenModelConfig none_config( kContextLength );
@@ -236,7 +236,7 @@ namespace Mila::Tests::Dnn::Models
         // The same call with the supported mode reaches the file and fails on THAT instead,
         // which is what proves the refusal above was the quantization mode and not the path.
         EXPECT_THROW(
-            QwenBf16::fromPretrained( "does-not-exist.bin", none_config ),
+            QwenBf16::load( "does-not-exist.bin", none_config ),
             std::exception );
     }
 
@@ -376,7 +376,7 @@ namespace Mila::Tests::Dnn::Models
             std::cout << "  loading " << artifact.filename().string()
                 << " at context " << context_length << " ...\n" << std::flush;
 
-            auto model = QwenBf16::fromPretrained( artifact, model_config );
+            auto model = QwenBf16::load( artifact, model_config );
 
             SequenceLogLikelihood total;
 
@@ -469,7 +469,7 @@ namespace Mila::Tests::Dnn::Models
             std::cout << "  loading " << artifact.filename().string()
                 << " for " << label << " ...\n" << std::flush;
 
-            auto model = QwenBf16::fromPretrained( artifact, model_config );
+            auto model = QwenBf16::load( artifact, model_config );
 
             // The logit row comes from OBSERVATION rather than a purpose-built accessor: the
             // head already publishes its output on every pass, and the first publication of a
@@ -788,7 +788,7 @@ namespace Mila::Tests::Dnn::Models
         size_t total_bytes = 0;
         cudaMemGetInfo( &free_before, &total_bytes );
 
-        auto model = QwenBf16::fromPretrained( fixture, model_config );
+        auto model = QwenBf16::load( fixture, model_config );
 
         size_t free_after = 0;
         cudaMemGetInfo( &free_after, &total_bytes );
@@ -868,7 +868,7 @@ namespace Mila::Tests::Dnn::Models
 
         const std::size_t free_before = freeBytes();
 
-        auto model = QwenBf16::fromPretrained( fixture, model_config );
+        auto model = QwenBf16::load( fixture, model_config );
 
         ASSERT_NE( model, nullptr );
 
@@ -917,9 +917,9 @@ namespace Mila::Tests::Dnn::Models
         // The transformer is built directly rather than loaded through QwenModel: only the
         // STATE allocation is in question, and building allocates it without reading a
         // single weight. Seconds instead of minutes, and no 5 GiB of I/O.
-        Serialization::PretrainedModelReader reader( fixture );
+        Serialization::WeightsReader reader( fixture );
         const QwenConfig network_config =
-            QwenBf16::configFromMetadata( reader.getPretrainedMetadata() );
+            QwenBf16::configFromMetadata( reader.getWeightsMetadata() );
 
         using QwenPacked = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
             QwenPrecisionPlan, Mila::Dnn::Quant::KvCache::NoKvCompression>;
@@ -1025,7 +1025,7 @@ namespace Mila::Tests::Dnn::Models
         QwenModelConfig model_config( kContextLength );
         model_config.withPrecisionPlan();
 
-        auto model = QwenBf16::fromPretrained( fixture, model_config );
+        auto model = QwenBf16::load( fixture, model_config );
 
         auto promptOf = [] ( dim_t length )
             {
@@ -1109,7 +1109,7 @@ namespace Mila::Tests::Dnn::Models
         QwenModelConfig model_config( kContextLength );
         model_config.withPrecisionPlan();
 
-        auto model = QwenBf16::fromPretrained( artifact_, model_config );
+        auto model = QwenBf16::load( artifact_, model_config );
 
         const double per_token_seconds =
             prefillSecondsPerToken( model, kLongPrompt, kShortPrompt );
@@ -1157,7 +1157,7 @@ namespace Mila::Tests::Dnn::Models
         QwenModelConfig model_config( kContextLength );
         model_config.withWeightQuantization( WeightQuantization::FP4 );
 
-        auto model = QwenBf16::fromPretrained( reference_blob, model_config );
+        auto model = QwenBf16::load( reference_blob, model_config );
 
         const double per_token_seconds =
             prefillSecondsPerToken( model, kLongPrompt, kShortPrompt );
@@ -1188,7 +1188,7 @@ namespace Mila::Tests::Dnn::Models
         QwenModelConfig model_config( kContextLength );
         model_config.withWeightQuantization( WeightQuantization::FP4 );
 
-        auto model = QwenBf16::fromPretrained( reference_blob, model_config );
+        auto model = QwenBf16::load( reference_blob, model_config );
 
         const std::vector<int32_t> prompt{ 760, 6511, 314, 9338, 369 };
         const double per_token = decodeSecondsPerToken( model, prompt, kLong, kShort );
@@ -1238,7 +1238,7 @@ namespace Mila::Tests::Dnn::Models
         QwenModelConfig model_config( 512 );
         model_config.withPrecisionPlan();
 
-        auto model = QwenBf16::fromPretrained( fixture, model_config );
+        auto model = QwenBf16::load( fixture, model_config );
 
         size_t free_bytes = 0;
         size_t total_bytes = 0;
@@ -1309,7 +1309,7 @@ namespace Mila::Tests::Dnn::Models
         QwenModelConfig model_config( 512 );
         model_config.withPrecisionPlan();
 
-        auto model = QwenBf16::fromPretrained( artifact_, model_config );
+        auto model = QwenBf16::load( artifact_, model_config );
 
         const std::vector<int32_t> prompt{ 760, 6511, 314, 9338, 369 };
 
@@ -1378,7 +1378,7 @@ namespace Mila::Tests::Dnn::Models
         QwenModelConfig model_config( 512 );
         model_config.withPrecisionPlan();
 
-        auto model = QwenBf16::fromPretrained( artifact_, model_config );
+        auto model = QwenBf16::load( artifact_, model_config );
 
         std::vector<int32_t> produced;
 
@@ -1435,7 +1435,7 @@ namespace Mila::Tests::Dnn::Models
         QwenModelConfig model_config( 512 );
         model_config.withPrecisionPlan();
 
-        auto model = QwenBf16::fromPretrained( artifact_, model_config );
+        auto model = QwenBf16::load( artifact_, model_config );
 
         std::vector<int32_t> produced;
 
@@ -1484,7 +1484,7 @@ namespace Mila::Tests::Dnn::Models
         std::cout << "  before load: " << ( free_before / ( 1024.0 * 1024 * 1024 ) )
                   << " GiB free" << std::endl;
 
-        auto model = QwenBf16::fromPretrained( artifact_, model_config );
+        auto model = QwenBf16::load( artifact_, model_config );
 
         size_t free_after = 0;
         cudaMemGetInfo( &free_after, &total_bytes );
@@ -1928,7 +1928,7 @@ namespace Mila::Tests::Dnn::Models
 
         std::cout << "  loading " << artifact_.filename().string() << " ...\n" << std::flush;
 
-        auto model = QwenBf16::fromPretrained( artifact_, model_config );
+        auto model = QwenBf16::load( artifact_, model_config );
 
         std::vector<std::vector<int32_t>> segments;
 

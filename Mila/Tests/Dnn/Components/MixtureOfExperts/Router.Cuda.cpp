@@ -228,7 +228,7 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
             const std::function<bool( double, double )>& logits_tie,
             const std::function<bool( double, double )>& weights_agree )
         {
-            Serialization::PretrainedModelReader reader( referencePath() );
+            Serialization::WeightsReader reader( referencePath() );
             auto read = [&]( const std::string& name ) { return reader.readTensorBlob<CpuMemoryResource>( name ); };
             auto as_floats = []( const auto& blob ) { return static_cast<const float*>( static_cast<const void*>( blob.data() ) ); };
 

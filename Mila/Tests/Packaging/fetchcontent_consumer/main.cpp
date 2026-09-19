@@ -36,7 +36,7 @@ namespace
     /**
      * @brief Compiled, never called -- on purpose.
      *
-     * The defect this pins is compile-time: naming `fromPretrained` instantiates
+     * The defect this pins is compile-time: naming `load` instantiates
      * `GemmaModel`, which emits its vtable and compiles the virtual `toString()` body into
      * this translation unit. Running it would need a GPU and an installed model; compiling
      * it needs neither, and the failure it guards against happens at compile time either way.
@@ -49,7 +49,7 @@ namespace
         GemmaModelConfig model_config( 4096 );
         model_config.withFP4Quantization();
 
-        auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
+        auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
             "unreachable-never-called", model_config );
 
         // Force the virtual through the base, so the vtable cannot be elided.

@@ -79,7 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Cache CPM dependency clones (cutlass is large and slow to re-clone).
+      # Cache CPM dependency clones so each run does not re-clone them.
       - name: Cache CPM sources
         uses: actions/cache@v5
         with:
@@ -100,7 +100,7 @@ jobs:
 
       # clang-21 compiles the C++23 module units; gcc-15 is only the nvcc host
       # compiler for the (module-free) .cu files. Both ship with Ubuntu 26.04.
-      # python3 is required by CUTLASS's configure (find_package(Python3 REQUIRED));
+      # python3 + python3-dev build the Python binding (MILA_ENABLE_PYTHON_BINDINGS);
       # the bare CUDA devel image ships none. ccache caches the .cu compiles.
       # libssl-dev is curl's: on Linux the vendored libcurl takes TLS from the system
       # OpenSSL (CURL_USE_SCHANNEL is Windows-only), so its find_package(OpenSSL) is
@@ -172,8 +172,8 @@ jobs:
     #
     # Plain ubuntu:26.04 (clang-21 + gcc-15 ship with it) -- NOT the CUDA image:
     # MILA_ENABLE_CUDA=OFF leaves the CUDA language disabled (project() declares only
-    # CXX; enable_language(CUDA) is gated), so there is no nvcc, no multi-GB CUDA
-    # image pull, and no CUTLASS fetch. Mirrors the linux-clang-cpu-release preset.
+    # CXX; enable_language(CUDA) is gated), so there is no nvcc and no multi-GB CUDA
+    # image pull. Mirrors the linux-clang-cpu-release preset.
     runs-on: ubuntu-24.04
     container: ubuntu:26.04
     env:

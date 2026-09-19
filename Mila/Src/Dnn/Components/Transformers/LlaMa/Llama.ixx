@@ -54,7 +54,7 @@ import Compute.CudaPinnedMemoryResource;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
-import Serialization.PretrainedReader;
+import Serialization.WeightsReader;
 import Serialization.Tensor;
 
 namespace Mila::Dnn
@@ -503,7 +503,7 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-        void loadParameters( PretrainedModelReader& reader )
+        void loadParameters( WeightsReader& reader )
         {
             const int device_index = this->getExecutionContext()->getDeviceId().index;
 
@@ -838,7 +838,7 @@ namespace Mila::Dnn
                         leading_shape[ 1 ], config_.getMaxSequenceLength() ) );
         }
 
-        static LlamaConfig createConfigFromMetadata( const PretrainedMetadata& metadata )
+        static LlamaConfig createConfigFromMetadata( const WeightsMetadata& metadata )
         {
             LlamaConfig config( static_cast<dim_t>(metadata.embedding_dim),
                                 static_cast<dim_t>(metadata.num_layers) );

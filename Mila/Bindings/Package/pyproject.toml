@@ -20,7 +20,16 @@ readme = "README.md"
 # instead of naming the supported versions.
 requires-python = ">=3.12,<3.14"
 license = "MIT"
-license-files = ["LICENSE"]
+# Mila's own licence, then the third-party code linked into the extension. The second
+# set is staged from the fetched sources by the CMake configure (Mila/Bindings/CMakeLists.txt).
+# Literal paths, not a glob: setup.py refuses to build when one is missing, which a glob
+# matching nothing would slip past.
+license-files = [
+    "LICENSE",
+    "third_party_licenses/pybind11/LICENSE",
+    "third_party_licenses/nlohmann_json/LICENSE.MIT",
+    "third_party_licenses/miniz/LICENSE",
+]
 authors = [{ name = "Todd Thomson" }]
 keywords = ["llm", "cuda", "inference", "gemma", "llama", "transformer"]
 

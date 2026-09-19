@@ -73,7 +73,7 @@ Phase 6 CUDA kernel already reads each token's selected expert rows in place, wh
 gather-matvec shape, so Phase 7 reduces to its exit. **Done 2026-09-12**, bit-identical on both cards —
 see Phase 7 below.
 
-**Phase 8 — converter + `fromPretrainedImpl`** (step 8). *Exit:* hidden-state parity against the HF
+**Phase 8 — converter + `loadImpl`** (step 8). *Exit:* hidden-state parity against the HF
 reference on a short prompt at BF16, then a `PerGroupFp4<64>` load on the 16 GiB 5060 Ti with
 measured VRAM inside the `MixtureOfExperts.md` §8 row it was built for, and coherent generation.
 The BF16 model is ~47 GiB and fits neither card, so both the HF reference and the Mila side run
@@ -441,8 +441,8 @@ Two passes over the stacked tensors in place, nothing gathered, nothing shared, 
 2. One thread per (token, output column) writes `sum over slots of weight * (down[e] . gated)`.
 
 A single decoding token visiting 8 experts is exactly this kernel, so it is also Phase 7's decode
-path; Phase 8 can run the model on it. The CUTLASS grouped path is not started here, and would first
-need a decision on the rc.1 BACKLOG gate that removes CUTLASS from the build. The scratch buffer is
+path; Phase 8 can run the model on it. The CUTLASS grouped path is not started here; CUTLASS left the
+build at `rc.1+24` and returns with that kernel (`MixtureOfExperts.md` §7.3). The scratch buffer is
 reported through the op's state-memory hooks, which `MixtureOfExperts` now adds to its own footprint.
 
 A kernel cannot throw, and validating indices on the host would cost a synchronization per call. An
@@ -528,7 +528,7 @@ fail too; the poisoning and footprint gates stay green. **Reverted.**
 
 ---
 
-## Phase 8 — Converter and `fromPretrainedImpl`
+## Phase 8 — Converter and `loadImpl`
 
 ### Decisions (2026-09-12)
 
@@ -549,7 +549,7 @@ All four were decided before any code:
    model through `from_pretrained`; the host has 31.8 GiB against a 48 GiB checkpoint.
 4. **Block wiring is a trailing `bool kMixtureOfExperts`** on `GemmaBlock` and `GemmaTransformer`,
    beside `kDelegatedFeedForward`. Set, the block's FFN is the delegated `mlp` plus `Router`,
-   `MixtureOfExperts` and the three extra norms of Phase 1's topology. `PretrainedMetadata` gains the
+   `MixtureOfExperts` and the three extra norms of Phase 1's topology. `WeightsMetadata` gains the
    expert count, top-k and expert width. **`per_expert_scale` stays in `RouterOp`**: folding it into
    `down_proj` would make the exported weights differ from the checkpoint the Phase 5 and 6 oracles
    compare against.
@@ -726,7 +726,7 @@ After the revert every target builds and the harness reproduces the passing run 
 ### FP4 load gate, written before any run
 
 `Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp`, RTX 5060 Ti pinned by UUID:
-`GemmaModel::fromPretrained` on the BF16 weights with `WeightQuantization::FP4` at context 8192 — the routed
+`GemmaModel::load` on the BF16 weights with `WeightQuantization::FP4` at context 8192 — the routed
 dispatch at `PerGroupFp4<64>`, quantized on load. The row it was built for is `MixtureOfExperts.md` §8's
 `PerGroupFp4<64>` row, 13.54 GiB of weights.
 
@@ -870,7 +870,7 @@ that difference is the whole discrepancy. The routed buffers (~0.49 GiB at chunk
 model and the card.
 
 **Group plumbing result (2026-09-12, RTX 5060 Ti).** Loading the tiny routed model through
-`GemmaModel::fromPretrained` at FP4 reports `per_group_fp4_64`; the contract test holds that the group is
+`GemmaModel::load` at FP4 reports `per_group_fp4_64`; the contract test holds that the group is
 part of the scheme in both directions; the delegated-FFN gates, including `PerGroupFp4<128>` bit-identity,
 are unchanged; the BF16 wiring gate passes at its revised tolerance. **Full suite 1942 run, 1941 pass,
 0 fail, 1 skipped** (the long-standing Swiglu BF16 backward skip); Gemma 4 12B token parity passes.

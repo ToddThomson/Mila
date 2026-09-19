@@ -15,7 +15,7 @@ implemented.
 
 ## Why
 
-`fromPretrained()` takes a filesystem path, so using a model means already having the file, and the
+`load()` takes a filesystem path, so using a model means already having the file, and the
 converter is the only way to get one -- PyTorch, 23.8 GB of source weights, and a conversion run. That
 is the right workflow for adding a model family and the wrong one for using a model Mila already
 publishes.
@@ -428,12 +428,12 @@ loads, it loads from the store.
 
 Two different things are being kept out. A hub fetch is kept out because a 6.33 GB transfer is a
 deliberate act with a progress display and a failure mode, while an inference request is neither -- an
-implicit download inside `fromPretrained()` turns a chat prompt into a twenty-minute stall and lets a
+implicit download inside `load()` turns a chat prompt into a twenty-minute stall and lets a
 server initiate multi-gigabyte traffic in response to an untrusted request. An arbitrary path is kept
 out because it is an undescribed model: nothing knows what it is, what quantization it carries or
 whether its bytes are intact, which is the condition the manifest exists to end.
 
-`fromPretrained()` still takes a filesystem path, because the store hands it one -- a verified blob.
+`load()` still takes a filesystem path, because the store hands it one -- a verified blob.
 What no longer exists is a way to turn a user-supplied path into a load without installing it first.
 
 A consumer that finds a model missing reports it and names the pull. Chat may **offer** to pull and
@@ -589,7 +589,7 @@ operation. See [Build gating](#build-gating).
 The flat MILA container stops being a form Mila distributes or catalogues. Every catalogued model is a
 safetensors artifact with a manifest.
 
-**The reader keeps its MILA branch.** `Serialization.PretrainedReader` sniffs the leading magic and
+**The reader keeps its MILA branch.** `Serialization.WeightsReader` sniffs the leading magic and
 fills the same tensor index from either container, so everything past the header parse is already
 common. Removing that branch would buy nothing and would strand every `.bin` already on disk;
 retiring the *format* is a catalogue and publishing decision, not a loader change.
@@ -644,7 +644,7 @@ where it belongs: in the build configuration. A consumer that must say which bui
 
 libcurl, one implementation for both platforms. Windows has no linkable OS libcurl, so it is vendored
 there regardless; vendoring on Linux too buys one known version everywhere instead of whatever the
-distribution shipped, matching how nlohmann, cutlass and pybind11 are already pinned.
+distribution shipped, matching how nlohmann, miniz and pybind11 are already pinned.
 
 - Pinned tag through CPM, built static -- no runtime DLL, and the CPM consumer gate stays clean
 - **Windows: Schannel.** OS-provided TLS, Windows certificate store, no CA bundle to ship or refresh

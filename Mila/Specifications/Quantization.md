@@ -20,7 +20,7 @@ state in the hot path.
 
 Above the component level, quantization is a **deployment configuration** expressed
 via `ModelConfig`. The runtime→compile-time bridge is owned entirely by
-`fromPretrained()` and is an implementation detail invisible to the caller.
+`load()` and is an implementation detail invisible to the caller.
 
 ---
 
@@ -32,7 +32,7 @@ Client Code
 
 Mila Public API
     LanguageModel<TDevice, TPrecision>
-    LlamaModel<TDevice, TPrecision>::fromPretrained( path, config, device )
+    LlamaModel<TDevice, TPrecision>::load( path, config, device )
                                     — runtime→compile-time bridge (implementation detail)
 
 Mila Internal — Model Layer
@@ -237,15 +237,15 @@ QwenModelConfig config = QwenModelConfig( context_length )
     .withThinkingMode();
 ```
 
-### `fromPretrained` — Runtime→Compile-Time Bridge
+### `load` — Runtime→Compile-Time Bridge
 
 The mapping from `ModelConfig` runtime enums to template instantiations is owned
-entirely by `fromPretrained()`. This is an implementation detail — the caller holds
+entirely by `load()`. This is an implementation detail — the caller holds
 only `unique_ptr<LanguageModel<TDevice, TPrecision>>` and is unaware of `TWeightQuant`
 or `TKvPolicy`.
 
-The internal dispatch pattern is a `fromPretrainedImpl<TWeightQuant, TKvPolicy>()`
-private static, called from `fromPretrained()` after resolving the config enums.
+The internal dispatch pattern is a `loadImpl<TWeightQuant, TKvPolicy>()`
+private static, called from `load()` after resolving the config enums.
 See implementation notes.
 
 ### Deployment Configurations
@@ -391,8 +391,8 @@ model that runs and is wrong, so the two must never be confused.
 **Pre-quantized (the target shape).** No fitting, no staging buffer, no device pass:
 
 ```
-fromPretrained()
-    └── PretrainedModelReader — __metadata__["mila_quantization"] names the policy
+load()
+    └── WeightsReader — __metadata__["mila_quantization"] names the policy
     └── the model refuses an artifact whose policy is not the one this build compiled
     └── initializeParameters( reader )
             └── loadParameter( "weight",        blob )  -> direct upload, packed layout
@@ -404,7 +404,7 @@ fromPretrained()
 **Quantize-on-load (FP8 and FP4).** Reads a full-precision blob and fits it on device:
 
 ```
-fromPretrained()
+load()
     └── build( build_context )
             └── CudaLinearOp<BF16, PerChannelFp8<>> constructed
                     └── cuBLASLt FP8 plan built (types known statically)
@@ -623,7 +623,7 @@ namespace Mila::Dnn::Quant::KvCache
 `KvCachePolicy` is intentionally minimal — it does not require `kStorageDtype` or
 `kScaleDtype`. A future `SlidingWindowPolicy` satisfies `KvCachePolicy` without
 carrying dtype fields. New compression algorithms extend `KvCacheCompression` enum
-and add a corresponding policy struct and `fromPretrained` branch — no other
+and add a corresponding policy struct and `load` branch — no other
 changes required.
 
 ### Type System
@@ -707,7 +707,7 @@ naturally. No new quantization scope is anticipated before beta.
 ### `WeightQuantMode` / `KvCacheMode` internal enums (v1 proposal)
 
 Replaced by `WeightQuantization` and `KvCacheCompression` on `ModelConfig`. The
-internal enum intermediary layer was unnecessary — `fromPretrained` maps `ModelConfig`
+internal enum intermediary layer was unnecessary — `load` maps `ModelConfig`
 fields directly to template instantiations.
 
 ### `QuantizationPreset` flat enum (v1 proposal)

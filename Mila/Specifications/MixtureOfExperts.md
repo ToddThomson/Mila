@@ -109,7 +109,7 @@ Three §8/§13 statements do not survive contact with this checkpoint. They are
 recorded here rather than silently diverged from; §8 should be amended to point
 at this document.
 
-**(a) "The converter / `PretrainedReader` fuses E experts into the stacked
+**(a) "The converter / `WeightsReader` fuses E experts into the stacked
 tensors at load time."** Not on this model's path — upstream already ships
 stacked, so the load is a direct upload. The fusion path is still needed, but
 for models that ship per-expert (Qwen3-30B-A3B, gpt-oss-20b), not for Gemma 4.
@@ -120,8 +120,10 @@ need.
 **(b) "This maps directly onto the vendored CUTLASS grouped-GEMM kernels."**
 **Correct as written, including for block-scaled FP4 on SM120.** An earlier
 revision of this document claimed otherwise; that claim was the error, not §8.
+CUTLASS is no longer vendored (Section 7.3); the kernels named here are
+upstream's.
 
-Verified in the vendored tree:
+Verified in the tree Mila then pinned:
 `include/cutlass/gemm/collective/sm120_blockscaled_mma_array_tma.hpp` (`_array_`
 is CUTLASS's name for the Ptr-Array/grouped variant), plus
 `builders/sm120_blockscaled_mma_builder.inl`. The official example is
@@ -380,9 +382,11 @@ split arrived at from the kernel side.
 
 ### 7.3 What Mila writes, and what it does not
 
-Nothing in Mila includes a CUTLASS header today; only the include directory is
-wired. That is a fact about the present, not a design position, and the split
-after Section 7.1a is clean:
+CUTLASS is not in the build. It was fetched from `e75938f3` to `rc.1+23` with
+nothing including it, and removed at `rc.1+24`. The absence is not a design
+position: CUTLASS **returns in the commit that adds the first grouped kernel**, behind an off-by-default `MILA_ENABLE_CUTLASS` option, pinned
+to the CUTLASS release current at that time. The split after Section 7.1a is
+clean:
 
 - **Dense GEMM — the library.** cuBLASLt reaches 88% of the instruction ceiling
   on NVFP4 and 88-96% on FP8. Mila's own history says what happens to a hand
@@ -663,7 +667,7 @@ Each step is independently buildable and independently valuable.
    definition instead — `Gemma4MoE.md` Phase 6.
 7. **`MoeOp` decode gather-matvec**, validated against step 6 at `M == 1`. Done
    2026-09-12 — `Gemma4MoE.md` Phase 7.
-8. **Converter + `fromPretrainedImpl`**, on `PerGroupFp4<128>`. **The model
+8. **Converter + `loadImpl`**, on `PerGroupFp4<128>`. **The model
    runs here.**
 9. **NVFP4** — throughput is measured and favourable (Section 7.1a), and the
    remaining work is scoped in Section 7.5: a block-16 activation quantizer with

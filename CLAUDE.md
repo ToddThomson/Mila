@@ -73,7 +73,7 @@ Direction of travel, so new code moves with it rather than against it: the `Unar
 
 ### Model Entry Points
 
-- `<Family>Model::fromPretrained(path, config, device_id)` — reads the weights, then dispatches to `fromPretrainedImpl<TWeightQuantization, TKvCachePolicy>` on the config's `WeightQuantization`. One per family: Gemma, Llama, Gpt, Qwen.
+- `<Family>Model::load(path, config, device_id)` — reads the weights, then dispatches to `loadImpl<TWeightQuantization, TKvCachePolicy>` on the config's `WeightQuantization`. One per family: Gemma, Llama, Gpt, Qwen.
 - The dispatch is `Models/QuantizationDispatch.ixx`. It keys on `LanguageModelConfig`'s own enum — **never on an adaptor's type.** `ChatConfig` lives in Chat and `Mila/Src` must not know it exists.
 - All use a two-phase KV-cache: prefill (full sequence) + decode (one token at a time, outer_size == 1).
 

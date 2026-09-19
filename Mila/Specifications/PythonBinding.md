@@ -29,8 +29,8 @@ Complete as of `0.20.0-beta.2+45`. Source: `Mila/Bindings/Mila_py.cpp`.
 |---|---|
 | `mila.initialize` | `log_level` = `trace \| info \| warning \| error` |
 | `mila.BpeTokenizer` | `from_store(name)`, `load_llama32`, `load_gemma`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
-| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
-| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
+| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `load(path, context_length, device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
+| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `load(path, context_length, device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
 | `mila.ModelStore` | `root`, `list`, `locate`, `remove`, `usage`, `install`, `pull`, `list_hub_models` |
 | `mila.StopController` | `request_stop`, `stop_requested` |
 
@@ -45,7 +45,7 @@ keeps the projection std-only.
 Two properties worth stating because they make a real sample possible: **the GIL is released around
 generation** (`py::gil_scoped_release`), so streaming callbacks and a Ctrl-C handler both work; and
 **`from_store` takes the quantization from the store record**, so a published artifact — which is
-already FP4 bytes — loads without the caller knowing what it is. `from_pretrained` keeps a
+already FP4 bytes — loads without the caller knowing what it is. `load` keeps a
 quantization argument because a loose artifact is unquantized and the choice is then real; Gemma
 defaults it to FP4 so the 12B loads on a consumer card rather than OOM-ing at BF16.
 
@@ -70,7 +70,7 @@ Found while scoping, 2026-07-28. Tracked in BACKLOG.
   `MilaPy_PYTHON_DIR` cache variable. The MIS copy was **removed 2026-08-08**: the server directory
   is first on `sys.path`, so that copy shadowed any installed `mila-llm` — a stale copy always beat a
   correct install. MIS now depends on the package like any other consumer.
-- ~~**No precision control for Gemma.**~~ **Fixed 2026-08-08.** `GemmaModel.from_pretrained` takes a
+- ~~**No precision control for Gemma.**~~ **Fixed 2026-08-08.** `GemmaModel.load` takes a
   quantization variant, defaulting to FP4 for the reason recorded at the call site.
 
 ---
@@ -262,7 +262,7 @@ In bounds — sample code, documentation, packaging, and defect repair:
 Out of bounds — feature additions, deferred to vNext:
 
 - binding `GptModel`
-- adding a precision parameter to `GemmaModel.from_pretrained`
+- adding a precision parameter to `GemmaModel.load`
 - a published wheel
 
 ---

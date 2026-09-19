@@ -33,7 +33,6 @@ what terms?" in one place.
 | [nlohmann/json](https://github.com/nlohmann/json) | 3.12.0 | MIT | Always |
 | [miniz](https://github.com/richgel999/miniz) | 3.1.2 | MIT | Always |
 | [curl](https://github.com/curl/curl) | curl-8_22_0 | [curl](https://curl.se/docs/copyright.html) (SPDX `curl`) | `MILA_ENABLE_LIBCURL` |
-| [NVIDIA/cutlass](https://github.com/NVIDIA/cutlass) | v4.8.0dev | BSD-3-Clause | CUDA builds |
 | [pybind11](https://github.com/pybind/pybind11) | v3.1.0 | BSD-3-Clause | `MILA_ENABLE_PYTHON_BINDINGS` |
 | [googletest](https://github.com/google/googletest) | v1.17.0 | BSD-3-Clause | Tests |
 
@@ -46,6 +45,9 @@ from this one.
 
 Mila is no longer distributed only as source. The `mila-llm` wheels on PyPI and the container images
 on Docker Hub are **binary distributions that link this material** — the wheels carry nlohmann/json,
-miniz, CUTLASS and pybind11, and the container images additionally carry curl. Those distributions
-have to carry these notices. Whether each published artifact does is recorded as an open item in
-[`BACKLOG.md`](BACKLOG.md); this table is the source it should be built from.
+miniz and pybind11, and the container images additionally carry curl. Each carries the
+licence texts itself, copied from the fetched sources at their pinned versions: a wheel in its
+`.dist-info/licenses/`, an image in `/usr/share/doc/mila/`. A wheel build refuses to run without them
+(`Mila/Bindings/Package/setup.py`), and `scripts/dockerhub/verify-image.sh` checks the image. The
+`0.20.0b3` wheels and the images published alongside them predate this and carry only Mila's own
+licence.

@@ -11,7 +11,7 @@ this writes must be readable by the same library that wrote the artifacts the re
 gate was proven against. Measured, not assumed -- the data region is ordered by dtype
 size descending, then by name, and `test_matches_save_file` holds this writer to that.
 
-Mila's `PretrainedModelReader` rebases from the header's offsets and does not care about
+Mila's `WeightsReader` rebases from the header's offsets and does not care about
 order, so this constraint exists for the Python side alone.
 """
 

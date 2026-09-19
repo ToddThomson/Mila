@@ -40,7 +40,7 @@ Everything else in `main.cpp` is argument handling and error messages.
 | | |
 |---|---|
 | **Locate** | `ModelStore::locate(name)` — the store is the only source; nothing consults a hub or takes a path. |
-| **Load** | `GemmaModel<Cuda, BF16>::fromPretrained(...)` with `withFP4Quantization()`. Device and precision are template arguments, so the type *is* the configuration. |
+| **Load** | `GemmaModel<Cuda, BF16>::load(...)` with `withFP4Quantization()`. Device and precision are template arguments, so the type *is* the configuration. |
 | **Encode** | The Gemma instruct template, applied to one turn. Thinking is off, which takes two things — see the comment on `buildGemmaPrompt`. |
 | **Generate** | `model->generate(tokens, on_token, params)` — the model owns the decode loop and pushes each token to your callback on your thread. |
 
@@ -54,7 +54,7 @@ consumer recompiles Mila's module interfaces in its own toolchain. That voids `f
 prebuilt-binary benefit while adding an install-layout apparatus and an ABI split between the
 prebuilt archive and the recompiled modules. FetchContent compiles Mila in your project's
 toolchain — no install step, no ABI coupling — and is the same mechanism Mila uses for its own
-dependencies (googletest, CUTLASS, nlohmann). `find_package(Mila)` was removed in 0.20.0-beta.3;
+dependencies (googletest, nlohmann, curl). `find_package(Mila)` was removed in 0.20.0-beta.3;
 FetchContent is the one supported path.
 
 **Budget for the first build.** The trade FetchContent makes is that your project builds *all*

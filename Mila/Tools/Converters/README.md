@@ -278,7 +278,7 @@ python Qwen/qwen38_BF16/hf_qwen_layer_stream.py --model Qwen/Qwen3.8-27B --outpu
 python Qwen/qwen38_BF16/hf_qwen_layer_stream.py --model Qwen/Qwen3.8-27B --max-layers 4 --output <weights-dir>/qwen/qwen38_ref_l4.bin
 ```
 
-Output is a MILA `.bin` — the format `PretrainedModelReader` already reads — holding the
+Output is a MILA `.bin` — the format `WeightsReader` already reads — holding the
 last-token hidden state after every layer, after the final norm, and the last-position logits.
 The Mila side is `Tests/Dnn/Models/QwenModel.Parity.Cuda.cpp`.
 

@@ -252,7 +252,7 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
         {
             const TensorDataType precision = TPrecision;
 
-            Serialization::PretrainedModelReader reader( referencePath() );
+            Serialization::WeightsReader reader( referencePath() );
             auto read = [&]( const std::string& name ) { return reader.readTensorBlob<CpuMemoryResource>( name ); };
             auto floats = []( const auto& blob ) { return static_cast<const float*>( static_cast<const void*>( blob.data() ) ); };
 
@@ -709,7 +709,7 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
 
         std::vector<std::string> names;
         {
-            Serialization::PretrainedModelReader reader( saved );
+            Serialization::WeightsReader reader( saved );
             names = reader.getTensorNames();
 
             for ( const auto& name : names )

@@ -869,7 +869,7 @@ spills.
 
 ### Mila reads a Python-written safetensors file (verified 2026-08-18)
 
-The artifact design rests on Python writing the container and `PretrainedModelReader`
+The artifact design rests on Python writing the container and `WeightsReader`
 reading it, and that had never been run. It works. A file written by the `safetensors` pip
 package (0.7.0, torch 2.11, the Converters venv) carrying the tensor set this artifact
 will carry -- U8 codes, FP32 scales, an FP32 codebook, a U8 high plane, a BF16 embedding,
@@ -960,7 +960,7 @@ tooling is in `Mila/Tools/Quantization/`:
   converter's map (`Tools/Converters/common.py`), not a second copy, and every emitted
   dtype and shape is checked against what `Linear::initializeParameters` allocates for
   the policy before the file is written. Verified: all 196 read back through
-  `PretrainedModelReader` -- names, dtypes, shapes, the whole `streamTensorBlobs` walk --
+  `WeightsReader` -- names, dtypes, shapes, the whole `streamTensorBlobs` walk --
   and every primary weight names a tensor the BF16 converter also writes.
 
   Two consequences worth stating plainly. `--emit-artifact` now turns on
@@ -1278,7 +1278,7 @@ exactly what it did before, and Phase 2 no longer inherits the question.
 Proven end to end: `CodebookLinearOpCuda.{TwoBit,ThreeBit}LoadsThroughLoadParameter` build
 a real `Linear`, push the four tensors through `loadParameter()` under the names
 `quality_gate.py` emits, and match the CPU codec. The emitted 3B artifact itself was loaded
-the same way through `PretrainedModelReader` — `tf_layer_13.fc_down`, all 3072 rows within
+the same way through `WeightsReader` — `tf_layer_13.fc_down`, all 3072 rows within
 1.7e-4 of the row L1 mass against a host dequantization of the same bytes. Full suite 1630
 passed / 1 pre-existing skip / 0 failed.
 
@@ -1425,7 +1425,7 @@ argmax is 11751 = ` Paris` at 17.50 against 14.69 for second place, so the drive
 running — it reproduces the model.
 
 It emits a **MILA `.bin`** (67 tensors, 2.22 MB): the last-token hidden state after every layer,
-after the final norm, and the last-position logits. That is the format `PretrainedModelReader`
+after the final norm, and the last-position logits. That is the format `WeightsReader`
 already reads, so the Mila side can assert against numbers rather than against printed digits.
 A `--max-layers 4` run pairs with the converter's 4-layer fixture.
 
@@ -1470,7 +1470,7 @@ may supply one. Every step the Python driver takes has a public counterpart:
 |---|---|
 | construct the layer on the meta device | construct the block — construction allocates nothing |
 | (not applicable) | `installSharedWorkspace()` on the attention block; `setState()`, which the DeltaNet block ignores |
-| `load_state_dict( assign=True )` | `PretrainedModelReader::readTensorBlob<MR>( name )` + `Component::loadParameter()` |
+| `load_state_dict( assign=True )` | `WeightsReader::readTensorBlob<MR>( name )` + `Component::loadParameter()` |
 | `layer( hidden, ... )` | `prefill()` / `decode()` |
 | `del layer` | drop the `shared_ptr` |
 
@@ -2004,7 +2004,7 @@ checkpoint**, and all 32 FP4-at-load tensors carrying damage. Ten seconds.
 calls for — that is what `corpus/` holds and what Phase 0 used. Re-running with a
 code-bearing set is the first cheap thing to try if the Phase 5 quality numbers come in soft.
 
-**Still not shown:** a read of this artifact by `PretrainedModelReader`. The reader gate of
+**Still not shown:** a read of this artifact by `WeightsReader`. The reader gate of
 2026-08-18 proved a `save_file`-written container reads, and this writer is byte-identical in
 layout, so it is expected rather than demonstrated — it is demonstrated when the Phase 5 load
 path exists.

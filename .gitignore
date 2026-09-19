@@ -442,6 +442,9 @@ FodyWeavers.xsd
 # cmake/MilaVersion.cmake). Committing it would recreate the hand-maintained copy that
 # this derivation exists to remove. Same for MIS, which ships as mila-llm-server.
 /Mila/Bindings/Package/VERSION
+# The licence texts of the code linked into the wheel, staged by the same configure from
+# the fetched sources at their pinned versions.
+/Mila/Bindings/Package/third_party_licenses/
 /Mila/Adaptors/Inference/Server/VERSION
 /.claude/settings.local.json
 

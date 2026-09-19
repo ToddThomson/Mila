@@ -141,7 +141,7 @@ which counter to trust.
 
 `gemma_greedy_parity.py:70` loads Mila through the binding's FP4 default and diffs it against a
 BF16 HuggingFace reference, so any divergence it reports mixes quantization error with a real
-defect and a clean run proves less than it appears to. `from_pretrained` now takes `quantization=`,
+defect and a clean run proves less than it appears to. `GemmaModel.load` now takes `quantization=`,
 so the honest comparison is one argument away — on a card that can hold a BF16 12B. Either way the
 script should state which precision it ran.
 
@@ -228,7 +228,7 @@ Design and phasing are in `Mila/Specifications/ChatConfiguration.md`.
 
 `architecture` · `mila-src` · `breaking`
 
-Reading a model is safetensors end to end — `PretrainedReader.ixx` and `SafeTensors.ixx`, neither of
+Reading a model is safetensors end to end — `WeightsReader.ixx` and `SafeTensors.ixx`, neither of
 which touches a serializer. Writing one is still the original archive stack:
 `save_( ModelArchive&, SerializationMode )` is **public and pure virtual** on `Component`
 (`Component.ixx:406`) and again on `Network` (`:344`), so every component must implement it — 24
@@ -239,7 +239,7 @@ which touches a serializer. Writing one is still the original archive stack:
 `GptModel::fromCheckpoint` / `saveCheckpoint` (`GptModel.ixx:177`, `:231`).
 
 **The writer already exists and is already used**, so this is not new machinery — it is pointing
-`save_` at the machinery beside it. `LanguageModel::savePretrained` (`:173`) writes through
+`save_` at the machinery beside it. `LanguageModel::save` (`:173`) writes through
 `Serialization::SafeTensorsWriter`. The hierarchical scopes `Network::saveComponentGraph` already
 builds — `components/<name>/...` at `Network.ixx:516` and `:609` — flatten to safetensors keys the
 way every other framework's checkpoints do, and `__metadata__` already carries the JSON that
@@ -250,7 +250,7 @@ and load speaking one format. **Do not substitute another container.** Tar was p
 (Todd, 2026-09-09) — safetensors is the format, and no zip or tar will ever be needed.
 
 Two things to settle first. Whether component-level checkpoints survive at all: training is the only
-thing that wants them, `GptModel` is the only model exposing them, and `savePretrained` already
+thing that wants them, `GptModel` is the only model exposing them, and `save` already
 refuses a model reconstructed from a checkpoint (`LanguageModel.ixx:364`). And where the ~46 test
 usages across 10 files that construct a `ZipSerializer` go — that round-trip coverage is real and
 should move rather than evaporate. `ModelSerialization.md` is the design of record and needs amending
@@ -269,7 +269,7 @@ serializer no published path reaches, so it cannot silently change a shipped art
 
 `docs` · `distribution`
 
-The distribution path exists end to end — `savePretrained` (`LanguageModel.ixx:116`), the
+The distribution path exists end to end — `LanguageModel::save` (`LanguageModel.ixx:173`), the
 `mila_quantization` metadata key, the reader, the policy check, `Linear`'s pre-packed load branch,
 and `Tools/ExportArtifact` driving the whole thing. The phase text still calls it unwritten, and the
 freeze-boundary table still lists it out of bounds.
@@ -303,7 +303,7 @@ it costs one small file.
 
 `build` · `binding`
 
-`Mila/Bindings/CMakeLists.txt:95` stages it with `copy_if_different` off
+`Mila/Bindings/CMakeLists.txt:121` stages it with `copy_if_different` off
 `add_custom_command(TARGET MilaPy POST_BUILD)`, which runs only when `MilaPy` relinks — so a change
 to `__init__.py` and nothing else leaves `<build dir>/python/mila/` holding the old copy, and a
 sample fails with a missing attribute. `add_custom_command(OUTPUT ...)` with `DEPENDS` on the source
@@ -339,7 +339,7 @@ duplicate and should be deleted rather than worked.
 
 `api` · `mila-src`
 
-`fromPretrained` takes a `DeviceId` (`GemmaModel.ixx:130`), not an `IExecutionContext`, so two
+`GemmaModel::load` takes a `DeviceId` (`GemmaModel.ixx:130`), not an `IExecutionContext`, so two
 models loaded in one process cannot share a stream. `IExecutionContext.ixx:66-74` documents this as
 deliberate: an overload would make the activation observer a cross-model leak.
 
@@ -807,3 +807,40 @@ layout mismatch surfaces at export rather than at load. Mapping, per format: `pa
 symmetric -> a new `PerGroupInt4<G>` (first consumer: the Gemma 4 QAT entry above);
 `float-quantized` FP8 per-channel -> the existing `PerChannelFp8` (check scale shape and dtype agree);
 `nvfp4-pack-quantized` -> the native NVFP4 direction on SM120 (`Fp8ActivationPrefill.md`). Refuse any scheme with no matching policy, naming the scheme.
+
+
+## A consumer's path budget is about thirty characters, spent by one seven-level include
+
+`build` · `mila-src`
+
+`ElementwiseActivation.cu:21` includes an 86-character `../../../../../../../` path, and MSVC applies
+MAX_PATH to the unresolved string, so a FetchContent consumer with a source root deeper than about 97
+characters gets C1083 on a header that exists. It tipped the CPM gate over at beta.3 (264 against
+260). `Geglu.cu:17` (seven levels) and `Moe.cu:12` (six) include the same header. Fix: one `PRIVATE`
+include directory, `Mila/Src/Dnn`, on the `Mila` target, and the three includes shortened to
+`"Components/Activations/Activation/Kernels/ElementwiseActivation.h"`. Moved out of v0.20 at `rc.1+24`
+(Todd): if the v0.20.0 CPM gate trips on it, it is fixed then, in the release.
+
+## No Ampere or Turing card has ever run Mila
+
+`build` · `binding`
+
+The published-artifact architecture list is `80;86;89;90;120` on the reasoning that SM 8.0 is the
+floor Mila's kernels draw — the FP4 GEMM gates on `major >= 8` (`CudaLinearOp.ixx:661`) and both
+GQA flash prefill paths throw below it (`Gqa.Flash.Fa2.cu:513`, `Gqa.Flash.Wmma.cu:632`). No one has
+observed it: the dev box has only sm_89 and sm_120. At `rc.1+24` the published "what you need" lines
+(website x5, `getting-started.md`, `scripts/dockerhub/overview.md`) were narrowed from RTX 30-series
+to RTX 40-series (Todd), so a rented A10G or A100 hour is what widens them again. The same run settles
+whether Turing's non-WMMA fallback (`cuda_fp4a16_gemm`, dispatched at `CudaLinearOp.ixx:882`) is
+reachable at all or is dead code behind those throws — every bound model uses GQA, and the published
+list starts at 80, so today it compiles for nobody.
+
+## Gemma loses its own reasoning between tool calls in a turn
+
+`gemma` · `adaptors`
+
+Google's multi-turn rule is to strip thoughts from *prior* turns and keep the current turn's.
+`extractAnswer` (`Gemma.Protocol.ixx:1288`) removes every channel span from a response rather than a
+leading run, so a model working through a multi-step tool sequence starts each step without the
+reasoning that led to it. Moved out of v0.20 at `rc.1+24` (Todd): a behaviour change inside Gemma's
+protocol is too late in the cycle.

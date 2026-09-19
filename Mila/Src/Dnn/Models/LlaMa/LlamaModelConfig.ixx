@@ -3,7 +3,7 @@
  * @brief Deployment configuration for Llama language models.
  *
  * LlamaModelConfig is the concrete configuration type passed to
- * LlamaModel::fromPretrained(). It inherits all universal language model
+ * LlamaModel::load(). It inherits all universal language model
  * deployment concerns from LanguageModelConfig<LlamaModelConfig>:
  *
  *   - context_length        -- maximum sequence length
@@ -63,7 +63,7 @@ namespace Mila::Dnn
          * @brief Default constructor.
          *
          * context_length defaults to zero. Call withContextLength() before
-         * passing to fromPretrained(), or use the explicit constructor.
+         * passing to load(), or use the explicit constructor.
          */
         LlamaModelConfig() = default;
 

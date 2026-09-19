@@ -225,13 +225,13 @@ def load(mila, family, weights, tokenizer, context_length, device_index=0, quant
     if family == "gemma":
         return (
             mila.BpeTokenizer.load_gemma(str(tokenizer)),
-            mila.GemmaModel.from_pretrained(
+            mila.GemmaModel.load(
                 str(weights), context_length, device_index, quantization or "fp4"),
         )
 
     return (
         mila.BpeTokenizer.load_llama32(str(tokenizer)),
-        mila.LlamaModel.from_pretrained(
+        mila.LlamaModel.load(
             str(weights), context_length, device_index, quantization or "bf16"),
     )
 

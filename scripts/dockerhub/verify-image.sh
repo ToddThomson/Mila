@@ -58,6 +58,18 @@ echo "Volume : ${volume} (fresh, empty store)"
 echo
 
 # ---------------------------------------------------------------------------
+# Step 0 -- the licence texts a binary redistribution owes (Dockerfile.runtime copies them from
+# the fetched sources). Not on the site, and nothing else would notice them missing.
+# ---------------------------------------------------------------------------
+echo "== 0. licence texts ========================================================"
+for file in LICENSE pybind11/LICENSE nlohmann_json/LICENSE.MIT miniz/LICENSE curl/COPYING; do
+    docker run --rm --entrypoint test "${MILA_IMAGE}" -s "/usr/share/doc/mila/${file}" \
+        || fail "/usr/share/doc/mila/${file} is missing or empty in the image"
+done
+echo "ok -- Mila's licence and all four third-party licences are present"
+echo
+
+# ---------------------------------------------------------------------------
 # Step 1 -- the site's first command.
 # ---------------------------------------------------------------------------
 echo "== 1. install =============================================================="

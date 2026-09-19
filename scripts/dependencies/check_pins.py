@@ -11,8 +11,8 @@ Two checks, deliberately different in kind:
                     exists because that drift has already happened twice.
 
   --check-upstream  Is any pin behind its latest upstream release? Needs network, and is
-                    ADVISORY only. CI has no GPU (see build-pipeline.yml), so a CUTLASS
-                    bump cannot be validated automatically; the honest output is a report
+                    ADVISORY only. CI has no GPU (see build-pipeline.yml), so a bump
+                    that touches CUDA cannot be validated automatically; the honest output is a report
                     a human acts on, not a green pull request.
 
 Run the first one before committing:
@@ -262,8 +262,7 @@ def check_upstream():
         for slug, pin in development:
             print(f"  - {slug} is pinned to {pin}")
 
-        print("\nDeliberate while nothing compiles against it. Revisit before any code")
-        print("starts including its headers, and before a production tag.")
+        print("\nMove each to a release before a production tag.")
 
     if behind:
         print(f"\n{len(behind)} pin(s) behind upstream. Advisory only -- a bump that")

@@ -94,7 +94,7 @@ namespace Mila::Tests::Dnn::Models
             LoadMeasurement measurement;
 
             {
-                auto model = TModel::fromPretrained( weights, config, device );
+                auto model = TModel::load( weights, config, device );
                 measurement.consumed_after_load = free_before - freeDeviceBytesOn( ordinal );
 
                 // The scratch a fitted load reserves is the one its exported form predicts.

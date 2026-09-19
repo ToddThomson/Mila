@@ -90,7 +90,7 @@ namespace Mila::Tests::Dnn::Models
                     footprint.memory.device_parameter_bytes, ordinal, free_before_load );
             }
 
-            auto model = TModel::fromPretrained( weights, config, device );
+            auto model = TModel::load( weights, config, device );
             ASSERT_NE( model, nullptr );
 
             const MemoryStats reported = model->getMemoryStats();

@@ -72,7 +72,7 @@ using QuantizedProjection =
       <div class="qspanel" id="p-cpp">
         <dl class="qs-meta">
           <div><dt>What you get</dt><dd>A model answering prompts, from your own CMake project.</dd></div>
-          <div><dt>What you need</dt><dd>Linux or Windows, with CMake, Ninja, a C++23 toolchain and CUDA. A tagged Mila release. An NVIDIA GPU from the RTX 30-series or newer.</dd></div>
+          <div><dt>What you need</dt><dd>Linux or Windows, with CMake, Ninja, a C++23 toolchain and CUDA. A tagged Mila release. An NVIDIA GPU from the RTX 40-series or newer.</dd></div>
         </dl>
 
         <div class="qs-step">
@@ -115,7 +115,7 @@ GemmaModelConfig config( 4096 );
 config.withFP4Quantization();
 
 <span class="cmt">// Device and precision are template arguments: the type IS the configuration.</span>
-auto model = GemmaModel&lt;DeviceType::Cuda, TensorDataType::BF16&gt;::fromPretrained(
+auto model = GemmaModel&lt;DeviceType::Cuda, TensorDataType::BF16&gt;::load(
     installed-&gt;weights_path, config );
 
 <span class="cmt">// The model owns the decode loop and pushes each token to your callback.</span>
@@ -160,7 +160,7 @@ the entire sky to take on a blue hue.
       <div class="qspanel" id="p-python">
         <dl class="qs-meta">
           <div><dt>What you get</dt><dd>A model answering prompts, and a script you can take apart.</dd></div>
-          <div><dt>What you need</dt><dd>Linux or Windows, with Python 3.12 or 3.13. An NVIDIA GPU from the RTX 30-series or newer. No compiler, and no CUDA install — the wheel brings its own.</dd></div>
+          <div><dt>What you need</dt><dd>Linux or Windows, with Python 3.12 or 3.13. An NVIDIA GPU from the RTX 40-series or newer. No compiler, and no CUDA install — the wheel brings its own.</dd></div>
         </dl>
 
         <div class="qs-step">
@@ -203,7 +203,7 @@ making the sky appear blue to our eyes.</code></pre>
       <div class="qspanel" id="p-docker">
         <dl class="qs-meta">
           <div><dt>What you get</dt><dd>A Linux environment with Mila already built, and its source to work from.</dd></div>
-          <div><dt>What you need</dt><dd>Docker on Linux, or Docker Desktop with the WSL2 backend on Windows. An NVIDIA GPU from the RTX 30-series or newer, and 32 GB of memory.</dd></div>
+          <div><dt>What you need</dt><dd>Docker on Linux, or Docker Desktop with the WSL2 backend on Windows. An NVIDIA GPU from the RTX 40-series or newer, and 32 GB of memory.</dd></div>
         </dl>
 
         <div class="qs-step">
@@ -250,7 +250,7 @@ cmake --build build
       <div class="qspanel" id="p-clone">
         <dl class="qs-meta">
           <div><dt>What you get</dt><dd>All of it — the chat app, the tests, the samples, and the source you came to read.</dd></div>
-          <div><dt>What you need</dt><dd>Linux or Windows, with CMake, Ninja, a C++23 toolchain and CUDA. An NVIDIA GPU from the RTX 30-series or newer.</dd></div>
+          <div><dt>What you need</dt><dd>Linux or Windows, with CMake, Ninja, a C++23 toolchain and CUDA. An NVIDIA GPU from the RTX 40-series or newer.</dd></div>
         </dl>
 
         <div class="qs-step">
@@ -303,7 +303,7 @@ cmake --build build</code></pre>
         {{/* No sizes here: a download is not something the reader must already have, and step 1
              names both figures where the command that fetches them is. 1.5 GB is measured off the
              registry manifest (25 layers), not `docker images`, which reports the extracted size. */}}
-        <div><dt>What you need</dt><dd>Docker on Linux, or Docker Desktop with the WSL2 backend on Windows. An NVIDIA GPU from the RTX 30-series or newer.</dd></div>
+        <div><dt>What you need</dt><dd>Docker on Linux, or Docker Desktop with the WSL2 backend on Windows. An NVIDIA GPU from the RTX 40-series or newer.</dd></div>
       </dl>
 
 

@@ -78,7 +78,7 @@ namespace Mila::Tests::Dnn::Models
         config.withContextLength( kContextLength )
             .withWeightQuantization( WeightQuantization::FP4 );
 
-        auto model = GemmaBf16::fromPretrained( checkpoint_, config );
+        auto model = GemmaBf16::load( checkpoint_, config );
 
         ASSERT_NE( model, nullptr );
 
@@ -106,7 +106,7 @@ namespace Mila::Tests::Dnn::Models
         config.withContextLength( kContextLength )
             .withWeightQuantization( WeightQuantization::FP4 );
 
-        auto model = GemmaBf16::fromPretrained( checkpoint_, config );
+        auto model = GemmaBf16::load( checkpoint_, config );
 
         ASSERT_NE( model, nullptr );
 

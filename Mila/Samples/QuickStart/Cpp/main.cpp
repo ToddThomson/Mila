@@ -187,7 +187,7 @@ int main( int argc, char** argv )
         GemmaModelConfig model_config( kContextLength );
         model_config.withFP4Quantization();
 
-        auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
+        auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
             installed->weights_path, model_config );
 
         // TokenId is int32_t, which is what generate() takes, so this needs no conversion.

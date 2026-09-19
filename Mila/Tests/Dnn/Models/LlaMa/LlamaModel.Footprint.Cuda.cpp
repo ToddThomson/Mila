@@ -249,7 +249,7 @@ namespace Mila::Tests::Dnn::Models
 
         const std::size_t free_before = freeDeviceBytesOn( ordinal );
 
-        auto model = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
+        auto model = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
             checkpoint_, config, device );
 
         ASSERT_NE( model, nullptr );

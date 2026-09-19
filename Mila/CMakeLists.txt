@@ -74,7 +74,7 @@ target_include_directories( Mila
     PRIVATE
         ${miniz_SOURCE_DIR}
         #${sentencepiece_SOURCE_DIR}/src
-        $<$<BOOL:${cutlass_ADDED}>:${cutlass_SOURCE_DIR}/include> )
+        )
 
 # Kernel headers and the vendored nlohmann header are pulled by file-relative quoted
 # includes (#include "Kernels/Foo.cuh", "../../Deps/nlohmann/json.hpp"), which resolve
@@ -444,7 +444,7 @@ PUBLIC
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
         "Src/Dnn/Serialization/SafeTensors.ixx"
-        "Src/Dnn/Serialization/PretrainedReader.ixx"
+        "Src/Dnn/Serialization/WeightsReader.ixx"
         "Src/Dnn/Serialization/Serializer.ixx"
         
         "Src/Dnn/Compute/Operations/IKvCacheLifecycle.ixx"

@@ -159,15 +159,16 @@ TWeightQuantization` is erased only at the session PIMPL. `Mila_py.Wrappers.ixx:
 
 The pre-1.0 consistency pass, and the precursor to any API-stability promise. Named items:
 
-**`loadModel`/`saveModel` and `loadCheckpoint`/`saveCheckpoint`** — verb plus what you get, both
-directions. "Pretrained" is relative to a fine-tuning stage Mila does not have and is doubly wrong
-on the write side; "artifact" is build vocabulary for a file that is simply a model; `from` names
-the *source* form, so `fromCheckpoint` earns it and `fromModel` cannot. Document the distinction: a
-checkpoint carries epoch and loss as one of a series, a model is terminal. One wrinkle:
-`Network::load( archive, mode )` restores into an existing graph. **The methods are the small
-half** — `kArtifactMinimumMilaVersion`, `ModelDistribution.md`, both model cards, `from_pretrained`,
-MIS and the samples all speak the old vocabulary. Sequence with the `ExportArtifact` rename and the
-binding's `quantize_fp8` fix.
+**The model entry points are settled: `load`/`save` for weights** (Todd, `rc.1+24`), on the model
+class — `GemmaModel::load( path, config )` — because the class already names what is loaded and
+`loadModel` stutters. `fromPretrained`/`savePretrained` were the old names; "pretrained" is
+relative to a fine-tuning stage Mila does not have. The reader is `WeightsReader`. `fromCheckpoint`/
+`saveCheckpoint` stay for the training archive, and `Network::load( archive, mode )` restores a
+checkpoint one layer down; the two never meet at a call site. Document the distinction: a checkpoint
+carries epoch and loss as one of a series, a model is terminal. **The methods were the small half**
+— `kArtifactMinimumMilaVersion`, `ModelDistribution.md`, both model cards, MIS and the samples still
+say "artifact" where they mean a model or its weights. Sequence with the `ExportArtifact` rename and
+the binding's `quantize_fp8` fix.
 
 **`getStorageSize` exists three times** — `Mila::Dnn::detail::getStorageSize` (`Tensor.ixx:81`,
 carrying a `REVIEW:` that already asks why), `Detail::getStorageSize` (`TensorBuffer.ixx:221`) and
@@ -425,7 +426,7 @@ Phase 0 exact-duplicate dedup, Phase 1 candidate report, Phase 2 compiler-verifi
 `build` · `mila-src`
 
 `SafeTensors.ixx` and `TokenSequenceLoader.ixx` are straight swaps and the library's only source of
-C4996. **`PretrainedReader.ixx` is not**: it deliberately uses positioned `ReadFile`/`pread`
+C4996. **`WeightsReader.ixx` is not**: it deliberately uses positioned `ReadFile`/`pread`
 alongside the mapping, because faulting a large model through the mapped view throttles below disk
 bandwidth — that one needs the exemption.
 
@@ -436,7 +437,7 @@ Clearing the first two unblocks the warnings ratchet above.
 `api` · `mila-src`
 
 An injected per-operation progress facility for long-lived ops — BPE vocab training,
-`PretrainedReader` load, load-time quantization. `BpeVocabulary.ixx:624` is the concrete call site:
+`WeightsReader` load, load-time quantization. `BpeVocabulary.ixx:624` is the concrete call site:
 an every-100-merges elapsed-time print asking to become an async callback.
 
 ## The BPE ASCII-fallback warning fires for every Llama and GPT-2 session
@@ -459,7 +460,7 @@ It is per-target on `ChatApp` and, since the Gemma 4 MoE dispatch, on `ProfileMo
 RelWithDebInfo: `ProfileModel.ixx` 51609 / ~66000, `ExportArtifact.ixx` 46926 / 59830,
 `Gemma.MixtureOfExperts.Cuda.cpp` 44694 / 56375, `Chat.ModelCatalog.ixx` 41647 / 52666; Debug not
 measured. So the next family or quantization breaks targets one at a time, and a consumer calling
-`fromPretrained` inherits the exposure with no flag. The choice is a PUBLIC MSVC compile option on
+`load` inherits the exposure with no flag. The choice is a PUBLIC MSVC compile option on
 `Mila`, which changes every consumer's flags, or targets adding it as they cross. **Todd's call.**
 
 ## `CLAUDE.md` documents the retired Chat alias set

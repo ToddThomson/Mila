@@ -194,7 +194,7 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
             GTEST_SKIP() << "router reference not present at: " << referencePath().string();
         }
 
-        Serialization::PretrainedModelReader reader( referencePath() );
+        Serialization::WeightsReader reader( referencePath() );
 
         auto read = [&]( const std::string& name ) { return reader.readTensorBlob<CpuMemoryResource>( name ); };
 
@@ -332,7 +332,7 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
 
         std::vector<std::string> names;
         {
-            Serialization::PretrainedModelReader reader( path );
+            Serialization::WeightsReader reader( path );
             names = reader.getTensorNames();
         }
 

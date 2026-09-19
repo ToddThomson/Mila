@@ -83,7 +83,7 @@ import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Metadata;
-import Serialization.PretrainedReader;
+import Serialization.WeightsReader;
 import Serialization.Tensor;
 
 namespace Mila::Dnn
@@ -546,9 +546,9 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-        void loadParameters( PretrainedModelReader& reader )
+        void loadParameters( WeightsReader& reader )
         {
-            tie_word_embeddings_ = reader.getPretrainedMetadata().tie_word_embeddings;
+            tie_word_embeddings_ = reader.getWeightsMetadata().tie_word_embeddings;
 
             const int device_index = this->getExecutionContext()->getDeviceId().index;
 

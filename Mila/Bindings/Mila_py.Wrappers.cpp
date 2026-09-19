@@ -699,17 +699,17 @@ namespace Mila::Bindings
     LlamaSession::LlamaSession( std::unique_ptr<Impl> impl ) : impl_( std::move( impl ) ) {}
     LlamaSession::~LlamaSession() = default;
 
-    std::unique_ptr<LlamaSession> LlamaSession::fromPretrained(
+    std::unique_ptr<LlamaSession> LlamaSession::load(
         const std::string& path, int64_t context_length, int device_index,
         const std::string& quantization )
     {
         DeviceId device_id{ DeviceType::Cuda, device_index };
         LlamaModelConfig model_config( static_cast<dim_t>( context_length ) );
 
-        applyQuantizationVariant( model_config, quantization, "LlamaModel.from_pretrained" );
+        applyQuantizationVariant( model_config, quantization, "LlamaModel.load" );
 
         auto impl = std::make_unique<Impl>();
-        impl->model = LlamaCudaBf16::fromPretrained(
+        impl->model = LlamaCudaBf16::load(
             std::filesystem::path( path ), model_config, device_id );
 
         return std::unique_ptr<LlamaSession>( new LlamaSession( std::move( impl ) ) );
@@ -728,7 +728,7 @@ namespace Mila::Bindings
         applyQuantizationVariant( model_config, model.record.variant, name );
 
         auto impl = std::make_unique<Impl>();
-        impl->model = LlamaCudaBf16::fromPretrained(
+        impl->model = LlamaCudaBf16::load(
             model.weights_path, model_config, device_id );
 
         return std::unique_ptr<LlamaSession>( new LlamaSession( std::move( impl ) ) );
@@ -783,17 +783,17 @@ namespace Mila::Bindings
     GemmaSession::GemmaSession( std::unique_ptr<Impl> impl ) : impl_( std::move( impl ) ) {}
     GemmaSession::~GemmaSession() = default;
 
-    std::unique_ptr<GemmaSession> GemmaSession::fromPretrained(
+    std::unique_ptr<GemmaSession> GemmaSession::load(
         const std::string& path, int64_t context_length, int device_index,
         const std::string& quantization )
     {
         DeviceId device_id{ DeviceType::Cuda, device_index };
         GemmaModelConfig model_config( static_cast<dim_t>( context_length ) );
 
-        applyQuantizationVariant( model_config, quantization, "GemmaModel.from_pretrained" );
+        applyQuantizationVariant( model_config, quantization, "GemmaModel.load" );
 
         auto impl = std::make_unique<Impl>();
-        impl->model = GemmaCudaBf16::fromPretrained(
+        impl->model = GemmaCudaBf16::load(
             std::filesystem::path( path ), model_config, device_id );
 
         return std::unique_ptr<GemmaSession>( new GemmaSession( std::move( impl ) ) );
@@ -812,7 +812,7 @@ namespace Mila::Bindings
         applyQuantizationVariant( model_config, model.record.variant, name );
 
         auto impl = std::make_unique<Impl>();
-        impl->model = GemmaCudaBf16::fromPretrained(
+        impl->model = GemmaCudaBf16::load(
             model.weights_path, model_config, device_id );
 
         return std::unique_ptr<GemmaSession>( new GemmaSession( std::move( impl ) ) );
@@ -872,17 +872,17 @@ namespace Mila::Bindings
     QwenSession::QwenSession( std::unique_ptr<Impl> impl ) : impl_( std::move( impl ) ) {}
     QwenSession::~QwenSession() = default;
 
-    std::unique_ptr<QwenSession> QwenSession::fromPretrained(
+    std::unique_ptr<QwenSession> QwenSession::load(
         const std::string& path, int64_t context_length, int device_index,
         const std::string& quantization )
     {
         DeviceId device_id{ DeviceType::Cuda, device_index };
         QwenModelConfig model_config( static_cast<dim_t>( context_length ) );
 
-        applyQwenQuantizationVariant( model_config, quantization, "QwenModel.from_pretrained" );
+        applyQwenQuantizationVariant( model_config, quantization, "QwenModel.load" );
 
         auto impl = std::make_unique<Impl>();
-        impl->model = QwenCudaBf16::fromPretrained(
+        impl->model = QwenCudaBf16::load(
             std::filesystem::path( path ), model_config, device_id );
 
         return std::unique_ptr<QwenSession>( new QwenSession( std::move( impl ) ) );
@@ -901,7 +901,7 @@ namespace Mila::Bindings
         applyQwenQuantizationVariant( model_config, model.record.variant, name );
 
         auto impl = std::make_unique<Impl>();
-        impl->model = QwenCudaBf16::fromPretrained(
+        impl->model = QwenCudaBf16::load(
             model.weights_path, model_config, device_id );
 
         return std::unique_ptr<QwenSession>( new QwenSession( std::move( impl ) ) );

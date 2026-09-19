@@ -22,7 +22,7 @@ namespace Mila::Tests::Dnn::Core
 
     namespace
     {
-        constexpr const char* kCaller = "TestModel::fromPretrained";
+        constexpr const char* kCaller = "TestModel::load";
         constexpr const char* kPath = "weights.safetensors";
 
         void check( std::string_view stored, WeightQuantization requested )

@@ -147,7 +147,7 @@ namespace Mila::Tests::Dnn::Models
                 predicted.device_parameter_bytes, ordinal, free_before );
         }
 
-        auto model = GemmaCudaBf16::fromPretrained( weights_, config, device );
+        auto model = GemmaCudaBf16::load( weights_, config, device );
         ASSERT_NE( model, nullptr );
 
         const std::size_t free_after_load = freeDeviceBytes();

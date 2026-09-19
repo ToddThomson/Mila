@@ -492,7 +492,7 @@ namespace Mila::Dnn
                 if constexpr ( TDeviceType == DeviceType::Cuda )
                 {
                     // Pinned staging, matching saveParameterToArchive and the
-                    // PretrainedReader load path: copyFromBlob issues a direct DMA
+                    // WeightsReader load path: copyFromBlob issues a direct DMA
                     // from pinned host memory with no driver staging copy.
                     auto blob = readTensorBlob<HostStagingMemoryResource>(
                         archive, prefix, getDeviceId().index );
@@ -1107,7 +1107,7 @@ namespace Mila::Dnn
                 // rejects Tensor<TParameterPrecision, CpuMemoryResource> outright. Pinned
                 // memory is both host- and device-accessible, so it satisfies the constraint
                 // while staying readable here -- and it is the same staging memory the load
-                // direction uses in PretrainedReader.
+                // direction uses in WeightsReader.
                 Tensor<TParameterPrecision, HostStagingMemoryResource> staged_parameter(
                     parameter.getDeviceId(), parameter.shape() );
 

@@ -44,7 +44,7 @@ namespace Mila::Dnn
      *
      * @param weight_quantization Runtime weight-quantization setting to resolve to a policy type.
      * @param kv_cache_compression Runtime KV-cache setting accompanying it.
-     * @param caller Prefix for error messages, e.g. "GemmaModel::fromPretrained".
+     * @param caller Prefix for error messages, e.g. "GemmaModel::load".
      * @param action Invoked as action.template operator()<TWeightQuantization, TKvCachePolicy>().
      *
      * @throws std::runtime_error if the requested combination is unsupported.

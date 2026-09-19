@@ -108,7 +108,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         }
 
         // The mapping GemmaModel applies to the same metadata; the network is not reachable through it.
-        GemmaConfig configFromMetadata( const Serialization::PretrainedMetadata& metadata )
+        GemmaConfig configFromMetadata( const Serialization::WeightsMetadata& metadata )
         {
             GemmaConfig config( static_cast<dim_t>( metadata.embedding_dim ), static_cast<dim_t>( metadata.num_layers ) );
 
@@ -175,8 +175,8 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         {
             const TensorDataType precision = TPrecision;
 
-            Serialization::PretrainedModelReader weights( weightsPath( precision ) );
-            const GemmaConfig config = configFromMetadata( weights.getPretrainedMetadata() );
+            Serialization::WeightsReader weights( weightsPath( precision ) );
+            const GemmaConfig config = configFromMetadata( weights.getWeightsMetadata() );
 
             ASSERT_TRUE( config.hasMixtureOfExperts() ) << "the converted weights carry no expert geometry";
 
@@ -184,7 +184,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
             network.build( BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference ) );
             network.loadParameters( weights );
 
-            Serialization::PretrainedModelReader reference( referencePath() );
+            Serialization::WeightsReader reference( referencePath() );
             auto token_blob = reference.readTensorBlob<CpuMemoryResource>( "tokens" );
             auto logits_blob = reference.readTensorBlob<CpuMemoryResource>( "logits" );
 
@@ -308,10 +308,10 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         std::vector<std::string> expected;
 
         {
-            Serialization::PretrainedModelReader weights( weightsPath( TensorDataType::FP32 ) );
+            Serialization::WeightsReader weights( weightsPath( TensorDataType::FP32 ) );
             expected = weights.getTensorNames();
 
-            RoutedNetwork<TensorDataType::FP32> network( "gemma", configFromMetadata( weights.getPretrainedMetadata() ), Device::Cuda( 0 ) );
+            RoutedNetwork<TensorDataType::FP32> network( "gemma", configFromMetadata( weights.getWeightsMetadata() ), Device::Cuda( 0 ) );
             network.build( BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference ) );
             network.loadParameters( weights );
 
@@ -324,7 +324,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         std::vector<std::string> actual;
         {
-            Serialization::PretrainedModelReader reader( saved );
+            Serialization::WeightsReader reader( saved );
             actual = reader.getTensorNames();
         }
 
@@ -400,7 +400,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         GemmaModelConfig config( kContext );
         config.withWeightQuantization( WeightQuantization::FP4 );
 
-        const auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
+        const auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
             weightsPath( TensorDataType::BF16 ), config, Device::Cuda( 0 ) );
 
         EXPECT_EQ( model->weightQuantizationScheme(), "per_group_fp4_64" );

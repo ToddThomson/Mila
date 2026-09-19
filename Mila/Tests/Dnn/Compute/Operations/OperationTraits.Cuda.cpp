@@ -8,7 +8,7 @@
  *
  * The quantization rows here are the load-time-quantization half of the
  * inference-drought backfill: they pin which (precision, weight policy) pairs
- * exist, which is the decision a model's fromPretrained dispatch depends on.
+ * exist, which is the decision a model's load dispatch depends on.
  */
 
 #include <gtest/gtest.h>
