@@ -64,6 +64,9 @@ mono_crash.*
 [Dd]ebugPublic/
 [Rr]elease/
 [Rr]eleases/
+# ...but scripts/release/ is source, not a build directory. Git will not look inside an
+# excluded directory, so the directory itself has to be re-included, not the files in it.
+!scripts/release/
 x64/
 x86/
 [Ww][Ii][Nn]32/

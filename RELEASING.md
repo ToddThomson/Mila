@@ -265,26 +265,32 @@ fails.
    metadata **dropped**: `0.20.0-beta.2+7` becomes `0.20.0-beta.2`. A tag never carries build
    metadata, so this is what lets step 5's drift check pass. If the checkpoint is being renamed from
    its working placeholder (`beta.2` -> `rc.1`), this is the commit that does it. Reconcile
-   BACKLOG / ROADMAP in the same commit, and **bump every stage string written in prose**: the
-   `README.md` status callout and its *Current Status* heading, and **this document's own
-   "Last checkpoint tagged" line** above. `master` is the branch a visitor lands on, so a missed bump
-   leaves the front page advertising the previous checkpoint for the whole next cycle — and a
-   procedure that misreports the last release is worse than one that says nothing.
-   **Bump the QuickStart pin to the tag being released** — the `GIT_TAG` in
-   `Mila/Samples/QuickStart/Cpp/CMakeLists.txt`, and in `Mila/Samples/QuickStart/Cpp/README.md` and
-   `getting-started.md` §7, where it appears in copy-paste blocks (the README also carries it in a
-   `URL` archive line). Nothing checks these strings: `packaging_fetchcontent_consumer` overrides
-   the ref with `SOURCE_DIR`, and `packaging_cpm_consumer` reads its tag from `Version.txt`, not from
-   the sample. They went stale once already, pointing at an unreleased `v0.20.0` — a downstream
-   consumer copying the sample got a checkout failure on their first build.
-   **Bump the website's copy in the same commit** — `Web/layouts/index.html` hardcodes the version
-   at five sites, and nothing derives them: the C++ tab's `GIT_TAG` (`#p-cpp` step 1) and its sample
-   output (`#p-cpp` step 3), the `-devel` image tag (`#p-docker` step 1), and the `-runtime` image
-   tag in **both** `#evaluate` commands. They have already gone out of step with each other once —
-   the tab pinned `beta.2` while the output beside it read `beta.3`. Bump
-   `scripts/dockerhub/verify-image.sh`'s `MILA_IMAGE` default with them, since it exists to run the
-   `#evaluate` commands and a stale default verifies the previous release. This is a `dev` commit
-   and publishes nothing; the site goes live at step 10, after the images it names.
+   BACKLOG / ROADMAP in the same commit. `master` is the branch a visitor lands on, so a missed
+   bump leaves the front page advertising the previous checkpoint for the whole next cycle — and a
+   procedure that misreports the last release is worse than one that says nothing. Two commands and
+   an audit cover it, below.
+   **Bump the sixteen version sites with one command:**
+   ```
+   python scripts/release/version_sites.py --set 0.20.0
+   python scripts/release/version_sites.py --check --expect
+   ```
+   Those sixteen are the QuickStart `GIT_TAG`s a reader copies
+   (`Mila/Samples/QuickStart/Cpp/CMakeLists.txt`, that sample's README including its `URL` archive
+   line, `getting-started.md` §7), the website's five (`Web/layouts/index.html`: the C++ tab's
+   `GIT_TAG` and its sample output, the `-devel` tag, and the `-runtime` tag in **both** `#evaluate`
+   commands), `scripts/dockerhub/overview.md`'s three, `verify-image.sh`'s `MILA_IMAGE` default, the
+   `README.md` status callout, and this document's "Last checkpoint tagged" line. Nothing derived
+   them and nothing checked them, which cost a downstream consumer a checkout failure against an
+   unreleased tag and once left the C++ tab pinned a checkpoint behind the output beside it. The
+   `version-sites-gate` CI job now asserts they agree with each other on every commit; `--expect`
+   is the stronger release-time assertion that they name *this* release. A site that moved makes the
+   script abort rather than skip — fix the pattern, never the file.
+   **The prose is separate, and is not bumped — it is rewritten.**
+   `python scripts/release/version_sites.py --audit-prose` lists the sentences a release can
+   falsify. At a **production** release that is most of them: "Mila is in public beta", the
+   *Current Status* heading, "Hardening through beta", and the site footer on every page. No pattern
+   can decide what those should say instead. This is a `dev` commit and publishes nothing; the site
+   goes live at step 10, after the images it names.
    **Clear any "not published yet" copy the release makes false** — today the `#p-docker` panel
    carries a flag saying both tags are local, and `getting-started.md` and `README.md` each carry a
    note calling the slim runtime image "planned". If step 9 then fails, nothing false has reached a
@@ -534,10 +540,13 @@ it came from anywhere but a public tag there is nothing for them to reproduce ag
    version in the release commit, then paste both into the repository's settings on Docker Hub. Never
    edit the page in the browser without the file: the file is the record.
 
-**No `latest`.** A bare `docker run toddthomson/mila-llm` resolves to it, so pointing it at a
-pre-release makes the beta the default for everyone who does not read the tag list. It starts
-existing at the first unsuffixed release and tracks the newest one's `-runtime`. The rule lives in
-`TARGETS`/the header comment of `publish-image.sh`; this is not an open decision.
+**No `latest` on a pre-release.** A bare `docker run toddthomson/mila-llm` resolves to it, so
+pointing it at a pre-release makes the beta the default for everyone who does not read the tag list.
+It starts existing at the first unsuffixed release and tracks the newest one's `-runtime`. This is
+not an open decision, and `publish-image.sh` now **enforces** it rather than stating it: the tag is
+added — as an alias of `<version>-runtime`, not a third build — only when the version carries no
+`-alpha.`/`-beta.`/`-rc.` suffix, and a pre-release run prints that it is leaving `latest` alone.
+**v0.20.0 is the release where it first exists**, so expect a third image in the push list.
 
 > **One-off for `v0.20.0-beta.3`:** `toddthomson/mila-llm:0.20.0-beta.3-runtime` is **already on
 > Docker Hub**, pushed 2026-08-31 from a dirty tree with the gates bypassed knowingly, to prove the

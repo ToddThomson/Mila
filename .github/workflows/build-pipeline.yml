@@ -38,6 +38,24 @@ jobs:
       - name: Verify NOTICE.md against CMake pins
         run: python3 scripts/dependencies/check_pins.py --verify-notice
 
+  version-sites-gate:
+    name: The release version is written consistently
+    # Sixteen hand-written sites name the last published release -- FetchContent GIT_TAGs a
+    # reader copies, image tags a reader runs, sample output beside them. None derive from
+    # Version.txt and nothing checked them: one went stale pointing a downstream consumer at
+    # an unreleased tag, and the website's C++ tab once pinned a checkpoint behind the output
+    # printed next to it. Offline, under a second, so it reports before any build starts.
+    #
+    # This asserts the sites agree with EACH OTHER, which is true on every commit. It does not
+    # assert they equal Version.txt -- mid-cycle they correctly name the last tag a reader can
+    # fetch, not the working version. The release procedure passes --expect for that.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify the release version is consistent across the tree
+        run: python3 scripts/release/version_sites.py --check
+
   doxygen-gate:
     name: Doxygen warnings are errors
     # The same run publish-site.yml does, without the deploy. That workflow is manual, so a
