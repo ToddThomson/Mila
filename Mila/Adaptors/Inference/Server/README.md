@@ -9,11 +9,10 @@ too. MIS loads by store name, so what it can serve is whatever is installed — 
 into it. The record's architecture chooses the session and the prompt template, so nothing has to
 be configured to match it.
 
-Qwen's prompt template and tool grammar come from the runtime, through the `mila` binding —
-`qwen_format_prompt`, `qwen_parse_tool_call`, `qwen_protocol_tokens`. MIS renders no Qwen template
-of its own, so it and the chat harness cannot send the same model different prompts. Gemma's
-grammar is still the Python `gemma_protocol` reimplementation; those are the two halves of one
-migration, not two designs.
+Gemma's and Qwen's prompt templates and tool grammars come from the runtime, through the `mila`
+binding — `gemma_format_prompt` / `gemma_parse_tool_call`, `qwen_format_prompt` /
+`qwen_parse_tool_call`, and their siblings. MIS renders no template of its own, so it and the chat
+harness cannot send the same model different prompts.
 
 ---
 

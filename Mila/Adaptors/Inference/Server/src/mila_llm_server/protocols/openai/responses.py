@@ -17,6 +17,14 @@ from mila_llm_server import gemma_bridge, qwen_bridge
 import mila
 
 
+def _as_function_call_item(call: dict | None) -> dict | None:
+    """A bridge's family-neutral call as a Responses function_call item; 'id' is per item, not a correlation key."""
+    if call is None:
+        return None
+
+    return {"type": "function_call", "id": f"fc_{uuid.uuid4().hex}", **call}
+
+
 class OpenAIResponsesAdapter(ResponsesCapable):
 
     @property
@@ -299,12 +307,19 @@ class OpenAIResponsesAdapter(ResponsesCapable):
         return build_instruct_prompt(user_message, system_block, merged[:-1], None)
 
     def parse_tool_call_from_text(self, text: str) -> dict | None:
-        """Expose the tool-call parser to the streaming factory path (family-aware)."""
+        """
+        The model's tool call as a Responses function_call item, or None (family-aware).
+
+        The Gemma and Qwen bridges are shared with the Anthropic adapter and return only the
+        family-neutral {'call_id', 'name', 'arguments'}. The item's own 'type' and 'id' are
+        Responses vocabulary, so they are added here, once, for both the streaming and the
+        buffered path.
+        """
         if loaded.family == ModelFamily.gemma:
-            return gemma_bridge.parse_tool_call(text)
+            return _as_function_call_item(gemma_bridge.parse_tool_call(text))
 
         if loaded.family == ModelFamily.qwen:
-            return qwen_bridge.parse_tool_call(text)
+            return _as_function_call_item(qwen_bridge.parse_tool_call(text))
 
         # Llama's bridge only. A family whose prompt carried no call syntax cannot have
         # emitted one, and running a parser over its prose can only produce a phantom.

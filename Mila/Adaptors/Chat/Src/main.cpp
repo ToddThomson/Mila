@@ -5,6 +5,7 @@
 #include <optional>
 #include <iostream>
 #include <fstream>
+#include <iterator>
 #include <filesystem>
 #include <format>
 #include <stdexcept>
@@ -275,6 +276,31 @@ static int requireIndex( std::string_view value, std::string_view flag )
     return parsed;
 }
 
+/**
+ * @brief The whole of a file, as one prompt.
+ *
+ * A command line holds about 32 KB on Windows, which is a fraction of what a long-context model
+ * accepts, so a prompt that exercises one cannot be typed as an argument at all.
+ *
+ * @throws UsageError when the file cannot be read, or holds nothing.
+ */
+static std::string readPromptFile( std::string_view path )
+{
+    std::ifstream file( std::filesystem::path( path ), std::ios::binary );
+
+    if ( !file )
+        throw UsageError( std::format( "--prompt-file: cannot read '{}'.", path ) );
+
+    const std::istreambuf_iterator<char> first( file );
+    const std::istreambuf_iterator<char> last;
+    std::string prompt( first, last );
+
+    if ( prompt.empty() )
+        throw UsageError( std::format( "--prompt-file: '{}' is empty.", path ) );
+
+    return prompt;
+}
+
 static CommandLine parseCommandLine( int argc, char* argv[] )
 {
     CommandLine line;
@@ -327,7 +353,18 @@ static CommandLine parseCommandLine( int argc, char* argv[] )
         }
         else if ( arg == "-p" )
         {
+            if ( line.one_shot )
+                throw UsageError( "-p and --prompt-file both name the prompt. Use one." );
+
             line.prompt = requireValue( argc, argv, i, arg );
+            line.one_shot = true;
+        }
+        else if ( arg == "--prompt-file" )
+        {
+            if ( line.one_shot )
+                throw UsageError( "-p and --prompt-file both name the prompt. Use one." );
+
+            line.prompt = readPromptFile( requireValue( argc, argv, i, arg ) );
             line.one_shot = true;
         }
         else if ( arg == "--output-format" )
@@ -361,6 +398,8 @@ static void printUsage( const char* prog_name )
     std::cerr
         << "Usage: " << prog_name << " [options]\n"
         << "\n"
+        << "  --prompt-file <path>   Answer the prompt held in this file and exit, for a prompt\n"
+        << "                         too long to pass as an argument. Not with -p.\n"
         << "  -p <prompt>            Answer one prompt and exit. The answer is the whole of\n"
         << "                         standard output, so it can be piped or redirected.\n"
         << "  --model <name>         Load this model, as 'mila models' lists it.\n"

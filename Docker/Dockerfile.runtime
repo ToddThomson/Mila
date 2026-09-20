@@ -133,7 +133,7 @@ RUN --mount=type=cache,target=/build,sharing=locked \
     && cmake --build /build --target mila-chat MilaPy mila -- -j "${MILA_BUILD_JOBS}" \
     && mkdir -p /out \
     && cp /build/mila-chat /out/mila-chat \
-    && cp /build/mila /out/mila \
+    && cp /build/bin/mila /out/mila \
     && cp -r /build/Prompts /out/Prompts \
     && cp /build/python/mila/_mila*.so /out/ \
     && mkdir -p /out/licenses/pybind11 /out/licenses/nlohmann_json /out/licenses/miniz /out/licenses/curl \

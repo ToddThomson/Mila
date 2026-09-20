@@ -38,10 +38,10 @@ leaderboards, model breadth, or ecosystem compatibility.
 The first production release ships **the runtime plus its two proven adaptors** — Chat and MIS —
 with the Definition's claims demonstrable: clone the repo, build it, load Gemma 4 12B FP4 on a
 12 GB card, chat through the harness, drive it from a foreign harness through MIS, and read the
-entire path from prompt to kernel with no hidden engine. Comprehensibility is part of the
-deliverable, not an aside: the release includes a guided reading path that lets a strong C++
-developer trace one token's journey (embed -> attend -> sample -> decode) through the actual
-source unaided.
+entire path from prompt to kernel with no hidden engine. The guided reading path that lets a
+strong C++ developer trace one token's journey (embed -> attend -> sample -> decode) through the
+actual source unaided is the first documentation after the release, not part of it
+(`Mila/Issues/Vnext.md`).
 
 **Explicitly post-release:** the Agentic adaptor, the extraction of the native agent core, and the
 *delivered* token-level splice. Token-level splice is decided as the direction (see Decided); it

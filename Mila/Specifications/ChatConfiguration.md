@@ -621,11 +621,12 @@ what a user types rather than for its build target.
 |---|---|---|
 | `--model` | store name or catalog alias | the name `install` accepted must work here |
 | `-p` | prompt text | one shot: answer, print, exit. Never interactive |
+| `--prompt-file` | path to a text file | the same one shot, for a prompt past the ~32 KB a Windows command line holds. Refuses to pair with `-p` |
 | `--settings` | path to a JSON file | replaces `--config`; layer 6 of §3, not layer 4 |
 | `--context-length` | integer or `auto` | spelled as the key it overrides |
 | `--device` | integer, 0 or more | the CUDA ordinal; spelled as the key it overrides |
 | `--system-prompt` | name or path | resolved against the working directory, per §8 |
-| `--output-format` | `text` (default) or `json` | meaningful only with `-p` |
+| `--output-format` | `text` (default) or `json` | meaningful only in one shot (`-p` or `--prompt-file`) |
 | `--version` | — | |
 | `--help`, `-h` | — | |
 

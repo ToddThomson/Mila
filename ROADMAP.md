@@ -245,17 +245,15 @@ binary either current or pinned with the reason written down.
 
 The other half of hardening, and the one that decides whether someone stays. A consumer's first
 contact is a build against their own translation unit; a contributor's is a tree they have to find
-their way into. Mila's positioning is the stack you can *read*, so a reader arriving with no map is
-a failure of the claim rather than a gap in the docs. Portability belongs here too: the compiler and
+their way into. Mila's positioning is the stack you can *read*, so how a reader finds their way in
+is part of the claim rather than a gap in the docs. Portability belongs here too: the compiler and
 platform matrix is a property of the source a consumer builds, not of anything Mila ships.
 
 **Success criteria:** an external consumer builds against Mila via FetchContent, with the MSVC
 module-consumption defect documented at the point of use and pinned by a gate that compiles a real
 consumer translation unit — so the workarounds it forces are visible, bounded, and will report the
 day they stop being needed; the Linux/clang build is a first-class, CI-compiled and WSL-tested
-platform; contributor onboarding
-(`CONTRIBUTING.md`, `getting-started.md`, a guided reading path through one token's journey)
-complete; the public export surface frozen at the narrowest defensible umbrella; a missing dispatch
+platform; contributor onboarding (`CONTRIBUTING.md`, `getting-started.md`) complete; the public export surface frozen at the narrowest defensible umbrella; a missing dispatch
 specialization reads as a sentence, not a constraint cascade. GPU-first: the CUDA backend is the
 validated inference path; full CPU op parity is not a gate.
 

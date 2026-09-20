@@ -61,6 +61,17 @@ RUN wget -q https://github.com/Kitware/CMake/releases/download/v4.2.3/cmake-4.2.
     && tar --strip-components=1 -xz -C /usr/local -f cmake-4.2.3-linux-x86_64.tar.gz \
     && rm -f cmake-4.2.3-linux-x86_64.tar.gz
 
+# clang-21 installs only versioned names, so the generic `clang`/`clang++` the linux-clang-*
+# presets name would not exist, and a bare `cmake` would pick the distro's c++ (GCC 15.2, which
+# cannot compile the module units). The alternatives give the presets their names; CC/CXX make
+# clang the default for any configure that names no compiler, and CUDAHOSTCXX keeps nvcc on gcc-15.
+RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 100 \
+    && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-21 100
+
+ENV CC=clang
+ENV CXX=clang++
+ENV CUDAHOSTCXX=gcc-15
+
 ENV CUDA_HOME=/usr/local/cuda
 ENV PATH=${CUDA_HOME}/bin:${PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}

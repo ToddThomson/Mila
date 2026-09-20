@@ -116,6 +116,8 @@ Source files use `.ixx` for C++23 module interface units and module partitions. 
 
 Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend specializations while keeping a single aggregator module. Example: `OperationTraits.ixx` re-exports `OperationTraits.Template.ixx` + `:Cuda` + `:Cpu`.
 
+**One module per file, one type per module.** A module file exports exactly one class, struct, enum, union or concept; a type nested inside that class is part of it. The one exception is internal detail that needs its own impl-only module — a partition such as `Gemma.Block.Workspace.ixx`. Two types are two `.ixx` files in the same directory, two `FILE_SET` entries, and two `export import` lines in `Mila.ixx`; never a combined file to keep the diff small. Files that predate the rule are tracked in `Mila/Issues/Vnext.md`; every new file follows it.
+
 ---
 
 ## Code Style

@@ -423,6 +423,33 @@ correctly and describes the pre-`OperationTraits` design, on the API a consumer 
 There is no bounded worklist, which is why it is not release work. It is cleared opportunistically —
 a file's prose gets fixed while the file is already open for another reason.
 
+## There is no guided reading path through the source
+
+`docs`
+
+Mila's positioning is the stack you can read, and nothing shows a reader where to start. One token's
+journey — embed, attend, sample, decode — through the real source, followable by a strong C++
+developer unaided. Moved out of v0.20 at `+25`; the ROADMAP criterion and `MilaProductFamily.md`'s
+release boundary were narrowed in the same commit.
+
+Shape proposed then: Llama 3.2 3B, BF16, CUDA, the plainest architecture, with short detours to
+where Gemma, Qwen and FP4 differ. About ten stops from QuickStart through `LlamaModel::load`,
+tokenizer, `TokenEmbedding`, the block, `Linear`'s `OperationTraits` dispatch, lm_head, sampler,
+decode loop and detokenize. Link file plus symbol, never `file:line`. Validate by handing it to a
+reader with no context. No anchor: the finding is an absence.
+
+## Counting a prompt's tokens needs Python
+
+`api` · `tokenizer`
+
+A C++ user asking whether a prompt fits the context has no command for it. `Mila/Tools/Tokenize`
+trains and applies its own `--vocab` file and cannot take a store name; the `mila` CLI has
+`install`, `models`, `serve` and `help`. The binding answers it in one line --
+`BpeTokenizer.from_store( name ).encode( text )` -- so the library already carries the capability
+and only the C++ surface lacks it. A `mila tokens <name> <file>` verb in `Mila/Tools/Cli`, printing
+the count, is the shape. Found while measuring prefill rates, where the prompt length had to be
+established before any rate meant anything.
+
 ## One template parameter, two spellings
 
 `api` · `docs` · `mila-src`
@@ -436,6 +463,22 @@ of them specifications.
 `TWeightQuantization` is part of `Linear`'s public template signature, so a consumer meets both
 spellings of one axis. Not a blind sweep — `GroupedQueryAttention.ixx` and `CudaRopeOp.ixx` use
 both. Same files throughout, so it is one pass.
+
+## Forty-six module files export more than one type
+
+`architecture` · `adaptors` · `binding` · `mila-src`
+
+CLAUDE.md requires one exported type per module file, and 46 of 367 `.ixx` files predate the rule
+— about 105 new files to split fully (2026-09-19): `Mila/Src` 33 files (~60), Chat 8 (25), Bindings
+1 (16, all in `Mila_py.Wrappers.ixx`), Tools 2 (4). `Metal`/`Rocm` `MemoryResource` define one
+type twice across `#if`/`#else` and are not violations.
+
+Src shapes: a class plus its request/result structs (`ModelStore` has nine types); an enum beside
+the one class it configures (`Logger` + `LogLevel`, eight files); families of one idea
+(`Weight/Policies`, `LearningRateScheduler`); four `*Registrar` pairs, which should be deleted with
+the registrar pattern rather than split. Qwen's two blocks define their workspace inline where
+Gemma uses a partition. Ruling needed first: whether an enum used by exactly one class counts as
+that class's internal detail — it moves Src between ~25 and ~60 new files.
 
 ## The wider `Tensors/` tree has no coverage beyond `Tensor` itself
 

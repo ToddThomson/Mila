@@ -38,50 +38,5 @@ never committed.
 
 ## Current release (v0.20.0)
 
-### Packaging & Distribution
-
-#### The dev container has not been shown to build the bind-mounted tree
-
-`in progress` · `build`
-
-`getting-started.md` §4 tells a reader to configure and build under `/mila`, the repository bind
-mount. Validated on a clang-21 + gcc-15 host at CUDA 13.3 into a container-local directory only. The one
-known failure there was CUTLASS's clone step, and CUTLASS is no longer fetched. Runs during the
-v0.20.0 release, alongside the consumer builds.
-
----
-
-### Consumer & Contributor Surface
-
-#### There is no guided reading path through the source
-
-`open` · `docs`
-
-Mila's positioning is the stack you can read, and nothing shows a reader where to start. One token's
-journey — embed, attend, sample, decode — through the real source, followable by a strong C++
-developer unaided. No anchor: the finding is an absence.
-
----
-
-### Model Distribution
-
-#### The published model cards tell users to run `/install` and `/models`, which Chat does not have
-
-`open` · `distribution` · `docs`
-
-Chat's commands are `/model install <name>`, `/model load <name>` and `/model list`. The card
-sources in the repository are correct; the live copies on huggingface.co only change when a model is
-re-published, and they are what a new user reads *before* they have Mila at all. Fold the card
-refresh into the next publish of each: `Mila/Tools/ExportArtifact/ModelCards/`.
-
----
-
-### Product Family — Adaptor Validation
-
-#### Codex CLI has not been driven against Gemma's reconciled tool grammar
-
-`open` · `gemma` · `adaptors`
-
-The Codex CLI round-trips the release criterion names were validated before the native grammar was
-reconciled to Google's canonical template. Re-run plain-chat, single-tool and tool-result-resume
-through MIS against the current grammar.
+Empty. Every item committed to v0.20.0 has shipped; what remains is the release itself
+([RELEASING.md](RELEASING.md)). Findings that arrive now go to [`Mila/Issues/`](Mila/Issues/README.md).

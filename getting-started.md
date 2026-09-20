@@ -138,6 +138,9 @@ The steps below target a recent Ubuntu (24.04 or 26.04) with CUDA through WSL.
    sudo apt-get update
    sudo apt-get install -y build-essential ninja-build git wget ca-certificates cmake libssl-dev
    sudo apt-get install -y clang-21     # compiles the module units; see the matrix above
+   # clang-21 installs only versioned names; the linux-clang-* presets use `clang` / `clang++`
+   sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 100
+   sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-21 100
    ```
    `libssl-dev` is curl's, not Mila's: `MILA_ENABLE_LIBCURL` defaults ON, and on Linux the
    vendored libcurl takes TLS from the system OpenSSL (`CURL_USE_SCHANNEL` is Windows-only),
@@ -174,9 +177,14 @@ cmake -S . -B out/build/x64-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DMILA_E
 # Build
 cmake --build out/build/x64-release
 
-# Run the full test suite
-ctest --test-dir out/build/x64-release
+# Run the test suite (one binary, MilaTests.exe on Windows; --gtest_filter=<pattern> narrows it)
+./out/build/x64-release/Mila/Tests/MilaTests
 ```
+
+`ctest --test-dir out/build/x64-release` runs the same tests and adds the separate
+`ChatRichTextTests` binary, which is what CI and the release gates use. It runs each test in its
+own process, so it takes several times longer than the binary above — every GPU test pays for a
+fresh CUDA context and reloads its weights.
 
 On Linux, point CMake at both compilers and the CUDA toolkit explicitly. This is what CI and the
 dev container run — clang-21 for the module units, gcc-15 as nvcc's host, CUDA 13.3:
@@ -257,10 +265,14 @@ end of this section.)
 docker compose -f Docker/docker-compose.yml run --rm mila-dev
 
 # Inside the container:
-cmake -S . -B out/build/linux-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DMILA_ENABLE_TESTING=ON
-cmake --build out/build/linux-release
-ctest --test-dir out/build/linux-release
+cmake --preset linux-clang-release
+cmake --build out/build/linux-clang-release
+./out/build/linux-clang-release/Mila/Tests/MilaTests
 ```
+
+The preset selects clang for the module units and gcc-15 for nvcc, and builds the library for
+every supported GPU generation. For a faster build that targets only your card, add
+`-DMILA_LIBRARY_CUDA_ARCHITECTURES=89` (Ada) or `=120` (Blackwell) to the first command.
 
 VS Code users can **Reopen in Container** — `.devcontainer/` wires up the compose service,
 GPU access, the repo mount, and the C/C++ / CMake Tools / clangd extensions.

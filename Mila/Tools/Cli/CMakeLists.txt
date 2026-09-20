@@ -16,8 +16,11 @@ PUBLIC
         "Cli.ixx"
 )
 
+# Not the build root: CMake's own subdirectory for Mila/ sits there, and on a case-insensitive
+# filesystem -- a Windows bind mount into the dev container, or macOS -- `mila` and `Mila/` are
+# the same name, so the link fails with "cannot open output file mila: Is a directory".
 set_target_properties( mila PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
 target_link_libraries( mila PRIVATE

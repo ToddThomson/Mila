@@ -515,10 +515,12 @@ namespace Mila::ChatApp
         void emitOneShotJson( const std::string& answer, std::ostream& answer_out ) const
         {
             int tokens = 0;
+            float prefill_ms = 0.0f;
 
             for ( const RoundStats& round : last_turn_rounds_ )
             {
                 tokens += round.tokens_generated;
+                prefill_ms += round.prefill_time_ms;
             }
 
             nlohmann::json payload;
@@ -530,6 +532,10 @@ namespace Mila::ChatApp
             // no context and got 83968 has the same right to know why as a reader of the banner.
             payload[ "context_source" ] = config_.context_is_automatic ? "auto" : "configured";
             payload[ "tokens_generated" ] = tokens;
+
+            // The interactive session reads this off /stats; a scripted caller measuring a prompt
+            // has only wall time without it, which carries the model load and the tokenizer too.
+            payload[ "prefill_ms" ] = prefill_ms;
             payload[ "rounds" ] = last_turn_rounds_.size();
             payload[ "finish_reason" ] = finishReasonName( finishStatus() );
 
