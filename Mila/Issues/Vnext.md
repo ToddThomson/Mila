@@ -135,6 +135,23 @@ per-process counters Task Manager reads, `\GPU Process Memory(pid_N*)\Dedicated 
 `\Shared Usage`. `MemoryFootprint.md` exists to answer "will this model fit" and does not yet say
 which counter to trust.
 
+**Gate B's residual bound fails in the dev container, and points at driver rounding.** Both families
+on the 5060 Ti at context 8192: Gemma predicted 8.314 GiB against 8.604 consumed, residual
+**0.290 GiB**; Llama predicted 9.811 against 10.078, residual **0.267 GiB**. The bound is 64 MiB.
+What fails is only that bound — `predicted == reported` and `predicted <= consumed` both hold, so
+the Models criterion (a reported footprint matching what a load allocates) is not what broke. Both
+residuals sit at the rounding magnitude `MemoryFootprint.md` §11.8 records for Gemma 4 12B (0.27 GiB
+at 1024 rows), and §11.10 flags Linux driver rounding as the one thing in that rule never measured.
+First step is one reading: what `cuMemGetAllocationGranularity` returns in the container, against
+the 2 MiB both Windows cards report. If it is coarser, the prediction is low by construction and the
+bound is innocent.
+
+Two things make this weaker evidence than it looks. The bound is **skipped whenever every visible
+CUDA device drives a display** (`GemmaModel.Footprint.Cuda.cpp:290`), so a green Windows run may
+never have executed it and the container may be the first place it ever ran. And Docker Desktop is
+WSL2-backed, which reaches the GPU through the Windows driver — §11.10 rules WSL2 out as a stand-in
+for native Linux, so this is not the native-Linux number that section is waiting for.
+
 ## The Gemma parity script compares two different precisions and calls it parity
 
 `gemma`
@@ -776,8 +793,12 @@ Moves together (RELEASING.md, toolkit paragraph): `$cudaVersion` in
 `CONTRIBUTING.md:46`, `:58`, `:85`, `Docker/README.md:15`, `:20`, `Web/content/start.md:15`,
 `RELEASING.md:382`.
 
-Consequences to carry into the work. Wheel users see nothing (the `nvidia-*` dependencies and minor
-version compatibility). Image users' driver floor rises: the base image's `NVIDIA_REQUIRE_CUDA`
+Consequences to carry into the work. Wheel users see nothing — the `nvidia-*` dependencies and
+minor version compatibility, and this is now checked rather than assumed: a 13.3-built wheel loads
+and generates correctly against the `>=13.0` floor those dependencies declare, on Windows
+empirically and on Linux by symbol (`RELEASING.md`, *What the declared toolkit is not*). Moving the
+build to 13.4 does not disturb that, but re-check the floor if the cuBLASLt surface grows. Image
+users' driver floor rises: the base image's `NVIDIA_REQUIRE_CUDA`
 becomes `cuda>=13.4`, and the container toolkit refuses a GeForce driver below it. Every local build
 directory is configured against v13.3 while `CUDA_PATH` names v13.4 (13.4.1 installed), so a fresh
 configure already drifts — reconfigure all of them deliberately. Published tok/s figures and the
@@ -887,3 +908,19 @@ Google's multi-turn rule is to strip thoughts from *prior* turns and keep the cu
 leading run, so a model working through a multi-step tool sequence starts each step without the
 reasoning that led to it. Moved out of v0.20 at `rc.1+24` (Todd): a behaviour change inside Gemma's
 protocol is too late in the cycle.
+
+## A malformed Gemma tool call parses as a call with no arguments instead of failing
+
+`gemma` · `mila-src`
+
+`parseArguments` (`Gemma.Protocol.ixx:480`) breaks out of its loop at the first key not followed by
+`:` and returns what it has accumulated, so a partial parse is indistinguishable from a call that
+genuinely took no arguments. Seen driving Codex through MIS: the model emitted
+`call:exec_command{cmd="cat line_count.txt"}` — `=` and plain quotes, off the trained grammar — and
+`gemma_parse_tool_call` returned `{'name': 'exec_command', 'arguments': '{}'}`. Codex rejected the
+empty call and the model retried correctly, so that flow recovered; a client that executes `{}`
+would not. Qwen's bridge treats a malformed call as prose, which is the behaviour to match.
+
+Held for the same reason as the entry above (`rc.1+24`): a behaviour change inside Gemma's protocol
+is too late in this cycle. `Chat.ToolCallParser.ixx`'s over-eager `[` test in `Contributor.md` is
+the same failure shape in the adaptor rather than the library.

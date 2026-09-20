@@ -585,6 +585,12 @@ cannot differ, and a non-Gemma reasoning model reads as having no channel.
 `instruct` is already record-declared and proves the pattern, and the manifest tolerates unknown
 fields, so this is additive. Do it before the next chassis threads a second switch.
 
+What the endpoint reports is thin enough that a client notices: Codex 0.142.5 warns "Model metadata
+for `gemma-4-12b-it-fp4` not found. Defaulting to fallback metadata" even with its model set to
+exactly the id `/v1/models` returns, and July's note that matching the id cleared it no longer
+holds. All three validated flows pass regardless and what the fallback costs on a longer run is
+unmeasured, so this is a symptom of the same gap rather than separate work.
+
 ## A session cannot move cards without restarting
 
 `adaptors`

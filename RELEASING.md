@@ -397,6 +397,29 @@ script asserts that and leaves the minor as a declaration. Do not reach for this
 question about what hardware or software a user must have — that answer lives in
 `getting-started.md` and in the architecture list, not here.
 
+**The `>=13.0` floor is verified, not assumed, and the clean room cannot verify it.**
+`verify_wheel_cleanroom.py` installs the wheel and lets pip resolve the newest satisfying
+`nvidia-*` — 13.8.0.4 at the time of writing — so the floor is never the version under test. It was
+checked directly against the `0.20.0b3` wheels, built on CUDA 13.3 and declaring the same
+dependency floors as `pyproject.toml` does today; a rebuild that changes the CUDA symbol surface
+invalidates the check rather than the conclusion:
+
+- **Windows**, empirically. A clean 3.13 venv with `nvidia-cublas==13.0.0.19` and
+  `nvidia-curand==10.4.0.35` imports, and `Llama-3.2-3B-Instruct-fp4` generates greedily
+  token-for-token identically to the same venv at 13.8.0.4. The loaded DLLs were confirmed to be the
+  site-packages copies, not the machine's toolkit — which is what `_register_cuda_libraries`
+  preloading the wheel's copies buys.
+- **Linux**, by symbol. All 49 CUDA symbols the extension leaves undefined are exported by the 13.0
+  libraries, and all four version nodes it requires (`libcudart.so.13`, `libcublas.so.13`,
+  `libcublasLt.so.13`, `libcurand.so.10` — NVIDIA versions by SONAME, stable across 13.x) are
+  defined there. Not run end to end: the manylinux wheel is cp312/cp313 and the WSL distribution
+  carries only 3.14.
+
+The risk this retires is a wheel that is immutable once uploaded declaring a floor nothing had
+loaded. Re-check it when the cuBLASLt surface grows — the thirteen `cublasLt*` entry points are the
+part most likely to acquire a newer one. `nvidia-cuda-nvrtc` arrives transitively as
+`nvidia-cublas`'s own dependency and needs no declaration here.
+
 **A PyPI upload cannot be undone.** Release metadata is immutable and a filename can never be reused,
 so a wheel published before it was verified stays wrong until the *next* release — which is exactly
 how the live page came to advertise Linux while shipping only `win_amd64`. That is what the TestPyPI

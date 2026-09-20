@@ -1324,7 +1324,14 @@ less counts as its size.
   allocation granularity. `cuMemGetAllocationGranularity` returned 2 MiB on both cards.
 - **Size:** across the models tested the rounding is 0.02 GiB (Llama 3.1 8B at 512 rows) to 0.73 GiB
   (Qwen 3.8 cb2-3), and it moves with the chunk: Gemma 4 12B is 0.27 GiB at 1024 rows and 0.40 GiB at 64.
-- **Not measured:** Linux, and other driver versions.
+- **Not measured:** Linux, and other driver versions. One reading exists and is not it: the dev
+  container on the 5060 Ti at context 8192 left an unmodelled residual of **0.290 GiB** on Gemma 4
+  12B FP4 (predicted 8.314 against 8.604 consumed) and **0.267 GiB** on Llama (9.811 against
+  10.078), against the 64 MiB Phase 6 step 3 bound. Both sit at the rounding magnitude in the table
+  below, which is what makes rounding the first hypothesis — but Docker Desktop is WSL2-backed and
+  11.10 rules WSL2 out as a stand-in for native Linux, so this measures the Windows driver without
+  the display budget rather than the Linux one. The reading that would settle it is what
+  `cuMemGetAllocationGranularity` returns there, against the 2 MiB both Windows cards report.
 
 **Measured 2026-09-15** on the RTX 5060 Ti, which drives no display. Every device allocation site was logged
 by temporary code, since removed. The allocations live after a load and a full-chunk prefill were replayed

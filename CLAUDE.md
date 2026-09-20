@@ -200,15 +200,21 @@ later. **Never write a finding straight into `BACKLOG.md`.**
     it never ships. If you cannot name one it belongs in `Mila/Issues/`. Membership in this file
     *is* the claim that the item blocks the release, so an unearned item makes the claim worthless
     for every other item too.
-  - **An item is three lines** — what, why it matters, `file:line`. Five if genuinely complex.
-  - **Status lives in the checkbox**, `[ ]` open or `[~]` in progress, and never in the prose. No
-    dates, no "GREEN", no findings, no measurement tables. **Disposition is a file in
-    `Mila/Issues/`, not a tag** — parked is `Future.md`, good-first-issue is `Contributor.md`.
-  - **Done means deleted**, in the same commit as the work. `[x]` is a **working-tree marker only** —
+  - **An item is a `####` heading that reads cold**, then a metadata line, then a body ending in an
+    anchor. The heading states the problem in no term that exists only inside Mila; the body carries
+    whatever detail the work needs, and says so plainly when the finding is an absence rather than a
+    location.
+  - **Status lives in the metadata line** — `open`, `in progress` or `done`, then area tags from
+    [Tags.md](Mila/Issues/Tags.md) — and never in the prose. No dates, no "GREEN", no findings, no
+    measurement tables. **Disposition is a file in `Mila/Issues/`, not a tag** — parked is
+    `Future.md`, good-first-issue is `Contributor.md`.
+  - **Done means deleted**, in the same commit as the work. `done` is a **working-tree marker only** —
     it makes finished items visible while the change is reviewed, and the commit that lands the work
-    deletes them. **No `[x]` is ever committed.** The commit that landed the work is the record; a
+    deletes them. **No `done` is ever committed.** The commit that landed the work is the record; a
     finding worth reusing goes to the owning spec or to memory.
-  - **Past ~300 lines it has stopped being a task list** and needs a prune.
+  - **The gate is the entry count, and it only goes down.** A release in flight burns down, so an
+    addition is paired with a removal or it is a deliberate admission that scope grew. Past roughly
+    forty entries this is a wishlist, not a release.
 - **`Mila/Issues/`** — everything upstream of that commitment; the funnel and its categories, with
   the flow and the rules in [`Mila/Issues/README.md`](Mila/Issues/README.md). `Untriaged.md` is
   untriaged capture, one line per entry, and is **lossy by design**: an entry still there at the
