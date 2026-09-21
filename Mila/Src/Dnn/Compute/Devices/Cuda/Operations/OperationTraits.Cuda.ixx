@@ -34,6 +34,8 @@ import Compute.CudaLpeOp;
 import Compute.CudaTokenEmbeddingOp;
 import Compute.CudaSoftmaxCrossEntropyOp;
 import Compute.CudaSamplingOp;
+import Compute.CudaRouterOp;
+import Compute.CudaMoeOp;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 
@@ -438,6 +440,40 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::SamplingOp, DeviceType::Cuda, TensorDataType::BF16, void>
     {
         using type = Cuda::Sampling::CudaSamplingOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // RouterOp -- CUDA specializations (logit precision; INT32 expert indices)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::RouterOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Routing::CudaRouterOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::RouterOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Routing::CudaRouterOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // MoeOp -- CUDA specializations (op template on the gate functor)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::MoeOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        template<typename TFunctor, typename TWeightQuantization = NoWeightQuant>
+        using op_for = Cuda::Moe::CudaMoeOp<TensorDataType::FP32, TFunctor, TWeightQuantization>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::MoeOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        template<typename TFunctor, typename TWeightQuantization = NoWeightQuant>
+        using op_for = Cuda::Moe::CudaMoeOp<TensorDataType::BF16, TFunctor, TWeightQuantization>;
     };
 
 }  // namespace Mila::Dnn::Compute

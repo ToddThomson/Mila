@@ -136,7 +136,7 @@ requires the sqrt(d) scale-move (D5), which mandates the re-convert.
 
 | File | Change |
 |------|--------|
-| `Mila/Src/Dnn/Serialization/PretrainedReader.ixx` | Add `bool tie_word_embeddings` to `PretrainedMetadata`; parse from JSON |
+| `Mila/Src/Dnn/Serialization/WeightsReader.ixx` | Add `bool tie_word_embeddings` to `WeightsMetadata`; parse from JSON |
 | `Mila/Src/Dnn/Components/Embeddings/TokenEmbedding.Config.ixx` | Add `float embedding_scale_` (default 1.0) with fluent setter and getter |
 | `Mila/Src/Dnn/Components/Embeddings/TokenEmbedding.ixx` | `wte_` from `unique_ptr` to `shared_ptr` (leave `wte_grad_`); add `getWeightTensorShared()`; apply `embedding_scale` in `forward` when scale != 1.0 |
 | `Mila/Src/Dnn/Components/Linear/Linear.ixx` | Add `installSharedWeight()` (`weight_` is already `shared_ptr`) |
@@ -160,7 +160,7 @@ Llama 3.1 8B is untied in HF — no change (D6).
 
 ## 5. Component-Level Change Detail (Gemma target)
 
-### 5.1 `PretrainedMetadata` — `PretrainedReader.ixx`
+### 5.1 `WeightsMetadata` — `WeightsReader.ixx`
 
 Add one field after `use_bias`:
 
@@ -305,9 +305,9 @@ The body below is the generic transformer load pattern (Llama uses the identical
 one — §6.1); only the surrounding class differs:
 
 ```cpp
-void loadParameters( PretrainedModelReader& reader )
+void loadParameters( WeightsReader& reader )
 {
-	const auto& metadata = reader.getPretrainedMetadata();
+	const auto& metadata = reader.getWeightsMetadata();
 	tie_word_embeddings_ = metadata.tie_word_embeddings;
 
 	const int device_index = this->getExecutionContext()->getDeviceId().index;
@@ -465,10 +465,10 @@ same data -- exact equality).
 
 ### 7.3 `GemmaTransformer.Cuda.cpp` — full load-tie round-trip (DEFERRED)
 
-The intended test synthesizes a small pretrained artifact (two layers, small
+The intended test synthesizes a small weights file (two layers, small
 vocab and dim) with `tie_word_embeddings: true` and `lm_head.weight` absent, then
 after `loadParameters` asserts the shared pointer identity and the no-double-count
-`getMemoryStats`. **Deferred** (2026-07-01): `PretrainedModelReader` is mmap/file-
+`getMemoryStats`. **Deferred** (2026-07-01): `WeightsReader` is mmap/file-
 only with no C++ writer (the checkpoint writer is Python-only, `Tools/.../common.py`),
 and `GemmaTransformer::token_embedding_` / `lm_head_` are private. A byte-exact
 test-local writer would be brittle scaffolding against an undocumented format.
@@ -503,7 +503,7 @@ inference numerics. Gated with the deferred Llama follow-up.
 
 Gemma target:
 
-1. Add `tie_word_embeddings` to `PretrainedMetadata` and parse it — zero
+1. Add `tie_word_embeddings` to `WeightsMetadata` and parse it — zero
    behavioral change until the flag is `true`.
 2. Add `embedding_scale` to `TokenEmbeddingConfig`; apply in
    `TokenEmbedding::forward`. Unit-test the scale path (§7.1).

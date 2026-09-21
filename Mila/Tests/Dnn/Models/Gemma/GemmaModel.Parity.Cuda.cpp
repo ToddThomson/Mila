@@ -3,12 +3,12 @@
  * @brief HuggingFace token-for-token greedy parity test for GemmaModel (Step 5f).
  *
  * The end-to-end correctness oracle for the Gemma 4 dense chassis: loads the
- * converted checkpoint via GemmaModel::fromPretrained and asserts that greedy
+ * converted checkpoint via GemmaModel::load and asserts that greedy
  * decode reproduces the HuggingFace reference token-for-token. The reference is
  * captured ONCE from the HF run and hardcoded here (the same pattern the tokenizer
  * suite uses for its HF ground truth):
  *
- *   python Dev/Scripts/gemma_4_BF16/hf_gemma_greedy_validation.py
+ *   python Mila/Tools/Converters/Gemma/gemma_4_BF16/hf_gemma_greedy_validation.py
  *
  * and paste its "kPromptIds = {...}" / "kExpectedGen = {...}" lines below. The
  * tokenizer is validated separately (BpeTokenizerGemma), so feeding the reference
@@ -81,7 +81,7 @@ namespace Mila::Tests::Dnn::Models
             if ( kPromptIds.empty() || kExpectedGen.empty() )
             {
                 GTEST_SKIP() << "Populate kPromptIds / kExpectedGen from "
-                                "Dev/Scripts/gemma_4_BF16/hf_gemma_greedy_validation.py output.";
+                                "Mila/Tools/Converters/Gemma/gemma_4_BF16/hf_gemma_greedy_validation.py output.";
             }
 
             checkpoint_ = gemma_checkpoint_path();
@@ -103,7 +103,7 @@ namespace Mila::Tests::Dnn::Models
         auto model_config = GemmaModelConfig( static_cast<dim_t>( kContextLength ) )
             .withFP4Quantization();
 
-        auto model = GemmaCudaBf16::fromPretrained(
+        auto model = GemmaCudaBf16::load(
             checkpoint_, model_config, DeviceId{ DeviceType::Cuda, 0 } );
 
         // temperature 0 + top_k 1 -> greedy argmax on the device sampler.

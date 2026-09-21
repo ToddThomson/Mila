@@ -45,10 +45,20 @@ buckets one level up and reproduce its failure mode.
 
 The line between those two is the only judgement the split asks for. "We mean to do this next
 cycle" is `Vnext.md`; "someday, if the hardware or the reason arrives" is `Future.md`.
-- **`Contributor.md`** — good-first-issue shaped. The outbound queue: these are what get mirrored
-  *to* GitHub Issues with a label when someone asks how to help.
 - **`Declined.md`** — considered, not doing, with the reason. Cheaper than rediscovering the
   argument.
+
+**There is no file for work to hand to a contributor, and there is not going to be one.** An item
+worth offering is filed on GitHub with the `good first issue` label, by the triage pass that decided
+it — one step, not a local queue that drains into one. The queue that existed held 21 entries and
+released 2 in two months, and what stayed behind was dead code, stale anchors and doc rot, because
+writing to a file has no audience and the bar drifts with nobody to meet. The filing *is* the test:
+would this go in front of someone who has never seen the repository. A list built from the
+project's own janitorial debt answers that question badly on the project's behalf.
+
+Size is not a category either. An item that happens to be small is a small item in whichever file
+its disposition puts it — the same reasoning [`Web/Issues/README.md`](../../Web/Issues/README.md)
+already applies to the website.
 
 ## The entry format
 
@@ -69,7 +79,6 @@ Only the metadata line differs by file, because only its question differs:
 | `Untriaged.md` | `<anchor> @ <sha>` — where to find it | what you were doing when you noticed |
 | `Vnext.md` | tags | what it is and why |
 | `Future.md` | tags | what it is and why |
-| `Contributor.md` | tags | what it is and why |
 | `Declined.md` | tags | the reason, and the measurement behind it |
 
 The heading is what makes a file navigable — an editor's outline pane and the markdown TOC both key
@@ -125,3 +134,11 @@ pointer to it** — one line, an issue number, no substance copied. That keeps G
 for items with a person waiting, and it makes the lossiness safe: deleting a pointer destroys
 nothing, because the issue is still open with its thread and its reporter intact. A self-found
 note may evaporate; a user's report may not.
+
+**Outbound, GitHub is the whole mechanism.** Work offered to a contributor is filed there and
+lives there — a labelled issue can be claimed, discussed and closed against a person, none of which
+a markdown file can do. What earns the label is capability the library is missing, not tidying the
+library needs: [#21](https://github.com/ToddThomson/Mila/issues/21) and
+[#22](https://github.com/ToddThomson/Mila/issues/22) are the shape. Beyond those,
+[`BACKLOG.md`](../../BACKLOG.md) and [`ROADMAP.md`](../../ROADMAP.md) are what a contributor reads
+to find the work that moves the release, and neither needs a copy kept here to be readable.

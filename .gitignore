@@ -23,8 +23,8 @@ Data/**/*.exe
 *.bin
 *.safetensors
 
-# Manifests emitted beside exported weights. Derived from the bytes by
-# --emit-manifest; the publishable copy is tracked under Tools/ExportArtifact/ModelCards.
+# Manifests emitted beside exported weights. Derived from the bytes by --emit-manifest or
+# ExportArtifact --package; the package's copy is the one published, and none is tracked.
 Data/Models/**/mila.json
 
 # Visual Studio scratch directory.
@@ -64,6 +64,9 @@ mono_crash.*
 [Dd]ebugPublic/
 [Rr]elease/
 [Rr]eleases/
+# ...but scripts/release/ is source, not a build directory. Git will not look inside an
+# excluded directory, so the directory itself has to be re-included, not the files in it.
+!scripts/release/
 x64/
 x86/
 [Ww][Ii][Nn]32/
@@ -442,6 +445,9 @@ FodyWeavers.xsd
 # cmake/MilaVersion.cmake). Committing it would recreate the hand-maintained copy that
 # this derivation exists to remove. Same for MIS, which ships as mila-llm-server.
 /Mila/Bindings/Package/VERSION
+# The licence texts of the code linked into the wheel, staged by the same configure from
+# the fetched sources at their pinned versions.
+/Mila/Bindings/Package/third_party_licenses/
 /Mila/Adaptors/Inference/Server/VERSION
 /.claude/settings.local.json
 

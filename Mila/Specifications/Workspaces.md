@@ -49,7 +49,7 @@ to remove it.
 
 ### 2.2 Attention transient sharing
 
-`QwenGqaWorkspace` (`Qwen.AttentionBlock.ixx:226`).
+`GqaWorkspace` (`Compute.GqaWorkspace`), used by Qwen and Gemma.
 
 Structurally the same idea as mechanism 1 -- a transformer-owned struct of tensors,
 one set shared across a sequentially-executed stack -- but it holds attention
@@ -57,26 +57,25 @@ internals rather than component outputs, and it is reached by a different path. 
 exposes `state()`, which flattens to the `GqaState` struct of raw pointers the kernels
 take, and `deviceStorageBytes()` for the transformer's own accounting. Its factory
 takes `score_width` explicitly so a caller cannot allocate for the flash path and then
-run the cuBLASLt one.
+run the cuBLASLt one, and the widest head width so a stack of two geometries shares one.
 
-It is declared in `Dnn.Components.QwenAttentionBlock` despite belonging to neither that
-block nor any other -- the transformer owns it and shares it across the attention layers.
-The 2026-08-23 rename from `Dnn.Components.QwenBlock` sharpened this rather than fixing
-it: the module now names one block class, and the GQA workspace is not part of it.
+Until 2026-09-13 it was `QwenGqaWorkspace`, declared in `Dnn.Components.QwenAttentionBlock`
+despite belonging to no block, while Gemma held the same seven tensors as loose members.
+The Gemma 4 26B layer-streamed harness needed it too, and it moved beside `GqaState`
+rather than being copied a third time.
 
 ### 2.3 Grow-on-demand device scratch
 
 `CudaExecutionContext::getDeviceScratchBuffer` (`CudaExecutionContext.ixx:234`).
 
-Raw `cudaMalloc`, `mutable`, grown on demand and never shrunk. On a grow it frees the
-old pointer and allocates a new one, so **the returned pointer is invalidated by any
-later call with a larger request**. Callers must fetch at `forward()` time and must not
-cache across calls. Reuse across sequential operations is safe because the context has
-one stream.
-
-`getScratchHighWaterBytes()` (`:214`) exists specifically so the footprint tooling can
-attribute this buffer after the fact. That is attribution, not prediction: the value is
-only meaningful once something has run.
+Raw `cudaMalloc`, `mutable`. A network reserves it at the end of `build()` through
+`IExecutionContext::reserveScratch`, at the largest request any of its operations makes, and
+reports it as `MemoryStats::device_scratch_bytes`; a request above the reservation throws
+(`MemoryFootprint.md` Phase 6 step 2). A component built with no network to reserve for it
+keeps the older behaviour: grown on demand and never shrunk, and on a grow the old pointer
+is freed, so **the returned pointer is invalidated by any later call with a larger
+request**. Callers must fetch at `forward()` time and must not cache across calls either
+way. Reuse across sequential operations is safe because the context has one stream.
 
 Known consumers include the FP8 two-phase dequantization staging buffer and the GQA
 decode split path (`CudaGqaOp.ixx:834`).
@@ -133,20 +132,19 @@ reason beyond the order in which they were written.
 per-block install step, but it is spelled as a generic state setter on a polymorphic
 interface, and its argument names a specific attention kind.
 
-### 3.3 One concept, two construction idioms -- and one of them is unreachable from a test
+### 3.3 One concept, two construction idioms -- the factory half resolved 2026-09-13
 
-Qwen exports free factories: `makeQwenAttentionBlockWorkspace` (`Qwen.AttentionBlock.ixx:174`),
-`makeQwenDeltaNetBlockWorkspace` (`Qwen.DeltaNetBlock.ixx:203`),
-`makeQwenGqaWorkspace` (`Qwen.AttentionBlock.ixx:278`).
+Qwen exports free factories: `makeQwenAttentionBlockWorkspace` (`Qwen.AttentionBlock.ixx`) and
+`makeQwenDeltaNetBlockWorkspace` (`Qwen.DeltaNetBlock.ixx`). The GQA transient's
+`makeGqaWorkspace` (`Compute.GqaWorkspace`) is shared by both families.
 
-Gemma builds its workspace inside a private transformer member,
-`GemmaTransformer::allocateBlockWorkspace` (`Gemma.ixx:1110`), with an inline `slot()`
-lambda. There is no exported factory.
+Gemma built its workspace inside a private transformer member with an inline `slot()` lambda
+and had no exported factory. It now has `makeGemmaBlockWorkspace` beside `GemmaBlockWorkspace`,
+which the transformer and the 26B layer-streamed parity harness both call.
 
-That is not only a style split. It decides testability: `Qwen.DeltaNetBlock.Cuda.cpp`
-constructs a workspace directly and asserts predicted-equals-built for both the pooled
-and self-allocated arms. Nothing can do that for Gemma, and `Gemma.Block.Cuda.cpp`
-calls `getRequiredMemory` nowhere.
+The split decided testability: `Qwen.DeltaNetBlock.Cuda.cpp` constructs a workspace directly
+and asserts predicted-equals-built for both the pooled and self-allocated arms. Gemma can now
+do the same, but `Gemma.Block.Cuda.cpp` still calls `getRequiredMemory` nowhere.
 
 `MemoryFootprint.md` s4.5 states the rule that **a Gate A case is owed per block kind**.
 Qwen satisfies it -- attention and DeltaNet both have block-level cases. Gemma does not:
@@ -169,9 +167,11 @@ read intermittent once.
 
 ### 3.6 A private type is duplicated per family
 
-`WorkspaceWidths` is defined identically and privately in `Gemma.ixx:902` and
-`Qwen.ixx:782`, each with its own `computeWorkspaceWidths`. Low stakes -- both are
-implementation detail of one class -- but it is the same concept twice.
+`WorkspaceWidths` was defined privately in both `Gemma.ixx` and `Qwen.ixx`, each with its
+own `computeWorkspaceWidths`. Gemma's is now the exported `GemmaBlockWorkspaceWidths` beside
+`GemmaBlockWorkspace`, because a harness needs the same widths; Qwen's stays private. The two
+count different slot sets, one per block kind, so they are two concepts sharing a name rather
+than one concept twice.
 
 ### 3.7 Mechanism 2's install path runs through an interface that cannot express it
 
@@ -234,14 +234,13 @@ becomes a `Tensor` or becomes a declared term in the prediction, and the
   fact.** Owned by `MemoryFootprint.md` s6.4.
 
 - **Module structure.** Each block module exports its workspace, its factory, and its
-  block class from one file (`Qwen.AttentionBlock.ixx` exports five entities across three
-  concepts in 947 lines). Partitions would give one concept per file; a partition is not
+  block class from one file. Partitions would give one concept per file; a partition is not
   independently importable, so it buys file organization and not dependency decoupling.
-  `QwenGqaWorkspace` is the case where the owning module is wrong rather than merely
-  crowded.
+  The one case where the owning module was wrong rather than merely crowded,
+  `QwenGqaWorkspace`, moved to `Compute.GqaWorkspace` on 2026-09-13.
 
-- **A block-level Gate A case for the Gemma block kinds**, per the rule in s4.5. Needs
-  an exported `makeGemmaBlockWorkspace` first, which the Qwen families already have.
+- **A block-level Gate A case for the Gemma block kinds**, per the rule in s4.5. The
+  exported `makeGemmaBlockWorkspace` it needed exists as of 2026-09-13; the case does not.
 
 - **Take `setState` off `ITransformerBlock`** (s3.7). The transformer holds the concrete
   block type at the point where it knows the kind -- it branches on

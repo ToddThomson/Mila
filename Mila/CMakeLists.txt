@@ -17,11 +17,18 @@ add_library( Mila STATIC )
 # pin a single arch for a much faster build via -DMILA_LIBRARY_CUDA_ARCHITECTURES=89.
 # Opt-in: the default is unchanged, so releases and packaged consumers stay portable.
 #
+# SM 8.0 (Ampere) is the floor, and it is drawn by the kernels rather than chosen: the FP4
+# GEMM gates on major >= 8 (CudaLinearOp.ixx:661) and both GQA flash prefill paths throw
+# below it (Gqa.Flash.Fa2.cu:513, Gqa.Flash.Wmma.cu:632). Every bound model uses GQA, so
+# sm_75 codegen was a compile pass for hardware the runtime refuses at runtime. This list
+# is the supported set, and the published wheels and images carry the same one -- keep it in
+# step with x64-wheel, linux-wheel and ARCHITECTURES in scripts/dockerhub/publish-image.sh.
+#
 # 120 is Blackwell consumer (RTX 50-series). It is listed so those cards get native
 # cubin rather than a PTX JIT from 90 at first launch; nothing in Mila uses sm_120
 # instructions yet. Each added arch costs .cu compile time, so pin a single arch when
 # iterating on one card.
-set(MILA_LIBRARY_CUDA_ARCHITECTURES "75;80;86;89;90;120" CACHE STRING
+set(MILA_LIBRARY_CUDA_ARCHITECTURES "80;86;89;90;120" CACHE STRING
     "CUDA architectures for the Mila library target (default: portable fat binary)")
 
 set_target_properties( Mila PROPERTIES
@@ -74,7 +81,7 @@ target_include_directories( Mila
     PRIVATE
         ${miniz_SOURCE_DIR}
         #${sentencepiece_SOURCE_DIR}/src
-        $<$<BOOL:${cutlass_ADDED}>:${cutlass_SOURCE_DIR}/include> )
+        )
 
 # Kernel headers and the vendored nlohmann header are pulled by file-relative quoted
 # includes (#include "Kernels/Foo.cuh", "../../Deps/nlohmann/json.hpp"), which resolve
@@ -218,6 +225,12 @@ PUBLIC
         "Src/Dnn/Components/Convolutions/CausalConv1d.Config.ixx"
         "Src/Dnn/Components/Convolutions/CausalConv1d.ixx"
 
+        # Components - MixtureOfExperts
+        "Src/Dnn/Components/MixtureOfExperts/Router.Config.ixx"
+        "Src/Dnn/Components/MixtureOfExperts/Router.ixx"
+        "Src/Dnn/Components/MixtureOfExperts/MixtureOfExperts.Config.ixx"
+        "Src/Dnn/Components/MixtureOfExperts/MixtureOfExperts.ixx"
+
         # Components - DeltaNet
         "Src/Dnn/Components/DeltaNet/GatedDeltaRule.Config.ixx"
         "Src/Dnn/Components/DeltaNet/GatedDeltaRule.ixx"
@@ -269,6 +282,7 @@ PUBLIC
         # Dnn / Compute (core)
         #---------------------------------------------------------------
         "Src/Dnn/Compute/Device.ixx"
+        "Src/Dnn/Compute/DeviceAllocation.ixx"
         "Src/Dnn/Compute/DeviceType.ixx"
         "Src/Dnn/Compute/DeviceId.ixx"
 
@@ -437,7 +451,7 @@ PUBLIC
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
         "Src/Dnn/Serialization/SafeTensors.ixx"
-        "Src/Dnn/Serialization/PretrainedReader.ixx"
+        "Src/Dnn/Serialization/WeightsReader.ixx"
         "Src/Dnn/Serialization/Serializer.ixx"
         
         "Src/Dnn/Compute/Operations/IKvCacheLifecycle.ixx"
@@ -483,6 +497,7 @@ PUBLIC
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/GqaState.ixx"
+        "Src/Dnn/Compute/Operations/GqaWorkspace.ixx"
         
         "Src/Logging/NullSink.ixx"
         "Src/Logging/FileSink.ixx"
@@ -535,6 +550,9 @@ if(MILA_HAS_CPU)
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSamplingOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuRouterOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuRmsNormOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuMoeOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx"
 
@@ -620,6 +638,8 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/Kernels/CausalConv1d.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/Kernels/CausalConv1d.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/DeltaNet/Kernels/GatedDeltaRule.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Routing/Kernels/Router.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Moe/Kernels/Moe.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.warp.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.block.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cu"
@@ -674,6 +694,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/Kernels/CausalConv1d.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/DeltaNet/Kernels/GatedDeltaRule.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Routing/Kernels/Router.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Moe/Kernels/Moe.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
@@ -750,6 +772,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/CudaCausalConv1dOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/DeltaNet/CudaGatedDeltaRuleOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Routing/CudaRouterOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Moe/CudaMoeOp.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.Dispatch.ixx"
@@ -778,6 +802,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/CudaCausalConv1dOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/DeltaNet/CudaGatedDeltaRuleOp.Dispatch.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Routing/CudaRouterOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Plans.ixx"
@@ -791,6 +816,14 @@ if(MILA_HAS_CUDA)
     # Mila's .cu objects at its own final link, and (2) get the CUDA toolkit include
     # dir as a usage requirement so the target that compiles Mila's CUDA module
     # units can find <cuda_fp16.h> etc.
+    #
+    # NOTHING HERE IS THE DRIVER LIBRARY, and that is load bearing rather than an
+    # omission. CUDA::cuda_driver names libcuda, which ships with the NVIDIA driver
+    # and is in none of the nvidia-* runtime wheels, so linking it gives the published
+    # extension a load-time dependency no wheel can satisfy: `import mila` then fails
+    # on any machine without a driver installed. That shipped at 0.20.0-rc.1+12 for one
+    # cuMemGetAllocationGranularity call and was caught by the wheel clean room before
+    # the tag. See kCudaAllocationGranularityBytes for what replaced the call.
     target_link_libraries( Mila PUBLIC
         CUDA::cudart
         CUDA::cublas

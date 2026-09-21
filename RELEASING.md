@@ -1,8 +1,8 @@
 # Releasing
 
 How Mila is versioned, branched, validated, and tagged into a consumable release. Planning and
-progress live in [ROADMAP.md](ROADMAP.md) / [BACKLOG.md](BACKLOG.md) / [CHANGELOG.md](CHANGELOG.md);
-this document is only the release mechanics.
+progress live in [ROADMAP.md](ROADMAP.md) / [BACKLOG.md](BACKLOG.md); this document is only the
+release mechanics.
 
 One thing to internalize up front: the version scheme carries a **stage** (the codebase's maturity,
 not a task or phase label) and a ticking **build** counter held in semver build metadata, detailed in
@@ -66,7 +66,7 @@ sort *below* what is already released).
 | `rc.X` | release candidate | `0.20.0-rc.1+N` |
 | _(none)_ | production-tagged | `0.20.0` |
 
-Last checkpoint tagged: **`v0.20.0-beta.3`** (observability, and the container images published).
+Last checkpoint tagged: **`v0.20.0`** (observability, and the container images published).
 
 **`Version.txt`** at the repo root is the single source of truth. It feeds `project(VERSION ...)`
 (the numeric triple) and the prerelease label separately; see `cmake/MilaVersion.cmake` — which
@@ -138,7 +138,7 @@ on hardware); the third is an **end-user feature** we verify but do not gate wit
 | Surface | Role | What it does | GPU? |
 |---|---|---|---|
 | **GitHub CI** (`build-pipeline.yml`) | maintainer gate | *compiles* the full tree under clang-21 + packaging gates | no (hosted, no GPU) |
-| **WSL** (`linux-clang-debug` preset) | maintainer gate | compiles the full tree under clang **and runs the CUDA test suite on real hardware** | yes |
+| **WSL** (`linux-clang-debug` preset) | maintainer gate | compiles the full tree under clang **and runs the CUDA test suite on real hardware** — minus anything needing weights, see below | yes |
 | **Devcontainer** (`Docker/build-chat.sh`) | end-user convenience | a completely known build environment — clone, one step, a running Mila | yes |
 
 The division that matters:
@@ -165,6 +165,40 @@ The division that matters:
    the **devcontainer build** must still succeed — the latter because a broken end-user onboarding
    path is a shipped-product defect, not because it is a portability oracle.
 
+**Running the WSL gate.** Take the tree across with `git archive`, not rsync:
+
+```bash
+git archive --format=tar HEAD | wsl -d <distro> -- bash -c 'rm -rf ~/mila-<version> \
+  && mkdir -p ~/mila-<version> && tar -x -C ~/mila-<version>'
+```
+
+That carries exactly the tracked tree — 54 MB, no `Data/` (342 GB), no venvs, no `Dev/` — and it
+tests what a consumer actually clones. Then `cmake --preset linux-clang-debug`; the preset already
+pins clang, `/usr/local/cuda`, `gcc-15` as the nvcc host and a job pool of 4.
+
+**Run the test binaries directly. Do not use `ctest` here.** Measured at `0.20.0`: `MilaTests` plus
+`ChatRichTextTests` run in **30 seconds**, against roughly **30 minutes** under `ctest`, which
+starts one process per case. The devcontainer docs were moved off `ctest` for the same reason and
+this leg never was.
+
+```bash
+cd out/build/linux-clang-debug/Mila/Tests && ./MilaTests && ./ChatRichTextTests
+```
+
+Running both is what makes that equivalent to `ctest`: `ctest` reports a higher number only because
+it also runs the separate `ChatRichTextTests` target. On Windows, where the gap is 149 s against
+596 s, the everyday `ctest` invocation above stays as written.
+
+**What this gate cannot tell you.** A `git archive` tree has no weights and no tokenizers, so every
+model-parity, tokenizer and footprint test self-skips — 75 of them at `0.20.0`, leaving 1900 + 33
+passing. So a green WSL run proves **portability and component correctness on Linux, not token
+parity and not footprint prediction**. Both of those are covered only by the Windows `x64-validate`
+run, which is worth knowing because the footprint tests are what validate
+`kCudaAllocationGranularityBytes` — the constant is therefore checked on one platform only.
+Adding a Python binding to this leg needs `python3.14-dev` in the distro; without it pybind11 fails
+configure, and `-DMILA_ENABLE_PYTHON_BINDINGS=OFF` is the way past, since the wheel container
+already compiles the binding under Linux at step 1.
+
 ---
 
 ## Everyday commit (on `dev`)
@@ -180,8 +214,9 @@ The division that matters:
    supported consumption path. `packaging_cpm_consumer` is a separate preset, at step 7.
 4. Commit and push to `dev`.
 
-`dev` is the CI-gated trunk; releases reach `master` only through a `dev -> master` PR (see
-**Branching**).
+**Step 3 is the gate.** GitHub CI does not run on a `dev` push, and by design: it compiles on a
+machine with no GPU, so it can tell you less than the build you just ran. Releases reach `master`
+through a `dev -> master` PR (see **Branching**), and that PR's gate is the WSL build, not CI.
 
 ---
 
@@ -238,6 +273,16 @@ because it clones from GitHub at the tag. At `beta.2` we tagged, published a Rel
 Discussion, and only then discovered the wheels could not be validated at all. Under this order that
 lands while nothing is immutable yet.
 
+**Before step 1, review the dependency pins.** Run
+`python scripts/dependencies/check_pins.py --check-upstream` and decide, per pin, whether it moves
+this cycle. This comes first for the same reason wheel validation does: a bump changes what the
+wheels and images contain, so taking one after validating them throws that validation away. The
+weekly `Dependency pins` workflow reports the same thing between releases, but a production tag is
+where the decision is actually owed — a pin left alone is a choice, not an oversight, once it has
+been looked at. A bump that touches CUDA needs the **local** GPU suite; CI has no GPU and cannot
+gate it. Whatever moves, move its `NOTICE.md` row in the same commit or the `notice-gate` CI job
+fails.
+
 1. **Validate the wheels from a `dev` snapshot, before anything is permanent.** Build all four from
    the current `dev` head — still carrying `+build`, so they version as `0.20.0b3.devN` — and take
    them through [Publishing the wheels](#publishing-the-wheels) steps 1, 2, 3 and 4. **TestPyPI takes
@@ -255,33 +300,40 @@ lands while nothing is immutable yet.
    metadata **dropped**: `0.20.0-beta.2+7` becomes `0.20.0-beta.2`. A tag never carries build
    metadata, so this is what lets step 5's drift check pass. If the checkpoint is being renamed from
    its working placeholder (`beta.2` -> `rc.1`), this is the commit that does it. Reconcile
-   BACKLOG / ROADMAP in the same commit, and **bump every stage string written in prose**: the
-   `README.md` status callout and its *Current Status* heading, and **this document's own
-   "Last checkpoint tagged" line** above. `master` is the branch a visitor lands on, so a missed bump
-   leaves the front page advertising the previous checkpoint for the whole next cycle — and a
-   procedure that misreports the last release is worse than one that says nothing.
-   **Bump the QuickStart pin to the tag being released** — the `GIT_TAG` in
-   `Mila/Samples/QuickStart/Cpp/CMakeLists.txt`, and in `Mila/Samples/QuickStart/Cpp/README.md` and
-   `getting-started.md` §7, where it appears in copy-paste blocks (the README also carries it in a
-   `URL` archive line). Nothing checks these strings: `packaging_fetchcontent_consumer` overrides
-   the ref with `SOURCE_DIR`, and `packaging_cpm_consumer` reads its tag from `Version.txt`, not from
-   the sample. They went stale once already, pointing at an unreleased `v0.20.0` — a downstream
-   consumer copying the sample got a checkout failure on their first build.
-   **Bump the website's copy in the same commit** — `Web/layouts/index.html` hardcodes the version
-   at five sites, and nothing derives them: the C++ tab's `GIT_TAG` (`#p-cpp` step 1) and its sample
-   output (`#p-cpp` step 3), the `-devel` image tag (`#p-docker` step 1), and the `-runtime` image
-   tag in **both** `#evaluate` commands. They have already gone out of step with each other once —
-   the tab pinned `beta.2` while the output beside it read `beta.3`. Bump
-   `scripts/dockerhub/verify-image.sh`'s `MILA_IMAGE` default with them, since it exists to run the
-   `#evaluate` commands and a stale default verifies the previous release. This is a `dev` commit
-   and publishes nothing; the site goes live at step 10, after the images it names.
+   BACKLOG / ROADMAP in the same commit. `master` is the branch a visitor lands on, so a missed
+   bump leaves the front page advertising the previous checkpoint for the whole next cycle — and a
+   procedure that misreports the last release is worse than one that says nothing. Two commands and
+   an audit cover it, below.
+   **Bump the sixteen version sites with one command:**
+   ```
+   python scripts/release/version_sites.py --set 0.20.0
+   python scripts/release/version_sites.py --check --expect
+   ```
+   Those sixteen are the QuickStart `GIT_TAG`s a reader copies
+   (`Mila/Samples/QuickStart/Cpp/CMakeLists.txt`, that sample's README including its `URL` archive
+   line, `getting-started.md` §7), the website's five (`Web/layouts/index.html`: the C++ tab's
+   `GIT_TAG` and its sample output, the `-devel` tag, and the `-runtime` tag in **both** `#evaluate`
+   commands), `scripts/dockerhub/overview.md`'s three, `verify-image.sh`'s `MILA_IMAGE` default, the
+   `README.md` status callout, and this document's "Last checkpoint tagged" line. Nothing derived
+   them and nothing checked them, which cost a downstream consumer a checkout failure against an
+   unreleased tag and once left the C++ tab pinned a checkpoint behind the output beside it. The
+   `version-sites-gate` CI job now asserts they agree with each other on every commit; `--expect`
+   is the stronger release-time assertion that they name *this* release. A site that moved makes the
+   script abort rather than skip — fix the pattern, never the file.
+   **The prose is separate, and is not bumped — it is rewritten.**
+   `python scripts/release/version_sites.py --audit-prose` lists the sentences a release can
+   falsify — the *Current Status* section, the README status callout, and the `pre-1.0` claims that
+   go at 1.0. No pattern can decide what those should say instead. **The listed set is not the whole
+   set:** at `0.20.0` the beta wording also sat in `SECURITY.md` and the feature-request template,
+   which nothing had listed, so grep the tree for the phrasing being retired as well. This is a
+   `dev` commit and publishes nothing; the site goes live at step 10, after the images it names.
    **Clear any "not published yet" copy the release makes false** — today the `#p-docker` panel
    carries a flag saying both tags are local, and `getting-started.md` and `README.md` each carry a
    note calling the slim runtime image "planned". If step 9 then fails, nothing false has reached a
    reader: the site is not dispatched until step 10.
-   **CHANGELOG only at a production (unsuffixed) release** — generate one short entry from the
-   commit range since the previous production tag, and collapse that line's `alpha.N`/`beta.N`/`rc.N`
-   sections into it. A pre-release flip writes nothing to CHANGELOG.
+   **There is no CHANGELOG to update.** The release's prose record is the GitHub Release body at
+   step 11, written once from the commit range. The file was deleted at `0.20.0` — it duplicated
+   that body, written by the same hand from the same commits at the same moment.
 3. Open a `dev -> master` pull request. CI validates on the PR.
 4. Merge to `master`.
 5. **Drift check (by eye — this used to be an automated gate):** the tag you are about to
@@ -319,7 +371,9 @@ lands while nothing is immutable yet.
    published here names the tag, the wheel and both image tags; a reader who lands on a command
    naming something that does not exist has no way to tell a typo from a release in progress. The
    deploy replaces the live site wholesale and has no staging, so read the assembled build first.
-11. **(Optional, human-facing) Publish a GitHub Release** for a curated changelog:
+11. **Publish a GitHub Release.** This is the release's only prose record — since the CHANGELOG was
+   deleted at `0.20.0`, nothing else says what shipped, so it is a required step rather than the
+   optional flourish it used to be.
    ```
    gh release create v0.13.46-alpha.5 --notes-file release-notes.md --prerelease
    ```
@@ -327,14 +381,13 @@ lands while nothing is immutable yet.
    tags; Mila lands all work as direct commits on `dev` and opens exactly one PR per release, so
    `beta.2` would have produced a one-line release for 48 commits of work. The substance lives only in
    the commit messages, so the body is **authored from the commit range** — which is what `beta.1`
-   actually did, hand-written with only its trailing `Full Changelog` footer generated. One summary
-   serves both destinations: it becomes the Release body at any tag, and distils into the CHANGELOG
-   entry at a production release.
+   actually did, hand-written with only its trailing `Full Changelog` footer generated.
    Apply `--prerelease` to **every** `dev -> master` pre-release flip — `alpha.N`, `beta.N`, and
    `rc.N` alike — and drop it **only** for the final production tag. GitHub never awards the "Latest
    release" badge to a prerelease, so this is what keeps the last production release badged as Latest
    throughout the next cycle's pre-release ramp. Or draft it in the **Releases** web UI for full
-   hand-curation. Nothing downstream depends on this, so do it on your own schedule.
+   hand-curation. No consumer resolves through it, but it is the only place the release is
+   described, so it lands in the same sitting as the tag.
 12. **Open the next checkpoint on `dev`** — bump `Version.txt` to the *next* stage ordinal with the
    counter reset, e.g. having just tagged `v0.20.0-beta.2`, `dev` becomes `0.20.0-beta.3+1` (or
    `0.20.0-rc.1+1`, if that is the call). Its own `dev` commit, same sitting as the tag. Skipping it
@@ -363,11 +416,13 @@ run at **release step 1**, on a `dev` snapshot, and validate. Steps 1, 2 and 5 r
 throwaway version is what keeps the release filename unburned.
 
 **The CUDA toolkit and the architecture list are pinned in the tree, not taken from the machine.**
-Both wheels and both images carry `80;86;89;90;120` — the published-artifact list, one entry
-narrower than the library's portable default, because SM 8.0 is the floor Mila's own kernels draw
-(`CudaLinearOp.ixx:661`, and both GQA flash prefill paths throw below it). The four sites are the
-two wheel presets, `ARCHITECTURES` in `publish-image.sh`, and `MILA_IMAGE_CUDA_ARCHITECTURES` in
-`Dockerfile.runtime`; they are one list and move together. The toolkit is declared the same way:
+Both wheels and both images carry `80;86;89;90;120` — the supported set, because SM 8.0 is the
+floor Mila's own kernels draw (`CudaLinearOp.ixx:661`, and both GQA flash prefill paths throw
+below it). The five sites are the two wheel presets, `MILA_LIBRARY_CUDA_ARCHITECTURES` in
+`Mila/CMakeLists.txt`, `ARCHITECTURES` in `publish-image.sh`, and `MILA_IMAGE_CUDA_ARCHITECTURES`
+in `Dockerfile.runtime`; they are one list and move together. The library default was the sixth
+entry out of step until `rc.1+27`, when Turing was dropped from it — a compile pass for hardware
+the runtime refuses. The toolkit is declared the same way:
 `$cudaVersion` in `scripts/pypi/build-wheel-windows.ps1` for Windows, the base image in
 `Docker/Dockerfile.wheel` and `Docker/Dockerfile.runtime` for Linux — currently **13.3** across all
 four. Before that the Windows wheel took whatever `CUDA_PATH` resolved to, so installing a toolkit
@@ -377,14 +432,38 @@ never inside a release window** — `MILA_WHEEL_CUDA_VERSION` overrides the Wind
 maintainer on a different box, and whichever is used gets printed at the top of the run.
 
 **What the declared toolkit is not.** It constrains the six published binaries and nothing else: a
-FetchContent or clone consumer builds with their own CUDA, and `getting-started.md` states the
-user-facing floor (13.0 or newer) independently of it. A wheel user needs **no toolkit at all** —
+FetchContent or clone consumer builds with their own CUDA. The user-facing docs
+(`getting-started.md`, `README.md`, `CONTRIBUTING.md`, `Web/content/start.md`) name the same
+version CI builds with, so a toolkit move edits them too. A wheel user needs **no toolkit at all** —
 `pyproject.toml`'s `nvidia-*` dependencies supply the runtime, so what they need is a driver. The
 minor version is therefore invisible downstream (CUDA minor version compatibility holds within 13),
 and only the **major** is load-bearing, since those dependencies pin `>=13.0,<14.0`; the wheel
 script asserts that and leaves the minor as a declaration. Do not reach for this pin to answer a
 question about what hardware or software a user must have — that answer lives in
 `getting-started.md` and in the architecture list, not here.
+
+**The `>=13.0` floor is verified, not assumed, and the clean room cannot verify it.**
+`verify_wheel_cleanroom.py` installs the wheel and lets pip resolve the newest satisfying
+`nvidia-*` — 13.8.0.4 at the time of writing — so the floor is never the version under test. It was
+checked directly against the `0.20.0b3` wheels, built on CUDA 13.3 and declaring the same
+dependency floors as `pyproject.toml` does today; a rebuild that changes the CUDA symbol surface
+invalidates the check rather than the conclusion:
+
+- **Windows**, empirically. A clean 3.13 venv with `nvidia-cublas==13.0.0.19` and
+  `nvidia-curand==10.4.0.35` imports, and `Llama-3.2-3B-Instruct-fp4` generates greedily
+  token-for-token identically to the same venv at 13.8.0.4. The loaded DLLs were confirmed to be the
+  site-packages copies, not the machine's toolkit — which is what `_register_cuda_libraries`
+  preloading the wheel's copies buys.
+- **Linux**, by symbol. All 49 CUDA symbols the extension leaves undefined are exported by the 13.0
+  libraries, and all four version nodes it requires (`libcudart.so.13`, `libcublas.so.13`,
+  `libcublasLt.so.13`, `libcurand.so.10` — NVIDIA versions by SONAME, stable across 13.x) are
+  defined there. Not run end to end: the manylinux wheel is cp312/cp313 and the WSL distribution
+  carries only 3.14.
+
+The risk this retires is a wheel that is immutable once uploaded declaring a floor nothing had
+loaded. Re-check it when the cuBLASLt surface grows — the thirteen `cublasLt*` entry points are the
+part most likely to acquire a newer one. `nvidia-cuda-nvrtc` arrives transitively as
+`nvidia-cublas`'s own dependency and needs no declaration here.
 
 **A PyPI upload cannot be undone.** Release metadata is immutable and a filename can never be reused,
 so a wheel published before it was verified stays wrong until the *next* release — which is exactly
@@ -470,10 +549,10 @@ it came from anywhere but a public tag there is nothing for them to reproduce ag
    site workflow. `MILA_CLEAN_BUILD` is forced rather than inherited: `--no-cache` invalidates
    layers but leaves BuildKit cache mounts intact, and two wrong images have already been built
    from another tree's objects that way.
-   The architecture list is `80;86;89;90;120`, fixed in the script and **not** the library's
-   portable list — it drops Turing, which both GQA flash prefill paths refuse outright. `native` —
-   the local scripts' default — is wrong twice here, since it does not resolve on a GPU-less
-   builder and the image is pulled by hardware the builder never saw.
+   The architecture list is `80;86;89;90;120`, fixed in the script — the supported set, which
+   excludes Turing because both GQA flash prefill paths refuse it outright. `native` — the local
+   scripts' default — is wrong twice here, since it does not resolve on a GPU-less builder and the
+   image is pulled by hardware the builder never saw.
 4. **Run the `#evaluate` sequence against the local `-runtime` image, on a GPU host:**
    ```bash
    MILA_IMAGE=toddthomson/mila-llm:0.20.0-beta.3-runtime scripts/dockerhub/verify-image.sh
@@ -495,11 +574,18 @@ it came from anywhere but a public tag there is nothing for them to reproduce ag
    It asks for the version string rather than a `y/n`, because a reflexive "y" is not a decision.
    **A pushed tag cannot be withdrawn, only superseded** — which is the one thing here that is
    gentler than PyPI, and the reason a re-publish over a bad image is a real remedy.
+7. **Update the Overview page.** Its source is `scripts/dockerhub/overview.md`, and the short
+   description is `scripts/dockerhub/description.txt`. Move the image tags in `overview.md` to the new
+   version in the release commit, then paste both into the repository's settings on Docker Hub. Never
+   edit the page in the browser without the file: the file is the record.
 
-**No `latest`.** A bare `docker run toddthomson/mila-llm` resolves to it, so pointing it at a
-pre-release makes the beta the default for everyone who does not read the tag list. It starts
-existing at the first unsuffixed release and tracks the newest one's `-runtime`. The rule lives in
-`TARGETS`/the header comment of `publish-image.sh`; this is not an open decision.
+**No `latest` on a pre-release.** A bare `docker run toddthomson/mila-llm` resolves to it, so
+pointing it at a pre-release makes the beta the default for everyone who does not read the tag list.
+It starts existing at the first unsuffixed release and tracks the newest one's `-runtime`. This is
+not an open decision, and `publish-image.sh` now **enforces** it rather than stating it: the tag is
+added — as an alias of `<version>-runtime`, not a third build — only when the version carries no
+`-alpha.`/`-beta.`/`-rc.` suffix, and a pre-release run prints that it is leaving `latest` alone.
+**v0.20.0 is the release where it first exists**, so expect a third image in the push list.
 
 > **One-off for `v0.20.0-beta.3`:** `toddthomson/mila-llm:0.20.0-beta.3-runtime` is **already on
 > Docker Hub**, pushed 2026-08-31 from a dirty tree with the gates bypassed knowingly, to prove the

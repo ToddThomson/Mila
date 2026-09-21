@@ -12,7 +12,7 @@ the module graph in its own toolchain — so getting started means building it.
 | | |
 |---|---|
 | **C++ compiler** | Visual Studio 2026 18.6.2+ on Windows, or Clang 19+ / GCC 16 on Linux |
-| **CUDA Toolkit** | 13.0+ on Windows, 13.3+ on Linux |
+| **CUDA Toolkit** | 13.3 |
 | **CMake** | 4.0 or newer |
 | **Generator** | Ninja — significantly faster for incremental module builds |
 | **Git** | 2.x — dependencies are fetched at configure time |

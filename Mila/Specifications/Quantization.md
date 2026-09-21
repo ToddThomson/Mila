@@ -20,7 +20,7 @@ state in the hot path.
 
 Above the component level, quantization is a **deployment configuration** expressed
 via `ModelConfig`. The runtime→compile-time bridge is owned entirely by
-`fromPretrained()` and is an implementation detail invisible to the caller.
+`load()` and is an implementation detail invisible to the caller.
 
 ---
 
@@ -32,7 +32,7 @@ Client Code
 
 Mila Public API
     LanguageModel<TDevice, TPrecision>
-    LlamaModel<TDevice, TPrecision>::fromPretrained( path, config, device )
+    LlamaModel<TDevice, TPrecision>::load( path, config, device )
                                     — runtime→compile-time bridge (implementation detail)
 
 Mila Internal — Model Layer
@@ -237,15 +237,15 @@ QwenModelConfig config = QwenModelConfig( context_length )
     .withThinkingMode();
 ```
 
-### `fromPretrained` — Runtime→Compile-Time Bridge
+### `load` — Runtime→Compile-Time Bridge
 
 The mapping from `ModelConfig` runtime enums to template instantiations is owned
-entirely by `fromPretrained()`. This is an implementation detail — the caller holds
+entirely by `load()`. This is an implementation detail — the caller holds
 only `unique_ptr<LanguageModel<TDevice, TPrecision>>` and is unaware of `TWeightQuant`
 or `TKvPolicy`.
 
-The internal dispatch pattern is a `fromPretrainedImpl<TWeightQuant, TKvPolicy>()`
-private static, called from `fromPretrained()` after resolving the config enums.
+The internal dispatch pattern is a `loadImpl<TWeightQuant, TKvPolicy>()`
+private static, called from `load()` after resolving the config enums.
 See implementation notes.
 
 ### Deployment Configurations
@@ -269,9 +269,11 @@ will be. Only the `Linear` component quantizes. The full-precision source is nev
 retained on device, and after the change described in *Fitting is offline, encoding is a
 codec* below it is not required on the machine that runs the model at all.
 
-Quantize-on-load is the shipped mechanism and the one this section's pipeline still
-describes. It is a transitional path, not the design of record — see that section for
-what replaces it and why.
+Quantize-on-load is a supported path for FP8 and FP4, decided 2026-09-14. It is how a user
+runs full-precision weights that nobody has exported, and it is the exporter's own engine.
+Published models are fitted offline (*Fitting is offline, encoding is a codec*); a load from
+full-precision weights fits them in the user's process, with the provenance limit that section
+states.
 
 **FP8 format:** `E4M3` (`__nv_fp8_e4m3`). Higher precision (more mantissa bits) is
 correct for stored weights. `E5M2` (wider dynamic range) is reserved for gradients and
@@ -389,8 +391,8 @@ model that runs and is wrong, so the two must never be confused.
 **Pre-quantized (the target shape).** No fitting, no staging buffer, no device pass:
 
 ```
-fromPretrained()
-    └── PretrainedModelReader — __metadata__["mila_quantization"] names the policy
+load()
+    └── WeightsReader — __metadata__["mila_quantization"] names the policy
     └── the model refuses an artifact whose policy is not the one this build compiled
     └── initializeParameters( reader )
             └── loadParameter( "weight",        blob )  -> direct upload, packed layout
@@ -399,11 +401,10 @@ fromPretrained()
                     └── operation_->onQuantizedWeightsLoaded()
 ```
 
-**Quantize-on-load (transitional, FP8 and FP4 only).** Reads a full-precision blob and
-fits it on device:
+**Quantize-on-load (FP8 and FP4).** Reads a full-precision blob and fits it on device:
 
 ```
-fromPretrained()
+load()
     └── build( build_context )
             └── CudaLinearOp<BF16, PerChannelFp8<>> constructed
                     └── cuBLASLt FP8 plan built (types known statically)
@@ -418,6 +419,22 @@ fromPretrained()
             └── if constexpr ( kIsQuantized )
                     └── operation_->setWeightScales( weight_scales_.get() )
 ```
+
+**Staging belongs to the load, decided 2026-09-14.** Each fit copies its BF16 source to the
+device through a staging buffer. Today that buffer is the execution context's forward scratch
+(`getDeviceScratchBuffer`), which grows and never shrinks, so load-time staging stays on the
+device for the life of the process: up to 256 MiB from the FP4 `Linear`, expert-bank and
+embedding sites, which stage in row blocks under that ceiling, and the whole tensor from the FP8
+per-channel `Linear` site (`CudaLinearOp.ixx:475`), which has no ceiling.
+
+The staging buffer is the load's instead: a buffer of its own on the CUDA execution context
+(`getLoadStagingBuffer`), grown during the load to its largest request and freed by
+`releaseLoadStaging()` when each transformer's `loadParameters` returns. A model loaded from full-precision weights
+then settles at the same footprint as its exported form. The buffer is still alive on top of the
+built model while the last tensor is fitted, because `build()` allocates before
+`loadParameters()`; `MemoryFootprint.md` section 11.4 accounts for that load peak separately.
+Its size is fixed, 256 MiB (`kLoadStagingLimitBytes`). A smaller buffer costs more copies, not more
+memory, and loaded no slower down to 16 MiB (`MemoryFootprint.md` Phase 6 step 1 result).
 
 ### Operation Base Class Contract
 
@@ -449,9 +466,11 @@ conflating them is why the weight quantizer ended up bolted to an inference oper
 - **Encoding** — value to code, code to bytes: layout, bit order, scale dtype.
   Deterministic, bit-exact, and checkable without a device.
 
-**Fitting is offline for every format.** FP8 and FP4 acquired a load-time fitter because
-absmax is cheap enough to hide inside `loadParameter()`, not because that was where it
-belonged. Two consequences follow that the load-time form cannot deliver:
+**Fitting is offline for every published model, and for every format below 4 bits.** FP8 and
+FP4 also have a load-time fitter, because absmax is cheap enough to run inside
+`loadParameter()`; since 2026-09-14 that fitter is a supported path for weights nobody has
+exported, not a transitional one. Two consequences follow that the load-time form cannot
+deliver:
 
 1. **Provenance.** An artifact's bytes are fixed and hashed at package time, so the model
    card's claim about what the weights are describes something a third party can verify.
@@ -476,8 +495,8 @@ anyone reading the spec. That is the defect underneath "the quantizer lives on t
 and the codec files are the fix.
 
 Once encoding is normative, the fitter is an implementation choice rather than a format
-decision: the CUDA absmax path may stay as an optimization of the export tool, or move to
-Python beside the codebook packer, without either changing a byte on disk.
+decision: the CUDA absmax path stays, because quantize-on-load runs it in the user's process,
+and any second fitter beside the codebook packer must produce the same bytes.
 
 ### Where the tooling lives
 
@@ -546,10 +565,12 @@ The `:Quantize` partition mostly survives as well. It is already a non-template 
 with no dependence on `CudaLinearOp` state, so it is re-homed rather than rewritten — what it
 gains is a layout file to be checked against.
 
-**The end state for `Linear::loadParameter` is one shape for every policy**: refuse a
-compute-precision blob, upload the packed bytes, bind, derive. The codebook path already has
-it (`Linear.ixx:574`), and FP4/FP8 converge onto it. The dtype sniff at `:601` disappears, and
-with it the class of defect it guards against.
+**`Linear::loadParameter` keeps two shapes for FP4 and FP8.** The end state recorded here on
+2026-08-19 -- refuse a compute-precision blob, so FP4 and FP8 converge on the codebook path's
+single shape (`Linear.ixx:574`) -- was withdrawn on 2026-09-14, when quantize-on-load became a
+supported path. The dtype branch at `:601` stays, and so does the defect it guards against:
+packed bytes must never be fitted as BF16. Codebook formats keep the single shape, since they
+have no load-time fitter.
 
 ---
 
@@ -602,7 +623,7 @@ namespace Mila::Dnn::Quant::KvCache
 `KvCachePolicy` is intentionally minimal — it does not require `kStorageDtype` or
 `kScaleDtype`. A future `SlidingWindowPolicy` satisfies `KvCachePolicy` without
 carrying dtype fields. New compression algorithms extend `KvCacheCompression` enum
-and add a corresponding policy struct and `fromPretrained` branch — no other
+and add a corresponding policy struct and `load` branch — no other
 changes required.
 
 ### Type System
@@ -686,7 +707,7 @@ naturally. No new quantization scope is anticipated before beta.
 ### `WeightQuantMode` / `KvCacheMode` internal enums (v1 proposal)
 
 Replaced by `WeightQuantization` and `KvCacheCompression` on `ModelConfig`. The
-internal enum intermediary layer was unnecessary — `fromPretrained` maps `ModelConfig`
+internal enum intermediary layer was unnecessary — `load` maps `ModelConfig`
 fields directly to template instantiations.
 
 ### `QuantizationPreset` flat enum (v1 proposal)
@@ -722,8 +743,8 @@ Replaced by `TWeightQuant = NoWeightQuant`.
   one kernel as a private staging decision (`Fp8ActivationPrefill.md`); it is not a policy,
   and nothing outside that kernel can observe it.
 - **Asymmetric K/V compression.** K and V use the same policy symmetrically.
-- **Fitting weights at load time.** Superseded — see *Fitting is offline, encoding is a
-  codec*. Quantize-on-load survives as a transitional FP8/FP4 path only.
+- **Fitting sub-4-bit formats at load time.** Codebook tables are fitted offline against
+  calibration data. Only the absmax formats, FP8 and FP4, are fitted during a load.
 - **FP16 support.** BF16 supersedes FP16 for all Mila compute targets.
 - **Training with quantized weights or compressed KV cache.** Both are inference
   optimizations.

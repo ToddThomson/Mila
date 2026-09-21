@@ -353,7 +353,7 @@ shape behavior (section B). It has three dimensions:
    `matvec_decode_*` kernels — so this dimension and the quant decode-path coverage
    are the **same test seen from two axes**. Assert output shape and values; do
    **not** assert buffer-reuse internals (an implementation detail).
-3. **`initialize_parameters` true / false** — `false` (pretrained load; values
+3. **`initialize_parameters` true / false** — `false` (weights load; values
    filled later by `loadParameter`) is what inference uses — test it now. The
    `true` (train-from-scratch) assertions are **deferred to Alpha.8**, because the
    active `xavier` is currently a no-op stub; asserting init=true now would only

@@ -31,6 +31,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -461,32 +462,32 @@ namespace Mila::Dnn
 
             if ( wte_ != nullptr )
             {
-                stats.device_parameter_bytes += wte_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *wte_ );
             }
 
             if ( wpe_ != nullptr )
             {
-                stats.device_parameter_bytes += wpe_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *wpe_ );
             }
 
             if ( output_ != nullptr )
             {
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
             }
 
             if ( wte_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += wte_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *wte_grad_ );
             }
 
             if ( wpe_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += wpe_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *wpe_grad_ );
             }
 
             if ( input_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += input_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *input_grad_ );
             }
 
             return stats;
@@ -527,7 +528,7 @@ namespace Mila::Dnn
             operation_->build( build_config );
 
             // Positional encodings are initialized only for train-from-scratch; the
-            // pretrained load path overwrites wte/wpe immediately after build().
+            // weights load path overwrites wte/wpe immediately after build().
             if ( build_config.shouldInitializeParameters() )
             {
                 const float std_dev = 1.0f / std::sqrt( static_cast<float>( config_.getEmbeddingDim() ) );

@@ -94,7 +94,8 @@ ARG MILA_CLEAN_BUILD=0
 # the build does not read. `COPY . /src` recompiled the whole library when BACKLOG.md changed.
 # .dockerignore keeps Data/Models (gigabytes), out/, .git and Dev/ out of the context.
 # License.md is not documentation here: MilaPy's POST_BUILD copies it into the binding package as
-# LICENSE (Mila/Bindings/CMakeLists.txt:84), so omitting it fails the build at the very last step.
+# LICENSE (Mila/Bindings/CMakeLists.txt:100), so omitting it fails the build at the very last step.
+# The builder RUN also copies it into /out/licenses, beside the third-party texts.
 # README.md is deliberately absent -- only the docs target reads it, and this build sets
 # MILA_ENABLE_DOCS=OFF. Turning docs on here would need it added.
 COPY CMakeLists.txt Version.txt License.md /src/
@@ -132,9 +133,15 @@ RUN --mount=type=cache,target=/build,sharing=locked \
     && cmake --build /build --target mila-chat MilaPy mila -- -j "${MILA_BUILD_JOBS}" \
     && mkdir -p /out \
     && cp /build/mila-chat /out/mila-chat \
-    && cp /build/mila /out/mila \
+    && cp /build/bin/mila /out/mila \
     && cp -r /build/Prompts /out/Prompts \
-    && cp /build/python/mila/_mila*.so /out/
+    && cp /build/python/mila/_mila*.so /out/ \
+    && mkdir -p /out/licenses/pybind11 /out/licenses/nlohmann_json /out/licenses/miniz /out/licenses/curl \
+    && cp /src/License.md /out/licenses/LICENSE \
+    && cp /build/_deps/pybind11-src/LICENSE /out/licenses/pybind11/ \
+    && cp /build/_deps/nlohmann_json-src/LICENSE.MIT /out/licenses/nlohmann_json/ \
+    && cp /build/_deps/miniz-src/LICENSE /out/licenses/miniz/ \
+    && cp /build/_deps/curl-src/COPYING /out/licenses/curl/
 
 # =============================================================================
 # Stage 2 -- runtime
@@ -167,6 +174,12 @@ COPY --from=builder /out/Prompts ./Prompts
 # no such parameter -- so the Python route printed one line and then nothing for several GB.
 COPY --from=builder /out/mila ./mila
 RUN ln -sf /opt/mila/mila /usr/local/bin/mila
+
+# Mila's licence and the licence of every third-party library linked into the binaries above
+# (curl by mila-chat and mila; pybind11, nlohmann/json and miniz by the binding and the library),
+# which a binary redistribution owes. Taken from the fetched sources in the builder RUN, so each
+# text matches the version compiled.
+COPY --from=builder /out/licenses /usr/share/doc/mila
 
 # The binding package tree carries the extension MilaPy's POST_BUILD staged into it, so
 # an editable install here points at a real .so rather than fetching one from PyPI.
@@ -288,7 +301,9 @@ RUN --mount=type=cache,target=/build,sharing=locked \
         exit 1; \
     fi \
     && mkdir -p /opt/mila \
-    && cp -a /build /opt/mila/build
+    && cp -a /build /opt/mila/build \
+    && mkdir -p /usr/share/doc \
+    && cp -r /out/licenses /usr/share/doc/mila
 
 # An editor, because this image expects the user to change a file in it. The builder's
 # gdb/less are absent by design there; here they are the point.

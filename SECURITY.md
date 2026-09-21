@@ -2,9 +2,8 @@
 
 ## Supported versions
 
-Mila is pre-1.0 (currently in public beta), and breaking changes are expected between releases.
-Security fixes are applied only to the latest tagged release and the `dev` trunk. There is
-no back-porting to older pre-release tags.
+Mila is pre-1.0, and breaking changes are expected between releases. Security fixes are applied
+only to the latest tagged release and the `dev` trunk. There is no back-porting to older tags.
 
 | Version | Supported |
 |---|---|
@@ -32,7 +31,7 @@ Mila is an offline, source-distributed C++ inference library with no network-fac
 component. The most relevant concerns are around untrusted inputs to the build and load paths,
 for example:
 
-- Maliciously crafted model weight blobs parsed by the serialization / `PretrainedReader` path
+- Maliciously crafted model weight blobs parsed by the serialization / `WeightsReader` path
 - Tokenizer or configuration files supplied from an untrusted source
 
 Reports demonstrating memory-safety or parsing issues in those paths are especially welcome.

@@ -8,15 +8,13 @@ Mila is built for researchers, engineers, and developers who find high-level fra
 and write kernels that do precisely what they intend. No autograd engine. No runtime
 dispatch magic. Just C++23, CUDA, and full control.
 
-> *Currently in public beta (`0.20.0-beta.3`) — feature-frozen and hardening toward the v0.20 first
-> production release. Pre-1.0: the API is not yet stable.*
+> *Current release: `0.20.0`. Mila is pre-1.0, and breaking changes are expected between releases, so pin a tag.*
 > *Active development lands on the [`dev`](https://github.com/ToddThomson/Mila/tree/dev) branch; `master` tracks tagged releases.*
-> *See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for current status and trajectory.*
+> *See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for what comes next.*
 
 ---
 
 [![master](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master)](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml?query=branch%3Amaster)
-[![dev](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev)](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml?query=branch%3Adev)
 
 ---
 
@@ -75,9 +73,10 @@ matters. Vectorized memory access throughout — float4 for FP32, uint4 for BF16
 matches FP32's exponent range, avoiding overflow and underflow without loss scaling, with
 native Tensor Core support on Ampere and newer. FP16 is not a Mila target; BF16 supersedes
 it for all current use cases. Weight quantization is a compile-time decision — a
-`TWeightQuant` policy on `Linear`, with no runtime dispatch — and the weights arrive already
-quantized: `Tools/ExportArtifact` packs them offline into safetensors that declare their own
-policy, and a load refuses weights whose policy is not the one compiled in. FP8
+`TWeightQuantization` policy on `Linear`, with no runtime dispatch. Weights reach it one of two
+ways: a published model arrives already quantized, in safetensors that declare their policy, and
+refuses to load as anything else; BF16 weights you convert yourself are quantized to FP8 or FP4 as
+they load. FP8
 (`PerChannelFp8<>`) fits 8B-class models in a 12 GB budget through per-channel BF16→FP8_E4M3
 with cuBLASLt mixed-precision GEMM, and needs SM 8.9 or newer. FP4 E2M1 (`PerGroupFp4<128>`)
 halves weight storage again — packed nibbles dequantized per group inside the GEMM, on SM 8.0
@@ -104,10 +103,9 @@ against — so the bar is perplexity on wikitext-2, held under a threshold writt
 sweep that tested it. Hidden states are checked against a HuggingFace reference one decoder block
 at a time.
 
-### Gemma 4 12B — the flagship
+### Gemma 4 12B
 
-Gemma 4 12B Instruct is Mila's most capable inference target and the chat CLI default. It runs the
-full Gemma 4 architecture — per-layer sliding-window local/global attention, dual local/global RoPE,
+Gemma 4 12B Instruct runs the full Gemma 4 architecture — per-layer sliding-window local/global attention, dual local/global RoPE,
 GeGLU, RMSNorm, and final logit softcap — validated **token-for-token against HuggingFace**.
 
 - **Fits a 12 GB consumer card at FP4**, with a large context window: weight-tying reclaims ~2 GB and
@@ -142,26 +140,19 @@ place to read one token's journey end to end.
 
 ---
 
-## Current Status — Beta.3 (feature-frozen, hardening)
+## Current Status — first production release
 
-Mila is in public beta, hardening toward a craft-complete first release (v0.20). The alpha
-phase built and validated the core architecture against known-good reference implementations; the
-feature set is now **frozen**, and the remaining work is validation, packaging, documentation, and
-recovering the full GPT-2 / training foundation — so the first release ships everything Mila has
-built, inference and training, as one coherent, tested, documented package.
+`0.20.0` is Mila's first production release: validated, packaged and documented. Mila is pre-1.0,
+and breaking changes are expected between releases — an API-stability promise is a separate 1.0
+decision.
 
-**Hardening through beta**
-Feature-frozen: validation, packaging, and documentation only. **Two carve-ins were made
-deliberately** — model distribution in `beta.2`, because a release nobody can get a model for is not
-an onboarding story, and observability in `beta.3`. The test suite and the MNIST and Bard training
-samples are re-aligned to the current API and running; Llama 3.1/3.2 training is not part of this
-release. What is still in flight is validation, packaging and distribution, API documentation, and
-the surface a consumer meets. See
-[RELEASING.md](https://github.com/ToddThomson/Mila/blob/dev/RELEASING.md) for how stages and tags
-relate.
+It ships inference and training as one package. Inference covers Llama 3.2, Llama 3.1, Gemma 4 and
+Qwen 3.8, each checked against HuggingFace; GPT-2 is the training reference, and the MNIST and Bard
+samples train against the current API. Training a Llama is not part of this release.
 
-See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for the full roadmap,
-including what comes after v0.20.
+See the [release notes](https://github.com/ToddThomson/Mila/releases) for what this release
+contains and [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for what comes
+after it.
 
 ---
 
@@ -175,7 +166,7 @@ tokenizers, and tooling beneath them.
 | Qwen 3.8 27B inference — FP4 E2M1 per-group quantization | Validated — 15.1 GiB, fits a 16 GB card |
 | Qwen 3.8 27B — hidden-state parity against HuggingFace | Validated — one decoder block at a time |
 | Gemma 4 12B Instruct inference — greedy decode | Validated against HuggingFace (token-for-token) |
-| Gemma 4 12B Instruct — FP4 E2M1 per-group quantization | Validated — chat CLI default; runs a large context window in 12 GB (weight-tying + bounded-KV ring) |
+| Gemma 4 12B Instruct — FP4 E2M1 per-group quantization | Validated — runs a large context window in 12 GB (weight-tying + bounded-KV ring) |
 | Llama 3.1 8B inference — FP4 E2M1 per-group quantization | Validated — ~6 GB, ~57 tok/s decode, fits 12 GB |
 | Llama 3.1 8B inference — FP8 E4M3 per-channel quantization | Validated — ~11.6 GB at ctx 8192 |
 | Llama 3.2 3B inference — FP4 E2M1 per-group quantization | Validated — coherent generation, 44–48 tok/s decode |
@@ -209,6 +200,10 @@ tokenizers, and tooling beneath them.
 | BPE tokenizer | Complete |
 | SentencePiece tokenizer | Complete |
 
+Published models are FP4, as the published-models row lists. The FP8 and BF16 rows are reached by
+converting a checkpoint yourself ([getting-started.md](https://github.com/ToddThomson/Mila/blob/dev/getting-started.md), section 5b) and choosing
+the precision at load.
+
 ---
 
 ## Adaptors
@@ -226,10 +221,10 @@ Mila: It stores the key and value tensors from earlier tokens so each new token 
 ```
 
 Located under `Mila/Adaptors/Chat`. An instruction-following chat harness that closes the
-loop in-process with a human in the gate — the default model is Gemma 4 12B Instruct at FP4,
-loaded via the two-phase (prefill + decode) KV-cache pipeline, with model hot-switching
-(`/model <name> [quant]`) and tool calling. Models come from the local store: `/models --online`
-lists what Mila publishes, `/install <name>` downloads one, and `/models` shows what is installed and
+loop in-process with a human in the gate — models load through the two-phase (prefill + decode)
+KV-cache pipeline, with model hot-switching (`/model load <name> [quant]`) and tool calling. Models
+come from the local store, and a fresh store has none: `/model list --online` lists what Mila
+publishes, `/model install <name>` downloads one, and `/model list` shows what is installed and
 what each costs in memory. On a 12 GB card, Gemma 4 12B FP4 runs a large context
 window — its two memory-fit gates, weight-tying and the bounded-KV sliding-window ring cache, landed
 in the alpha.6 line.
@@ -278,7 +273,7 @@ current API as part of v0.20 Training Revival.
 | Requirement | Version |
 |---|---|
 | C++ compiler | MSVC (Visual Studio 2026 18.6.2+) on Windows; Clang 19+ on Linux |
-| CUDA Toolkit | 13.0+ on Windows; 13.3+ on Linux (Ubuntu 26.04 / glibc 2.43) |
+| CUDA Toolkit | 13.3 |
 | CMake | 4.0 or newer |
 | Git | 2.x or newer (validated on 2.54.0) |
 | GTest | 1.17.0 |
@@ -288,9 +283,8 @@ current API as part of v0.20 Training Revival.
 Ninja is the recommended generator — significantly faster than MSBuild for
 incremental C++23 module builds.
 
-Mila is CI-tested on CUDA 13.0 and developed on 13.3; newer 13.x releases are expected
-to work but are not exhaustively validated. On Linux (Ubuntu 26.04 / glibc 2.43), CUDA 13.3
-is required — 13.0 fails to build there.
+Mila builds against CUDA 13.3, the version its CI builds with, and moves to each new CUDA
+release once NVIDIA publishes its Ubuntu 26.04 build image.
 
 On Windows, use Visual Studio 2026 18.6.2 or newer — earlier 2026 builds have a regression
 that breaks the C++23 module build.
@@ -330,7 +324,7 @@ Select the Ninja generator and Release configuration. Build with F7.
 ### Linux (native / WSL)
 
 On Linux — including WSL 2 — build with Clang against the bundled CMake presets. Requires
-Clang 19+ (or GCC 16) and CUDA 13.3+:
+Clang 19+ (or GCC 16) and CUDA 13.3:
 
 ```bash
 cmake --preset linux-clang-release
@@ -377,14 +371,14 @@ Site: https://mila.toddt.me — including the
 
 API reference: https://mila.toddt.me/api/
 
-Both are rebuilt automatically on every push to `dev`, so the API reference tracks the code rather
-than the last release.
+Both are rebuilt when the site is published, so the API reference tracks `dev` as of the last
+publish rather than the last release.
 
 ---
 
 ## Contributing
 
-Mila is in public beta (feature-frozen, hardening toward v0.20) and welcomes contributors who share its philosophy.
+Mila welcomes contributors who share its philosophy.
 Good starting points are CPU reference ops, test coverage, and new encoding strategies
 under /Components/Encodings/. Mila is GPU-first by design: the CUDA backend is the
 validated inference path, and CPU op coverage beyond the GPT-2 lineage is intentionally

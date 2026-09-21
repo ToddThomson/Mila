@@ -24,6 +24,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -328,17 +329,17 @@ namespace Mila::Dnn
 
             if ( owned_output_ != nullptr )
             {
-                stats.device_state_bytes += owned_output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *owned_output_ );
             }
 
             if ( owned_decode_output_ != nullptr )
             {
-                stats.device_state_bytes += owned_decode_output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *owned_decode_output_ );
             }
 
             if ( owned_input_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += owned_input_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *owned_input_grad_ );
             }
 
             return stats;

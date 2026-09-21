@@ -15,7 +15,7 @@ shards, runs it on the hidden state, frees it, and moves on. Peak residency is o
 layer (~0.7 GiB) plus the 2.54 GiB lm_head at the end.
 
 WHAT IT EMITS. A MILA `.bin` container -- the same format the weight converters write
-and `PretrainedModelReader` already reads -- holding the last-token hidden state after
+and `WeightsReader` already reads -- holding the last-token hidden state after
 every layer, after the final norm, and the last-position logits. The Mila side asserts
 against those numbers rather than against printed digits.
 

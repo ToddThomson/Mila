@@ -68,7 +68,7 @@ at `:720`).
 
 **So the "locked door" is one accessor.** `LanguageModel::getNetwork()` is protected
 (`LanguageModel.ixx:257`), and the model's entire public surface is `generate`,
-`savePretrained` and `seedSampler`. A consumer holding the object the library asks them to
+`save` and `seedSampler`. A consumer holding the object the library asks them to
 hold cannot reach a tree that is otherwise fully public and fully navigable. That is why
 every diagnostic in this repository constructs a transformer directly instead of loading a
 model — not because introspection is missing, but because the handle users actually have
@@ -544,10 +544,14 @@ through compute* is what stops this becoming a general event bus.
 - ~~**Path matching.**~~ **Decided: glob with `*`** (2026-08-26). Resolved once by
   `CompositeComponent::observe`, so publication still matches nothing at run time and 6.3's
   filter-at-attach rule holds. Deliberately not regular expressions: `*` covers every pattern
-  the three named consumers need -- one component (`"*.lm_head"`), a family of layers
-  (`"*.blk_*"`), the whole tree (`"*"`) -- and a richer syntax would be a vocabulary to learn
-  for no consumer that exists. `findComponent`'s exact resolution is untouched and still
-  serves parameter loading.
+  the three named consumers need -- one component (`"*.lm_head"`), a family of layers with
+  everything inside them (`"*.blk_*"`), the whole tree (`"*"`) -- and a richer syntax would be
+  a vocabulary to learn for no consumer that exists. `findComponent`'s exact resolution is
+  untouched and still serves parameter loading.
+  **`*` crosses dots** (corrected at `rc.1+22`; the `observe` Doxygen had taught otherwise).
+  `"*.tf_layer_*"` selected 816 components on a 48-layer Gemma 4 12B -- the layers and all of
+  their descendants. No pattern selects the layers alone; a consumer routes on the sink's `path`.
+  Kept rather than changed to stop at a dot: nothing a consumer needs is out of reach.
 
 ### 11.2 The walk, and why it landed late (2026-08-26)
 

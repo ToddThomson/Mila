@@ -15,7 +15,7 @@ This package is the Python projection of that runtime.
 
 A model is named, not pathed: from_store() reads the local store's record, which
 is what knows the weights are already FP4. Install one first -- ModelStore().pull()
-here, or `/install` in the chat harness -- because a load never downloads.
+here, or `/model install <name>` in the chat harness -- because a load never downloads.
 
 generate() hands each token to the callback as it is produced and returns why it
 stopped -- "stop", "length", "context_limit" or "cancelled" -- which the tokens

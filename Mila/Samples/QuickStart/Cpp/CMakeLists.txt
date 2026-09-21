@@ -35,7 +35,7 @@ include(FetchContent)
 FetchContent_Declare(
     Mila
     GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
-    GIT_TAG        v0.20.0-beta.3 # pin to a published release tag (see the GitHub Releases page)
+    GIT_TAG        v0.20.0 # pin to a published release tag (see the GitHub Releases page)
     # Local alternative for developing against a working tree (no network):
     #   SOURCE_DIR /path/to/Mila
 )

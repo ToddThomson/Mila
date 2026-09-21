@@ -7,12 +7,36 @@ name: Mila CI
 # cpu-only-tests RUNS the CPU unit suite (MILA_ENABLE_CUDA=OFF) -- the anti-rot
 # ratchet. GPU correctness tests are NOT run: hosted runners have no GPU, so device
 # tests would be theater. Those run locally on real hardware.
+#
+# The offline sub-minute checks are NOT here -- they are gates.yml, so that narrowing
+# this workflow's triggers does not take them down too.
 
+# Two triggers, because there are exactly two situations a maintainer's own machine cannot
+# cover.
+#
+#   pull_request dev   A contributor's branch lives on a fork and has never been built on a
+#                      machine the maintainer controls. CONTRIBUTING.md asks for PRs against
+#                      `dev`, and the work offered to contributors is CPU-operation work
+#                      (issue #22) -- which means an author who has no CUDA Toolkit, and
+#                      therefore no way to discover that they broke the CUDA tree. This run
+#                      is the only thing that can
+#                      tell them. It is also their first impression, so a red X here has to
+#                      mean their code, never ours.
+#
+#   push master        The release merge, once per release. This is what makes the README's
+#                      ?branch=master badge resolve, and it is the only reason this workflow
+#                      still runs on the maintainer's own code at all.
+#
+# NOT on a `dev` push, and NOT on the release PR. RELEASING.md's cross-platform policy already
+# requires a passing WSL build before `dev -> master`, and per its own table that build does
+# strictly more than this one: it compiles under clang AND runs the suite on real hardware,
+# where a hosted runner can execute nothing. A check that is a subset of a step you are already
+# required to perform adds nothing but a wait.
 on:
   push:
-    branches: [master, dev]
+    branches: [master]
   pull_request:
-    branches: [master, dev]
+    branches: [dev]
 
 # Supersede in-flight runs on the same ref.
 concurrency:
@@ -23,6 +47,10 @@ jobs:
   compile-and-gate:
     name: Compile (clang-21) + packaging gates
     runs-on: ubuntu-24.04
+    # The job's own observed worst case is 72 minutes; the default is SIX HOURS, and a hang has
+    # already burned it twice in one day. A bound above any real run and far below the default
+    # turns a repeat into a legible failure instead of an afternoon.
+    timeout-minutes: 100
     # Mirrors the validated WSL toolchain: Ubuntu 26.04 + CUDA 13.3 (glibc 2.43 --
     # the path that broke under CUDA 13.0). No cuDNN variant exists for 26.04, and
     # none is needed while USE_CUDNN is unset, so the plain devel image is correct.
@@ -34,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Cache CPM dependency clones (cutlass is large and slow to re-clone).
+      # Cache CPM dependency clones so each run does not re-clone them.
       - name: Cache CPM sources
         uses: actions/cache@v5
         with:
@@ -55,7 +83,7 @@ jobs:
 
       # clang-21 compiles the C++23 module units; gcc-15 is only the nvcc host
       # compiler for the (module-free) .cu files. Both ship with Ubuntu 26.04.
-      # python3 is required by CUTLASS's configure (find_package(Python3 REQUIRED));
+      # python3 + python3-dev build the Python binding (MILA_ENABLE_PYTHON_BINDINGS);
       # the bare CUDA devel image ships none. ccache caches the .cu compiles.
       # libssl-dev is curl's: on Linux the vendored libcurl takes TLS from the system
       # OpenSSL (CURL_USE_SCHANNEL is Windows-only), so its find_package(OpenSSL) is
@@ -93,41 +121,44 @@ jobs:
             -DMILA_ENABLE_PACKAGING_TEST=ON
 
       # Compiling lib + tests + samples under clang IS the cross-compiler portability
-      # check. MSVC silently resolves includes/conformance that clang rejects. Runs on
-      # every push/PR -- this is the fast feedback that matters on dev.
+      # check. MSVC silently resolves includes/conformance that clang rejects. It answers
+      # for a batch at the release PR, not per commit -- see the triggers above.
       - name: Build
         # -k 0: keep going after the first error so one run surfaces the full
         # clang-portability error list (the gate fails one file at a time otherwise,
-        # and each round trip is ~25 min). -j caps parallelism at the runner width.
-        run: cmake --build build -- -k 0 -j $(nproc)
+        # and each round trip is ~25 min).
+        # -j 2: parallelism here is a memory limit, not a core count. The 16 GB runner
+        # was OOM-killed at -j $(nproc) (exit 137, target 1087/1246) by the Qwen
+        # dispatch tree and the binding wrapper, each several GB per translation unit.
+        run: cmake --build build -- -k 0 -j 2
 
       # GPU-free by construction: the gates install Mila and build consumers against it
       # (find_package) and embed it as a subproject (FetchContent). No device used.
       #
       # HEAVY (~26 min: install + consumer module recompile + full in-tree subproject
       # rebuild of every kernel) and they only catch regressions from build-system
-      # changes, which land at releases. So they run ONLY on master-bound runs -- the
-      # dev -> master release PR and pushes to master -- not on every dev iteration.
-      # A packaging regression introduced on dev is caught at the release PR (the suspect
-      # set is the batch's CMake-touching commits), before anything is tagged.
+      # changes, which land at releases. A contributor waiting on a first PR should not
+      # pay for that, so the release merge is the only run that does.
       - name: Packaging gates
-        if: github.ref == 'refs/heads/master' || github.base_ref == 'master'
+        if: github.ref == 'refs/heads/master'
         run: ctest --test-dir build -L packaging --output-on-failure
 
   cpu-only-tests:
     name: CPU-only suite (clang-21, MILA_ENABLE_CUDA=OFF)
     # The only CI job that RUNS tests. The CPU-only build needs no GPU, so the CPU
-    # unit suite executes here on every push/PR -- the anti-rot ratchet that keeps
-    # the revived tests green (compile-and-gate above only COMPILES; device tests
-    # stay local). GPU- and data-dependent cases self-skip (GTEST_SKIP), so the
-    # absence of a GPU or model weights is green, not red.
+    # unit suite executes here -- the anti-rot ratchet that keeps the revived tests
+    # green (compile-and-gate above only COMPILES; device tests stay local). GPU- and
+    # data-dependent cases self-skip (GTEST_SKIP), so the absence of a GPU or model
+    # weights is green, not red.
     #
     # Plain ubuntu:26.04 (clang-21 + gcc-15 ship with it) -- NOT the CUDA image:
     # MILA_ENABLE_CUDA=OFF leaves the CUDA language disabled (project() declares only
-    # CXX; enable_language(CUDA) is gated), so there is no nvcc, no multi-GB CUDA
-    # image pull, and no CUTLASS fetch. Mirrors the linux-clang-cpu-release preset.
+    # CXX; enable_language(CUDA) is gated), so there is no nvcc and no multi-GB CUDA
+    # image pull. Mirrors the linux-clang-cpu-release preset.
     runs-on: ubuntu-24.04
     container: ubuntu:26.04
+    # Baseline is 19 minutes; it has stalled past 75. See compile-and-gate's bound.
+    timeout-minutes: 45
     env:
       CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
     steps:

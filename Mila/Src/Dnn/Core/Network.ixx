@@ -36,7 +36,7 @@ import Compute.OptimizerBase;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Metadata;
-import Serialization.PretrainedReader;
+import Serialization.WeightsReader;
 
 namespace Mila::Dnn
 {
@@ -367,7 +367,7 @@ namespace Mila::Dnn
         /**
          * @brief Verify that imported model is compatible with network architecture
          */
-        void verifyArchitectureCompatibility( const PretrainedMetadata& metadata )
+        void verifyArchitectureCompatibility( const WeightsMetadata& metadata )
         {
             // REVIEW: Required?
 

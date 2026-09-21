@@ -61,7 +61,8 @@ jobs:
     # missed. HUGO_VERSION must stay equal to the one in web.yml: that workflow is the staging
     # gate for this one, and a gate running a different generator validates a different site.
     # scripts/build-artifacts.ps1 reads HUGO_VERSION and DOXYGEN_VERSION from THIS file, so a
-    # local pre-flight build cannot silently disagree with the publish.
+    # local pre-flight build cannot silently disagree with the publish; build-pipeline.yml's
+    # doxygen-gate reads DOXYGEN_VERSION from here for the same reason.
     env:
       DOXYGEN_VERSION: 1.17.0
       HUGO_VERSION: 0.164.0

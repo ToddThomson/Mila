@@ -221,12 +221,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         }
 
         // Rows are independent -- a group never spans two of them -- so the tensor is
-        // quantized a row block at a time through a BOUNDED staging buffer. Staging the
-        // whole tensor is what the caller used to do, and at a vocabulary-sized output
-        // axis that is 2.54 GiB for Qwen 3.8's lm_head, taken from the grow-only shared
-        // scratch and therefore never given back. It put a 27B load 300 MiB over a 12 GiB
-        // card. Same reasoning, and the same 256 MiB ceiling, as the FP8 table path in
-        // CudaTokenEmbeddingOp.
+        // quantized a row block at a time through a BOUNDED staging buffer. At a
+        // vocabulary-sized output axis the whole tensor is 2.54 GiB for Qwen 3.8's lm_head,
+        // which would set the load's peak. The FP8 per-channel and table paths stage the
+        // same way.
         for ( int64_t row = 0; row < out_features; row += rows_per_chunk )
         {
             const int64_t rows = std::min( rows_per_chunk, out_features - row );

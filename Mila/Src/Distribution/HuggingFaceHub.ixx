@@ -264,7 +264,9 @@ namespace Mila::Distribution
          * @brief GET a small document, mapping the two authentication failures apart.
          *
          * A 401 and a 403 need different messages -- one means "get a token", the other means
-         * "accept the terms" -- and conflating them wastes an afternoon.
+         * "accept the terms" -- and conflating them wastes an afternoon. A 401 to a request
+         * that sent no token is also how HuggingFace answers a repository that does not exist,
+         * since it hides existence from anonymous callers, so that message leads with the name.
          */
         std::string fetchText( const std::string& url ) const
         {
@@ -278,6 +280,14 @@ namespace Mila::Distribution
             if ( result.ok() )
             {
                 return body;
+            }
+
+            if ( result.status == HttpStatus::Unauthorized && token_.empty() )
+            {
+                throw std::runtime_error( std::format(
+                    "{}: not found, or the repository is private. Check the model name; a "
+                    "private repository needs a token -- set HF_TOKEN, or run "
+                    "'huggingface-cli login'.", url ) );
             }
 
             if ( result.status == HttpStatus::Unauthorized )

@@ -172,8 +172,9 @@ publisher's to change:
 
 - `thinking_capable` — the architecture has a reasoning channel
 - `streaming_capable`
-- `max_context` — the hard ceiling, such as GPT-2's 1024 learned position rows, where a larger
-  value indexes past the table and the load fails
+- `max_context` — the ceiling the architecture can address. Every instruct family uses RoPE and
+  extrapolates, so these are memory questions the footprint pre-flight answers; a learned position
+  table would be a hard ceiling, but no family Chat runs has one
 - template and tokenizer traits
 
 These are properties of the code that implements the architecture, so they belong beside it.
@@ -209,6 +210,13 @@ duplicated per adaptor.
 
 ## 6. `context_length: "auto"`
 
+**Post-v0.20 direction (2026-09-16): `Deployment.md`.** What `"auto"` resolves to, described below, moves
+into the library's deployment planner unchanged (its Phase 3, gated on reproducing Chat's choices), where
+MIS and the Python binding get it too, and where `"device": "auto"` joins it (`LayerSplit.md` section 8).
+One behaviour changes then (decided 2026-09-16, `Deployment.md` 12.2): an explicit `context_length` that
+will not fit is refused, naming the binding constraint, where it is honoured with a warning today. Until
+then this section describes Chat as it is.
+
 Neither a family nor a model default knows the user's card. Gemma 4 12B FP4 at 8192 measured
 **11.07 of 11.99 GB** on an RTX 4070 — at the edge. The same model on 24 GB could take far
 more; on 8 GB it fits nothing. No constant compiled into an adaptor can be right for all
@@ -221,15 +229,18 @@ guessed years earlier on different hardware.
 
 ### What auto resolves to
 
-The largest context that fits **comfortably**, bounded above by
-`min( family max_context, model maximum_context_length )`.
+The largest context whose whole predicted footprint fits the device's **free memory**, bounded
+above by `min( family max_context, model maximum_context_length )`.
 
-Comfortably needs a number, because 11.07 of 11.99 GB is a fit by arithmetic and a bad
-experience in practice — that is a 92% claim on a card that also drives a display. **Auto
-targets leaving the greater of 10% of total device memory or 512 MB free**, measured against
-`practicalDeviceBytes`, which already carries the residual the predictor does not model.
-A user who writes an explicit number is not held to this: the margin is what auto chooses for
-you, not a policy imposed on what you chose.
+**Nothing is held back, since 2026-09-15.** The prediction counts everything Mila allocates,
+including the driver's rounding of each allocation, and reports a chunk chosen against that same
+free memory (MemoryFootprint.md section 11). The 10%-or-512 MB margin this used to leave stood in
+for scratch, rounding and the Windows display-card budget cut without knowing which applied, so a
+headless card paid for all three.
+
+**The scan runs with nothing resident.** A prediction taken while a model is loaded measures a card
+that still holds it, so a model switch and `/context auto` release first; `/context` reports the
+scan the last load ran rather than taking a new one.
 
 `predictFootprint` reads the artifact header and allocates nothing on the device. Measured
 2026-08-15: the `/models` listing's ten predictions cost about 25 ms in total, a few milliseconds
@@ -256,6 +267,10 @@ one.
 
 ### What auto resolves to on a 12 GB card
 
+*Superseded 2026-09-15 by MemoryFootprint.md section 11: the scan budgets against the device's free
+memory with nothing resident, and holds nothing back, because the prediction now counts the driver's
+rounding of every allocation. The margin below is what it replaced.*
+
 Leaving the greater of 10% or 512 MB free gives a 10.79 GB budget on the card above. Against the
 measured curve, `gemma-4-12b-it-fp4` fits between 65536 and 131072 — where the compiled default is
 **512**, which is the truncation defect this specification opens with. `Llama-3.1-8B-Instruct-fp4`,
@@ -265,6 +280,11 @@ which has no sliding window and grows at 0.22 GB per 1024, lands between 4096 an
 
 Measured 2026-08-15, with auto bounded on memory alone: `gemma-4-12b-it-fp4` resolved to **95232**,
 loaded, and answered. It was still the wrong number, and the reason was not memory.
+
+*Superseded 2026-09-15: the fixed activation budget described here is gone. A transformer now takes
+the largest rung whose WHOLE predicted footprint fits the device's free memory (MemoryFootprint.md
+section 11), so the chunk still walks down as context grows -- the KV cache leaves less room -- but
+against measured memory rather than a constant. The measurements below stand as what the budget did.*
 
 `GemmaTransformer::resolvePrefillChunkSize` (`Gemma.ixx:1023`) picks a prefill chunk from the rungs
 1024 / 512 / 256 / 128 / 64 rows, against an activation budget of 1536 MB **minus the global KV
@@ -293,10 +313,11 @@ it reports — and then discarded it (`Gemma.ixx:386`, `Llama.ixx:365`). Nothing
 a `PrefillChunking` carrying the chunk this context would use, the largest rung the context permits,
 and whether the budget forced the difference.
 
-**The same shape covers both families, though the mechanism differs.** Gemma's budget shrinks as the
-global KV term grows against a fixed activation cap; Llama's per-row scratch carries a
-`2 * context_length` term against the same cap. Either way a longer context buys a smaller chunk, so
-the overshoot was never a Gemma defect. Measured 2026-08-15 on an RTX 4070, 11.99 GB, before and
+**The same shape covers both families, and since 2026-09-15 the same rule.** Gemma's budget shrank as
+the global KV term grew against a fixed activation cap; Llama's per-row scratch carried a
+`2 * context_length` term against the same cap; both are now the one rule in MemoryFootprint.md
+section 11. Either way a longer context buys a smaller chunk, so the overshoot was never a Gemma
+defect. Measured 2026-08-15 on an RTX 4070, 11.99 GB, before and
 after the bound:
 
 | model | auto, memory only | auto, chunk-bounded | chunk at the old number |
@@ -414,7 +435,7 @@ reports on would be the silent device override §3 rules out. A user who writes 
 rendered transcript, plus the reasoning budget when thinking is on, plus room to answer — every part
 a fact the session already holds. A compiled 512 or 1024 would be a figure the user has to take on
 faith and would be wrong in both directions: too small for a Gemma turn at high effort, too large for
-GPT-2's 1024 addressable positions. The refusal shows the arithmetic, so it is arguable rather than
+a short context on a card with no room for more. The refusal shows the arithmetic, so it is arguable rather than
 an assertion. **The chassis imposes no minimum of its own and should not** — `ModelConfig` and
 `LanguageModelConfig` reject only zero, and the window and score-width calculations already clamp to
 `min(context, …)`, so a short context degrades rather than breaking. A floor in `Mila/Src` would be
@@ -601,11 +622,12 @@ what a user types rather than for its build target.
 |---|---|---|
 | `--model` | store name or catalog alias | the name `install` accepted must work here |
 | `-p` | prompt text | one shot: answer, print, exit. Never interactive |
+| `--prompt-file` | path to a text file | the same one shot, for a prompt past the ~32 KB a Windows command line holds. Refuses to pair with `-p` |
 | `--settings` | path to a JSON file | replaces `--config`; layer 6 of §3, not layer 4 |
 | `--context-length` | integer or `auto` | spelled as the key it overrides |
 | `--device` | integer, 0 or more | the CUDA ordinal; spelled as the key it overrides |
 | `--system-prompt` | name or path | resolved against the working directory, per §8 |
-| `--output-format` | `text` (default) or `json` | meaningful only with `-p` |
+| `--output-format` | `text` (default) or `json` | meaningful only in one shot (`-p` or `--prompt-file`) |
 | `--version` | — | |
 | `--help`, `-h` | — | |
 

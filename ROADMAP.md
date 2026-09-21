@@ -2,7 +2,8 @@
 
 Where Mila is going — the durable narrative of each release and what it means.
 
-- **Open tasks** -> [BACKLOG.md](BACKLOG.md) · **Completed work** -> [CHANGELOG.md](CHANGELOG.md)
+- **Open tasks** -> [BACKLOG.md](BACKLOG.md) · **Completed work** -> the
+  [release notes](https://github.com/ToddThomson/Mila/releases)
 - **How versions, branches, and releases work** -> [RELEASING.md](RELEASING.md)
 - **Design rationale** -> `Mila/Specifications/`
 
@@ -23,12 +24,19 @@ tool calling; and **training for FP32 GPT-2 / MLP**. The two halves have deliber
 reach: inference spans every model and precision Mila supports, training covers the GPT-2 lineage at
 FP32. Reduced-precision and GQA training are a later release — see **Future**.
 
-**The release makes one claim, and it is a pair.** A 27B model at an average 2.82 bits per weight
-runs on a 12 GB desk card — *and you can open it and read it*. Neither half stands alone. A capacity
-number on its own invites the throughput comparison Mila does not exist to win, and a runtime you can
-read that only runs small models is a teaching toy. Qwen 3.8-27B is what makes the first half true;
-Observability is what makes the second half literal rather than rhetorical — every activation in the
-composition tree reachable by name, from outside the model, with no scaffolding.
+**The release makes one claim, and it is a pair.** A 27B model runs on a 16 GB desk card — *and you
+can open it and read it*. Neither half stands alone. A capacity number on its own invites the
+throughput comparison Mila does not exist to win, and a runtime you can read that only runs small
+models is a teaching toy. Qwen 3.8-27B at FP4 is what makes the first half true; Observability is
+what makes the second half literal rather than rhetorical — every activation in the composition
+tree reachable by name, from outside the model, with no scaffolding.
+
+**The stronger form of that claim was narrowed on 2026-09-21, and the reason is worth keeping.** It
+read "at an average 2.82 bits per weight, on a 12 GB desk card", which is the `cb2-3` codebook build
+— 11.1 GiB where FP4 is 15.1. That build is finished and validated but was never published, so no
+reader can obtain it, and a release claims only what it ships. Publishing it is the first entry in
+[`Vnext.md`](Mila/Issues/Vnext.md); the claim returns with it. The Gemma 4 26B-A4B mixture of
+experts is held back for the same reason and sits beside it there.
 
 This scope is a deliberate reunion of two bodies of work. The last year built the inference path
 (Llama, quantization, the `OperationTraits` dispatch, the chat harness). The year before built a
@@ -83,7 +91,7 @@ not.*
   to an average 2.82 bits, with precision declared **per role** by a plan struct rather than chosen
   at load, so a projection that tolerates two bits and one that does not are different types rather
   than different arguments. Its FP4 build on a 16 GB card is the quality oracle, not a second target.
-- **Gemma 4 12B** — the flagship, and the default chat target at FP4, fitting a 12 GB consumer card.
+- **Gemma 4 12B** — FP4, fitting a 12 GB consumer card.
   Tool calling validated; the 26B-A4B MoE follow-on stays Future.
 - **Llama 3.1 8B, 3.2 3B, 3.2 1B** — the primary validated inference lineage; FP4 default with FP8 and
   BF16 alternatives.
@@ -245,17 +253,15 @@ binary either current or pinned with the reason written down.
 
 The other half of hardening, and the one that decides whether someone stays. A consumer's first
 contact is a build against their own translation unit; a contributor's is a tree they have to find
-their way into. Mila's positioning is the stack you can *read*, so a reader arriving with no map is
-a failure of the claim rather than a gap in the docs. Portability belongs here too: the compiler and
+their way into. Mila's positioning is the stack you can *read*, so how a reader finds their way in
+is part of the claim rather than a gap in the docs. Portability belongs here too: the compiler and
 platform matrix is a property of the source a consumer builds, not of anything Mila ships.
 
 **Success criteria:** an external consumer builds against Mila via FetchContent, with the MSVC
 module-consumption defect documented at the point of use and pinned by a gate that compiles a real
 consumer translation unit — so the workarounds it forces are visible, bounded, and will report the
 day they stop being needed; the Linux/clang build is a first-class, CI-compiled and WSL-tested
-platform; contributor onboarding
-(`CONTRIBUTING.md`, `getting-started.md`, a guided reading path through one token's journey)
-complete; the public export surface frozen at the narrowest defensible umbrella; a missing dispatch
+platform; contributor onboarding (`CONTRIBUTING.md`, `getting-started.md`) complete; the public export surface frozen at the narrowest defensible umbrella; a missing dispatch
 specialization reads as a sentence, not a constraint cascade. GPU-first: the CUDA backend is the
 validated inference path; full CPU op parity is not a gate.
 

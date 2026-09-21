@@ -1,9 +1,9 @@
 /**
- * @file PretrainedReader.ixx
- * @brief Reader for Mila pretrained binary format.
+ * @file WeightsReader.ixx
+ * @brief Reader for a Mila weights file.
  *
- * Provides direct access to pretrained model weights stored in Mila's
- * flat binary format. Used by fromPretrained() factory methods.
+ * Provides direct access to model weights stored in either Mila container.
+ * Used by the models' load() factories.
  *
  * The whole file is memory-mapped at construction (CreateFileMapping/MapViewOfFile
  * on Windows, mmap on POSIX). streamTensorBlobs() consumes blobs in ascending file
@@ -51,7 +51,7 @@ module;
 #  include <unistd.h>
 #endif
 
-export module Serialization.PretrainedReader;
+export module Serialization.WeightsReader;
 
 import nlohmann.json;
 
@@ -74,7 +74,7 @@ import Compute.CudaPinnedMemoryResource;
 namespace Mila::Dnn::Serialization
 {
     /**
-     * @brief Metadata for a tensor blob in pretrained model format.
+     * @brief Metadata for a tensor blob in a weights file.
      */
     struct TensorBlobMetadata
     {
@@ -86,9 +86,9 @@ namespace Mila::Dnn::Serialization
     };
 
     /**
-     * @brief Metadata for pretrained model.
+     * @brief The model configuration a weights file carries.
      */
-    export struct PretrainedMetadata
+    export struct WeightsMetadata
     {
         std::string architecture;
         std::string model_name;
@@ -124,6 +124,12 @@ namespace Mila::Dnn::Serialization
         float    rope_theta_global;
         float    final_logit_softcapping;
 
+        // Routed feed-forward geometry, zero for a dense model (Gemma 4 26B-A4B: 128 experts, top 8,
+        // expert width 704). hidden_dim stays the width of the always-on dense branch.
+        uint32_t num_experts = 0;
+        uint32_t top_k_experts = 0;
+        uint32_t expert_hidden_dim = 0;
+
         // Qwen 3.8 geometry (0 / false for other architectures). This stack interleaves two
         // different MIXERS rather than two geometries of one mixer, so the Gated DeltaNet
         // fields are its own rather than variants of the attention ones above. See QwenConfig.
@@ -137,7 +143,7 @@ namespace Mila::Dnn::Serialization
     };
 
     /**
-     * @brief Serialize PretrainedMetadata to the JSON the reader parses back.
+     * @brief Serialize WeightsMetadata to the JSON the reader parses back.
      *
      * The inverse of parseMetadataJSON, which until now had none -- an artifact could be
      * inspectable without being loadable. Every field the parser extracts is emitted, so a
@@ -147,7 +153,7 @@ namespace Mila::Dnn::Serialization
      * ("rope_theta" does not match within "rope_theta_local"). Do not introduce a key that
      * is a prefix of another up to its closing quote.
      */
-    export inline std::string toMetadataJSON( const PretrainedMetadata& metadata )
+    export inline std::string toMetadataJSON( const WeightsMetadata& metadata )
     {
         nlohmann::json json;
 
@@ -181,6 +187,10 @@ namespace Mila::Dnn::Serialization
         json[ "rope_theta_local" ] = metadata.rope_theta_local;
         json[ "rope_theta_global" ] = metadata.rope_theta_global;
         json[ "final_logit_softcapping" ] = metadata.final_logit_softcapping;
+
+        json[ "num_experts" ] = metadata.num_experts;
+        json[ "top_k_experts" ] = metadata.top_k_experts;
+        json[ "expert_hidden_dim" ] = metadata.expert_hidden_dim;
 
         json[ "attention_output_gate" ] = metadata.attention_output_gate;
         json[ "full_attention_interval" ] = metadata.full_attention_interval;
@@ -238,12 +248,12 @@ namespace Mila::Dnn::Serialization
             case TensorDataType::INT8:     return static_cast<uint32_t>( DType::Int8 );
             default:
                 throw std::runtime_error(
-                    "No pretrained wire code for dtype " + tensorDataTypeToString( type ) );
+                    "No weights-file wire code for dtype " + tensorDataTypeToString( type ) );
         }
     }
 
     /**
-     * @brief Reader for Mila pretrained binary format.
+     * @brief Reader for a Mila weights file.
      *
      * Two containers are accepted, sniffed by the leading magic. Both fill the same tensor
      * index, so everything past the header parse -- the mapping, the offset-ordered stream,
@@ -267,9 +277,9 @@ namespace Mila::Dnn::Serialization
      *
      * Usage:
      * @code
-     * PretrainedModelReader reader( "gpt2_small.bin" );
+     * WeightsReader reader( "gpt2_small.bin" );
      *
-     * auto metadata = reader.getPretrainedMetadata();
+     * auto metadata = reader.getWeightsMetadata();
      * auto names = reader.getTensorNames();
      *
      * for (const auto& name : names)
@@ -279,7 +289,7 @@ namespace Mila::Dnn::Serialization
      * }
      * @endcode
      */
-    export class PretrainedModelReader
+    export class WeightsReader
     {
     public:
 
@@ -289,14 +299,14 @@ namespace Mila::Dnn::Serialization
          * @param filepath Path to .bin model file.
          * @throws std::runtime_error if file cannot be opened or format is invalid.
          */
-        explicit PretrainedModelReader( const std::filesystem::path& filepath )
+        explicit WeightsReader( const std::filesystem::path& filepath )
             : filepath_( filepath )
         {
             file_.reset( std::fopen( filepath.string().c_str(), "rb" ) );
 
             if ( file_ == nullptr )
             {
-                throw std::runtime_error( "Cannot open pretrained model file: " + filepath.string() );
+                throw std::runtime_error( "Cannot open weights file: " + filepath.string() );
             }
 
             if ( isMilaContainer() )
@@ -314,7 +324,7 @@ namespace Mila::Dnn::Serialization
             buildOffsetOrder();
         }
 
-        ~PretrainedModelReader()
+        ~WeightsReader()
         {
             close();
         }
@@ -348,13 +358,13 @@ namespace Mila::Dnn::Serialization
         }
 
         // ================================================================
-        // PretrainedReader-specific API
+        // WeightsReader-specific API
         // ================================================================
 
         /**
-         * @brief Get pretrained model metadata.
+         * @brief The model configuration the weights file carries.
          */
-        const PretrainedMetadata& getPretrainedMetadata() const
+        const WeightsMetadata& getWeightsMetadata() const
         {
             return metadata_;
         }
@@ -539,7 +549,7 @@ namespace Mila::Dnn::Serialization
 
         std::string filename_;
 
-        PretrainedMetadata metadata_;
+        WeightsMetadata metadata_;
 
         // Empty unless the artifact declares a pre-quantized weight policy.
         std::string weight_quantization_;
@@ -592,7 +602,7 @@ namespace Mila::Dnn::Serialization
                 if ( !ReadFile( file_handle_, out + done, to_read, &got, &overlapped ) || got == 0 )
                 {
                     throw std::runtime_error( std::format(
-                        "PretrainedReader: read failed at offset {} ({}/{} bytes) for {}",
+                        "WeightsReader: read failed at offset {} ({}/{} bytes) for {}",
                         offset, done, nbytes, filepath_.string() ) );
                 }
 
@@ -604,7 +614,7 @@ namespace Mila::Dnn::Serialization
                 if ( got <= 0 )
                 {
                     throw std::runtime_error( std::format(
-                        "PretrainedReader: read failed at offset {} ({}/{} bytes) for {}",
+                        "WeightsReader: read failed at offset {} ({}/{} bytes) for {}",
                         offset, done, nbytes, filepath_.string() ) );
                 }
 
@@ -1267,6 +1277,10 @@ namespace Mila::Dnn::Serialization
             metadata_.rope_theta_local        = extract_float( "rope_theta_local" );
             metadata_.rope_theta_global       = extract_float( "rope_theta_global" );
             metadata_.final_logit_softcapping = extract_float( "final_logit_softcapping" );
+
+            metadata_.num_experts             = extract_int( "num_experts" );
+            metadata_.top_k_experts           = extract_int( "top_k_experts" );
+            metadata_.expert_hidden_dim       = extract_int( "expert_hidden_dim" );
 
             metadata_.attention_output_gate   = extract_bool( "attention_output_gate" );
             metadata_.full_attention_interval = extract_int( "full_attention_interval" );

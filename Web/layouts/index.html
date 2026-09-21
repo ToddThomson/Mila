@@ -72,7 +72,7 @@ using QuantizedProjection =
       <div class="qspanel" id="p-cpp">
         <dl class="qs-meta">
           <div><dt>What you get</dt><dd>A model answering prompts, from your own CMake project.</dd></div>
-          <div><dt>What you need</dt><dd>Linux or Windows, with CMake, Ninja, a C++23 toolchain and CUDA. A tagged Mila release. An NVIDIA GPU from the RTX 30-series or newer.</dd></div>
+          <div><dt>What you need</dt><dd>Linux or Windows, with CMake, Ninja, a C++23 toolchain and CUDA. A tagged Mila release. An NVIDIA GPU from the RTX 40-series or newer.</dd></div>
         </dl>
 
         <div class="qs-step">
@@ -90,7 +90,7 @@ include(FetchContent)
 FetchContent_Declare(
     Mila
     GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
-    GIT_TAG        v0.20.0-beta.3
+    GIT_TAG        v0.20.0
 )
 FetchContent_MakeAvailable(Mila)
 
@@ -115,7 +115,7 @@ GemmaModelConfig config( 4096 );
 config.withFP4Quantization();
 
 <span class="cmt">// Device and precision are template arguments: the type IS the configuration.</span>
-auto model = GemmaModel&lt;DeviceType::Cuda, TensorDataType::BF16&gt;::fromPretrained(
+auto model = GemmaModel&lt;DeviceType::Cuda, TensorDataType::BF16&gt;::load(
     installed-&gt;weights_path, config );
 
 <span class="cmt">// The model owns the decode loop and pushes each token to your callback.</span>
@@ -138,7 +138,7 @@ cmake --build build</code></pre>
           <div class="qs-body">
             <h4>Run it</h4>
 <pre data-label="Terminal"><code>./build/myapp "Why is the sky blue?"</code></pre>
-<pre data-label="Output" data-nocopy><code>Mila 0.20.0-beta.3
+<pre data-label="Output" data-nocopy><code>Mila 0.20.0
 Loading gemma-4-12b-it-fp4 ...
 
 The sky appears blue because of a phenomenon called Rayleigh
@@ -160,7 +160,7 @@ the entire sky to take on a blue hue.
       <div class="qspanel" id="p-python">
         <dl class="qs-meta">
           <div><dt>What you get</dt><dd>A model answering prompts, and a script you can take apart.</dd></div>
-          <div><dt>What you need</dt><dd>Linux or Windows, with Python 3.12 or 3.13. An NVIDIA GPU from the RTX 30-series or newer. No compiler, and no CUDA install — the wheel brings its own.</dd></div>
+          <div><dt>What you need</dt><dd>Linux or Windows, with Python 3.12 or 3.13. An NVIDIA GPU from the RTX 40-series or newer. No compiler, and no CUDA install — the wheel brings its own.</dd></div>
         </dl>
 
         <div class="qs-step">
@@ -177,7 +177,7 @@ the entire sky to take on a blue hue.
 <pre data-label="Python"><code>import mila
 mila.initialize("warning")
 mila.ModelStore().pull("gemma-4-12b-it-fp4", mila.default_hub_owner())</code></pre>
-            <p>Downloads Gemma 4 12B, 6.3 GB. About twenty minutes. Openly licensed, so it needs no HuggingFace account.</p>
+            <p>Downloads Gemma 4 12B, 6.8 GB. About twenty minutes. Openly licensed, so it needs no HuggingFace account.</p>
           </div>
         </div>
         <div class="qs-step">
@@ -203,7 +203,7 @@ making the sky appear blue to our eyes.</code></pre>
       <div class="qspanel" id="p-docker">
         <dl class="qs-meta">
           <div><dt>What you get</dt><dd>A Linux environment with Mila already built, and its source to work from.</dd></div>
-          <div><dt>What you need</dt><dd>Docker on Linux, or Docker Desktop with the WSL2 backend on Windows. An NVIDIA GPU from the RTX 30-series or newer, and 32 GB of memory.</dd></div>
+          <div><dt>What you need</dt><dd>Docker on Linux, or Docker Desktop with the WSL2 backend on Windows. An NVIDIA GPU from the RTX 40-series or newer, and 32 GB of memory.</dd></div>
         </dl>
 
         <div class="qs-step">
@@ -216,8 +216,8 @@ making the sky appear blue to our eyes.</code></pre>
      command. Windows Terminal also raises a "you are about to paste text that contains multiple
      lines" security warning before any of that. Both go away when there is nothing to continue.
      It is long; `pre` carries overflow-x: auto, so it scrolls in its own box. Do not re-wrap it. */}}
-<pre data-label="Terminal"><code>docker run --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-beta.3-devel</code></pre>
-            <p>Downloads the image, 12 GB. You land in a shell, in a Mila tree that is already
+<pre data-label="Terminal"><code>docker run --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-devel</code></pre>
+            <p>Downloads the image, 7.8 GB. You land in a shell, in a Mila tree that is already
             built.</p>
           </div>
         </div>
@@ -226,7 +226,7 @@ making the sky appear blue to our eyes.</code></pre>
           <div class="qs-body">
             <h4>Install a model</h4>
 <pre data-label="Terminal"><code>mila install gemma-4-12b-it-fp4</code></pre>
-            <p>Downloads Gemma 4 12B, 6.3 GB. About twenty minutes. Later runs start with it already there.</p>
+            <p>Downloads Gemma 4 12B, 6.8 GB. About twenty minutes. Later runs start with it already there.</p>
           </div>
         </div>
         <div class="qs-step">
@@ -250,7 +250,7 @@ cmake --build build
       <div class="qspanel" id="p-clone">
         <dl class="qs-meta">
           <div><dt>What you get</dt><dd>All of it — the chat app, the tests, the samples, and the source you came to read.</dd></div>
-          <div><dt>What you need</dt><dd>Linux or Windows, with CMake, Ninja, a C++23 toolchain and CUDA. An NVIDIA GPU from the RTX 30-series or newer.</dd></div>
+          <div><dt>What you need</dt><dd>Linux or Windows, with CMake, Ninja, a C++23 toolchain and CUDA. An NVIDIA GPU from the RTX 40-series or newer.</dd></div>
         </dl>
 
         <div class="qs-step">
@@ -303,7 +303,7 @@ cmake --build build</code></pre>
         {{/* No sizes here: a download is not something the reader must already have, and step 1
              names both figures where the command that fetches them is. 1.5 GB is measured off the
              registry manifest (25 layers), not `docker images`, which reports the extracted size. */}}
-        <div><dt>What you need</dt><dd>Docker on Linux, or Docker Desktop with the WSL2 backend on Windows. An NVIDIA GPU from the RTX 30-series or newer.</dd></div>
+        <div><dt>What you need</dt><dd>Docker on Linux, or Docker Desktop with the WSL2 backend on Windows. An NVIDIA GPU from the RTX 40-series or newer.</dd></div>
       </dl>
 
 
@@ -317,7 +317,7 @@ cmake --build build</code></pre>
      environment the reader edits, not a disposable one. */}}
 {{/* One line, deliberately -- see the note in the Docker panel above. A continuation here breaks
      in PowerShell and trips Windows Terminal's multi-line paste warning first. */}}
-<pre data-label="Terminal"><code>docker run --rm --gpus all -v mila-store:/models toddthomson/mila-llm:0.20.0-beta.3-runtime install Llama-3.2-3B-Instruct-fp4</code></pre>
+<pre data-label="Terminal"><code>docker run --rm --gpus all -v mila-store:/models toddthomson/mila-llm:0.20.0-runtime install Llama-3.2-3B-Instruct-fp4</code></pre>
           <p>Downloads the Mila Docker runtime image (1.5 GB) and the Llama-3.2-3B-Instruct-fp4 model (3.1 GB). About ten minutes.</p>
         </div>
       </div>
@@ -326,7 +326,7 @@ cmake --build build</code></pre>
         <span class="qs-num">2</span>
         <div class="qs-body">
           <h4>Talk to it</h4>
-<pre data-label="Terminal"><code>docker run --rm --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-beta.3-runtime chat --model Llama-3.2-3B-Instruct-fp4</code></pre>
+<pre data-label="Terminal"><code>docker run --rm --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-runtime chat --model Llama-3.2-3B-Instruct-fp4</code></pre>
           {{/* The model is named rather than inferred from a store that happens to hold one: Chat
                switches models at runtime, so a command that guessed would change meaning the moment
                a second model was installed. The reasoning stays here -- a reader running the command
@@ -375,7 +375,7 @@ cmake --build build</code></pre>
       <a class="box" href="{{ .Site.Params.repo }}">
         <span class="box-kicker">Source</span>
         <span class="box-title">GitHub</span>
-        <span class="box-desc">MIT licensed, public beta. Build it, read it, push back on the
+        <span class="box-desc">MIT licensed. Build it, read it, push back on the
         design.</span>
         <span class="box-more">ToddThomson/Mila →</span>
       </a>

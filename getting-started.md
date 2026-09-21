@@ -9,9 +9,8 @@ building your own application against Mila. Contributors are a superset — they
 user does, then follow Section 8 for coding standards and the PR process. If you only want to
 read about what Mila is and does, start with the [README](README.md).
 
-Mila is a C++23 module-based library for open LLMs (CUDA/CPU inference and training), currently in public beta
-(feature-frozen, hardening toward the v0.20 first production release). Pre-1.0, breaking
-changes are still expected — backward compatibility is not yet a goal.
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU inference and training).
+Mila is pre-1.0, and breaking changes are expected between releases.
 
 ---
 
@@ -23,7 +22,7 @@ changes are still expected — backward compatibility is not yet a goal.
 | VS Code | 1.122 or newer | Linux / WSL path — with the WSL, C/C++, and CMake Tools extensions |
 | Git | 2.x or newer | Git for Windows (validated on 2.54.0) / distro `git`. Required at configure time — CPM fetches dependencies via `git`. GitHub Desktop is optional |
 | Docker | Docker Desktop (WSL2) or native `docker-ce` in WSL | Optional — only for the Docker dev-container path (Section 4); GPU access also needs the NVIDIA Container Toolkit |
-| CUDA Toolkit | 13.0 or newer | Required for the CUDA backend |
+| CUDA Toolkit | 13.3 | Required for the CUDA backend |
 | CMake | 4.0 or newer | Bundled with recent Visual Studio |
 | Ninja | latest | Required for fast C++23 module incremental builds |
 | GTest | 1.17.0 | Fetched by the build |
@@ -31,8 +30,8 @@ changes are still expected — backward compatibility is not yet a goal.
 | C++ Standard | C++23 | Modules, deducing-this, concepts |
 | Python | 3.10+ | Only needed to convert a checkpoint Mila does not publish (Section 5b); validated on 3.14.5 |
 
-Mila requires CUDA Toolkit 13.0 or newer. It is CI-tested on 13.0 and developed on 13.3;
-newer 13.x releases are expected to work but are not exhaustively validated.
+Mila builds against CUDA Toolkit 13.3, the version its CI builds with, and moves to each new
+CUDA release once NVIDIA publishes its Ubuntu 26.04 build image.
 
 **Supported C++ compilers** — Mila's C++23 modules require a recent compiler:
 
@@ -47,11 +46,10 @@ table.** The compiler above compiles the C++23 module units. nvcc uses a separat
 for the `.cu` files, which contain no modules — CI and the dev container pair clang-21 with
 gcc-15 in that role, and its version is nvcc's business rather than the module floor's.
 
-A CUDA-capable NVIDIA GPU is needed to run the CUDA inference paths. The library builds
-without a GPU, but the validated inference targets (Llama, GPT-2) run on CUDA. BF16 compute
-and FP4 weights need an Ampere (SM 8.0) or newer GPU — an RTX 30-series card or better.
-FP8 weights need Ada Lovelace (SM 8.9) or newer, because that path runs through cuBLASLt's
-FP8 kernels.
+A CUDA-capable NVIDIA GPU is needed to run a model; the library builds without one. Mila is
+tested on RTX 40-series (SM 8.9) and RTX 50-series (SM 12.0) cards. BF16 compute and FP4
+weights need SM 8.0 or newer, and FP8 weights need Ada Lovelace (SM 8.9) or newer, because
+that path runs through cuBLASLt's FP8 kernels.
 
 > **Prefer not to install the toolchain by hand?** Section 4 covers the Docker / dev
 > container path, which gives you a reproducible Linux build environment (it still builds
@@ -82,7 +80,7 @@ handle C++23 modules reliably. `MILA_ENABLE_TESTING` is `ON` for a clone of this
 `OFF` when Mila is embedded in another project, so `ctest` finds the suite without a flag.
 
 The first configure fetches dependencies through CPM (GoogleTest, nlohmann_json, miniz,
-CUTLASS, and others), which runs `git clone` under the hood — so **`git` must be installed
+curl, and others), which runs `git clone` under the hood — so **`git` must be installed
 and on `PATH`**, and network access is required, even though you already cloned the repo.
 
 ### Windows (Visual Studio)
@@ -139,6 +137,9 @@ The steps below target a recent Ubuntu (24.04 or 26.04) with CUDA through WSL.
    sudo apt-get update
    sudo apt-get install -y build-essential ninja-build git wget ca-certificates cmake libssl-dev
    sudo apt-get install -y clang-21     # compiles the module units; see the matrix above
+   # clang-21 installs only versioned names; the linux-clang-* presets use `clang` / `clang++`
+   sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 100
+   sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-21 100
    ```
    `libssl-dev` is curl's, not Mila's: `MILA_ENABLE_LIBCURL` defaults ON, and on Linux the
    vendored libcurl takes TLS from the system OpenSSL (`CURL_USE_SCHANNEL` is Windows-only),
@@ -175,9 +176,14 @@ cmake -S . -B out/build/x64-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DMILA_E
 # Build
 cmake --build out/build/x64-release
 
-# Run the full test suite
-ctest --test-dir out/build/x64-release
+# Run the test suite (one binary, MilaTests.exe on Windows; --gtest_filter=<pattern> narrows it)
+./out/build/x64-release/Mila/Tests/MilaTests
 ```
+
+`ctest --test-dir out/build/x64-release` runs the same tests and adds the separate
+`ChatRichTextTests` binary, which is what CI and the release gates use. It runs each test in its
+own process, so it takes several times longer than the binary above — every GPU test pays for a
+fresh CUDA context and reloads its weights.
 
 On Linux, point CMake at both compilers and the CUDA toolkit explicitly. This is what CI and the
 dev container run — clang-21 for the module units, gcc-15 as nvcc's host, CUDA 13.3:
@@ -258,10 +264,14 @@ end of this section.)
 docker compose -f Docker/docker-compose.yml run --rm mila-dev
 
 # Inside the container:
-cmake -S . -B out/build/linux-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DMILA_ENABLE_TESTING=ON
-cmake --build out/build/linux-release
-ctest --test-dir out/build/linux-release
+cmake --preset linux-clang-release
+cmake --build out/build/linux-clang-release
+./out/build/linux-clang-release/Mila/Tests/MilaTests
 ```
+
+The preset selects clang for the module units and gcc-15 for nvcc, and builds the library for
+every supported GPU generation. For a faster build that targets only your card, add
+`-DMILA_LIBRARY_CUDA_ARCHITECTURES=89` (Ada) or `=120` (Blackwell) to the first command.
 
 VS Code users can **Reopen in Container** — `.devcontainer/` wires up the compose service,
 GPU access, the repo mount, and the C/C++ / CMake Tools / clangd extensions.
@@ -291,8 +301,8 @@ are ungated — no account, no access request, no token. From the chat harness:
 /model list               # what is installed, and what each costs in VRAM
 ```
 
-Published today: `gemma-4-12b-it-fp4` (~6.3 GB, the chat default),
-`Llama-3.2-3B-Instruct-fp4`, and `Llama-3.1-8B-Instruct-fp4`. The download lands in the local
+Published today: `gemma-4-12b-it-fp4` (~6.8 GB), `Llama-3.2-3B-Instruct-fp4`,
+`Llama-3.1-8B-Instruct-fp4`, and `Qwen3.8-27B-fp4`. The download lands in the local
 store — `MILA_CACHE_DIR`, else the platform user cache — which Chat, the inference server and
 the Python binding all share, so a model installed once is loadable by all of them.
 
@@ -415,8 +425,6 @@ A model is named, not aliased — what `/model list` shows is what you type:
 /help
 ```
 
-The default is `gemma-4-12b-it-fp4`.
-
 The MNIST training sample (`Samples/MNIST`) is another good way to exercise a full
 forward + backward + AdamW loop.
 
@@ -427,7 +435,7 @@ forward + backward + AdamW loop.
 To build your own application against Mila, pull it in with **FetchContent** — the supported way
 to depend on Mila. Mila compiles once, in your project's own toolchain (no install step, no
 prebuilt/recompiled ABI split); this is the same mechanism Mila uses for its own dependencies
-(googletest, CUTLASS, nlohmann).
+(googletest, nlohmann, curl).
 
 ```cmake
 cmake_minimum_required(VERSION 4.0)
@@ -441,7 +449,7 @@ include(FetchContent)
 FetchContent_Declare(
     Mila
     GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
-    GIT_TAG        v0.20.0-beta.3    # pin to a published release tag
+    GIT_TAG        v0.20.0    # pin to a published release tag
 )
 FetchContent_MakeAvailable(Mila)
 

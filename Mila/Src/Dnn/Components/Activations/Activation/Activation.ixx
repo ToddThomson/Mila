@@ -33,6 +33,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorTypes;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -292,11 +293,11 @@ namespace Mila::Dnn
             // An installed shared output slot is owned and counted by the installer.
             if ( output_ != nullptr && !output_installed_ )
             {
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
             }
             if ( input_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += input_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *input_grad_ );
             }
 
             return stats;
@@ -313,17 +314,19 @@ namespace Mila::Dnn
         {
             MemoryStats stats;
 
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+
             // An installed shared output slot is owned and counted by the installer.
             if ( !output_installed_ && !context.hasInstalledOutput() )
             {
                 stats.device_state_bytes +=
-                    storageBytes<TPrecision>( elementCount( context.inputShape() ) );
+                    occupiedDeviceBytes( storageBytes<TPrecision>( elementCount( context.inputShape() ) ), granularity );
             }
 
             if ( context.isTrainingMode() )
             {
                 stats.device_gradient_bytes +=
-                    storageBytes<TPrecision>( elementCount( context.inputShape() ) );
+                    occupiedDeviceBytes( storageBytes<TPrecision>( elementCount( context.inputShape() ) ), granularity );
             }
 
             return stats;

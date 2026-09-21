@@ -7,11 +7,11 @@
  *
  * Two loading paths:
  *
- *  fromPretrained() -- third-party weights (e.g. HuggingFace GPT-2) via
- *                     PretrainedModelReader. Primary path for Mila chat.
+ *  load() -- a Mila weights file converted from third-party weights (e.g.
+ *            HuggingFace GPT-2), read via WeightsReader.
  *
- *  fromCheckpoint() -- Mila-native artifact produced by GptTransformer::save()
- *                     via ModelArchive. Round-trip path after training.
+ *  fromCheckpoint() -- a Mila checkpoint produced by GptTransformer::save()
+ *                      via ModelArchive. Round-trip path after training.
  */
 
 module;
@@ -60,7 +60,7 @@ import Serialization.Metadata;
 import Serialization.OpenMode;
 import Serialization.Mode;
 import Serialization.ZipSerializer;
-import Serialization.PretrainedReader;
+import Serialization.WeightsReader;
 import Logging.Logger;
 
 namespace Mila::Dnn
@@ -74,7 +74,7 @@ namespace Mila::Dnn
      * Owns a loaded, built GptTransformer and exposes generate() for
      * autoregressive text generation.
      *
-     * Construction is only possible via fromPretrained() or fromCheckpoint().
+     * Construction is only possible via load() or fromCheckpoint().
      * The network is always in a built, weights-loaded, inference-mode state
      * when generation is called.
      */
@@ -101,19 +101,19 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Load from third-party pretrained weights.
+         * @brief Load GPT-2 from a Mila weights file.
          *
-         * Reads weights from a Mila-compatible pretrained artifact produced
+         * Reads a Mila weights file produced
          * by converting third-party checkpoints (e.g. HuggingFace GPT-2)
-         * via PretrainedModelReader.
+         * via WeightsReader.
          *
-         * @param path           Path to the pretrained artifact.
+         * @param path           Path to the weights file.
          * @param context_length Maximum sequence length to build for.
          * @param device_id      Target device.
          * @param strict         Throws on unknown parameter names if true.
          * @return               Inference-ready GptModel.
          */
-        static std::unique_ptr<GptModel> fromPretrained(
+        static std::unique_ptr<GptModel> load(
             const std::filesystem::path& path,
             dim_t context_length,
             DeviceId device_id = DeviceId{ TDeviceType, 0 },
@@ -121,18 +121,18 @@ namespace Mila::Dnn
         {
             if ( device_id.type != TDeviceType )
                 throw std::invalid_argument( std::format(
-                    "GptModel::fromPretrained: device type mismatch: expected {}, got {}",
+                    "GptModel::load: device type mismatch: expected {}, got {}",
                     deviceTypeToString( TDeviceType ),
                     deviceTypeToString( device_id.type ) ) );
 
-            PretrainedModelReader reader( path );
-            const auto& metadata = reader.getPretrainedMetadata();
+            WeightsReader reader( path );
+            const auto& metadata = reader.getWeightsMetadata();
 
             // GPT-2 has no quantization policy, so the only agreement to reach is that the
             // weights carry none either. Without this a pre-quantized file loads its packed
             // bytes as BF16 and generates noise.
             requireStoredQuantizationMatches(
-                "GptModel::fromPretrained", path.string(), reader.getWeightQuantization(),
+                "GptModel::load", path.string(), reader.getWeightQuantization(),
                 WeightQuantization::None );
 
             GptConfig config = configFromMetadata( metadata );
@@ -524,7 +524,7 @@ namespace Mila::Dnn
         // Config helpers
         // ====================================================================
 
-        static GptConfig configFromMetadata( const PretrainedMetadata& metadata )
+        static GptConfig configFromMetadata( const WeightsMetadata& metadata )
         {
             GptConfig config(
                 static_cast<dim_t>(metadata.embedding_dim),

@@ -66,12 +66,10 @@ sys.path.insert( 0, str( Path( __file__ ).parent.parent ) )
 import argparse
 import json
 import re
-import struct
 
 import torch
-from safetensors import safe_open
 
-from common import MilaStreamingWeightWriter, apply_transform, expand_qwen_tensor_map
+from common import MilaStreamingWeightWriter, ShardedCheckpoint, apply_transform, expand_qwen_tensor_map
 
 
 SUPPORTED_MODELS = [
@@ -124,64 +122,6 @@ def _check_hf_error( model_name: str, e: Exception ):
         print(  "  Check the model name and your network connection." )
         sys.exit( 1 )
     raise e
-
-
-class ShardedCheckpoint:
-    """Read-only view of a sharded safetensors checkpoint.
-
-    Shapes come from the shard headers, which cost one small read each -- so the whole
-    output index can be declared before any tensor data is touched.
-    """
-
-    def __init__( self, root: Path ):
-        self.root = root
-        index_path = root / 'model.safetensors.index.json'
-
-        if index_path.exists():
-            weight_map = json.loads( index_path.read_text( encoding='utf-8' ) )[ 'weight_map' ]
-        else:
-            # Single-shard checkpoint: no index file is written for one file.
-            weight_map = { name: 'model.safetensors'
-                           for name in _shard_header( root / 'model.safetensors' ) }
-
-        self.weight_map = weight_map
-        self.shapes = {}
-        self.dtypes = {}
-
-        for shard in sorted( set( weight_map.values() ) ):
-            for name, entry in _shard_header( root / shard ).items():
-                self.shapes[ name ] = tuple( entry[ 'shape' ] )
-                self.dtypes[ name ] = entry[ 'dtype' ]
-
-        self._handles = {}
-
-    def shape( self, name: str ):
-        if name not in self.shapes:
-            raise KeyError( f"expected tensor '{name}' not in the checkpoint" )
-
-        return self.shapes[ name ]
-
-    def tensor( self, name: str ):
-        shard = self.weight_map[ name ]
-
-        if shard not in self._handles:
-            self._handles[ shard ] = safe_open( self.root / shard, framework='pt' )
-
-        return self._handles[ shard ].get_tensor( name )
-
-    def names( self ):
-        return set( self.weight_map )
-
-
-def _shard_header( path: Path ):
-    """The safetensors header: an 8-byte length, then that many bytes of JSON."""
-    with open( path, 'rb' ) as f:
-        length = struct.unpack( '<Q', f.read( 8 ) )[ 0 ]
-        header = json.loads( f.read( length ) )
-
-    header.pop( '__metadata__', None )
-
-    return header
 
 
 def _tensor_to_numpy( tensor: torch.Tensor, dtype: str ):

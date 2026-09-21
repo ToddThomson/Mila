@@ -48,6 +48,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -363,22 +364,22 @@ namespace Mila::Dnn
 
             if ( weight_ )
             {
-                stats.device_parameter_bytes += weight_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *weight_ );
             }
 
             if ( bias_ )
             {
-                stats.device_parameter_bytes += bias_->getStorageSize();
+                stats.device_parameter_bytes += occupiedTensorBytes( *bias_ );
             }
 
             if ( state_ )
             {
-                stats.device_state_bytes += state_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *state_ );
             }
 
             if ( output_ && !output_installed_ )
             {
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
             }
 
             return stats;
@@ -392,14 +393,17 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+
             if ( !weight_ )
             {
-                stats.device_parameter_bytes +=
-                    storageBytes<TPrecision>( config_.getChannels() * config_.getKernelWidth() );
+                stats.device_parameter_bytes += occupiedDeviceBytes(
+                    storageBytes<TPrecision>( config_.getChannels() * config_.getKernelWidth() ), granularity );
 
                 if ( config_.hasBias() )
                 {
-                    stats.device_parameter_bytes += storageBytes<TPrecision>( config_.getChannels() );
+                    stats.device_parameter_bytes +=
+                        occupiedDeviceBytes( storageBytes<TPrecision>( config_.getChannels() ), granularity );
                 }
             }
 
@@ -407,13 +411,14 @@ namespace Mila::Dnn
             // That independence is the whole point of the recurrence it serves.
             if ( !state_ )
             {
-                stats.device_state_bytes += storageBytes<TPrecision>(
-                    input_shape[ 0 ] * config_.getStateRows() * config_.getChannels() );
+                stats.device_state_bytes += occupiedDeviceBytes( storageBytes<TPrecision>(
+                    input_shape[ 0 ] * config_.getStateRows() * config_.getChannels() ), granularity );
             }
 
             if ( !output_installed_ && !context.hasInstalledOutput() )
             {
-                stats.device_state_bytes += storageBytes<TPrecision>( elementCount( input_shape ) );
+                stats.device_state_bytes +=
+                    occupiedDeviceBytes( storageBytes<TPrecision>( elementCount( input_shape ) ), granularity );
             }
 
             return stats;

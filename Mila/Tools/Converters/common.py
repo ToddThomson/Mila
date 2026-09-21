@@ -572,6 +572,86 @@ class MilaStreamingWeightWriter:
         return False
 
 
+class ShardedCheckpoint:
+    """Read-only view of a sharded safetensors checkpoint.
+
+    Shapes come from the shard headers, which cost one small read each -- so the whole
+    output index can be declared before any tensor data is touched. Shared by every
+    converter that streams a checkpoint larger than host memory.
+    """
+
+    def __init__(self, root: Path):
+        self.root = Path(root)
+        index_path = self.root / 'model.safetensors.index.json'
+
+        if index_path.exists():
+            weight_map = json.loads(index_path.read_text(encoding='utf-8'))['weight_map']
+        else:
+            # Single-shard checkpoint: no index file is written for one file.
+            weight_map = {name: 'model.safetensors'
+                          for name in shard_header(self.root / 'model.safetensors')}
+
+        self.weight_map = weight_map
+        self.shapes = {}
+        self.dtypes = {}
+
+        for shard in sorted(set(weight_map.values())):
+            for name, entry in shard_header(self.root / shard).items():
+                self.shapes[name] = tuple(entry['shape'])
+                self.dtypes[name] = entry['dtype']
+
+        self._handles = {}
+
+    def shape(self, name: str):
+        if name not in self.shapes:
+            raise KeyError(f"expected tensor '{name}' not in the checkpoint")
+
+        return self.shapes[name]
+
+    def tensor(self, name: str):
+        from safetensors import safe_open
+
+        shard = self.weight_map[name]
+
+        if shard not in self._handles:
+            self._handles[shard] = safe_open(self.root / shard, framework='pt')
+
+        return self._handles[shard].get_tensor(name)
+
+    def rows(self, name: str, row_ids):
+        """Only the named rows of a 2-D tensor -- an embedding table need not be materialized."""
+        from safetensors import safe_open
+        import torch
+
+        shard = self.weight_map[name]
+
+        if shard not in self._handles:
+            self._handles[shard] = safe_open(self.root / shard, framework='pt')
+
+        rows = self._handles[shard].get_slice(name)
+
+        return torch.stack([rows[int(i):int(i) + 1][0] for i in row_ids])
+
+    def state_dict_for(self, prefix: str):
+        """Every tensor under `prefix`, keyed relative to it."""
+        return {name[len(prefix):]: self.tensor(name)
+                for name in self.weight_map if name.startswith(prefix)}
+
+    def names(self):
+        return set(self.weight_map)
+
+
+def shard_header(path: Path):
+    """The safetensors header: an 8-byte length, then that many bytes of JSON."""
+    with open(path, 'rb') as f:
+        length = struct.unpack('<Q', f.read(8))[0]
+        header = json.loads(f.read(length))
+
+    header.pop('__metadata__', None)
+
+    return header
+
+
 def _element_count(shape: Tuple[int, ...]) -> int:
     count = 1
 

@@ -56,7 +56,7 @@ import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
 import Serialization.Mode;
-import Serialization.PretrainedReader;
+import Serialization.WeightsReader;
 import Serialization.Tensor;
 import Logging.Logger;
 
@@ -115,43 +115,6 @@ namespace Mila::Dnn
         }
 
         ~GptTransformer() override = default;
-
-        // --------------------------------------------------------------------
-        // Factory methods
-        // --------------------------------------------------------------------
-
-        // REVIEW: Is this factory method necessary given GptModel::fromPretrained()?
-
-        static std::unique_ptr<GptTransformer<TDeviceType, TPrecision>> fromPretrained(
-            const std::filesystem::path& model_path,
-            std::size_t batch_size,      // User specifies runtime dimensions
-            std::size_t seq_length,      // Must be ? max_seq_length from weights
-            DeviceId device_id = DeviceId{ TDeviceType, 0 },
-            bool strict = true )
-        {
-            PretrainedModelReader reader( model_path );
-            const auto& metadata = reader.getPretrainedMetadata();
-
-            // REVIEW: this->verifyArchitectureCompatibility( metadata );
-
-            GptConfig config = createConfigFromMetadata( metadata );
-
-            std::unique_ptr<GptTransformer<TDeviceType, TPrecision>> gpt =
-                std::make_unique<GptTransformer<TDeviceType, TPrecision>>(
-                    metadata.model_name,
-                    config,
-                    device_id
-                );
-
-            // Build with max sequence length (position embeddings support full range)
-            auto build_config = BuildContext( { 1, config.getMaxSequenceLength() }, RuntimeMode::Inference );
-            
-            gpt->build( build_config );
-
-            gpt->loadParameters( reader, strict );
-
-            return gpt;
-        }
 
         /**
          * @brief Reconstruct the GptConfig that produced an archive.
@@ -567,11 +530,11 @@ namespace Mila::Dnn
         }*/
 
         /**
-         * @brief Load parameters (weights and biases) from an already-opened PretrainedModelReader
+         * @brief Load parameters (weights and biases) from an already-opened WeightsReader
          *
-         * Separated from fromPretrained to allow flexibility in weight loading
+         * Separated from load to allow flexibility in weight loading
          */
-        void loadParameters( PretrainedModelReader& reader, bool strict )
+        void loadParameters( WeightsReader& reader, bool strict )
         {
             const int device_index = this->getExecutionContext()->getDeviceId().index;
 
@@ -730,6 +693,10 @@ namespace Mila::Dnn
                 this->getName() + ".lm_head" );
             lm_head_->build( embedding_context );
 
+            // Reserved even when nothing here requests scratch, so a request would throw rather
+            // than grow outside the footprint.
+            this->getExecutionContext()->reserveScratch( this->getMemoryStats().device_scratch_bytes );
+
             block_input_ptrs_.assign( transformer_blocks_.size(), nullptr );
             block_output_ptrs_.assign( transformer_blocks_.size(), nullptr );
             encoder_out_ptr_ = nullptr;
@@ -856,7 +823,7 @@ namespace Mila::Dnn
         /**
          * @brief Create GptConfig from Mila metadata.
          */
-        static auto createConfigFromMetadata( const PretrainedMetadata& metadata ) -> GptConfig
+        static auto createConfigFromMetadata( const WeightsMetadata& metadata ) -> GptConfig
         {
             dim_t embedding_size = static_cast<dim_t>(metadata.embedding_dim);
             dim_t num_layers = static_cast<dim_t>(metadata.num_layers);

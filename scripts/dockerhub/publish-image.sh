@@ -36,9 +36,11 @@ readonly REPOSITORY="toddthomson/mila-llm"
 # a GPU-less builder, and the image is pulled by hardware the builder never saw.
 readonly ARCHITECTURES="80;86;89;90;120"
 
-# No `latest`. A bare `docker run toddthomson/mila-llm` resolves to it, so pointing it at a
-# pre-release makes the beta the default for everyone who does not read the tag list. It starts
-# existing at the first unsuffixed release and tracks the runtime variant of the newest one.
+# No `latest` on a pre-release. A bare `docker run toddthomson/mila-llm` resolves to it, so pointing
+# it at a pre-release makes the beta the default for everyone who does not read the tag list. It
+# starts existing at the first unsuffixed release and tracks the runtime variant of the newest one.
+# That rule is ENFORCED below rather than left to whoever is reading this at the time: the tag is
+# added only when the version carries no -alpha./-beta./-rc. suffix.
 readonly TARGETS=("runtime" "devel")
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -143,6 +145,24 @@ for target in "${TARGETS[@]}"; do
 
     built+=("${image}")
 done
+
+# `latest` is an alias of this release's runtime image, not a third build -- and it exists only at
+# an unsuffixed release, which is the rule stated at the top of this file. A pre-release reaching
+# here leaves it alone, so the tag on Docker Hub keeps pointing at the newest production image.
+case "${version}" in
+    *-alpha.*|*-beta.*|*-rc.*)
+        echo
+        echo "No 'latest' tag: ${version} is a pre-release."
+        ;;
+    *)
+        latest_image="${REPOSITORY}:latest"
+        docker tag "${REPOSITORY}:${version}-runtime" "${latest_image}" \
+            || die "could not tag ${latest_image}."
+        built+=("${latest_image}")
+        echo
+        echo "Tagged ${latest_image} -> ${version}-runtime (first unsuffixed release, or a newer one)."
+        ;;
+esac
 
 echo
 echo "== built ==========================================================="

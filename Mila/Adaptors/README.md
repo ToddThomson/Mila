@@ -5,8 +5,8 @@ tokens and does not know or care who reads them; each adaptor here bridges those
 tokens to a specific consumer, distinguished by **who closes the generation loop**:
 
 - **[Chat](Chat/)** — closes the loop in-process with a **human** in the gate. An
-  instruct chat CLI (`ConsoleRenderer`, channel-aware streaming, tool calling); the
-  default model is Gemma 4 12B Instruct at FP4. CUDA-only today.
+  instruct chat CLI (`ConsoleRenderer`, channel-aware streaming, tool calling) over any
+  installed instruct model. CUDA-only today.
 - **[Inference](Inference/)** — the **Mila Inference Server (MIS)**: exports the loop
   over an OpenAI/Anthropic-compatible wire so a foreign harness (Codex, Claude Code)
   drives Mila from another process. `Inference/Server` is the Python server; it imports

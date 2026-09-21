@@ -5,16 +5,18 @@ does not appear in Mila's `ROADMAP.md`, so its work cannot be admitted to `BACKL
 there has to name a release success criterion, and the site has none to name. That is why this
 directory exists rather than a Website bucket one level up.
 
-`Backlog.md` holds open work; `Untriaged.md` is capture. Two of Mila's category files are ruled out
-here rather than merely absent, so nobody creates one on the "a file appears when it has its first
+`Backlog.md` holds open work; `Untriaged.md` is capture. One of Mila's category files is ruled out
+here rather than merely absent, so nobody creates it on the "a file appears when it has its first
 entry" rule:
 
 - **No `Future.md`.** The site has no release boundary to be on the far side of, so work is either
   open or done.
-- **No `Contributor.md`, ever.** That file is Mila's *outbound* queue — items mirrored to GitHub
-  Issues with a label when someone asks how to help. Nobody outside this repository works on the
-  website, so there is no queue to fill and nowhere to send it. A website item that happens to be
-  small is just a small item in `Backlog.md`.
+
+There is no contributor file here either, but that is no longer a local rule: Mila deleted its own,
+and the reasoning this page reached first — a website item that happens to be small is just a small
+item in `Backlog.md` — is now the general one in
+[`Mila/Issues/README.md`](../../Mila/Issues/README.md). Nobody outside this repository works on the
+website, so the outbound direction is empty here in any case.
 
 `Declined.md` is still available if a site idea is worth recording as considered-and-rejected.
 

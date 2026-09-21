@@ -3,6 +3,11 @@
 **Date:** 2026-07-06 (locked 2026-07-07)
 **Status:** Locked positioning for the v0.20 first production release — stable in shape,
 refinable in detail. The Definition below is the product identity v0.20 ships under.
+From v0.50 on, `Direction.md` replaces its layering and positioning; its Agentic design carries
+forward by reference. **That includes the word "adaptor" itself** — this document's organizing
+noun. `Direction.md` §10 retires it in favour of "application", which answers the standing concern
+that "adaptor" is a GoF pattern name fitting MIS and not Chat: the axis was sound, the word was
+not, and it goes at v0.50 rather than being renamed inside v0.20.
 **Component:** whole-project positioning (`Mila/Src`, `Mila/Adaptors/Inference`, `Mila/Adaptors/Chat`, future agent)
 
 ## Definition
@@ -36,19 +41,19 @@ leaderboards, model breadth, or ecosystem compatibility.
 The first production release ships **the runtime plus its two proven adaptors** — Chat and MIS —
 with the Definition's claims demonstrable: clone the repo, build it, load Gemma 4 12B FP4 on a
 12 GB card, chat through the harness, drive it from a foreign harness through MIS, and read the
-entire path from prompt to kernel with no hidden engine. Comprehensibility is part of the
-deliverable, not an aside: the release includes a guided reading path that lets a strong C++
-developer trace one token's journey (embed -> attend -> sample -> decode) through the actual
-source unaided.
+entire path from prompt to kernel with no hidden engine. The guided reading path that lets a
+strong C++ developer trace one token's journey (embed -> attend -> sample -> decode) through the
+actual source unaided is the first documentation after the release, not part of it
+(`Mila/Issues/Vnext.md`).
 
 **Explicitly post-release:** the Agentic adaptor, the extraction of the native agent core, and the
 *delivered* token-level splice. Token-level splice is decided as the direction (see Decided); it
 does not have to be built for v0.20. Agentic is the most tempting creep vector in this document —
 it has no bounded checklist and real engineering risk (see Honest Risk) — and admitting it into
-the release scope is how the release never ships. The grammar-in-runtime consolidation is the one
-item from this spec that belongs in v0.20, because it is a correctness fix for drift already
-shipped in two adaptors; its depth within v0.20 (canonical C++ consumed by Chat first; pybind for
-MIS if bounded) is scoped at execution time.
+the release scope is how the release never ships. The grammar-in-runtime consolidation was the one
+item from this spec that belonged in v0.20, because it was a correctness fix for drift already
+shipped in two adaptors; it landed at `+34` to its full depth — canonical C++ consumed by Chat and
+projected through the binding for MIS — for Gemma and Qwen alike.
 
 ## Purpose
 
@@ -110,7 +115,7 @@ share a **native agent core** and differ only by the gate — Chat has a human i
 replaces that human with a policy. Once escalate-to-human is a tool (see Agentic), the gate is not
 even a structural difference: Chat is the core under a policy that escalates before every tool. The
 shared core (parse -> dispatch -> splice -> continue) is the code that must not be written twice.
-Today it exists once, informally, inside the Chat sample.
+Today it exists once, informally, inside Chat.
 
 ## Layer Responsibilities
 
@@ -123,19 +128,23 @@ Owns everything model-intrinsic and consumer-blind:
   `<|tool_call>` / `<|tool_response>` / `<|"|>` is a property of *the model*, not of HTTP and not
   of the terminal. Both consumers need to parse and format it identically.
 
-> **Key correction this spec makes:** the tool-call grammar currently lives in *both adaptors*,
-> reimplemented — C++ `GemmaToolCallParser` in Chat, Python `gemma_protocol.py` in MIS — and they
-> have already drifted (MIS renders the `<|"|>` string delimiter; Chat still renders plain
-> quotes). That divergence is not a bug to patch; it is the layering telling us the code is in the
-> wrong place. The grammar belongs **down** in the runtime (canonical C++, exposed via pybind so
-> MIS consumes the same source), after which the adaptors *cannot* diverge. This supersedes the
-> earlier "fold gemma_protocol toward the chat harness or a shared spec" thread: fold it toward
-> neither adaptor — fold it into the runtime. See `GemmaChatProtocol.md`, `ToolCalling.md`.
+> **Key correction this spec made, and it has landed (`+34`, 2026-08-29).** The tool-call grammar
+> was written in *both adaptors* — C++ `GemmaToolCallParser` in Chat, Python `gemma_protocol.py`
+> in MIS — and they had already drifted (MIS rendered the `<|"|>` string delimiter; Chat rendered
+> plain quotes). That divergence was not a bug to patch; it was the layering saying the code was in
+> the wrong place. The grammar now lives **down** in the runtime as canonical C++ —
+> `Dnn/Models/Gemma/Gemma.Protocol.ixx`, with `Qwen.Protocol.ixx` built the same way — exposed
+> through the binding so MIS consumes the same source, after which the adaptors *cannot* diverge.
+> `gemma_protocol.py` is retired in place with a header and nothing imports it;
+> `Chat.GemmaToolCallParser.ixx` is a forwarding record onto `Mila::Dnn::Gemma::*`. Parity was
+> demonstrated byte-for-byte before either was unhooked. See `GemmaChatProtocol.md`,
+> `ToolCalling.md`.
 
 ### Python binding surface (`Mila/Bindings`)
 
 A runtime-adjacent projection of the runtime into Python (`mila.pyd`, module `Mila.Bindings`):
-`Tokenizer` / `LlamaSession` / `GemmaSession` — load, generate, stream, config. It is
+`Tokenizer` / `LlamaSession` / `GemmaSession` / `QwenSession` — load, generate, stream, config,
+plus the per-family grammar free functions the retired Python protocols were replaced by. It is
 **consumer-blind** (no HTTP, no chat, no protocol) and is therefore a peer of the runtime, not
 an adaptor — the same consumer-blind test that keeps the grammar in `Src`. It has two consumers,
 which is why it is not owned by either: the MIS server imports it, and the HuggingFace parity /
@@ -252,13 +261,18 @@ guardrails and semantic loop-detection above are not polish — they are what ma
 model *survivable* in autonomy. This is the central engineering risk of the agentic adaptor and it
 should be entered eyes-open.
 
-**The model coupling is tighter than "advances in parallel"** (revised 2026-08-12). Muse Glimmer 30B
-is the post-v0.20 target, and it was picked because it is tuned for tool use, long tasks and failure
-recovery — the model roadmap's next step was chosen to serve *this* adaptor. Its DFlash drafter head
-also makes speculative decoding worth more here than in Chat: a hundred-turn unsupervised run has
-nobody waiting on the first token. The blocker is neither grammar nor loop but hardware — ~16 GB at
-FP4 before any KV cache, against a 12,282 MiB card — which puts the compute sponsorship ask on this
-adaptor's critical path rather than beside it.
+**The model coupling is tighter than "advances in parallel"** (revised 2026-08-12; sequencing
+corrected 2026-09-21). Muse Glimmer 30B was picked because it is tuned for tool use, long tasks and
+failure recovery — the model roadmap's next step was chosen to serve *this* adaptor. Its DFlash
+drafter head also makes speculative decoding worth more here than in Chat: a hundred-turn
+unsupervised run has nobody waiting on the first token.
+
+**It is no longer "the post-v0.20 target".** `Direction.md` §6.2 places it in **v0.80** as one of two
+candidates alongside a dense Qwen member, behind a v0.50 that deliberately adds no chassis so the
+model handle lands first. Read that spec, not this paragraph, for which model ships when. The
+blocker remains hardware rather than grammar or loop — ~16 GB at FP4 before any KV cache, against a
+12,282 MiB card and a 16 GB one — which keeps the compute sponsorship ask on this adaptor's critical
+path rather than beside it.
 
 ## Positioning
 
@@ -315,15 +329,21 @@ that would validate it is shared. See Honest Risk.
    **It has a second tenant, and a hard sequencing constraint (agreed 2026-08-12).** The same layer
    should own **one typed model handle and one factory** mapping an architecture to its concrete
    instantiation. That erasure exists three times today, in two languages — Chat's `ModelVariant`
-   (`Chat.ixx`), the binding's `LlamaSession`/`GemmaSession`, and MIS's `ModelFamily` enum — and the
-   duplication is not theoretical: GPT-2 is absent from MIS *because the second erasure was never
-   written for it* (`Server/model_worker.py:40`, "gpt2 has a record shape and no session"), a gap
-   that reads as a policy.
+   (`Chat.ixx`), the binding's `LlamaSession`/`GemmaSession`/`QwenSession`, and MIS's `ModelFamily`
+   enum.
+
+   **GPT-2's absence is now two different things, and they must not be conflated** (revised
+   2026-09-21). In **Chat** it is a decided policy: Chat runs instruct models only, base models are
+   refused at the catalogue, and since `rc.1+28` there is no `ModelType::Gpt` and no GPT-2
+   alternative in `ModelVariant` at all. In **MIS** it is still the accident this spec described —
+   `Server/model_worker.py` carries "gpt2 has a record shape and no session", a missing second
+   erasure rather than a decision. The handle removes the MIS gap; it does not reopen the Chat one.
 
    The cost is not the type list, which grows linearly under the crest-not-zoo selection rule. It is
-   the **six `std::visit` sites, today carrying zero `if constexpr`** — uniform only while every
-   model does the same things. The first chassis with a capability the others lack (a vision tower,
-   MTP) makes every one of them conditional, in each of the three places.
+   the **eleven `std::visit` sites over `ModelVariant`, today carrying zero `if constexpr`** —
+   uniform only while every model does the same things. The first chassis with a capability the
+   others lack (a vision tower, MTP) makes every one of them conditional, in each of the three
+   places.
 
    **Sequencing: after the v0.20 tag, and BEFORE the next chassis expansion.** Before, because the
    chassis is what turns three erasures into four and six clean visits into six conditional ones.

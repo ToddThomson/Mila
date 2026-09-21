@@ -32,6 +32,7 @@ import Dnn.TensorOps;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
@@ -243,6 +244,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             window_ = static_cast<int>(config_.getWindow());
             attention_scale_ = config_.getAttentionScale();
 
+            // The transformer decides fused decode on the context, so its scratch is known when
+            // the network reserves; a test may still switch it on after build.
+            use_flash_decode_ = use_flash_decode_ || context.usesFusedDecode();
+
             // Tuned prefill chunk size, threaded down from LlamaTransformer via BuildContext.
             // Training-mode contexts carry no prefill size; fall back to the full sequence
             // length so the (vestigial) prefill plans are still built with a valid row count.
@@ -363,7 +368,24 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const dim_t kv_heads = config_.getNumKvHeads();
             const dim_t head_dim = config_.getHeadDim();
 
-            return 2 * storageBytes<TPrecision>( batch * kv_heads * capacity * head_dim );
+            return 2 * occupiedDeviceBytes( storageBytes<TPrecision>( batch * kv_heads * capacity * head_dim ),
+                allocationGranularity( context_->getDeviceId() ) );
+        }
+
+        std::size_t getScratchBytes() const override
+        {
+            return fusedDecodeScratchBytes( use_flash_decode_, B_, NH_, NKV_, HS_ );
+        }
+
+        std::size_t getRequiredScratchBytes( const BuildContext& context ) const override
+        {
+            const shape_t& input_shape = context.inputShape();
+
+            validateInputShape( input_shape );
+
+            return fusedDecodeScratchBytes( use_flash_decode_ || context.usesFusedDecode(),
+                static_cast<int>( input_shape[ 0 ] ), static_cast<int>( config_.getNumHeads() ),
+                static_cast<int>( config_.getNumKvHeads() ), static_cast<int>( config_.getHeadDim() ) );
         }
 
         /**
@@ -416,6 +438,24 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
     private:
+
+        /// The split-K partials the fused decode kernel requests from the context scratch:
+        /// BF16 only, and only for a geometry the kernel supports, exactly as decode() routes.
+        static std::size_t fusedDecodeScratchBytes(
+            [[maybe_unused]] bool fused, [[maybe_unused]] int batch, [[maybe_unused]] int heads,
+            [[maybe_unused]] int kv_heads, [[maybe_unused]] int head_size )
+        {
+            if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
+            {
+                if ( fused && kv_heads > 0
+                    && Detail::cuda_gqa_kernels<NativeType>::decode_attention_supported( head_size, heads / kv_heads ) )
+                {
+                    return Detail::cuda_gqa_kernels<NativeType>::decode_attention_scratch_bytes( batch, heads, head_size );
+                }
+            }
+
+            return 0;
+        }
 
         // A/B selector for the FlashAttention prefill path. When true, the BF16 prefill
         // routes through the fused flash kernel -- cuda_gqa_flash_prefill_bf16 (unbounded/
@@ -604,7 +644,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             auto make = [&]( const shape_t& shape, const std::string& name )
                 {
                     auto tensor = std::make_shared<TensorType>( device, shape, name );
-                    state_memory_size_ += tensor->getStorageSize();
+                    state_memory_size_ += occupiedTensorBytes( *tensor );
 
                     return tensor;
                 };

@@ -15,30 +15,14 @@
 namespace Mila::Dnn::Compute::Cuda::Linear
 {
     /**
-     * @brief Per-channel BF16→FP8_E4M3 quantization with device upload.
+     * @brief Per-channel BF16->FP8_E4M3 quantization on device, staged in row blocks.
      *
-     * Reads the host BF16 source blob row by row (each row is one output channel).
-     * For each row computes:
-     *   scale[o] = max(|W[o,:]|) / 448.0f     (448 = max representable FP8_E4M3)
-     *   W_fp8[o, i] = FP8_E4M3( W_bf16[o, i] / scale[o] )
-     *
-     * Uploads the resulting FP8 weight matrix and float32 scale vector to the
-     * device tensors via cudaMemcpy (host-to-device). The source blob is never
-     * retained on device.
-     *
-     * @param src_bf16      Host pointer to BF16 weight blob [out_features * in_features].
-     * @param dst_fp8       Device pointer to FP8_E4M3 output tensor [out_features * in_features].
-     * @param dst_scales    Device pointer to float32 scale vector [out_features].
-     * @param out_features  Number of output channels (rows).
-     * @param in_features   Number of input channels (columns).
-     *
-     * @throws std::runtime_error if either cudaMemcpy call fails.
-     */
-    /**
-     * @brief Per-channel BF16→FP8_E4M3 quantization with async device upload.
+     * For each output channel: scale[o] = max(|W[o,:]|) / 448.0f and
+     * W_fp8[o, i] = FP8_E4M3( W_bf16[o, i] / scale[o] ). Rows are independent, so the
+     * source is uploaded and quantized a block of rows at a time through dev_staging.
      *
      * All device operations are issued on stream. The caller must synchronize
-     * after all weight tensors have been quantized — no synchronization is
+     * after all weight tensors have been quantized; no synchronization is
      * performed inside this function.
      *
      * @param src_bf16      Host pointer to BF16 weight blob [out_features * in_features].
@@ -47,11 +31,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
      * @param dst_scales    Device pointer to float32 scale vector [out_features].
      * @param out_features  Number of output channels (rows).
      * @param in_features   Number of input channels (columns).
-     * @param dev_staging   Pre-allocated device buffer of at least
-     *                      out_features * in_features * sizeof(bfloat16) bytes.
+     * @param dev_staging   Device staging buffer; need not hold the whole tensor.
+     * @param staging_bytes Its capacity; at least one row of in_features BF16 values.
      * @param stream        CUDA stream for all async operations.
      *
-     * @throws std::runtime_error if any CUDA call fails.
+     * @throws std::runtime_error if the staging buffer cannot hold one row, or if any CUDA call fails.
      */
     void cuda_quantize_fp8_per_channel(
         const void*  src_bf16,
@@ -60,6 +44,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int64_t      out_features,
         int64_t      in_features,
         void*        dev_staging,
+        size_t       staging_bytes,
         cudaStream_t stream );
 
     /**

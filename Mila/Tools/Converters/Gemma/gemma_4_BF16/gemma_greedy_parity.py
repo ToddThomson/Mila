@@ -67,7 +67,7 @@ def main():
     # ---- Mila ----------------------------------------------------------------
     print(f"Loading Mila {args.mila_bin}...")
     mila.initialize("warning")
-    model = mila.GemmaModel.from_pretrained(
+    model = mila.GemmaModel.load(
         args.mila_bin, context_length=args.context_length, device_index=args.device_index)
     print(f"  config: {model.get_config()}")
 

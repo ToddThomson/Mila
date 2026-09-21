@@ -164,6 +164,29 @@ namespace Mila::Dnn::Compute
         }
 
         /**
+         * @brief The largest forward scratch request this operation makes, in bytes.
+         *
+         * Scratch is one buffer on the execution context shared by every operation, so a
+         * network reserves the largest request rather than a sum. Zero by default: an
+         * operation requests none unless it says so.
+         */
+        virtual std::size_t getScratchBytes() const
+        {
+            return 0;
+        }
+
+        /**
+         * @brief The largest forward scratch request build( context ) would leave, without building.
+         *
+         * The predictive counterpart to getScratchBytes(). Override the two together.
+         */
+        virtual std::size_t getRequiredScratchBytes(
+            [[maybe_unused]] const BuildContext& build_context ) const
+        {
+            return 0;
+        }
+
+        /**
          * @brief Human-readable operation name.
          */
         virtual std::string getName() const = 0;

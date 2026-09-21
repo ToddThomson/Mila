@@ -8,7 +8,7 @@ FetchContent never configures it.
 | `Cli/` | C++ | The `mila` command: the local model store and the server front door |
 | `Converters/` | Python | HuggingFace weights and tokenizers to Mila format, per family |
 | `ExportArtifact/` | C++ | Artifact, package and local-store lifecycle |
-| `Publishing/` | Python | Uploads a prepared model card directory to the HuggingFace Hub |
+| `Publishing/` | Python | Uploads a model package to the HuggingFace Hub |
 | `Quantization/` | Python | Fits, encodes and gates a sub-4-bit weight quantization scheme |
 | `Tokenize/` | C++ | Trains, encodes and decodes vocabularies |
 
@@ -29,6 +29,16 @@ level project and not when it is a subproject.
 `MilaWeightWriter` in `common.py`. Converters always write BF16; quantization is a separate offline
 step — `Quantization/` for the sub-4-bit formats, `ExportArtifact` for FP8 and FP4. Requires PyTorch
 and Transformers — see `Converters/README.md` for the interpreter constraint.
+`Gemma/gemma_4_26b_moe/hf_gemma_router_reference.py` captures the HuggingFace router reference that
+`Specifications/Gemma4MoE.md` Phase 5 gates against; it reads the router tensors by byte range and
+needs no checkpoint download. Beside it, `hf_gemma_experts_reference.py` captures the Phase 6
+expert-bank reference from `Gemma4TextExperts` on seeded synthetic weights, offline, and
+`hf_gemma_moe_model_reference.py` captures the Phase 8 wiring reference: a tiny random Gemma 4 MoE
+model, its logits, and its own checkpoint converted by `Gemma/convert_weights.py` at FP32 and BF16.
+`hf_gemma_layer_stream.py` is the HuggingFace half of the 26B BF16 parity gate: it runs the real
+checkpoint one decoder layer at a time and writes each layer's last-token hidden state and the
+last-position logits. Run `--self-test` first — it proves the streamed driver bitwise against the whole
+model, with two negative controls.
 
 ## Quantization
 
@@ -76,10 +86,9 @@ uploads.
 
 ## Publishing
 
-`publish_model.py <directory> [--repo <owner>/<name>] [--dry-run]` validates before it uploads and
-verifies after, and is safe to re-run — anything already correct on the Hub is skipped. It takes
-either a package directory built by `ExportArtifact --package`, or a card directory carrying a
-`publish.json` that maps Hub paths to large files kept outside the repository.
+`publish_model.py <package-dir> --repo <owner>/<name> [--dry-run]` validates before it uploads and
+verifies after, and is safe to re-run — anything already correct on the Hub is skipped. It takes a
+package directory built by `ExportArtifact --package`, and nothing else.
 
 `Publishing/README.md` is the process end to end: convert, quantize, card, package, install, publish.
 

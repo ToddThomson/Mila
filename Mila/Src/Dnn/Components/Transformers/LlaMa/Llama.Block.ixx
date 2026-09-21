@@ -56,6 +56,7 @@ import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.CompositeComponent;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -489,18 +490,18 @@ namespace Mila::Dnn
             {
                 if ( t )
                 {
-                    stats.device_state_bytes += t->getStorageSize();
+                    stats.device_state_bytes += occupiedTensorBytes( *t );
                 }
             }
 
             if ( d_res1_accum_ != nullptr )
             {
-                stats.device_gradient_bytes += d_res1_accum_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *d_res1_accum_ );
             }
 
             if ( d_input_ != nullptr )
             {
-                stats.device_gradient_bytes += d_input_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *d_input_ );
             }
 
             return stats;
@@ -531,7 +532,7 @@ namespace Mila::Dnn
 
             stats += required( this->template getComponentAs<RmsNormType>( n + ".rmsn_1" ), contexts.main );
             stats += required( this->template getComponentAs<LinearType>( n + ".fc_qkv_proj" ), contexts.main );
-            stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.main );
+            stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.rope );
             stats += required( this->template getComponentAs<AttentionType>( n + ".gqa" ), contexts.qkv );
             stats += required( this->template getComponentAs<LinearType>( n + ".fc_out_proj" ), contexts.main );
             stats += required( this->template getComponentAs<ResidualType>( n + ".res_1" ), contexts.main );
@@ -544,21 +545,24 @@ namespace Mila::Dnn
             // Prefill-only scratch. Llama does not pool activations across layers the way
             // Gemma does, so every block owns these outright -- which is part of why the
             // Llama footprint sits higher per layer.
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+
             if ( context.isInferenceMode() )
             {
                 const dim_t rows = contexts.batch * contexts.sequence;
 
-                stats.device_state_bytes += storageBytes<TPrecision>( rows * contexts.model_dim );
                 stats.device_state_bytes +=
-                    storageBytes<TPrecision>( rows * contexts.num_heads * contexts.head_dim );
-                stats.device_state_bytes +=
-                    2 * storageBytes<TPrecision>( rows * contexts.num_kv_heads * contexts.head_dim );
+                    occupiedDeviceBytes( storageBytes<TPrecision>( rows * contexts.model_dim ), granularity );
+                stats.device_state_bytes += occupiedDeviceBytes(
+                    storageBytes<TPrecision>( rows * contexts.num_heads * contexts.head_dim ), granularity );
+                stats.device_state_bytes += 2 * occupiedDeviceBytes(
+                    storageBytes<TPrecision>( rows * contexts.num_kv_heads * contexts.head_dim ), granularity );
             }
             else
             {
                 // Backward scratch: d_res1_accum and d_input, both at the full training shape.
-                stats.device_gradient_bytes +=
-                    2 * storageBytes<TPrecision>( elementCount( contexts.main.inputShape() ) );
+                stats.device_gradient_bytes += 2 * occupiedDeviceBytes(
+                    storageBytes<TPrecision>( elementCount( contexts.main.inputShape() ) ), granularity );
             }
 
             return stats;
@@ -576,6 +580,7 @@ namespace Mila::Dnn
         struct BlockBuildContexts
         {
             BuildContext main;
+            BuildContext rope;
             BuildContext qkv;
             BuildContext gate_up;
             BuildContext hidden;
@@ -619,6 +624,10 @@ namespace Mila::Dnn
             // the KV cache, and it is why context length shows up in the footprint at all.
             contexts.qkv = context.withShape( shape_t{ B, context_length,
                 ( contexts.num_heads + 2 * contexts.num_kv_heads ) * contexts.head_dim } );
+
+            // RoPE too: its tables hold one row per position it may rotate, and decode reaches
+            // every position of the context, not only the first chunk.
+            contexts.rope = context.withShape( shape_t{ B, context_length, contexts.model_dim } );
 
             return contexts;
         }
@@ -670,7 +679,7 @@ namespace Mila::Dnn
                 qkv_proj_->build( prefill_context );
 
                 rope_ = this->template getComponentAs<RopeType>( this->getName() + ".rope" );
-                rope_->build( prefill_context );
+                rope_->build( contexts.rope );
 
                 attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".gqa" );
                 attn_->build( qkv_context );
@@ -726,7 +735,7 @@ namespace Mila::Dnn
                 qkv_proj_->build( training_context );
 
                 rope_ = this->template getComponentAs<RopeType>( this->getName() + ".rope" );
-                rope_->build( training_context );
+                rope_->build( contexts.rope );
 
                 attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".gqa" );
                 attn_->build( qkv_context );

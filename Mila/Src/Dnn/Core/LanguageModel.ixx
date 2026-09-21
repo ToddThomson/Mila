@@ -43,7 +43,7 @@ import Compute.CpuMemoryResource;
 import Compute.DeviceTypeTraits;
 import Dnn.LanguageModelConfig;
 import Serialization.SafeTensors;
-import Serialization.PretrainedReader;
+import Serialization.WeightsReader;
 
 namespace Mila::Dnn
 {
@@ -147,15 +147,15 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Write this model's live weights as a safetensors artifact.
+         * @brief Write this model's live weights as a safetensors weights file.
          *
-         * The inverse of fromPretrained, and named for it: what this writes is what that
-         * reads. Weights go out as they currently sit on the device, so a model loaded under
-         * FP4 or FP8 produces a PRE-QUANTIZED artifact -- packed storage plus its scale
-         * companions. That is the point of the operation: quantization is a load-time policy,
-         * so the quantized bytes exist nowhere until a model has been built with one.
+         * The inverse of load: what this writes is what that reads. Weights go out as they
+         * currently sit on the device, so a model loaded under FP4 or FP8 produces
+         * PRE-QUANTIZED weights -- packed storage plus its scale companions. That is the
+         * point of the operation: quantization is a load-time policy, so the quantized bytes
+         * exist nowhere until a model has been built with one.
          *
-         * The source artifact's metadata is written back verbatim, so the result loads by the
+         * The source weights file's metadata is written back verbatim, so the result loads by the
          * same path that loaded the original and is readable by any safetensors reader without
          * Mila.
          *
@@ -165,19 +165,19 @@ namespace Mila::Dnn
          * its own tensors is the failure this cannot see -- the export tool's source
          * reconciliation is what catches that.
          *
-         * @param path Destination artifact path; parent directories are created.
+         * @param path Destination weights file; parent directories are created.
          *
-         * @throws std::runtime_error if the model carries no pretrained provenance (it was
+         * @throws std::runtime_error if the model carries no weights metadata (it was
          *         reconstructed from a checkpoint), or if the file cannot be written.
          */
-        void savePretrained( const std::filesystem::path& path ) const
+        void save( const std::filesystem::path& path ) const
         {
             if ( source_metadata_.architecture.empty() )
             {
                 throw std::runtime_error(
-                    "LanguageModel::savePretrained: this model carries no pretrained metadata, so "
-                    "the artifact would declare no architecture and could not be loaded back. "
-                    "Only a model built by fromPretrained can be written as an artifact." );
+                    "LanguageModel::save: this model carries no weights metadata, so "
+                    "the file would declare no architecture and could not be loaded back. "
+                    "Only a model built by load can be saved." );
             }
 
             Serialization::SafeTensorsWriter writer( path );
@@ -188,7 +188,7 @@ namespace Mila::Dnn
 
             writer.setMetadata(
                 Serialization::kMilaQuantizationMetadataKey,
-                weightQuantizationName( weight_quantization_ ) );
+                weightQuantizationScheme() );
 
             const auto& network = this->getNetwork();
 
@@ -201,6 +201,14 @@ namespace Mila::Dnn
             network.saveFlatTensors( writer, "", Serialization::TensorSavePass::Write );
 
             writer.close();
+        }
+
+        /**
+         * @brief The scheme name save records for these weights, e.g. "per_group_fp4_64".
+         */
+        std::string weightQuantizationScheme() const
+        {
+            return weightQuantizationName( weight_quantization_, fp4_group_size_ );
         }
 
         /**
@@ -226,23 +234,26 @@ namespace Mila::Dnn
         /**
          * @param network              The transformer stack this model owns.
          * @param runtime_mode         Inference or Training, fixed for the model's lifetime.
-         * @param source_metadata      The loaded artifact's metadata, written back verbatim by
-         *                             savePretrained so the result loads by the same path.
+         * @param source_metadata      The loaded weights file's metadata, written back verbatim by
+         *                             save so the result loads by the same path.
          * @param weight_quantization  What the live weights actually are, which is a load-time
          *                             policy rather than a property of the source file.
+         * @param fp4_group_size       The FP4 group those weights were built at.
          *
-         * Both default, because a model reconstructed from a checkpoint has no pretrained
-         * provenance to carry; savePretrained refuses rather than writing an artifact that
+         * All default, because a model reconstructed from a checkpoint has no weights
+         * metadata to carry; save refuses rather than writing a file that
          * declares nothing.
          */
         explicit LanguageModel(
             std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             RuntimeMode runtime_mode,
-            Serialization::PretrainedMetadata source_metadata = {},
-            WeightQuantization weight_quantization = WeightQuantization::None )
+            Serialization::WeightsMetadata source_metadata = {},
+            WeightQuantization weight_quantization = WeightQuantization::None,
+            int fp4_group_size = 128 )
             : Base( std::move( network ), runtime_mode )
             , source_metadata_( std::move( source_metadata ) )
             , weight_quantization_( weight_quantization )
+            , fp4_group_size_( fp4_group_size )
         {}
 
         // ====================================================================
@@ -360,12 +371,15 @@ namespace Mila::Dnn
         virtual dim_t maxSequenceLength() const noexcept = 0;
         virtual dim_t vocabSize() const noexcept = 0;
 
-        /// The loaded artifact's metadata, carried so savePretrained can write it back verbatim.
-        /// Empty for a model reconstructed from a checkpoint, which savePretrained refuses.
-        Serialization::PretrainedMetadata source_metadata_;
+        /// The loaded weights file's metadata, carried so save can write it back verbatim.
+        /// Empty for a model reconstructed from a checkpoint, which save refuses.
+        Serialization::WeightsMetadata source_metadata_;
 
         /// What the live weights are, not what the source file was.
         WeightQuantization weight_quantization_{ WeightQuantization::None };
+
+        /// The FP4 group the live weights were built at; meaningful only when they are FP4.
+        int fp4_group_size_{ 128 };
 
     private:
 

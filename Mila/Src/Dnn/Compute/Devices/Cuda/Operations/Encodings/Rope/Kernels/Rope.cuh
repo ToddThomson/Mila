@@ -17,7 +17,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      *
      * @param cos_cache  Device buffer [max_seq_len, head_dim/2].
      * @param sin_cache  Device buffer [max_seq_len, head_dim/2].
-     * @param max_seq_len Maximum sequence length.
+     * @param max_seq_len Rows to fill: the sequence length the owning op was built for.
      * @param head_dim   Per-head embedding dimension (must be even).
      * @param base       Frequency base (default 10000.0f).
      * @param rotary_dim Number of dimensions to rotate; 0 (or >= head_dim) = full

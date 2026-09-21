@@ -26,16 +26,17 @@ Holding this line is what keeps the backtrack bounded:
 
 ## Findings
 
-### 1. `getMemoryStats()` hand-enumerates 25 pointers, and Qwen already fixed it
+### 1. `getMemoryStats()` hand-enumerated its workspace pointers -- resolved 2026-09-13
 
-`Gemma.ixx:355-366` sums a braced list of 25 raw pointers -- seven loose `gqa_*_`
-members (`:825-831`) plus all 18 `block_workspace_` slots via `.get()`. Add a slot to
-`GemmaBlockWorkspace` and forget this list and the result **under**counts silently,
-which is the one failure direction `MemoryFootprint.md` exists to prevent.
+`GemmaTransformer::getMemoryStats` summed a braced list of raw pointers -- seven loose
+`gqa_*_` members plus every `block_workspace_` slot. Add a slot and forget the list and the
+result **under**counted silently, the one failure direction `MemoryFootprint.md` exists to
+prevent. Qwen had already fixed it with a workspace that owns its tensors and reports
+`deviceStorageBytes()`.
 
-Qwen solved this: `QwenGqaWorkspace` owns the seven as a unit with `deviceStorageBytes()`,
-its header stating the reason -- owned together so a caller cannot allocate half of it --
-and `Qwen.ixx:356-358` is three lines. The improvement was never back-ported.
+Resolved by lifting both: `GqaWorkspace` (`Compute.GqaWorkspace`) is now the one family-neutral
+GQA transient for Qwen and Gemma, and `GemmaBlockWorkspace` reports its own bytes, so each
+transformer's accounting is two lines.
 
 ### 2. `resetKvCache` is not on the base while `rewindKvCache` is
 
@@ -239,4 +240,4 @@ on DeltaNet -- so the structure is not wrong in general. It is empty specificall
 
 `Workspaces.md` for the shared-buffer survey and the `setState` question;
 `MemoryFootprint.md` s4.5 for `withInstalledOutput` and s6.3 for the tie source;
-`BACKLOG.md` for the Gemma block-level Gate A case and `makeGemmaBlockWorkspace`.
+`Workspaces.md` s5 for the Gemma block-level Gate A case, which `makeGemmaBlockWorkspace` now makes possible.

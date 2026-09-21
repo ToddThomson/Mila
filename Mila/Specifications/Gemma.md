@@ -230,12 +230,17 @@ These are two separable concerns that are easy to conflate:
 
 ## 7. GeGLU FFN
 
-Gemma's FFN is gated with `gelu_pytorch_tanh`, i.e. **GeGLU, not SwiGLU**. This is
-the `TGate` generalization already specified in `FfnAndMoE.md` §9 and partially
-landed: the `GatedMLP<Device, Precision, TGate>` composite and the `GeluTanh`
-functor exist; the remaining work is generalizing `Swiglu<..., TGate>` over the
-shared functor library plus the CPU `SwigluOp` so `TGate = GeluTanh` resolves.
-The Gemma FFN is `GatedMLP<..., TGate=GeluTanh>` with `intermediate_size 15360`.
+Gemma's FFN is gated with `gelu_pytorch_tanh`, i.e. **GeGLU, not SwiGLU**, with
+`intermediate_size 15360`. `GemmaBlock` wires it **inline** — `fc_gate_up ->
+Swiglu<..., ActivationType::Gelu> -> fc_down` (`Gemma.Block.ixx:231`) — and does not
+use `GatedMLP`.
+
+Delegating it to `GatedMLP<..., ActivationType::Gelu, TWeightQuantization>` is
+planned and deferred to after the 0.20.0 tag: the nested component renames every
+published FFN tensor (`tf_layer_i.fc_gate_up` becomes `tf_layer_i.mlp.fc_gate_up`),
+so it lands together with a republish. The delegated wiring already exists behind
+`GemmaBlock`'s trailing `kDelegatedFeedForward` template flag, off by default and never set by
+`GemmaModel`; `Gemma4MoE.md` Phase 2 records the gate.
 
 ---
 

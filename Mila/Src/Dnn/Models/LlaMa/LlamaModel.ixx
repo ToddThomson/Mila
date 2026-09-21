@@ -56,7 +56,7 @@ import Compute.DeviceTypeTraits.Cuda;
 import Compute.CudaPinnedMemoryResource;
 #endif
 import Compute.ExecutionContextFactory;
-import Serialization.PretrainedReader;
+import Serialization.WeightsReader;
 import Serialization.Mode;
 import Logging.Logger;
 
@@ -74,7 +74,7 @@ namespace Mila::Dnn
      * for autoregressive text generation. Supports the prefill + KV-cache
      * decode two-phase generation loop.
      *
-     * Construction is only possible via fromPretrained(). The network is always
+     * Construction is only possible via load(). The network is always
      * in a built, weights-loaded, inference-mode state when generation is called.
      *
      * Thread safety: not thread-safe; external synchronization required if shared.
@@ -112,10 +112,10 @@ namespace Mila::Dnn
         ~LlamaModel() = default;
 
         /**
-         * @brief Load from third-party pretrained weights.
+         * @brief Load Llama from a Mila weights file.
          *
-         * Reads a Mila-compatible pretrained artifact (e.g. converted from a
-         * HuggingFace LLaMA checkpoint) via PretrainedModelReader. The network
+         * Reads a Mila weights file (e.g. converted from a
+         * HuggingFace LLaMA checkpoint) via WeightsReader. The network
          * is built at the context length specified in model_config so RoPE
          * embeddings and KV cache buffers cover the full range.
          *
@@ -124,7 +124,7 @@ namespace Mila::Dnn
          *   - weight_quantization -- compile-time dispatch to quantized or BF16 path
          *   - kv_cache_compression -- compile-time dispatch to KV cache policy
          *
-         * @param path          Path to the pretrained Llama model artifact.
+         * @param path          Path to the Llama weights file.
          * @param model_config  Deployment configuration for this load.
          * @param device_id     Target device; must match TDeviceType.
          * @return              Inference-ready LlamaModel.
@@ -133,7 +133,7 @@ namespace Mila::Dnn
          * @throws std::runtime_error    on load or parameter binding failure.
          * @throws std::runtime_error    if model_config requests unsupported quantization (e.g. FP4).
          */
-        static std::unique_ptr<LlamaModel<TDeviceType, TPrecision>> fromPretrained(
+        static std::unique_ptr<LlamaModel<TDeviceType, TPrecision>> load(
             const std::filesystem::path& path,
             const LlamaModelConfig& model_config,
             DeviceId device_id = DeviceId{ TDeviceType, 0 } )
@@ -141,7 +141,7 @@ namespace Mila::Dnn
             if ( device_id.type != TDeviceType )
             {
                 throw std::invalid_argument( std::format(
-                    "LlamaModel::fromPretrained: device type mismatch: expected {}, got {}",
+                    "LlamaModel::load: device type mismatch: expected {}, got {}",
                     deviceTypeToString( TDeviceType ),
                     deviceTypeToString( device_id.type ) ) );
             }
@@ -149,7 +149,7 @@ namespace Mila::Dnn
             if ( model_config.getContextLength() == 0 )
             {
                 throw std::invalid_argument(
-                    "LlamaModel::fromPretrained: context_length must be greater than zero" );
+                    "LlamaModel::load: context_length must be greater than zero" );
             }
 
             // Runtime -> compile-time bridge. PerGroupFp4<128> quantizes BF16 weights on load
@@ -161,10 +161,10 @@ namespace Mila::Dnn
                     std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>>(
                 model_config.getWeightQuantization(),
                 model_config.getKvCacheCompression(),
-                "LlamaModel::fromPretrained",
+                "LlamaModel::load",
                 [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
                 {
-                    return fromPretrainedImpl<TWeightQuantization, TKvCachePolicy>(
+                    return loadImpl<TWeightQuantization, TKvCachePolicy>(
                         path, model_config, device_id );
                 } );
         }
@@ -222,7 +222,7 @@ namespace Mila::Dnn
                     "LlamaModel::getDeploymentFootprint: context_length must be greater than zero" );
             }
 
-            // Same dispatcher as fromPretrained, and deliberately so: the footprint path and
+            // Same dispatcher as load, and deliberately so: the footprint path and
             // the load path must reach the identical template instantiation or a model reports
             // a figure it does not allocate.
             return dispatchWeightQuantization<
@@ -270,17 +270,6 @@ namespace Mila::Dnn
             oss << "RoPE theta: " << config_.getRoPETheta() << "\n";
 
             return oss.str();
-        }
-
-        // ====================================================================
-        // Profiling
-        // ====================================================================
-
-        void profilePrefill( const std::vector<int32_t>& token_ids )
-        {
-            auto input = makeTokenTensor( token_ids );
-            this->getNetwork().prefill( input );
-            this->getNetwork().synchronize();
         }
 
     protected:
@@ -416,7 +405,7 @@ namespace Mila::Dnn
             const LlamaConfig& config,
             int64_t context_length,
             RuntimeMode runtime_mode,
-            Serialization::PretrainedMetadata source_metadata = {},
+            Serialization::WeightsMetadata source_metadata = {},
             WeightQuantization weight_quantization = WeightQuantization::None )
             : ModelBase( std::move( network ), runtime_mode,
                 std::move( source_metadata ), weight_quantization )
@@ -427,16 +416,16 @@ namespace Mila::Dnn
         {}
 
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
-        static std::unique_ptr<LlamaModel<TDeviceType, TPrecision>> fromPretrainedImpl(
+        static std::unique_ptr<LlamaModel<TDeviceType, TPrecision>> loadImpl(
             const std::filesystem::path& path,
             const LlamaModelConfig& model_config,
             DeviceId device_id )
         {
-            PretrainedModelReader reader( path );
-            const auto& metadata = reader.getPretrainedMetadata();
+            WeightsReader reader( path );
+            const auto& metadata = reader.getWeightsMetadata();
 
             requireStoredQuantizationMatches(
-                "LlamaModel::fromPretrained", path.string(), reader.getWeightQuantization(),
+                "LlamaModel::load", path.string(), reader.getWeightQuantization(),
                 model_config.getWeightQuantization() );
 
             LlamaConfig network_config = configFromMetadata( metadata );
@@ -444,7 +433,7 @@ namespace Mila::Dnn
             if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
             {
                 throw std::invalid_argument( std::format(
-                    "LlamaModel::fromPretrained: context_length {} exceeds max_seq_len {}",
+                    "LlamaModel::load: context_length {} exceeds max_seq_len {}",
                     model_config.getContextLength(),
                     network_config.getMaxSequenceLength() ) );
             }
@@ -473,7 +462,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief The footprint sibling of fromPretrainedImpl: same prologue, stops before build().
+         * @brief The footprint sibling of loadImpl: same prologue, stops before build().
          */
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
         static DeploymentFootprint deploymentFootprintImpl(
@@ -481,8 +470,8 @@ namespace Mila::Dnn
             const LlamaModelConfig& model_config,
             DeviceId device_id )
         {
-            PretrainedModelReader reader( path );
-            const auto& metadata = reader.getPretrainedMetadata();
+            WeightsReader reader( path );
+            const auto& metadata = reader.getWeightsMetadata();
 
             requireStoredQuantizationMatches(
                 "LlamaModel::getDeploymentFootprint", path.string(),
@@ -642,7 +631,7 @@ namespace Mila::Dnn
             return static_cast<int32_t>( vocab_size - 1 );
         }
 
-        static LlamaConfig configFromMetadata( const PretrainedMetadata& metadata )
+        static LlamaConfig configFromMetadata( const WeightsMetadata& metadata )
         {
             LlamaConfig config(
                 static_cast<dim_t>(metadata.embedding_dim),

@@ -2,7 +2,7 @@
  * @file Chat.ixx
  * @brief Mila chat application.
  *
- * Supports GptModel (FP32) and LlamaModel (FP32 or BF16) backends,
+ * Supports the instruct families -- Llama (FP32 or BF16), Gemma and Qwen (BF16) --
  * selected at construction via ChatConfig. The active model is stored
  * as a std::variant so each template instantiation retains its full
  * static type through the generate path. Llama instruct models use
@@ -64,14 +64,12 @@ namespace Mila::ChatApp
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Data;
 
-    using GptModelFP32Type   = GptModel<DeviceType::Cuda, TensorDataType::FP32>;
     using LlamaModelFP32Type = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
     using LlamaModelBF16Type = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
     using GemmaModelBF16Type = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
     using QwenModelBF16Type  = QwenModel<DeviceType::Cuda, TensorDataType::BF16>;
 
     using ModelVariant = std::variant<
-        std::unique_ptr<GptModelFP32Type>,
         std::unique_ptr<LlamaModelFP32Type>,
         std::unique_ptr<LlamaModelBF16Type>,
         std::unique_ptr<GemmaModelBF16Type>,
@@ -515,10 +513,12 @@ namespace Mila::ChatApp
         void emitOneShotJson( const std::string& answer, std::ostream& answer_out ) const
         {
             int tokens = 0;
+            float prefill_ms = 0.0f;
 
             for ( const RoundStats& round : last_turn_rounds_ )
             {
                 tokens += round.tokens_generated;
+                prefill_ms += round.prefill_time_ms;
             }
 
             nlohmann::json payload;
@@ -530,6 +530,10 @@ namespace Mila::ChatApp
             // no context and got 83968 has the same right to know why as a reader of the banner.
             payload[ "context_source" ] = config_.context_is_automatic ? "auto" : "configured";
             payload[ "tokens_generated" ] = tokens;
+
+            // The interactive session reads this off /stats; a scripted caller measuring a prompt
+            // has only wall time without it, which carries the model load and the tokenizer too.
+            payload[ "prefill_ms" ] = prefill_ms;
             payload[ "rounds" ] = last_turn_rounds_.size();
             payload[ "finish_reason" ] = finishReasonName( finishStatus() );
 
@@ -1480,21 +1484,28 @@ namespace Mila::ChatApp
             // "context_length must be greater than zero". See ChatConfiguration.md section 2.
             const FamilyTraits traits = familyTraits( config_.model_type );
 
+            // Destroy the current model before allocating the replacement.
+            // This returns VRAM to the CUDA pool before the new model is loaded,
+            // avoiding a transient old+new peak that overflows the VRAM budget
+            // and forces WDDM to spill into shared system memory.
+            //
+            // It also has to happen before the scan below: every prediction picks its prefill
+            // chunk against the device's FREE memory, so a scan taken while the outgoing model is
+            // resident measures a card that still holds it.
+            std::visit( []( auto& m ) { m.reset(); }, model_ );
+
             if ( config_.context_is_automatic )
             {
                 // Auto means "whatever fits the card", and what fits depends on the model, so a
                 // switch re-measures rather than carrying a number derived for the model being
                 // replaced -- which is the defect configured_context_length exists to prevent,
                 // in the one shape that field cannot express.
-                //
-                // Measured before the outgoing model is released, deliberately: auto budgets
-                // against device CAPACITY rather than free memory, so what is currently resident
-                // does not change the answer.
                 const ResolvedContext measured = resolveAutomaticContext(
                     config_.model_path, config_.model_type, config_.precision,
                     config_.quantization_mode, traits.max_context, traits.default_context,
                     config_.device_index );
 
+                last_measured_context_ = measured;
                 config_.context_length = measured.context_length;
             }
             else if ( prev_type != config_.model_type || config_.context_length == 0 )
@@ -1505,12 +1516,6 @@ namespace Mila::ChatApp
                     ? traits.default_context
                     : ( configured < traits.max_context ? configured : traits.max_context );
             }
-
-            // Destroy the current model before allocating the replacement.
-            // This returns VRAM to the CUDA pool before the new model is loaded,
-            // avoiding a transient old+new peak that overflows the VRAM budget
-            // and forces WDDM to spill into shared system memory.
-            std::visit( []( auto& m ) { m.reset(); }, model_ );
 
             loadActiveModel();
             clearHistory();
@@ -1868,8 +1873,8 @@ namespace Mila::ChatApp
          * Derived rather than compiled, because every part is something the session already knows:
          * what the transcript renders to, what the reasoning budget will claim, and room to answer.
          * A constant 512 or 1024 would be a figure the user has to take on faith, and would be
-         * wrong in both directions -- too small for a Gemma turn at high effort, too large for
-         * GPT-2's 1024 addressable positions.
+         * wrong in both directions -- too small for a Gemma turn at high effort, too large for a
+         * short-context model on a card with no room for more.
          */
         ContextFloor contextFloor() const
         {
@@ -1924,12 +1929,22 @@ namespace Mila::ChatApp
                 return;
             }
 
-            const FamilyTraits traits = familyTraits( config_.model_type );
+            // From the scan this model's own load ran, not a fresh one: a scan with the model
+            // resident would measure a card that still holds it (MemoryFootprint.md 11.6).
+            if ( !last_measured_context_ )
+            {
+                // Startup resolves auto before this session object exists, so the first load has no
+                // scan of its own to show -- but under auto the context IS that scan's answer.
+                std::cout << ( config_.context_is_automatic
+                    ? std::format( "  {:<16}{}  (measured at startup)\n",
+                        "Largest fit:", config_.context_length )
+                    : std::format( "  {:<16}not measured (set /context auto to measure it)\n",
+                        "Largest fit:" ) );
 
-            const ResolvedContext measured = resolveAutomaticContext(
-                config_.model_path, config_.model_type, config_.precision,
-                config_.quantization_mode, traits.max_context, traits.default_context,
-                config_.device_index );
+                return;
+            }
+
+            const ResolvedContext& measured = *last_measured_context_;
 
             if ( !measured.fallback_reason.empty() )
             {
@@ -2020,10 +2035,19 @@ namespace Mila::ChatApp
 
             const FamilyTraits traits = familyTraits( config_.model_type );
 
+            // Released before the scan, not after: every prediction picks its chunk against the
+            // device's free memory, so scanning with this model resident would measure a card that
+            // still holds it. The load below is what puts a model back, exactly as a switch does.
+            const std::string name = modelName();
+
+            std::visit( []( auto& model ) { model.reset(); }, model_ );
+
             const ResolvedContext measured = resolveAutomaticContext(
                 config_.model_path, config_.model_type, config_.precision,
                 config_.quantization_mode, traits.max_context, traits.default_context,
                 config_.device_index );
+
+            last_measured_context_ = measured;
 
             if ( !measured.fallback_reason.empty() )
             {
@@ -2031,10 +2055,44 @@ namespace Mila::ChatApp
                     "Could not measure a context for this card: {}.",
                     measured.fallback_reason ) );
 
+                // The model was released to take the measurement, so put it back at the context
+                // the session already had rather than leaving the session empty.
+                loadActiveModel();
+
                 return;
             }
 
-            reloadAtContext( measured.context_length, true );
+            const std::size_t previous_length = config_.context_length;
+            const bool previous_automatic = config_.context_is_automatic;
+            const std::size_t previous_configured = config_.configured_context_length;
+            const std::string previous_origin = config_.context_origin;
+
+            config_.context_length = measured.context_length;
+            config_.context_is_automatic = true;
+            config_.configured_context_length = 0;
+            config_.context_origin = std::string( layerName( SettingsLayer::SessionOverride ) );
+
+            try
+            {
+                loadActiveModel();
+
+                renderer_.printInfo( std::format(
+                    "Context {} is now re-measured on each load.", measured.context_length ) );
+            }
+            catch ( const std::exception& error )
+            {
+                renderer_.printError( std::format(
+                    "Could not reload {} at context {}: {}", name, measured.context_length,
+                    error.what() ) );
+
+                std::visit( []( auto& model ) { model.reset(); }, model_ );
+
+                config_.context_length = previous_length;
+                config_.context_is_automatic = previous_automatic;
+                config_.configured_context_length = previous_configured;
+                config_.context_origin = previous_origin;
+                config_.model_name.clear();
+            }
         }
 
         /**
@@ -2284,7 +2342,7 @@ namespace Mila::ChatApp
                 modelName(), config_.context_length,
                 formatBytes( required->device_parameter_bytes ),
                 formatBytes( required->device_state_bytes ),
-                formatBytes( practicalDeviceBytes( *required ) ) ) );
+                formatBytes( required->totalDeviceBytes() ) ) );
 
             // One explanation of what not fitting means, shared with the listing. What the two
             // verdicts differ on is which lever helps, not what happens.
@@ -2340,18 +2398,19 @@ namespace Mila::ChatApp
          * the activation buffers, so a bisection can land the wrong side of that step and report a
          * context shorter than one it had already accepted.
          *
-         * Budgeted against device capacity less a margin, which is what auto uses, rather than
-         * against the bytes free at this instant. Deliberate: a suggestion the user cannot
-         * reproduce by typing the command it names would be worse than saying nothing.
+         * From the scan this session's last load ran rather than a fresh one: a scan taken now
+         * would measure a card that still holds this model, and would suggest a context shorter
+         * than a reload would actually get. Silent when there is no such scan -- a suggestion the
+         * user cannot reproduce by typing the command it names would be worse than saying nothing.
          */
         void suggestFittingContext()
         {
-            const FamilyTraits traits = familyTraits( config_.model_type );
+            if ( !last_measured_context_ )
+            {
+                return;
+            }
 
-            const ResolvedContext measured = resolveAutomaticContext(
-                config_.model_path, config_.model_type, config_.precision,
-                config_.quantization_mode, traits.max_context, traits.default_context,
-                config_.device_index );
+            const ResolvedContext& measured = *last_measured_context_;
 
             if ( !measured.fallback_reason.empty()
                 || measured.context_length >= config_.context_length )
@@ -2550,10 +2609,6 @@ namespace Mila::ChatApp
 
                 switch ( config_.model_type )
                 {
-                    case ModelType::Gpt:
-                        tokenizer_ = BpeTokenizer::loadGpt2( config_.tokenizer_path );
-                        break;
-
                     case ModelType::Llama:
                         tokenizer_ = BpeTokenizer::loadLlama32( config_.tokenizer_path );
                         break;
@@ -2667,22 +2722,6 @@ namespace Mila::ChatApp
 
             switch ( config_.model_type )
             {
-                case ModelType::Gpt:
-                {
-                    auto gpt = GptModelFP32Type::fromPretrained(
-                        config_.model_path,
-                        config_.context_length,
-                        device,
-                        /*strict=*/true );
-                    if ( config_.detail == DetailLevel::All )
-                    {
-                        std::cout << gpt->toString();
-                        std::cout << gpt->getMemoryStats().toString() << "\n";
-                    }
-                    model_ = std::move( gpt );
-                    break;
-                }
-
                 case ModelType::Llama:
                 {
                     LlamaModelConfig llama_config = LlamaModelConfig( config_.context_length );
@@ -2694,7 +2733,7 @@ namespace Mila::ChatApp
 
                     if ( config_.precision == ModelPrecision::BF16 )
                     {
-                        auto llama_bf16 = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
+                        auto llama_bf16 = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
                             config_.model_path, llama_config, device );
                         if ( config_.detail == DetailLevel::All )
                         {
@@ -2704,7 +2743,7 @@ namespace Mila::ChatApp
                         model_ = std::move( llama_bf16 );
                     }
                     else
-                        model_ = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::fromPretrained(
+                        model_ = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::load(
                             config_.model_path, llama_config, device );
 
                     break;
@@ -2719,7 +2758,7 @@ namespace Mila::ChatApp
                     else if ( config_.quantization_mode == QuantizationMode::FP4 )
                         gemma_config.withFP4Quantization();
 
-                    auto gemma = GemmaModelBF16Type::fromPretrained(
+                    auto gemma = GemmaModelBF16Type::load(
                         config_.model_path, gemma_config, device );
                     if ( config_.detail == DetailLevel::All )
                     {
@@ -2736,7 +2775,7 @@ namespace Mila::ChatApp
 
                     applyQwenQuantization( qwen_config, config_.quantization_mode );
 
-                    auto qwen = QwenModelBF16Type::fromPretrained(
+                    auto qwen = QwenModelBF16Type::load(
                         config_.model_path, qwen_config, device );
                     if ( config_.detail == DetailLevel::All )
                     {
@@ -3000,6 +3039,10 @@ Examples:
 
         ChatConfig config_;
         ModelVariant model_;
+
+        /// The last automatic-context scan, taken with nothing resident. What /context reports and
+        /// what a fit suggestion reads: a scan run now would measure a card holding this model.
+        std::optional<ResolvedContext> last_measured_context_;
         SystemPromptConfig system_prompt_config_;
         std::shared_ptr<BpeTokenizer> tokenizer_{ nullptr };
         std::vector<ChatMessage> history_;

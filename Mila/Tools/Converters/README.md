@@ -14,7 +14,7 @@ Converters/
     convert_weights.py    — Llama 3.1 (8B) and Llama 3.2 (1B, 3B)
     convert_tokenizer.py
   Gemma/
-    convert_weights.py    — Gemma 4 12B (dense text chassis)
+    convert_weights.py    — Gemma 4 12B (dense) and 26B-A4B (mixture of experts)
     convert_tokenizer.py
   Qwen/
     convert_weights.py    — Qwen 3.8 27B (hybrid DeltaNet / full-attention stack)
@@ -103,19 +103,16 @@ python Llama/convert_weights.py --model meta-llama/Llama-3.1-8B-Instruct --outpu
 
 ## Gemma
 
-Gemma models are gated on HuggingFace. Accept Google's license agreement and authenticate before running:
-
-```powershell
-hf auth login
-```
+Gemma 4 is Apache 2.0 and ungated — no authentication step.
 
 > **Requires a recent transformers.** Gemma 4 is the `gemma4_unified` architecture, which older
 > `transformers` releases do not recognize. Validated on **5.12.1**; upgrade if a load fails with an
 > unknown/`gemma4` model type: `pip install -U "transformers>=5.12.1"`.
 
-Target is the **Gemma 4 12B Unified** dense text chassis (the 5:1 sliding/global layer interleave,
-decoupled `head_dim`, K=V global layers, GeGLU FFN, sandwich norm, and QK-norm are all read from the
-model config, so the converter adapts to the geometry rather than hardcoding it).
+Targets are the Gemma 4 text chassis, dense and mixture of experts. The 5:1 sliding/global layer
+interleave, decoupled `head_dim`, K=V global layers, GeGLU FFN, sandwich norm, QK-norm and the routed
+feed-forward are all read from `config.json`, so the converter adapts to the geometry rather than
+hardcoding it. The vision tower is skipped at the checkpoint index.
 
 ### Supported models
 
@@ -123,38 +120,50 @@ model config, so the converter adapts to the geometry rather than hardcoding it)
 |---|---|
 | `google/gemma-4-12b` | 12B base |
 | `google/gemma-4-12b-it` | 12B instruct |
+| `google/gemma-4-26B-A4B` | 25.2B base, 8 of 128 experts per token (48.1 GiB checkpoint) |
+| `google/gemma-4-26B-A4B-it` | 25.2B instruct, 8 of 128 experts per token (48.1 GiB checkpoint) |
 
 ```powershell
 # Tokenizer (shared across Gemma 4 variants)
 python Gemma/convert_tokenizer.py --model google/gemma-4-12b-it --output <weights-dir>/gemma/gemma_tokenizer.bin
 
-# Gemma 4 12B — load in bf16 to stay within host RAM; ~24 GB required
+# Gemma 4 12B
 python Gemma/convert_weights.py --model google/gemma-4-12b-it --output <weights-dir>/gemma/gemma4_12b_it_bf16.bin
+
+# Gemma 4 26B-A4B
+python Gemma/convert_weights.py --model google/gemma-4-26B-A4B-it --output <weights-dir>/gemma/gemma4_26b_a4b_it_bf16.bin
 ```
 
 | Option | Values | Default |
 |---|---|---|
-| `--model` | any supported model name above | required |
+| `--model` | any supported model name above, or a local checkpoint directory | required |
 | `--output` | path to write `.bin` file | required |
 | `--dtype` | `float32`, `bfloat16` | `bfloat16` |
+| `--max-layers` | convert only the first N layers — a structural smoke test, **not a model** | all |
 
-**Three Gemma-specific transforms are folded in at convert time** (so the Mila inference path stays
-identical to Llama and needs no Gemma-only kernels):
+> **This converter streams.** Shards are read one tensor at a time and written through
+> `MilaStreamingWeightWriter`, so host RAM never holds the model — the 26B checkpoint is 48 GiB against
+> 31.8 GB of host RAM. Every checkpoint tensor is accounted for as consumed or explicitly skipped,
+> declared shapes are checked against the geometry the config implies before any data is written, and
+> a config the chassis cannot represent (per-layer inputs, shared KV layers, a non-periodic layer
+> pattern) is refused. On a dense model the output is byte-identical to the `from_pretrained`
+> converter this replaced.
+
+**Four Gemma-specific transforms:**
 
 1. **Embedding scale** — HF multiplies embedded hidden states by `sqrt(hidden_size)` at runtime, and so
    does Mila (`TokenEmbeddingConfig::embedding_scale`), so the table is written **raw**. With
    `tie_word_embeddings` (the Gemma 4 default) the `lm_head` blob is omitted entirely and
    `GemmaTransformer` aliases the shared table at load time.
-2. **`(1 + weight)` RMSNorm** — Gemma's RMSNorm computes `x_norm * (1 + weight)`. The `+1` is applied at
-   the kernel (`RmsNormConfig::withUnitOffset`), **not** folded in here, so every norm weight (all
-   sandwich norms, both QK-norms, and the final norm) is written **raw** — byte-identical to the HF
-   checkpoint and directly comparable against it.
+2. **Raw RMSNorm weights** — Gemma 4's RMSNorm computes `x_norm * weight` (Gemma 3's was
+   `x_norm * (1 + weight)`), and Mila runs every Gemma norm at unit offset 0, so every norm weight is
+   written **raw** — byte-identical to the HF checkpoint and directly comparable against it.
 3. **K=V global layers** — the 1-in-N global (full-attention) layers share K=V and have no `v_proj`, so
    their fused QKV blob is `[Q | K]` only; the sliding layers are the usual `[Q | K | V]`.
-
-> **Gemma 4 verification:** the exact HuggingFace config attribute names and `state_dict` keys for
-> Gemma 4 are read defensively with the `Gemma.md` design defaults as fallbacks. The script prints every
-> resolved value on first run — verify them against the installed `transformers` Gemma 4 implementation.
+4. **Mixture of experts** — the always-on dense branch is written under `mlp`, where the routed block
+   delegates it. The expert bank ships stacked and is written as-is (`gate_up_proj` gate first), the
+   router's `proj.weight`, `scale` and `per_expert_scale` are written raw, and `per_expert_scale` is
+   **not** folded into `down_proj`.
 
 > **Tokenizer:** `convert_tokenizer.py` writes the Gemma vocabulary in the shared Mila tokenizer binary
 > format (same layout as the Llama tokenizer). Gemma uses a SentencePiece tokenizer (262K vocab) with
@@ -201,7 +210,7 @@ python Qwen/convert_weights.py --model Qwen/Qwen3.8-27B --max-layers 4 --output 
 | `--max-layers` | convert only the first N layers — a structural smoke test, **not a model** | all |
 
 > **This converter streams, and it has to.** The checkpoint is 51.8 GiB against 31.8 GB of host RAM, so
-> `from_pretrained` — which the other converters here use — cannot run at all. Shards are read through
+> `from_pretrained` — which the GPT-2 and Llama converters use — cannot run at all. Shards are read through
 > safetensors mmap one tensor at a time, and the output goes through `MilaStreamingWeightWriter`, whose
 > index is declared from the checkpoint's own shard headers before any tensor data moves. Output is
 > ~54 GB at `bfloat16`.
@@ -269,7 +278,7 @@ python Qwen/qwen38_BF16/hf_qwen_layer_stream.py --model Qwen/Qwen3.8-27B --outpu
 python Qwen/qwen38_BF16/hf_qwen_layer_stream.py --model Qwen/Qwen3.8-27B --max-layers 4 --output <weights-dir>/qwen/qwen38_ref_l4.bin
 ```
 
-Output is a MILA `.bin` — the format `PretrainedModelReader` already reads — holding the
+Output is a MILA `.bin` — the format `WeightsReader` already reads — holding the
 last-token hidden state after every layer, after the final norm, and the last-position logits.
 The Mila side is `Tests/Dnn/Models/QwenModel.Parity.Cuda.cpp`.
 
@@ -284,6 +293,7 @@ The Mila side is `Tests/Dnn/Models/QwenModel.Parity.Cuda.cpp`.
 
 `common.py` is shared infrastructure imported by every converter, not intended to be run directly. It
 holds `MilaWeightWriter` (buffered) and `MilaStreamingWeightWriter` (declare-then-stream, for models
-larger than host RAM), plus the HuggingFace -> Mila tensor name maps. The maps live here rather than in
+larger than host RAM), `ShardedCheckpoint` (the per-tensor reader the streaming converters share), plus
+the HuggingFace -> Mila tensor name maps. The maps live here rather than in
 each converter because the Qwen3.8 codebook packer names its quantized tensors from the same source —
 the packer and the BF16 converter cannot be allowed to disagree about what fuses with what.

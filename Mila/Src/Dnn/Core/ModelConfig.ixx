@@ -20,7 +20,7 @@
  *                                 Universal across all sequence models.
  *
  *  4. strict                    -- whether unrecognized parameter names throw on load.
- *                                 Universal across all pretrained model loading.
+ *                                 Universal across every model load.
  *
  * Construction is via fluent setters on the concrete subclass.
  * context_length is required and has no default -- subclasses must enforce this.
@@ -29,7 +29,7 @@
  *
  * ModelConfig is the public API surface for deployment configuration.
  * BuildContext is the internal carrier through the component tree.
- * fromPretrained() projects ModelConfig into BuildContext once -- they
+ * load() projects ModelConfig into BuildContext once -- they
  * are never the same object.
  */
 
@@ -52,7 +52,7 @@ namespace Mila::Dnn
      * all Llama architectural parameters come from checkpoint metadata).
      *
      * Non-copyable by design -- model configs are constructed once and passed
-     * by const reference into fromPretrained().
+     * by const reference into load().
      */
     export class ModelConfig
     {
@@ -151,7 +151,7 @@ namespace Mila::Dnn
          * @brief Default constructor for subclasses that set context_length
          *        via withContextLength().
          *
-         * context_length_ is initialised to zero. Subclasses or fromPretrained()
+         * context_length_ is initialised to zero. Subclasses or load()
          * must call withContextLength() before passing the config to build().
          */
         ModelConfig() = default;

@@ -18,6 +18,7 @@
  */
 
 module;
+#include <cstddef>
 #include <cstdint>
 #include <stdexcept>
 #include <format>
@@ -50,6 +51,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * @param weight_out     Device FP8_E4M3 tensor of shape [out_features, in_features].
          * @param scales_out     Device float32 tensor of shape [out_features].
          * @param expected_shape Expected weight shape for validation.
+         * @param dev_staging    Device staging buffer; need not hold the whole tensor.
+         * @param staging_bytes  Its capacity. The tensor is quantized in row blocks that fit.
          *
          * @throws std::invalid_argument if the blob shape does not match expected_shape.
          * @throws std::runtime_error    if a cudaMemcpy device upload fails.
@@ -60,6 +63,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             Mila::Dnn::ITensor&                          scales_out,
             const Mila::Dnn::shape_t&                    expected_shape,
             void*                                        dev_staging,
+            std::size_t                                  staging_bytes,
             cudaStream_t                                 stream )
         {
             const auto& meta = blob.getMetadata();
@@ -82,6 +86,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 out_features,
                 in_features,
                 dev_staging,
+                staging_bytes,
                 stream );
         }
 

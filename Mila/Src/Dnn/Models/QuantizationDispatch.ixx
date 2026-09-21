@@ -39,10 +39,12 @@ namespace Mila::Dnn
      *                         ring, or NoKvCompression. Not derived from the config: it is an
      *                         architecture property, not a deployment choice.
      * @tparam TResult         What the action returns -- a model, or a MemoryStats.
+     * @tparam kFp4GroupSize   The FP4 group the caller's geometry requires. A compile-time value so
+     *                         a family instantiates only the group it can build.
      *
      * @param weight_quantization Runtime weight-quantization setting to resolve to a policy type.
      * @param kv_cache_compression Runtime KV-cache setting accompanying it.
-     * @param caller Prefix for error messages, e.g. "GemmaModel::fromPretrained".
+     * @param caller Prefix for error messages, e.g. "GemmaModel::load".
      * @param action Invoked as action.template operator()<TWeightQuantization, TKvCachePolicy>().
      *
      * @throws std::runtime_error if the requested combination is unsupported.
@@ -51,6 +53,7 @@ namespace Mila::Dnn
         TensorDataType TPrecision,
         KvCachePolicy TKvCachePolicy,
         typename TResult,
+        int kFp4GroupSize = 128,
         typename TAction>
     TResult dispatchWeightQuantization(
         WeightQuantization weight_quantization,
@@ -63,7 +66,7 @@ namespace Mila::Dnn
             case WeightQuantization::FP4:
                 if constexpr ( TPrecision == TensorDataType::BF16 )
                 {
-                    return action.template operator()<PerGroupFp4<128>, TKvCachePolicy>();
+                    return action.template operator()<PerGroupFp4<kFp4GroupSize>, TKvCachePolicy>();
                 }
                 else
                 {

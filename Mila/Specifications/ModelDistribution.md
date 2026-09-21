@@ -15,7 +15,7 @@ implemented.
 
 ## Why
 
-`fromPretrained()` takes a filesystem path, so using a model means already having the file, and the
+`load()` takes a filesystem path, so using a model means already having the file, and the
 converter is the only way to get one -- PyTorch, 23.8 GB of source weights, and a conversion run. That
 is the right workflow for adding a model family and the wrong one for using a model Mila already
 publishes.
@@ -235,8 +235,7 @@ Root resolution, first match wins:
 what produced a `Mila\models\models` tree.
 
 **The name is the key, and it is flat and unique.** One name is one model, so a name that is taken
-is refused rather than namespaced -- silently replacing would leave the displaced model's blobs
-unreferenced for the next prune to reclaim. Two cases are not collisions: a hub model reinstalled
+is refused rather than namespaced -- silently replacing would delete the displaced model's blobs. Two cases are not collisions: a hub model reinstalled
 from the same repository is a refresh, and identical content under the same name is the same model,
 which is what keeps a local re-install idempotent.
 
@@ -267,10 +266,21 @@ for a good one. That is the failure the design is chosen to make impossible rath
 Deduplication stops being free the moment removal exists: deleting `gemma-4-12b-it-fp4` must not
 delete the tokenizer blob that `gemma-4-12b-it-fp8` also references.
 
-Removal unlinks the record, then sweeps blobs that no surviving record names. Mark-and-sweep over the
-record tree is exact and cheap -- records are kilobytes -- and it makes `remove` and `prune` the same
-primitive. The sweep also reclaims what nothing else ever will: `.rejected` files from digest
-mismatches, and `tmp/` partials from transfers that were abandoned rather than resumed.
+**Removing a model touches only that model.** `remove(name)` deletes the blobs its record names that no
+other record names, then the record. Blobs go first, so an interrupted removal leaves a record listed as
+incomplete, which removing again finishes, rather than blobs nothing names. Writing a record over
+another -- a refresh, or an install with `replace` -- does the same for the blobs only the replaced
+record named. Checking the other records is exact and cheap: records are kilobytes.
+
+**Nothing sweeps `blobs/` for files no record names.** A store that predates records, or holds a record
+that no longer parses, is indistinguishable from one full of garbage, and a sweep deleted every model
+in exactly that state (decided 2026-09-16). For the same reason, while any record file cannot be read
+-- including one below `models/` in a layout this store does not read -- no blob is deleted, and the
+report names the files. A blob left behind costs disk; a blob wrongly deleted costs a model.
+
+`clean()` reclaims what belongs to no record at all: `.rejected` files from digest mismatches, locks
+left by a crashed process, and on request `tmp/` partials from transfers abandoned rather than resumed.
+It is a library operation today; a `mila store clean` verb is the user surface it waits for.
 
 ### Concurrent processes
 
@@ -365,7 +375,9 @@ Token discovery, first match wins: `MILA_HF_TOKEN`, `HF_TOKEN`, then `~/.cache/h
 
 Two failures that need different messages, because conflating them wastes an afternoon:
 
-- **401** -- no token, or the token is invalid. Say how to obtain one.
+- **401** -- no token, or the token is invalid. With a token, say how to obtain a valid one. Without
+  one, lead with the name: HuggingFace hides whether a repository exists from anonymous callers, so
+  a mistyped name arrives as a 401 too, and it is the likelier cause on the evaluation path.
 - **403** -- the token is valid but the repository's terms have not been accepted. Name the model page
   to accept on.
 
@@ -416,12 +428,12 @@ loads, it loads from the store.
 
 Two different things are being kept out. A hub fetch is kept out because a 6.33 GB transfer is a
 deliberate act with a progress display and a failure mode, while an inference request is neither -- an
-implicit download inside `fromPretrained()` turns a chat prompt into a twenty-minute stall and lets a
+implicit download inside `load()` turns a chat prompt into a twenty-minute stall and lets a
 server initiate multi-gigabyte traffic in response to an untrusted request. An arbitrary path is kept
 out because it is an undescribed model: nothing knows what it is, what quantization it carries or
 whether its bytes are intact, which is the condition the manifest exists to end.
 
-`fromPretrained()` still takes a filesystem path, because the store hands it one -- a verified blob.
+`load()` still takes a filesystem path, because the store hands it one -- a verified blob.
 What no longer exists is a way to turn a user-supplied path into a load without installing it first.
 
 A consumer that finds a model missing reports it and names the pull. Chat may **offer** to pull and
@@ -500,8 +512,9 @@ check that already happened.
 `Tools/Publishing/publish_model.py` does the upload through `huggingface_hub`: it validates digests
 before uploading, skips files the hub already holds, and verifies afterward. The library contributes
 the package and the validation; it does not contain an HTTP method that writes. It takes a package
-directory and `--repo <owner>/<name>`; the older card directory, whose `publish.json` maps hub paths
-onto large files kept outside it, still works and is what a package makes unnecessary.
+directory and `--repo <owner>/<name>`, and nothing else. The older card directory, whose `publish.json`
+mapped hub paths onto large files kept outside it, was retired at `rc.1+23`: it carried a second
+`mila.json`, and Gemma's had already drifted from the published one by the whole `license` role.
 
 The division is deliberate. Uploading to HuggingFace means the preupload check, the LFS batch API,
 multipart transfer and a commit call -- a large failure surface, for a workflow a maintainer runs by
@@ -516,9 +529,9 @@ ModelStore                     filesystem only, always available
   list()                    -> [StoredModel]     every installed record
   locate(name)              -> StoredModel?      paths, or nothing
   describe(record)          -> StoredModel       a record plus its resolved blob paths
-  remove(name)              -> RemovalReport     record, then sweep
-  prune()                   -> RemovalReport     unreferenced blobs, rejects, stale partials
-  diskUsage()               -> StoreUsage        by model and in total
+  remove(name)              -> RemovalReport     blobs only it names, then the record
+  clean(options)            -> RemovalReport     rejects, abandoned locks, partials on request
+  usage()                   -> StoreUsage        in total, and what clean() would free
   install(package, options) -> StoredModel       verify, adopt, record
   ensureBlob(what, digest, fetcher) -> path      resumable, verified, published on match
 
@@ -576,7 +589,7 @@ operation. See [Build gating](#build-gating).
 The flat MILA container stops being a form Mila distributes or catalogues. Every catalogued model is a
 safetensors artifact with a manifest.
 
-**The reader keeps its MILA branch.** `Serialization.PretrainedReader` sniffs the leading magic and
+**The reader keeps its MILA branch.** `Serialization.WeightsReader` sniffs the leading magic and
 fills the same tensor index from either container, so everything past the header parse is already
 common. Removing that branch would buy nothing and would strand every `.bin` already on disk;
 retiring the *format* is a catalogue and publishing decision, not a loader change.
@@ -594,7 +607,7 @@ The split is by dependency, not by theme, and **the only optional thing is the t
 
 - **Always compiled** -- `Sha256`, `Environment`, `ModelCoordinate`, `ModelManifest`,
   `ModelPackage`, `ModelStore`, `ModelHub`, `ModelResolver`, `HttpTransport` and
-  **`HuggingFaceHub`**: naming, the schema, layout, records, list, locate, remove, prune,
+  **`HuggingFaceHub`**: naming, the schema, layout, records, list, locate, remove, clean,
   package, validate, install, `pull` itself, and every HuggingFace URL shape, token rule,
   listing quirk and status meaning. None of it performs I/O. `HuggingFaceHub` holds an
   `IHttpTransport` and asks it for bytes.
@@ -631,7 +644,7 @@ where it belongs: in the build configuration. A consumer that must say which bui
 
 libcurl, one implementation for both platforms. Windows has no linkable OS libcurl, so it is vendored
 there regardless; vendoring on Linux too buys one known version everywhere instead of whatever the
-distribution shipped, matching how nlohmann, cutlass and pybind11 are already pinned.
+distribution shipped, matching how nlohmann, miniz and pybind11 are already pinned.
 
 - Pinned tag through CPM, built static -- no runtime DLL, and the CPM consumer gate stays clean
 - **Windows: Schannel.** OS-provided TLS, Windows certificate store, no CA bundle to ship or refresh
@@ -805,10 +818,10 @@ and write a record on every successful pull.
 *Done when:* a pulled model appears in `list()`, and a build with no HTTP transport still lists
 and locates it.
 
-**Phase 7 -- management.** `remove`, `prune`, `diskUsage`, refcounted sweep, transfer lock.
+**Phase 7 -- management.** `remove`, `clean`, `usage`, reference-checked removal, transfer lock.
 *Done when:* removing one of two models sharing a tokenizer leaves the tokenizer blob in place;
-prune reclaims a `.rejected` file and a stale partial; two processes pulling one blob do not corrupt
-each other.
+removing a model leaves a blob no record names; clean reclaims a `.rejected` file and a stale
+partial; two processes pulling one blob do not corrupt each other.
 
 **Phase 8 -- the hub interface.** `IModelHub` with `HuggingFaceHub` behind it, plus `listModels`.
 *Done when:* the resolver names no HuggingFace URL, and listing `mila-llm` reports the published

@@ -21,8 +21,8 @@ from pathlib import Path
 # file, so it moves with the directory depth -- verify it when relocating these samples.
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
-# The published model the samples open by default. Fetch it with ModelStore.pull or
-# /install; nothing in these samples downloads anything.
+# The published model the samples open by default, because an example needs one. Fetch it
+# with ModelStore.pull or /model install; nothing in these samples downloads anything.
 DEFAULT_MODEL = "gemma-4-12b-it-fp4"
 
 # Where the converter writes Mila's binary weights and tokenizers. Both files are produced by
@@ -197,7 +197,7 @@ def resolve_paths(family, weights=None, tokenizer=None):
                 f"Mila {family} {label} not found at {path}.\n"
                 "Loose .bin files are the fallback path. For a published model, drop "
                 "--weights/--tokenizer and pass --model <store name> instead (install "
-                "one with /install in the chat harness). To keep using a locally "
+                "one with /model install in the chat harness). To keep using a locally "
                 "converted checkpoint, convert it with Tools/Converters (see "
                 "Data/Models/README.md), then pass --weights / --tokenizer or set "
                 "MILA_MODEL_PATH / MILA_TOKENIZER_PATH."
@@ -225,13 +225,13 @@ def load(mila, family, weights, tokenizer, context_length, device_index=0, quant
     if family == "gemma":
         return (
             mila.BpeTokenizer.load_gemma(str(tokenizer)),
-            mila.GemmaModel.from_pretrained(
+            mila.GemmaModel.load(
                 str(weights), context_length, device_index, quantization or "fp4"),
         )
 
     return (
         mila.BpeTokenizer.load_llama32(str(tokenizer)),
-        mila.LlamaModel.from_pretrained(
+        mila.LlamaModel.load(
             str(weights), context_length, device_index, quantization or "bf16"),
     )
 
@@ -251,7 +251,7 @@ def load_from_store(mila, name, context_length, device_index=0):
         raise FileNotFoundError(
             f"No model named '{name}' is installed. Installed: {installed or 'nothing'}.\n"
             "Fetch one with mila.ModelStore().pull(name, mila.default_hub_owner()), "
-            "or with /install in the chat harness. Loading never downloads."
+            "or with /model install in the chat harness. Loading never downloads."
         )
 
     session = mila.GemmaModel if record.architecture == "gemma" else mila.LlamaModel

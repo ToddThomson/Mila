@@ -510,6 +510,8 @@ namespace Mila::Tests::Dnn::Components::Linear
                     << "state, bias=" << has_bias;
                 EXPECT_EQ( predicted.device_gradient_bytes, actual.device_gradient_bytes )
                     << "gradients, bias=" << has_bias;
+                EXPECT_EQ( predicted.device_scratch_bytes, actual.device_scratch_bytes )
+                    << "scratch, bias=" << has_bias;
             }
         }
     }
@@ -1102,7 +1104,7 @@ namespace Mila::Tests::Dnn::Components::Linear
             writer.close();
         }
 
-        Serialization::PretrainedModelReader reader( path );
+        Serialization::WeightsReader reader( path );
 
         ASSERT_TRUE( reader.hasTensor( "tf_layer_0.qkv_proj.weight" ) );
         ASSERT_TRUE( reader.hasTensor( "tf_layer_0.qkv_proj.weight_scale" ) );
@@ -1209,7 +1211,7 @@ namespace Mila::Tests::Dnn::Components::Linear
             writer.close();
         }
 
-        Serialization::PretrainedModelReader reader( path );
+        Serialization::WeightsReader reader( path );
 
         auto packed = reader.readTensorBlob<CpuMemoryResource>( "tf_layer_3.down_proj.weight" );
         auto scales = reader.readTensorBlob<CpuMemoryResource>( "tf_layer_3.down_proj.weight_scale" );
@@ -1306,7 +1308,7 @@ namespace Mila::Tests::Dnn::Components::Linear
         from_artifact.build( BuildContext( decode_shape, RuntimeMode::Inference, false ) );
 
         {
-            Serialization::PretrainedModelReader reader( first_path );
+            Serialization::WeightsReader reader( first_path );
 
             auto packed = reader.readTensorBlob<CpuMemoryResource>( "proj.weight" );
             auto scales = reader.readTensorBlob<CpuMemoryResource>( "proj.weight_scale" );
@@ -1464,7 +1466,7 @@ namespace Mila::Tests::Dnn::Components::Linear
         from_artifact.build( BuildContext( prefill_shape, RuntimeMode::Inference, false ) );
 
         {
-            Serialization::PretrainedModelReader reader( artifact );
+            Serialization::WeightsReader reader( artifact );
 
             auto packed = reader.readTensorBlob<CpuMemoryResource>( "proj.weight" );
             auto scales = reader.readTensorBlob<CpuMemoryResource>( "proj.weight_scale" );
@@ -1592,7 +1594,7 @@ namespace Mila::Tests::Dnn::Components::Linear
             writer.close();
         }
 
-        Serialization::PretrainedModelReader reader( path );
+        Serialization::WeightsReader reader( path );
 
         EXPECT_TRUE( reader.hasTensor( "fc.weight" ) );
         EXPECT_TRUE( reader.hasTensor( "fc.bias" ) );

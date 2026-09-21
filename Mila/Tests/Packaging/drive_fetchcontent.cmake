@@ -31,12 +31,11 @@ if(CUDA_COMPILER)
 endif()
 
 # The wipe above takes _deps with it, so without a cache OUTSIDE the build directory
-# every run re-clones cutlass, curl, nlohmann and miniz. Measured 2026-08-30: configure
-# is 103.7s cold against 18.0s with the cache warm, so this buys about 86 seconds and
-# the network traffic, not the minutes an earlier note here claimed. Unlike the CPM
-# gate, nothing here needs a fresh clone of Mila itself: this consumer takes the local
-# working tree via SOURCE_DIR, so only third-party packages are cached, and CPM keys
-# its cache entries by package version.
+# every run re-clones curl, nlohmann and miniz. Measured 2026-08-30, when CUTLASS was
+# still fetched: configure was 103.7s cold against 18.0s with the cache warm. Unlike
+# the CPM gate, nothing here needs a fresh clone of Mila itself: this consumer takes
+# the local working tree via SOURCE_DIR, so only third-party packages are cached, and
+# CPM keys its cache entries by package version.
 if(CPM_SOURCE_CACHE)
     list(APPEND compiler_args "-DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}")
 endif()

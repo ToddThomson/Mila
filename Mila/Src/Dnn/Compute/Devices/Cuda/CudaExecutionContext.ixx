@@ -10,6 +10,7 @@ module;
 #ifdef USE_CUDNN
 #include <cudnn.h>
 #endif
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <format>
@@ -21,6 +22,7 @@ import Compute.IExecutionContext;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Core.RandomGenerator;
+import Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
@@ -202,38 +204,68 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief High-water mark of the device scratch buffer, in bytes.
+         * @brief Allocate the forward scratch buffer at exactly the size a network reports.
          *
-         * The current size is the high-water by construction: the buffer grows on demand
-         * and is never shrunk, so device_scratch_size_ only ever increases until
-         * releaseResources(). Reported so the footprint tooling can attribute the gap
-         * between what a build allocates and what the driver says was consumed, rather
-         * than leaving it as an unexplained margin.
+         * @param bytes The largest scratch request any operation on this context makes.
+         * @throws std::runtime_error If allocation fails.
          */
-        [[nodiscard]] std::size_t getScratchHighWaterBytes() const noexcept override
+        void reserveScratch( std::size_t bytes ) override
         {
-            return device_scratch_size_;
+            if ( device_scratch_buf_ )
+            {
+                cudaFree( device_scratch_buf_ );
+                device_scratch_buf_ = nullptr;
+                device_scratch_size_ = 0;
+            }
+
+            if ( bytes > 0 )
+            {
+                cudaError_t err = cudaMalloc( &device_scratch_buf_, bytes );
+
+                if ( err != cudaSuccess )
+                {
+                    cudaDiscardLastError();
+
+                    throw std::runtime_error(
+                        std::format( "Failed to reserve device scratch buffer: {}", cudaGetErrorString( err ) ) );
+                }
+
+                device_scratch_size_ = bytes;
+            }
+
+            scratch_reserved_ = true;
         }
 
         /**
-         * @brief Gets or grows a general-purpose device scratch buffer.
+         * @brief Gets the device scratch buffer shared by operations during forward passes.
          *
          * Used by operations that need a temporary device buffer during forward passes
-         * (e.g. FP8->BF16 weight dequantization before a cuBLASLt GEMM). Grown on demand,
-         * never shrunk. Because all operations on this context share a single stream, the
-         * buffer can be safely reused across sequential ops -- each op finishes before the
-         * next one writes to the buffer.
+         * (e.g. FP8->BF16 weight dequantization before a cuBLASLt GEMM). Because all operations
+         * on this context share a single stream, the buffer can be safely reused across
+         * sequential ops -- each op finishes before the next one writes to the buffer.
          *
-         * Freed in releaseResources().
+         * Once a network has reserved it, a request larger than the reservation throws: the
+         * reservation is the footprint's prediction, and exceeding it is a defect in that
+         * prediction. Before any reservation the buffer grows on demand. Freed in
+         * releaseResources().
          *
          * @param required_bytes Minimum number of bytes required.
          * @return void* Device buffer of at least required_bytes.
+         * @throws std::logic_error If the request exceeds a reservation.
          * @throws std::runtime_error If allocation fails.
          */
         [[nodiscard]] void* getDeviceScratchBuffer( size_t required_bytes ) const
         {
             if ( required_bytes <= device_scratch_size_ )
                 return device_scratch_buf_;
+
+            if ( scratch_reserved_ )
+            {
+                throw std::logic_error( std::format(
+                    "CudaExecutionContext: a scratch request of {} bytes exceeds the {} bytes the network "
+                    "reserved; an operation's getRequiredScratchBytes() understates what it requests",
+                    required_bytes, device_scratch_size_ ) );
+            }
 
             if ( device_scratch_buf_ )
             {
@@ -246,6 +278,8 @@ namespace Mila::Dnn::Compute
 
             if ( err != cudaSuccess )
             {
+                cudaDiscardLastError();
+
                 throw std::runtime_error(
                     std::format( "Failed to allocate device scratch buffer: {}",
                         cudaGetErrorString( err ) ) );
@@ -254,6 +288,65 @@ namespace Mila::Dnn::Compute
             device_scratch_size_ = required_bytes;
 
             return device_scratch_buf_;
+        }
+
+        /**
+         * @brief Largest staging request one fit of full-precision weights may make, in bytes.
+         *
+         * A tensor larger than this is fitted in row blocks that fit, which costs more copies
+         * and no more memory.
+         */
+        [[nodiscard]] static constexpr size_t getLoadStagingLimitBytes() noexcept
+        {
+            return kLoadStagingLimitBytes;
+        }
+
+        /**
+         * @brief Gets or grows the device buffer a load fits full-precision weights through.
+         *
+         * Separate from the forward scratch: it lives only while a load runs, and the load
+         * frees it through releaseLoadStaging() when it returns. Grown on demand in between;
+         * the returned pointer is invalidated by a later call with a larger request.
+         *
+         * @param required_bytes Minimum number of bytes required.
+         * @return void* Device buffer of at least required_bytes.
+         * @throws std::runtime_error If allocation fails.
+         */
+        [[nodiscard]] void* getLoadStagingBuffer( size_t required_bytes ) const
+        {
+            if ( required_bytes <= load_staging_size_ )
+                return load_staging_buf_;
+
+            if ( load_staging_buf_ )
+            {
+                cudaFree( load_staging_buf_ );
+                load_staging_buf_ = nullptr;
+                load_staging_size_ = 0;
+            }
+
+            cudaError_t err = cudaMalloc( &load_staging_buf_, required_bytes );
+
+            if ( err != cudaSuccess )
+            {
+                cudaDiscardLastError();
+
+                throw std::runtime_error(
+                    std::format( "Failed to allocate load staging buffer: {}", cudaGetErrorString( err ) ) );
+            }
+
+            load_staging_size_ = required_bytes;
+
+            return load_staging_buf_;
+        }
+
+        void releaseLoadStaging() noexcept override
+        {
+            if ( load_staging_buf_ )
+            {
+                cudaFree( load_staging_buf_ );
+                load_staging_buf_ = nullptr;
+                load_staging_size_ = 0;
+            }
         }
 
         /**
@@ -282,6 +375,8 @@ namespace Mila::Dnn::Compute
 
             if ( err != cudaSuccess )
             {
+                cudaDiscardLastError();
+
                 throw std::runtime_error(
                     std::format( "Failed to allocate pinned staging buffer: {}", cudaGetErrorString( err ) ) );
             }
@@ -327,6 +422,11 @@ namespace Mila::Dnn::Compute
 
         mutable void* device_scratch_buf_{ nullptr };
         mutable size_t device_scratch_size_{ 0 };
+        bool scratch_reserved_{ false };
+
+        mutable void* load_staging_buf_{ nullptr };
+        mutable size_t load_staging_size_{ 0 };
+        static constexpr size_t kLoadStagingLimitBytes = size_t{ 256 } * 1024 * 1024;
 
         mutable void* pinned_staging_buf_{ nullptr };
         mutable size_t pinned_staging_size_{ 0 };
@@ -396,6 +496,7 @@ namespace Mila::Dnn::Compute
 
             if ( ws_error != cudaSuccess )
             {
+                cudaDiscardLastError();
                 cublaslt_workspace_ = nullptr;
 
                 throw std::runtime_error(
@@ -440,6 +541,13 @@ namespace Mila::Dnn::Compute
                 cudaFree( device_scratch_buf_ );
                 device_scratch_buf_ = nullptr;
                 device_scratch_size_ = 0;
+            }
+
+            if ( load_staging_buf_ )
+            {
+                cudaFree( load_staging_buf_ );
+                load_staging_buf_ = nullptr;
+                load_staging_size_ = 0;
             }
 
             if ( pinned_staging_buf_ )

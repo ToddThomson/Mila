@@ -98,6 +98,8 @@ namespace Mila::Dnn::Compute
 
             if ( error != cudaSuccess )
             {
+                cudaDiscardLastError();
+
                 throw std::bad_alloc();
             }
 

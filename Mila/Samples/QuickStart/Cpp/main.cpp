@@ -37,7 +37,8 @@ using namespace Mila::Data;
 
 namespace
 {
-    /// The published flagship. Install it with the chat harness (/install) or from Python;
+    /// A published model, because an example needs one. Install it with the chat harness
+    /// (/model install) or from Python;
     /// loading never downloads, so an uninstalled name is an error rather than a surprise
     /// multi-gigabyte transfer.
     constexpr const char* kModelName = "gemma-4-12b-it-fp4";
@@ -186,7 +187,7 @@ int main( int argc, char** argv )
         GemmaModelConfig model_config( kContextLength );
         model_config.withFP4Quantization();
 
-        auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
+        auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
             installed->weights_path, model_config );
 
         // TokenId is int32_t, which is what generate() takes, so this needs no conversion.

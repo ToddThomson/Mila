@@ -69,6 +69,7 @@ import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.CompositeComponent;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -163,7 +164,7 @@ namespace Mila::Dnn
                                     ffn_act.get(), ffn_down.get(), stream.get() } )
             {
                 if ( t )
-                    total += t->getStorageSize();
+                    total += occupiedTensorBytes( *t );
             }
 
             return total;
@@ -171,24 +172,25 @@ namespace Mila::Dnn
     };
 
     /**
-     * @brief Sum of the workspace slot widths, in elements per [B, chunk] row.
+     * @brief The width of each workspace slot, one entry per [B, chunk, width] allocation.
      *
-     * Shared by the allocation and by the transformer's prefill row-cost model, so the two
+     * Shared by the transformer's footprint and read against the allocation below, so the two
      * cannot drift -- the same reason the attention block's widths live in one place.
      */
-    export inline dim_t qwenDeltaNetWorkspaceRowElements( const QwenConfig& config )
+    export inline std::vector<dim_t> qwenDeltaNetWorkspaceSlotWidths( const QwenConfig& config )
     {
+        const dim_t model_dim = config.getModelDim();
+        const dim_t hidden_dim = config.getHiddenDimension();
         const dim_t qk_width = config.getDeltaNetQueryKeyWidth();
+        const dim_t key_width = config.getDeltaNetKeyWidth();
         const dim_t value_width = config.getDeltaNetValueWidth();
+        const dim_t gating_width = config.getDeltaNetGatingWidth();
 
-        // normed, mixed, res1, ffn_in, ffn_down, stream; qk, conv_qk, act_qk; q, k;
-        // v, z, conv_v, act_v, core, core_normed, gated; a, b; gate_up (2h) + ffn_act (h).
-        return 6 * config.getModelDim()
-            + 3 * qk_width
-            + 2 * config.getDeltaNetKeyWidth()
-            + 7 * value_width
-            + 2 * config.getDeltaNetGatingWidth()
-            + 3 * config.getHiddenDimension();
+        // q, k, normed, qk, v, z, a, b, conv_qk, conv_v, act_qk, act_v, core, core_normed, gated,
+        // mixed, res1, ffn_in, gate_up, ffn_act, ffn_down, stream -- the order the factory allocates.
+        return { key_width, key_width, model_dim, qk_width, value_width, value_width, gating_width, gating_width,
+                 qk_width, value_width, qk_width, value_width, value_width, value_width, value_width, model_dim,
+                 model_dim, model_dim, 2 * hidden_dim, hidden_dim, model_dim, model_dim };
     }
 
     /**
@@ -504,7 +506,7 @@ namespace Mila::Dnn
                 for ( auto* t : { q_.get(), k_.get() } )
                 {
                     if ( t )
-                        stats.device_state_bytes += t->getStorageSize();
+                        stats.device_state_bytes += occupiedTensorBytes( *t );
                 }
             }
 
@@ -558,8 +560,9 @@ namespace Mila::Dnn
             // transformer.
             if ( !pooled )
             {
-                stats.device_state_bytes += storageBytes<TPrecision>(
-                    2 * contexts.batch * contexts.chunk * config_.getDeltaNetKeyWidth() );
+                stats.device_state_bytes += 2 * occupiedDeviceBytes(
+                    storageBytes<TPrecision>( contexts.batch * contexts.chunk * config_.getDeltaNetKeyWidth() ),
+                    allocationGranularity( this->getDeviceId() ) );
             }
 
             return stats;

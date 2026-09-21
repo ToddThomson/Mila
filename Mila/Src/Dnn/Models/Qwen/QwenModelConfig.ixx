@@ -3,7 +3,7 @@
  * @brief Deployment configuration for Qwen 3.8 language models.
  *
  * QwenModelConfig is the concrete configuration type passed to
- * QwenModel::fromPretrained(). It inherits every universal deployment concern from
+ * QwenModel::load(). It inherits every universal deployment concern from
  * LanguageModelConfig<QwenModelConfig>:
  *
  *   - context_length        -- maximum sequence length

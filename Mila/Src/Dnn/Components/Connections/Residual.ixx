@@ -32,6 +32,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -337,17 +338,17 @@ namespace Mila::Dnn
             // asks what is produced, the other what is owned.
             if ( output_ != nullptr && !output_installed_ )
             {
-                stats.device_state_bytes += output_->getStorageSize();
+                stats.device_state_bytes += occupiedTensorBytes( *output_ );
             }
 
             if ( input_a_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += input_a_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *input_a_grad_ );
             }
 
             if ( input_b_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += input_b_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *input_b_grad_ );
             }
 
             return stats;
@@ -362,13 +363,14 @@ namespace Mila::Dnn
         {
             const auto& input_shape = context.inputShape();
             const dim_t elements = elementCount( input_shape );
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
 
             MemoryStats stats;
 
             // An installed shared output slot is owned and counted by the installer.
             if ( !output_installed_ && !context.hasInstalledOutput() )
             {
-                stats.device_state_bytes += storageBytes<TPrecision>( elements );
+                stats.device_state_bytes += occupiedDeviceBytes( storageBytes<TPrecision>( elements ), granularity );
             }
 
             if ( operation_ )
@@ -379,7 +381,7 @@ namespace Mila::Dnn
             if ( context.isTrainingMode() )
             {
                 // Two inputs, two input gradients.
-                stats.device_gradient_bytes += 2 * storageBytes<TPrecision>( elements );
+                stats.device_gradient_bytes += 2 * occupiedDeviceBytes( storageBytes<TPrecision>( elements ), granularity );
             }
 
             return stats;

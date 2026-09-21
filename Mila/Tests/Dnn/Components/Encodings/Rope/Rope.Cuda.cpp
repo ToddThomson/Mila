@@ -26,6 +26,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
@@ -321,7 +322,8 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
         const int64_t T = 4;
         const int offset = 2;
 
-        auto rope = this->builtRope( shape_t{ B, T }, RuntimeMode::Inference );
+        // Built for every position the chunk reaches: a build covers positions [0, T_built).
+        auto rope = this->builtRope( shape_t{ B, T + offset }, RuntimeMode::Inference );
 
         auto device_q = this->toDevice( this->spreadHost( shape_t{ B, T, kChannels }, 0.0f ) );
         auto device_k = this->toDevice( this->spreadHost( shape_t{ B, T, kKvChannels }, 1.7f ) );
@@ -364,6 +366,119 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
 
         this->expectClose( this->toFloat( device_q ), expected_q, "decode Q" );
         this->expectClose( this->toFloat( device_k ), expected_k, "decode K" );
+    }
+
+    // ====================================================================
+    // G. Table length -- the built sequence length bounds every position
+    // ====================================================================
+
+    TYPED_TEST( RopeCudaTests, Memory_TablesCoverOnlyTheBuiltLength )
+    {
+        const int64_t T = 7;
+        const std::size_t expected = static_cast<std::size_t>( T * ( kHeadDim / 2 ) ) * sizeof( float ) * 2;
+
+        typename TestFixture::RopeType rope( "rope", this->config(), Device::Cuda( 0 ) );
+        const BuildContext context( shape_t{ 1, T }, RuntimeMode::Inference, false );
+
+        EXPECT_EQ( rope.getRequiredMemory( context ).device_state_bytes, expected );
+
+        rope.build( context );
+
+        EXPECT_EQ( rope.getMemoryStats().device_state_bytes, expected );
+    }
+
+    // The rows a short table holds must be the rows the trained-maximum table holds, or sizing
+    // by the context would change every model's output.
+    TYPED_TEST( RopeCudaTests, LastBuiltRow_IsBitIdenticalToTheTrainedMaximumTable )
+    {
+        const int64_t B = 2;
+        const int64_t T = 6;
+        const int64_t chunk = 4;
+
+        auto short_rope = this->builtRope( shape_t{ B, T }, RuntimeMode::Inference );
+        auto full_rope = this->builtRope( shape_t{ B, kMaxSeq }, RuntimeMode::Inference );
+
+        auto rotated = [&]( typename TestFixture::RopeType& rope, bool decode )
+        {
+            const int64_t rows = decode ? 1 : chunk;
+            auto device_q = this->toDevice( this->spreadHost( shape_t{ B, rows, kChannels }, 0.0f ) );
+            auto device_k = this->toDevice( this->spreadHost( shape_t{ B, rows, kKvChannels }, 1.7f ) );
+
+            if ( decode )
+            {
+                rope.decode( device_q, device_k, T - 1 );
+            }
+            else
+            {
+                rope.prefill( device_q, device_k, T - chunk );
+            }
+
+            rope.synchronize();
+
+            auto host_q = this->toFloat( device_q );
+            auto host_k = this->toFloat( device_k );
+
+            std::vector<float> values( host_q.data(), host_q.data() + host_q.size() );
+            values.insert( values.end(), host_k.data(), host_k.data() + host_k.size() );
+
+            return values;
+        };
+
+        for ( const bool decode : { false, true } )
+        {
+            const std::vector<float> from_short = rotated( *short_rope, decode );
+            const std::vector<float> from_full = rotated( *full_rope, decode );
+
+            ASSERT_EQ( from_short.size(), from_full.size() );
+
+            std::size_t differing = 0;
+
+            for ( std::size_t i = 0; i < from_short.size(); ++i )
+            {
+                if ( std::memcmp( &from_short[ i ], &from_full[ i ], sizeof( float ) ) != 0 )
+                    ++differing;
+            }
+
+            EXPECT_EQ( differing, 0u ) << ( decode ? "decode" : "prefill" ) << " through the last built row";
+        }
+    }
+
+    TYPED_TEST( RopeCudaTests, Prefill_RefusesPositionsPastTheBuiltLength )
+    {
+        const int64_t B = 2;
+        const int64_t T = 6;
+        const int64_t chunk = 4;
+
+        auto rope = this->builtRope( shape_t{ B, T }, RuntimeMode::Inference );
+
+        auto device_q = this->toDevice( this->spreadHost( shape_t{ B, chunk, kChannels }, 0.0f ) );
+        auto device_k = this->toDevice( this->spreadHost( shape_t{ B, chunk, kKvChannels }, 1.7f ) );
+
+        EXPECT_NO_THROW( rope->prefill( device_q, device_k, T - chunk ) );
+        EXPECT_THROW( rope->prefill( device_q, device_k, T - chunk + 1 ), std::invalid_argument );
+    }
+
+    TYPED_TEST( RopeCudaTests, Decode_RefusesThePositionAtTheBuiltLength )
+    {
+        const int64_t B = 2;
+        const int64_t T = 6;
+
+        auto rope = this->builtRope( shape_t{ B, T }, RuntimeMode::Inference );
+
+        auto device_q = this->toDevice( this->spreadHost( shape_t{ B, 1, kChannels }, 0.0f ) );
+        auto device_k = this->toDevice( this->spreadHost( shape_t{ B, 1, kKvChannels }, 1.7f ) );
+
+        EXPECT_NO_THROW( rope->decode( device_q, device_k, T - 1 ) );
+        EXPECT_THROW( rope->decode( device_q, device_k, T ), std::invalid_argument );
+    }
+
+    TYPED_TEST( RopeCudaTests, Build_RefusesLengthPastTheTrainedMaximum )
+    {
+        typename TestFixture::RopeType rope( "rope", this->config(), Device::Cuda( 0 ) );
+
+        EXPECT_THROW(
+            rope.build( BuildContext( shape_t{ 1, kMaxSeq + 1 }, RuntimeMode::Inference, false ) ),
+            std::invalid_argument );
     }
 
     // ====================================================================

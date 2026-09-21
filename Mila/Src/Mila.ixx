@@ -192,6 +192,7 @@ export import Dnn.ConnectionType;
 
 export import Dnn.Components.MultiHeadAttention;
 export import Dnn.Components.Gqa;
+export import Compute.GqaWorkspace;
 export import Dnn.Components.Lpe;
 export import Dnn.Components.Rope;
 export import Dnn.Components.Gelu;
@@ -237,6 +238,8 @@ export import Dnn.Components.Softmax;
 // ============================================================================
 export import Dnn.Components.MLP;
 export import Dnn.Components.GatedMLP;
+export import Dnn.Components.Router;
+export import Dnn.Components.MixtureOfExperts;
 export import Dnn.Components.GptBlock;
 
 // ============================================================================
@@ -308,7 +311,7 @@ export import Serialization.Tensor;
 export import Serialization.ArchiveSerializer;
 export import Serialization.ZipSerializer;
 export import Serialization.SafeTensors;
-export import Serialization.PretrainedReader;
+export import Serialization.WeightsReader;
 
 // ============================================================================
 // Distribution - the store, pull, and HuggingFace itself, none of which move bytes

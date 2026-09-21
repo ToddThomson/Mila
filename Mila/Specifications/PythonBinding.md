@@ -29,8 +29,8 @@ Complete as of `0.20.0-beta.2+45`. Source: `Mila/Bindings/Mila_py.cpp`.
 |---|---|
 | `mila.initialize` | `log_level` = `trace \| info \| warning \| error` |
 | `mila.BpeTokenizer` | `from_store(name)`, `load_llama32`, `load_gemma`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
-| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
-| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
+| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `load(path, context_length, device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
+| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `load(path, context_length, device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
 | `mila.ModelStore` | `root`, `list`, `locate`, `remove`, `usage`, `install`, `pull`, `list_hub_models` |
 | `mila.StopController` | `request_stop`, `stop_requested` |
 
@@ -45,9 +45,9 @@ keeps the projection std-only.
 Two properties worth stating because they make a real sample possible: **the GIL is released around
 generation** (`py::gil_scoped_release`), so streaming callbacks and a Ctrl-C handler both work; and
 **`from_store` takes the quantization from the store record**, so a published artifact — which is
-already FP4 bytes — loads without the caller knowing what it is. `from_pretrained` keeps a
+already FP4 bytes — loads without the caller knowing what it is. `load` keeps a
 quantization argument because a loose artifact is unquantized and the choice is then real; Gemma
-defaults it to FP4 so the 12B flagship loads on a consumer card rather than OOM-ing at BF16.
+defaults it to FP4 so the 12B loads on a consumer card rather than OOM-ing at BF16.
 
 **Not exposed:** `GptModel`. This matters more than it looks — see *Weights* below.
 
@@ -62,7 +62,7 @@ Found while scoping, 2026-07-28. Tracked in BACKLOG.
   any published Llama artifact at all (`Parameter 'weight' dtype mismatch. Expected BF16, got
   UINT8`). Both sessions now take a variant string, and `from_store` takes it from the record.
 - ~~**The module docstring is stale**~~ — **Fixed 2026-07-28.** It said *"Mila inference bindings —
-  Llama 3.2 3B Instruct on CUDA BF16"* while Gemma was bound and is the flagship, and it is the first
+  Llama 3.2 3B Instruct on CUDA BF16"* while Gemma was bound too, and it is the first
   thing `help(mila)` prints. It now names both models and states the GIL-release property.
 - ~~**`mila.pyd` is copied only into `Mila/Adaptors/Inference/Server/`.**~~ **Fixed 2026-07-28.**
   `MilaPy` publishes to `<build dir>/python/` — a directory holding nothing but the extension, so a
@@ -70,7 +70,7 @@ Found while scoping, 2026-07-28. Tracked in BACKLOG.
   `MilaPy_PYTHON_DIR` cache variable. The MIS copy was **removed 2026-08-08**: the server directory
   is first on `sys.path`, so that copy shadowed any installed `mila-llm` — a stale copy always beat a
   correct install. MIS now depends on the package like any other consumer.
-- ~~**No precision control for Gemma.**~~ **Fixed 2026-08-08.** `GemmaModel.from_pretrained` takes a
+- ~~**No precision control for Gemma.**~~ **Fixed 2026-08-08.** `GemmaModel.load` takes a
   quantization variant, defaulting to FP4 for the reason recorded at the call site.
 
 ---
@@ -185,7 +185,7 @@ Apache 2.0 is at least as unencumbered, so Tier 2 needs neither GPT-2 nor a new 
 
 It also inverts the earlier artifact reasoning. Llama 3.2 carries the Llama Community License with
 its naming and threshold conditions; Gemma 4 carries none of that. **Gemma 4 12B FP4 is therefore
-both the flagship and the licensing-simplest option**, and the only argument against leading with it
+the licensing-simplest option**, and the only argument against leading with it
 is download size.
 
 A smaller model improves first-run experience considerably: Llama 3.2 1B is a far better "first
@@ -230,7 +230,7 @@ distribution with additive backend extras (`mila-llm[rocm]`), so no user's pin e
 Shipped 2026-07-28 at `Mila/Samples/QuickStart/Python/`. No pip dependencies — standard library only. The
 absence of a `requirements.txt` is itself part of the message.
 
-- **`chat.py`** — the flagship. Load Gemma, tokenize, stream tokens to stdout, interrupt through
+- **`chat.py`** — the main sample. Load Gemma, tokenize, stream tokens to stdout, interrupt through
   `StopController`. This is the Chat adaptor's job in roughly a hundred readable lines, which is the
   argument to this audience: here is the whole loop, in your language, with nothing hidden. Gemma-only
   by choice: the instruct template and the channel filter *are* the content, and a family switch
@@ -262,7 +262,7 @@ In bounds — sample code, documentation, packaging, and defect repair:
 Out of bounds — feature additions, deferred to vNext:
 
 - binding `GptModel`
-- adding a precision parameter to `GemmaModel.from_pretrained`
+- adding a precision parameter to `GemmaModel.load`
 - a published wheel
 
 ---

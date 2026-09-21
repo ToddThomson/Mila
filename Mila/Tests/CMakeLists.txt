@@ -67,8 +67,13 @@ add_executable( MilaTests
     "Dnn/Components/FFN/Swiglu/SwigluConfig.cpp"
     "Dnn/Components/Linear/Linear.Cpu.cpp"
     "Dnn/Components/Linear/LinearConfig.cpp"
+    "Dnn/Components/MixtureOfExperts/MixtureOfExperts.Cpu.cpp"
+    "Dnn/Components/MixtureOfExperts/MixtureOfExpertsConfig.cpp"
+    "Dnn/Components/MixtureOfExperts/Router.Cpu.cpp"
+    "Dnn/Components/MixtureOfExperts/RouterConfig.cpp"
     "Dnn/Components/Normalization/LayerNorm/LayerNorm.Cpu.cpp"
     "Dnn/Components/Normalization/LayerNorm/LayerNormConfig.cpp"
+    "Dnn/Components/Normalization/RmsNorm/RmsNorm.Cpu.cpp"
     "Dnn/Components/Normalization/RmsNorm/RmsNormConfig.cpp"
     "Dnn/Components/Normalization/Softmax.Cpu.cpp"
     "Dnn/Components/Normalization/SoftmaxConfig.cpp"
@@ -94,7 +99,7 @@ add_executable( MilaTests
     "Dnn/Models/Qwen/Qwen.Protocol.cpp"
     "Dnn/Modeling/Network.Cpu.cpp"
     "Dnn/Optimizers/AdamW.Cpu.cpp"
-    # Covers both containers PretrainedModelReader accepts, including a hand-built
+    # Covers both containers WeightsReader accepts, including a hand-built
     # MILA file that guards the legacy .bin path no fixture-free test could reach.
     "Dnn/Serialization/SafeTensors.Cpu.cpp"
     "Dnn/Tensors/Tensor.Constructors.cpp"
@@ -206,6 +211,8 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Encodings/Lpe/Lpe.Cuda.cpp"
         "Dnn/Components/Encodings/Rope/Rope.Cuda.cpp"
         "Dnn/Components/FFN/GatedMLP/GatedMLP.Cuda.cpp"
+        "Dnn/Components/MixtureOfExperts/MixtureOfExperts.Cuda.cpp"
+        "Dnn/Components/MixtureOfExperts/Router.Cuda.cpp"
         "Dnn/Components/FFN/MLP/MLP.Cuda.cpp"
         "Dnn/Components/FFN/Swiglu/Swiglu.Cuda.cpp"
         "Dnn/Components/Linear/Linear.Cuda.cpp"
@@ -217,6 +224,8 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Transformers/Llama/Llama.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Block.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp"
+        "Dnn/Components/Transformers/Gemma/Gemma.DelegatedFeedForward.Cuda.cpp"
+        "Dnn/Components/Transformers/Gemma/Gemma.MixtureOfExperts.Cuda.cpp"
         "Dnn/Components/Transformers/Qwen/Qwen.Block.Cuda.cpp"
         "Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.Cuda.cpp"
         "Dnn/Components/Transformers/Qwen/Qwen.Cuda.cpp"
@@ -227,6 +236,12 @@ if(MILA_ENABLE_CUDA)
         # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
         "Dnn/Core/Component.Cuda.cpp"
         "Dnn/Models/Gemma/GemmaModel.Parity.Cuda.cpp"
+        # Gemma 4 26B-A4B against a layer-streamed HuggingFace reference: 47 GiB of BF16 weights fit no card,
+        # so one block is resident at a time. Skips without the weights and both references.
+        "Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Parity.Cuda.cpp"
+        # The same model quantized to FP4 on load: footprint against the driver and the spec, greedy tokens
+        # against HuggingFace. Needs the BF16 weights and a 16 GiB card.
+        "Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp"
         # Gate B: the reported footprint against cudaMemGetInfo. Both skip without a real
         # checkpoint, so neither runs in CI -- see Specifications/MemoryFootprint.md 7.
         "Dnn/Models/Gemma/GemmaModel.Footprint.Cuda.cpp"
@@ -234,6 +249,12 @@ if(MILA_ENABLE_CUDA)
         # the same subtraction. Common/GenerationRates.h is the one implementation.
         "Dnn/Models/Gemma/GemmaModel.Rates.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Footprint.Cuda.cpp"
+        # A load that fits BF16 weights settles at its exported form's footprint: the load staging is freed.
+        # Needs both weights of each model -- see Specifications/MemoryFootprint.md Phase 6 step 1.
+        "Dnn/Models/QuantizeOnLoad.Footprint.Cuda.cpp"
+        # A built model reserves the scratch its footprint predicts and generation stays inside it.
+        # Needs exported weights -- see Specifications/MemoryFootprint.md Phase 6 step 2.
+        "Dnn/Models/ScratchReservation.Cuda.cpp"
         # Qwen against a TRUNCATED real artifact -- the full 27B is 50 GiB at BF16 and fits
         # no card here, so 4 layers (both block kinds) is what can be exercised. Skips
         # without the fixture; see the file header for how to produce it.
@@ -319,6 +340,13 @@ endif()
 target_link_libraries( MilaTests PRIVATE Mila gtest )
 
 if(MILA_ENABLE_CUDA)
+    # No NVML. The Gate B tests once used it to find a device driving no display, so an absolute
+    # bound on unmodelled memory could be asserted on a quiet card. That question needed a
+    # particular machine; the question the tests ask now -- given the VRAM this card actually has
+    # free, does Mila decide correctly whether the model loads -- treats the card's circumstances
+    # as an input and needs none. Linking CUDA::nvml also put the driver's libnvidia-ml.so.1 in
+    # this binary's load-time dependencies, so a machine with a Toolkit but no driver could not
+    # start the suite at all.
     target_link_libraries( MilaTests PRIVATE CUDA::cudart )
 endif()
 

@@ -14,8 +14,13 @@ cmake/MilaVersion.cmake) into the generated VERSION file beside this one, rather
 hand-copied into pyproject.toml -- where it silently drifted 18 builds behind. A missing
 VERSION means this package tree was never built, which is an error rather than a default:
 guessing here would publish a wrong number, and a published version can never be reused.
+
+The third-party licence texts are staged the same way, and setuptools packages a wheel
+without complaint when a license-files entry names nothing, so their absence is checked
+here too: a wheel that ships linked code without its licence breaks that licence.
 """
 
+import tomllib
 from pathlib import Path
 
 from setuptools import setup
@@ -38,5 +43,23 @@ def read_version() -> str:
 
     return version_file.read_text(encoding="utf-8").strip()
 
+
+def require_license_files() -> None:
+    root = Path(__file__).parent
+
+    with open(root / "pyproject.toml", "rb") as handle:
+        entries = tomllib.load(handle)["project"]["license-files"]
+
+    missing = [entry for entry in entries if not (root / entry).is_file()]
+
+    if missing:
+        raise SystemExit(
+            f"Licence files missing from {root}: {', '.join(missing)}. The third-party texts "
+            "are staged by the CMake configure from the fetched sources -- configure a "
+            "top-level build before packaging."
+        )
+
+
+require_license_files()
 
 setup(distclass=BinaryDistribution, version=read_version())

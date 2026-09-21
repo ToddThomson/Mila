@@ -1,0 +1,1 @@
+Local LLMs at the metal. A C++23 and CUDA library you can read, on a GPU you already own.

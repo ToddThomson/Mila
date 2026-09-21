@@ -35,10 +35,10 @@ namespace Mila::ChatApp
         /// written, not when a checkpoint is published.
         bool streaming_capable;
 
-        /// The largest context the architecture can ADDRESS, not the one it opens at. Only GPT-2's
-        /// is a hard architectural limit: its positions are a 1024-row learned table, so a larger
-        /// value indexes past it and the load fails. The RoPE families extrapolate, so their
-        /// ceiling is a memory question that the footprint pre-flight answers.
+        /// The largest context the architecture can ADDRESS, not the one it opens at. Every family
+        /// Chat runs uses RoPE and extrapolates, so these ceilings are memory questions the
+        /// footprint pre-flight answers rather than hard limits. A learned positional table would
+        /// be a hard one -- indexing past it fails the load -- but no instruct family here has one.
         std::size_t max_context;
 
         /// What to open at when no layer above says otherwise, and the floor auto falls back to
@@ -66,12 +66,6 @@ namespace Mila::ChatApp
             .max_context = 131072,
             .default_context = 4096 };
 
-        constexpr FamilyTraits gpt{
-            .thinking_capable = false,
-            .streaming_capable = false,
-            .max_context = 1024,
-            .default_context = 1024 };
-
         // Thinking is native -- <think>/</think> are registered from the checkpoint vocabulary
         // (BpeVocabulary::loadQwen) -- while streaming is not, and the two disagreeing here is
         // exactly what the adjacent fields exist to show. Gemma's router keys on four control
@@ -92,7 +86,6 @@ namespace Mila::ChatApp
         {
             case ModelType::Gemma: return gemma;
             case ModelType::Llama: return llama;
-            case ModelType::Gpt:   return gpt;
             case ModelType::Qwen:  return qwen;
         }
 

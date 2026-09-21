@@ -2,7 +2,7 @@
  * @file QwenModel.Parity.Cuda.cpp
  * @brief Layer-streamed HuggingFace parity for the Qwen 3.8 27B stack (Phase 4).
  *
- * WHY THIS IS NOT A `QwenModel::fromPretrained` TEST. The BF16 artifact is 50 GiB against a
+ * WHY THIS IS NOT A `QwenModel::load` TEST. The BF16 artifact is 50 GiB against a
  * 12 GiB card, so the whole stack cannot be resident and `GemmaModel.Parity.Cuda.cpp`'s method
  * -- load the model, generate, compare tokens -- is unavailable at this scale. This test holds
  * ONE decoder block at a time: it constructs block i, loads only that block's tensors from the
@@ -29,7 +29,7 @@
  *    not matter here and would matter in `ProfileModel`.
  *  - The hidden state travels between layers THROUGH THE HOST. A block's output buffer is owned
  *    by the block and dies with it, which is the price of holding one at a time.
- *  - Prefill runs in ONE chunk. The transformer picks a chunk from an activation budget; a
+ *  - Prefill runs in ONE chunk. The transformer picks a chunk against free device memory; a
  *    short prompt needs no ladder, and chunk-boundary equivalence is already pinned by the
  *    Phase 3 block tests rather than being this test's subject.
  *  - Flash prefill is off, and the GQA score width is the full context to match. The two MUST
@@ -143,7 +143,7 @@ namespace Mila::Tests::Dnn::Models
             return fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_ref_fp32.bin";
         }
 
-        std::vector<float> readReferenceVector( PretrainedModelReader& reader, const std::string& name )
+        std::vector<float> readReferenceVector( WeightsReader& reader, const std::string& name )
         {
             auto blob = reader.readTensorBlob<CpuMemoryResource>( name );
 
@@ -153,7 +153,7 @@ namespace Mila::Tests::Dnn::Models
             return values;
         }
 
-        std::vector<int32_t> readPromptIds( PretrainedModelReader& reader )
+        std::vector<int32_t> readPromptIds( WeightsReader& reader )
         {
             auto blob = reader.readTensorBlob<CpuMemoryResource>( "prompt_ids" );
 
@@ -207,7 +207,7 @@ namespace Mila::Tests::Dnn::Models
 
         /// Load every artifact tensor under `prefix` into the component named for it.
         void loadComponentParameters(
-            PretrainedModelReader& reader, ComponentType& component, const std::string& prefix )
+            WeightsReader& reader, ComponentType& component, const std::string& prefix )
         {
             size_t loaded = 0;
 
@@ -260,7 +260,7 @@ namespace Mila::Tests::Dnn::Models
          * second source of truth for the index -- a constant here could silently disagree with
          * the `--dump-layer` the reference was produced with.
          */
-        dim_t findDumpedLayer( PretrainedModelReader& reference, dim_t num_layers, dim_t model_dim )
+        dim_t findDumpedLayer( WeightsReader& reference, dim_t num_layers, dim_t model_dim )
         {
             const std::vector<float> block_input =
                 readReferenceVector( reference, "stage_block_input" );
@@ -309,19 +309,19 @@ namespace Mila::Tests::Dnn::Models
     // relative error jumps is where Mila and the reference part company.
     TEST_F( QwenParityCudaTests, LayerStream_MatchesHuggingFaceReference )
     {
-        PretrainedModelReader weights( artifact_ );
-        PretrainedModelReader reference( reference_ );
+        WeightsReader weights( artifact_ );
+        WeightsReader reference( reference_ );
 
         // Optional FP32 truth. When present, every layer reports THREE numbers: Mila-BF16 and
         // HF-BF16 each against FP32, plus Mila against HF. The first two are what decide
         // whether a divergence is Mila's error or the reference's.
         const bool has_fp32 = fs::exists( fp32ReferencePath() );
-        std::unique_ptr<PretrainedModelReader> truth;
+        std::unique_ptr<WeightsReader> truth;
 
         if ( has_fp32 )
-            truth = std::make_unique<PretrainedModelReader>( fp32ReferencePath() );
+            truth = std::make_unique<WeightsReader>( fp32ReferencePath() );
 
-        const QwenConfig config = QwenBf16::configFromMetadata( weights.getPretrainedMetadata() );
+        const QwenConfig config = QwenBf16::configFromMetadata( weights.getWeightsMetadata() );
 
         const std::vector<int32_t> prompt_ids = readPromptIds( reference );
         ASSERT_FALSE( prompt_ids.empty() );
@@ -339,8 +339,8 @@ namespace Mila::Tests::Dnn::Models
             config, device, B, T, "parity.block_ws." );
 
         // score_width = T because flash prefill is switched off below; the two must agree.
-        auto gqa_workspace = makeQwenGqaWorkspace<DeviceType::Cuda, kPrecision>(
-            config, device, B, T, T, T, "parity.gqa_ws." );
+        auto gqa_workspace = makeGqaWorkspace<DeviceType::Cuda, kPrecision>(
+            device, B, config.getNumHeads(), config.getHeadDim(), T, T, T, "parity.gqa_ws." );
 
         // The full [B, T, model_dim] state, carried on the host across block lifetimes.
         std::vector<float> hidden;
@@ -515,8 +515,8 @@ namespace Mila::Tests::Dnn::Models
             // reusing it would compare against whatever survived.
             auto stage_workspace = makeQwenAttentionBlockWorkspace<DeviceType::Cuda, kPrecision>(
                 config, device, B, T, "parity.stage_ws." );
-            auto stage_gqa = makeQwenGqaWorkspace<DeviceType::Cuda, kPrecision>(
-                config, device, B, T, T, T, "parity.stage_gqa." );
+            auto stage_gqa = makeGqaWorkspace<DeviceType::Cuda, kPrecision>(
+                device, B, config.getNumHeads(), config.getHeadDim(), T, T, T, "parity.stage_gqa." );
 
             auto block = std::make_shared<AttentionBlock>(
                 std::format( "tf_layer_{}", dumped ), config, device );

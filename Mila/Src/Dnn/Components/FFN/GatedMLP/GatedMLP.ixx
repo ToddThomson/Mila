@@ -37,6 +37,7 @@ import Compute.CpuMemoryResource;
 import Compute.Observation;
 import Dnn.Components.Linear;
 import Dnn.Components.Swiglu;
+import Dnn.Quantization.Weight.Policies;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -44,30 +45,32 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
+    using namespace Mila::Dnn::Quant::Weight;
 
     /**
      * @brief Gated feed-forward (GatedMLP) composite component.
      *
-     * Device-templated composite implementing the gated FFN used by Llama and the
-     * GLU family, and the single-expert reference for a future MoE layer:
+     * Device-templated composite implementing the GLU (Gated Linear Unit) family of gated
+     * FFNs -- SwiGLU (Llama, Qwen) and GeGLU (Gemma) -- and the single-expert reference for
+     * a future MoE layer:
      *   Input -> fc_gate_up Linear(in -> 2H, fused) -> Swiglu gate (2H -> H)
      *         -> fc_down Linear(H -> in) -> Output
      *
-     * The gate is the SwiGLU sub-structure (SiLU on the gate half, multiplied by the
-     * up half). The gate function is exposed as the TGate template parameter for
-     * forward compatibility with the activation unification; until the gate op is
-     * generalized, only SiLU is realizable (see Specifications/FfnAndMoE.md s7, s13).
+     * The gate multiplies TGate(gate half) by the up half: SiLU gives SwiGLU, GELU gives
+     * GeGLU. Both projections carry TWeightQuantization; the gate has no weights.
      *
      * MoE-readiness seams (FfnAndMoE.md s9): the injected-context path is the norm
      * (owned-context construction is a standalone convenience); forward operates on
      * the trailing feature dimension so it is valid for both [B, T, in] and gathered
      * [num_tokens, in] layouts.
      *
-     * @tparam TDeviceType Device type for execution.
-     * @tparam TPrecision  Tensor data precision. Must be supported on the device.
-     * @tparam TGate       Gate activation: Silu (SwiGLU) or Gelu (GeGLU, Gemma).
+     * @tparam TDeviceType         Device type for execution.
+     * @tparam TPrecision          Tensor data precision. Must be supported on the device.
+     * @tparam TGate               Gate activation: Silu (SwiGLU) or Gelu (GeGLU, Gemma).
+     * @tparam TWeightQuantization Weight quantization policy of both projections.
      */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision, ActivationType TGate = ActivationType::Silu>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision, ActivationType TGate = ActivationType::Silu,
+        WeightQuantPolicy TWeightQuantization = NoWeightQuant>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class GatedMLP : public CompositeComponent<TDeviceType, TPrecision>
     {
@@ -79,7 +82,7 @@ namespace Mila::Dnn
         using CompositeComponentBase = CompositeComponent<TDeviceType, TPrecision>;
         using ComponentPtr = typename CompositeComponentBase::ComponentPtr;
         using TensorType = Tensor<TPrecision, MR>;
-        using LinearType = Linear<TDeviceType, TPrecision>;
+        using LinearType = Linear<TDeviceType, TPrecision, TWeightQuantization>;
         using SwigluType = Swiglu<TDeviceType, TPrecision, TGate>;
 
         explicit GatedMLP( const std::string& name, const GatedMLPConfig& config, std::optional<DeviceId> device_id = std::nullopt )
@@ -170,6 +173,31 @@ namespace Mila::Dnn
             return down_out;
         }
 
+        /**
+         * @brief Install shared output slots into the three children (activation pooling).
+         *
+         * Must be called before build(). Each slot is owned and memory-accounted by the
+         * installer, and must cover this component's build shape at its own width:
+         * [..., 2H] for the gate+up projection, [..., H] for the gate, [..., in] for the
+         * down projection. A pooling caller declares the same intent to getRequiredMemory()
+         * through BuildContext::withInstalledOutput().
+         */
+        void installSharedOutputs(
+            std::shared_ptr<TensorType> gate_up_output,
+            std::shared_ptr<TensorType> gate_output,
+            std::shared_ptr<TensorType> down_output )
+        {
+            if ( this->isBuilt() )
+            {
+                throw std::logic_error(
+                    "GatedMLP '" + this->getName() + "': installSharedOutputs must be called before build()" );
+            }
+
+            childLinear( "fc_gate_up" )->installSharedOutput( std::move( gate_up_output ) );
+            childGate()->installSharedOutput( std::move( gate_output ) );
+            childLinear( "fc_down" )->installSharedOutput( std::move( down_output ) );
+        }
+
         void zeroGradients() override
         {
             fc_gate_up_->zeroGradients();
@@ -207,6 +235,26 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * Each child is sized at its own width rather than the generic recursion's single
+         * shape, exactly as onBuilding() builds it. Installed outputs are excluded by the
+         * children themselves, from their own installed flag or the context's.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            validateInputShape( context.inputShape() );
+
+            MemoryStats stats;
+
+            stats += childLinear( "fc_gate_up" )->getRequiredMemory( context );
+            stats += childGate()->getRequiredMemory( gateContext( context ) );
+            stats += childLinear( "fc_down" )->getRequiredMemory( downContext( context ) );
+
+            return stats;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;
@@ -215,7 +263,7 @@ namespace Mila::Dnn
             oss << "Input features: " << config_.getInputFeatures() << std::endl;
             oss << "Hidden size: " << config_.getHiddenSize() << std::endl;
             oss << "Bias: " << ( config_.hasBias() ? "enabled" : "disabled" ) << std::endl;
-            oss << "Gate: Swiglu (SiLU)" << std::endl;
+            oss << "Gate: " << ( TGate == ActivationType::Gelu ? "GeGLU (GELU)" : "SwiGLU (SiLU)" ) << std::endl;
 
             if ( this->hasExecutionContext() )
             {
@@ -250,29 +298,22 @@ namespace Mila::Dnn
          * @brief Build child graph with the gated shape contract.
          *
          * fc_gate_up receives the input shape; the gate and fc_down receive the fused
-         * 2H and the gated H shapes respectively.
+         * 2H and the gated H shapes respectively. The child contexts are derived with
+         * withShape so the prefill size, the installed-output declaration and the
+         * parameter-initialization choice reach the children unchanged.
          */
         void onBuilding( const BuildContext& context ) override
         {
-            const auto& input_shape = context.inputShape();
-            validateInputShape( input_shape );
+            validateInputShape( context.inputShape() );
 
-            shape_t gate_up_shape = input_shape;
-            gate_up_shape.back() = 2 * config_.getHiddenSize();
-
-            shape_t hidden_shape = input_shape;
-            hidden_shape.back() = config_.getHiddenSize();
-
-            fc_gate_up_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_gate_up" );
+            fc_gate_up_ = childLinear( "fc_gate_up" );
             fc_gate_up_->build( context );
 
-            gate_ = this->template getComponentAs<SwigluType>( this->getName() + ".gate" );
-            BuildContext gate_context( gate_up_shape, context.getRuntimeMode() );
-            gate_->build( gate_context );
+            gate_ = childGate();
+            gate_->build( gateContext( context ) );
 
-            fc_down_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_down" );
-            BuildContext down_context( hidden_shape, context.getRuntimeMode() );
-            fc_down_->build( down_context );
+            fc_down_ = childLinear( "fc_down" );
+            fc_down_->build( downContext( context ) );
 
             clearForwardCache();
         }
@@ -323,6 +364,34 @@ namespace Mila::Dnn
             auto gate = std::make_shared<SwigluType>( this->getName() + "." + suffix, SwigluConfig(), std::nullopt );
 
             this->addComponent( gate );
+        }
+
+        // Children by name, not by member pointer: the members are assigned in onBuilding(),
+        // so they are still null when installSharedOutputs() and getRequiredMemory() run.
+        std::shared_ptr<LinearType> childLinear( const std::string& suffix ) const
+        {
+            return this->template getComponentAs<LinearType>( this->getName() + "." + suffix );
+        }
+
+        std::shared_ptr<SwigluType> childGate() const
+        {
+            return this->template getComponentAs<SwigluType>( this->getName() + ".gate" );
+        }
+
+        BuildContext gateContext( const BuildContext& context ) const
+        {
+            shape_t gate_up_shape = context.inputShape();
+            gate_up_shape.back() = 2 * config_.getHiddenSize();
+
+            return context.withShape( gate_up_shape );
+        }
+
+        BuildContext downContext( const BuildContext& context ) const
+        {
+            shape_t hidden_shape = context.inputShape();
+            hidden_shape.back() = config_.getHiddenSize();
+
+            return context.withShape( hidden_shape );
         }
 
         void validateInputShape( const shape_t& input_shape ) const

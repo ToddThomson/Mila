@@ -95,6 +95,16 @@ this is the re-run.
 The presumptive post-v0.20 tentpole: one router chassis unlocks Gemma 26B-A4B, Qwen3-30B-A3B and
 gpt-oss-20b. [[project_moe_tentpole_direction]]
 
+Design of record: `Specifications/MixtureOfExperts.md`. Gemma 26B-A4B implementation record, with its
+block topology resolved: `Specifications/Gemma4MoE.md`.
+
+The expert bank borrows Linear's quantizer by reaching into its kernel header:
+`CudaMoeOp::quantize` includes `../Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh` and
+calls `Linear::cuda_quantize_fp4_per_group` (`CudaMoeOp.ixx:169`), so a change made for Linear lands
+silently in the MoE bank. The E2M1 decode was lifted to `Helpers/Fp4E2M1.h`; the encode was not, and
+`CudaTokenEmbeddingOp:Quantize` has its own copy. Move the per-group FP4 quantizer to a shared
+location both import.
+
 ## Gemma 4 MTP
 
 `models` · `mila-src`
@@ -147,17 +157,18 @@ TWeightQuantization` is erased only at the session PIMPL. `Mila_py.Wrappers.ixx:
 
 `api` · `mila-src` · `breaking`
 
-The pre-1.0 consistency pass, and the precursor to any API-stability promise. Three named items.
+The pre-1.0 consistency pass, and the precursor to any API-stability promise. Named items:
 
-**`loadModel`/`saveModel` and `loadCheckpoint`/`saveCheckpoint`** — verb plus what you get, both
-directions. "Pretrained" is relative to a fine-tuning stage Mila does not have and is doubly wrong
-on the write side; "artifact" is build vocabulary for a file that is simply a model; `from` names
-the *source* form, so `fromCheckpoint` earns it and `fromModel` cannot. Document the distinction: a
-checkpoint carries epoch and loss as one of a series, a model is terminal. One wrinkle:
-`Network::load( archive, mode )` restores into an existing graph. **The methods are the small
-half** — `kArtifactMinimumMilaVersion`, `ModelDistribution.md`, both model cards, `from_pretrained`,
-MIS and the samples all speak the old vocabulary. Sequence with the `ExportArtifact` rename and the
-binding's `quantize_fp8` fix.
+**The model entry points are settled: `load`/`save` for weights** (Todd, `rc.1+24`), on the model
+class — `GemmaModel::load( path, config )` — because the class already names what is loaded and
+`loadModel` stutters. `fromPretrained`/`savePretrained` were the old names; "pretrained" is
+relative to a fine-tuning stage Mila does not have. The reader is `WeightsReader`. `fromCheckpoint`/
+`saveCheckpoint` stay for the training archive, and `Network::load( archive, mode )` restores a
+checkpoint one layer down; the two never meet at a call site. Document the distinction: a checkpoint
+carries epoch and loss as one of a series, a model is terminal. **The methods were the small half**
+— `kArtifactMinimumMilaVersion`, `ModelDistribution.md`, both model cards, MIS and the samples still
+say "artifact" where they mean a model or its weights. Sequence with the `ExportArtifact` rename and
+the binding's `quantize_fp8` fix.
 
 **`getStorageSize` exists three times** — `Mila::Dnn::detail::getStorageSize` (`Tensor.ixx:81`,
 carrying a `REVIEW:` that already asks why), `Detail::getStorageSize` (`TensorBuffer.ixx:221`) and
@@ -176,6 +187,20 @@ indistinguishable. `TransformerApiReadiness.md` item 8 argues this at network le
 **`AttentionOutputGate` has two callers and one of them is not attention.** `QwenDeltaNetBlock` uses
 it for the mixer's output gate. The component is mechanically generic (`out = TGate(gate) * value`);
 the name is not. Rename, or accept the mismatch deliberately. `Components/Attention/OutputGate/`
+
+**A public component method takes a type the umbrella does not export.**
+`QwenDeltaNetBlock::setState( const GqaState& )` (`Qwen.DeltaNetBlock.ixx:363`) is public, but
+`Mila.ixx` never exports `Compute.GqaState`, so an `import Mila;` consumer cannot call it. MSVC
+accepts the name through the component modules and clang does not, so the class fails asymmetrically
+and goes unnoticed. Either `GqaState` joins the export list or `setState` leaves the public surface —
+and the same question applies to every type named in a public component signature, since nothing
+checks it. Do not narrow the umbrella to answer it; that was measured and reverted.
+
+**A composite cannot keep a derived child out of its flat save.** `Router` holds an `RmsNorm` whose
+weight is derived from `scale`, so it overrides `saveFlatTensors` and re-spells its children by hand
+(`Router.ixx:185`), because `CompositeComponent::childFlatPrefix` (`CompositeComponent.ixx:1070`) is
+private and the base walk (`:749`) cannot exclude a child. That is a second copy of the flat-naming
+rule. A per-child "derived, not serialized" marker, or `childFlatPrefix` made protected.
 
 ## `#ifdef` inside module purviews
 
@@ -230,6 +255,11 @@ policy and are untied. Three fixes, each mirroring Gemma — pass the policy to 
 Llama's `preatt`/`att` also span the full context where Gemma's ring does not. Separate, and
 dominant at long context. [[project_llama_chassis_memory_gates]]
 
+Llama also still holds the GQA transient as seven loose `unique_ptr` members (`Llama.ixx:710`),
+builds `GqaState` by hand and sums them in a hand-written `getMemoryStats` list — the list that
+under-counts silently when a tensor is added. Qwen and Gemma moved to `GqaWorkspace`; for Llama it is
+one member, one factory call, two accounting lines.
+
 ## `FamilyTraits::default_context` is a compiled-in guess
 
 `adaptors`
@@ -271,8 +301,8 @@ six-rung ladder is ~12 ms per row. Only worth it if users pick models by context
 `distribution`
 
 If one ever returns: the blobs that model alone references. That is what deciding-what-to-delete
-wants, and prune's mark-and-sweep already computes the refcount — it is simply not exposed as a
-per-model query.
+wants, and removal already computes it (`ModelStore::reclaimBlobsOnlyNamedBy`) — it is simply not
+exposed as a per-model query.
 
 ## GQA's standalone `forward()` paths are unverified
 
@@ -304,15 +334,9 @@ leaves the staging buffer holding the previous strip — wrong logits, no error.
 `CodebookDequantize.cu` now throws; make these match. Only reachable by adding a `PerGroupFp4<N>`
 policy, which is why it has never fired.
 
-## CI has three cost and reliability gaps
+## CI has a cost gap
 
 `ci`
-
-**No `timeout-minutes`, so a hang costs six hours.** It has recurred in two different jobs on one
-day — once stalling in `Run CPU test suite` at 75+ min against a 14m29s baseline, once in `Build` on
-the pybind11 wrapper TU that compiled in 3m43s on the identical tree in a parallel run. A re-run is
-the only remedy available, and against a normal ~45-minute round trip a bound near 60 turns a repeat
-into a legible failure. `.github/workflows/build-pipeline.yml`
 
 **The packaging gate should be its own job that configures but does not build.** It does not consume
 the parent build at all — it passes `MILA_SOURCE_DIR=${CMAKE_SOURCE_DIR}` and compiles Mila from
@@ -320,11 +344,8 @@ scratch under `_deps/mila-build/`, needing only that CMake has configured. Today
 builds Mila for ~45 min and the gate builds it again, in series.
 `Mila/Tests/Packaging/CMakeLists.txt:43`
 
-**A `dev` push and an open PR for the same SHA run the whole pipeline twice**, and the redundant one
-blocks the merge. The PR run is a strict superset — same tree, plus the packaging gates
-`build-pipeline.yml:114` skips on a `dev` push — but both report the same check names on the same
-SHA. Suppress the push run, and comment exactly when each job runs: an `if:` in this same file once
-hid a broken packaging gate for 32 commits, and a first pass proposed suppressing the wrong run.
+*(The double-run on a `dev` push and its open PR, and the missing `timeout-minutes`, were both fixed
+on 2026-09-20 — `build-pipeline.yml` no longer triggers on either a `dev` push or the release PR.)*
 
 ## Add Python 3.14 once 3.12 is proven
 
@@ -362,6 +383,21 @@ Docker build context until `.dockerignore` excluded them.
 
 Clean stale ones on build, or stage outside the source tree.
 
+The same class once left two 16 MB `.pyd` fossils under
+`Mila/Tests/Packaging/{fetchcontent,cpm}_consumer/Mila/Adaptors/Inference/Server/` for six weeks,
+from a source-relative copy that a subproject build pointed at the consumer's root. They are gone;
+nothing would notice the next ones. A packaging gate that asserts the fixture directories are clean
+afterwards would.
+
+## Publishing the container images compiles the tree twice
+
+`ci` · `build`
+
+`publish-image.sh` forces `MILA_CLEAN_BUILD=1` on every run, because `--no-cache` leaves BuildKit's
+cache mounts intact and that once shipped wrong images. RELEASING builds to verify at step 9.3 and
+again to push at step 9.6: 33m17s then 38m45s, five or six minutes of it upload. A push-only mode
+halves it at the cost of the guarantee that what ships is what was gated — a trade, not a fix.
+
 ## Stage model weights off the Windows bind mount for the container
 
 `perf` · `build`
@@ -381,7 +417,7 @@ Phase 0 exact-duplicate dedup, Phase 1 candidate report, Phase 2 compiler-verifi
 `build` · `mila-src`
 
 `SafeTensors.ixx` and `TokenSequenceLoader.ixx` are straight swaps and the library's only source of
-C4996. **`PretrainedReader.ixx` is not**: it deliberately uses positioned `ReadFile`/`pread`
+C4996. **`WeightsReader.ixx` is not**: it deliberately uses positioned `ReadFile`/`pread`
 alongside the mapping, because faulting a large model through the mapped view throttles below disk
 bandwidth — that one needs the exemption.
 
@@ -392,7 +428,7 @@ Clearing the first two unblocks the warnings ratchet above.
 `api` · `mila-src`
 
 An injected per-operation progress facility for long-lived ops — BPE vocab training,
-`PretrainedReader` load, load-time quantization. `BpeVocabulary.ixx:624` is the concrete call site:
+`WeightsReader` load, load-time quantization. `BpeVocabulary.ixx:624` is the concrete call site:
 an every-100-merges elapsed-time print asking to become an async callback.
 
 ## The BPE ASCII-fallback warning fires for every Llama and GPT-2 session
@@ -410,8 +446,13 @@ in docs.
 
 `build`
 
-It is per-target on `ChatApp` today. If `MilaTests`, `ProfileModel` or `ExportArtifact` hit it,
-switch to one `add_compile_options`. **Todd's call** — it touches every target's flags.
+It is per-target on `ChatApp` and, since the Gemma 4 MoE dispatch, on `ProfileModel`
+(`Mila/Profiling/ProfileModel/CMakeLists.txt:32`). Section counts against the 65535 limit, Release /
+RelWithDebInfo: `ProfileModel.ixx` 51609 / ~66000, `ExportArtifact.ixx` 46926 / 59830,
+`Gemma.MixtureOfExperts.Cuda.cpp` 44694 / 56375, `Chat.ModelCatalog.ixx` 41647 / 52666; Debug not
+measured. So the next family or quantization breaks targets one at a time, and a consumer calling
+`load` inherits the exposure with no flag. The choice is a PUBLIC MSVC compile option on
+`Mila`, which changes every consumer's flags, or targets adding it as they cross. **Todd's call.**
 
 ## `CLAUDE.md` documents the retired Chat alias set
 
@@ -494,13 +535,19 @@ Card source is `.internal/Marketing/HuggingFaceOrgCard.md`.
 ~50 s of the ~60 s Llama 3B migration, ~2 minutes on the 8B. Neither check is wrong alone, so the fix
 is a combined verb. `publish_model.py` has the same defect for its own reason.
 
-## The store has no garbage collector
+## `mila store clean`, and blobs no record names
 
 `distribution`
 
-A 15.09 GiB blob is orphaned locally — no record references the pre-export cb2-3 weights since the
-11.05 GiB build replaced them — and nothing reclaims it. The general gap, not the one file. A `mila`
-verb that lists unreferenced blobs and removes them on request is the shape.
+`ModelStore::clean()` reclaims rejected transfers, abandoned locks and on request partials, and no
+user command reaches it. A `mila store clean` verb is its surface.
+
+Blobs no record names are the harder half, and `clean()` deliberately never touches them: they are
+indistinguishable from a model whose record is missing or no longer parses. Removal and reinstall now
+delete the blobs only their record named, so new ones come only from an interrupted reinstall or
+from before that change — a 15.09 GiB pre-export cb2-3 blob is one locally. A verb that **lists**
+them, and deletes one only when the user names it, is the shape; a sweep is not
+(`ModelDistribution.md`, "Removal is refcounted").
 
 ## Buffer Gemma Anthropic streaming only when tools are present
 
@@ -528,6 +575,12 @@ cannot differ, and a non-Gemma reasoning model reads as having no channel.
 
 `instruct` is already record-declared and proves the pattern, and the manifest tolerates unknown
 fields, so this is additive. Do it before the next chassis threads a second switch.
+
+What the endpoint reports is thin enough that a client notices: Codex 0.142.5 warns "Model metadata
+for `gemma-4-12b-it-fp4` not found. Defaulting to fallback metadata" even with its model set to
+exactly the id `/v1/models` returns, and July's note that matching the id cleared it no longer
+holds. All three validated flows pass regardless and what the fallback costs on a longer run is
+unmeasured, so this is a symptom of the same gap rather than separate work.
 
 ## A session cannot move cards without restarting
 
@@ -659,6 +712,11 @@ Training-only, and authored from scratch rather than revived.
 
 Llama fine-tuning, loss-function GPU migration, gradient checkpointing, and BF16/GQA training.
 
+Qwen training would meet a latent defect first: CUDA RMSNorm's `forward` applies
+`config_.getUnitOffset()` and its `backward` does not (`RmsNormOp.ixx:334`), so every Qwen norm
+differentiates as if the offset were zero. `CpuRmsNormOp`'s backward applies it, so a CPU/CUDA
+gradient comparison on an offset norm would disagree.
+
 ## Performance
 
 `perf` · `mila-src`
@@ -741,3 +799,16 @@ Woven through live code; trace live-vs-dead first, and 8 `REVIEW:` markers alrea
 Note the odd row it collides with: CUDA `LayerNormOp` is registered at FP32 and FP16 and *not*
 BF16, so deleting the FP16 row leaves CUDA LayerNorm FP32-only. Pinned by a `static_assert`, so this
 work must confront it.
+
+## The dev container's Chat wrapper shares its name with the binary it wraps
+
+`build` · `docs`
+
+`Docker/Dockerfile:104` installs `run-chat.sh` as `/usr/local/bin/mila-chat`; the binary it runs is
+`/build/mila-chat`. A symlink would say the same thing without the collision, though the wrapper
+also carries the not-built message, which a symlink cannot.
+
+Its `cd "${BUILD}"` is redundant — `executable_directory()` reads `/proc/self/exe`, confirmed by
+the runtime image running Chat from `-w /` and `-w /tmp` — but `Docker/run-chat.sh:7` already says
+so and keeps it deliberately until a container run confirms it. Nothing breaks while it stays, which
+is why this carries no commitment.

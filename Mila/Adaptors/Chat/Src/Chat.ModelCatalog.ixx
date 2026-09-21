@@ -168,11 +168,6 @@ namespace Mila::ChatApp
             return ModelType::Llama;
         }
 
-        if ( architecture == "gpt2" )
-        {
-            return ModelType::Gpt;
-        }
-
         if ( architecture == "qwen" )
         {
             return ModelType::Qwen;
@@ -425,6 +420,17 @@ namespace Mila::ChatApp
     }
 
     /**
+     * @brief Where the user stands when a refusal is read, which decides the commands it names.
+     *
+     * A `--model` that does not resolve exits to the shell, where no slash command exists.
+     */
+    export enum class RefusalAudience
+    {
+        Session,
+        Shell
+    };
+
+    /**
      * @brief Resolve a model name against the store.
      *
      * The store is the only source. Nothing here consults a hub, reads a models directory or
@@ -433,14 +439,19 @@ namespace Mila::ChatApp
      *
      * @param requested_quantization Quantize unquantized weights on the way in. Empty loads
      *        the weights as they are.
+     * @param audience Whether a refusal is read inside a session or at the shell.
      *
      * @throws std::runtime_error if no model of that name is installed, if this build cannot
      *         load what the record describes, or if the requested quantization contradicts it.
      */
     export ResolvedModel resolveModel(
         const std::string& requested_name,
-        std::optional<QuantizationMode> requested_quantization = std::nullopt )
+        std::optional<QuantizationMode> requested_quantization = std::nullopt,
+        RefusalAudience audience = RefusalAudience::Session )
     {
+        const bool at_shell = ( audience == RefusalAudience::Shell );
+        const std::string_view install_command = at_shell ? "mila install" : "/model install";
+
         Mila::Distribution::ModelStore store;
 
         // Folded to the store's own spelling before anything else, so every message below names
@@ -464,8 +475,8 @@ namespace Mila::ChatApp
                 {
                     throw std::runtime_error( std::format(
                         "'{}' is installed but its files are missing, so it cannot be loaded.\n"
-                        "Reinstall it with /model install {}, or drop the record with "
-                        "/model remove {}.", name, name, name ) );
+                        "Reinstall it with {} {}, or drop the record with /model remove {}{}.",
+                        name, install_command, name, name, at_shell ? " inside mila-chat" : "" ) );
                 }
 
                 available += available.empty() ? "" : ", ";
@@ -476,15 +487,16 @@ namespace Mila::ChatApp
             {
                 throw std::runtime_error( std::format(
                     "No model named '{}' is installed, and neither is anything else.\n"
-                    "Install one with /model install <name>, or from a package you built with "
-                    "ExportArtifact --install.", name ) );
+                    "Install one with {} <name>, or from a package you built with "
+                    "ExportArtifact --install.", name, install_command ) );
             }
 
             // Deliberately does not ask the publisher whether the name exists there. A load is the
             // offline command, and a typo must not become a network wait.
             throw std::runtime_error( std::format(
                 "No model named '{}' is installed.\nInstalled: {}\n"
-                "/model list --online shows what can be installed.", name, available ) );
+                "{} shows what can be installed.", name, available,
+                at_shell ? "mila models --online" : "/model list --online" ) );
         }
 
         const auto& record = installed->record;
@@ -545,8 +557,9 @@ namespace Mila::ChatApp
      * Chat.Footprint.ixx), so a rung that does not fit does not prove the ones below it will not.
      * Measured 2026-08-17 a probe is 1-2 ms, which is what makes trying all of them affordable.
      *
-     * The bottom rungs exist for a family whose ceiling is low rather than for a card that is:
-     * GPT-2 addresses 1024 positions and nothing larger would be tried for it at all.
+     * The bottom rungs exist for a card with little room rather than for a family with a low
+     * ceiling: every instruct family Chat runs addresses far more than 1024 positions, so what
+     * drives a row down the ladder is the VRAM available, not the architecture.
      */
     inline constexpr Mila::Dnn::dim_t kContextLadder[] = {
         131072, 65536, 32768, 16384, 8192, 4096, 2048, 1024 };
@@ -887,8 +900,8 @@ namespace Mila::ChatApp
 
         if ( models.empty() )
         {
-            // Points at the listing rather than at /install, because this is the first-run state
-            // and a user with an empty store has no name to pass to /install yet.
+            // Points at the listing rather than at /model install, because this is the first-run
+            // state and a user with an empty store has no name to pass to /model install yet.
             listing.table.push_back(
                 "No models installed. /model list --online lists what can be installed." );
 
@@ -949,13 +962,9 @@ namespace Mila::ChatApp
         // Disk stays in the total and off the rows. The aggregate is refcounted and answers the
         // only question a byte count here serves -- what is this store costing me -- while a
         // per-row size is not what removing that row would return, because blobs are shared.
-        listing.table.push_back( std::format( "  {} model(s), {} on disk{}",
+        listing.table.push_back( std::format( "  {} model(s), {} on disk",
             usage.model_count,
-            formatBytes( usage.blob_bytes ),
-            usage.reclaimable_bytes > 0
-                ? std::format( ", {} reclaimable with /rm --prune",
-                    formatBytes( usage.reclaimable_bytes ) )
-                : std::string{} ) );
+            formatBytes( usage.blob_bytes ) ) );
 
         // The card the column is about, and the only line beneath the table. Everything else that
         // stood here -- the context basis, the quantization legend, a per-row reason for an
@@ -1455,19 +1464,34 @@ namespace Mila::ChatApp
 
         const auto report = store.remove( name );
 
-        if ( report.records_removed == 0 )
+        if ( report.records_removed == 0 && report.retained.empty() )
         {
             lines.push_back( std::format( "{} is not installed.", name ) );
 
             return lines;
         }
 
-        lines.push_back( std::format( "Removed {} -- {} blob(s), {} reclaimed.",
-            name, report.blobs_removed, formatBytes( report.bytes_reclaimed ) ) );
-
-        // Shared blobs survive by design; saying so pre-empts "why did that free so little".
-        if ( report.blobs_removed == 0 )
+        if ( report.records_removed == 0 )
         {
+            lines.push_back( std::format(
+                "{} was not removed: some of its files are in use. Close whatever has it loaded, "
+                "then remove it again.", name ) );
+        } else {
+            lines.push_back( std::format( "Removed {} -- {} blob(s), {} reclaimed.",
+                name, report.blobs_removed, formatBytes( report.bytes_reclaimed ) ) );
+        }
+
+        if ( !report.unreadable_records.empty() )
+        {
+            lines.push_back(
+                "  Its files were kept, because these records cannot be read:" );
+
+            for ( const auto& unreadable : report.unreadable_records )
+            {
+                lines.push_back( std::format( "    {}", unreadable ) );
+            }
+        } else if ( report.records_removed == 1 && report.blobs_removed == 0 ) {
+            // Shared blobs survive by design; saying so pre-empts "why did that free so little".
             lines.push_back(
                 "  Its files are shared with another installed model, so none were deleted." );
         }

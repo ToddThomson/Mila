@@ -102,7 +102,7 @@ namespace Mila::Dnn::Serialization
      * @brief Non-owning ITensorBlob view over externally-owned bytes.
      *
      * Carries metadata plus a borrowed host pointer; it allocates and owns nothing.
-     * Used by PretrainedModelReader to hand out blobs that point either into a
+     * Used by WeightsReader to hand out blobs that point either into a
      * memory-mapped file region or into a reusable pinned staging buffer. The
      * referenced memory MUST outlive the view, and the view is only valid until
      * the owner reuses or releases that memory.

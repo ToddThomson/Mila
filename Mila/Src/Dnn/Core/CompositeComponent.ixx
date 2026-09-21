@@ -399,12 +399,16 @@ namespace Mila::Dnn
          * without this walk a caller has to reach each component by hand, which is what
          * pushed the first consumer into bolting a narrow accessor onto the model instead.
          *
-         * `pattern` is a component path with `*` matching any run of characters:
+         * `pattern` is a component path with `*` matching any run of characters, dots
+         * included -- so a `*` reaches every depth below where it stands:
          *
          *     "qwen.lm_head"   one component
-         *     "qwen.blk_*"     every block, but not their children
-         *     "qwen.blk_*.*"   every block's immediate children
+         *     "qwen.blk_3.*"   everything inside block 3, but not the block itself
+         *     "qwen.blk_*"     every block and everything inside them
          *     "*"              the whole subtree
+         *
+         * No pattern selects the blocks alone. Attach to the wider set and route inside the
+         * sink on its `path` argument.
          *
          * Resolved ONCE, here. Matching cost lands at attachment and never on a publication,
          * which is what makes a whole-tree pattern affordable during a real run.
@@ -729,7 +733,7 @@ namespace Mila::Dnn
          * @brief Recurse into children, extending the flat dotted prefix.
          *
          * A composite contributes no tensors of its own. It exists here to turn the component
-         * tree into the flat vocabulary the pretrained format uses -- the same dotted paths
+         * tree into the flat vocabulary the weights format uses -- the same dotted paths
          * loadParameters() splits with parseParameterPath() and resolves with findComponent(),
          * so what this writes is exactly what that reads.
          *
@@ -943,12 +947,13 @@ namespace Mila::Dnn
     private:
 
         /**
-         * @brief Glob match, where `*` stands for any run of characters including none.
+         * @brief Glob match, where `*` stands for any run of characters including none, dots
+         * included.
          *
          * Deliberately not a regular expression. `*` covers every pattern the observation
-         * consumers need -- one component, one layer's children, a whole family of layers,
-         * the entire tree -- and a fuller syntax would be a vocabulary to learn and to
-         * document for no consumer that exists.
+         * consumers need -- one component, everything inside one layer, a whole family of
+         * layers with their insides, the entire tree -- and a fuller syntax would be a
+         * vocabulary to learn and to document for no consumer that exists.
          *
          * Iterative with backtracking rather than recursive: component paths are short, but a
          * pattern is caller-supplied and a recursive matcher's depth is driven by the input.

@@ -92,19 +92,6 @@ namespace Mila::ChatApp
     }
 
     /**
-     * @brief The predicted total plus an allowance for what the model does not account for.
-     *
-     * Gate B measured the unmodelled remainder at 6-13% of what a load consumes -- allocator
-     * rounding and lazily grown scratch, which scale with the model rather than being a fixed
-     * cost. A proportional allowance is closer to right than a constant, and erring high here
-     * only costs a warning.
-     */
-    export inline std::size_t practicalDeviceBytes( const MemoryStats& required )
-    {
-        return required.totalDeviceBytes() + ( required.totalDeviceBytes() / 8 );
-    }
-
-    /**
      * @brief Free and total device memory, or zeros when there is no device to ask.
      *
      * Zeros are the "do not claim anything" answer rather than an error: every caller here is
@@ -171,7 +158,11 @@ namespace Mila::ChatApp
             return FootprintVerdict::WeightsExceedAvailable;
         }
 
-        return practicalDeviceBytes( *required ) > available_bytes
+        // The prediction stands on its own: it reserves and reports scratch, and counts the
+        // driver's rounding of every allocation (MemoryFootprint.md 11.8). What it leaves out is
+        // under 30 MiB, and on a card that drives a display the Windows budget cut, neither of
+        // which an allowance here could size honestly.
+        return required->totalDeviceBytes() > available_bytes
             ? FootprintVerdict::DoesNotFit
             : FootprintVerdict::Fits;
     }
@@ -358,9 +349,8 @@ namespace Mila::ChatApp
                     return { footprint.memory, {}, footprint.prefill };
                 }
 
-                case ModelType::Gpt:
                 default:
-                    return { std::nullopt, "GPT-2 has no footprint entry point in this build" };
+                    return { std::nullopt, "this model's family has no footprint entry point" };
             }
         }
         catch ( const std::exception& error )
@@ -424,9 +414,14 @@ namespace Mila::ChatApp
      * the top finds the largest qualifying context on any curve. See ChatConfiguration.md
      * section 6 for the measurements.
      *
+     * **Runs with nothing resident.** Every prediction picks its prefill chunk against the device's
+     * free memory (MemoryFootprint.md section 11), so a scan taken while a model is loaded measures
+     * a card that still holds it. Callers release first; what a loaded session reports comes from
+     * the scan its own load ran.
+     *
      * **Fitting in memory is not the same as running well, so the scan does not stop at the first
-     * memory fit.** Both families resolve a prefill chunk against an activation budget that shrinks
-     * as the KV cache grows, so the largest context that fits can be one where the chunk has walked
+     * memory fit.** A longer context leaves less free memory for the chunk, so the largest context
+     * that fits can be one where the chunk has walked
      * down toward its floor -- measured 2026-08-15, gemma-4-12b-it-fp4 fits 95232 on a 12 GB card
      * and prefills there at 64 rows of a possible 1024, where 56320 holds the full chunk. The scan
      * therefore keeps the first memory fit as a floor under the answer and continues down for the
@@ -464,20 +459,11 @@ namespace Mila::ChatApp
             return resolved;
         }
 
-        // Comfortably needs a number. 11.07 of 11.99 GB is a fit by arithmetic and a bad
-        // experience in practice -- a 92% claim on a card that also drives a display. The margin
-        // is what auto chooses for you, never a policy imposed on a length you chose yourself.
-        const std::size_t margin = std::max<std::size_t>(
-            memory.total_bytes / 10, std::size_t{ 512 } * 1024 * 1024 );
-
-        if ( memory.total_bytes <= margin )
-        {
-            resolved.fallback_reason = "device too small to reserve a margin on";
-
-            return resolved;
-        }
-
-        const std::size_t budget = memory.total_bytes - margin;
+        // The memory a load would actually find, with no allowance on top: the prediction already
+        // counts everything Mila allocates, rounding included (MemoryFootprint.md 11.8). The 10% of
+        // device total this used to hold back stood in for scratch, rounding and the display cut
+        // without knowing which applied, so a headless card paid for all three.
+        const std::size_t budget = memory.free_bytes;
 
         const ScopedLogSuppression quiet;
 
@@ -513,7 +499,7 @@ namespace Mila::ChatApp
                 break;
             }
 
-            if ( practicalDeviceBytes( *prediction.required ) > budget )
+            if ( prediction.required->totalDeviceBytes() > budget )
             {
                 continue;
             }
@@ -524,7 +510,7 @@ namespace Mila::ChatApp
                 largest_fitting_prefill = prediction.prefill;
             }
 
-            if ( !prediction.prefill.isBudgetConstrained() )
+            if ( !prediction.prefill.isMemoryConstrained() )
             {
                 resolved.context_length = candidate;
                 resolved.device_total_bytes = memory.total_bytes;

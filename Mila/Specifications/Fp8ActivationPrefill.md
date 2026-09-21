@@ -133,15 +133,25 @@ Out of scope (explicitly):
      one outlier token sets the tensor scale and crushes every other token's FP8 resolution, and the
      error compounds across 48 layers.
    - **DECIDED 2026-07-13: per-token (per-row) absmax**, the standard robust choice (llama.cpp's Q8_1 is
-     per-32-block; TensorRT-LLM uses per-token dynamic). *Mechanism:* Ada cuBLASLt accepts only per-tensor
-     scale pointers (the outer-vector scale modes are Blackwell-era), so the per-token scales are NOT bound
-     to the GEMM. Instead the exact factorization
+     per-32-block; TensorRT-LLM uses per-token dynamic). *Mechanism:* cuBLASLt will not bind the per-token
+     scales to the GEMM, so they are applied outside it. Instead the exact factorization
      `Y[m,n] = sA[m] * (sB * sum_k X8[m,k] * W8[n,k])` is applied by a post-GEMM epilogue
      (`cuda_fp8_apply_per_token_scales`, which also folds the bias): the GEMM runs with `B_SCALE = 1.0f`
      (a persistent constant scalar, so the descriptor stays identical to the proven-fast config), and the
      quantizer (`cuda_quantize_bf16_to_fp8_per_token`, one block per row, absmax + quantize in one launch)
      writes `sA[]` into the shared scratch carve. The double BF16 rounding (GEMM output, then epilogue) is
      ~2^-9 relative twice — noise against the FP8 quantization error itself.
+   - **CORRECTED 2026-09-12.** This previously read "Ada cuBLASLt accepts only per-tensor scale pointers
+     (the outer-vector scale modes are Blackwell-era)", which is wrong in a way that would mislead anyone
+     revisiting the epilogue on newer hardware. `CUBLASLT_MATMUL_MATRIX_SCALE_OUTER_VEC_32F` has been in
+     the header since at least CUDA 13.3, and `cublasLtMatmulAlgoGetHeuristic` returns **no algorithm for
+     it on the RTX 4070 (SM 8.9) and the RTX 5060 Ti (SM 12.0) alike** — measured at these exact shapes by
+     `Mila/Profiling/Microbenchmarks/CublasLtScaleModes.cu`. It is not an Ada limitation and Blackwell does
+     not lift it, so the epilogue is not waiting on a card upgrade. Re-run that probe before assuming
+     otherwise. Folding the scales into the GEMM therefore needs a GEMM whose epilogue Mila controls —
+     a CUTLASS epilogue or a hand-written kernel — and CUTLASS is not in the build
+     (`MixtureOfExperts.md` §7.3). The same probe found `VEC16_UE4M3` **does** work on SM120 — see `MixtureOfExperts.md` §7.1a,
+     which is the path that removes the flanking passes.
 
 3. **Scratch buffers.** Reuse `ExecutionContext::getDeviceScratchBuffer` (grow-on-demand) for the FP8 weight
    staging (half the current BF16 staging) and the FP8 activation buffer. **Fetch at forward() time, never

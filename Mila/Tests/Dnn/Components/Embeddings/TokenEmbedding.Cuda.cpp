@@ -624,7 +624,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
         auto from_artifact = builtEmbedding( token_shape, RuntimeMode::Inference );
 
         {
-            Serialization::PretrainedModelReader reader( artifact );
+            Serialization::WeightsReader reader( artifact );
 
             ASSERT_TRUE( reader.hasTensor( "temb.wte" ) );
             ASSERT_TRUE( reader.hasTensor( "temb.wte_scale" ) );

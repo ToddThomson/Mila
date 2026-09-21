@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It is in public beta (see `Version.txt` for the current version; hardening toward the v0.20 first production release). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It reached its first production release at `0.20.0` (see `Version.txt` for the version in flight). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
 
 ### Two different "freezes" — do not conflate them
 
@@ -73,7 +73,7 @@ Direction of travel, so new code moves with it rather than against it: the `Unar
 
 ### Model Entry Points
 
-- `<Family>Model::fromPretrained(path, config, device_id)` — reads the weights, then dispatches to `fromPretrainedImpl<TWeightQuantization, TKvCachePolicy>` on the config's `WeightQuantization`. One per family: Gemma, Llama, Gpt, Qwen.
+- `<Family>Model::load(path, config, device_id)` — reads the weights, then dispatches to `loadImpl<TWeightQuantization, TKvCachePolicy>` on the config's `WeightQuantization`. One per family: Gemma, Llama, Gpt, Qwen.
 - The dispatch is `Models/QuantizationDispatch.ixx`. It keys on `LanguageModelConfig`'s own enum — **never on an adaptor's type.** `ChatConfig` lives in Chat and `Mila/Src` must not know it exists.
 - All use a two-phase KV-cache: prefill (full sequence) + decode (one token at a time, outer_size == 1).
 
@@ -81,7 +81,7 @@ Direction of travel, so new code moves with it rather than against it: the `Unar
 
 Weight quantization is offline: `Tools/ExportArtifact` produces pre-quantized safetensors weights that declare their policy in `__metadata__["mila_quantization"]`, a load refuses weights whose policy is not the compiled one, and `Linear::loadParameter` uploads packed bytes directly. Sub-4-bit codebook formats have no other path — their tables are fitted offline against calibration data by `Tools/Quantization`, and `ExportArtifact` is the only writer. Design of record: `Mila/Specifications/Quantization.md`.
 
-Quantize-on-load survives as the **exporter's own engine**, run once, for FP8 and FP4 only. Converters always write BF16; `Linear::loadParameter` branches on the stored dtype (`Linear.ixx:603`) and calls `operation_->quantize()`. It is not a deployment path — see `Quantization.md` for the per-format kernel detail.
+Quantize-on-load is a **supported user path** for FP8 and FP4 (decided 2026-09-14): it runs full-precision weights nobody has exported, and it is the exporter's own engine. Converters always write BF16; `Linear::loadParameter` branches on the stored dtype (`Linear.ixx:603`) and calls `operation_->quantize()`. Published models are still exported pre-quantized. Its staging buffer belongs to the load, not to the forward scratch — see `Quantization.md` *Load Pipeline* for that and the per-format kernel detail.
 
 **Trap:** the `getDeviceScratchBuffer()` grow-on-demand buffer in `ExecutionContext` backs the FP8 dequant staging — **fetch it at `forward()` time and never cache the pointer across calls**, since it is reallocated on grow.
 
@@ -106,7 +106,9 @@ Key files:
 
 Models are named by their store name, not by an alias table — `/model <name>` reports, `/model load <name> [quant]` loads, and lookup case-folds. See `Specifications/ChatConfiguration.md` for the layered config resolution.
 
-Gemma streams live token-by-token through `Chat.StreamingDisplay` (channel-aware — thinking / tool-call / final routed by the four control-token ids; a stream validator asserts the streamed transcript equals the buffered render). Llama, GPT-2 and Qwen stay buffered, and streaming falls back to buffered when the vocabulary lacks the channel-routing tokens.
+Chat runs **instruct models only** — a base model is refused at the catalogue, so GPT-2 has no `ModelType` and no load path here. It remains a first-class Mila model for training and reference; "Mila supports GPT-2" and "Chat runs GPT-2" are separate claims.
+
+Gemma streams live token-by-token through `Chat.StreamingDisplay` (channel-aware — thinking / tool-call / final routed by the four control-token ids; a stream validator asserts the streamed transcript equals the buffered render). Llama and Qwen stay buffered, and streaming falls back to buffered when the vocabulary lacks the channel-routing tokens.
 
 ---
 
@@ -115,6 +117,8 @@ Gemma streams live token-by-token through `Chat.StreamingDisplay` (channel-aware
 Source files use `.ixx` for C++23 module interface units and module partitions. The module naming convention mirrors the directory structure (e.g., `Compute.OperationTraits`, `Dnn.Components.Linear`).
 
 Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend specializations while keeping a single aggregator module. Example: `OperationTraits.ixx` re-exports `OperationTraits.Template.ixx` + `:Cuda` + `:Cpu`.
+
+**One module per file, one type per module.** A module file exports exactly one class, struct, enum, union or concept; a type nested inside that class is part of it. The one exception is internal detail that needs its own impl-only module — a partition such as `Gemma.Block.Workspace.ixx`. Two types are two `.ixx` files in the same directory, two `FILE_SET` entries, and two `export import` lines in `Mila.ixx`; never a combined file to keep the diff small. Files that predate the rule are tracked in `Mila/Issues/Vnext.md`; every new file follows it.
 
 ---
 
@@ -190,7 +194,7 @@ later. **Never write a finding straight into `BACKLOG.md`.**
 - **`ROADMAP.md`** — the durable **narrative + success criteria** of each release, organized by
   **theme** (not milestone). Shows the release in flight plus a single **Future** tail. **Narrative
   only — no task lists, checkboxes, or status** (they drift; point to BACKLOG). When a release ships,
-  its section moves to CHANGELOG.
+  its section is deleted — the GitHub Release body is the record of what shipped.
 - **`BACKLOG.md`** — **work committed to the release in flight, and nothing else.** `## Current
   release` holds one **theme bucket** per ROADMAP theme (matching names — the only join). Five rules
   keep it usable:
@@ -198,15 +202,21 @@ later. **Never write a finding straight into `BACKLOG.md`.**
     it never ships. If you cannot name one it belongs in `Mila/Issues/`. Membership in this file
     *is* the claim that the item blocks the release, so an unearned item makes the claim worthless
     for every other item too.
-  - **An item is three lines** — what, why it matters, `file:line`. Five if genuinely complex.
-  - **Status lives in the checkbox**, `[ ]` open or `[~]` in progress, and never in the prose. No
-    dates, no "GREEN", no findings, no measurement tables. **Disposition is a file in
-    `Mila/Issues/`, not a tag** — parked is `Future.md`, good-first-issue is `Contributor.md`.
-  - **Done means deleted**, in the same commit as the work. `[x]` is a **working-tree marker only** —
+  - **An item is a `####` heading that reads cold**, then a metadata line, then a body ending in an
+    anchor. The heading states the problem in no term that exists only inside Mila; the body carries
+    whatever detail the work needs, and says so plainly when the finding is an absence rather than a
+    location.
+  - **Status lives in the metadata line** — `open`, `in progress` or `done`, then area tags from
+    [Tags.md](Mila/Issues/Tags.md) — and never in the prose. No dates, no "GREEN", no findings, no
+    measurement tables. **Disposition is a file in `Mila/Issues/`, not a tag** — parked is
+    `Future.md`, next cycle is `Vnext.md`.
+  - **Done means deleted**, in the same commit as the work. `done` is a **working-tree marker only** —
     it makes finished items visible while the change is reviewed, and the commit that lands the work
-    deletes them. **No `[x]` is ever committed.** The commit that landed the work is the record; a
+    deletes them. **No `done` is ever committed.** The commit that landed the work is the record; a
     finding worth reusing goes to the owning spec or to memory.
-  - **Past ~300 lines it has stopped being a task list** and needs a prune.
+  - **The gate is the entry count, and it only goes down.** A release in flight burns down, so an
+    addition is paired with a removal or it is a deliberate admission that scope grew. Past roughly
+    forty entries this is a wishlist, not a release.
 - **`Mila/Issues/`** — everything upstream of that commitment; the funnel and its categories, with
   the flow and the rules in [`Mila/Issues/README.md`](Mila/Issues/README.md). `Untriaged.md` is
   untriaged capture, one line per entry, and is **lossy by design**: an entry still there at the
@@ -214,9 +224,9 @@ later. **Never write a finding straight into `BACKLOG.md`.**
   Triage runs at each `beta.N` / `rc.N` increment and gives every
   line a destination — `BACKLOG.md`, a category file, or deletion. A category names **what happens
   to an item**, never what it is about.
-- **`CHANGELOG.md`** — one short entry per **production (unsuffixed) release**, generated from its
-  commit range at release time. Nothing is written to it during a cycle, and pre-release detail
-  (`alpha.N`/`beta.N`/`rc.N`) never earns its own entry.
+- **The GitHub Release body** — one curated summary per tag, authored from that tag's commit range
+  at release time. **There is no `CHANGELOG.md`**; it was deleted at `0.20.0` because it duplicated
+  this body, written by the same hand from the same commits at the same moment. Do not recreate it.
 - **`Version.txt`** — `MAJOR.MINOR.PATCH-stage.N`, bumped **before committing** (see
   [RELEASING.md](RELEASING.md) for the scheme).
 
@@ -224,10 +234,13 @@ later. **Never write a finding straight into `BACKLOG.md`.**
 files there and gets a notification when it is fixed, which a file in a repository can never do.
 The funnel inward is **manual** — a human decides which reports earn an entry — and for
 anything user-reported **the GitHub issue stays the record while the entry is only a pointer
-to it**, which is what makes the lossiness safe. `Contributor.md` is the outbound
-direction. "Issue" is ambiguous between the two only if the distinction goes unsaid; this is it
-being said. GitHub Milestones and Labels remain an end-user triage layer, decoupled from this
-workflow.
+to it**, which is what makes the lossiness safe. Outbound, **GitHub is the whole mechanism** —
+work offered to a contributor is filed there with the `good first issue` label by the triage pass
+that decided it, never staged in a file here first, and what earns the label is capability the
+library lacks rather than tidying it needs. Contributors looking past those read `BACKLOG.md` and
+`ROADMAP.md`. "Issue" is ambiguous between the two directions only if the distinction goes unsaid;
+this is it being said. GitHub Milestones and Labels remain an end-user triage layer, decoupled from
+this workflow.
 
 ---
 
@@ -235,4 +248,4 @@ workflow.
 
 `ls Mila/Specifications/` for the list. A spec is the **design of record** for its area: where one exists, it decides, and a decision that contradicts it is either wrong or a spec edit — not a silent divergence. `OperationDispatch.md`, `Quantization.md` and `ModelDistribution.md` are the three that most often settle an argument.
 
-Work is tracked across `ROADMAP.md` / `BACKLOG.md` / `CHANGELOG.md` — see **Work-Tracking Docs** above.
+Work is tracked across `ROADMAP.md` / `BACKLOG.md` — see **Work-Tracking Docs** above.

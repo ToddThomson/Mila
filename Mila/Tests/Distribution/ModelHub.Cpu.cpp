@@ -1,16 +1,19 @@
 /**
  * @file ModelHub.Cpu.cpp
- * @brief Parsing a hub listing, pinned against a response recorded from the live API.
+ * @brief Parsing a hub listing, pinned against a response recorded from the live API, and the
+ * messages the hub gives when HuggingFace refuses a request.
  *
  * The listing body is the real one returned by
  * https://huggingface.co/api/models?author=mila-llm&full=true on 2026-08-01, so a change in
- * the shape Mila depends on fails here rather than at a user's first `/models`.
+ * the shape Mila depends on fails here rather than at a user's first `/model list --online`.
  *
  * CPU only, so this rides the MILA_ENABLE_CUDA=OFF CI gate.
  */
 
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -110,5 +113,75 @@ namespace Mila::Tests::Distribution
         EXPECT_TRUE( parseHuggingFaceListing( R"({"error":"not found"})" ).empty() );
         EXPECT_TRUE( parseHuggingFaceListing( "[]" ).empty() );
         EXPECT_TRUE( parseHuggingFaceListing( R"([{"id":"no-slash-here"}])" ).empty() );
+    }
+
+    namespace
+    {
+        /// Answers every request with one status, as HuggingFace does for a name it will not
+        /// confirm to the caller.
+        class FixedStatusTransport : public IHttpTransport
+        {
+        public:
+
+            explicit FixedStatusTransport( long http_code ) : http_code_( http_code ) {}
+
+            std::string name() const override { return "fixed-status"; }
+
+            HttpResponse fetch(
+                const HttpFetch&,
+                const SinkCallback&,
+                const HeadersCallback& on_headers ) const override
+            {
+                HttpResponse response;
+                response.http_code = http_code_;
+
+                if ( on_headers )
+                {
+                    on_headers( response.http_code, 0 );
+                }
+
+                return response;
+            }
+
+        private:
+
+            long http_code_;
+        };
+
+        std::string manifestFailure( const std::string& token )
+        {
+            const HuggingFaceHub hub( std::make_shared<FixedStatusTransport>( 401 ), token );
+
+            try
+            {
+                hub.fetchManifest( { "mila-llm", "gemma-4-12b-itt" } );
+            } catch ( const std::runtime_error& error ) {
+                return error.what();
+            }
+
+            return {};
+        }
+    }
+
+    TEST( HuggingFaceHubErrors, AnAnonymousUnauthorizedLeadsWithTheModelName )
+    {
+        // HuggingFace hides whether a repository exists from a caller with no token, so a
+        // mistyped name arrives as a 401. Sending that user off to get a token is the
+        // failure this pins.
+        const std::string message = manifestFailure( "" );
+
+        EXPECT_NE( message.find( "mila-llm/gemma-4-12b-itt" ), std::string::npos ) << message;
+        EXPECT_NE( message.find( "not found" ), std::string::npos ) << message;
+        EXPECT_EQ( message.find( "no valid HuggingFace token" ), std::string::npos ) << message;
+    }
+
+    TEST( HuggingFaceHubErrors, AnUnauthorizedTokenIsReportedAsTheToken )
+    {
+        // An authenticated caller gets a 404 for a missing name, so a 401 here really is the
+        // token.
+        const std::string message = manifestFailure( "hf_not_a_real_token" );
+
+        EXPECT_NE( message.find( "no valid HuggingFace token" ), std::string::npos ) << message;
+        EXPECT_EQ( message.find( "not found" ), std::string::npos ) << message;
     }
 }

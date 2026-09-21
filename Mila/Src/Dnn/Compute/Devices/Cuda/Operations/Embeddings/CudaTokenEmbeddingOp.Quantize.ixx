@@ -107,6 +107,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
                     chunk_rows,
                     embedding_dim,
                     dev_staging,
+                    staging_bytes,
                     stream );
             }
         }

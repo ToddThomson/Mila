@@ -71,6 +71,7 @@ import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.CompositeComponent;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -154,7 +155,7 @@ namespace Mila::Dnn
                                     gate_up.get(), ffn_act.get(), ffn_down.get(), stream.get() } )
             {
                 if ( t )
-                    total += t->getStorageSize();
+                    total += occupiedTensorBytes( *t );
             }
 
             return total;
@@ -211,98 +212,6 @@ namespace Mila::Dnn
         workspace.ffn_act = slot( hidden_dim, "ffn_act" );
         workspace.ffn_down = slot( model_dim, "ffn_down" );
         workspace.stream = slot( model_dim, "stream" );
-
-        return workspace;
-    }
-
-    /**
-     * @brief The GQA transient the attention blocks share, owned as one unit.
-     *
-     * Owned together rather than as seven loose tensors so a caller cannot allocate half of
-     * it: `GqaState` is a struct of raw pointers, and a null one is a crash at the kernel
-     * rather than an error at the call.
-     */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision>
-        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    struct QwenGqaWorkspace
-    {
-        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using TensorType = Tensor<TPrecision, MR>;
-
-        std::unique_ptr<TensorType> q_permute;
-        std::unique_ptr<TensorType> preatt;
-        std::unique_ptr<TensorType> att;
-        std::unique_ptr<TensorType> v_out;
-        std::unique_ptr<TensorType> preatt_decode;
-        std::unique_ptr<TensorType> att_decode;
-        std::unique_ptr<TensorType> v_out_decode;
-
-        GqaState state() const
-        {
-            GqaState gqa_state;
-            gqa_state.q_permute = q_permute.get();
-            gqa_state.preatt = preatt.get();
-            gqa_state.att = att.get();
-            gqa_state.v_out = v_out.get();
-            gqa_state.preatt_decode = preatt_decode.get();
-            gqa_state.att_decode = att_decode.get();
-            gqa_state.v_out_decode = v_out_decode.get();
-
-            return gqa_state;
-        }
-
-        std::size_t deviceStorageBytes() const
-        {
-            std::size_t total = 0;
-
-            for ( const auto* t : { q_permute.get(), preatt.get(), att.get(), v_out.get(),
-                                    preatt_decode.get(), att_decode.get(), v_out_decode.get() } )
-            {
-                if ( t )
-                    total += t->getStorageSize();
-            }
-
-            return total;
-        }
-    };
-
-    /**
-     * @brief Allocate the shared GQA transient.
-     *
-     * `score_width` is the caller's flash decision made concrete: the flash path reads no
-     * score buffer, so it passes 1, while the cuBLASLt path needs the full context and would
-     * overflow a narrow buffer. The parameter exists so the caller cannot allocate for one
-     * path and then run the other -- the mismatch the transformer's own comment warns about.
-     */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision>
-        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    QwenGqaWorkspace<TDeviceType, TPrecision> makeQwenGqaWorkspace(
-        const QwenConfig& config, DeviceId device, dim_t B, dim_t T_ctx,
-        dim_t prefill_chunk, dim_t score_width, const std::string& name_prefix )
-    {
-        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using TensorType = Tensor<TPrecision, MR>;
-
-        const dim_t NH = config.getNumHeads();
-        const dim_t HD = config.getHeadDim();
-
-        QwenGqaWorkspace<TDeviceType, TPrecision> workspace;
-
-        workspace.q_permute = std::make_unique<TensorType>(
-            device, shape_t{ B, NH, prefill_chunk, HD }, name_prefix + "q_perm" );
-        workspace.preatt = std::make_unique<TensorType>(
-            device, shape_t{ B, NH, prefill_chunk, score_width }, name_prefix + "preatt" );
-        workspace.att = std::make_unique<TensorType>(
-            device, shape_t{ B, NH, prefill_chunk, score_width }, name_prefix + "att" );
-        workspace.v_out = std::make_unique<TensorType>(
-            device, shape_t{ B, NH, prefill_chunk, HD }, name_prefix + "v_out" );
-
-        workspace.preatt_decode = std::make_unique<TensorType>(
-            device, shape_t{ B, NH, 1, T_ctx }, name_prefix + "preatt_dec" );
-        workspace.att_decode = std::make_unique<TensorType>(
-            device, shape_t{ B, NH, 1, T_ctx }, name_prefix + "att_dec" );
-        workspace.v_out_decode = std::make_unique<TensorType>(
-            device, shape_t{ B, NH, 1, HD }, name_prefix + "v_out_dec" );
 
         return workspace;
     }
@@ -514,7 +423,7 @@ namespace Mila::Dnn
                 for ( auto* t : { q_.get(), gate_.get(), k_.get(), v_.get(), query_gate_.get() } )
                 {
                     if ( t )
-                        stats.device_state_bytes += t->getStorageSize();
+                        stats.device_state_bytes += occupiedTensorBytes( *t );
                 }
             }
 
@@ -552,7 +461,7 @@ namespace Mila::Dnn
             stats += required( this->template getComponentAs<QkvProjectionType>( n + ".fc_qkv_proj" ), contexts.stream );
             stats += required( this->template getComponentAs<RmsNormType>( n + ".q_norm" ), contexts.qknorm );
             stats += required( this->template getComponentAs<RmsNormType>( n + ".k_norm" ), contexts.kknorm );
-            stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.qproj );
+            stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.rope );
             stats += required( this->template getComponentAs<AttentionType>( n + ".gqa" ), contexts.qkv );
             stats += required( this->template getComponentAs<OutputGateType>( n + ".output_gate" ), contexts.qproj );
             stats += required( this->template getComponentAs<OutputProjectionType>( n + ".fc_o_proj" ), contexts.qproj );
@@ -566,11 +475,16 @@ namespace Mila::Dnn
             // Split scratch. An installed workspace is owned and counted by the transformer.
             if ( !pooled )
             {
-                stats.device_state_bytes += storageBytes<TPrecision>( 2 * contexts.splitQElements() );  // query_gate
-                stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitQElements() );      // q
-                stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitQElements() );      // gate
-                stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitKvElements() );     // k
-                stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitKvElements() );     // v
+                const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+                const std::size_t q_bytes = occupiedDeviceBytes( storageBytes<TPrecision>( contexts.splitQElements() ), granularity );
+                const std::size_t kv_bytes = occupiedDeviceBytes( storageBytes<TPrecision>( contexts.splitKvElements() ), granularity );
+
+                stats.device_state_bytes +=
+                    occupiedDeviceBytes( storageBytes<TPrecision>( 2 * contexts.splitQElements() ), granularity );  // query_gate
+                stats.device_state_bytes += q_bytes;   // q
+                stats.device_state_bytes += q_bytes;   // gate
+                stats.device_state_bytes += kv_bytes;  // k
+                stats.device_state_bytes += kv_bytes;  // v
             }
 
             return stats;
@@ -606,6 +520,7 @@ namespace Mila::Dnn
             BuildContext gate_up;
             BuildContext hidden;
             BuildContext qkv;
+            BuildContext rope;
             BuildContext qknorm;
             BuildContext kknorm;
 
@@ -652,6 +567,10 @@ namespace Mila::Dnn
             contexts.qkv = context.withShape(
                 shape_t{ B, input_shape[ 1 ], config_.getAttentionPackedQKVWidth() } );
 
+            // RoPE is sized by the context length as well: its tables hold one row per position
+            // it may rotate, and decode reaches every position of the context.
+            contexts.rope = context.withShape( shape_t{ B, input_shape[ 1 ], qProjWidth() } );
+
             return contexts;
         }
 
@@ -687,7 +606,7 @@ namespace Mila::Dnn
             k_norm_->build( contexts.kknorm );
 
             rope_ = this->template getComponentAs<RopeType>( n + ".rope" );
-            rope_->build( contexts.qproj );
+            rope_->build( contexts.rope );
 
             attn_ = this->template getComponentAs<AttentionType>( n + ".gqa" );
             install( attn_, workspace_.attn );

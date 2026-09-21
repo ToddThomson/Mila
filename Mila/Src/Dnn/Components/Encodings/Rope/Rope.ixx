@@ -27,6 +27,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
@@ -255,10 +256,10 @@ namespace Mila::Dnn
             stats.device_state_bytes += operation_->getStateMemorySize();
 
             if ( owned_Q_grad_ != nullptr )
-                stats.device_gradient_bytes += owned_Q_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *owned_Q_grad_ );
 
             if ( owned_K_grad_ != nullptr )
-                stats.device_gradient_bytes += owned_K_grad_->getStorageSize();
+                stats.device_gradient_bytes += occupiedTensorBytes( *owned_K_grad_ );
 
             return stats;
         }
@@ -280,9 +281,12 @@ namespace Mila::Dnn
             if ( context.isTrainingMode() )
             {
                 const auto [q_shape, k_shape] = resolveRotatedShapes( context );
+                const std::size_t granularity = allocationGranularity( this->getDeviceId() );
 
-                stats.device_gradient_bytes += storageBytes<TPrecision>( elementCount( q_shape ) );
-                stats.device_gradient_bytes += storageBytes<TPrecision>( elementCount( k_shape ) );
+                stats.device_gradient_bytes +=
+                    occupiedDeviceBytes( storageBytes<TPrecision>( elementCount( q_shape ) ), granularity );
+                stats.device_gradient_bytes +=
+                    occupiedDeviceBytes( storageBytes<TPrecision>( elementCount( k_shape ) ), granularity );
             }
 
             return stats;

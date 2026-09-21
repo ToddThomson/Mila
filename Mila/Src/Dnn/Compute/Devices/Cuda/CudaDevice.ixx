@@ -5,6 +5,7 @@
 
 module;
 #include <cuda_runtime.h>
+#include <cstddef>
 #include <string>
 #include <format>
 #include <stdexcept>
@@ -15,6 +16,7 @@ module;
 export module Compute.CudaDevice;
 
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.CudaDeviceProps;
@@ -237,6 +239,17 @@ namespace Mila::Dnn::Compute
             }
 
             return status == cudaSuccess ? info : DeviceMemoryInfo{};
+        }
+
+        /**
+         * @brief The allocation granularity assumed for this device.
+         *
+         * kCudaAllocationGranularityBytes; see that constant for what was measured and why it is not read
+         * from the driver.
+         */
+        std::size_t getAllocationGranularity() const override
+        {
+            return kCudaAllocationGranularityBytes;
         }
 
         /**

@@ -82,6 +82,8 @@ namespace Mila::Dnn::Compute
             cudaError_t result = cudaMallocManaged(&ptr, bytes);
 
             if (result != cudaSuccess) {
+                cudaDiscardLastError();
+
                 std::string errorMsg = "CUDA managed memory allocation failed: " +
                     std::string(cudaGetErrorString(result)) +
                     " (size: " + std::to_string(bytes) + " bytes)" +

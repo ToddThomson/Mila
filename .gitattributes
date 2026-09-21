@@ -3,6 +3,10 @@
 ###############################################################################
 * text=auto
 
+# Shell scripts run under WSL and in Linux containers from this checkout; a CRLF
+# shebang fails there with "env: 'bash\r'".
+*.sh text eol=lf
+
 ###############################################################################
 # Set default behavior for command prompt diff.
 #

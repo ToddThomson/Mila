@@ -21,10 +21,9 @@ assignees: ToddThomson
 ## Scope and fit
 
 <!--
-Mila is a compile-time, GPU-first C++23 inference library, currently in public beta and feature-frozen
-for the v0.20 release — new-feature requests are most likely to land in a later release. See ROADMAP.md
-for planned work and the "good first issue" labels for contributor-ready tasks. Note where
-your request fits relative to the roadmap.
+Mila is a compile-time, GPU-first C++23 inference library. See ROADMAP.md for planned work and the
+"good first issue" labels for contributor-ready tasks. Note where your request fits relative to
+the roadmap.
 -->
 
 ## Additional context

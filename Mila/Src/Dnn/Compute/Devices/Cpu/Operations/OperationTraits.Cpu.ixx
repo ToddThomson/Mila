@@ -18,10 +18,13 @@
  *   LpeOp                 complete
  *   ElementwiseActivationOp complete (registers op_for, not type)
  *   SamplingOp            complete
+ *   RouterOp              complete (the reference the CUDA selection is gated against)
+ *   RmsNormOp             complete (makes Router<Cpu> reachable; Gemma4MoE.md Phase 5)
+ *   MoeOp                 complete (registers op_for, not type; the gate is a functor)
  *   CrossEntropyOp        pending (CpuSoftmaxCrossEntropyOp not yet wired into CMake)
  *
- * Not registered at all, by decision rather than oversight: the Llama-lineage ops
- * (RmsNormOp, SwigluOp, RopeOp, TokenEmbeddingOp) and GroupedQueryAttentionOp. Full
+ * Not registered at all, by decision rather than oversight: the remaining Llama-lineage
+ * ops (SwigluOp, RopeOp, TokenEmbeddingOp) and GroupedQueryAttentionOp. Full
  * CPU parity is not a gate; absence is zero-cost on the GPU path. The dispatch
  * contract tests in Tests/Dnn/Compute/Operations/OperationTraits.cpp pin both the
  * registered rows and these deliberate gaps.
@@ -38,6 +41,9 @@ import Compute.CpuSoftmaxOp;
 import Compute.CpuAttention;
 import Compute.CpuEncoderOp;
 import Compute.CpuSamplingOp;
+import Compute.CpuRouterOp;
+import Compute.CpuRmsNormOp;
+import Compute.CpuMoeOp;
 import Dnn.Quantization.Weight.Policies;
 
 namespace Mila::Dnn::Compute
@@ -141,6 +147,42 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::SamplingOp, DeviceType::Cpu, TensorDataType::FP32, void>
     {
         using type = CpuSamplingOp;
+    };
+
+    // -------------------------------------------------------------------------
+    // RouterOp -- CPU specialization (FP32 only)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::RouterOp, DeviceType::Cpu, TensorDataType::FP32, void>
+    {
+        using type = CpuRouterOp;
+    };
+
+    // -------------------------------------------------------------------------
+    // RmsNormOp -- CPU specialization (FP32 only)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::RmsNormOp, DeviceType::Cpu, TensorDataType::FP32, void>
+    {
+        using type = CpuRmsNormOp;
+    };
+
+    // -------------------------------------------------------------------------
+    // MoeOp -- CPU specialization (FP32 only)
+    //
+    // Resolves the op template, like ElementwiseActivationOp: MixtureOfExperts maps its
+    // compile-time gate activation to a functor and instantiates op_for<Functor>.
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::MoeOp, DeviceType::Cpu, TensorDataType::FP32, void>
+    {
+        // Quantized expert banks are CUDA-only, like quantized LinearOp.
+        template<typename TFunctor, typename TWeightQuantization = NoWeightQuant>
+            requires ( !TWeightQuantization::kIsQuantized )
+        using op_for = CpuMoeOp<TFunctor>;
     };
 
 }  // namespace Mila::Dnn::Compute

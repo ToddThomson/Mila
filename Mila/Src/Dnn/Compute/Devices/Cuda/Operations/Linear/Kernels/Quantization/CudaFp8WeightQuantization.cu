@@ -25,6 +25,7 @@
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
+#include <algorithm>
 #include <stdexcept>
 #include <format>
 #include <cstdint>
@@ -213,38 +214,55 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int64_t      out_features,
         int64_t      in_features,
         void*        dev_staging,
+        size_t       staging_bytes,
         cudaStream_t stream )
     {
-        const size_t src_bytes = static_cast<size_t>( out_features * in_features )
-                                 * sizeof( __nv_bfloat16 );
+        const size_t row_bytes = static_cast<size_t>( in_features ) * sizeof( __nv_bfloat16 );
 
-        cudaError_t err = cudaMemcpyAsync( dev_staging, src_bf16, src_bytes,
-                                           cudaMemcpyHostToDevice, stream );
-        if ( err != cudaSuccess )
+        if ( staging_bytes < row_bytes )
         {
             throw std::runtime_error( std::format(
-                "cuda_quantize_fp8_per_channel - BF16 source upload failed: {}",
-                cudaGetErrorString( err ) ) );
+                "cuda_quantize_fp8_per_channel - staging buffer of {} bytes cannot hold one "
+                "row of {} bytes", staging_bytes, row_bytes ) );
         }
 
+        const int64_t rows_per_chunk = static_cast<int64_t>( staging_bytes / row_bytes );
         const int smem_bytes = ( kBlockSize / 32 ) * static_cast<int>( sizeof( float ) );
 
-        quantize_fp8_per_channel_kernel<<<
-            static_cast<unsigned int>( out_features ),
-            kBlockSize,
-            smem_bytes,
-            stream >>>(
-                static_cast<const __nv_bfloat16*>( dev_staging ),
-                static_cast<__nv_fp8_e4m3*>( dst_fp8 ),
-                dst_scales,
-                static_cast<int>( in_features ) );
-
-        const cudaError_t launch_err = cudaGetLastError();
-        if ( launch_err != cudaSuccess )
+        // Each block of the kernel is one output channel and reads only its own row, so a row
+        // block quantizes exactly as the whole tensor would.
+        for ( int64_t row = 0; row < out_features; row += rows_per_chunk )
         {
-            throw std::runtime_error( std::format(
-                "cuda_quantize_fp8_per_channel - kernel launch failed: {}",
-                cudaGetErrorString( launch_err ) ) );
+            const int64_t rows = std::min( rows_per_chunk, out_features - row );
+
+            const auto* chunk_src = static_cast<const __nv_bfloat16*>( src_bf16 ) + row * in_features;
+
+            cudaError_t err = cudaMemcpyAsync( dev_staging, chunk_src, static_cast<size_t>( rows ) * row_bytes,
+                                               cudaMemcpyHostToDevice, stream );
+            if ( err != cudaSuccess )
+            {
+                throw std::runtime_error( std::format(
+                    "cuda_quantize_fp8_per_channel - BF16 source upload failed at row {}: {}",
+                    row, cudaGetErrorString( err ) ) );
+            }
+
+            quantize_fp8_per_channel_kernel<<<
+                static_cast<unsigned int>( rows ),
+                kBlockSize,
+                smem_bytes,
+                stream >>>(
+                    static_cast<const __nv_bfloat16*>( dev_staging ),
+                    static_cast<__nv_fp8_e4m3*>( dst_fp8 ) + row * in_features,
+                    dst_scales + row,
+                    static_cast<int>( in_features ) );
+
+            const cudaError_t launch_err = cudaGetLastError();
+            if ( launch_err != cudaSuccess )
+            {
+                throw std::runtime_error( std::format(
+                    "cuda_quantize_fp8_per_channel - kernel launch failed at row {}: {}",
+                    row, cudaGetErrorString( launch_err ) ) );
+            }
         }
     }
 

@@ -9,6 +9,7 @@
  */
 
 module;
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <format>
@@ -78,6 +79,10 @@ namespace Mila::Dnn
         /// Allocated at construction. Static for the component lifetime.
         std::size_t device_parameter_bytes{ 0 };
 
+        /// Of device_parameter_bytes, what a single token does not read: the unselected
+        /// experts of a sparse layer. Resident, never a separate allocation; zero when dense.
+        std::size_t device_inactive_parameter_bytes{ 0 };
+
         /// Forward and decode output buffers, KV cache.
         /// Allocated at build(). Static after build().
         std::size_t device_state_bytes{ 0 };
@@ -85,6 +90,11 @@ namespace Mila::Dnn
         /// Input and parameter gradient buffers.
         /// Allocated lazily on first setTraining(true). Retained thereafter.
         std::size_t device_gradient_bytes{ 0 };
+
+        /// The execution context's forward scratch: one buffer shared by every operation on
+        /// the context, sized by the largest single request. Combined by maximum, never summed.
+        /// Reserved when a network is built.
+        std::size_t device_scratch_bytes{ 0 };
 
         // ----------------------------------------------------------------
         // Host memory (CPU)
@@ -108,7 +118,15 @@ namespace Mila::Dnn
          */
         [[nodiscard]] std::size_t totalDeviceBytes() const noexcept
         {
-            return device_parameter_bytes + device_state_bytes + device_gradient_bytes;
+            return device_parameter_bytes + device_state_bytes + device_gradient_bytes + device_scratch_bytes;
+        }
+
+        /**
+         * @brief Device parameter bytes a single token reads. Equals device_parameter_bytes when dense.
+         */
+        [[nodiscard]] std::size_t activeDeviceParameterBytes() const noexcept
+        {
+            return device_parameter_bytes - device_inactive_parameter_bytes;
         }
 
         /**
@@ -130,13 +148,16 @@ namespace Mila::Dnn
         /**
          * @brief Accumulate another MemoryStats into this one.
          *
-         * Used by CompositeComponent and Network to aggregate child stats.
+         * Used by CompositeComponent and Network to aggregate child stats. Scratch is taken
+         * by maximum: every operation of a tree shares the one buffer.
          */
         MemoryStats& operator+=( const MemoryStats& rhs ) noexcept
         {
             device_parameter_bytes += rhs.device_parameter_bytes;
+            device_inactive_parameter_bytes += rhs.device_inactive_parameter_bytes;
             device_state_bytes += rhs.device_state_bytes;
             device_gradient_bytes += rhs.device_gradient_bytes;
+            device_scratch_bytes = std::max( device_scratch_bytes, rhs.device_scratch_bytes );
             host_parameter_bytes += rhs.host_parameter_bytes;
             host_state_bytes += rhs.host_state_bytes;
             host_gradient_bytes += rhs.host_gradient_bytes;
@@ -182,6 +203,7 @@ namespace Mila::Dnn
                 + row( "Parameters", device_parameter_bytes, host_parameter_bytes )
                 + row( "State", device_state_bytes, host_state_bytes )
                 + row( "Gradients", device_gradient_bytes, host_gradient_bytes )
+                + row( "Scratch", device_scratch_bytes, 0 )
                 + sep
                 + row( "Total", totalDeviceBytes(), totalHostBytes() )
                 + sep
@@ -205,26 +227,26 @@ namespace Mila::Dnn
      * and a chunk size is a single decision the transformer makes rather than a quantity
      * children contribute to.
      *
-     * Both families resolve the chunk by walking a rung table downward and taking the largest
-     * rung whose row cost fits an activation budget. The budget shrinks as context grows,
-     * because the KV cache it shares VRAM with grows, so a longer context can silently buy a
-     * smaller chunk. That is the fact this type exists to make askable.
+     * Every family takes the largest rung of its table whose whole predicted footprint fits the
+     * device's free memory. A longer context, or less free memory, can therefore buy a smaller
+     * chunk, and that is the fact this type exists to make askable. See
+     * Specifications/MemoryFootprint.md section 11.
      */
     export struct PrefillChunking
     {
         /// Rows per prefill chunk this context length would use.
         dim_t chunk_rows{ 0 };
 
-        /// The largest rung this context length permits before the activation budget is
-        /// applied. Equal to chunk_rows when the budget did not reduce the chunk.
+        /// The largest rung this context length permits, memory aside. Equal to chunk_rows when
+        /// the free memory did not reduce the chunk.
         dim_t unconstrained_chunk_rows{ 0 };
 
-        /// False when even the floor rung exceeds the budget, so chunk_rows is the floor used
-        /// in spite of the budget rather than one that fits under it.
-        bool fits_activation_budget{ true };
+        /// False when even the floor rung does not fit the free memory, so chunk_rows is the floor
+        /// used in spite of it rather than one that fits.
+        bool fits_available_memory{ true };
 
-        /// True when the activation budget forced a smaller chunk than the context permits.
-        [[nodiscard]] bool isBudgetConstrained() const noexcept
+        /// True when the free memory forced a smaller chunk than the context permits.
+        [[nodiscard]] bool isMemoryConstrained() const noexcept
         {
             return chunk_rows < unconstrained_chunk_rows;
         }

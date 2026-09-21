@@ -188,6 +188,21 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Set the routed feed-forward geometry (Gemma 4 26B-A4B: 128 experts, top 8, width 704).
+         *
+         * Zero experts, the default, is a dense model. A routed model keeps withHiddenDimension as the
+         * width of its always-on dense branch, which runs beside the experts.
+         */
+        template <typename Self>
+        decltype(auto) withMixtureOfExperts( this Self&& self, dim_t num_experts, dim_t top_k_experts, dim_t expert_hidden_dim )
+        {
+            self.num_experts_ = num_experts;
+            self.top_k_experts_ = top_k_experts;
+            self.expert_hidden_dim_ = expert_hidden_dim;
+            return std::forward<Self>( self );
+        }
+
+        /**
          * @brief Set the trained maximum sequence length (HuggingFace max_position_embeddings).
          */
         template <typename Self>
@@ -366,6 +381,11 @@ namespace Mila::Dnn
 
         dim_t getHiddenDimension() const noexcept { return hidden_dim_; }
         dim_t getMaxSequenceLength() const noexcept { return max_seq_len_; }
+
+        bool hasMixtureOfExperts() const noexcept { return num_experts_ > 0; }
+        dim_t getNumExperts() const noexcept { return num_experts_; }
+        dim_t getTopKExperts() const noexcept { return top_k_experts_; }
+        dim_t getExpertHiddenDimension() const noexcept { return expert_hidden_dim_; }
         float getRMSNormEpsilon() const noexcept { return rms_norm_eps_; }
 
         /**
@@ -642,6 +662,24 @@ namespace Mila::Dnn
             {
                 throw std::invalid_argument( "GemmaConfig: final_logit_softcapping must be >= 0" );
             }
+
+            if ( num_experts_ < 0 )
+            {
+                throw std::invalid_argument( "GemmaConfig: num_experts must be >= 0" );
+            }
+
+            if ( num_experts_ > 0 )
+            {
+                if ( top_k_experts_ <= 0 || top_k_experts_ > num_experts_ )
+                {
+                    throw std::invalid_argument( "GemmaConfig: top_k_experts must be in [1, num_experts]" );
+                }
+
+                if ( expert_hidden_dim_ <= 0 )
+                {
+                    throw std::invalid_argument( "GemmaConfig: expert_hidden_dim must be > 0 when num_experts > 0" );
+                }
+            }
         }
 
         // ====================================================================
@@ -669,7 +707,10 @@ namespace Mila::Dnn
                 .set( "global_rotary_dim", static_cast<int64_t>(global_rotary_dim_) )
                 .set( "rope_theta_local", static_cast<double>(rope_theta_local_) )
                 .set( "rope_theta_global", static_cast<double>(rope_theta_global_) )
-                .set( "final_logit_softcapping", static_cast<double>(final_logit_softcapping_) );
+                .set( "final_logit_softcapping", static_cast<double>(final_logit_softcapping_) )
+                .set( "num_experts", static_cast<int64_t>(num_experts_) )
+                .set( "top_k_experts", static_cast<int64_t>(top_k_experts_) )
+                .set( "expert_hidden_dim", static_cast<int64_t>(expert_hidden_dim_) );
 
             return meta;
         }
@@ -765,6 +806,21 @@ namespace Mila::Dnn
             {
                 final_logit_softcapping_ = static_cast<float>(*v);
             }
+
+            if ( auto v = meta.tryGetInt( "num_experts" ) )
+            {
+                num_experts_ = static_cast<dim_t>(*v);
+            }
+
+            if ( auto v = meta.tryGetInt( "top_k_experts" ) )
+            {
+                top_k_experts_ = static_cast<dim_t>(*v);
+            }
+
+            if ( auto v = meta.tryGetInt( "expert_hidden_dim" ) )
+            {
+                expert_hidden_dim_ = static_cast<dim_t>(*v);
+            }
         }
 
         std::string toString() const override
@@ -788,6 +844,12 @@ namespace Mila::Dnn
             oss << "  RoPE theta (local/global): " << rope_theta_local_ << " / " << rope_theta_global_ << "\n";
             oss << "  Global rotary dim: " << global_rotary_dim_ << "\n";
             oss << "  Final logit softcap: " << final_logit_softcapping_ << "\n";
+
+            if ( num_experts_ > 0 )
+            {
+                oss << "  Experts: top " << top_k_experts_ << " of " << num_experts_
+                    << ", expert hidden dim " << expert_hidden_dim_ << "\n";
+            }
 
             return oss.str();
         }
@@ -818,5 +880,10 @@ namespace Mila::Dnn
         float rope_theta_local_ = 10000.0f;         // sliding-layer RoPE base
         float rope_theta_global_ = 1000000.0f;      // global-layer RoPE base (proportional)
         float final_logit_softcapping_ = 30.0f;     // tanh logit soft-cap; 0 disables
+
+        // Routed feed-forward: zero experts is a dense model.
+        dim_t num_experts_ = 0;
+        dim_t top_k_experts_ = 0;
+        dim_t expert_hidden_dim_ = 0;
     };
 }

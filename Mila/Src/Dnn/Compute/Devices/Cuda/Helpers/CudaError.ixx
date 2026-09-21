@@ -148,4 +148,17 @@ namespace Mila::Dnn::Compute
             throw CudaError( error, location );
         }
     }
+
+    /**
+     * @brief Discards CUDA's last error after a failure the caller has already handled.
+     *
+     * A failed allocation leaves its error recorded on the thread, and the next reader of the
+     * last error -- a kernel launch check, a transfer -- reports it as its own failure. Call
+     * this where the failure is detected, before throwing. A sticky error is not discarded and
+     * still surfaces at the next CUDA call.
+     */
+    export void cudaDiscardLastError() noexcept
+    {
+        static_cast<void>( cudaGetLastError() );
+    }
 }

@@ -75,7 +75,7 @@ import Compute.DeviceTypeTraits.Cuda;
 import Compute.CudaPinnedMemoryResource;
 #endif
 import Compute.ExecutionContextFactory;
-import Serialization.PretrainedReader;
+import Serialization.WeightsReader;
 import Serialization.SafeTensors;
 import Serialization.Mode;
 import Logging.Logger;
@@ -91,7 +91,7 @@ namespace Mila::Dnn
      * @brief Qwen 3.8 compatible inference model.
      *
      * Owns a loaded, built QwenTransformer and drives the prefill + decode loop.
-     * Construction is only possible via fromPretrained().
+     * Construction is only possible via load().
      *
      * Thread safety: not thread-safe; external synchronization required if shared.
      */
@@ -123,13 +123,13 @@ namespace Mila::Dnn
         ~QwenModel() = default;
 
         /**
-         * @brief Load from a Mila-converted Qwen 3.8 pretrained artifact.
+         * @brief Load Qwen 3.8 from a Mila weights file.
          *
          * The model_config carries the deployment decisions (context length, weight
          * quantization, KV-cache compression); every architectural parameter is read from
          * the checkpoint metadata.
          *
-         * @param path          Path to the pretrained Qwen model artifact.
+         * @param path          Path to the Qwen weights file.
          * @param model_config  Deployment configuration for this load.
          * @param device_id     Target device; must match TDeviceType.
          * @return              Inference-ready QwenModel.
@@ -138,20 +138,20 @@ namespace Mila::Dnn
          * @throws std::runtime_error    on load failure or a quantization mode this chassis
          *                               does not yet carry an artifact for.
          */
-        static std::unique_ptr<QwenModel<TDeviceType, TPrecision>> fromPretrained(
+        static std::unique_ptr<QwenModel<TDeviceType, TPrecision>> load(
             const std::filesystem::path& path,
             const QwenModelConfig& model_config,
             DeviceId device_id = DeviceId{ TDeviceType, 0 } )
         {
-            validateRequest( "QwenModel::fromPretrained", model_config, device_id );
+            validateRequest( "QwenModel::load", model_config, device_id );
 
             return dispatchQwenWeightPlan<
                     std::unique_ptr<QwenModel<TDeviceType, TPrecision>>>(
                 model_config.getWeightQuantization(),
-                "QwenModel::fromPretrained",
+                "QwenModel::load",
                 [&]<typename TWeightPlan>()
                 {
-                    return fromPretrainedImpl<TWeightPlan>( path, model_config, device_id );
+                    return loadImpl<TWeightPlan>( path, model_config, device_id );
                 } );
         }
 
@@ -176,7 +176,7 @@ namespace Mila::Dnn
         /**
          * @brief The same prediction, plus how this deployment would chunk its prefill.
          *
-         * Everything before the build is shared with fromPretrained deliberately: the
+         * Everything before the build is shared with load deliberately: the
          * artifact check, the geometry and the context-length validation must be the ones a
          * real load would apply, or the reported figure describes a model that would not load.
          *
@@ -190,7 +190,7 @@ namespace Mila::Dnn
         {
             validateRequest( "QwenModel::getDeploymentFootprint", model_config, device_id );
 
-            // The same dispatcher as fromPretrained, deliberately: the footprint path and the
+            // The same dispatcher as load, deliberately: the footprint path and the
             // load path must reach the identical instantiation, or a model reports a figure it
             // does not allocate. At 2.90 bits against BF16 that error would be a factor of six.
             return dispatchQwenWeightPlan<DeploymentFootprint>(
@@ -297,7 +297,7 @@ namespace Mila::Dnn
          * real load would -- a second reading of these twenty fields would agree until one
          * of them changed, and then measure a different model than the one it is checking.
          */
-        static QwenConfig configFromMetadata( const PretrainedMetadata& metadata )
+        static QwenConfig configFromMetadata( const WeightsMetadata& metadata )
         {
             QwenConfig config(
                 static_cast<dim_t>(metadata.embedding_dim),
@@ -441,7 +441,7 @@ namespace Mila::Dnn
             std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             const QwenConfig& config,
             const QwenModelConfig& model_config,
-            const PretrainedMetadata& source_metadata,
+            const WeightsMetadata& source_metadata,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode,
                 source_metadata, model_config.getWeightQuantization() )
@@ -538,7 +538,7 @@ namespace Mila::Dnn
          * @brief The load path, once the plan is a type.
          */
         template<typename TWeightPlan>
-        static std::unique_ptr<QwenModel<TDeviceType, TPrecision>> fromPretrainedImpl(
+        static std::unique_ptr<QwenModel<TDeviceType, TPrecision>> loadImpl(
             const std::filesystem::path& path,
             const QwenModelConfig& model_config,
             DeviceId device_id )
@@ -546,8 +546,8 @@ namespace Mila::Dnn
             using ConcreteTransformerType =
                 QwenTransformer<TDeviceType, TPrecision, TWeightPlan, QwenKvPolicy>;
 
-            PretrainedModelReader reader( path );
-            const auto& metadata = reader.getPretrainedMetadata();
+            WeightsReader reader( path );
+            const auto& metadata = reader.getWeightsMetadata();
 
             QwenConfig network_config = configFromMetadata( metadata );
 
@@ -557,7 +557,7 @@ namespace Mila::Dnn
             network_config.withLanguageModelHeadPositions(
                 model_config.getLanguageModelHeadPositions() );
 
-            validateArtifact( "QwenModel::fromPretrained", path, reader, model_config,
+            validateArtifact( "QwenModel::load", path, reader, model_config,
                 network_config );
 
             auto network = std::make_unique<ConcreteTransformerType>(
@@ -596,8 +596,8 @@ namespace Mila::Dnn
             using ConcreteTransformerType =
                 QwenTransformer<TDeviceType, TPrecision, TWeightPlan, QwenKvPolicy>;
 
-            PretrainedModelReader reader( path );
-            const auto& metadata = reader.getPretrainedMetadata();
+            WeightsReader reader( path );
+            const auto& metadata = reader.getWeightsMetadata();
 
             QwenConfig network_config = configFromMetadata( metadata );
 
@@ -668,7 +668,7 @@ namespace Mila::Dnn
         static void validateArtifact(
             std::string_view caller,
             const std::filesystem::path& path,
-            const PretrainedModelReader& reader,
+            const WeightsReader& reader,
             const QwenModelConfig& model_config,
             const QwenConfig& network_config )
         {
@@ -679,7 +679,7 @@ namespace Mila::Dnn
                 caller, path.string(), reader.getWeightQuantization(),
                 model_config.getWeightQuantization() );
 
-            const auto& metadata = reader.getPretrainedMetadata();
+            const auto& metadata = reader.getWeightsMetadata();
 
             if ( metadata.full_attention_interval == 0 )
             {

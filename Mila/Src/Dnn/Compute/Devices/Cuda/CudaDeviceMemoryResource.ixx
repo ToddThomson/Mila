@@ -2,11 +2,7 @@ module;
 #include <cuda_runtime.h>
 #include <memory_resource>
 #include <string>
-#include <source_location>
-#include <iostream>
-#include <sstream>
-#include <cassert>
-#include <ios>
+#include <cstdio>
 #include <cstdarg>
 #include <stdexcept>
 
@@ -98,6 +94,8 @@ namespace Mila::Dnn::Compute
             cudaError_t result = cudaMalloc( &ptr, bytes );
 
             if (result != cudaSuccess) {
+                cudaDiscardLastError();
+
                 std::string errorMsg = "CUDA device memory allocation failed: " +
                     std::string( cudaGetErrorString( result ) ) +
                     " (size: " + std::to_string( bytes ) + " bytes)" +
@@ -110,39 +108,30 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Deallocates CUDA device memory.
+         * @brief Deallocates CUDA device memory on this resource's device.
          *
-         * Ensures deallocation occurs on the correct device and provides
-         * detailed error information if deallocation fails.
+         * Never throws: it runs from destructors, including while an allocation failure is
+         * propagating, where a throw ends the process. A failed cudaFree is reported on stderr.
          *
          * @param ptr Pointer to device memory to deallocate
          *
          * The size and alignment arguments are unused (kept for the memory-resource
          * interface) and therefore intentionally unnamed.
          */
-        void do_deallocate(void* ptr, std::size_t, std::size_t) override {
-            if (!ptr) return;
+        void do_deallocate( void* ptr, std::size_t, std::size_t ) noexcept override
+        {
+            if ( !ptr )
+                return;
 
-            assert(ptr != nullptr);
-            
-            Cuda::setCurrentDevice( device_id_ );
+            // Cuda::setCurrentDevice throws when the device cannot be selected.
+            static_cast<void>( cudaSetDevice( device_id_ ) );
 
-            // Check for any previous CUDA errors before deallocation
-            cudaCheckLastError(std::source_location::current());
+            const cudaError_t status = cudaFree( ptr );
 
-            cudaError_t status = cudaFree(ptr);
-            try {
-                cudaCheckStatus(status, std::source_location::current());
-            }
-            catch (const CudaError& e)
+            if ( status != cudaSuccess )
             {
-                // REVIEW: For Milestone Alpha.6
-                std::ostringstream ss;
-                ss << e.what() << " (ptr: 0x" << std::hex << reinterpret_cast<std::uintptr_t>(ptr) << ")"
-                    << " (device: " << device_id_ << ")";
-                std::cerr << ss.str() << std::endl;
-
-                throw;
+                std::fprintf( stderr, "CudaDeviceMemoryResource: cudaFree failed on device %d: %s\n",
+                    device_id_, cudaGetErrorString( status ) );
             }
         }
 

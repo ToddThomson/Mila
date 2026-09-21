@@ -277,7 +277,7 @@ namespace Mila::Bindings
          *        Pre-quantized weights must be loaded through fromStore, which reads what
          *        their bytes already are.
          */
-        static std::unique_ptr<LlamaSession> fromPretrained(
+        static std::unique_ptr<LlamaSession> load(
             const std::string& path, int64_t context_length, int device_index,
             const std::string& quantization );
 
@@ -379,6 +379,9 @@ namespace Mila::Bindings
 
         /// Paths the platform refused to delete, most often a blob a live process still maps.
         std::vector<std::string> retained;
+
+        /// Record files that could not be read; while any exist, no blob is deleted.
+        std::vector<std::string> unreadable_records;
     };
 
     /**
@@ -520,7 +523,7 @@ namespace Mila::Bindings
          *        Defaults to FP4 at the binding layer rather than to none: a BF16 Gemma 4
          *        12B needs ~24 GB and would OOM at load on the cards this targets.
          */
-        static std::unique_ptr<GemmaSession> fromPretrained(
+        static std::unique_ptr<GemmaSession> load(
             const std::string& path, int64_t context_length, int device_index,
             const std::string& quantization );
 
@@ -563,7 +566,7 @@ namespace Mila::Bindings
          *        "cb2-3" names a plan fitted offline, so it selects packed
          *        weights' format rather than applying anything on the way in.
          */
-        static std::unique_ptr<QwenSession> fromPretrained(
+        static std::unique_ptr<QwenSession> load(
             const std::string& path, int64_t context_length, int device_index,
             const std::string& quantization );
 

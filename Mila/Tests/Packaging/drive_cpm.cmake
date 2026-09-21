@@ -29,7 +29,7 @@ file(REMOVE_RECURSE "${consumer_build}")
 # clean downstream consumer can clone + build the published tag, so a persisted Mila clone
 # must never be reused -- in particular a dirty/partial clone left by a prior fail-closed
 # run (tag not yet pushed) would otherwise be picked up and break with a missing Mila::Mila
-# target. The rest of the CPM cache (cutlass/nlohmann/miniz: stable, expensive to re-clone)
+# target. The rest of the CPM cache (nlohmann/miniz/curl: stable, keyed by version)
 # is intentionally kept.
 if(CPM_SOURCE_CACHE)
     file(REMOVE_RECURSE "${CPM_SOURCE_CACHE}/mila")

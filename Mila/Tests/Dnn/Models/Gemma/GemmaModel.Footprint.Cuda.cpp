@@ -8,13 +8,17 @@
  * MemoryStats cannot: allocator rounding, and the grow-on-demand execution-context
  * scratch that no build-time contract observes.
  *
- * Gate B is therefore NOT an equality test. Its job is to bound and attribute the
- * residual: the prediction must not exceed what was actually consumed (an overestimate
- * refuses configurations that fit), and the shortfall must stay within a stated margin
- * so a regression in the unmodelled terms is visible rather than absorbed.
+ * Gate B is therefore NOT an equality test. Its job is the decision a user depends on:
+ * given the VRAM this card actually has free, Mila says whether the model loads, and that
+ * answer has to be right. The prediction must not exceed what was consumed (an overestimate
+ * refuses configurations that fit), and a load Mila promised must not fail or exhaust the
+ * device.
+ *
+ * The card's circumstances are an input to that decision rather than noise, so this needs no
+ * particular machine and runs wherever Mila does.
  *
  * Requires a real checkpoint and is skipped without one, so it does not run in CI.
- * See Specifications/MemoryFootprint.md section 7.
+ * See Specifications/MemoryFootprint.md sections 7 and 11.6.
  */
 
 #include <gtest/gtest.h>
@@ -25,6 +29,10 @@
 #include <format>
 #include <iostream>
 #include <memory>
+#include <optional>
+#include <string>
+
+#include "Common/CudaDeviceScope.h"
 
 import Mila;
 
@@ -53,6 +61,16 @@ namespace Mila::Tests::Dnn::Models
             }
 
             return free_bytes;
+        }
+
+        std::size_t freeDeviceBytesOn( int ordinal )
+        {
+            if ( cudaSetDevice( ordinal ) != cudaSuccess )
+            {
+                return 0;
+            }
+
+            return freeDeviceBytes();
         }
 
         double toGiB( std::size_t bytes )
@@ -87,10 +105,14 @@ namespace Mila::Tests::Dnn::Models
     // is already close to full -- which is precisely where the question gets asked.
     TEST_F( GemmaFootprintCudaTests, GetRequiredMemory_AllocatesNothing )
     {
+        // The prediction's default device, named: a device left current by another test would
+        // otherwise be the one read.
+        const Common::ScopedCurrentCudaDevice current( 0 );
+
         // Force CUDA context creation first, or its one-time cost lands inside the window.
         cudaFree( nullptr );
 
-        const std::size_t free_before = freeDeviceBytes();
+        const std::size_t free_before = freeDeviceBytesOn( 0 );
 
         GemmaModelConfig config;
         config.withContextLength( 8192 )
@@ -100,7 +122,7 @@ namespace Mila::Tests::Dnn::Models
             GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory(
                 checkpoint_, config );
 
-        const std::size_t free_after = freeDeviceBytes();
+        const std::size_t free_after = freeDeviceBytesOn( 0 );
 
         EXPECT_GT( predicted.totalDeviceBytes(), 0u );
         EXPECT_EQ( free_before, free_after )
@@ -140,13 +162,11 @@ namespace Mila::Tests::Dnn::Models
             toGiB( large.totalDeviceBytes() ) );
     }
 
-    // The chunk the prediction resolves on its way to sizing the activation workspaces, and
-    // used to discard. `context_length: "auto"` bounds on it, because memory alone cannot say
-    // that the largest context which fits is one where prefill has walked down toward its floor.
-    //
-    // Device-independent by construction: the budget is a fixed constant less the global KV
-    // term, both computed from the checkpoint's geometry, so these numbers do not depend on
-    // which card runs the test. See Specifications/ChatConfiguration.md section 6.
+    // The chunk the rule picks against the device's free memory, reported beside the memory
+    // (MemoryFootprint.md section 11). What it picks depends on the card and on what else is
+    // resident, so this holds the rule's properties rather than a chunk: it is no larger than the
+    // context permits, a pick that fits keeps the prediction within the memory that was free, and a
+    // longer context never buys a larger chunk.
     TEST_F( GemmaFootprintCudaTests, GetDeploymentFootprint_ReportsPrefillChunkAndAgreesOnMemory )
     {
         auto footprintAt = []( const fs::path& path, dim_t context_length )
@@ -163,6 +183,11 @@ namespace Mila::Tests::Dnn::Models
         config.withContextLength( 8192 )
             .withWeightQuantization( WeightQuantization::FP4 );
 
+        const Common::ScopedCurrentCudaDevice current( 0 );
+
+        cudaFree( nullptr );
+
+        const std::size_t free_before = freeDeviceBytesOn( 0 );
         const DeploymentFootprint short_context = footprintAt( checkpoint_, 8192 );
         const MemoryStats memory_only =
             GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory(
@@ -175,14 +200,16 @@ namespace Mila::Tests::Dnn::Models
         EXPECT_LE( short_context.prefill.chunk_rows,
                    short_context.prefill.unconstrained_chunk_rows );
 
-        // The property auto depends on. Without it the throughput bound would be a constant and
-        // the scan would have nothing to find.
+        if ( short_context.prefill.fits_available_memory )
+        {
+            EXPECT_LE( short_context.memory.totalDeviceBytes(), free_before )
+                << "a chunk that fits must keep the prediction within the free memory";
+        }
+
         const DeploymentFootprint long_context = footprintAt( checkpoint_, 131072 );
 
-        EXPECT_LT( long_context.prefill.chunk_rows, short_context.prefill.chunk_rows )
-            << "the prefill chunk must walk down as the KV cache eats the activation budget";
-        EXPECT_TRUE( long_context.prefill.isBudgetConstrained() )
-            << "at the trained maximum the chunk is expected to be budget-bound";
+        EXPECT_LE( long_context.prefill.chunk_rows, short_context.prefill.chunk_rows )
+            << "a longer context must never buy a larger prefill chunk";
 
         std::cout << std::format(
             "[prefill] ctx 8192   chunk {} of {} rows\n"
@@ -191,12 +218,27 @@ namespace Mila::Tests::Dnn::Models
             long_context.prefill.chunk_rows, long_context.prefill.unconstrained_chunk_rows );
     }
 
-    // Gate B proper. Predict, then actually load, and hold the two against the driver's
-    // own accounting. The printed residual is the deliverable as much as the assertions:
-    // it is the size of everything a build-time contract cannot see.
-    TEST_F( GemmaFootprintCudaTests, GetRequiredMemory_BoundsActualConsumption )
+    // Gate B proper. Predict, then actually load, and hold the two against the driver's own
+    // accounting.
+    //
+    // The question is the one a user has: given the VRAM this card actually has free, does Mila
+    // decide correctly whether the model loads? The card's own circumstances -- a desktop on it,
+    // another process holding memory -- are an INPUT to that decision, not noise to be excluded,
+    // so this runs on whatever device is current and needs no particular machine.
+    //
+    // fits_available_memory is the predicate behind the warning GemmaTransformer emits at
+    // resolvePrefillChunkSize: false means even the floor chunk does not fit and Mila proceeded
+    // anyway, which MemoryFootprint.md 11.6 chose over refusing. So a load that fails after Mila
+    // warned is the documented behaviour; one that fails after Mila said it fits is a defect.
+    TEST_F( GemmaFootprintCudaTests, PredictedFitDecidesWhetherTheModelLoads )
     {
         constexpr dim_t kContextLength = 8192;
+
+        int ordinal = 0;
+
+        ASSERT_EQ( cudaGetDevice( &ordinal ), cudaSuccess );
+
+        const DeviceId device{ DeviceType::Cuda, ordinal };
 
         cudaFree( nullptr );
 
@@ -204,18 +246,55 @@ namespace Mila::Tests::Dnn::Models
         config.withContextLength( kContextLength )
             .withWeightQuantization( WeightQuantization::FP4 );
 
+        // Mila's verdict, taken before the load so the load cannot colour it.
+        const DeploymentFootprint footprint =
+            GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getDeploymentFootprint(
+                checkpoint_, config, device );
+
+        const bool predicted_to_fit = footprint.prefill.fits_available_memory;
+
         const MemoryStats predicted =
             GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory(
-                checkpoint_, config );
+                checkpoint_, config, device );
 
-        const std::size_t free_before = freeDeviceBytes();
+        const std::size_t free_before = freeDeviceBytesOn( ordinal );
 
-        auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
-            checkpoint_, config );
+        std::unique_ptr<GemmaModel<DeviceType::Cuda, TensorDataType::BF16>> model;
+        std::string load_failure;
 
-        ASSERT_NE( model, nullptr );
+        try
+        {
+            model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
+                checkpoint_, config, device );
+        }
+        catch ( const std::exception& error )
+        {
+            load_failure = error.what();
+        }
 
-        const std::size_t free_after_load = freeDeviceBytes();
+        // The decision, which is the whole point of the gate.
+        if ( !model )
+        {
+            ASSERT_FALSE( predicted_to_fit )
+                << "Mila predicted this model fits the " << free_before
+                << " bytes free on CUDA device " << ordinal << ", and the load failed: "
+                << ( load_failure.empty() ? "no exception reported" : load_failure );
+
+            GTEST_SKIP() << "the model does not fit this device and Mila said so before loading, "
+                            "which 11.6 prefers to refusing; nothing left to account for";
+        }
+
+        const std::size_t free_after_load = freeDeviceBytesOn( ordinal );
+
+        // A WDDM spill keeps the process running with the device exhausted (11.5 measured
+        // 12282/0 MiB). Surviving that way after Mila promised a fit is the same defect as
+        // failing outright, so it is held to the same line rather than passing quietly.
+        if ( predicted_to_fit )
+        {
+            EXPECT_GT( free_after_load, 0u )
+                << "the device was exhausted by a load Mila predicted would fit";
+        }
+
         const std::size_t consumed = free_before - free_after_load;
 
         const MemoryStats reported = model->getMemoryStats();
@@ -224,46 +303,44 @@ namespace Mila::Tests::Dnn::Models
             : 0;
 
         std::cout << std::format(
-            "[gate B] context {}\n"
+            "[gate B] context {}, CUDA device {}, {:.3f} GiB free before load, Mila predicted {}\n"
             "  predicted (getRequiredMemory) {:.3f} GiB\n"
             "  reported  (getMemoryStats)    {:.3f} GiB\n"
             "  consumed  (cudaMemGetInfo)    {:.3f} GiB\n"
             "  residual  (unmodelled)        {:.3f} GiB  ({:.1f}% of consumed)\n",
-            kContextLength,
+            kContextLength, ordinal, toGiB( free_before ),
+            predicted_to_fit ? "it fits" : "it does NOT fit",
             toGiB( predicted.totalDeviceBytes() ),
             toGiB( reported.totalDeviceBytes() ),
             toGiB( consumed ),
             toGiB( residual ),
             consumed > 0 ? ( 100.0 * static_cast<double>( residual ) / consumed ) : 0.0 );
 
-        // Attribute the residual. Scratch is the largest term a build-time contract cannot
-        // see: it is allocated lazily during forward passes, sized by whichever operation
-        // needed the most, and never shrunk. Whatever is left after subtracting it is
-        // allocator rounding plus anything the load path leaves behind.
-        const std::size_t scratch = model->getScratchHighWaterBytes();
-
-        std::cout << std::format(
-            "  of which scratch high-water   {:.3f} GiB  ({:.1f}% of the residual)\n"
-            "  unattributed remainder        {:.3f} GiB\n",
-            toGiB( scratch ),
-            residual > 0 ? ( 100.0 * static_cast<double>( scratch ) / residual ) : 0.0,
-            toGiB( residual > scratch ? residual - scratch : 0 ) );
+        // Scratch is reserved at build and reported, so it is inside the prediction rather than the
+        // residual.
+        std::cout << std::format( "  of which scratch (reported)   {:.3f} GiB\n", toGiB( reported.device_scratch_bytes ) );
 
         // The prediction is an accounting of the same allocations getMemoryStats counts, so
         // after a real build they must still agree exactly -- Gate A, restated on a real
         // model rather than a synthetic config.
         EXPECT_EQ( predicted.device_parameter_bytes, reported.device_parameter_bytes );
         EXPECT_EQ( predicted.device_state_bytes, reported.device_state_bytes );
+        EXPECT_EQ( predicted.device_scratch_bytes, reported.device_scratch_bytes );
 
         // Never promise more room than exists.
         EXPECT_LE( predicted.totalDeviceBytes(), consumed )
             << "prediction exceeded actual consumption -- an overestimate refuses "
                "configurations that fit";
 
-        // Bound the unmodelled terms. Generous by design: this is not an equality test,
-        // and the number that matters is the one printed above. Tighten only when the
-        // residual has been attributed.
-        EXPECT_LT( residual, consumed / 4 )
-            << "unmodelled memory exceeded 25% of what was consumed";
+        // The residual is reported, not bounded. It is the size of everything a build-time
+        // contract cannot see, and on a card that drives a display it also carries the Windows
+        // budget cut -- 354 to 1180 MiB across ten runs on the RTX 4070 against 6 to 20 MiB on the
+        // headless RTX 5060 Ti, with Mila unchanged (11.5). An absolute bound on it is therefore a
+        // statement about the machine, and holds only where the machine is quiet.
+        //
+        // What that bound was guarding -- drift in the unmodelled terms -- is not covered here.
+        // See Mila/Issues/Vnext.md.
+        std::cout << std::format(
+            "  the residual above is reported, not asserted; see MemoryFootprint.md 11.5\n" );
     }
 }

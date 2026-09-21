@@ -74,6 +74,7 @@ import Dnn.LanguageModelNetwork;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.ModelType;
+import Dnn.RuntimeMode;
 import Dnn.Components.TokenEmbedding;
 import Dnn.Components.Linear;
 import Dnn.Components.RmsNorm;
@@ -81,10 +82,12 @@ import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.Weight.PrecisionPlan;
 import Dnn.Quantization.KvCache.Policy;
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceType;
 import Compute.DeviceId;
 import Compute.DeviceTypeTraits;
 import Compute.GqaState;
+import Compute.GqaWorkspace;
 import Compute.CpuMemoryResource;
 #ifdef MILA_HAS_CUDA
 import Compute.CudaPinnedMemoryResource;
@@ -94,7 +97,7 @@ import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Metadata;
-import Serialization.PretrainedReader;
+import Serialization.WeightsReader;
 import Serialization.Tensor;
 
 namespace Mila::Dnn
@@ -105,32 +108,9 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::KvCache;
 
     // The chunk rungs, largest first, and the floor below which the GEMM M dimension is
-    // tensor-core-hostile on top of the weight re-read. Inherited from Gemma; the row-cost
-    // model below is Qwen's own, so the rung this picks already reflects Qwen's geometry.
+    // tensor-core-hostile on top of the weight re-read. Inherited from Gemma.
     inline constexpr dim_t kQwenPrefillChunkRungs[] = { 1024, 512, 256, 128, 64 };
     inline constexpr dim_t kQwenPrefillChunkFloor = 64;
-
-    // Activation budget for one prefill pass, MEASURED on the 12 GiB card against the packed
-    // 2.90-bit artifact (2026-08-22) rather than inherited. Gemma's 1536 MiB does not fit
-    // this model, and the reason is not the budget's own size: a 27B body is 8.69 GiB of
-    // resident parameters, so the whole activation allowance has to come out of what a
-    // 12 GiB card has left after that, which is under 2 GiB once the KV cache and the CUDA
-    // context are paid for.
-    //
-    //   budget   512     2048    4096    8192    16384   (device GiB, 10.85 free)
-    //   1536     9.94    11.02   11.35   10.84   11.85   -- overruns from 2048 up
-    //   1024     9.94    11.02   11.35   10.25   10.34   -- still overruns 2048 and 4096
-    //    512     9.94    10.12    9.87    9.81   10.34   -- fits the whole ladder
-    //
-    // The overrun at SHORT context is the counter-intuitive part and is what a bigger budget
-    // cannot fix: with little KV to pay for, a generous cap lets the ladder take the 1024-row
-    // rung, and 1024 rows of a 27B geometry is the thing that does not fit. The cap has to be
-    // small enough that the largest affordable rung is affordable in TOTAL, not just against
-    // the cap.
-    //
-    // 32K remains out of reach at 11.50 GiB, which is what Section 5 already says: the stretch
-    // needs the FP8 KV policy, not a bigger activation allowance.
-    inline constexpr dim_t kQwenPrefillActivationBudgetBytes = dim_t{ 512 } * 1024 * 1024;
 
     /**
      * @brief Qwen 3.8 transformer (decoder-only) for autoregressive inference.
@@ -442,22 +422,47 @@ namespace Mila::Dnn
 
         /**
          * @brief What build( context ) would allocate for the whole model, without allocating.
+         *
+         * At the chunk the rule picks against the device's free memory now, which is the chunk a
+         * build at this moment would take. See Specifications/MemoryFootprint.md section 11.
          */
         MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            return requiredMemoryAtChunk(
+                context, prefillChunkingFor( context, readFreeDeviceBytes( this->getDeviceId() ) ).chunk_rows );
+        }
+
+        /**
+         * @brief The prefill chunk this context length would use, and the largest the context permits.
+         *
+         * The largest rung whose whole predicted footprint fits the device's free memory, read now.
+         * Allocates nothing, so a caller may ask before the network is built; two calls made at
+         * different moments can disagree. See Specifications/MemoryFootprint.md section 11.
+         */
+        PrefillChunking prefillChunking( dim_t B, dim_t T_ctx ) const
+        {
+            const BuildContext context( shape_t{ B, T_ctx }, RuntimeMode::Inference, false );
+
+            return prefillChunkingFor( context, readFreeDeviceBytes( this->getDeviceId() ) );
+        }
+
+    private:
+
+        /**
+         * @brief What build( context ) would allocate with the given prefill chunk.
+         */
+        MemoryStats requiredMemoryAtChunk( const BuildContext& context, dim_t prefill_chunk ) const
         {
             const auto& input_shape = context.inputShape();
             const dim_t B = input_shape[ 0 ];
             const dim_t T = input_shape[ 1 ];
 
-            // The chunk must be resolved before recursing: it sizes every block's activation
-            // scratch and the pooled workspace below.
-            const dim_t prefill_chunk = resolvePrefillChunkSize( B, T );
-
             BuildContext block_context =
                 BuildContext( shape_t{ B, T, config_.getModelDim() },
                     context.getRuntimeMode(), context.shouldInitializeParameters() )
                 .withPrefillSize( prefill_chunk )
-                .withInstalledOutput( context.isInferenceMode() );
+                .withInstalledOutput( context.isInferenceMode() )
+                .withFusedDecode( context.isInferenceMode() );
 
             const shape_t final_shape = context.isInferenceMode()
                 ? shape_t{ B, resolveLanguageModelHeadPositions( prefill_chunk ), config_.getModelDim() }
@@ -493,35 +498,38 @@ namespace Mila::Dnn
             stats += this->template getComponentAs<LmHeadLinearType>( n + ".lm_head" )
                 ->getRequiredMemory( final_context );
 
+            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+
             if ( context.isInferenceMode() )
             {
-                stats.device_state_bytes += blockWorkspaceBytes( B, prefill_chunk );
-                stats.device_state_bytes += gqaWorkspaceBytes( B, T, prefill_chunk );
+                stats.device_state_bytes += blockWorkspaceBytes( B, prefill_chunk, granularity );
+                stats.device_state_bytes += gqaWorkspaceBytes( B, T, prefill_chunk, granularity );
 
                 if ( hasDeltaNetLayers() )
-                    stats.device_state_bytes += deltaNetWorkspaceBytes( B, prefill_chunk );
+                    stats.device_state_bytes += deltaNetWorkspaceBytes( B, prefill_chunk, granularity );
             }
 
             // RoPE cos/sin caches are process-wide, deduplicated by RopeCacheRegistry on
-            // (theta, max_seq_len, head_dim). Every block above reported one, but Qwen has a
+            // (theta, context length, head_dim). Every block above reported one, but Qwen has a
             // single base and a single head width, so exactly one is ever allocated.
             stats.device_state_bytes -=
                 std::max<dim_t>( config_.getNumFullAttentionLayers() - 1, 0 )
-                * ropeCacheBytes( config_.getHeadDim() );
+                * ropeCacheBytes( config_.getHeadDim(), T, granularity );
 
             return stats;
         }
 
         /**
-         * @brief The prefill chunk this context length would use, and the one it could have used.
+         * @brief The largest rung whose whole predicted footprint fits `free_bytes`.
          *
-         * Pure arithmetic over the config: no device is touched and nothing is allocated, so
-         * a caller may ask before the network is built -- which is the point, since choosing
-         * a context length by memory alone can land on one where the chunk has walked down
-         * to its floor.
+         * A reading of zero means the device could not say, and takes the largest rung the context
+         * permits. When even the floor does not fit, the floor is returned and marked as not
+         * fitting: the build warns, a prediction does not.
          */
-        PrefillChunking prefillChunking( dim_t B, dim_t T_ctx ) const
+        PrefillChunking prefillChunkingFor( const BuildContext& context, std::size_t free_bytes ) const
         {
+            const dim_t T_ctx = context.inputShape()[ 1 ];
+
             PrefillChunking chunking;
 
             // Short-context build: the whole context is a single chunk, and no rung applies.
@@ -533,22 +541,17 @@ namespace Mila::Dnn
                 return chunking;
             }
 
-            const dim_t row_cost = computeChunkRowCostBytes( B, T_ctx );
-            const dim_t kv_bytes = prefillKvBytes( B, T_ctx );
-            const dim_t budget = ( kQwenPrefillActivationBudgetBytes > kv_bytes )
-                ? ( kQwenPrefillActivationBudgetBytes - kv_bytes )
-                : dim_t{ 0 };
-
             for ( dim_t candidate : kQwenPrefillChunkRungs )
             {
                 if ( candidate > T_ctx )
                     continue;
 
-                // The first rung the context admits at all, budget aside.
+                // The first rung the context admits at all, memory aside.
                 if ( chunking.unconstrained_chunk_rows == 0 )
                     chunking.unconstrained_chunk_rows = candidate;
 
-                if ( row_cost * candidate <= budget )
+                if ( free_bytes == 0
+                    || requiredMemoryAtChunk( context, candidate ).totalDeviceBytes() <= free_bytes )
                 {
                     chunking.chunk_rows = candidate;
 
@@ -556,13 +559,13 @@ namespace Mila::Dnn
                 }
             }
 
-            // Nothing fit, including the floor. The floor is used regardless -- the caller
-            // that builds warns, the caller that is choosing a context reads the flag.
             chunking.chunk_rows = kQwenPrefillChunkFloor;
-            chunking.fits_activation_budget = false;
+            chunking.fits_available_memory = false;
 
             return chunking;
         }
+
+    public:
 
         ModelType getModelType() const
         {
@@ -586,7 +589,7 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-        void loadParameters( PretrainedModelReader& reader )
+        void loadParameters( WeightsReader& reader )
         {
             const int device_index = this->getExecutionContext()->getDeviceId().index;
 
@@ -622,6 +625,10 @@ namespace Mila::Dnn
                 this->getExecutionContext()->synchronize();
             }
 
+            // Every tensor has landed, so the buffer full-precision weights were fitted through is
+            // not held for the model's lifetime.
+            this->getExecutionContext()->releaseLoadStaging();
+
             // No tying step: Qwen's tables are independent and both arrive from the file.
         }
 
@@ -635,14 +642,15 @@ namespace Mila::Dnn
             const dim_t B = input_shape[ 0 ];
             const dim_t T = input_shape[ 1 ];
 
-            prefill_chunk_size_ = resolvePrefillChunkSize( B, T );
+            prefill_chunk_size_ = resolvePrefillChunkSize( context );
 
             // Blocks need the full context length so the attention can size its KV cache;
             // the block handles the prefill/decode split internally.
             BuildContext block_context =
                 BuildContext( shape_t{ B, T, config_.getModelDim() },
                     context.getRuntimeMode(), context.shouldInitializeParameters() )
-                .withPrefillSize( prefill_chunk_size_ );
+                .withPrefillSize( prefill_chunk_size_ )
+                .withFusedDecode( context.isInferenceMode() );
 
             // Inference: final_rmsnorm and lm_head process the configured head positions,
             // which is one row for generation. MUST agree with getRequiredMemory().
@@ -682,9 +690,8 @@ namespace Mila::Dnn
                     {
                         // The full-attention layers are unbounded, so the flash decision is
                         // one number for the whole stack and MUST agree with
-                        // prefillScoreWidth() below.
+                        // prefillScoreWidth() below. Fused decode is declared on block_context.
                         block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
-                        block->setUseFlashDecode( true );
                     }
 
                     blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
@@ -713,6 +720,10 @@ namespace Mila::Dnn
 
             if ( context.isInferenceMode() )
                 allocateAndWireGqaWorkspace( B, T );
+
+            // Every operation shares the context's one scratch buffer. Reserving it at the largest
+            // request, the figure the footprint reports, is what puts it in the footprint.
+            this->getExecutionContext()->reserveScratch( this->getMemoryStats().device_scratch_bytes );
 
             normalized_ptr_ = nullptr;
             logits_ptr_ = nullptr;
@@ -758,7 +769,7 @@ namespace Mila::Dnn
 
         // Shared GQA transient workspace -- inference only, owned here, shared across all
         // attention blocks (exactly one layer is live at a time on the sequential path).
-        QwenGqaWorkspace<TDeviceType, TPrecision> gqa_workspace_{};
+        GqaWorkspace<TDeviceType, TPrecision> gqa_workspace_{};
 
         // Activation pointers -- valid between prefill/decode and the next call.
         TensorType* normalized_ptr_{ nullptr };
@@ -848,8 +859,8 @@ namespace Mila::Dnn
             return useFlashPrefillForContext( T_ctx ) ? dim_t{ 1 } : T_ctx;
         }
 
-        // Max slot widths, shared by the workspace allocation and the row-cost model so the
-        // two cannot drift apart.
+        // Max slot widths, shared by the workspace allocation and its footprint so the two
+        // cannot drift apart.
         struct WorkspaceWidths
         {
             dim_t model_dim;
@@ -858,11 +869,12 @@ namespace Mila::Dnn
             dim_t kv_width;
             dim_t qkv_width;
 
-            // q + gate + q_normed + attn + gated + query_gate(2x); k + v + k_normed; the six
-            // model_dim-wide stream-side slots; qkv; gate_up (2h) + ffn_act (h).
-            dim_t totalRowElements() const
+            // One entry per slot makeQwenAttentionBlockWorkspace allocates, each a separate allocation.
+            std::vector<dim_t> slotWidths() const
             {
-                return 7 * q_width + 3 * kv_width + 6 * model_dim + qkv_width + 3 * hidden_dim;
+                return { q_width, q_width, kv_width, kv_width, model_dim, qkv_width, 2 * q_width, q_width,
+                         kv_width, q_width, q_width, model_dim, model_dim, model_dim, 2 * hidden_dim,
+                         hidden_dim, model_dim, model_dim };
             }
         };
 
@@ -883,100 +895,65 @@ namespace Mila::Dnn
             return config_.getNumDeltaNetLayers() > 0;
         }
 
-        std::size_t blockWorkspaceBytes( dim_t B, dim_t prefill_chunk ) const
+        std::size_t blockWorkspaceBytes( dim_t B, dim_t prefill_chunk, std::size_t granularity ) const
         {
-            return storageBytes<TPrecision>(
-                computeWorkspaceWidths().totalRowElements() * B * prefill_chunk );
+            std::size_t bytes = 0;
+
+            for ( dim_t width : computeWorkspaceWidths().slotWidths() )
+            {
+                bytes += occupiedDeviceBytes( storageBytes<TPrecision>( B * prefill_chunk * width ), granularity );
+            }
+
+            return bytes;
         }
 
-        std::size_t deltaNetWorkspaceBytes( dim_t B, dim_t prefill_chunk ) const
+        std::size_t deltaNetWorkspaceBytes( dim_t B, dim_t prefill_chunk, std::size_t granularity ) const
         {
-            return storageBytes<TPrecision>(
-                qwenDeltaNetWorkspaceRowElements( config_ ) * B * prefill_chunk );
+            std::size_t bytes = 0;
+
+            for ( dim_t width : qwenDeltaNetWorkspaceSlotWidths( config_ ) )
+            {
+                bytes += occupiedDeviceBytes( storageBytes<TPrecision>( B * prefill_chunk * width ), granularity );
+            }
+
+            return bytes;
         }
 
-        std::size_t gqaWorkspaceBytes( dim_t B, dim_t T_ctx, dim_t prefill_chunk ) const
+        std::size_t gqaWorkspaceBytes( dim_t B, dim_t T_ctx, dim_t prefill_chunk, std::size_t granularity ) const
         {
-            const dim_t NH = config_.getNumHeads();
-            const dim_t HD = config_.getHeadDim();
-            const dim_t score_width = prefillScoreWidth( T_ctx );
-
-            const dim_t prefill_elements =
-                ( 2 * B * NH * prefill_chunk * HD )            // q_permute, v_out
-                + ( 2 * B * NH * prefill_chunk * score_width ); // preatt, att
-
-            const dim_t decode_elements =
-                ( 2 * B * NH * T_ctx )                         // preatt_decode, att_decode
-                + ( B * NH * HD );                             // v_out_decode
-
-            return storageBytes<TPrecision>( prefill_elements + decode_elements );
+            return gqaWorkspaceDeviceBytes<TPrecision>( granularity, B, config_.getNumHeads(), config_.getHeadDim(),
+                T_ctx, prefill_chunk, prefillScoreWidth( T_ctx ) );
         }
 
         /**
-         * @brief Bytes one RoPE cos/sin cache occupies for a given head width.
+         * @brief Bytes one RoPE cos/sin cache occupies for a given head width and context length.
          *
          * MUST match CudaRopeOp::getRequiredStateMemorySize -- FP32 regardless of the model
-         * precision, half the head dimension, two caches.
+         * precision, one row per context position, half the head dimension, two caches.
          */
-        std::size_t ropeCacheBytes( dim_t head_dim ) const noexcept
+        std::size_t ropeCacheBytes( dim_t head_dim, dim_t T_ctx, std::size_t granularity ) const noexcept
         {
-            const dim_t cache_elements = config_.getMaxSequenceLength() * ( head_dim / 2 );
+            const dim_t cache_elements = T_ctx * ( head_dim / 2 );
 
-            return static_cast<std::size_t>( cache_elements ) * sizeof( float ) * 2;
+            return 2 * occupiedDeviceBytes( static_cast<std::size_t>( cache_elements ) * sizeof( float ), granularity );
         }
 
-        dim_t computeChunkRowCostBytes( dim_t B, dim_t T_ctx ) const
+        // The build-time reading of the rule: the chunk a prediction reports, plus the warning. A
+        // prediction must not warn -- a scan asks at a hundred context lengths the user never chose --
+        // so the warning belongs on the path that is about to allocate.
+        dim_t resolvePrefillChunkSize( const BuildContext& context ) const
         {
-            const dim_t precision_bytes =
-                static_cast<dim_t>( TensorDataTypeTraits<TPrecision>::size_in_bytes );
-            const dim_t NH = config_.getNumHeads();
-            const dim_t HD = config_.getHeadDim();
+            const std::size_t free_bytes = readFreeDeviceBytes( this->getDeviceId() );
+            const PrefillChunking chunking = prefillChunkingFor( context, free_bytes );
 
-            const dim_t workspace_bytes =
-                computeWorkspaceWidths().totalRowElements() * B * precision_bytes;
-            const dim_t attention_bytes =
-                B * NH * ( 2 * prefillScoreWidth( T_ctx ) + 2 * HD ) * precision_bytes;
-
-            // The DeltaNet workspace scales with the chunk exactly as the attention one
-            // does, so it belongs in the cost the rung ladder is spending against.
-            const dim_t deltanet_bytes = hasDeltaNetLayers()
-                ? qwenDeltaNetWorkspaceRowElements( config_ ) * B * precision_bytes
-                : dim_t{ 0 };
-
-            return workspace_bytes + attention_bytes + deltanet_bytes;
-        }
-
-        /**
-         * @brief KV cache bytes at this context -- the term that shrinks the chunk budget.
-         *
-         * Only the full-attention layers cache, which is the property that makes a 27B model
-         * plausible on 12 GiB at all (section 3): a dense stack of this width would cost 4x.
-         * The DeltaNet layers hold a recurrent state whose size does not depend on T_ctx, so
-         * it is a constant and does not belong in a per-context budget.
-         */
-        dim_t prefillKvBytes( dim_t B, dim_t T_ctx ) const
-        {
-            const dim_t precision_bytes =
-                static_cast<dim_t>( TensorDataTypeTraits<TPrecision>::size_in_bytes );
-
-            return config_.getNumFullAttentionLayers() * 2 * B
-                * config_.getNumKVHeads() * T_ctx * config_.getHeadDim() * precision_bytes;
-        }
-
-        // The build-time reading of prefillChunking: same number, plus the warning. A
-        // prediction must not warn -- a scan asks this at a hundred context lengths the user
-        // never chose -- so the warning belongs on the path that is about to allocate.
-        dim_t resolvePrefillChunkSize( dim_t B, dim_t T_ctx ) const
-        {
-            const PrefillChunking chunking = prefillChunking( B, T_ctx );
-
-            if ( !chunking.fits_activation_budget )
+            if ( !chunking.fits_available_memory )
             {
                 Logging::Logger::warning( std::format(
-                    "QwenTransformer: the prefill chunk floor ({}) exceeds the activation budget "
-                    "(row cost {} bytes) -- this device/model combination cannot prefill efficiently",
+                    "QwenTransformer: at the smallest prefill chunk ({} rows) the model needs {} bytes of "
+                    "device memory and {} are free",
                     kQwenPrefillChunkFloor,
-                    computeChunkRowCostBytes( B, T_ctx ) ) );
+                    requiredMemoryAtChunk( context, kQwenPrefillChunkFloor ).totalDeviceBytes(),
+                    free_bytes ) );
             }
 
             return chunking.chunk_rows;
@@ -1071,10 +1048,9 @@ namespace Mila::Dnn
             // score_width MUST match the op's flash decision (set on each block above via
             // setUseFlashPrefill) or the cuBLASLt path would overflow a narrow buffer; both
             // derive from useFlashPrefillForContext(T_ctx).
-            gqa_workspace_ = makeQwenGqaWorkspace<TDeviceType, TPrecision>(
-                config_, this->getExecutionContext()->getDeviceId(), B, T_ctx,
-                prefill_chunk_size_, prefillScoreWidth( T_ctx ),
-                this->getName() + ".gqa_ws." );
+            gqa_workspace_ = makeGqaWorkspace<TDeviceType, TPrecision>(
+                this->getExecutionContext()->getDeviceId(), B, config_.getNumHeads(), config_.getHeadDim(),
+                T_ctx, prefill_chunk_size_, prefillScoreWidth( T_ctx ), this->getName() + ".gqa_ws." );
 
             const GqaState gqa_state = gqa_workspace_.state();
 

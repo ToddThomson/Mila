@@ -9,3 +9,9 @@ if(MILA_ENABLE_CUDA)
 else()
     message(STATUS "MILA_ENABLE_CUDA is OFF - skipping ProfileModel (CUDA-only profiling harness)")
 endif()
+
+# Microbenchmarks/ is deliberately NOT added here. Each file is one translation unit
+# built by hand with nvcc against architecture flags no preset carries -- notably
+# -gencode=arch=compute_120f,code=sm_120f, since bare sm_120 silently drops the family
+# suffix and ptxas then rejects every block-scaled instruction. They are run when a
+# question is asked, not on every build. See Microbenchmarks/README.md.

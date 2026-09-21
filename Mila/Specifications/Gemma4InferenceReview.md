@@ -371,6 +371,13 @@ All terms computable from `GemmaConfig` at `onBuilding` time:
 
 ### 6.4 Heuristic v2
 
+*Superseded 2026-09-15. Heuristic v2 shipped as written and is now replaced by the rule in
+MemoryFootprint.md section 11: the largest rung whose WHOLE predicted footprint -- weights, state and
+scratch, each allocation rounded as the driver rounds it -- fits the device's free memory. No
+activation budget, no row-cost model, and no safety margin: what this section's budget stood in for is
+either predicted or left to the caller. The design below is kept for why chunking is the mechanism
+(6.1) and why v1 failed (6.2).*
+
 ```
 budget = free VRAM (cudaMemGetInfo, after params + KV caches are allocated)
          - safety margin (~1 GB: cuBLASLt workspace, FP8 dequant staging,

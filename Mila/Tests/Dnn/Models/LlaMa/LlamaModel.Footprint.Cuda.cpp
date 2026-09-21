@@ -24,6 +24,9 @@
 #include <format>
 #include <iostream>
 #include <memory>
+#include <optional>
+
+#include "Common/CudaDeviceScope.h"
 
 import Mila;
 
@@ -52,6 +55,16 @@ namespace Mila::Tests::Dnn::Models
             }
 
             return free_bytes;
+        }
+
+        std::size_t freeDeviceBytesOn( int ordinal )
+        {
+            if ( cudaSetDevice( ordinal ) != cudaSuccess )
+            {
+                return 0;
+            }
+
+            return freeDeviceBytes();
         }
 
         double toGiB( std::size_t bytes )
@@ -89,13 +102,15 @@ namespace Mila::Tests::Dnn::Models
 
     TEST_F( LlamaFootprintCudaTests, GetRequiredMemory_AllocatesNothing )
     {
+        const Common::ScopedCurrentCudaDevice current( 0 );
+
         cudaFree( nullptr );
 
-        const std::size_t free_before = freeDeviceBytes();
+        const std::size_t free_before = freeDeviceBytesOn( 0 );
 
         const MemoryStats predicted = predictAt( checkpoint_, 8192, WeightQuantization::FP4 );
 
-        const std::size_t free_after = freeDeviceBytes();
+        const std::size_t free_after = freeDeviceBytesOn( 0 );
 
         EXPECT_GT( predicted.totalDeviceBytes(), 0u );
         EXPECT_EQ( free_before, free_after )
@@ -127,13 +142,8 @@ namespace Mila::Tests::Dnn::Models
             toGiB( large.device_state_bytes - small.device_state_bytes ) );
     }
 
-    // The Llama half of the prefill-chunk question. Its mechanism differs from Gemma's -- the
-    // scratch cost per chunk row carries a 2 * context_length term against a fixed cap, rather
-    // than a budget shrinking under a growing KV cache -- but the consequence is the same and is
-    // what `context_length: "auto"` bounds on: a longer context silently buys a smaller chunk.
-    //
-    // Device-independent by construction: cap and row cost both come from the checkpoint's
-    // geometry, so these numbers do not depend on which card runs the test.
+    // The Llama half of the prefill-chunk question: the same rule and the same properties as the
+    // Gemma test, since what the rule picks depends on the card and on what else is resident.
     TEST_F( LlamaFootprintCudaTests, GetDeploymentFootprint_ReportsPrefillChunkAndAgreesOnMemory )
     {
         auto footprintAt = []( const fs::path& path, dim_t context_length )
@@ -144,6 +154,11 @@ namespace Mila::Tests::Dnn::Models
                     .withWeightQuantization( WeightQuantization::FP4 ) );
         };
 
+        const Common::ScopedCurrentCudaDevice current( 0 );
+
+        cudaFree( nullptr );
+
+        const std::size_t free_before = freeDeviceBytesOn( 0 );
         const DeploymentFootprint short_context = footprintAt( checkpoint_, 8192 );
 
         EXPECT_EQ( short_context.memory.totalDeviceBytes(),
@@ -151,15 +166,19 @@ namespace Mila::Tests::Dnn::Models
             << "the two entry points must answer from the same arithmetic";
 
         EXPECT_GT( short_context.prefill.chunk_rows, 0 );
-        EXPECT_FALSE( short_context.prefill.isBudgetConstrained() )
-            << "8192 is expected to hold the top rung on this checkpoint";
+        EXPECT_LE( short_context.prefill.chunk_rows,
+                   short_context.prefill.unconstrained_chunk_rows );
+
+        if ( short_context.prefill.fits_available_memory )
+        {
+            EXPECT_LE( short_context.memory.totalDeviceBytes(), free_before )
+                << "a chunk that fits must keep the prediction within the free memory";
+        }
 
         const DeploymentFootprint long_context = footprintAt( checkpoint_, 131072 );
 
-        EXPECT_LT( long_context.prefill.chunk_rows, short_context.prefill.chunk_rows )
-            << "the prefill chunk must walk down as context grows";
-        EXPECT_TRUE( long_context.prefill.isBudgetConstrained() )
-            << "at the trained maximum the chunk is expected to be cap-bound";
+        EXPECT_LE( long_context.prefill.chunk_rows, short_context.prefill.chunk_rows )
+            << "a longer context must never buy a larger prefill chunk";
 
         std::cout << std::format(
             "[prefill] ctx 8192   chunk {} of {} rows\n"
@@ -207,23 +226,36 @@ namespace Mila::Tests::Dnn::Models
             << "FP4 weights must be smaller than BF16 weights";
     }
 
+    // Runs on whatever device is current: the card's circumstances are an input to the question,
+    // not noise to select around. See GemmaModel.Footprint.Cuda.cpp.
     TEST_F( LlamaFootprintCudaTests, GetRequiredMemory_BoundsActualConsumption )
     {
         constexpr dim_t kContextLength = 8192;
 
+        int ordinal = 0;
+        ASSERT_EQ( cudaGetDevice( &ordinal ), cudaSuccess );
+        const DeviceId device{ DeviceType::Cuda, ordinal };
+
+        const Common::ScopedCurrentCudaDevice current( ordinal );
+
+        ASSERT_TRUE( current.selected() );
+
         cudaFree( nullptr );
 
-        const MemoryStats predicted = predictAt( checkpoint_, kContextLength, WeightQuantization::FP4 );
+        const LlamaModelConfig config =
+            LlamaModelConfig( kContextLength ).withWeightQuantization( WeightQuantization::FP4 );
 
-        const std::size_t free_before = freeDeviceBytes();
+        const MemoryStats predicted =
+            LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory( checkpoint_, config, device );
 
-        auto model = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
-            checkpoint_,
-            LlamaModelConfig( kContextLength ).withWeightQuantization( WeightQuantization::FP4 ) );
+        const std::size_t free_before = freeDeviceBytesOn( ordinal );
+
+        auto model = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
+            checkpoint_, config, device );
 
         ASSERT_NE( model, nullptr );
 
-        const std::size_t free_after_load = freeDeviceBytes();
+        const std::size_t free_after_load = freeDeviceBytesOn( ordinal );
         const std::size_t consumed = free_before - free_after_load;
 
         const MemoryStats reported = model->getMemoryStats();
@@ -232,39 +264,34 @@ namespace Mila::Tests::Dnn::Models
             : 0;
 
         std::cout << std::format(
-            "[gate B] context {}\n"
+            "[gate B] context {}, CUDA device {}\n"
             "  predicted (getRequiredMemory) {:.3f} GiB\n"
             "  reported  (getMemoryStats)    {:.3f} GiB\n"
             "  consumed  (cudaMemGetInfo)    {:.3f} GiB\n"
             "  residual  (unmodelled)        {:.3f} GiB  ({:.1f}% of consumed)\n",
-            kContextLength,
+            kContextLength, ordinal,
             toGiB( predicted.totalDeviceBytes() ),
             toGiB( reported.totalDeviceBytes() ),
             toGiB( consumed ),
             toGiB( residual ),
             consumed > 0 ? ( 100.0 * static_cast<double>( residual ) / consumed ) : 0.0 );
 
-        // Attribute the residual. Scratch is the largest term a build-time contract cannot
-        // see: it is allocated lazily during forward passes, sized by whichever operation
-        // needed the most, and never shrunk. Whatever is left after subtracting it is
-        // allocator rounding plus anything the load path leaves behind.
-        const std::size_t scratch = model->getScratchHighWaterBytes();
-
-        std::cout << std::format(
-            "  of which scratch high-water   {:.3f} GiB  ({:.1f}% of the residual)\n"
-            "  unattributed remainder        {:.3f} GiB\n",
-            toGiB( scratch ),
-            residual > 0 ? ( 100.0 * static_cast<double>( scratch ) / residual ) : 0.0,
-            toGiB( residual > scratch ? residual - scratch : 0 ) );
+        // Scratch is reserved at build and reported, so it is inside the prediction rather than the
+        // residual.
+        std::cout << std::format( "  of which scratch (reported)   {:.3f} GiB\n", toGiB( reported.device_scratch_bytes ) );
 
         EXPECT_EQ( predicted.device_parameter_bytes, reported.device_parameter_bytes );
         EXPECT_EQ( predicted.device_state_bytes, reported.device_state_bytes );
+        EXPECT_EQ( predicted.device_scratch_bytes, reported.device_scratch_bytes );
 
         EXPECT_LE( predicted.totalDeviceBytes(), consumed )
             << "prediction exceeded actual consumption -- an overestimate refuses "
                "configurations that fit";
 
-        EXPECT_LT( residual, consumed / 4 )
-            << "unmodelled memory exceeded 25% of what was consumed";
+        // Reported, not bounded. An absolute bound on the residual is a statement about the
+        // machine: it carries the Windows budget cut on a card that drives a display, measured at
+        // 321 and 369 MiB here against 21 MiB on the headless card (MemoryFootprint.md 11.5).
+        // Drift in the unmodelled terms is tracked in Mila/Issues/Vnext.md instead.
+        std::cout << "  the residual above is reported, not asserted; see MemoryFootprint.md 11.5\n";
     }
 }

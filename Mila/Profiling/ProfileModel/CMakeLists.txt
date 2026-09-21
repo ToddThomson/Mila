@@ -24,6 +24,14 @@ set_target_properties( ProfileModel PROPERTIES
 set( MODELS_DIR "${MILA_DATA_DIR}/Models" )
 target_compile_definitions( ProfileModel PRIVATE MODELS_DIR="${MODELS_DIR}" )
 
+# ProfileModel.ixx loads every family at every quantization in one translation unit, and
+# Gemma instantiates a dense and a routed (mixture-of-experts) transformer for each, which
+# crosses MSVC's 65535-section object limit (C1128). /bigobj widens the COFF section count;
+# it changes no code generation. MSVC-only: clang and gcc have no such limit.
+if(MSVC)
+    target_compile_options( ProfileModel PRIVATE /bigobj )
+endif()
+
 # Mila provides the model/tokenizer modules and the Profiling.NvtxRange module;
 # CUDA::cudart provides cudaProfilerStart/Stop (cuda_profiler_api.h);
 # CUDA::nvtx3 backs the NVTX ranges.

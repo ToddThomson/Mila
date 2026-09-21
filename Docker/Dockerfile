@@ -26,17 +26,16 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   ninja      -- the C++23 module-dyndep generator the build requires
 #   ccache     -- persists .cu object codegen across runs (CUDA launcher only;
 #                 ccache's module-unit support is unreliable, so C++ is unwrapped)
-#   python3    -- CUTLASS's configure needs find_package(Python3 REQUIRED); also the
-#                 interpreter the mila binding is built against + MIS runs under
+#   python3    -- the interpreter the mila binding is built against + MIS runs under
 #   python3-venv -- so mila-build-mis can create the MIS server venv (Debian/Ubuntu
 #                 split venv/ensurepip out of the base python3 package)
 #   libssl-dev -- curl's configure does find_package(OpenSSL) and fails the whole build
 #                 without it. This image builds Chat at the MILA_ENABLE_LIBCURL default
 #                 (ON), unlike Dockerfile.wheel which omits OpenSSL deliberately because
 #                 the wheel forces it OFF. Chat in the container needs a real transport:
-#                 /install pulls into the store on the bind mount.
+#                 /model install pulls into the store on the bind mount.
 # gdb/less are dev-shell niceties. Dependencies (GoogleTest, nlohmann_json, miniz,
-# CUTLASS) are fetched by CPM/FetchContent at configure time and are not installed.
+# curl, pybind11) are fetched by CPM/FetchContent at configure time and are not installed.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -61,6 +60,17 @@ RUN apt-get update \
 RUN wget -q https://github.com/Kitware/CMake/releases/download/v4.2.3/cmake-4.2.3-linux-x86_64.tar.gz \
     && tar --strip-components=1 -xz -C /usr/local -f cmake-4.2.3-linux-x86_64.tar.gz \
     && rm -f cmake-4.2.3-linux-x86_64.tar.gz
+
+# clang-21 installs only versioned names, so the generic `clang`/`clang++` the linux-clang-*
+# presets name would not exist, and a bare `cmake` would pick the distro's c++ (GCC 15.2, which
+# cannot compile the module units). The alternatives give the presets their names; CC/CXX make
+# clang the default for any configure that names no compiler, and CUDAHOSTCXX keeps nvcc on gcc-15.
+RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 100 \
+    && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-21 100
+
+ENV CC=clang
+ENV CXX=clang++
+ENV CUDAHOSTCXX=gcc-15
 
 ENV CUDA_HOME=/usr/local/cuda
 ENV PATH=${CUDA_HOME}/bin:${PATH}

@@ -8,7 +8,7 @@ LLM with Mila.
 ```
 
 ```
-Mila 0.20.0-beta.3
+Mila 0.20.0
 Loading gemma-4-12b-it-fp4 ...
 
 Sunlight contains every colour, but the short blue wavelengths scatter far more...
@@ -29,7 +29,7 @@ template and the same defaults, so the two read side by side.
 
 ## What it needs
 
-A **CUDA GPU** and **`gemma-4-12b-it-fp4` installed** (~6.3 GB). Loading never downloads, so an
+A **CUDA GPU** and **`gemma-4-12b-it-fp4` installed** (~6.8 GB). Loading never downloads, so an
 uninstalled name is an error rather than a surprise transfer — see
 [the Quick Start index](../README.md#getting-a-model) for how to install one.
 
@@ -40,7 +40,7 @@ Everything else in `main.cpp` is argument handling and error messages.
 | | |
 |---|---|
 | **Locate** | `ModelStore::locate(name)` — the store is the only source; nothing consults a hub or takes a path. |
-| **Load** | `GemmaModel<Cuda, BF16>::fromPretrained(...)` with `withFP4Quantization()`. Device and precision are template arguments, so the type *is* the configuration. |
+| **Load** | `GemmaModel<Cuda, BF16>::load(...)` with `withFP4Quantization()`. Device and precision are template arguments, so the type *is* the configuration. |
 | **Encode** | The Gemma instruct template, applied to one turn. Thinking is off, which takes two things — see the comment on `buildGemmaPrompt`. |
 | **Generate** | `model->generate(tokens, on_token, params)` — the model owns the decode loop and pushes each token to your callback on your thread. |
 
@@ -54,7 +54,7 @@ consumer recompiles Mila's module interfaces in its own toolchain. That voids `f
 prebuilt-binary benefit while adding an install-layout apparatus and an ABI split between the
 prebuilt archive and the recompiled modules. FetchContent compiles Mila in your project's
 toolchain — no install step, no ABI coupling — and is the same mechanism Mila uses for its own
-dependencies (googletest, CUTLASS, nlohmann). `find_package(Mila)` was removed in 0.20.0-beta.3;
+dependencies (googletest, nlohmann, curl). `find_package(Mila)` was removed in 0.20.0-beta.3;
 FetchContent is the one supported path.
 
 **Budget for the first build.** The trade FetchContent makes is that your project builds *all*
@@ -77,9 +77,9 @@ include(FetchContent)
 FetchContent_Declare(
     Mila
     GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
-    GIT_TAG        v0.20.0-beta.3    # pin to a published release tag
+    GIT_TAG        v0.20.0    # pin to a published release tag
     # or, for a local working tree:  SOURCE_DIR /path/to/Mila
-    # or, for a release archive:     URL https://github.com/ToddThomson/Mila/archive/refs/tags/v0.20.0-beta.3.zip
+    # or, for a release archive:     URL https://github.com/ToddThomson/Mila/archive/refs/tags/v0.20.0.zip
 )
 FetchContent_MakeAvailable(Mila)
 
@@ -90,8 +90,8 @@ target_link_libraries(my_app PRIVATE Mila::Mila)
 # target_compile_options(my_app PRIVATE -fno-implicit-modules -fno-implicit-module-maps)
 ```
 
-Pin an immutable tag, not a branch. Mila is pre-1.0 and breaking changes are expected, so a
-floating ref puts your build on Mila's release schedule instead of your own. The published tags
+Pin an immutable tag, not a branch. Mila is pre-1.0, and breaking changes are expected between
+releases, so a floating ref puts your build on Mila's release schedule instead of your own. The published tags
 are on the [Releases page](https://github.com/ToddThomson/Mila/releases).
 
 ```cpp

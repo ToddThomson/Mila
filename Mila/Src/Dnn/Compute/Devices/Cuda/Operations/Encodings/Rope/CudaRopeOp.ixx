@@ -28,6 +28,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.OperationBase;
+import Compute.DeviceAllocation;
 import Compute.IPositionalPairedOp;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
@@ -56,10 +57,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      * implicitly through the inner product.
      *
      * Design:
-     * - No learned parameters. The cos/sin cache is computed from fixed frequencies
-     *   on the first build() call and shared across all ops with identical parameters
-     *   via RopeCacheRegistry. Subsequent ops with the same config reuse the existing
-     *   device allocation; build_cache() is called exactly once per unique config.
+     * - No learned parameters. The cos/sin cache holds one row per position the build
+     *   context's sequence length covers, and is shared across all ops with identical
+     *   parameters via RopeCacheRegistry. A row depends only on its position, so a shorter
+     *   table holds exactly the leading rows of a longer one. build_cache() is called
+     *   exactly once per unique key.
      * - Two-phase initialization: build() acquires the shared cache and validates
      *   shapes; forward(), backward(), prefill(), and decode() are pure hot-path
      *   dispatch.
@@ -109,6 +111,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             : context_( other.context_ )
             , config_( std::move( other.config_ ) )
             , cos_cache_( other.cos_cache_ )
+            , owns_cache_( other.owns_cache_ )
             , sin_cache_( other.sin_cache_ )
             , cache_key_( other.cache_key_ )
             , batch_size_( other.batch_size_ )
@@ -117,6 +120,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             this->is_built_ = other.is_built_;
             other.cos_cache_ = nullptr;
             other.sin_cache_ = nullptr;
+            other.owns_cache_ = false;
             other.is_built_ = false;
         }
 
@@ -127,6 +131,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 releaseCache();
                 context_ = other.context_;
                 config_ = std::move( other.config_ );
+                owns_cache_ = other.owns_cache_;
                 cos_cache_ = other.cos_cache_;
                 sin_cache_ = other.sin_cache_;
                 cache_key_ = other.cache_key_;
@@ -136,6 +141,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
                 other.cos_cache_ = nullptr;
                 other.sin_cache_ = nullptr;
+                other.owns_cache_ = false;
                 other.is_built_ = false;
             }
 
@@ -145,32 +151,41 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         /**
          * @brief Prepare the operation for a concrete input shape (cold path).
          *
-         * On the first call, acquires a shared cos/sin cache from RopeCacheRegistry
-         * and fills it if this is the first op with this configuration. Subsequent
-         * calls on the same instance update the runtime shape limits only; the
-         * shared cache is not re-acquired.
+         * The sequence length T of the build context is the number of positions this op
+         * can ever rotate: the tables hold T rows, and prefill and decode refuse any
+         * position at or past T. A caller that decodes must therefore build at the full
+         * context length, not at a prefill chunk.
          *
          * @param build_context  Build context carrying the Q/K input shape [B, T, ...].
+         * @throws std::invalid_argument if T exceeds the trained maximum sequence length.
          */
         void build( const BuildContext& build_context ) override
         {
             const auto& shape = build_context.inputShape();
-            batch_size_ = static_cast<int>(shape[ 0 ]);
-            seq_length_ = static_cast<int>(shape[ 1 ]);
+            const dim_t table_rows = shape[ 1 ];
 
-            if ( this->is_built_ )
+            if ( table_rows > config_.getMaxSequenceLength() )
+                throw std::invalid_argument( std::format(
+                    "CudaRopeOp::build: sequence length {} exceeds the trained maximum {}",
+                    table_rows, config_.getMaxSequenceLength() ) );
+
+            batch_size_ = static_cast<int>(shape[ 0 ]);
+            seq_length_ = static_cast<int>(table_rows);
+
+            const CacheKey cache_key = makeCacheKey( table_rows );
+
+            if ( this->is_built_ && cache_key == cache_key_ )
                 return;
+
+            releaseCache();
 
             // NOTE: Cache data type is always float32 regardless of input precision to
             // preserve accuracy of the trigonometric computations.
 
-            const dim_t cache_elements = config_.getMaxSequenceLength() * (config_.getHeadDim() / 2);
-            const std::size_t cache_bytes = static_cast<std::size_t>( cache_elements ) * sizeof( float );
-
-            cache_key_ = makeCacheKey();
+            cache_key_ = cache_key;
 
             auto [cos_ptr, sin_ptr, is_new] =
-                RopeCacheRegistry::instance().acquire( cache_key_, cache_bytes );
+                RopeCacheRegistry::instance().acquire( cache_key_, tableBytes( table_rows ) );
 
             owns_cache_ = is_new;
 
@@ -181,7 +196,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             {
                 Detail::cuda_rope_impl<ComputeType>::build_cache(
                     cos_cache_, sin_cache_,
-                    static_cast<int>(config_.getMaxSequenceLength()),
+                    static_cast<int>(table_rows),
                     static_cast<int>(config_.getHeadDim()),
                     config_.getBase(),
                     static_cast<int>(config_.getRotaryDim()),
@@ -281,11 +296,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             int B = static_cast<int>(q_shape[ 0 ]);
             int T = static_cast<int>(q_shape[ 1 ]);
 
-            if ( position_offset < 0 ||
-                position_offset + T > config_.getMaxSequenceLength() )
+            if ( position_offset < 0 || position_offset + T > seq_length_ )
                 throw std::invalid_argument( std::format(
-                    "CudaRopeOp::prefill: position_offset {} + T {} exceeds max_seq_len {}",
-                    position_offset, T, config_.getMaxSequenceLength() ) );
+                    "CudaRopeOp::prefill: position_offset {} + T {} exceeds the {} positions this op was built for",
+                    position_offset, T, seq_length_ ) );
 
             requireInPlaceForPrefixLayout( Q_in.rawData(), Q_out.rawData(), "prefill" );
             requireInPlaceForPrefixLayout( K_in.rawData(), K_out.rawData(), "prefill" );
@@ -312,10 +326,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         {
             ensureBuilt();
 
-            if ( position < 0 || position >= config_.getMaxSequenceLength() )
+            if ( position < 0 || position >= seq_length_ )
                 throw std::invalid_argument( std::format(
                     "CudaRopeOp::decode: position {} out of range [0, {})",
-                    position, config_.getMaxSequenceLength() ) );
+                    position, seq_length_ ) );
 
             int B = static_cast<int>( Q_in.shape()[ 0 ] );
 
@@ -354,10 +368,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
          * @brief Cos/sin cache bytes needed for this configuration.
          *
          * CAUTION -- this is NOT per-instance cost. The caches live in the process-wide
-         * RopeCacheRegistry keyed on (theta, max_seq_len, head_dim), so across a 48-layer
-         * model only the first op to acquire a given key allocates; the rest alias it and
-         * report zero from getStateMemorySize(). This returns what making the cache exist
-         * costs, once.
+         * RopeCacheRegistry keyed on (theta, built sequence length, head_dim), so across a
+         * 48-layer model only the first op to acquire a given key allocates; the rest alias
+         * it and report zero from getStateMemorySize(). This returns what making the cache
+         * exist costs, once, for the sequence length the context carries.
          *
          * The consequence is that a caller summing this over every layer overcounts by
          * (layers - 1) caches. Deduplication belongs to the transformer, which knows the
@@ -365,12 +379,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
          * Registry state cannot be consulted here instead: before any build, nothing is
          * cached, so every layer would answer "I own it".
          */
-        std::size_t getRequiredStateMemorySize( const BuildContext& ) const override
+        std::size_t getRequiredStateMemorySize( const BuildContext& build_context ) const override
         {
-            const dim_t cache_elements = config_.getMaxSequenceLength() * (config_.getHeadDim() / 2);
-            const std::size_t cache_bytes = static_cast<std::size_t>( cache_elements ) * sizeof( float );
-
-            return cache_bytes * 2; // cos and sin caches
+            // cos and sin caches, two allocations
+            return 2 * occupiedDeviceBytes(
+                tableBytes( build_context.inputShape()[ 1 ] ), allocationGranularity( context_->getDeviceId() ) );
         }
 
         std::size_t getStateMemorySize() const override
@@ -378,10 +391,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             if ( !owns_cache_ )
                 return 0;
 
-            const dim_t cache_elements = config_.getMaxSequenceLength() * (config_.getHeadDim() / 2);
-            const std::size_t cache_bytes = static_cast<std::size_t>( cache_elements ) * sizeof( float );
-
-            return cache_bytes * 2; // cos and sin caches
+            return 2 * occupiedDeviceBytes( tableBytes( seq_length_ ), allocationGranularity( context_->getDeviceId() ) );
         }
 
     private:
@@ -448,14 +458,20 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             }
         }
 
-        CacheKey makeCacheKey() const noexcept
+        /// Bytes of ONE of the cos or sin tables at the given row count.
+        std::size_t tableBytes( dim_t table_rows ) const noexcept
+        {
+            return static_cast<std::size_t>( table_rows * (config_.getHeadDim() / 2) ) * sizeof( float );
+        }
+
+        CacheKey makeCacheKey( dim_t table_rows ) const noexcept
         {
             // Precision is FP32 regardless of TPrecision: the cache is always
             // float. This allows BF16 and FP32 ops with identical configs to
             // share one registry entry.
             return {
                 context_->getDeviceId().index,
-                config_.getMaxSequenceLength(),
+                table_rows,
                 config_.getHeadDim(),
                 config_.getRotaryDim(),
                 rotaryLayoutCode(),

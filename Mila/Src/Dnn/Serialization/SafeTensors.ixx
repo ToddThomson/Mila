@@ -3,7 +3,7 @@
  * @brief safetensors container support: dtype naming and a two-phase writer.
  *
  * The distribution artifact is written in the safetensors layout so that any reader can
- * verify a Mila file without running Mila. Reading is handled by PretrainedModelReader,
+ * verify a Mila file without running Mila. Reading is handled by WeightsReader,
  * which sniffs the container and shares one staging path across both formats.
  */
 
@@ -431,7 +431,7 @@ namespace Mila::Dnn::Serialization
 
         // C stdio rather than std::ofstream: stream I/O instantiated from a module unit
         // trips MSVC's C2079 on basic_istream::sentry, transitively through <fstream>.
-        // Same avoidance as PretrainedReader and TokenSequenceLoader.
+        // Same avoidance as WeightsReader and TokenSequenceLoader.
         std::unique_ptr<std::FILE, int( * )( std::FILE* )> file_{ nullptr, &std::fclose };
 
         std::vector<Entry> entries_;

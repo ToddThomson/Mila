@@ -3,7 +3,7 @@
  * @brief Deployment configuration for Gpt2 language models.
  *
  * GptModelConfig is the concrete configuration type passed to
- * GptModel::fromPretrained(). It inherits all universal language model
+ * GptModel::load(). It inherits all universal language model
  * deployment concerns from LanguageModelConfig<GemmaModelConfig>:
  *
  *   - context_length        -- maximum sequence length

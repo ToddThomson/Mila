@@ -46,18 +46,28 @@ namespace Mila::Dnn::Compute
         virtual void synchronize() = 0;
 
         /**
-         * @brief High-water mark of context-owned scratch device memory, in bytes.
+         * @brief Reserve the forward scratch buffer at its final size.
          *
-         * Scratch is allocated lazily during forward passes and grows without shrinking,
-         * so no build-time contract sees it -- it is the largest identified component of
-         * the gap between a reported footprint and what the driver says was consumed
-         * (Specifications/MemoryFootprint.md section 6.4).
-         *
-         * Zero for contexts that allocate no scratch, which includes every CPU context.
+         * A network calls this at the end of its build with the largest scratch request any
+         * of its operations makes, which its footprint reports. A larger request afterwards is
+         * a prediction defect, and throws instead of growing. A context that never reserves
+         * grows on demand, which is what a component built on its own gets. A no-op for
+         * contexts that allocate no scratch.
          */
-        [[nodiscard]] virtual std::size_t getScratchHighWaterBytes() const noexcept
+        virtual void reserveScratch( [[maybe_unused]] std::size_t bytes )
         {
-            return 0;
+        }
+
+        /**
+         * @brief Free the device buffer a load staged full-precision weights through.
+         *
+         * A load that fits full-precision weights on the device stages each tensor through
+         * one buffer, which is needed only until the last tensor has landed. The model load
+         * calls this when it returns, so the buffer is not held for the model's lifetime.
+         * Safe to call when nothing was staged; a no-op for contexts that stage nothing.
+         */
+        virtual void releaseLoadStaging() noexcept
+        {
         }
 
         /**
