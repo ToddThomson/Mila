@@ -138,7 +138,7 @@ on hardware); the third is an **end-user feature** we verify but do not gate wit
 | Surface | Role | What it does | GPU? |
 |---|---|---|---|
 | **GitHub CI** (`build-pipeline.yml`) | maintainer gate | *compiles* the full tree under clang-21 + packaging gates | no (hosted, no GPU) |
-| **WSL** (`linux-clang-debug` preset) | maintainer gate | compiles the full tree under clang **and runs the CUDA test suite on real hardware** | yes |
+| **WSL** (`linux-clang-debug` preset) | maintainer gate | compiles the full tree under clang **and runs the CUDA test suite on real hardware** — minus anything needing weights, see below | yes |
 | **Devcontainer** (`Docker/build-chat.sh`) | end-user convenience | a completely known build environment — clone, one step, a running Mila | yes |
 
 The division that matters:
@@ -164,6 +164,40 @@ The division that matters:
 3. **Before merging `dev -> master`:** the **WSL build** must pass (the portability + test gate), and
    the **devcontainer build** must still succeed — the latter because a broken end-user onboarding
    path is a shipped-product defect, not because it is a portability oracle.
+
+**Running the WSL gate.** Take the tree across with `git archive`, not rsync:
+
+```bash
+git archive --format=tar HEAD | wsl -d <distro> -- bash -c 'rm -rf ~/mila-<version> \
+  && mkdir -p ~/mila-<version> && tar -x -C ~/mila-<version>'
+```
+
+That carries exactly the tracked tree — 54 MB, no `Data/` (342 GB), no venvs, no `Dev/` — and it
+tests what a consumer actually clones. Then `cmake --preset linux-clang-debug`; the preset already
+pins clang, `/usr/local/cuda`, `gcc-15` as the nvcc host and a job pool of 4.
+
+**Run the test binaries directly. Do not use `ctest` here.** Measured at `0.20.0`: `MilaTests` plus
+`ChatRichTextTests` run in **30 seconds**, against roughly **30 minutes** under `ctest`, which
+starts one process per case. The devcontainer docs were moved off `ctest` for the same reason and
+this leg never was.
+
+```bash
+cd out/build/linux-clang-debug/Mila/Tests && ./MilaTests && ./ChatRichTextTests
+```
+
+Running both is what makes that equivalent to `ctest`: `ctest` reports a higher number only because
+it also runs the separate `ChatRichTextTests` target. On Windows, where the gap is 149 s against
+596 s, the everyday `ctest` invocation above stays as written.
+
+**What this gate cannot tell you.** A `git archive` tree has no weights and no tokenizers, so every
+model-parity, tokenizer and footprint test self-skips — 75 of them at `0.20.0`, leaving 1900 + 33
+passing. So a green WSL run proves **portability and component correctness on Linux, not token
+parity and not footprint prediction**. Both of those are covered only by the Windows `x64-validate`
+run, which is worth knowing because the footprint tests are what validate
+`kCudaAllocationGranularityBytes` — the constant is therefore checked on one platform only.
+Adding a Python binding to this leg needs `python3.14-dev` in the distro; without it pybind11 fails
+configure, and `-DMILA_ENABLE_PYTHON_BINDINGS=OFF` is the way past, since the wheel container
+already compiles the binding under Linux at step 1.
 
 ---
 
