@@ -10,7 +10,7 @@ user does, then follow Section 8 for coding standards and the PR process. If you
 read about what Mila is and does, start with the [README](README.md).
 
 Mila is a C++23 module-based library for open LLMs (CUDA/CPU inference and training).
-Pre-1.0, breaking changes are still expected — backward compatibility is not yet a goal.
+Mila is pre-1.0, and breaking changes are expected between releases.
 
 ---
 

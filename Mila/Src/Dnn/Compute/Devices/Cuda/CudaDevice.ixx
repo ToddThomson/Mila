@@ -5,7 +5,6 @@
 
 module;
 #include <cuda_runtime.h>
-#include <cuda.h>
 #include <cstddef>
 #include <string>
 #include <format>
@@ -17,6 +16,7 @@ module;
 export module Compute.CudaDevice;
 
 import Compute.Device;
+import Compute.DeviceAllocation;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.CudaDeviceProps;
@@ -59,8 +59,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If device is not registered or CUDA operations fail
          */
         explicit CudaDevice( DeviceConstructionKey key, DeviceId device_id )
-            : device_id_( validateDeviceId( device_id ) ), props_( device_id.index ),
-              allocation_granularity_( queryAllocationGranularity( device_id.index ) )
+            : device_id_( validateDeviceId( device_id ) ), props_( device_id.index )
         {
             (void)key;
         }
@@ -243,13 +242,14 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief The minimum allocation granularity the driver reports for this device, read once at construction.
+         * @brief The allocation granularity assumed for this device.
          *
-         * Zero when the driver could not be asked, which rounds nothing.
+         * kCudaAllocationGranularityBytes; see that constant for what was measured and why it is not read
+         * from the driver.
          */
         std::size_t getAllocationGranularity() const override
         {
-            return allocation_granularity_;
+            return kCudaAllocationGranularityBytes;
         }
 
         /**
@@ -286,29 +286,6 @@ namespace Mila::Dnn::Compute
 
         DeviceId device_id_;
         CudaDeviceProps props_;
-        std::size_t allocation_granularity_;
-
-        static std::size_t queryAllocationGranularity( int device_index ) noexcept
-        {
-            if ( cuInit( 0 ) != CUDA_SUCCESS )
-            {
-                return 0;
-            }
-
-            CUmemAllocationProp properties{};
-            properties.type = CU_MEM_ALLOCATION_TYPE_PINNED;
-            properties.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-            properties.location.id = device_index;
-
-            std::size_t granularity = 0;
-
-            if ( cuMemGetAllocationGranularity( &granularity, &properties, CU_MEM_ALLOC_GRANULARITY_MINIMUM ) != CUDA_SUCCESS )
-            {
-                return 0;
-            }
-
-            return granularity;
-        }
 
         /**
          * @brief Validates CUDA device ID.

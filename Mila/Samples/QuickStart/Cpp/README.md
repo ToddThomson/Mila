@@ -90,8 +90,8 @@ target_link_libraries(my_app PRIVATE Mila::Mila)
 # target_compile_options(my_app PRIVATE -fno-implicit-modules -fno-implicit-module-maps)
 ```
 
-Pin an immutable tag, not a branch. Mila is pre-1.0 and breaking changes are expected, so a
-floating ref puts your build on Mila's release schedule instead of your own. The published tags
+Pin an immutable tag, not a branch. Mila is pre-1.0, and breaking changes are expected between
+releases, so a floating ref puts your build on Mila's release schedule instead of your own. The published tags
 are on the [Releases page](https://github.com/ToddThomson/Mila/releases).
 
 ```cpp

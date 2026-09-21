@@ -8,7 +8,7 @@ Mila is built for researchers, engineers, and developers who find high-level fra
 and write kernels that do precisely what they intend. No autograd engine. No runtime
 dispatch magic. Just C++23, CUDA, and full control.
 
-> *Current release: `0.20.0`. Pre-1.0: the API is not yet stable.*
+> *Current release: `0.20.0`. Mila is pre-1.0, and breaking changes are expected between releases, so pin a tag.*
 > *Active development lands on the [`dev`](https://github.com/ToddThomson/Mila/tree/dev) branch; `master` tracks tagged releases.*
 > *See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for what comes next.*
 
@@ -142,8 +142,8 @@ place to read one token's journey end to end.
 
 ## Current Status — first production release
 
-`0.20.0` is Mila's first production release: validated, packaged and documented. Mila is still
-pre-1.0, so a later release may break your code — an API-stability promise is a separate 1.0
+`0.20.0` is Mila's first production release: validated, packaged and documented. Mila is pre-1.0,
+and breaking changes are expected between releases — an API-stability promise is a separate 1.0
 decision.
 
 It ships inference and training as one package. Inference covers Llama 3.2, Llama 3.1, Gemma 4 and

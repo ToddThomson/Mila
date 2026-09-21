@@ -1341,6 +1341,16 @@ less counts as its size.
 
 - **Documented:** CUDA packs requests of 1 MiB or less into shared blocks and rounds larger ones up to the
   allocation granularity. `cuMemGetAllocationGranularity` returned 2 MiB on both cards.
+- **The granularity is a constant, not a reading (changed 2026-09-21).** `kCudaAllocationGranularityBytes`
+  in `DeviceAllocation.ixx` holds the 2 MiB measured below; `CudaDevice` no longer asks the driver.
+  Asking meant `cuMemGetAllocationGranularity`, which put `libcuda` on the link line — and `libcuda` ships
+  with the NVIDIA driver, not in the `nvidia-*` wheels, so the published Linux wheel could not be imported
+  on a machine with no driver. That shipped at `rc.1+12` and the wheel clean room caught it at `+30`,
+  before the tag. Two things follow. The call also described the **virtual memory** allocator
+  (`cuMemCreate`), while every allocation Mila makes is `cudaMalloc`, so its agreement with the measured
+  rounding was empirical rather than guaranteed — the table below, not the API, is what establishes the
+  rule. And the constant becomes a **caller input when `planDeployment` lands**, beside available memory,
+  which is already an input for the same reason.
 - **Size:** across the models tested the rounding is 0.02 GiB (Llama 3.1 8B at 512 rows) to 0.73 GiB
   (Qwen 3.8 cb2-3), and it moves with the chunk: Gemma 4 12B is 0.27 GiB at 1024 rows and 0.40 GiB at 64.
 - **Not measured:** Linux, and other driver versions. One reading exists and is not it: the dev
@@ -1349,8 +1359,11 @@ less counts as its size.
   10.078), against the 64 MiB Phase 6 step 3 bound. Both sit at the rounding magnitude in the table
   below, which is what makes rounding the first hypothesis — but Docker Desktop is WSL2-backed and
   11.10 rules WSL2 out as a stand-in for native Linux, so this measures the Windows driver without
-  the display budget rather than the Linux one. The reading that would settle it is what
-  `cuMemGetAllocationGranularity` returns there, against the 2 MiB both Windows cards report.
+  the display budget rather than the Linux one. What would settle it is the granularity that actually
+  applies there, against the 2 MiB both Windows cards report — now a measurement to take deliberately
+  rather than a value the library reads, since asking cost the wheel its driver-free import. **SM 90 is
+  in the supported architecture set and untested**, and under-prediction is the direction that spills,
+  so a device whose granularity exceeds 2 MiB is the case worth measuring first.
 
 **Measured 2026-09-15** on the RTX 5060 Ti, which drives no display. Every device allocation site was logged
 by temporary code, since removed. The allocations live after a load and a full-chunk prefill were replayed

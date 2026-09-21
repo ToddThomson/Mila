@@ -815,10 +815,16 @@ if(MILA_HAS_CUDA)
     # library, so a consumer must (1) resolve cudart/cublas/curand symbols from
     # Mila's .cu objects at its own final link, and (2) get the CUDA toolkit include
     # dir as a usage requirement so the target that compiles Mila's CUDA module
-    # units can find <cuda_fp16.h> etc. cuda_driver is for cuMemGetAllocationGranularity
-    # (MemoryFootprint.md 11.8); the library it names comes with the NVIDIA driver.
+    # units can find <cuda_fp16.h> etc.
+    #
+    # NOTHING HERE IS THE DRIVER LIBRARY, and that is load bearing rather than an
+    # omission. CUDA::cuda_driver names libcuda, which ships with the NVIDIA driver
+    # and is in none of the nvidia-* runtime wheels, so linking it gives the published
+    # extension a load-time dependency no wheel can satisfy: `import mila` then fails
+    # on any machine without a driver installed. That shipped at 0.20.0-rc.1+12 for one
+    # cuMemGetAllocationGranularity call and was caught by the wheel clean room before
+    # the tag. See kCudaAllocationGranularityBytes for what replaced the call.
     target_link_libraries( Mila PUBLIC
-        CUDA::cuda_driver
         CUDA::cudart
         CUDA::cublas
         CUDA::curand

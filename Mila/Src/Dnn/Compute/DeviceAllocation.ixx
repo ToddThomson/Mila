@@ -24,6 +24,26 @@ namespace Mila::Dnn::Compute
     export inline constexpr std::size_t kPackedAllocationLimitBytes = std::size_t{ 1024 } * 1024;
 
     /**
+     * @brief The allocation granularity assumed for a CUDA device, the other half of the rule above.
+     *
+     * Measured 2026-09-15 on an RTX 4070 (Ada, SM 89) and an RTX 5060 Ti (Blackwell, SM 120), both reporting
+     * 2 MiB: rounding 876 Qwen allocations predicted 765.6 MiB against 765.6 MiB consumed, and 414 Gemma
+     * allocations 284.4 against 284.4 (MemoryFootprint.md 11.8).
+     *
+     * It is a constant rather than a reading because the only way to ask is cuMemGetAllocationGranularity,
+     * a Driver API call that puts libcuda on the link line -- and libcuda ships with the driver, not in the
+     * nvidia-* wheels, so the published Linux wheel could not be imported on a machine without a driver
+     * (found by the clean room at 0.20.0-rc.1+30, introduced at +12). That call also describes the virtual
+     * memory allocator, which Mila does not use; every allocation here is cudaMalloc, so the agreement at
+     * 2 MiB was measured rather than guaranteed.
+     *
+     * NOTE: this becomes a caller input when planDeployment lands, alongside available memory, which is
+     * already an input for the same reason. Under-prediction is the direction that spills, so a device whose
+     * granularity exceeds 2 MiB is the case to measure first; SM 90 is in the supported set and untested.
+     */
+    export inline constexpr std::size_t kCudaAllocationGranularityBytes = std::size_t{ 2 } * 1024 * 1024;
+
+    /**
      * @brief Bytes one allocation of `bytes` occupies on a device with the given granularity.
      *
      * An allocation of at most kPackedAllocationLimitBytes counts as its size: its share of a packed block is not
