@@ -8,10 +8,9 @@ Mila is built for researchers, engineers, and developers who find high-level fra
 and write kernels that do precisely what they intend. No autograd engine. No runtime
 dispatch magic. Just C++23, CUDA, and full control.
 
-> *Currently in public beta (`0.20.0-beta.3`) — feature-frozen and hardening toward the v0.20 first
-> production release. Pre-1.0: the API is not yet stable.*
+> *Current release: `0.20.0`. Pre-1.0: the API is not yet stable.*
 > *Active development lands on the [`dev`](https://github.com/ToddThomson/Mila/tree/dev) branch; `master` tracks tagged releases.*
-> *See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for current status and trajectory.*
+> *See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for what comes next.*
 
 ---
 
@@ -141,26 +140,19 @@ place to read one token's journey end to end.
 
 ---
 
-## Current Status — Beta.3 (feature-frozen, hardening)
+## Current Status — first production release
 
-Mila is in public beta, hardening toward a craft-complete first release (v0.20). The alpha
-phase built and validated the core architecture against known-good reference implementations; the
-feature set is now **frozen**, and the remaining work is validation, packaging, documentation, and
-recovering the full GPT-2 / training foundation — so the first release ships everything Mila has
-built, inference and training, as one coherent, tested, documented package.
+`0.20.0` is Mila's first production release: validated, packaged and documented. Mila is still
+pre-1.0, so a later release may break your code — an API-stability promise is a separate 1.0
+decision.
 
-**Hardening through beta**
-Feature-frozen: validation, packaging, and documentation only. **Two carve-ins were made
-deliberately** — model distribution in `beta.2`, because a release nobody can get a model for is not
-an onboarding story, and observability in `beta.3`. The test suite and the MNIST and Bard training
-samples are re-aligned to the current API and running; Llama 3.1/3.2 training is not part of this
-release. What is still in flight is validation, packaging and distribution, API documentation, and
-the surface a consumer meets. See
-[RELEASING.md](https://github.com/ToddThomson/Mila/blob/dev/RELEASING.md) for how stages and tags
-relate.
+It ships inference and training as one package. Inference covers Llama 3.2, Llama 3.1, Gemma 4 and
+Qwen 3.8, each checked against HuggingFace; GPT-2 is the training reference, and the MNIST and Bard
+samples train against the current API. Training a Llama is not part of this release.
 
-See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for the full roadmap,
-including what comes after v0.20.
+See the [release notes](https://github.com/ToddThomson/Mila/releases) for what this release
+contains and [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for what comes
+after it.
 
 ---
 
@@ -379,14 +371,14 @@ Site: https://mila.toddt.me — including the
 
 API reference: https://mila.toddt.me/api/
 
-Both are rebuilt automatically on every push to `dev`, so the API reference tracks the code rather
-than the last release.
+Both are rebuilt when the site is published, so the API reference tracks `dev` as of the last
+publish rather than the last release.
 
 ---
 
 ## Contributing
 
-Mila is in public beta (feature-frozen, hardening toward v0.20) and welcomes contributors who share its philosophy.
+Mila welcomes contributors who share its philosophy.
 Good starting points are CPU reference ops, test coverage, and new encoding strategies
 under /Components/Encodings/. Mila is GPU-first by design: the CUDA backend is the
 validated inference path, and CPU op coverage beyond the GPT-2 lineage is intentionally

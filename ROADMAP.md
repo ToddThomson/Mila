@@ -2,7 +2,8 @@
 
 Where Mila is going — the durable narrative of each release and what it means.
 
-- **Open tasks** -> [BACKLOG.md](BACKLOG.md) · **Completed work** -> [CHANGELOG.md](CHANGELOG.md)
+- **Open tasks** -> [BACKLOG.md](BACKLOG.md) · **Completed work** -> the
+  [release notes](https://github.com/ToddThomson/Mila/releases)
 - **How versions, branches, and releases work** -> [RELEASING.md](RELEASING.md)
 - **Design rationale** -> `Mila/Specifications/`
 

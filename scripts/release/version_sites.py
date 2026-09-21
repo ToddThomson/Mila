@@ -66,7 +66,7 @@ SITES: tuple[Site, ...] = (
     ),
     Site(
         "README.md",
-        rf"Currently in public beta \(`(?P<ver>{VERSION_PATTERN})`\)",
+        rf"Current release: `(?P<ver>{VERSION_PATTERN})`",
         "status callout on the page a visitor lands on",
     ),
     Site(
@@ -144,13 +144,15 @@ SITES: tuple[Site, ...] = (
 # Sentences a production release makes false. Not rewritable by pattern -- what to say
 # instead is a judgement -- so they are listed, never edited, and reported by --audit-prose.
 PROSE_SITES: tuple[tuple[str, str], ...] = (
-    ("README.md", "public beta"),
+    ("README.md", "Current release:"),
     ("README.md", "Current Status"),
-    ("README.md", "Hardening through beta"),
-    ("getting-started.md", "public beta"),
-    ("Web/layouts/index.html", "public beta"),
-    ("Web/layouts/_default/baseof.html", "beta."),
-    ("CLAUDE.md", "public beta"),
+    ("README.md", "first production release"),
+    ("CLAUDE.md", "first production release"),
+    # Falsified at 1.0 rather than at the next release, but the audit is the only
+    # place that remembers they exist.
+    ("README.md", "Pre-1.0"),
+    ("getting-started.md", "Pre-1.0"),
+    ("SECURITY.md", "pre-1.0"),
 )
 
 
@@ -270,6 +272,10 @@ def command_set(version: str) -> int:
 def command_audit_prose() -> int:
     print("Sentences a release may make false. This script never edits them.\n")
 
+    # Several needles legitimately hit the same sentence, so report each line once --
+    # this output is a checklist somebody works through by hand.
+    seen: set[tuple[str, int]] = set()
+
     for path_name, needle in PROSE_SITES:
         path = REPO_ROOT / path_name
 
@@ -278,7 +284,8 @@ def command_audit_prose() -> int:
             continue
 
         for number, line in enumerate(read_exact(path).splitlines(), start=1):
-            if needle in line:
+            if needle in line and (path_name, number) not in seen:
+                seen.add((path_name, number))
                 print(f"  {path_name}:{number}  {line.strip()[:96]}")
 
     return 0

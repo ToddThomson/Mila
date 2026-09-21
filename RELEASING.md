@@ -1,8 +1,8 @@
 # Releasing
 
 How Mila is versioned, branched, validated, and tagged into a consumable release. Planning and
-progress live in [ROADMAP.md](ROADMAP.md) / [BACKLOG.md](BACKLOG.md) / [CHANGELOG.md](CHANGELOG.md);
-this document is only the release mechanics.
+progress live in [ROADMAP.md](ROADMAP.md) / [BACKLOG.md](BACKLOG.md); this document is only the
+release mechanics.
 
 One thing to internalize up front: the version scheme carries a **stage** (the codebase's maturity,
 not a task or phase label) and a ticking **build** counter held in semver build metadata, detailed in
@@ -66,7 +66,7 @@ sort *below* what is already released).
 | `rc.X` | release candidate | `0.20.0-rc.1+N` |
 | _(none)_ | production-tagged | `0.20.0` |
 
-Last checkpoint tagged: **`v0.20.0-beta.3`** (observability, and the container images published).
+Last checkpoint tagged: **`v0.20.0`** (observability, and the container images published).
 
 **`Version.txt`** at the repo root is the single source of truth. It feeds `project(VERSION ...)`
 (the numeric triple) and the prerelease label separately; see `cmake/MilaVersion.cmake` — which
@@ -288,17 +288,18 @@ fails.
    script abort rather than skip — fix the pattern, never the file.
    **The prose is separate, and is not bumped — it is rewritten.**
    `python scripts/release/version_sites.py --audit-prose` lists the sentences a release can
-   falsify. At a **production** release that is most of them: "Mila is in public beta", the
-   *Current Status* heading, "Hardening through beta", and the site footer on every page. No pattern
-   can decide what those should say instead. This is a `dev` commit and publishes nothing; the site
-   goes live at step 10, after the images it names.
+   falsify — the *Current Status* section, the README status callout, and the `pre-1.0` claims that
+   go at 1.0. No pattern can decide what those should say instead. **The listed set is not the whole
+   set:** at `0.20.0` the beta wording also sat in `SECURITY.md` and the feature-request template,
+   which nothing had listed, so grep the tree for the phrasing being retired as well. This is a
+   `dev` commit and publishes nothing; the site goes live at step 10, after the images it names.
    **Clear any "not published yet" copy the release makes false** — today the `#p-docker` panel
    carries a flag saying both tags are local, and `getting-started.md` and `README.md` each carry a
    note calling the slim runtime image "planned". If step 9 then fails, nothing false has reached a
    reader: the site is not dispatched until step 10.
-   **CHANGELOG only at a production (unsuffixed) release** — generate one short entry from the
-   commit range since the previous production tag, and collapse that line's `alpha.N`/`beta.N`/`rc.N`
-   sections into it. A pre-release flip writes nothing to CHANGELOG.
+   **There is no CHANGELOG to update.** The release's prose record is the GitHub Release body at
+   step 11, written once from the commit range. The file was deleted at `0.20.0` — it duplicated
+   that body, written by the same hand from the same commits at the same moment.
 3. Open a `dev -> master` pull request. CI validates on the PR.
 4. Merge to `master`.
 5. **Drift check (by eye — this used to be an automated gate):** the tag you are about to
@@ -336,7 +337,9 @@ fails.
    published here names the tag, the wheel and both image tags; a reader who lands on a command
    naming something that does not exist has no way to tell a typo from a release in progress. The
    deploy replaces the live site wholesale and has no staging, so read the assembled build first.
-11. **(Optional, human-facing) Publish a GitHub Release** for a curated changelog:
+11. **Publish a GitHub Release.** This is the release's only prose record — since the CHANGELOG was
+   deleted at `0.20.0`, nothing else says what shipped, so it is a required step rather than the
+   optional flourish it used to be.
    ```
    gh release create v0.13.46-alpha.5 --notes-file release-notes.md --prerelease
    ```
@@ -344,14 +347,13 @@ fails.
    tags; Mila lands all work as direct commits on `dev` and opens exactly one PR per release, so
    `beta.2` would have produced a one-line release for 48 commits of work. The substance lives only in
    the commit messages, so the body is **authored from the commit range** — which is what `beta.1`
-   actually did, hand-written with only its trailing `Full Changelog` footer generated. One summary
-   serves both destinations: it becomes the Release body at any tag, and distils into the CHANGELOG
-   entry at a production release.
+   actually did, hand-written with only its trailing `Full Changelog` footer generated.
    Apply `--prerelease` to **every** `dev -> master` pre-release flip — `alpha.N`, `beta.N`, and
    `rc.N` alike — and drop it **only** for the final production tag. GitHub never awards the "Latest
    release" badge to a prerelease, so this is what keeps the last production release badged as Latest
    throughout the next cycle's pre-release ramp. Or draft it in the **Releases** web UI for full
-   hand-curation. Nothing downstream depends on this, so do it on your own schedule.
+   hand-curation. No consumer resolves through it, but it is the only place the release is
+   described, so it lands in the same sitting as the tag.
 12. **Open the next checkpoint on `dev`** — bump `Version.txt` to the *next* stage ordinal with the
    counter reset, e.g. having just tagged `v0.20.0-beta.2`, `dev` becomes `0.20.0-beta.3+1` (or
    `0.20.0-rc.1+1`, if that is the call). Its own `dev` commit, same sitting as the tag. Skipping it

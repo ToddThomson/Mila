@@ -9,9 +9,8 @@ building your own application against Mila. Contributors are a superset — they
 user does, then follow Section 8 for coding standards and the PR process. If you only want to
 read about what Mila is and does, start with the [README](README.md).
 
-Mila is a C++23 module-based library for open LLMs (CUDA/CPU inference and training), currently in public beta
-(feature-frozen, hardening toward the v0.20 first production release). Pre-1.0, breaking
-changes are still expected — backward compatibility is not yet a goal.
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU inference and training).
+Pre-1.0, breaking changes are still expected — backward compatibility is not yet a goal.
 
 ---
 
@@ -450,7 +449,7 @@ include(FetchContent)
 FetchContent_Declare(
     Mila
     GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
-    GIT_TAG        v0.20.0-beta.3    # pin to a published release tag
+    GIT_TAG        v0.20.0    # pin to a published release tag
 )
 FetchContent_MakeAvailable(Mila)
 

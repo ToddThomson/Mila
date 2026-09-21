@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It is in public beta (see `Version.txt` for the current version; hardening toward the v0.20 first production release). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It reached its first production release at `0.20.0` (see `Version.txt` for the version in flight). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
 
 ### Two different "freezes" — do not conflate them
 
@@ -194,7 +194,7 @@ later. **Never write a finding straight into `BACKLOG.md`.**
 - **`ROADMAP.md`** — the durable **narrative + success criteria** of each release, organized by
   **theme** (not milestone). Shows the release in flight plus a single **Future** tail. **Narrative
   only — no task lists, checkboxes, or status** (they drift; point to BACKLOG). When a release ships,
-  its section moves to CHANGELOG.
+  its section is deleted — the GitHub Release body is the record of what shipped.
 - **`BACKLOG.md`** — **work committed to the release in flight, and nothing else.** `## Current
   release` holds one **theme bucket** per ROADMAP theme (matching names — the only join). Five rules
   keep it usable:
@@ -224,9 +224,9 @@ later. **Never write a finding straight into `BACKLOG.md`.**
   Triage runs at each `beta.N` / `rc.N` increment and gives every
   line a destination — `BACKLOG.md`, a category file, or deletion. A category names **what happens
   to an item**, never what it is about.
-- **`CHANGELOG.md`** — one short entry per **production (unsuffixed) release**, generated from its
-  commit range at release time. Nothing is written to it during a cycle, and pre-release detail
-  (`alpha.N`/`beta.N`/`rc.N`) never earns its own entry.
+- **The GitHub Release body** — one curated summary per tag, authored from that tag's commit range
+  at release time. **There is no `CHANGELOG.md`**; it was deleted at `0.20.0` because it duplicated
+  this body, written by the same hand from the same commits at the same moment. Do not recreate it.
 - **`Version.txt`** — `MAJOR.MINOR.PATCH-stage.N`, bumped **before committing** (see
   [RELEASING.md](RELEASING.md) for the scheme).
 
@@ -248,4 +248,4 @@ this workflow.
 
 `ls Mila/Specifications/` for the list. A spec is the **design of record** for its area: where one exists, it decides, and a decision that contradicts it is either wrong or a spec edit — not a silent divergence. `OperationDispatch.md`, `Quantization.md` and `ModelDistribution.md` are the three that most often settle an argument.
 
-Work is tracked across `ROADMAP.md` / `BACKLOG.md` / `CHANGELOG.md` — see **Work-Tracking Docs** above.
+Work is tracked across `ROADMAP.md` / `BACKLOG.md` — see **Work-Tracking Docs** above.

@@ -19,11 +19,11 @@ On Windows, Docker Desktop with the WSL2 backend. Pass `--gpus all`.
 ## Run a model
 
 ```
-docker run --rm --gpus all -v mila-store:/models toddthomson/mila-llm:0.20.0-beta.3-runtime install Llama-3.2-3B-Instruct-fp4
+docker run --rm --gpus all -v mila-store:/models toddthomson/mila-llm:0.20.0-runtime install Llama-3.2-3B-Instruct-fp4
 ```
 
 ```
-docker run --rm --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-beta.3-runtime chat --model Llama-3.2-3B-Instruct-fp4
+docker run --rm --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-runtime chat --model Llama-3.2-3B-Instruct-fp4
 ```
 
 The first command downloads the model into a named volume, so later runs start with it already
@@ -36,7 +36,7 @@ The `-devel` tag lands you in a shell in a built tree, with `~/myapp` configured
 library:
 
 ```
-docker run --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-beta.3-devel
+docker run --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-devel
 ```
 
 Mila is MIT licensed and its source is at

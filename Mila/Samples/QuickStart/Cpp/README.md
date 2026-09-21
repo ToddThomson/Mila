@@ -8,7 +8,7 @@ LLM with Mila.
 ```
 
 ```
-Mila 0.20.0-beta.3
+Mila 0.20.0
 Loading gemma-4-12b-it-fp4 ...
 
 Sunlight contains every colour, but the short blue wavelengths scatter far more...
@@ -77,9 +77,9 @@ include(FetchContent)
 FetchContent_Declare(
     Mila
     GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
-    GIT_TAG        v0.20.0-beta.3    # pin to a published release tag
+    GIT_TAG        v0.20.0    # pin to a published release tag
     # or, for a local working tree:  SOURCE_DIR /path/to/Mila
-    # or, for a release archive:     URL https://github.com/ToddThomson/Mila/archive/refs/tags/v0.20.0-beta.3.zip
+    # or, for a release archive:     URL https://github.com/ToddThomson/Mila/archive/refs/tags/v0.20.0.zip
 )
 FetchContent_MakeAvailable(Mila)
 

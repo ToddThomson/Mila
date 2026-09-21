@@ -25,7 +25,7 @@ set -euo pipefail
 # is the thing making `/d/Repos/Mila` reach docker as `D:\Repos\Mila`. No-op off Windows.
 export MSYS_NO_PATHCONV=1
 
-: "${MILA_IMAGE:=mila-llm:0.20.0-beta.3-runtime}"
+: "${MILA_IMAGE:=mila-llm:0.20.0-runtime}"
 : "${MILA_VERIFY_MODEL:=Llama-3.2-3B-Instruct-fp4}"
 : "${MILA_VERIFY_PROMPT:=Why is the sky blue?}"
 : "${MILA_KEEP_VOLUME:=0}"

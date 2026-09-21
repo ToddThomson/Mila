@@ -2,9 +2,8 @@
 
 ## Supported versions
 
-Mila is pre-1.0 (currently in public beta), and breaking changes are expected between releases.
-Security fixes are applied only to the latest tagged release and the `dev` trunk. There is
-no back-porting to older pre-release tags.
+Mila is pre-1.0, and breaking changes are expected between releases. Security fixes are applied
+only to the latest tagged release and the `dev` trunk. There is no back-porting to older tags.
 
 | Version | Supported |
 |---|---|

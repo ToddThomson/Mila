@@ -90,7 +90,7 @@ include(FetchContent)
 FetchContent_Declare(
     Mila
     GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
-    GIT_TAG        v0.20.0-beta.3
+    GIT_TAG        v0.20.0
 )
 FetchContent_MakeAvailable(Mila)
 
@@ -138,7 +138,7 @@ cmake --build build</code></pre>
           <div class="qs-body">
             <h4>Run it</h4>
 <pre data-label="Terminal"><code>./build/myapp "Why is the sky blue?"</code></pre>
-<pre data-label="Output" data-nocopy><code>Mila 0.20.0-beta.3
+<pre data-label="Output" data-nocopy><code>Mila 0.20.0
 Loading gemma-4-12b-it-fp4 ...
 
 The sky appears blue because of a phenomenon called Rayleigh
@@ -216,7 +216,7 @@ making the sky appear blue to our eyes.</code></pre>
      command. Windows Terminal also raises a "you are about to paste text that contains multiple
      lines" security warning before any of that. Both go away when there is nothing to continue.
      It is long; `pre` carries overflow-x: auto, so it scrolls in its own box. Do not re-wrap it. */}}
-<pre data-label="Terminal"><code>docker run --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-beta.3-devel</code></pre>
+<pre data-label="Terminal"><code>docker run --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-devel</code></pre>
             <p>Downloads the image, 7.8 GB. You land in a shell, in a Mila tree that is already
             built.</p>
           </div>
@@ -317,7 +317,7 @@ cmake --build build</code></pre>
      environment the reader edits, not a disposable one. */}}
 {{/* One line, deliberately -- see the note in the Docker panel above. A continuation here breaks
      in PowerShell and trips Windows Terminal's multi-line paste warning first. */}}
-<pre data-label="Terminal"><code>docker run --rm --gpus all -v mila-store:/models toddthomson/mila-llm:0.20.0-beta.3-runtime install Llama-3.2-3B-Instruct-fp4</code></pre>
+<pre data-label="Terminal"><code>docker run --rm --gpus all -v mila-store:/models toddthomson/mila-llm:0.20.0-runtime install Llama-3.2-3B-Instruct-fp4</code></pre>
           <p>Downloads the Mila Docker runtime image (1.5 GB) and the Llama-3.2-3B-Instruct-fp4 model (3.1 GB). About ten minutes.</p>
         </div>
       </div>
@@ -326,7 +326,7 @@ cmake --build build</code></pre>
         <span class="qs-num">2</span>
         <div class="qs-body">
           <h4>Talk to it</h4>
-<pre data-label="Terminal"><code>docker run --rm --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-beta.3-runtime chat --model Llama-3.2-3B-Instruct-fp4</code></pre>
+<pre data-label="Terminal"><code>docker run --rm --gpus all -it -v mila-store:/models toddthomson/mila-llm:0.20.0-runtime chat --model Llama-3.2-3B-Instruct-fp4</code></pre>
           {{/* The model is named rather than inferred from a store that happens to hold one: Chat
                switches models at runtime, so a command that guessed would change meaning the moment
                a second model was installed. The reasoning stays here -- a reader running the command
@@ -375,7 +375,7 @@ cmake --build build</code></pre>
       <a class="box" href="{{ .Site.Params.repo }}">
         <span class="box-kicker">Source</span>
         <span class="box-title">GitHub</span>
-        <span class="box-desc">MIT licensed, public beta. Build it, read it, push back on the
+        <span class="box-desc">MIT licensed. Build it, read it, push back on the
         design.</span>
         <span class="box-more">ToddThomson/Mila →</span>
       </a>
