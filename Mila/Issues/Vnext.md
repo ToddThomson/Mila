@@ -12,6 +12,35 @@ and its items can face the real admission test. Triage flow and categories are i
 
 ---
 
+## Publish the 2.82-bit Qwen 3.8 27B so a 12 GB card can run a 27B model
+
+`distribution` · `quantization` · `qwen`
+
+The package exists and is validated; nobody outside can fetch it.
+`https://huggingface.co/api/models/mila-llm/Qwen3.8-27B-cb2-3` answers 401 anonymously, where
+every other published model answers 200. It is 11.1 GiB against 15.1 GiB for the FP4 build of the
+same model, which is what would let a 12 GB card run a 27B model at all — the FP4 build needs 16 GB.
+
+Held out of v0.20.0 deliberately (Todd, 2026-09-21): a capability with no published package is not
+announced, the same rule that kept the Gemma 4 MoE work unannounced. The cost is that
+**`ROADMAP.md`'s v0.20 headline claim was written around this model** and had to be narrowed to the
+FP4 build at 16 GB. Publishing it is what makes the stronger claim sayable, so it wants to land
+early in the cycle rather than at the end. The fitted source is gitignored and not reproducible
+from the repo, so no reader can work around its absence.
+
+## Announce the Gemma 4 26B-A4B mixture of experts
+
+`gemma` · `models` · `distribution`
+
+Landed in `Mila/Src` during rc.1 — the router and expert bank on CPU and CUDA, wired into
+`GemmaModel` with an FP4 expert bank and a streaming converter, gated against HuggingFace at BF16
+and FP4. It appears in no README capability row, no CLAUDE.md target and no release note, because
+no published package uses it, so a user cannot run it.
+
+Held out of v0.20.0 deliberately (Todd, 2026-09-21) on the same rule as the entry above. What it
+needs to become announceable is a published package and a capability row, not more implementation.
+Expect this to be rediscovered by anyone grepping the tree for MoE and wondering why it is silent.
+
 ## One typed model handle + factory
 
 `architecture` · `mila-src` · `gate`

@@ -24,12 +24,19 @@ tool calling; and **training for FP32 GPT-2 / MLP**. The two halves have deliber
 reach: inference spans every model and precision Mila supports, training covers the GPT-2 lineage at
 FP32. Reduced-precision and GQA training are a later release — see **Future**.
 
-**The release makes one claim, and it is a pair.** A 27B model at an average 2.82 bits per weight
-runs on a 12 GB desk card — *and you can open it and read it*. Neither half stands alone. A capacity
-number on its own invites the throughput comparison Mila does not exist to win, and a runtime you can
-read that only runs small models is a teaching toy. Qwen 3.8-27B is what makes the first half true;
-Observability is what makes the second half literal rather than rhetorical — every activation in the
-composition tree reachable by name, from outside the model, with no scaffolding.
+**The release makes one claim, and it is a pair.** A 27B model runs on a 16 GB desk card — *and you
+can open it and read it*. Neither half stands alone. A capacity number on its own invites the
+throughput comparison Mila does not exist to win, and a runtime you can read that only runs small
+models is a teaching toy. Qwen 3.8-27B at FP4 is what makes the first half true; Observability is
+what makes the second half literal rather than rhetorical — every activation in the composition
+tree reachable by name, from outside the model, with no scaffolding.
+
+**The stronger form of that claim was narrowed on 2026-09-21, and the reason is worth keeping.** It
+read "at an average 2.82 bits per weight, on a 12 GB desk card", which is the `cb2-3` codebook build
+— 11.1 GiB where FP4 is 15.1. That build is finished and validated but was never published, so no
+reader can obtain it, and a release claims only what it ships. Publishing it is the first entry in
+[`Vnext.md`](Mila/Issues/Vnext.md); the claim returns with it. The Gemma 4 26B-A4B mixture of
+experts is held back for the same reason and sits beside it there.
 
 This scope is a deliberate reunion of two bodies of work. The last year built the inference path
 (Llama, quantization, the `OperationTraits` dispatch, the chat harness). The year before built a

@@ -51,7 +51,7 @@ describes the reader and not the builder.
 |---|---|---|---|
 | The developer | reads Mila | builds on Mila | delegates tasks to Mila |
 | Enters at | a model: `GemmaModel<...>::load`, or components | `Mila::AI`, or components | `Mila::AI` with tools and a policy, or components |
-| Headline claim | a 27B model at 2.82 bits on a 12 GB card, and you can read it | a local model at work in your program in ten lines, and one call from there to the kernel | an agent finishes a multi-step task in your process without re-reading its history, and every step is auditable |
+| Headline claim | a 27B model on a 16 GB card, and you can read it (the 2.82-bit build that would make it 12 GB is held for the next release — `ROADMAP.md`) | a local model at work in your program in ten lines, and one call from there to the kernel | an agent finishes a multi-step task in your process without re-reading its history, and every step is auditable |
 
 **What does not change.** Validation stays token-for-token against the reference implementation.
 Readability becomes the guarantee under the trait: the reason a developer can trust what they harness
