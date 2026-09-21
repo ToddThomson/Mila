@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 
-#include "Common/DeviceWithoutDisplay.h"
+#include "Common/CudaDeviceScope.h"
 
 import Mila;
 
@@ -103,12 +103,12 @@ namespace Mila::Tests::Dnn::Models
     // One load serves both halves: quantizing 47 GiB on load is the expensive part, and the footprint it leaves is
     // the one generation runs in.
     //
-    // It runs on a device that drives no display where there is one, for the reason GemmaModel.Footprint.Cuda.cpp
-    // gives, and that is the 16 GiB card on the machine the s8 row was measured on.
+    // It runs on whatever device is current. The s8 row it checks against was measured on a 16 GiB
+    // card; a card with materially less will not hold this model and the load is what says so.
     TEST_F( GemmaMixtureOfExpertsFp4CudaTests, Fp4Load_FitsSection8AndMatchesHuggingFaceGreedy )
     {
-        const std::optional<int> without_display = Common::findCudaDeviceWithoutDisplay();
-        const int ordinal = without_display.value_or( 0 );
+        int ordinal = 0;
+        ASSERT_EQ( cudaGetDevice( &ordinal ), cudaSuccess );
         const DeviceId device{ DeviceType::Cuda, ordinal };
         const Common::ScopedCurrentCudaDevice current( ordinal );
 
@@ -156,7 +156,7 @@ namespace Mila::Tests::Dnn::Models
         const MemoryStats reported = model->getMemoryStats();
         const std::size_t residual = consumed > predicted.totalDeviceBytes() ? consumed - predicted.totalDeviceBytes() : 0;
 
-        std::cout << std::format( "[fp4] CUDA device {}{}\n", ordinal, without_display ? "" : " (drives a display)" );
+        std::cout << std::format( "[fp4] CUDA device {}\n", ordinal );
 
         std::cout << std::format(
             "[fp4] context {}  prefill chunk {} of {} rows  free before load {:.3f} GiB  free after {:.3f} GiB{}\n"

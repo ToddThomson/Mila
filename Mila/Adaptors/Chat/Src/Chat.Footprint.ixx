@@ -349,9 +349,8 @@ namespace Mila::ChatApp
                     return { footprint.memory, {}, footprint.prefill };
                 }
 
-                case ModelType::Gpt:
                 default:
-                    return { std::nullopt, "GPT-2 has no footprint entry point in this build" };
+                    return { std::nullopt, "this model's family has no footprint entry point" };
             }
         }
         catch ( const std::exception& error )

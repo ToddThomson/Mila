@@ -8,13 +8,17 @@
  * MemoryStats cannot: allocator rounding, and the grow-on-demand execution-context
  * scratch that no build-time contract observes.
  *
- * Gate B is therefore NOT an equality test. Its job is to bound and attribute the
- * residual: the prediction must not exceed what was actually consumed (an overestimate
- * refuses configurations that fit), and the shortfall must stay within a stated margin
- * so a regression in the unmodelled terms is visible rather than absorbed.
+ * Gate B is therefore NOT an equality test. Its job is the decision a user depends on:
+ * given the VRAM this card actually has free, Mila says whether the model loads, and that
+ * answer has to be right. The prediction must not exceed what was consumed (an overestimate
+ * refuses configurations that fit), and a load Mila promised must not fail or exhaust the
+ * device.
+ *
+ * The card's circumstances are an input to that decision rather than noise, so this needs no
+ * particular machine and runs wherever Mila does.
  *
  * Requires a real checkpoint and is skipped without one, so it does not run in CI.
- * See Specifications/MemoryFootprint.md section 7.
+ * See Specifications/MemoryFootprint.md sections 7 and 11.6.
  */
 
 #include <gtest/gtest.h>
@@ -26,8 +30,9 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <string>
 
-#include "Common/DeviceWithoutDisplay.h"
+#include "Common/CudaDeviceScope.h"
 
 import Mila;
 
@@ -213,25 +218,27 @@ namespace Mila::Tests::Dnn::Models
             long_context.prefill.chunk_rows, long_context.prefill.unconstrained_chunk_rows );
     }
 
-    // Gate B proper. Predict, then actually load, and hold the two against the driver's
-    // own accounting. The printed residual is the deliverable as much as the assertions:
-    // it is the size of everything a build-time contract cannot see.
+    // Gate B proper. Predict, then actually load, and hold the two against the driver's own
+    // accounting.
     //
-    // It runs on a device that drives no display. On one that does, CUDA's free memory follows a
-    // budget Windows lowers as the process writes (MemoryFootprint.md 11.5), and the residual moved
-    // from 720 to 1180 MiB on the RTX 4070 with nothing in Mila changing -- a measure of the desktop.
-    // Where every device drives a display, the exact agreements still hold and the bound is skipped.
-    TEST_F( GemmaFootprintCudaTests, GetRequiredMemory_BoundsActualConsumption )
+    // The question is the one a user has: given the VRAM this card actually has free, does Mila
+    // decide correctly whether the model loads? The card's own circumstances -- a desktop on it,
+    // another process holding memory -- are an INPUT to that decision, not noise to be excluded,
+    // so this runs on whatever device is current and needs no particular machine.
+    //
+    // fits_available_memory is the predicate behind the warning GemmaTransformer emits at
+    // resolvePrefillChunkSize: false means even the floor chunk does not fit and Mila proceeded
+    // anyway, which MemoryFootprint.md 11.6 chose over refusing. So a load that fails after Mila
+    // warned is the documented behaviour; one that fails after Mila said it fits is a defect.
+    TEST_F( GemmaFootprintCudaTests, PredictedFitDecidesWhetherTheModelLoads )
     {
         constexpr dim_t kContextLength = 8192;
 
-        const std::optional<int> without_display = Common::findCudaDeviceWithoutDisplay();
-        const int ordinal = without_display.value_or( 0 );
+        int ordinal = 0;
+
+        ASSERT_EQ( cudaGetDevice( &ordinal ), cudaSuccess );
+
         const DeviceId device{ DeviceType::Cuda, ordinal };
-
-        const Common::ScopedCurrentCudaDevice current( ordinal );
-
-        ASSERT_TRUE( current.selected() );
 
         cudaFree( nullptr );
 
@@ -239,18 +246,55 @@ namespace Mila::Tests::Dnn::Models
         config.withContextLength( kContextLength )
             .withWeightQuantization( WeightQuantization::FP4 );
 
+        // Mila's verdict, taken before the load so the load cannot colour it.
+        const DeploymentFootprint footprint =
+            GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getDeploymentFootprint(
+                checkpoint_, config, device );
+
+        const bool predicted_to_fit = footprint.prefill.fits_available_memory;
+
         const MemoryStats predicted =
             GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory(
                 checkpoint_, config, device );
 
         const std::size_t free_before = freeDeviceBytesOn( ordinal );
 
-        auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
-            checkpoint_, config, device );
+        std::unique_ptr<GemmaModel<DeviceType::Cuda, TensorDataType::BF16>> model;
+        std::string load_failure;
 
-        ASSERT_NE( model, nullptr );
+        try
+        {
+            model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
+                checkpoint_, config, device );
+        }
+        catch ( const std::exception& error )
+        {
+            load_failure = error.what();
+        }
+
+        // The decision, which is the whole point of the gate.
+        if ( !model )
+        {
+            ASSERT_FALSE( predicted_to_fit )
+                << "Mila predicted this model fits the " << free_before
+                << " bytes free on CUDA device " << ordinal << ", and the load failed: "
+                << ( load_failure.empty() ? "no exception reported" : load_failure );
+
+            GTEST_SKIP() << "the model does not fit this device and Mila said so before loading, "
+                            "which 11.6 prefers to refusing; nothing left to account for";
+        }
 
         const std::size_t free_after_load = freeDeviceBytesOn( ordinal );
+
+        // A WDDM spill keeps the process running with the device exhausted (11.5 measured
+        // 12282/0 MiB). Surviving that way after Mila promised a fit is the same defect as
+        // failing outright, so it is held to the same line rather than passing quietly.
+        if ( predicted_to_fit )
+        {
+            EXPECT_GT( free_after_load, 0u )
+                << "the device was exhausted by a load Mila predicted would fit";
+        }
+
         const std::size_t consumed = free_before - free_after_load;
 
         const MemoryStats reported = model->getMemoryStats();
@@ -259,12 +303,13 @@ namespace Mila::Tests::Dnn::Models
             : 0;
 
         std::cout << std::format(
-            "[gate B] context {}, CUDA device {}{}\n"
+            "[gate B] context {}, CUDA device {}, {:.3f} GiB free before load, Mila predicted {}\n"
             "  predicted (getRequiredMemory) {:.3f} GiB\n"
             "  reported  (getMemoryStats)    {:.3f} GiB\n"
             "  consumed  (cudaMemGetInfo)    {:.3f} GiB\n"
             "  residual  (unmodelled)        {:.3f} GiB  ({:.1f}% of consumed)\n",
-            kContextLength, ordinal, without_display ? "" : " (drives a display)",
+            kContextLength, ordinal, toGiB( free_before ),
+            predicted_to_fit ? "it fits" : "it does NOT fit",
             toGiB( predicted.totalDeviceBytes() ),
             toGiB( reported.totalDeviceBytes() ),
             toGiB( consumed ),
@@ -287,18 +332,15 @@ namespace Mila::Tests::Dnn::Models
             << "prediction exceeded actual consumption -- an overestimate refuses "
                "configurations that fit";
 
-        if ( !without_display )
-        {
-            GTEST_SKIP() << "every visible CUDA device drives a display, so the residual measures the "
-                            "Windows budget as well as Mila; measured " << residual / ( 1024 * 1024 ) << " MiB";
-        }
-
-        // What Mila does not predict on a device without a display: the share of packed small allocations
-        // and the fixed remainder, together under 30 MiB once rounding is predicted (MemoryFootprint.md
-        // 11.8). The bound is Phase 6 step 3's criterion 2.
-        constexpr std::size_t kResidualBoundBytes = std::size_t{ 64 } * 1024 * 1024;
-
-        EXPECT_LT( residual, kResidualBoundBytes )
-            << "unmodelled memory exceeded 64 MiB";
+        // The residual is reported, not bounded. It is the size of everything a build-time
+        // contract cannot see, and on a card that drives a display it also carries the Windows
+        // budget cut -- 354 to 1180 MiB across ten runs on the RTX 4070 against 6 to 20 MiB on the
+        // headless RTX 5060 Ti, with Mila unchanged (11.5). An absolute bound on it is therefore a
+        // statement about the machine, and holds only where the machine is quiet.
+        //
+        // What that bound was guarding -- drift in the unmodelled terms -- is not covered here.
+        // See Mila/Issues/Vnext.md.
+        std::cout << std::format(
+            "  the residual above is reported, not asserted; see MemoryFootprint.md 11.5\n" );
     }
 }

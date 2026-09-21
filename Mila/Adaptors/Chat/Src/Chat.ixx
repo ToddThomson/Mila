@@ -2,7 +2,7 @@
  * @file Chat.ixx
  * @brief Mila chat application.
  *
- * Supports GptModel (FP32) and LlamaModel (FP32 or BF16) backends,
+ * Supports the instruct families -- Llama (FP32 or BF16), Gemma and Qwen (BF16) --
  * selected at construction via ChatConfig. The active model is stored
  * as a std::variant so each template instantiation retains its full
  * static type through the generate path. Llama instruct models use
@@ -64,14 +64,12 @@ namespace Mila::ChatApp
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Data;
 
-    using GptModelFP32Type   = GptModel<DeviceType::Cuda, TensorDataType::FP32>;
     using LlamaModelFP32Type = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
     using LlamaModelBF16Type = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
     using GemmaModelBF16Type = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
     using QwenModelBF16Type  = QwenModel<DeviceType::Cuda, TensorDataType::BF16>;
 
     using ModelVariant = std::variant<
-        std::unique_ptr<GptModelFP32Type>,
         std::unique_ptr<LlamaModelFP32Type>,
         std::unique_ptr<LlamaModelBF16Type>,
         std::unique_ptr<GemmaModelBF16Type>,
@@ -1875,8 +1873,8 @@ namespace Mila::ChatApp
          * Derived rather than compiled, because every part is something the session already knows:
          * what the transcript renders to, what the reasoning budget will claim, and room to answer.
          * A constant 512 or 1024 would be a figure the user has to take on faith, and would be
-         * wrong in both directions -- too small for a Gemma turn at high effort, too large for
-         * GPT-2's 1024 addressable positions.
+         * wrong in both directions -- too small for a Gemma turn at high effort, too large for a
+         * short-context model on a card with no room for more.
          */
         ContextFloor contextFloor() const
         {
@@ -2611,10 +2609,6 @@ namespace Mila::ChatApp
 
                 switch ( config_.model_type )
                 {
-                    case ModelType::Gpt:
-                        tokenizer_ = BpeTokenizer::loadGpt2( config_.tokenizer_path );
-                        break;
-
                     case ModelType::Llama:
                         tokenizer_ = BpeTokenizer::loadLlama32( config_.tokenizer_path );
                         break;
@@ -2728,22 +2722,6 @@ namespace Mila::ChatApp
 
             switch ( config_.model_type )
             {
-                case ModelType::Gpt:
-                {
-                    auto gpt = GptModelFP32Type::load(
-                        config_.model_path,
-                        config_.context_length,
-                        device,
-                        /*strict=*/true );
-                    if ( config_.detail == DetailLevel::All )
-                    {
-                        std::cout << gpt->toString();
-                        std::cout << gpt->getMemoryStats().toString() << "\n";
-                    }
-                    model_ = std::move( gpt );
-                    break;
-                }
-
                 case ModelType::Llama:
                 {
                     LlamaModelConfig llama_config = LlamaModelConfig( config_.context_length );

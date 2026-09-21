@@ -7,12 +7,35 @@ name: Mila CI
 # cpu-only-tests RUNS the CPU unit suite (MILA_ENABLE_CUDA=OFF) -- the anti-rot
 # ratchet. GPU correctness tests are NOT run: hosted runners have no GPU, so device
 # tests would be theater. Those run locally on real hardware.
+#
+# The offline sub-minute checks are NOT here -- they are gates.yml, so that narrowing
+# this workflow's triggers does not take them down too.
 
+# Two triggers, because there are exactly two situations a maintainer's own machine cannot
+# cover.
+#
+#   pull_request dev   A contributor's branch lives on a fork and has never been built on a
+#                      machine the maintainer controls. CONTRIBUTING.md asks for PRs against
+#                      `dev`, and several Contributor.md items are CPU-op work -- which means
+#                      an author who has no CUDA Toolkit, and therefore no way to discover
+#                      that they broke the CUDA tree. This run is the only thing that can
+#                      tell them. It is also their first impression, so a red X here has to
+#                      mean their code, never ours.
+#
+#   push master        The release merge, once per release. This is what makes the README's
+#                      ?branch=master badge resolve, and it is the only reason this workflow
+#                      still runs on the maintainer's own code at all.
+#
+# NOT on a `dev` push, and NOT on the release PR. RELEASING.md's cross-platform policy already
+# requires a passing WSL build before `dev -> master`, and per its own table that build does
+# strictly more than this one: it compiles under clang AND runs the suite on real hardware,
+# where a hosted runner can execute nothing. A check that is a subset of a step you are already
+# required to perform adds nothing but a wait.
 on:
   push:
-    branches: [master, dev]
+    branches: [master]
   pull_request:
-    branches: [master, dev]
+    branches: [dev]
 
 # Supersede in-flight runs on the same ref.
 concurrency:
@@ -20,72 +43,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  notice-gate:
-    name: NOTICE.md matches the dependency pins
-    # Its own job, not a step in compile-and-gate: this is a two-second offline check
-    # and a separate job reports drift in seconds rather than after a 20-minute clang
-    # build. No toolchain, no container, no network.
-    #
-    # NOTICE.md is a release artifact, not a passive record -- the published wheels and
-    # container images link this material -- so a pin bumped without its NOTICE row
-    # ships a false statement about what the binary contains. That has already happened
-    # twice (pybind11 recorded a version the build had moved off; curl had no row at
-    # all), which is why this is a gate and not a release-checklist line.
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Verify NOTICE.md against CMake pins
-        run: python3 scripts/dependencies/check_pins.py --verify-notice
-
-  version-sites-gate:
-    name: The release version is written consistently
-    # Sixteen hand-written sites name the last published release -- FetchContent GIT_TAGs a
-    # reader copies, image tags a reader runs, sample output beside them. None derive from
-    # Version.txt and nothing checked them: one went stale pointing a downstream consumer at
-    # an unreleased tag, and the website's C++ tab once pinned a checkpoint behind the output
-    # printed next to it. Offline, under a second, so it reports before any build starts.
-    #
-    # This asserts the sites agree with EACH OTHER, which is true on every commit. It does not
-    # assert they equal Version.txt -- mid-cycle they correctly name the last tag a reader can
-    # fetch, not the working version. The release procedure passes --expect for that.
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Verify the release version is consistent across the tree
-        run: python3 scripts/release/version_sites.py --check
-
-  doxygen-gate:
-    name: Doxygen warnings are errors
-    # The same run publish-site.yml does, without the deploy. That workflow is manual, so a
-    # doc break from a Src/** or README.md change used to surface only at the next publish --
-    # three accumulated unseen between beta.3 and rc.1+22. Doxygen needs no CUDA and no CMake,
-    # so this is its own job and reports in about a minute.
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # The version is read from publish-site.yml, where it is pinned once, so the gate can
-      # never validate with a different Doxygen than the one that publishes.
-      - name: Install Doxygen (version pinned in publish-site.yml)
-        run: |
-          DOXYGEN_VERSION=$(sed -n 's/^[[:space:]]*DOXYGEN_VERSION:[[:space:]]*//p' .github/workflows/publish-site.yml)
-          test -n "$DOXYGEN_VERSION"
-          wget -q "https://github.com/doxygen/doxygen/releases/download/Release_${DOXYGEN_VERSION//./_}/doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"
-          tar -xzf "doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"
-          sudo cp "doxygen-${DOXYGEN_VERSION}/bin/doxygen" /usr/local/bin/
-          doxygen --version
-
-      # WARN_AS_ERROR in the Doxyfile fails this step on any doc warning.
-      - name: Generate documentation
-        run: |
-          mkdir -p build/docs
-          doxygen Mila/Docs/Doxyfile
-
   compile-and-gate:
     name: Compile (clang-21) + packaging gates
     runs-on: ubuntu-24.04
+    # The job's own observed worst case is 72 minutes; the default is SIX HOURS, and a hang has
+    # already burned it twice in one day. A bound above any real run and far below the default
+    # turns a repeat into a legible failure instead of an afternoon.
+    timeout-minutes: 100
     # Mirrors the validated WSL toolchain: Ubuntu 26.04 + CUDA 13.3 (glibc 2.43 --
     # the path that broke under CUDA 13.0). No cuDNN variant exists for 26.04, and
     # none is needed while USE_CUDNN is unset, so the plain devel image is correct.
@@ -156,8 +120,8 @@ jobs:
             -DMILA_ENABLE_PACKAGING_TEST=ON
 
       # Compiling lib + tests + samples under clang IS the cross-compiler portability
-      # check. MSVC silently resolves includes/conformance that clang rejects. Runs on
-      # every push/PR -- this is the fast feedback that matters on dev.
+      # check. MSVC silently resolves includes/conformance that clang rejects. It answers
+      # for a batch at the release PR, not per commit -- see the triggers above.
       - name: Build
         # -k 0: keep going after the first error so one run surfaces the full
         # clang-portability error list (the gate fails one file at a time otherwise,
@@ -172,21 +136,19 @@ jobs:
       #
       # HEAVY (~26 min: install + consumer module recompile + full in-tree subproject
       # rebuild of every kernel) and they only catch regressions from build-system
-      # changes, which land at releases. So they run ONLY on master-bound runs -- the
-      # dev -> master release PR and pushes to master -- not on every dev iteration.
-      # A packaging regression introduced on dev is caught at the release PR (the suspect
-      # set is the batch's CMake-touching commits), before anything is tagged.
+      # changes, which land at releases. A contributor waiting on a first PR should not
+      # pay for that, so the release merge is the only run that does.
       - name: Packaging gates
-        if: github.ref == 'refs/heads/master' || github.base_ref == 'master'
+        if: github.ref == 'refs/heads/master'
         run: ctest --test-dir build -L packaging --output-on-failure
 
   cpu-only-tests:
     name: CPU-only suite (clang-21, MILA_ENABLE_CUDA=OFF)
     # The only CI job that RUNS tests. The CPU-only build needs no GPU, so the CPU
-    # unit suite executes here on every push/PR -- the anti-rot ratchet that keeps
-    # the revived tests green (compile-and-gate above only COMPILES; device tests
-    # stay local). GPU- and data-dependent cases self-skip (GTEST_SKIP), so the
-    # absence of a GPU or model weights is green, not red.
+    # unit suite executes here -- the anti-rot ratchet that keeps the revived tests
+    # green (compile-and-gate above only COMPILES; device tests stay local). GPU- and
+    # data-dependent cases self-skip (GTEST_SKIP), so the absence of a GPU or model
+    # weights is green, not red.
     #
     # Plain ubuntu:26.04 (clang-21 + gcc-15 ship with it) -- NOT the CUDA image:
     # MILA_ENABLE_CUDA=OFF leaves the CUDA language disabled (project() declares only
@@ -194,6 +156,8 @@ jobs:
     # image pull. Mirrors the linux-clang-cpu-release preset.
     runs-on: ubuntu-24.04
     container: ubuntu:26.04
+    # Baseline is 19 minutes; it has stalled past 75. See compile-and-gate's bound.
+    timeout-minutes: 45
     env:
       CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
     steps:

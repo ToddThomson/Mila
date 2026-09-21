@@ -340,9 +340,14 @@ endif()
 target_link_libraries( MilaTests PRIVATE Mila gtest )
 
 if(MILA_ENABLE_CUDA)
-    # NVML answers which device drives a display, for the Gate B tests (Common/DeviceWithoutDisplay.h).
-    # The test binary alone links it; the library does not.
-    target_link_libraries( MilaTests PRIVATE CUDA::cudart CUDA::nvml )
+    # No NVML. The Gate B tests once used it to find a device driving no display, so an absolute
+    # bound on unmodelled memory could be asserted on a quiet card. That question needed a
+    # particular machine; the question the tests ask now -- given the VRAM this card actually has
+    # free, does Mila decide correctly whether the model loads -- treats the card's circumstances
+    # as an input and needs none. Linking CUDA::nvml also put the driver's libnvidia-ml.so.1 in
+    # this binary's load-time dependencies, so a machine with a Toolkit but no driver could not
+    # start the suite at all.
+    target_link_libraries( MilaTests PRIVATE CUDA::cudart )
 endif()
 
 # Visual Studio native C++ code coverage instruments only binaries linked with

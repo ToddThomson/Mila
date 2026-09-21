@@ -16,7 +16,6 @@ dispatch magic. Just C++23, CUDA, and full control.
 ---
 
 [![master](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master)](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml?query=branch%3Amaster)
-[![dev](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev)](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml?query=branch%3Adev)
 
 ---
 

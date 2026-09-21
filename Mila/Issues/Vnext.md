@@ -146,11 +146,37 @@ First step is one reading: what `cuMemGetAllocationGranularity` returns in the c
 the 2 MiB both Windows cards report. If it is coarser, the prediction is low by construction and the
 bound is innocent.
 
-Two things make this weaker evidence than it looks. The bound is **skipped whenever every visible
-CUDA device drives a display** (`GemmaModel.Footprint.Cuda.cpp:290`), so a green Windows run may
-never have executed it and the container may be the first place it ever ran. And Docker Desktop is
+Two things made this weaker evidence than it looked. The bound was **skipped whenever every visible
+CUDA device drove a display** (`GemmaModel.Footprint.Cuda.cpp:290`), so a green Windows run may never
+have executed it and the container may have been the first place it ever ran. And Docker Desktop is
 WSL2-backed, which reaches the GPU through the Windows driver — §11.10 rules WSL2 out as a stand-in
 for native Linux, so this is not the native-Linux number that section is waiting for.
+
+**The first suspicion is confirmed: the bound had never run on native Windows, and it fails there
+too.** Measured 2026-09-20, RTX 4070 pinned alone by UUID with `display_active: Disabled`, context
+8192: Gemma 4 12B FP4 predicted 8.314 GiB against 8.572 consumed, residual **0.257 GiB**; Llama 3.1
+8B **0.238 GiB**. Against the bound of 64 MiB.
+
+Four measurements now exist and no single cause fits them:
+
+| Card | Platform | Display | Gemma 4 12B | Llama 3.1 8B |
+|---|---|---|---|---|
+| RTX 4070 | native Windows | attached | 354-1180 MiB | 321, 369 MiB |
+| RTX 4070 | native Windows | **disabled** | **257 MiB** | **238 MiB** |
+| RTX 5060 Ti | native Windows | headless | 6-20 MiB | 21 MiB |
+| RTX 5060 Ti | dev container | — | 290 MiB | 267 MiB |
+
+Two axes are unexplained rather than one. **The display is not the whole account on the 4070** — a
+quarter of a gigabyte survives turning it off, which is what 11.5's table attributes entirely to the
+Windows budget cut. And **the platform matters on the 5060 Ti** — 6-20 MiB natively against 290 in
+the container, on the same card. Driver rounding would explain the container and the 4070; it does
+not explain why the 5060 Ti reads twenty times lower natively for the same model.
+
+The bound was removed at `rc.1+27` (`MemoryFootprint.md` 11.5, superseding note), so this entry is
+now the only thing tracking the number, and the 64 MiB figure never held anywhere except the one
+card-and-platform combination the old test happened to select. The cheap reading named above --
+`cuMemGetAllocationGranularity` on both cards and in the container -- is now the first step for both
+axes, not just the container.
 
 ## The Gemma parity script compares two different precisions and calls it parity
 
@@ -889,15 +915,18 @@ include directory, `Mila/Src/Dnn`, on the `Mila` target, and the three includes 
 
 `build` · `binding`
 
-The published-artifact architecture list is `80;86;89;90;120` on the reasoning that SM 8.0 is the
-floor Mila's kernels draw — the FP4 GEMM gates on `major >= 8` (`CudaLinearOp.ixx:661`) and both
-GQA flash prefill paths throw below it (`Gqa.Flash.Fa2.cu:513`, `Gqa.Flash.Wmma.cu:632`). No one has
+The supported architecture list is `80;86;89;90;120` on the reasoning that SM 8.0 is the floor
+Mila's kernels draw — the FP4 GEMM gates on `major >= 8` (`CudaLinearOp.ixx:661`) and both GQA
+flash prefill paths throw below it (`Gqa.Flash.Fa2.cu:513`, `Gqa.Flash.Wmma.cu:632`). No one has
 observed it: the dev box has only sm_89 and sm_120. At `rc.1+24` the published "what you need" lines
 (website x5, `getting-started.md`, `scripts/dockerhub/overview.md`) were narrowed from RTX 30-series
-to RTX 40-series (Todd), so a rented A10G or A100 hour is what widens them again. The same run settles
-whether Turing's non-WMMA fallback (`cuda_fp4a16_gemm`, dispatched at `CudaLinearOp.ixx:882`) is
-reachable at all or is dead code behind those throws — every bound model uses GQA, and the published
-list starts at 80, so today it compiles for nobody.
+to RTX 40-series (Todd), so a rented A10G or A100 hour is what widens them again.
+
+The Turing half is closed: at `rc.1+27` `MILA_LIBRARY_CUDA_ARCHITECTURES` dropped 75, so nothing in
+the tree compiles for it and the non-WMMA `cuda_fp4a16_gemm` fallback (`CudaLinearOp.ixx:882`) is
+unreachable by construction rather than by argument. What remains is whether that fallback should be
+deleted outright, which needs someone to confirm no non-GQA path can still dispatch to it. **Ampere
+is the live question** — sm_80 and sm_86 ship in every artifact and have never run.
 
 ## Gemma loses its own reasoning between tool calls in a turn
 
@@ -924,3 +953,19 @@ would not. Qwen's bridge treats a malformed call as prose, which is the behaviou
 Held for the same reason as the entry above (`rc.1+24`): a behaviour change inside Gemma's protocol
 is too late in this cycle. `Chat.ToolCallParser.ixx`'s over-eager `[` test in `Contributor.md` is
 the same failure shape in the adaptor rather than the library.
+## Nothing now catches the footprint prediction drifting while it still fits
+
+`models` · `perf`
+
+Gate B used to bound the unmodelled residual at 64 MiB, which is how a prediction that quietly
+worsened became visible. That bound was removed at `rc.1+27`: the residual varies by card and by
+platform for reasons not yet understood (see the table in the entry above), so an absolute figure
+cannot hold portably, and the old test reached green by selecting the one device where it did. The
+tests now assert the decision a user depends on -- Mila read the VRAM actually free, said the model
+fits, and it loaded -- which holds on any card but does not notice a prediction worsening by 300 MiB
+on a card with room to absorb it.
+
+The residual is still printed by both Gate B tests and by `QuantizeOnLoad.Footprint.Cuda.cpp`. What
+is missing is anything that compares it with last time. It only means something against a stated
+card, so it wants a measurement surface that records card and figure together, not an assertion in
+a unit test. `MemoryFootprint.md` 11.5 carries the superseding note.

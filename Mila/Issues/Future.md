@@ -334,15 +334,9 @@ leaves the staging buffer holding the previous strip — wrong logits, no error.
 `CodebookDequantize.cu` now throws; make these match. Only reachable by adding a `PerGroupFp4<N>`
 policy, which is why it has never fired.
 
-## CI has three cost and reliability gaps
+## CI has a cost gap
 
 `ci`
-
-**No `timeout-minutes`, so a hang costs six hours.** It has recurred in two different jobs on one
-day — once stalling in `Run CPU test suite` at 75+ min against a 14m29s baseline, once in `Build` on
-the pybind11 wrapper TU that compiled in 3m43s on the identical tree in a parallel run. A re-run is
-the only remedy available, and against a normal ~45-minute round trip a bound near 60 turns a repeat
-into a legible failure. `.github/workflows/build-pipeline.yml`
 
 **The packaging gate should be its own job that configures but does not build.** It does not consume
 the parent build at all — it passes `MILA_SOURCE_DIR=${CMAKE_SOURCE_DIR}` and compiles Mila from
@@ -350,11 +344,8 @@ scratch under `_deps/mila-build/`, needing only that CMake has configured. Today
 builds Mila for ~45 min and the gate builds it again, in series.
 `Mila/Tests/Packaging/CMakeLists.txt:43`
 
-**A `dev` push and an open PR for the same SHA run the whole pipeline twice**, and the redundant one
-blocks the merge. The PR run is a strict superset — same tree, plus the packaging gates
-`build-pipeline.yml:114` skips on a `dev` push — but both report the same check names on the same
-SHA. Suppress the push run, and comment exactly when each job runs: an `if:` in this same file once
-hid a broken packaging gate for 32 commits, and a first pass proposed suppressing the wrong run.
+*(The double-run on a `dev` push and its open PR, and the missing `timeout-minutes`, were both fixed
+on 2026-09-20 — `build-pipeline.yml` no longer triggers on either a `dev` push or the release PR.)*
 
 ## Add Python 3.14 once 3.12 is proven
 

@@ -342,8 +342,9 @@ dangerous one — not a compile error but a silent omission, with the assertion
 surfacing far downstream. PyTorch shipped exactly this bug by stripping the
 suffix during arch auto-detection.
 
-Mila's presets set `CMAKE_CUDA_ARCHITECTURES "120"` — no suffix — in
-`x64-release-blackwell` and in all four published-artifact lists. Nothing is
+Mila sets `120` — no suffix — in `x64-release-blackwell`, in the library's own
+`MILA_LIBRARY_CUDA_ARCHITECTURES` default, and in all four published-artifact
+lists. The library default is the one most easily missed. Nothing is
 broken today (the preset description correctly notes nothing in Mila emits
 sm_120 instructions yet), but this is **step 0** of any NVFP4 work, not a
 detail to discover later.

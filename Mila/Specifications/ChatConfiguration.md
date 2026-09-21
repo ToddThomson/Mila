@@ -172,8 +172,9 @@ publisher's to change:
 
 - `thinking_capable` — the architecture has a reasoning channel
 - `streaming_capable`
-- `max_context` — the hard ceiling, such as GPT-2's 1024 learned position rows, where a larger
-  value indexes past the table and the load fails
+- `max_context` — the ceiling the architecture can address. Every instruct family uses RoPE and
+  extrapolates, so these are memory questions the footprint pre-flight answers; a learned position
+  table would be a hard ceiling, but no family Chat runs has one
 - template and tokenizer traits
 
 These are properties of the code that implements the architecture, so they belong beside it.
@@ -434,7 +435,7 @@ reports on would be the silent device override §3 rules out. A user who writes 
 rendered transcript, plus the reasoning budget when thinking is on, plus room to answer — every part
 a fact the session already holds. A compiled 512 or 1024 would be a figure the user has to take on
 faith and would be wrong in both directions: too small for a Gemma turn at high effort, too large for
-GPT-2's 1024 addressable positions. The refusal shows the arithmetic, so it is arguable rather than
+a short context on a card with no room for more. The refusal shows the arithmetic, so it is arguable rather than
 an assertion. **The chassis imposes no minimum of its own and should not** — `ModelConfig` and
 `LanguageModelConfig` reject only zero, and the window and score-width calculations already clamp to
 `min(context, …)`, so a short context degrades rather than breaking. A floor in `Mila/Src` would be

@@ -1068,6 +1068,25 @@ GPUs visible: Gemma 4 12B 6 MiB and Llama 3.1 8B 21 MiB on CUDA 1, the RTX 5060 
 10389.6 MiB after generation in one run and 10679.0 MiB in the next and failed the 128 MiB comparison; on the RTX
 5060 Ti the two arms differ by 0.0-14.0 MiB for all three models, and token agreement is asserted on any device.
 
+**Superseded 2026-09-20.** The rule above answered "where can this be measured cleanly" by selecting a device, which
+made the tests depend on a machine with a spare headless card — the maintainer's. The question was reframed: what a
+user depends on is whether Mila, reading the VRAM a card *actually* has free, decides correctly that a model loads.
+The card's circumstances are an INPUT to that decision, not contamination to be selected around, so the Gate B tests
+now run on whatever device is current and need no particular machine.
+
+Every assertion that bounded *how much* memory moved is therefore reported rather than asserted — the 64 MiB residual
+bound in both Gate B tests, and the 128 MiB arm comparison in `QuantizeOnLoad.Footprint.Cuda.cpp`. An absolute figure
+is a statement about the machine, and the arm comparison is no safer: the budget moves between the two loads as well
+as between runs, and the observed swing exceeded the bound. `ScratchReservation.Cuda.cpp` keeps its 16 MiB growth
+bound, which is a property of Mila's allocator over one process rather than a total, and already skips a saturated
+card. `Tests/Common/DeviceWithoutDisplay.h` is gone; what survives of it is `CudaDeviceScope.h`, the RAII that
+restores the current device. NVML leaves the test binary with it — linking it had put the driver library in the
+binary's load-time dependencies, so a machine with a Toolkit and no driver could not start the suite at all.
+
+**What this gives up, recorded rather than absorbed:** drift in the unmodelled terms. A prediction that quietly
+worsens by 300 MiB still passes on a card with room. That number only means something against a stated card, so it
+wants a measurement surface rather than a unit test. See `Mila/Issues/Vnext.md`.
+
 **Criterion 7, in progress.** Every Windows target builds, and the full suite passes on the RTX 5060 Ti pinned by
 UUID: 1968 run, 1967 pass, 1 skipped. The FetchContent consumer configures, builds and links, with the driver
 library on its link line. In WSL with CI's configure, the CUDA build passes in 1520 seconds and the CPU-only build

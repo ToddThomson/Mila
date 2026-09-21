@@ -956,9 +956,8 @@ static ChatConfig buildConfig( const CommandLine& line )
                 config.configured_context_length = request.length;
 
             // Clamped to what the architecture can address. One configuration serves every model
-            // the session may load, so a context chosen for a 12B model reaches GPT-2 as well --
-            // and GPT-2's positions are a 1024-row learned table, so the oversized value is a
-            // failed load rather than a slow one.
+            // the session may load, so a context chosen for one family reaches the next, and the
+            // ceilings differ by a factor of two between Gemma and Qwen.
             if ( resolved && request.length > traits.max_context )
             {
                 std::cerr << std::format(

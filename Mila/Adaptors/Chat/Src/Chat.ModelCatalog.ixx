@@ -168,11 +168,6 @@ namespace Mila::ChatApp
             return ModelType::Llama;
         }
 
-        if ( architecture == "gpt2" )
-        {
-            return ModelType::Gpt;
-        }
-
         if ( architecture == "qwen" )
         {
             return ModelType::Qwen;
@@ -562,8 +557,9 @@ namespace Mila::ChatApp
      * Chat.Footprint.ixx), so a rung that does not fit does not prove the ones below it will not.
      * Measured 2026-08-17 a probe is 1-2 ms, which is what makes trying all of them affordable.
      *
-     * The bottom rungs exist for a family whose ceiling is low rather than for a card that is:
-     * GPT-2 addresses 1024 positions and nothing larger would be tried for it at all.
+     * The bottom rungs exist for a card with little room rather than for a family with a low
+     * ceiling: every instruct family Chat runs addresses far more than 1024 positions, so what
+     * drives a row down the ladder is the VRAM available, not the architecture.
      */
     inline constexpr Mila::Dnn::dim_t kContextLadder[] = {
         131072, 65536, 32768, 16384, 8192, 4096, 2048, 1024 };

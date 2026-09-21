@@ -21,7 +21,8 @@ The five workflows are not equally responsible:
 
 | Workflow | Trigger | Blocks the maintainer |
 |---|---|---|
-| `build-pipeline.yml` | `push`, `pull_request` | **Yes — all of it.** Five jobs, and the release merge waits on them |
+| `build-pipeline.yml` | `push: master`, `pull_request: dev` | No — the release merge no longer waits on it |
+| `gates.yml` | `push`, `pull_request` | No — three offline jobs, about a minute |
 | `wheel-cleanroom.yml` | `workflow_dispatch` | Yes, at release step 1 |
 | `web.yml` | dispatch | Build-without-deploy check |
 | `dependency-pins.yml` | `cron: 0 7 * * 1` | No — reports weekly, while he sleeps |
@@ -30,6 +31,23 @@ The five workflows are not equally responsible:
 So "eliminate CI" is too broad a statement of the goal. Two of the five never cost him anything, and
 one of those is load-bearing for a reason recorded below. The target is `build-pipeline.yml` and
 `wheel-cleanroom.yml`, which together are effectively all of the waiting.
+
+**Acted on, 2026-09-20, and the conclusion was stronger than this section's.** `build-pipeline.yml`
+now triggers only on `push: master` and `pull_request: dev`; the three offline jobs moved to their own
+`gates.yml`.
+
+The release PR was removed from its triggers because `RELEASING.md`'s cross-platform policy *already*
+requires a passing WSL build before `dev -> master`, and by its own table that build does strictly
+more — it compiles under clang **and** runs the suite on real hardware, where a hosted runner executes
+nothing. So the release never depended on this workflow for an answer, only for a badge. §2's reasoning
+reached that conclusion without anyone drawing it.
+
+**What survives is not about releases at all.** `pull_request: dev` covers the one case no maintainer
+machine can: a contributor's fork. CONTRIBUTING.md directs PRs at `dev`, and much of `Contributor.md`
+is CPU-operation work — an author with no CUDA Toolkit cannot discover that they broke the CUDA tree,
+and this run is the only thing that can tell them. That reframes the job's reliability from a
+convenience into a first impression, which is why the NVML load-time dependency and the missing
+`timeout-minutes` were fixed in the same change.
 
 ## 2. What decides where a check runs
 
@@ -56,6 +74,10 @@ There is exactly one question a local machine cannot answer, in §4.
 `notice-gate`, `version-sites-gate`, `doxygen-gate`. No toolchain, no network, no GPU. These are the
 checks whose current placement is hardest to defend: a stale version string is reported today after a
 ten-minute queue, and it is a sub-second check.
+
+They are now `gates.yml`, separated from the pipeline on 2026-09-20 so the pipeline's triggers could
+narrow without taking them down. That is a staging post, not the ring: the ring is the pre-commit hook,
+which reports before the commit rather than after the push.
 
 Delivered as a git `pre-commit` hook, which Visual Studio's commit button honours, plus a named entry
 point for running them by hand.
@@ -87,6 +109,20 @@ does today.
   tagging, because then it is a gate with extra steps. Its value is that it arrives *while* he tags,
   in the gap between the step 4 merge and the step 6 tag — so a red result still precedes the
   immutable artifact.
+
+- **The contributor check.** `build-pipeline.yml` on `pull_request: dev`. Added to this list on
+  2026-09-20, and the only resident that is not about releases. A fork's branch has never been built
+  on a machine the maintainer controls, so the "local instruments are better" argument in §2 simply
+  does not reach it — "local" means *his* machine. It costs nothing while there are no contributors,
+  because with no PRs it never fires.
+
+  **It answers a compile question and no correctness question**, which matters most for the
+  contributions Mila most wants. A kernel, a quantization format, an attention variant — none of it
+  can be validated by a runner with no GPU, so every such PR ends on the maintainer's cards. The
+  lever on that cost is not CI: it is the `*_MatchesReference` equivalence test the PR template asks
+  for. With one, validation is a build and a `ctest`; without one, it is reading a kernel and
+  inventing the test yourself. That is the difference between a contribution that helps and one that
+  is a second job.
 
 - **`publish-site.yml`.** A deploy, not a check. Manual, once per release, off the critical path.
 - **`dependency-pins.yml`.** A weekly notification. A local machine cannot reliably do "weekly while
@@ -134,6 +170,11 @@ Stated plainly, so the trade is made once rather than rediscovered:
 - **Continuous evidence for a reader.** Between releases the badge describes the last release rather
   than the current `dev` head. This is accurate, not misleading, but it is less than a project of
   Mila's positioning might be expected to show.
+
+  Worth less than it sounds, on the evidence. Over the five days to 2026-09-20 the `dev` badge was red
+  continuously and **not once for a portability regression** — first exit 137 on a runner shutdown, then
+  a test binary that could not start without a driver. Thirty runs held five successes. A signal that is
+  red regardless of the code is not evidence, and the badge was showing it on the README.
 - **The property that CI is indifferent to the developer's machine.** Ring 2's `git archive` export
   recovers the clean-checkout half of this. It does not recover the clean-*machine* half: a
   dependency installed only on the maintainer's box would go unnoticed. The FetchContent and CPM
@@ -153,13 +194,22 @@ Stated plainly, so the trade is made once rather than rediscovered:
 - **Deleting `dependency-pins.yml` for symmetry.** It blocks nothing and does something a local
   machine does badly.
 
+- **A self-hosted runner on the maintainer's cards, to give contributor PRs real GPU coverage.**
+  This is the first idea anyone has after reading §3's note that CI cannot validate a kernel, and it
+  is the one thing that must not be built. A `pull_request` from a fork carries arbitrary code; a
+  self-hosted runner on a public repository executes it on the maintainer's desktop, which holds the
+  signing path for every wheel and image Mila publishes. GitHub's own guidance says not to. GPU
+  validation stays a human step, and the equivalence test the PR asks for is what keeps it cheap.
+
 ## 7. Phasing
 
 1. **Ring 1.** Additive and safe at any time, including before a release.
 2. **Ring 2.** Wrap what is already run by hand; add the `git archive` export.
-3. **Retrigger `build-pipeline.yml` on `push: branches: [master]`**, and remove the `push`/
-   `pull_request` triggers. One workflow edit, and the point of no return — do it only once rings 1
-   and 2 are trusted.
+3. ~~**Retrigger `build-pipeline.yml` on `push: branches: [master]`**, and remove the `push`/
+   `pull_request` triggers.~~ **Done, 2026-09-20**, and it was not the point of no return this step
+   assumed. That framing took the release PR's run for a gate; `RELEASING.md` had already made the WSL
+   build the gate, so nothing was being relied upon. `pull_request: dev` stays and is not release
+   machinery — it is the contributor path (§1).
 4. **Ring 3**, including the clean-room substitute.
 5. **Fold `web.yml`** into ring 3 and retire it.
 

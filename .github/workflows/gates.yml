@@ -1,0 +1,94 @@
+name: Mila Gates
+
+# Purpose: the checks that are offline, deterministic and finish in about a minute.
+# They live apart from build-pipeline.yml because they have the opposite cost profile
+# and the opposite audience. A stale version string or a NOTICE row that drifted is
+# a sub-second question, and reporting it after a seventy-minute clang build is what
+# made it easy to ignore.
+#
+# The split is also what lets the expensive pipeline narrow its triggers without taking
+# these down with it. These run everywhere -- a `dev` push, a release PR, a contributor's
+# PR -- because a minute is cheap enough that deciding where they are worth it costs more
+# than running them.
+#
+# No badge. These claim nothing a reader of the README needs.
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+    branches: [master, dev]
+
+# Distinct from build-pipeline.yml's group -- concurrency groups are repository-wide,
+# and sharing a name would have each workflow cancel the other.
+concurrency:
+  group: gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  notice-gate:
+    name: NOTICE.md matches the dependency pins
+    # A two-second offline check. No toolchain, no container, no network.
+    #
+    # NOTICE.md is a release artifact, not a passive record -- the published wheels and
+    # container images link this material -- so a pin bumped without its NOTICE row
+    # ships a false statement about what the binary contains. That has already happened
+    # twice (pybind11 recorded a version the build had moved off; curl had no row at
+    # all), which is why this is a gate and not a release-checklist line.
+    runs-on: ubuntu-24.04
+    # Sub-minute work; the bound only exists so a network or runner stall cannot cost six hours.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify NOTICE.md against CMake pins
+        run: python3 scripts/dependencies/check_pins.py --verify-notice
+
+  version-sites-gate:
+    name: The release version is written consistently
+    # Sixteen hand-written sites name the last published release -- FetchContent GIT_TAGs a
+    # reader copies, image tags a reader runs, sample output beside them. None derive from
+    # Version.txt and nothing checked them: one went stale pointing a downstream consumer at
+    # an unreleased tag, and the website's C++ tab once pinned a checkpoint behind the output
+    # printed next to it.
+    #
+    # This asserts the sites agree with EACH OTHER, which is true on every commit. It does not
+    # assert they equal Version.txt -- mid-cycle they correctly name the last tag a reader can
+    # fetch, not the working version. The release procedure passes --expect for that.
+    runs-on: ubuntu-24.04
+    # Sub-minute work; the bound only exists so a network or runner stall cannot cost six hours.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify the release version is consistent across the tree
+        run: python3 scripts/release/version_sites.py --check
+
+  doxygen-gate:
+    name: Doxygen warnings are errors
+    # The same run publish-site.yml does, without the deploy. That workflow is manual, so a
+    # doc break from a Src/** or README.md change used to surface only at the next publish --
+    # three accumulated unseen between beta.3 and rc.1+22. Doxygen needs no CUDA and no CMake,
+    # so this reports in about a minute.
+    runs-on: ubuntu-24.04
+    # Sub-minute work; the bound only exists so a network or runner stall cannot cost six hours.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      # The version is read from publish-site.yml, where it is pinned once, so the gate can
+      # never validate with a different Doxygen than the one that publishes.
+      - name: Install Doxygen (version pinned in publish-site.yml)
+        run: |
+          DOXYGEN_VERSION=$(sed -n 's/^[[:space:]]*DOXYGEN_VERSION:[[:space:]]*//p' .github/workflows/publish-site.yml)
+          test -n "$DOXYGEN_VERSION"
+          wget -q "https://github.com/doxygen/doxygen/releases/download/Release_${DOXYGEN_VERSION//./_}/doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"
+          tar -xzf "doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"
+          sudo cp "doxygen-${DOXYGEN_VERSION}/bin/doxygen" /usr/local/bin/
+          doxygen --version
+
+      # WARN_AS_ERROR in the Doxyfile fails this step on any doc warning.
+      - name: Generate documentation
+        run: |
+          mkdir -p build/docs
+          doxygen Mila/Docs/Doxyfile

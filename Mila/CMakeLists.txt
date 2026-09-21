@@ -17,11 +17,18 @@ add_library( Mila STATIC )
 # pin a single arch for a much faster build via -DMILA_LIBRARY_CUDA_ARCHITECTURES=89.
 # Opt-in: the default is unchanged, so releases and packaged consumers stay portable.
 #
+# SM 8.0 (Ampere) is the floor, and it is drawn by the kernels rather than chosen: the FP4
+# GEMM gates on major >= 8 (CudaLinearOp.ixx:661) and both GQA flash prefill paths throw
+# below it (Gqa.Flash.Fa2.cu:513, Gqa.Flash.Wmma.cu:632). Every bound model uses GQA, so
+# sm_75 codegen was a compile pass for hardware the runtime refuses at runtime. This list
+# is the supported set, and the published wheels and images carry the same one -- keep it in
+# step with x64-wheel, linux-wheel and ARCHITECTURES in scripts/dockerhub/publish-image.sh.
+#
 # 120 is Blackwell consumer (RTX 50-series). It is listed so those cards get native
 # cubin rather than a PTX JIT from 90 at first launch; nothing in Mila uses sm_120
 # instructions yet. Each added arch costs .cu compile time, so pin a single arch when
 # iterating on one card.
-set(MILA_LIBRARY_CUDA_ARCHITECTURES "75;80;86;89;90;120" CACHE STRING
+set(MILA_LIBRARY_CUDA_ARCHITECTURES "80;86;89;90;120" CACHE STRING
     "CUDA architectures for the Mila library target (default: portable fat binary)")
 
 set_target_properties( Mila PROPERTIES

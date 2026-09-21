@@ -180,8 +180,9 @@ The division that matters:
    supported consumption path. `packaging_cpm_consumer` is a separate preset, at step 7.
 4. Commit and push to `dev`.
 
-`dev` is the CI-gated trunk; releases reach `master` only through a `dev -> master` PR (see
-**Branching**).
+**Step 3 is the gate.** GitHub CI does not run on a `dev` push, and by design: it compiles on a
+machine with no GPU, so it can tell you less than the build you just ran. Releases reach `master`
+through a `dev -> master` PR (see **Branching**), and that PR's gate is the WSL build, not CI.
 
 ---
 
@@ -379,11 +380,13 @@ run at **release step 1**, on a `dev` snapshot, and validate. Steps 1, 2 and 5 r
 throwaway version is what keeps the release filename unburned.
 
 **The CUDA toolkit and the architecture list are pinned in the tree, not taken from the machine.**
-Both wheels and both images carry `80;86;89;90;120` — the published-artifact list, one entry
-narrower than the library's portable default, because SM 8.0 is the floor Mila's own kernels draw
-(`CudaLinearOp.ixx:661`, and both GQA flash prefill paths throw below it). The four sites are the
-two wheel presets, `ARCHITECTURES` in `publish-image.sh`, and `MILA_IMAGE_CUDA_ARCHITECTURES` in
-`Dockerfile.runtime`; they are one list and move together. The toolkit is declared the same way:
+Both wheels and both images carry `80;86;89;90;120` — the supported set, because SM 8.0 is the
+floor Mila's own kernels draw (`CudaLinearOp.ixx:661`, and both GQA flash prefill paths throw
+below it). The five sites are the two wheel presets, `MILA_LIBRARY_CUDA_ARCHITECTURES` in
+`Mila/CMakeLists.txt`, `ARCHITECTURES` in `publish-image.sh`, and `MILA_IMAGE_CUDA_ARCHITECTURES`
+in `Dockerfile.runtime`; they are one list and move together. The library default was the sixth
+entry out of step until `rc.1+27`, when Turing was dropped from it — a compile pass for hardware
+the runtime refuses. The toolkit is declared the same way:
 `$cudaVersion` in `scripts/pypi/build-wheel-windows.ps1` for Windows, the base image in
 `Docker/Dockerfile.wheel` and `Docker/Dockerfile.runtime` for Linux — currently **13.3** across all
 four. Before that the Windows wheel took whatever `CUDA_PATH` resolved to, so installing a toolkit
@@ -510,10 +513,10 @@ it came from anywhere but a public tag there is nothing for them to reproduce ag
    site workflow. `MILA_CLEAN_BUILD` is forced rather than inherited: `--no-cache` invalidates
    layers but leaves BuildKit cache mounts intact, and two wrong images have already been built
    from another tree's objects that way.
-   The architecture list is `80;86;89;90;120`, fixed in the script and **not** the library's
-   portable list — it drops Turing, which both GQA flash prefill paths refuse outright. `native` —
-   the local scripts' default — is wrong twice here, since it does not resolve on a GPU-less
-   builder and the image is pulled by hardware the builder never saw.
+   The architecture list is `80;86;89;90;120`, fixed in the script — the supported set, which
+   excludes Turing because both GQA flash prefill paths refuse it outright. `native` — the local
+   scripts' default — is wrong twice here, since it does not resolve on a GPU-less builder and the
+   image is pulled by hardware the builder never saw.
 4. **Run the `#evaluate` sequence against the local `-runtime` image, on a GPU host:**
    ```bash
    MILA_IMAGE=toddthomson/mila-llm:0.20.0-beta.3-runtime scripts/dockerhub/verify-image.sh
