@@ -4,10 +4,10 @@ The closed set. **A tag not on this page is not a tag** — an entry carrying on
 the fix is to pick from here or to amend here first.
 
 Tags describe **area and constraint, never disposition.** Disposition is already the filename:
-`Future.md`, `Contributor.md`, `Declined.md`. Encoding it twice is how the two drift apart and how
+`Vnext.md`, `Future.md`, `Declined.md`. Encoding it twice is how the two drift apart and how
 the categories stopped meaning anything the last time.
 
-Where they apply: `Vnext.md`, `Future.md`, `Contributor.md`, `Declined.md`, and `BACKLOG.md`. **Not
+Where they apply: `Vnext.md`, `Future.md`, `Declined.md`, and `BACKLOG.md`. **Not
 `Untriaged.md`** — one line per entry leaves no room, and an observation has not earned a taxonomy.
 BACKLOG uses the area tags here and nothing of its own; see the bottom of this page.
 

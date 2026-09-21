@@ -43,9 +43,10 @@ nothing. So the release never depended on this workflow for an answer, only for 
 reached that conclusion without anyone drawing it.
 
 **What survives is not about releases at all.** `pull_request: dev` covers the one case no maintainer
-machine can: a contributor's fork. CONTRIBUTING.md directs PRs at `dev`, and much of `Contributor.md`
-is CPU-operation work — an author with no CUDA Toolkit cannot discover that they broke the CUDA tree,
-and this run is the only thing that can tell them. That reframes the job's reliability from a
+machine can: a contributor's fork. CONTRIBUTING.md directs PRs at `dev`, and the work the project
+actually offers is CPU-operation work — issue #22 is the standing example — so the likely author has
+no CUDA Toolkit and cannot discover that they broke the CUDA tree. This run is the only thing that
+can tell them. That reframes the job's reliability from a
 convenience into a first impression, which is why the NVML load-time dependency and the missing
 `timeout-minutes` were fixed in the same change.
 

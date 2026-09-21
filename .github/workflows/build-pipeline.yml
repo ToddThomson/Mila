@@ -16,9 +16,10 @@ name: Mila CI
 #
 #   pull_request dev   A contributor's branch lives on a fork and has never been built on a
 #                      machine the maintainer controls. CONTRIBUTING.md asks for PRs against
-#                      `dev`, and several Contributor.md items are CPU-op work -- which means
-#                      an author who has no CUDA Toolkit, and therefore no way to discover
-#                      that they broke the CUDA tree. This run is the only thing that can
+#                      `dev`, and the work offered to contributors is CPU-operation work
+#                      (issue #22) -- which means an author who has no CUDA Toolkit, and
+#                      therefore no way to discover that they broke the CUDA tree. This run
+#                      is the only thing that can
 #                      tell them. It is also their first impression, so a red X here has to
 #                      mean their code, never ours.
 #

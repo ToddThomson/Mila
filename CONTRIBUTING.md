@@ -31,9 +31,9 @@ Mentioning a relevant open-source tool or a personal project in genuine, on-topi
 1. Fork the repository on GitHub
 2. Clone your fork locally
 3. Add the original repository as a remote named "upstream"
-4. Create a new branch for your feature or bug fix
+4. Create a branch from `upstream/dev` for your feature or bug fix
 5. Make your changes and commit them
-6. Push to your fork and submit a pull request
+6. Push to your fork and open a pull request against `dev`
 
 For a full walkthrough — build, model weight conversion, running inference, and your
 first PR — see [getting-started.md](getting-started.md).

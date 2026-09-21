@@ -799,3 +799,16 @@ Woven through live code; trace live-vs-dead first, and 8 `REVIEW:` markers alrea
 Note the odd row it collides with: CUDA `LayerNormOp` is registered at FP32 and FP16 and *not*
 BF16, so deleting the FP16 row leaves CUDA LayerNorm FP32-only. Pinned by a `static_assert`, so this
 work must confront it.
+
+## The dev container's Chat wrapper shares its name with the binary it wraps
+
+`build` · `docs`
+
+`Docker/Dockerfile:104` installs `run-chat.sh` as `/usr/local/bin/mila-chat`; the binary it runs is
+`/build/mila-chat`. A symlink would say the same thing without the collision, though the wrapper
+also carries the not-built message, which a symlink cannot.
+
+Its `cd "${BUILD}"` is redundant — `executable_directory()` reads `/proc/self/exe`, confirmed by
+the runtime image running Chat from `-w /` and `-w /tmp` — but `Docker/run-chat.sh:7` already says
+so and keeps it deliberately until a container run confirms it. Nothing breaks while it stays, which
+is why this carries no commitment.

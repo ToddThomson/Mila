@@ -209,7 +209,7 @@ later. **Never write a finding straight into `BACKLOG.md`.**
   - **Status lives in the metadata line** — `open`, `in progress` or `done`, then area tags from
     [Tags.md](Mila/Issues/Tags.md) — and never in the prose. No dates, no "GREEN", no findings, no
     measurement tables. **Disposition is a file in `Mila/Issues/`, not a tag** — parked is
-    `Future.md`, good-first-issue is `Contributor.md`.
+    `Future.md`, next cycle is `Vnext.md`.
   - **Done means deleted**, in the same commit as the work. `done` is a **working-tree marker only** —
     it makes finished items visible while the change is reviewed, and the commit that lands the work
     deletes them. **No `done` is ever committed.** The commit that landed the work is the record; a
@@ -234,10 +234,13 @@ later. **Never write a finding straight into `BACKLOG.md`.**
 files there and gets a notification when it is fixed, which a file in a repository can never do.
 The funnel inward is **manual** — a human decides which reports earn an entry — and for
 anything user-reported **the GitHub issue stays the record while the entry is only a pointer
-to it**, which is what makes the lossiness safe. `Contributor.md` is the outbound
-direction. "Issue" is ambiguous between the two only if the distinction goes unsaid; this is it
-being said. GitHub Milestones and Labels remain an end-user triage layer, decoupled from this
-workflow.
+to it**, which is what makes the lossiness safe. Outbound, **GitHub is the whole mechanism** —
+work offered to a contributor is filed there with the `good first issue` label by the triage pass
+that decided it, never staged in a file here first, and what earns the label is capability the
+library lacks rather than tidying it needs. Contributors looking past those read `BACKLOG.md` and
+`ROADMAP.md`. "Issue" is ambiguous between the two directions only if the distinction goes unsaid;
+this is it being said. GitHub Milestones and Labels remain an end-user triage layer, decoupled from
+this workflow.
 
 ---
 

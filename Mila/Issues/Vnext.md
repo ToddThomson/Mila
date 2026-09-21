@@ -951,8 +951,9 @@ empty call and the model retried correctly, so that flow recovered; a client tha
 would not. Qwen's bridge treats a malformed call as prose, which is the behaviour to match.
 
 Held for the same reason as the entry above (`rc.1+24`): a behaviour change inside Gemma's protocol
-is too late in this cycle. `Chat.ToolCallParser.ixx`'s over-eager `[` test in `Contributor.md` is
-the same failure shape in the adaptor rather than the library.
+is too late in this cycle. `Chat.ToolCallParser.ixx`'s over-eager `[` test — "Any response
+containing a bracket enters the tool-call parser" below — is the same failure shape in the adaptor
+rather than the library.
 ## Nothing now catches the footprint prediction drifting while it still fits
 
 `models` · `perf`
@@ -969,3 +970,166 @@ The residual is still printed by both Gate B tests and by `QuantizeOnLoad.Footpr
 is missing is anything that compares it with last time. It only means something against a stated
 card, so it wants a measurement surface that records card and figure together, not an assertion in
 a unit test. `MemoryFootprint.md` 11.5 carries the superseding note.
+
+## A parity script tells the reader to diff against a debug flag that no longer exists
+
+`gemma` · `docs` · `observability`
+
+`kGemmaDumpActivations` is gone from `Mila/Src`, but
+`Mila/Tools/Converters/Gemma/gemma_4_BF16/hf_gemma_activation_dump.py:4` still names it as the
+thing to compare its output with. Anyone following the script for a parity investigation starts by
+looking for a flag that is not there.
+
+The replacement is `LanguageModel::observe` over `"*.tf_layer_*"`.
+`GemmaModel::fingerprintPrefill` is **not** the substitute — it localizes a NaN rather than
+comparing per-layer activations.
+
+## A model listing that cannot price a row gives no reason for it
+
+`adaptors`
+
+`verdictFor` (`Chat.ModelCatalog.ixx:768`) distinguishes measured-and-too-big from
+could-not-predict, but `RowVerdict` (`:596`) carries only the cell text and a tint, so the reason
+is discarded at the point it is known. The load pre-flight now keeps its own reason —
+`predictFootprint` returns one beside the optional — which leaves the listing as the one surface
+that still shows an unexplained blank.
+
+It belongs at `/verbose all`, matching `reportFootprintBeforeLoad`. The listing does not currently
+receive the detail level, so that has to be threaded through first.
+[[feedback_absent_output_is_evidence]]
+
+## Sampling knobs are reachable in a session but not from the command line
+
+`adaptors`
+
+`temperature`, `top_k` and `top_p` are settable with `/set` and readable from `session.json`, so a
+`-p` one-shot — the invocation most likely to want a fixed temperature — cannot vary them at all.
+
+`main.cpp:1006` already reads all three from settings, so this is three flag producers rather than
+a design.
+
+## A Qwen load test discards a `[[nodiscard]]` status and warns on every build
+
+`qwen` · `ci`
+
+`QwenModel.Load.Cuda.cpp:205` calls `model->generate(...)` for its side effects inside a lambda,
+producing C4834. The status is the only channel reporting why generation stopped, so a test that
+ignores it cannot tell a completed run from an aborted one — and the other call sites in the same
+file (`:168`, `:523`, `:813`) already bind it.
+
+Assert it instead of casting it away. Also one entry on the warnings-as-errors ratchet's bill.
+
+## GPT-2's end-of-text token is a literal in the model rather than tokenizer metadata
+
+`gpt` · `mila-src`
+
+`Mila/Src/Dnn/Models/Gpt/GptModel.ixx:409` holds `static constexpr int32_t eos_token_ = 50256`. It
+should come from the tokenizer.
+
+## The Llama converter writes a metadata key the reader never parses
+
+`llama` · `docs`
+
+It emits `norm_eps` (`Mila/Tools/Converters/Llama/convert_weights.py:188`); `parseMetadataJSON`
+extracts `norm_epsilon`, which is what Gemma and the packer both emit. Harmless only because
+`LlamaModel::configFromMetadata` never reads the epsilon — so the guard against it becoming harmful
+is an accident rather than a decision.
+
+## Any response containing a bracket enters the tool-call parser
+
+`adaptors`
+
+`Chat.ToolCallParser.ixx:60` uses `response.find( '[' )` where the class's own doc comment at `:34`
+says "Leading `[`", and the nested `parseTagged` path tests it correctly.
+
+It degrades gracefully today, but any prose with a bracket enters the path, and a parse that ever
+*succeeds* on prose would swallow the answer and emit a phantom tool call. Same failure shape as
+the malformed-Gemma-call entry above, in the adaptor rather than the library.
+
+## `ModelSize` is declared and read nowhere
+
+`adaptors`
+
+Four values in `Chat.Config.ixx:31`, plus a mention in the file-level Doxygen at `:5`, and no
+reader anywhere in the tree — the model's identity is its store name, which is what replaced it.
+Left in place it invites the next family to add a fifth value that nothing will ever read.
+
+## A wrapped list item reads as a new paragraph
+
+`adaptors`
+
+A continuation line starts at the bullet's own indent rather than under the item text.
+`wordWrap` (`Chat.RichText.ixx:192`) preserves a line's leading indent but has no notion of a
+continuation indent, so the hanging indent a list needs cannot be expressed.
+
+## Chat carries its own copy of the `nlohmann.json` module
+
+`adaptors` · `build`
+
+`Mila/Adaptors/Chat/Src/Json.ixx` duplicates `Mila/Src/Utils/json.ixx`, both including the same
+header from their global module fragment. Chat then imports one in four translation units
+(`Chat.ixx`, `Chat.MessageFormatter.ixx`, `Chat.SystemPrompt.ixx`, `Chat.ToolCallParser.ixx`) and
+the other in two (`Chat.ModelCatalog.ixx`, `Chat.Settings.ixx`), so the same types arrive under two
+module names in one binary.
+
+Drop `Json.ixx` from the target and import `nlohmann.json` everywhere.
+
+## The store's 24-hour lock reclamation is untested
+
+`distribution` · `ci`
+
+`ModelStore.ixx:1170`'s `isAbandoned` decides whether a `.lock` left by a dead process is
+reclaimable, and the sweep at `:1035` is its only caller. Testing it needs a file with a backdated
+write time.
+
+Make the threshold a constructor parameter so a test can set it to zero — a better shape than
+backdating with `last_write_time()`.
+
+## `actions/setup-python@v5` still declares Node 20, which GitHub has deprecated
+
+`ci`
+
+It warns on every clean-room run (`.github/workflows/wheel-cleanroom.yml:60`). Every other action
+in the tree is on `@v5` and clean; bump it and re-check the rest, since the deprecation applies by
+action version rather than by repository.
+
+## `Docker/README.md` credits Chat with a compiled-in models directory it does not have
+
+`docs`
+
+`Docker/README.md:58` says the Chat build compiles `MODELS_DIR` in. The only `MODELS_DIR` in the
+tree is `Mila/Profiling/ProfileModel/CMakeLists.txt:24`. Chat resolves models through
+`MILA_CACHE_DIR` and its config through the executable's own directory, which is why the published
+image can drop the bind mount — so the claim reads as a hard dependency on `/mila` that is not
+there.
+
+## Thirteen `REVIEW:` markers have a recorded disposition and only need removing
+
+`mila-src`
+
+No analysis left, only removal: the 12 in `CudaGqa.Dispatch.ixx` answered by that file's own banner
+at `:36`, plus `CudaOps.h:30`.
+
+Three markers previously counted here do not belong to it. `Linear.cuh:97` is scoped by the
+"Remove FP16" decision in [`Future.md`](Future.md) and goes when that does; `Component.ixx`'s
+markers are at `:692` and `:841`, neither with a recorded disposition; and
+`CudaDeviceMemoryResource.ixx` has none at all. 77 `REVIEW:` markers remain in `Mila/Src`, so this
+is a first pass rather than the sweep.
+
+## `Version`'s accessors are non-const
+
+`api` · `mila-src`
+
+`getMajor()`, `getMinor()` and `getPatch()` (`Mila/Src/Version.ixx:56,62,68`), so the version-skew
+comparison needs a mutable copy of something it only reads.
+
+## Nothing documents that CUDA's device 0 is not `nvidia-smi`'s
+
+`docs` · `api`
+
+`load`'s default `DeviceId{ Cuda, 0 }` picks whichever card CUDA enumerates first, which on a
+mixed-capacity machine can be the smaller one. A load sized for the larger card then aborts in
+about two seconds with no diagnostic, and reads as a model defect rather than a device choice.
+
+The finding is an absence, not a location: a note wherever the default device is documented.
+[[project_cuda_index_is_not_nvidia_smi_index]]
