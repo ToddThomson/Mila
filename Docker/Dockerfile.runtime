@@ -333,7 +333,18 @@ RUN cp /opt/mila/build/python/mila/_mila*.so /src/Mila/Bindings/Package/src/mila
 # `mila` is a real binary here (Mila/Tools/Cli), not the entrypoint script: it reaches the
 # store through Distribution directly, so `install` needs no Python and cannot be broken by
 # a binding that failed to stage.
-RUN ln -sf /opt/mila/build/mila /usr/local/bin/mila
+#
+# The path is <build>/bin/mila, NOT <build>/mila. The CLI was moved into bin/ because linking
+# it beside CMake's `Mila/` directory fails on a case-insensitive bind mount ("cannot open
+# output file mila: Is a directory"); this symlink kept the old path and so pointed at nothing,
+# which made the website's #p-docker step 2 -- `mila install <model>` -- a command-not-found for
+# every reader. The image built and the runtime checks passed either way, because nothing but
+# that tab exercises it.
+#
+# The `test -x` is what makes this self-checking: `ln -sf` succeeds against a target that does
+# not exist, so a stale path here produces an image that builds clean and fails the reader.
+RUN ln -sf /opt/mila/build/bin/mila /usr/local/bin/mila \
+    && test -x /usr/local/bin/mila
 
 # mila-chat and its Data/ live in the build tree here, not at /opt/mila as they do in the
 # runtime tag. The venv is addressed separately for that reason.
