@@ -51,7 +51,7 @@ its weight and should be said in prose instead.
 
 | Tag | Means |
 |---|---|
-| `mila-src` | Touches the frozen library. **Waits by default** — this is the single most common reason an entry is in `Future.md` rather than `BACKLOG.md`. |
+| `mila-src` | Touches the runtime library. The expensive kind of change — a full rebuild and the library's own gates. It **no longer waits by default**: that read was true under v0.20's feature freeze, which ended with that release. |
 | `breaking` | Changes a published wire format or a public API. Implies a republish, a migration, or both. |
 | `blocked` | Has a named blocker, stated in the body. Never a vague one. |
 | `measured` | Carries a number that cost GPU time. **Do not delete this entry without rehoming the number** to its owning spec. |

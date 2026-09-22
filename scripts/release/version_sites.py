@@ -2,7 +2,7 @@
 """
 The release version, everywhere it is written by hand.
 
-Eighteen sites across nine files name a published release: a FetchContent GIT_TAG a
+Sixteen sites across eight files name a published release: a FetchContent GIT_TAG a
 reader copies, an image tag a reader runs, sample output, a status line. None of them
 derive from Version.txt, and nothing checked them until this script existed -- they
 went stale twice, once pointing a downstream consumer at an unreleased tag, once
@@ -15,14 +15,17 @@ statements about the past and must not move. Every site below is therefore ancho
 its own surrounding text rather than matched by version pattern alone.
 
 THE SITES NAME THE LAST PUBLISHED RELEASE, NOT THE WORKING VERSION. Mid-cycle, dev
-carries 0.20.0-rc.1+26 while these correctly still point at v0.20.0-beta.3, because
-that is the tag a reader can actually fetch. So the always-true invariant is that the
-eighteen agree WITH EACH OTHER; equality with Version.txt is true only just after a
-release-prep commit. Hence two checks, not one:
+carries 0.21.0-dev+26 while these correctly still point at v0.20.0, because that is the
+tag a reader can actually fetch. So the always-true invariant is that the sixteen agree
+WITH EACH OTHER; equality with Version.txt is true only just after a release-prep
+commit. Hence two checks, not one:
 
-    --check                 the eighteen agree with each other        (CI, every commit)
-    --check --expect X.Y.Z  ...and name exactly that release         (release step 2)
-    --set X.Y.Z             rewrite all eighteen                     (release step 2)
+    --check                 the sixteen agree with each other         (CI, every commit)
+    --check --expect X.Y.Z  ...and name exactly that release          (release step 2)
+    --set X.Y.Z             rewrite all sixteen                       (release step 2)
+
+A dev snapshot is never a release, so --expect reported against one has nothing to
+compare and says so instead of failing.
 
 Positioning prose is NOT here and cannot be: "Mila is in public beta" is a sentence a
 production release makes false, and rewriting it is a judgement about what to say
@@ -39,8 +42,16 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# A version as it appears in a semver tag, without the leading v and without +build.
+# A version as it appears in a semver tag, without the leading v and without +build. The
+# alpha/beta/rc alternation is kept although the ladder was retired at 0.21.0: a site names
+# the last PUBLISHED release, and v0.20.0-beta.3 is one of those forever.
 VERSION_PATTERN = r"\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?"
+
+# What Version.txt may say, which is a superset: it names the version being BUILT, and
+# mid-cycle that is a dev snapshot. Deliberately NOT folded into VERSION_PATTERN -- widening
+# the site pattern would let --set write an unreleasable version into a FetchContent GIT_TAG
+# and nothing downstream would object.
+WORKING_VERSION_PATTERN = rf"(?:{VERSION_PATTERN}|\d+\.\d+\.\d+-dev)"
 
 
 @dataclass(frozen=True)
@@ -163,11 +174,20 @@ def release_version_from_file() -> str:
     return raw.split("+", 1)[0]
 
 
-def validate_version(version: str) -> str:
-    if not re.fullmatch(VERSION_PATTERN, version):
+def validate_version(version: str, *, allow_dev: bool = False) -> str:
+    """
+    `allow_dev` is the difference between the two callers. --set writes a release version
+    into sites a reader copies, so a dev snapshot there is a defect; --expect only reads
+    Version.txt, where a dev snapshot is the normal mid-cycle state.
+    """
+    pattern = WORKING_VERSION_PATTERN if allow_dev else VERSION_PATTERN
+
+    if not re.fullmatch(pattern, version):
+        expected = "X.Y.Z or X.Y.Z-dev" if allow_dev else "X.Y.Z"
+
         raise SystemExit(
-            f"'{version}' is not a release version. Expected X.Y.Z or X.Y.Z-<alpha|beta|rc>.N, "
-            "with no +build metadata -- a tag never carries it."
+            f"'{version}' is not a release version. Expected {expected}, with no +build "
+            "metadata -- a tag never carries it."
         )
 
     return version
@@ -221,6 +241,20 @@ def command_check(expect: str | None) -> int:
         return 1
 
     current = versions.pop()
+
+    # Mid-cycle Version.txt names a dev snapshot, and a snapshot is not something a site can
+    # name -- so there is nothing to compare and the mismatch is the correct state. Reporting
+    # it as a pass with a reason beats the old behaviour, where the argument validator rejected
+    # `0.21.0-dev` outright and read like the tree was broken.
+    if expect is not None and expect.endswith("-dev"):
+        print(f"OK: {len(found)} sites, all naming {current}.")
+        print(
+            f"\n{expect} is a dev snapshot, so --expect has nothing to compare. The sites name\n"
+            "the last release a reader can fetch; they move at release step 2, once Version.txt\n"
+            "has been set to the release version."
+        )
+
+        return 0
 
     if expect is not None and current != expect:
         print(
@@ -321,7 +355,7 @@ def main() -> int:
     if expect == "":
         expect = release_version_from_file()
 
-    return command_check(validate_version(expect) if expect else None)
+    return command_check(validate_version(expect, allow_dev=True) if expect else None)
 
 
 if __name__ == "__main__":

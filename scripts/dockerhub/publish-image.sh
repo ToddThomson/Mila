@@ -37,10 +37,15 @@ readonly REPOSITORY="toddthomson/mila-llm"
 readonly ARCHITECTURES="80;86;89;90;120"
 
 # No `latest` on a pre-release. A bare `docker run toddthomson/mila-llm` resolves to it, so pointing
-# it at a pre-release makes the beta the default for everyone who does not read the tag list. It
+# it at a pre-release makes the snapshot the default for everyone who does not read the tag list. It
 # starts existing at the first unsuffixed release and tracks the runtime variant of the newest one.
 # That rule is ENFORCED below rather than left to whoever is reading this at the time: the tag is
-# added only when the version carries no -alpha./-beta./-rc. suffix.
+# added only when the version carries no -dev, -alpha., -beta. or -rc. suffix.
+#
+# `-dev` is on that list for a case that should never arise rather than one that has. The 0.21.0
+# scheme never tags a dev build, and the +build guard below already refuses `v0.21.0-dev+3` outright
+# -- but a hand-typed `v0.21.0-dev` clears every other gate here, and what it would publish is a
+# snapshot as the default image. That is not a mistake a push can take back.
 readonly TARGETS=("runtime" "devel")
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -150,7 +155,7 @@ done
 # an unsuffixed release, which is the rule stated at the top of this file. A pre-release reaching
 # here leaves it alone, so the tag on Docker Hub keeps pointing at the newest production image.
 case "${version}" in
-    *-alpha.*|*-beta.*|*-rc.*)
+    *-dev|*-dev.*|*-alpha.*|*-beta.*|*-rc.*)
         echo
         echo "No 'latest' tag: ${version} is a pre-release."
         ;;

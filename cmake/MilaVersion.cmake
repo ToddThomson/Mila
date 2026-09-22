@@ -2,11 +2,11 @@
 
 # mila_read_version(<version_file> <out_numeric> <out_prerelease>)
 #
-# Reads a SemVer string (X.Y.Z or X.Y.Z-PRERELEASE, e.g. "0.20.0-alpha.6.54") from
+# Reads a SemVer string (X.Y.Z or X.Y.Z-PRERELEASE, e.g. "0.21.0-dev+7") from
 # version_file and returns, via the named output variables:
 #   out_numeric    -- the numeric major.minor.patch triple, suitable for
 #                     project(VERSION ...).
-#   out_prerelease -- the optional prerelease label (e.g. "alpha.6.54"), empty if
+#   out_prerelease -- the optional prerelease label (e.g. "dev+7"), empty if
 #                     absent. It cannot live in project(VERSION) -- CMake accepts
 #                     only numeric components -- so callers carry it separately.
 #
@@ -28,43 +28,38 @@ endfunction()
 # Translates Mila's SemVer into the PEP 440 spelling PyPI requires, so the wheel's
 # version is derived from Version.txt rather than hand-copied into pyproject.toml.
 #
-#   0.20.0 + "beta.2+38"  ->  0.20.0b2.dev38    a snapshot, sorts BEFORE the release
-#   0.20.0 + "beta.2"     ->  0.20.0b2          the release itself, when it is tagged
-#   0.20.0 + ""           ->  0.20.0            production
+#   0.21.0 + "dev+7"  ->  0.21.0.dev7    a snapshot, sorts BEFORE the release
+#   0.21.0 + ""       ->  0.21.0         the release itself, when it is tagged
 #
 # The build counter maps to .devN and NOT .postN, because post-releases sort AFTER:
-# publishing a snapshot as plain 0.20.0b2 would permanently take the release's own
-# number, forcing the real beta.2 to ship as a post-release of a snapshot. A published
-# version can never be reused, so this is not a mistake that can be undone. PyPI also
-# rejects local version labels, which is why the +N counter has to move rather than ride
-# along. Aborts on an unrecognized stage rather than guessing a version to publish.
+# publishing a snapshot as plain 0.21.0 would permanently take the release's own number,
+# forcing the real release to ship as a post-release of a snapshot. A published version
+# can never be reused, so this is not a mistake that can be undone. PyPI also rejects
+# local version labels, which is why the +N counter has to move rather than ride along.
+#
+# One stage named `dev` with no ordinal, since 0.21.0. The alpha/beta/rc ladder it
+# replaced needed both an ordinal and a counter and had only one PEP 440 slot to put them
+# in, which is how 0.20.0-beta.2+38 became the crowded 0.20.0b2.dev38. The counter is
+# REQUIRED here rather than optional: the ordinal used to be what distinguished two
+# pre-release trees, so with it gone the counter is the only thing that does, and a bare
+# `dev` names no version worth publishing. Aborts rather than guessing one.
+#
+# Only a MINOR is published to PyPI, so in practice this runs for a minor's snapshots and
+# for the minor itself. A patch is a git tag for source consumers and builds no wheel --
+# it still passes through here, because CMakeLists.txt reads the version unconditionally.
 function(mila_pep440_version numeric prerelease out_version)
     if(prerelease STREQUAL "")
         set(${out_version} "${numeric}" PARENT_SCOPE)
         return()
     endif()
 
-    if(NOT prerelease MATCHES "^(alpha|beta|rc)\\.([0-9]+)(\\+([0-9]+))?$")
+    if(NOT prerelease MATCHES "^dev\\+([0-9]+)$")
         message(FATAL_ERROR
-            "Version.txt prerelease '${prerelease}': expected <alpha|beta|rc>.N[+BUILD]. "
-            "Refusing to guess a PEP 440 version for a published artifact.")
+            "Version.txt prerelease '${prerelease}': expected dev+N. The alpha/beta/rc "
+            "ladder was retired when the 0.21.0 cycle opened; there is one stage, and a "
+            "dev build is never tagged. Refusing to guess a PEP 440 version for a "
+            "published artifact.")
     endif()
 
-    set(_stage "${CMAKE_MATCH_1}")
-    set(_ordinal "${CMAKE_MATCH_2}")
-    set(_build "${CMAKE_MATCH_4}")
-
-    if(_stage STREQUAL "alpha")
-        set(_marker "a")
-    elseif(_stage STREQUAL "beta")
-        set(_marker "b")
-    else()
-        set(_marker "rc")
-    endif()
-
-    if(_build STREQUAL "")
-        set(${out_version} "${numeric}${_marker}${_ordinal}" PARENT_SCOPE)
-    else()
-        set(${out_version} "${numeric}${_marker}${_ordinal}.dev${_build}" PARENT_SCOPE)
-    endif()
+    set(${out_version} "${numeric}.dev${CMAKE_MATCH_1}" PARENT_SCOPE)
 endfunction()

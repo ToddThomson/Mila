@@ -4,12 +4,15 @@
 
 ## Project Overview
 
-Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It reached its first production release at `0.20.0` (see `Version.txt` for the version in flight). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. Its first production release was `0.20.0`; `0.21.0` is the cycle in flight (see `Version.txt`). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
 
-### Two different "freezes" — do not conflate them
+### There is no feature freeze right now
 
-- **The feature freeze covers `Mila/Src` only.** Everything outside it — `Mila/Adaptors` (Chat, MIS), `Mila/Bindings`, `Mila/Samples`, `Mila/Tools`, `Web/`, and every document — is polish and hardening by definition and is **in** v0.20 scope. Never cite the freeze at work outside `Mila/Src`. An adaptor adds no capability to the library, it only exposes what the library already has, so a gap between what Mila can do and what Chat or MIS reaches is a defect in the demonstration, not a feature request. When such work genuinely is blocked, the blocker is the new `Mila/Src` capability it needs — name that, never the freeze. Model Distribution is a deliberate carve-in and is pre-beta code, so changes to it inside `Mila/Src` are justified rather than exceptions.
-- **A release-window hold is not the feature freeze.** During a release the user may close `dev` to *all* commits so that built artifacts (wheels, tagged trees) stay valid. That is temporary, covers the whole tree regardless of scope, and lifts when the tag is pushed. Say which one is blocking a change; "the tree is frozen" is ambiguous and has caused this exact error more than once.
+v0.20 ran under one, scoped to `Mila/Src` and lifted when that release shipped. **`Mila/Src` is open for the 0.21.0 cycle** — the release's goal is Src work. Do not cite a freeze; if a change is refused it is for a reason that has to be named, and "the library is frozen" is no longer one of them.
+
+What can still close the tree is a **release-window hold**: during a release the user may close `dev` to *all* commits so that built artifacts (wheels, tagged trees) stay valid. It is temporary, covers the whole tree regardless of scope, and lifts when step 12 commits — not when the tag is pushed, which is two steps earlier and is where this has been got wrong before. Say which one is blocking a change; "the tree is frozen" is ambiguous and has caused this exact error more than once.
+
+One rule outlives the freeze, because it was never really about it: **an adaptor adds no capability to the library**, it only exposes what the library already has. So a gap between what Mila can do and what Chat or MIS reaches is a defect in the demonstration, not a feature request.
 
 Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4), Llama 3.1 8B Instruct (FP4 default, FP8 alternative), Gemma 4 12B Instruct (FP4), and Qwen 3.8 27B (FP4, and a mixed 2/3-bit codebook build averaging 2.82 bits). The chat harness has **no compiled-in default model** — a fresh store has none, and one is installed by name.
 
@@ -29,7 +32,7 @@ Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. 
 
 Browse the tree for what is where. What the tree does not tell you:
 
-- **`Mila/Src/`** is the runtime and the only place under the feature freeze. `Components/`, `Compute/`, `Models/`, `Quantization/`, `Tensors/`, `Serialization/`. `Models/` and `Components/Transformers/` are split per family (`Gemma`, `Gpt`, `LlaMa`, `Qwen`) — a family owns its model, config and chat protocol together.
+- **`Mila/Src/`** is the runtime. `Components/`, `Compute/`, `Models/`, `Quantization/`, `Tensors/`, `Serialization/`. `Models/` and `Components/Transformers/` are split per family (`Gemma`, `Gpt`, `LlaMa`, `Qwen`) — a family owns its model, config and chat protocol together.
 - **`Mila/Bindings/`** is the Python projection, and is **consumer-blind**: it knows nothing about Chat or MIS. Session depth only, never components.
 - **`Mila/Adaptors/`** are first-class consumers, not samples — `Chat/` (human gate) and `Inference/Server/` (MIS, the wire adaptor, which imports the binding). See `Specifications/MilaProductFamily.md`.
 - **`Mila/Samples/`** is teaching code and must run in any user's environment. `QuickStart/Cpp` and `QuickStart/Python` are the paths the website's Get Started tabs link to, so they are a published surface.
@@ -191,10 +194,16 @@ decision at that moment defaults into the current release — a commitment nobod
 `Mila/Issues/Untriaged.md` takes the finding with no decision attached; triage supplies the decision
 later. **Never write a finding straight into `BACKLOG.md`.**
 
+**All of this describes a *publish* — a minor. A patch tag has no ROADMAP section, no BACKLOG
+bucket and no Release body; a fix is not a goal, and its commit is its own record.** See
+[RELEASING.md](RELEASING.md) for the split between the two acts.
+
 - **`ROADMAP.md`** — the durable **narrative + success criteria** of each release, organized by
   **theme** (not milestone). Shows the release in flight plus a single **Future** tail. **Narrative
   only — no task lists, checkboxes, or status** (they drift; point to BACKLOG). When a release ships,
-  its section is deleted — the GitHub Release body is the record of what shipped.
+  its section is deleted — the GitHub Release body is the record of what shipped. **A release's
+  themes are lifted out of `Mila/Issues/Vnext.md`** (or the Future tail), and the narrative is
+  written around them — never a theme invented while writing.
 - **`BACKLOG.md`** — **work committed to the release in flight, and nothing else.** `## Current
   release` holds one **theme bucket** per ROADMAP theme (matching names — the only join). Five rules
   keep it usable:
@@ -215,20 +224,28 @@ later. **Never write a finding straight into `BACKLOG.md`.**
     deletes them. **No `done` is ever committed.** The commit that landed the work is the record; a
     finding worth reusing goes to the owning spec or to memory.
   - **The gate is the entry count, and it only goes down.** A release in flight burns down, so an
-    addition is paired with a removal or it is a deliberate admission that scope grew. Past roughly
-    forty entries this is a wishlist, not a release.
+    addition is paired with a removal, or it is a deliberate admission that scope grew. **What
+    bounds the file is the release it describes and the date that release carries, not a fixed
+    number** — a dated release whose scope drains back to `Vnext.md` is a stronger bound than a
+    count, and it is the one v0.21.0 runs on.
 - **`Mila/Issues/`** — everything upstream of that commitment; the funnel and its categories, with
   the flow and the rules in [`Mila/Issues/README.md`](Mila/Issues/README.md). `Untriaged.md` is
-  untriaged capture, one line per entry, and is **lossy by design**: an entry still there at the
-  **production** release tag is deleted unexamined — a checkpoint tag on the ladder deletes nothing.
-  Triage runs at each `beta.N` / `rc.N` increment and gives every
-  line a destination — `BACKLOG.md`, a category file, or deletion. A category names **what happens
-  to an item**, never what it is about.
-- **The GitHub Release body** — one curated summary per tag, authored from that tag's commit range
-  at release time. **There is no `CHANGELOG.md`**; it was deleted at `0.20.0` because it duplicated
-  this body, written by the same hand from the same commits at the same moment. Do not recreate it.
-- **`Version.txt`** — `MAJOR.MINOR.PATCH-stage.N`, bumped **before committing** (see
-  [RELEASING.md](RELEASING.md) for the scheme).
+  untriaged capture, one line per entry, and is **lossy by design**: an entry that has sat there
+  **ninety days** is deleted unexamined. Triage runs at the release-prep commit and whenever
+  `Untriaged.md` passes twenty entries, and gives every line a destination — `BACKLOG.md`, a
+  category file, or deletion. A category names **what happens to an item**, never what it is about.
+  **`Vnext.md` has no expiry** and drains by theme extraction instead; the promotion rules — and the
+  reason the success criteria are written *before* the item list — are in that README.
+- **The GitHub Release body** — one curated summary per **publish**, authored from that tag's commit
+  range at release time. A patch tag gets none, which is what keeps GitHub's "Latest release" badge
+  on the version that exists on PyPI and Docker Hub. **There is no `CHANGELOG.md`**; it was deleted
+  at `0.20.0` because it duplicated this body, written by the same hand from the same commits at the
+  same moment. Do not recreate it.
+- **`Version.txt`** — `MAJOR.MINOR.PATCH-dev+N` on `dev`, dropping the tail at the tag; bumped
+  **before committing**. One stage, one tag per version, a dev build never tagged, minor steps by
+  one. **`dev` carries the next patch by default** (`0.21.1-dev+1` after `v0.21.0`); promoting to a
+  minor is a deliberate rename at release step 2. **A minor is a publish, a patch is a tag** — see
+  [RELEASING.md](RELEASING.md) for the scheme and the split.
 
 **GitHub Issues is the front desk; `Mila/Issues/` is the work queue.** Someone with no repo access
 files there and gets a notification when it is fixed, which a file in a repository can never do.

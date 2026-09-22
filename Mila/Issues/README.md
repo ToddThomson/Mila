@@ -18,16 +18,20 @@ nobody meant to make. Writing to `Untriaged.md` needs no decision. Triage suppli
                                                └─→  a category below
                                                └─→  deleted
 
-  and when the release ships:   Vnext.md  ──→  the next BACKLOG.md
+  and at each publish:  one or two THEMES lifted out of Vnext.md  ──→  the next BACKLOG.md
 ```
 
-Triage runs at each `beta.N` / `rc.N` increment. It is an event, not a mood: open `Untriaged.md`,
-give every line a destination, and leave the file shorter than you found it.
+**Triage runs at the release-prep commit, and whenever `Untriaged.md` passes twenty entries.** It is
+an event, not a mood: open `Untriaged.md`, give every line a destination, and leave the file shorter
+than you found it. The trigger used to be each `beta.N` / `rc.N` increment, which a one-tag cycle
+deleted rather than renamed — so half of it is now the one release event that still exists, and half
+is a size bound, because a cycle can run long enough for the file to grow past what a single pass
+can hold in view. **A full pass beats batches of five**: two entries are only visibly the same entry
+with the whole file in front of you.
 
 **Promotion is one-way.** An item that reached `BACKLOG.md` never returns to `Untriaged.md` — that
-file is lossy, and demoting a considered item into it puts it on a timer that expires at the
-production tag. If committed work turns out not to belong in the release, it goes to `Future.md`
-or a category below.
+file is lossy, and demoting a considered item into it puts it on a ninety-day timer. If committed
+work turns out not to belong in the release, it goes to `Future.md` or a category below.
 
 ## Categories
 
@@ -36,10 +40,12 @@ recoverable by grep; disposition is not. Categorising by subject would rebuild B
 buckets one level up and reproduce its failure mode.
 
 - **`Untriaged.md`** — captured, not yet judged. Lossy; see below.
-- **`Vnext.md`** — the **seed corpus for the next release's backlog**. When the release in flight
-  goes to production, `BACKLOG.md` is rewritten from this, so an item here carries a real intention
-  to do it in that cycle. A shortlist, not a plan: tasking happens on promotion, when the next
-  release has a ROADMAP section and its items can face the real admission test.
+- **`Vnext.md`** — the **standing pool a release is drawn from**, and the one file here with no
+  timer. It drains by extraction rather than expiry: at each publish one or two *themes* are lifted
+  out of it and become that release, and what is not lifted stays. An item here carries a real
+  intention to do it in some near cycle — a weaker claim than `BACKLOG.md`'s and a stronger one than
+  `Future.md`'s. A shortlist, not a plan: tasking happens on promotion, when there is a ROADMAP
+  section whose criteria an item can actually face.
 - **`Future.md`** — real work carrying **zero commitment**, some of which will never be scheduled.
   Flat and coarse by design.
 
@@ -59,6 +65,40 @@ project's own janitorial debt answers that question badly on the project's behal
 Size is not a category either. An item that happens to be small is a small item in whichever file
 its disposition puts it — the same reasoning [`Web/Issues/README.md`](../../Web/Issues/README.md)
 already applies to the website.
+
+## Promotion — picking a release out of `Vnext.md`
+
+The act that turns a pool into a release. It runs once per **publish** — a minor — and never at a
+patch tag, which has no ROADMAP section and no backlog. [RELEASING.md](../../RELEASING.md) step 12
+is where it sits in the procedure.
+
+1. **Read the whole file.** Two entries are only visibly the same entry, or visibly the same theme,
+   with the file in front of you. A page at a time sees neither.
+2. **Name the one or two themes the accumulated work has formed.** A theme is not a tag: a tag says
+   what an item is about, a theme is a claim about what shipping the group would mean to somebody
+   outside the project. The tags help you see a cluster; they never name it.
+3. **Write the `ROADMAP.md` narrative and its success criteria — before touching the item list.**
+4. **Then admit items one at a time**, each against the criterion it is meant to serve.
+5. **Move the admitted ones to `BACKLOG.md`**, under bucket names matching the ROADMAP themes, which
+   is the only join between those two files. Everything not admitted stays here.
+
+**Step 3 before step 4 is the whole discipline.** Inverted, the criteria get written from the item
+list, every item in the cluster passes by construction, and the admission test becomes a rubber
+stamp — which is the failure that put everything into `BACKLOG.md` before this directory existed.
+Written first, a criterion should reject some of the cluster that suggested it. If it rejects none,
+be suspicious rather than pleased.
+
+**A theme may instead come from the ROADMAP's own `Future` tail**, where the planned path already
+lives. Both sources are legitimate and one pick can draw on both. What may not happen is a theme
+with no source at all, invented while writing the narrative — that is how a release acquires goals
+nobody was working toward.
+
+**No expiry here, deliberately.** It is the counterpart to `Untriaged.md`'s ninety days rather than
+an oversight: an entry in this file has already survived triage, so deleting it on a clock would
+discard judgement that was actually made. The pressure valve is evidence instead of time — **an item
+that several successive theme picks have passed over is making a claim about being "next" that the
+record does not support**, and it moves to `Future.md`. Someone decides that, and the passes-over
+are the reason.
 
 ## The entry format
 
@@ -109,11 +149,16 @@ undecodable, which is the lossiness rule destroying signal rather than noise.
 **Name the symbol, not just the location.** `matchesPath`'s glob outlives
 `CompositeComponent.ixx:405`, and both together cost one clause.
 
-**Lossy by design.** An entry still in `Untriaged.md` at the **production** release tag is
-**deleted, unexamined** — not re-triaged. A checkpoint tag on the pre-release ladder deletes
-nothing: the timer runs for a cycle, and a cycle ends at production. If nobody promoted an entry
-across a whole cycle it was noise, and rediscovering it later costs less than carrying it. This rule is what stops this file becoming a second backlog,
+**Lossy by design.** An entry that has sat in `Untriaged.md` for **ninety days** is **deleted,
+unexamined** — not re-triaged. If nobody promoted it in three months it was noise, and rediscovering
+it later costs less than carrying it. This rule is what stops this file becoming a second backlog,
 and it is the one that will feel wrong.
+
+**The timer is an age, and it used to be the production tag.** That worked while a cycle was a year:
+an entry got a year to prove itself. A one-tag cycle carrying one or two goals can close in weeks, so
+the same rule would delete a finding captured a fortnight before a release — punishing it for when it
+was noticed rather than for being noise. Ninety days is the property the old rule was reaching for,
+stated directly. The `@ <sha>` on every entry is what makes the age readable.
 
 **Lossiness applies to `Untriaged.md` alone.** Every other file here keeps its own discipline, or the
 pile simply moves.
