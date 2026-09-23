@@ -5,7 +5,8 @@ on the hardware in front of it: which devices, how its blocks are placed across 
 length, and what prefill chunk. The decision is a value, the **plan**, that a load then executes
 without deciding anything again.
 
-Draft, 2026-09-16. Post-v0.20; nothing here is committed to a release.
+Written 2026-09-16. Phases 1 to 4 are committed to v0.21.0 (2026-09-23, `Direction.md` 5.2); Phase 5
+comes after it. Open decisions 1 and 3 were settled on their recommendations the same day.
 
 ---
 
@@ -356,9 +357,9 @@ here as a new dimension of the planner, not beside it.
 
 ## 12. Open Decisions
 
-1. **Does the planner ever choose the weight format?** For a BF16 package, FP8 against FP4 is a quality
-   trade, not only a memory one. Recommended for this spec's phases: no — the caller fixes it; the plan
-   reports whether it fits.
+1. **Does the planner ever choose the weight format? DECIDED 2026-09-23: no, for this spec's
+   phases** — the caller fixes it; the plan reports whether it fits. For a BF16 package, FP8 against
+   FP4 is a quality trade, not only a memory one.
 
    **Direction beyond these phases (Todd, 2026-09-16):** a caller names only the base model — "Gemma 4
    12B" — and Mila chooses among that model's published pre-quantized packages in the store, then plans the
@@ -374,8 +375,8 @@ here as a new dimension of the planner, not beside it.
    package's own, headroom zero. Adaptors may pin any of it — Chat's device default is `LayerSplit.md` 12.3.
 7. **Names.** `DeploymentRequest`, `DeploymentPlan`, `planDeployment`, `alternatives`, `feasible` and
    `bindingConstraint` are working names.
-3. **Headroom defaults.** Chat, MIS and the binding each pick their own default, or all use zero.
-   Recommended: zero in the library; the adaptors choose. llama.cpp defaults its per-device margin to
+3. **Headroom defaults. DECIDED 2026-09-23: zero in the library; the adaptors choose.** The
+   alternative was Chat, MIS and the binding sharing one non-zero default. llama.cpp defaults its per-device margin to
    1024; Chat removed its own stacked margins in `MemoryFootprint.md` Phase 6 step 4 because the
    prediction already counts what Mila allocates.
 4. **A family-neutral `planDeployment`.** One entry point reading the family from the package, or one per

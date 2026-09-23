@@ -1,10 +1,12 @@
-# Mila Direction: v0.50 and v0.80
+# Mila Direction: v0.21.0 and After
 
-The positioning, layering and release plan for the two production releases after v0.20. v0.20 is the
-base this builds on; it is not revised by this document.
+The positioning, layering and release plan for the releases after v0.20. v0.20 is the base this
+builds on; it is not revised by this document.
 
-Draft, 2026-09-19. Supersedes `MilaProductFamily.md` for everything after the v0.20 tag. That spec
-remains the definition v0.20 ships under.
+Written 2026-09-19; adopted 2026-09-23, when section 5 became v0.21.0 and its open decisions were
+settled (section 8). Supersedes `MilaProductFamily.md` for everything after the v0.20 tag. That spec
+remains the definition v0.20 ships under. Releases step by one minor at a time; section 6 is the
+releases after v0.21.0, numbered as each is scheduled.
 
 ---
 
@@ -13,11 +15,11 @@ remains the definition v0.20 ships under.
 **Mila is for developers to harness intelligence.**
 
 *Harness* means taking what a model can do and putting it to work inside your own program, under your
-control. Every release from v0.50 on is judged by one question: does it let a developer do that more
+control. Every release from v0.21.0 on is judged by one question: does it let a developer do that more
 directly, with less in the way and nothing sealed off?
 
 Mila's version of harnessing has three properties that together are not available elsewhere. Each is
-already true at the model level in v0.20; the two releases below carry them up to the application:
+already true at the model level in v0.20; the releases below carry them up to the application:
 
 | Property | What it means | Grounded in |
 |---|---|---|
@@ -47,7 +49,7 @@ v0.20's public message is *reference implementation*: an LLM stack written to be
 was right for v0.20 and stays on v0.20's surfaces. It is too small an identity to build on, because it
 describes the reader and not the builder.
 
-| | v0.20 | v0.50 | v0.80 |
+| | v0.20 | v0.21 | After v0.21 |
 |---|---|---|---|
 | The developer | reads Mila | builds on Mila | delegates tasks to Mila |
 | Enters at | a model: `GemmaModel<...>::load`, or components | `Mila::AI`, or components | `Mila::AI` with tools and a policy, or components |
@@ -59,16 +61,16 @@ is that they can open it. Speed is still evidence, never the lead. Mila still ru
 user already has, and it is still a library.
 
 **The public message claims only what the tagged release ships.** v0.20's truthful-today rule carries
-forward unchanged: the website and README move to the trait in the release that makes it true, v0.50,
-and not before.
+forward unchanged: the website and README move to the trait in the release that makes it true,
+v0.21.0, and not before.
 
 ---
 
 ## 3. Layering
 
 "Adaptor" is retired as a concept. It named Chat and MIS by what they were not (the library) and
-sorted them by who closes the generation loop. From v0.50 the loop closes inside `Mila::AI`, and Chat
-and MIS are applications built on it, in the same position as any developer's program.
+sorted them by who closes the generation loop. From v0.21.0 the loop closes inside `Mila::AI`, and
+Chat and MIS are applications built on it, in the same position as any developer's program.
 
 ```
 Applications      Chat      MIS (wire)      your program      Python / other languages
@@ -104,7 +106,7 @@ contract. It holds:
   per-family session classes and MIS's family enum.
 - **`Mila::AI`.** The application-facing object.
 - **The agent core.** Parse a tool call, dispatch it, splice the result into the open turn, continue.
-- **The autonomy policy** (v0.80).
+- **The autonomy policy** (after v0.21.0).
 
 `MilaProductFamily.md`'s standing rule, that there is no "runtime services" layer, still holds for
 `Mila/Src`. Mila.AI is that layer, built on purpose as its own library, so that `Mila/Src` never
@@ -121,7 +123,7 @@ The v0.20 rule carries over with a new subject: **a gap between what `Mila::AI` 
 application reaches is a defect in the application.** Nothing an application needs may be private to
 it. If Chat does something a developer's program cannot, it belongs in Mila.AI.
 
-MIS keeps its second job as the conformance oracle, and it becomes the control arm of the v0.80
+MIS keeps its second job as the conformance oracle, and it becomes the control arm of the autonomy
 measurement (section 6).
 
 ---
@@ -150,7 +152,7 @@ const DeploymentPlan& plan = ai.plan();   // what was decided, and what bound it
 auto& model = ai.model();                 // the handle; from here, the typed model and its components
 ```
 
-(Names illustrate the shape; section 8 leaves them open.)
+(Method names illustrate the shape; the object's name is decided in section 8.)
 
 ### 4.2 Rules
 
@@ -171,27 +173,34 @@ auto& model = ai.model();                 // the handle; from here, the typed mo
 6. **A composed model is a first-class model.** The handle's contract is one a network built from
    components can meet, so `Mila::AI` can be created over a developer's own model as well as over a
    store name. The factory is a convenience for published models, never the only way in.
-7. **A model is named.** In v0.50 creation takes a store name. Naming a base model and letting Mila pick
-   the package, and naming an intent, are v0.80 questions (section 6.5).
+7. **A model is named.** In v0.21.0 creation takes a store name. Naming a base model and letting Mila
+   pick the package, and naming an intent, are later questions (section 6.5).
 
 ---
 
-## 5. v0.50 — Intelligence Your Program Owns
+## 5. v0.21.0 — Intelligence Your Program Owns
 
 **The release makes one claim, and it is a pair.** A local model is at work inside your program in ten
 lines of C++, *and* one call takes you from there to the kernel. The first half without the second is
 a wrapper; the second without the first is v0.20.
 
-It adds no model and no new chassis. Every workstream proves the contract on the four families v0.20
-already validates, and the next architecture then arrives in one place (v0.80).
+It adds no new family. Every workstream proves the contract on the four families v0.20 already
+validates, and the next architecture then arrives in one place (section 6.2). The same release
+finishes Qwen 3.8 and Gemma 4 — including Qwen's dense members, which reuse Llama's blocks, and
+Gemma's image input, which enters through an embedder rather than a tower — so the contract is proven
+on families with nothing left over. The ROADMAP carries that half and its criteria.
 
 ### 5.1 One model handle
 
-The ROADMAP's first item after the v0.20 tag, now the foundation of Mila.AI. It starts with the
-manifest: capabilities (reasoning channel, streaming, context limits) are declared in the record, which
-is additive because the manifest tolerates unknown fields and `instruct` already proves the pattern
-(`Mila/Issues/Future.md`, "Model capabilities belong in the manifest"). Today `Chat.FamilyTraits.ixx`
-derives them from `family == Gemma`. The factory then reads the record rather than switching on family.
+The foundation of Mila.AI. It starts with the manifest: capabilities (reasoning channel, context
+limits, modality) are declared in the record, which is additive because the manifest tolerates unknown
+fields and `instruct` already proves the pattern. Today `Chat.FamilyTraits.ixx` derives them from the
+family. The factory then reads the record rather than switching on family.
+
+**Streaming is not a manifest capability.** Whether a display can route a model's output token by
+token depends on whether the application has written that path for the model's markers, not on the
+weights; `Chat.FamilyTraits.ixx` records it as a fact about the display, and it stays with the
+application.
 
 *Success:* a new architecture is added in one place; MIS serves every architecture Chat does; no
 dispatch site carries a per-family branch.
@@ -199,7 +208,8 @@ dispatch site carries a per-family branch.
 ### 5.2 Deployment planning on one device
 
 `Deployment.md` Phases 1 to 4: pricing without a bound context, the build executing the chunk it is
-given, `planDeployment` on one device, then the binding and MIS. Phase 5 (devices) belongs to v0.80.
+given, `planDeployment` on one device, then the binding and MIS. Phase 5 (devices) comes after
+v0.21.0 (6.3).
 
 *Success:* `Deployment.md` gates G1 to G4 and negatives N1 to N5; Chat's `"auto"` choices are
 reproduced by the planner on the measured models before Chat's own code is deleted.
@@ -226,7 +236,7 @@ calling a tool; `plan()` and `model()` reach the objects that actually ran; and 
 ### 5.5 Chat and MIS rebuilt as applications
 
 Both consume `Mila::AI` and nothing beneath it except through `model()`. Their directories leave
-`Mila/Adaptors/`.
+`Mila/Adaptors/` for `Mila/Applications/Chat` and `Mila/Applications/Server`.
 
 *Success:* neither contains model-specific code; MIS's tool flows (the v0.20 foreign-harness criteria)
 still pass unchanged against Codex and Claude Code.
@@ -242,17 +252,20 @@ calls a tool and prints the plan; the Python QuickStart moves to `mila.AI`.
 ### 5.7 The public message moves
 
 README, website and `MilaProductFamily.md`'s public descendants are rewritten to the trait, in the
-v0.50 release and not before.
+v0.21.0 release and not before.
 
 *Success:* no public surface describes Mila as a reference implementation first, or uses "adaptor".
 
 ---
 
-## 6. v0.80 — Intelligence That Acts
+## 6. After v0.21.0 — Intelligence That Acts
 
-**The release makes one claim, and it is a pair.** An agent finishes a multi-step task on your
-machine, in your process, without re-reading its own history, *and* every step it took can be
-audited. Autonomy without the audit is a runaway; the audit without autonomy is v0.50.
+**The claim is a pair.** An agent finishes a multi-step task on your machine, in your process, without
+re-reading its own history, *and* every step it took can be audited. Autonomy without the audit is a
+runaway; the audit without autonomy is v0.21.0.
+
+These are the releases after v0.21.0, one minor at a time. Which subsections land in which release is
+decided when each is scheduled, in `ROADMAP.md`.
 
 ### 6.1 Autonomy
 
@@ -273,7 +286,7 @@ turns, **prefill tokens per turn**, wall-clock, and termination split into "stop
 The selection rule is unchanged: the leading open models that suit an agentic workflow on hardware the
 user has. The named candidates are Muse Glimmer 30B and a dense Qwen member; which ships does not
 change the plan. Both break two v0.20 assumptions: a second family with a reasoning channel, and (for
-Muse Glimmer) a vision tower feeding the text model. v0.50's handle is what lets each arrive in one
+Muse Glimmer) a vision tower feeding the text model. v0.21.0's handle is what lets each arrive in one
 place.
 
 *Success:* greedy decode token-for-token against the reference; image-conditioned generation validated
@@ -318,9 +331,9 @@ model name resolves to the same package the objective ranks first.
   remarkable; an application developer will not. v0.20's toolchain (VS 2026 18.6.2+, CUDA 13, C++23
   modules, an NVIDIA card) is unchanged. C++23 module interfaces are not portable between compilers,
   so a prebuilt C++ distribution is not available the way a C library's is. Source consumption through
-  CMake is the v0.50 answer; whether a C ABI at the `Mila::AI` boundary is needed is Open Decision 3.
+  CMake is the v0.21.0 answer; whether a C ABI at the `Mila::AI` boundary is needed is decision 3.
 - **The field above the model is crowded.** "Create an assistant, give it tools" exists elsewhere. Mila
-  is distinct only through section 1's three properties together. A v0.50 that shipped `Mila::AI`
+  is distinct only through section 1's three properties together. A v0.21.0 that shipped `Mila::AI`
   without the splice, the plan or the descent would be one more wrapper, and every workstream's success
   bar is written to prevent that.
 - **The top of the stack takes the attention.** A new entry point draws the documentation, the samples
@@ -329,36 +342,38 @@ model name resolves to the same package the objective ranks first.
   path, and the tests for components are not traded for tests of `Mila::AI`.
 - **Autonomy amplifies model weakness.** Carried from `MilaProductFamily.md` unchanged: guardrails and
   loop detection are what make an edge-sized model survivable unsupervised, not polish.
-- **One developer.** Each release is sized to one maintainer: v0.50 adds no model, and v0.80's items
-  are already specified elsewhere. An item that cannot name its success bar in this document does not
-  enter either release.
+- **One developer.** Each release is sized to one maintainer. v0.21.0 is the largest yet — section 5
+  and the completion of two families — and it is bounded by a fixed date whose scope drains rather
+  than by its list (`ROADMAP.md`). The releases after it take section 6 a subsection at a time. An
+  item that cannot name its success bar in this document does not enter any of them.
 
 ---
 
-## 8. Open Decisions
+## 8. Decisions
 
-1. **The name of the object.** `Mila::AI` is the working name and the one the trait suggests. The
-   module would be `Mila.AI`; the namespace convention elsewhere is `Mila::Dnn`.
-2. **Where Mila.AI lives.** Leaning: `Mila/AI/`, a peer of `Mila/Src` and `Mila/Bindings`, built as its
-   own library target that the wheel and a `FetchContent` consumer both get.
-3. **A C ABI at the `AI` boundary.** It would make .NET and other compilers' C++ straightforward, and
-   `Mila::AI`'s rule 1 keeps it small enough to be cheap. Leaning: decide during v0.50 against the
-   QuickStart experience, ship no earlier than v0.80.
-4. **Where Chat and MIS live.** Leaning: `Mila/Applications/Chat` and `Mila/Applications/Server`.
-   Samples stay teaching code; these stay maintained products.
-5. **Sequencing against the ROADMAP.** ROADMAP's Future gives the slot after v0.20 to Muse Glimmer.
-   This spec puts v0.50 before any new chassis, which agrees with the same entry's rule that the handle
-   is a precondition for every new model. The Future entry is revised when v0.50 becomes the release in
-   flight.
-6. **Tool registration shape.** Carried from `MilaProductFamily.md` Open Decision 5: compiled-in
-   registry (leaning) or declarative subprocess tools alongside it.
-7. **How a composed model meets the handle.** A C++ concept the model satisfies (no registration, checked
-   at compile time) or an explicit wrapper the developer constructs. Leaning: the concept, so a
-   developer's network and a published one pass through the same check.
+Settled 2026-09-23, each on the leaning this section recorded, when section 5 became v0.21.0.
+
+1. **The name of the object: `Mila::AI`,** in module `Mila.AI` — the working name, and the one the
+   trait suggests.
+2. **Where Mila.AI lives: `Mila/AI/`,** a peer of `Mila/Src` and `Mila/Bindings`, built as its own
+   library target that the wheel and a `FetchContent` consumer both get.
+3. **A C ABI at the `AI` boundary: decided during v0.21.0** against the QuickStart experience, shipped
+   no earlier than the release after it. It would make .NET and other compilers' C++ straightforward,
+   and `Mila::AI`'s rule 1 keeps it small enough to be cheap.
+4. **Where Chat and MIS live: `Mila/Applications/Chat` and `Mila/Applications/Server`.** Samples stay
+   teaching code; these stay maintained products.
+5. **Sequencing against the ROADMAP: section 5 is v0.21.0,** together with the completion of Qwen 3.8
+   and Gemma 4, before any new chassis — which agrees with the rule that the handle is a precondition
+   for every new model. Muse Glimmer follows in ROADMAP's Future.
+6. **Tool registration: a compiled-in registry** — a callable plus a schema, registered on the `AI`.
+   Declarative subprocess tools alongside it remain open for section 6, carried from
+   `MilaProductFamily.md` Open Decision 5.
+7. **How a composed model meets the handle: a C++ concept** the model satisfies — no registration,
+   checked at compile time — so a developer's network and a published one pass through the same check.
 
 ---
 
-## 9. Non-Goals Through v0.80
+## 9. Non-Goals Through Section 6
 
 - A remote or hosted model behind `Mila::AI`. Every `AI` is backed by Mila running locally.
 - Serving many users: batching, scheduling, multi-tenancy.
@@ -383,9 +398,10 @@ model name resolves to the same package the objective ranks first.
 
 - `MilaProductFamily.md` — v0.20's definition. Its Agentic design, measurement and open decisions carry
   into section 6.1 by reference; its adaptor layering is replaced by section 3.
-- `Deployment.md` — Phases 1 to 4 are v0.50 (5.2), Phase 5 is v0.80 (6.3); its non-goal on shared
-  devices is reversed by 6.5.
-- `LayerSplit.md` — v0.80 (6.3).
+- `Deployment.md` — Phases 1 to 4 are v0.21.0 (5.2), Phase 5 comes after it (6.3); its non-goal on
+  shared devices is reversed by 6.5.
+- `LayerSplit.md` — after v0.21.0 (6.3).
 - `ModelDistribution.md` — the store `Mila::AI::create` names models from.
 - `Observability.md` — part of what "reachable" means.
-- `.internal/Marketing/Positioning.md` — governs v0.20's public surfaces; section 5.7 replaces it at v0.50.
+- `.internal/Marketing/Positioning.md` — governs v0.20's public surfaces; section 5.7 replaces it at
+  v0.21.0.

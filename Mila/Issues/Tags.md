@@ -33,7 +33,8 @@ is a statement about where the work is, not a tag that needs retiring.
 | `build` | CMake, presets, compilers, warnings, platform support. |
 | `ci` | Workflows, gates, runners, release mechanics. |
 | `docs` | Doxygen, README, specs, the website, model cards. |
-| `adaptors` | Chat and MIS. |
+| `ai` | `Mila/AI/` — the model handle, `Mila::AI`, and the agent core. |
+| `adaptors` | Chat and MIS. Renamed with the directory when they move to `Mila/Applications/`. |
 | `binding` | The Python projection. |
 | `perf` | Throughput, bandwidth, memory residency. |
 | `observability` | View and Observe. |

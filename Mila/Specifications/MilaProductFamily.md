@@ -3,11 +3,11 @@
 **Date:** 2026-07-06 (locked 2026-07-07)
 **Status:** Locked positioning for the v0.20 first production release — stable in shape,
 refinable in detail. The Definition below is the product identity v0.20 ships under.
-From v0.50 on, `Direction.md` replaces its layering and positioning; its Agentic design carries
+From v0.21.0 on, `Direction.md` replaces its layering and positioning; its Agentic design carries
 forward by reference. **That includes the word "adaptor" itself** — this document's organizing
 noun. `Direction.md` §10 retires it in favour of "application", which answers the standing concern
 that "adaptor" is a GoF pattern name fitting MIS and not Chat: the axis was sound, the word was
-not, and it goes at v0.50 rather than being renamed inside v0.20.
+not, and it goes at v0.21.0 rather than being renamed inside v0.20.
 **Component:** whole-project positioning (`Mila/Src`, `Mila/Adaptors/Inference`, `Mila/Adaptors/Chat`, future agent)
 
 ## Definition
@@ -267,8 +267,8 @@ failure recovery — the model roadmap's next step was chosen to serve *this* ad
 drafter head also makes speculative decoding worth more here than in Chat: a hundred-turn
 unsupervised run has nobody waiting on the first token.
 
-**It is no longer "the post-v0.20 target".** `Direction.md` §6.2 places it in **v0.80** as one of two
-candidates alongside a dense Qwen member, behind a v0.50 that deliberately adds no chassis so the
+**It is no longer "the post-v0.20 target".** `Direction.md` §6.2 places it **after v0.21.0** as one
+of two candidates alongside a dense Qwen member, behind a v0.21.0 that adds no new family so the
 model handle lands first. Read that spec, not this paragraph, for which model ships when. The
 blocker remains hardware rather than grammar or loop — ~16 GB at FP4 before any KV cache, against a
 12,282 MiB card and a 16 GB one — which keeps the compute sponsorship ask on this adaptor's critical
@@ -324,7 +324,8 @@ that would validate it is shared. See Honest Risk.
 2. **Where the native agent core physically lives.** Runtime-adjacent library, or a peer component
    the two native adaptors depend on? *Leaning:* runtime-adjacent — a peer library depending on
    the runtime, never inside it. Same consumer-blind test as everywhere else: the core knows about
-   sessions; the runtime must not.
+   sessions; the runtime must not. **Resolved 2026-09-23 on the leaning:** `Mila/AI/`, its own
+   library target (`Direction.md` §8 decision 2), built in v0.21.0.
 
    **It has a second tenant, and a hard sequencing constraint (agreed 2026-08-12).** The same layer
    should own **one typed model handle and one factory** mapping an architecture to its concrete

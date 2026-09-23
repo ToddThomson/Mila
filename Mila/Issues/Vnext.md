@@ -351,21 +351,6 @@ than the server's. Launch with an argument vector — `CreateProcessW` or `posix
 CMake-selected module partition, since module code carries no `#ifdef`. Moved from the v0.20
 backlog at `rc.1+21`: `Mila/Tools` does not ship, and the runtime image is Linux.
 
-## Qwen refuses prompt-prefix reuse and never says so
-
-`qwen` · `adaptors` · `mila-src`
-
-`QwenDeltaNetBlock::rewindKvCache` always returns false — correctly, since a recurrent state is a
-lossy summary and cannot be rewound — and `QwenTransformer::rewindKvCache` ANDs that into a refusal
-for the whole stack. A server that reuses prefixes has to read this as a property of the model and
-plan around it, not discover it as a failed retry. The per-block mechanism exists
-(`snapshotState`/`restoreState`); a whole-model policy does not. Moved from the v0.20 backlog at
-`rc.1+21`: prefix reuse lives inside each model's `generate` — Gemma's is transparent
-(`GemmaModel.ixx:364`) and Qwen's always prefills from 0 (`QwenModel.ixx:355`) — and no adaptor or
-the binding calls `rewindKvCache`, so nothing can meet the refusal as a failed retry. It becomes live
-work when an adaptor manages reuse itself (`Direction.md:211` plans the agent core reading it from
-the manifest).
-
 ## The samples are not built in CI
 
 `ci` · `build`
@@ -953,3 +938,61 @@ about two seconds with no diagnostic, and reads as a model defect rather than a 
 
 The finding is an absence, not a location: a note wherever the default device is documented.
 [[project_cuda_index_is_not_nvidia_smi_index]]
+
+## Gemma 4 12B decodes one token per forward pass, and Google ships a drafter for it
+
+`gemma` · `perf` · `mila-src` · `blocked`
+
+**Blocked on the v0.21.0 measurement** ("Nobody knows whether Google's drafter would make Gemma 4
+12B decode faster" in `BACKLOG.md`): if a K-token verify costs near K decodes on the bandwidth-bound
+FP4 path, this entry goes to `Declined.md` with that number. Moved out of v0.21.0 on 2026-09-23 when
+the release widened to `Direction.md` section 5 — the measurement stayed, the loop did not.
+
+Every Gemma 4 size ships a dedicated draft model (ai.google.dev/gemma/docs/core, read 2026-09-17).
+`SpeculativeDecoding.md` is a DRAFT that places Google's drafter last (phase E) behind prompt lookup
+and EAGLE; with a published drafter it moves forward. Pin the drafter checkpoint layout first (tensor
+names, how it combines the target's last hidden state). Work: draft/verify/accept/rewind loop in
+`generate()`, logits at every verify position, wrap-safe rewind on the sliding ring (`rewindKvCache`
+exists; speculative wrap unverified), drafter KV cache, the target's last hidden state exposed,
+converter/footprint/Chat stats. Gate: greedy output token-for-token identical to plain decode.
+
+## Google's quantization-aware 4-bit Gemma 4 cannot be loaded without losing what QAT bought
+
+`gemma` · `quantization` · `mila-src` · `blocked`
+
+**Blocked on the v0.21.0 measurement** ("Nobody knows whether Google's quantization-aware 4-bit
+Gemma 4 beats Mila's FP4" in `BACKLOG.md`) and on the compressed-tensors import below. Moved out of
+v0.21.0 on 2026-09-23 with the entry above.
+
+`google/gemma-4-12b-it-qat-w4a16-ct` (compressed-tensors, read 2026-09-17): `pack-quantized`, `int`,
+`num_bits` 4, `symmetric`, `strategy` group, `group_size` 32, targets `Linear`; `lm_head` and the
+image/audio embedders ignored. Mila's FP4 is E2M1 at group 128 — re-quantizing QAT weights onto that
+grid discards the training that fitted them to the int4 grid. Work: a `PerGroupInt4<32>` symmetric
+policy (OperationTraits rows, W4A16 GEMM with an int4 value table and group-32 scales — the FP4
+kernel's nibble lookup is the part that changes), ExportArtifact transcoding int32 `pack-quantized`
+into Mila's nibble layout with `mila_quantization` metadata, footprint (4.5 bits per weight with
+16-bit scales against FP4's 4.25 — scale dtype unverified). The embedding stays Mila's FP8 tied
+table, which the QAT build leaves unquantized. Publish as its own model.
+
+## Mila cannot import the format most quantized models on the Hub are published in
+
+`quantization` · `distribution` · `mila-src`
+
+Moved out of v0.21.0 on 2026-09-23 when the release widened; its first consumer is the QAT entry
+above.
+
+compressed-tensors (the vLLM project's format) is safetensors plus a `quantization_config` in
+`config.json`: a `format` (`pack-quantized`, `int-quantized`, `float-quantized`,
+`nvfp4-pack-quantized`), per-group schemes (bits, `int`/`float`, symmetric, strategy tensor/channel/
+group/block, `group_size`), and `targets`/`ignore`. A packed int4 Linear carries `weight_packed` (int32,
+eight values each), `weight_scale` per group, `weight_shape`, and `weight_zero_point` only when
+asymmetric. Packing order and scale dtype are from memory — settle them with a safetensors header read
+before code.
+
+Import it in `ExportArtifact` only, as a transcode into Mila's own safetensors with
+`mila_quantization` metadata; the load contract, loaders, store and applications stay untouched, and a
+layout mismatch surfaces at export rather than at load. Mapping, per format: `pack-quantized` int4
+symmetric -> a new `PerGroupInt4<G>`; `float-quantized` FP8 per-channel -> the existing
+`PerChannelFp8` (check scale shape and dtype agree); `nvfp4-pack-quantized` -> the native NVFP4
+direction on SM120 (`Fp8ActivationPrefill.md`). Refuse any scheme with no matching policy, naming the
+scheme.

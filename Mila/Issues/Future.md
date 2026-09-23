@@ -11,19 +11,6 @@ flow and categories are in [README.md](README.md); the tag set is [Tags.md](Tags
 
 ---
 
-## The library should own architectural identity
-
-`architecture` · `distribution` · `mila-src`
-
-The set of architectures is the set of model classes `Mila/Src` implements, held today as a
-compile-time type and an unvalidated manifest string with nothing connecting them — so each
-consumer writes its own bridge (`familyFromArchitecture` in `Chat.ModelCatalog.ixx:159`,
-`architecture == "gemma"` at `Mila_py.Wrappers.cpp:413`).
-
-Home is `Distribution`, beside the manifest reader, not `Dnn`. The library owns the identity only;
-traits merely keyed on it stay with the consumer they describe.
-[[project_architecture_identity_ownership]]
-
 ## Qwen 3 — the dense members
 
 `models` · `quantization` · `mila-src`
@@ -564,23 +551,6 @@ holding several `<tool_response>` spans; `Qwen.Protocol.ixx` emits one turn each
 
 Unreachable today — the harness dispatches one call per round — and it becomes wrong the moment
 parallel calls land.
-
-## Model capabilities belong in the manifest, not in a family switch
-
-`adaptors` · `distribution`
-
-`thinking_capable` and `streaming_capable` are both `family == Gemma` (`Chat.FamilyTraits.ixx`), and
-`default_context`/`max_context` are per-family constants beside them — so two models of one family
-cannot differ, and a non-Gemma reasoning model reads as having no channel.
-
-`instruct` is already record-declared and proves the pattern, and the manifest tolerates unknown
-fields, so this is additive. Do it before the next chassis threads a second switch.
-
-What the endpoint reports is thin enough that a client notices: Codex 0.142.5 warns "Model metadata
-for `gemma-4-12b-it-fp4` not found. Defaulting to fallback metadata" even with its model set to
-exactly the id `/v1/models` returns, and July's note that matching the id cleared it no longer
-holds. All three validated flows pass regardless and what the fallback costs on a longer run is
-unmeasured, so this is a symptom of the same gap rather than separate work.
 
 ## A session cannot move cards without restarting
 
