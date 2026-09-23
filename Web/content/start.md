@@ -11,14 +11,14 @@ the module graph in its own toolchain — so getting started means building it.
 
 | | |
 |---|---|
-| **C++ compiler** | Visual Studio 2026 18.6.2+ on Windows, or Clang 19+ / GCC 16 on Linux |
+| **C++ compiler** | Visual Studio 2026 18.6.2+ on Windows, or Clang 19+ on Linux |
 | **CUDA Toolkit** | 13.3 |
 | **CMake** | 4.0 or newer |
 | **Generator** | Ninja — significantly faster for incremental module builds |
 | **Git** | 2.x — dependencies are fetched at configure time |
 
-Earlier Visual Studio 2026 builds have a C++23 module regression; 18.6.2 fixed it. GCC 15.2 and
-earlier cannot compile the modules at all.
+Earlier Visual Studio 2026 builds have a C++23 module regression; 18.6.2 fixed it. GCC cannot
+compile the modules yet.
 
 ## 2. Build and test
 

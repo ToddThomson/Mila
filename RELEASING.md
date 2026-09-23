@@ -400,7 +400,7 @@ fails.
    GitHub at it. Select the preset shown as **"x64 Release (CPM release-access gate)"**
    (CMake `name` `x64-release-cpm-gate`) and run:
    ```
-   ctest --test-dir out/build/x64-release-cpm-gate -R packaging_cpm_consumer --output-on-failure
+   ctest --test-dir out/build/x64-release-cpm-gate -R packaging_cpm_consumer -V
    ```
    **Pass the tag explicitly — `-DMILA_CPM_GIT_TAG=v0.21.0` — rather than relying on the
    default.** The gate derives it from `Version.txt` when unset, which lines up here, but a build

@@ -39,7 +39,7 @@ CUDA release once NVIDIA publishes its Ubuntu 26.04 build image.
 |---|---|---|
 | MSVC (Visual Studio) | 2026 18.6.2 | Primary Windows compiler |
 | Clang | 19 | The Linux path CI and the container build |
-| GCC | 16 | Alternative on Linux; 15.2 and earlier **cannot** compile the modules, and 15.3 is untested |
+| GCC | — | Not supported for the module units: 14.2 and 15 fail, and 16 has not been tried |
 
 **Two compilers are involved in a Linux CUDA build, and only one of them is bound by that
 table.** The compiler above compiles the C++23 module units. nvcc uses a separate host compiler
@@ -98,9 +98,8 @@ breaks the C++23 module build; 18.6.2 fixed it.
 **Clang is the Linux path** — clang-21 is what CI compiles and what the dev container runs, with
 gcc-15 as nvcc's host compiler for the `.cu` files. Clang 19 is the floor.
 
-GCC can compile the module units instead, and there the floor is **GCC 16**: 15.2 and earlier
-cannot, and 15.3 has never been built. That is a different question from nvcc's host GCC, which
-the container pins at 15.
+GCC cannot compile the module units: 14.2 and 15 fail, and GCC 16 has not been tried. That is a
+different question from nvcc's host GCC, which the container pins at 15.
 
 The steps below target a recent Ubuntu (24.04 or 26.04) with CUDA through WSL.
 
@@ -150,11 +149,6 @@ The steps below target a recent Ubuntu (24.04 or 26.04) with CUDA through WSL.
    compiler for the `.cu` files. Ubuntu 26.04 ships GCC 15.2, and that is fine in this role —
    the module floor does not apply to it.
 
-   To compile the module units with GCC instead of Clang, install **GCC 16** and select it at
-   configure time; 15.2 cannot compile them:
-   ```bash
-   sudo apt-get install -y gcc-16 g++-16     # then configure with -DCMAKE_CXX_COMPILER=g++-16
-   ```
    Ubuntu 26.04 provides CMake ≥ 4.0 via apt; on older distros use Kitware's APT repo or the
    official tarball. Add `doxygen` only if you plan to build the docs.
 
@@ -202,9 +196,6 @@ cmake -S . -B out/build/linux-release -G Ninja \
 
 Do not put `-ccbin` in `CMAKE_CUDA_FLAGS` — it conflicts with the one CMake emits from
 `CMAKE_CUDA_HOST_COMPILER`.
-
-To compile the module units with GCC instead, swap in `-DCMAKE_C_COMPILER=gcc-16
--DCMAKE_CXX_COMPILER=g++-16` and drop `CMAKE_CUDA_HOST_COMPILER`.
 
 Notes:
 - Set `-DCMAKE_CUDA_ARCHITECTURES` to your GPU's arch (`89` = Ada). `native` fails on GPUs

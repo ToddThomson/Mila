@@ -51,7 +51,7 @@ Three things make a number checkable by someone who is not you:
 
 - [ ] This PR targets the `dev` branch
 - [ ] Code follows the standards in [CONTRIBUTING.md](CONTRIBUTING.md) / [CLAUDE.md](CLAUDE.md)
-- [ ] Builds clean (note your compiler: MSVC 2026 / Clang 21 / GCC 16)
+- [ ] Builds clean (note your compiler: MSVC 2026 / Clang 21)
 - [ ] Tests added or updated for the change, and `ctest` passes — on `x64-validate`, or on
       `x64-debug-cpu-only` / `linux-clang-cpu-release` if you have no NVIDIA GPU
 - [ ] A new kernel or operation has a `*_MatchesReference` test against the CPU path

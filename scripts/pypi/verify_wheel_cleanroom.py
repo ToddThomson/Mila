@@ -12,6 +12,9 @@
 # touched -- CudaDeviceRegistrar treats a device count of zero as a warning, so
 # initialize() succeeds on a GPU-less runner and is a legitimate assertion here.
 #
+# --provenance is the local Windows substitute, for a machine that has a Toolkit and so
+# cannot prove its absence: it asserts which copy of each CUDA library was actually mapped.
+#
 # Run it from a directory that is not the repository, so `import mila` cannot find the
 # source tree instead of the installed distribution. The site-packages assertion below
 # catches that anyway rather than trusting the caller to get it right.
@@ -66,7 +69,18 @@ parser.add_argument(
     help="Exact version the installed distribution must report. TestPyPI and PyPI both "
          "carry mila-llm, and an older PyPI release outranks a newer TestPyPI dev build "
          "in some resolutions -- asserting the version is what proves which one arrived.")
+parser.add_argument(
+    "--provenance",
+    action="store_true",
+    help="Windows, on a machine WITH a CUDA Toolkit: instead of proving the Toolkit is "
+         "absent, prove it went unused -- every CUDA library mapped into the process "
+         "must come from site-packages. Weaker than the absence proof: it shows the wheel "
+         "does not USE the host Toolkit, not that it survives without one.")
 args = parser.parse_args()
+
+if args.provenance and os.name != "nt":
+    print("--provenance is the Windows substitute. On Linux, run in a container with no CUDA.")
+    sys.exit(2)
 
 print(f"Python      {sys.version.split()[0]} ({sys.executable})")
 print(f"Platform    {sys.platform}")
@@ -79,7 +93,12 @@ print()
 
 print("Clean room")
 
-if os.name == "nt":
+if args.provenance:
+    # The Toolkit is expected here, so its presence is not a failure; section 3 asserts
+    # the thing that can still be decided with it installed.
+    notes.append("provenance mode: a CUDA Toolkit may be present; loaded-library origin is asserted instead")
+    print("  SKIP  absence of a CUDA Toolkit (provenance mode)")
+elif os.name == "nt":
     cuda_path = os.environ.get("CUDA_PATH")
     default_root = Path(r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA")
 
@@ -178,9 +197,78 @@ if check(bool(directories),
 
     outside = [str(directory) for directory in directories if not is_inside(directory, roots)]
 
-    check(not outside,
-          "every registered CUDA directory is in site-packages",
-          f"host-supplied: {outside}")
+    # With a Toolkit installed its directory is registered as a backstop by design, so
+    # registration proves nothing either way; what loaded is asserted below instead.
+    if args.provenance:
+        if outside:
+            notes.append(f"host directories registered as a backstop: {outside}")
+    else:
+        check(not outside,
+              "every registered CUDA directory is in site-packages",
+              f"host-supplied: {outside}")
+
+
+def windows_loaded_modules() -> list[Path]:
+    """Every module mapped into this process, from psapi."""
+    import ctypes
+    from ctypes import wintypes
+
+    psapi = ctypes.WinDLL("psapi", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    # Without argtypes ctypes passes the handles as 32-bit ints, which truncates them and
+    # makes the enumeration silently return nothing.
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    psapi.EnumProcessModules.argtypes = [
+        wintypes.HANDLE, ctypes.POINTER(wintypes.HMODULE), wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    psapi.EnumProcessModules.restype = wintypes.BOOL
+    psapi.GetModuleFileNameExW.argtypes = [wintypes.HANDLE, wintypes.HMODULE, wintypes.LPWSTR, wintypes.DWORD]
+    psapi.GetModuleFileNameExW.restype = wintypes.DWORD
+
+    process = kernel32.GetCurrentProcess()
+    handles = (wintypes.HMODULE * 4096)()
+    needed = wintypes.DWORD()
+
+    if not psapi.EnumProcessModules(process, handles, ctypes.sizeof(handles), ctypes.byref(needed)):
+        return []
+
+    count = min(needed.value // ctypes.sizeof(wintypes.HMODULE), len(handles))
+    modules = []
+    name = ctypes.create_unicode_buffer(32768)
+
+    for index in range(count):
+        if psapi.GetModuleFileNameExW(process, handles[index], name, len(name)):
+            modules.append(Path(name.value))
+
+    return modules
+
+
+if args.provenance:
+    print()
+    print("Loaded CUDA libraries (Windows provenance: which copy the process actually mapped)")
+
+    # Base names, not full file names: the version suffixes (cublas64_13, nvrtc64_130_0)
+    # move with each CUDA major. The driver's nvcuda.dll is excluded by the same reasoning
+    # as the Linux list below -- it comes from the host by definition.
+    vendored_prefixes = ("cudart", "cublas", "curand", "nvrtc", "nvjitlink")
+
+    vendored = sorted(
+        path for path in windows_loaded_modules()
+        if path.name.lower().startswith(vendored_prefixes))
+
+    for path in vendored:
+        origin = "wheel" if is_inside(path, roots) else "HOST"
+        print(f"        [{origin}] {path}")
+
+    if check(bool(vendored),
+             "the CUDA runtime libraries are mapped into the process",
+             "none observed -- this check established nothing; investigate before trusting a pass"):
+
+        host_supplied = [str(path) for path in vendored if not is_inside(path, roots)]
+
+        check(not host_supplied,
+              "every CUDA runtime library was resolved from site-packages",
+              f"resolved from the host Toolkit instead: {host_supplied}")
 
 # On Windows the check above has teeth, because cuda_library_directories includes any
 # Toolkit directory that was found. On LINUX it does not: that list is only ever the
@@ -267,4 +355,7 @@ if failures:
 
     sys.exit(1)
 
-print("OK -- the wheel stands on its own dependencies.")
+if args.provenance:
+    print("OK -- the wheel loaded its own CUDA libraries, not the host Toolkit's.")
+else:
+    print("OK -- the wheel stands on its own dependencies.")

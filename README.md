@@ -180,7 +180,7 @@ tokenizers, and tooling beneath them.
 | HuggingFace GPT-2 weight converter | Complete |
 | Model store — install, list, remove; shared by Chat and MIS as separate processes | Complete |
 | Model retrieval from HuggingFace — digest-verified pull | Validated — pulled independently on Windows (C++) and Linux (Python), byte-identical blobs |
-| Published models — Gemma 4 12B FP4, Llama 3.1 8B FP4, Llama 3.2 3B FP4 (`mila-llm`) | Complete — ungated; licence and notice travel with the weights |
+| Published models — Qwen 3.8 27B FP4, Gemma 4 12B FP4, Llama 3.1 8B FP4, Llama 3.2 3B FP4 (`mila-llm`) | Complete — ungated; licence and notice travel with the weights |
 | Model packaging and publishing — manifest, package, publish | Complete |
 | Instruction following — Llama 3.2 3B Instruct | Validated |
 | Tool calling framework | Complete |
@@ -291,8 +291,8 @@ that breaks the C++23 module build.
 
 On Linux, **Clang compiles the C++23 module units and GCC is nvcc's host compiler for the `.cu`
 files**, which contain no modules. The two carry different requirements: CI and the container use
-clang-21 with gcc-15 as the host. GCC can compile the module units instead, and there the floor is
-**GCC 16** — 15.2 and earlier cannot, and 15.3 has not been tested.
+clang-21 with gcc-15 as the host. GCC cannot be used for the module units: 14.2 and 15 fail to
+compile them, and GCC 16 has not been tried.
 
 Git must be installed and on `PATH`: the first CMake configure fetches dependencies via CPM
 (`git clone`), so it is needed beyond the initial repository clone. GitHub Desktop is an
@@ -324,7 +324,7 @@ Select the Ninja generator and Release configuration. Build with F7.
 ### Linux (native / WSL)
 
 On Linux — including WSL 2 — build with Clang against the bundled CMake presets. Requires
-Clang 19+ (or GCC 16) and CUDA 13.3:
+Clang 19+ and CUDA 13.3:
 
 ```bash
 cmake --preset linux-clang-release

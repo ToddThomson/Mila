@@ -10,4 +10,20 @@ pointer to its GitHub issue rather than a copy. Triage flow, categories and the 
 
 ---
 
-Empty. Triaged at `rc.1+26`.
+## A fix to the published site sits in the repo until someone dispatches the workflow
+
+`.github/workflows/publish-site.yml` (`on: workflow_dispatch:`) @ `c60c100a`
+
+Found reading Google Search Console for `mila.toddt.me`: 141 pages reported **"Excluded by 'noindex'
+tag"**, against 1 indexed page and 14 others crawled-or-discovered-but-not-indexed.
+
+The `noindex` post-processing step was removed from the workflow at `0589673f` on 2026-08-13. The
+workflow only runs on dispatch, and the next dispatch was 2026-09-11 — so the live site served
+`noindex` across the whole `/api/` tree for 29 days after the repository had stopped saying it.
+Verified on the live site 2026-09-22: no `robots` meta and no `X-Robots-Tag` on `/api/index.html`,
+`/api/annotated.html`, `/api/files.html` or `/api/classes.html`. GSC validation is running.
+
+Nothing reconciles the site source in the repository against what is actually deployed, and the
+workflow's own verification step reads one file (`build/site/api/index.html`) out of the tree it
+assembles.
+

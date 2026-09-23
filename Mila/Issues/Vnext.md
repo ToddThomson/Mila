@@ -492,6 +492,19 @@ own std entities and no reachable-but-invisible state for them to be in. It need
 rebuild, and it is a tree-wide change to every module's GMF — which is exactly why it waits for a
 release that is not in flight.
 
+**Measured 2026-09-23 (MSVC 19.51.36260, Clang 21.1.8 + libstdc++ 15):** a standalone probe
+project (a `Component`/`Model<T>` pair plus two reader modules, no Mila) reproduces all three
+failures on MSVC and none on Clang, where every combination builds and runs. Converting the
+*library* to `import std;` clears all three on MSVC, for consumers that `#include` as well as ones
+that `import std;`. Converting only the *consumer* clears failure 2 but **not** failure 1 — the fix
+has to be on Mila's side. Failure 1 needs **two** modules that each call `istream::read` in their
+interface: bisecting Mila's real BMIs, no single module of 240 triggers it, and the minimal pair is
+`Data.CharVocabulary` + `Data.BpeVocabulary`. Two CMake facts for the conversion: the import-std
+gate is a per-CMake-version UUID that must precede `project()` (`CXX_MODULE_STD` itself can be set
+per target), and `CMAKE_CXX_EXTENSIONS OFF` must also precede `project()` — the root
+`CMakeLists.txt` sets it after, which makes CMake build `std.pcm` as `gnu++23`, and Clang then
+refuses to load it into `-std=c++23` units.
+
 The alternative is recorded only so it is not mistaken for the plan: moving the `toString()` bodies
 out of the module interfaces would stop the consumer compiling those instantiations, but it
 addresses failure 2 alone and leaves the mechanism intact.
