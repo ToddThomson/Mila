@@ -349,7 +349,9 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     // One network alive at a time: the process-wide RoPE cache makes a second one under-report.
     TEST_F( GemmaMixtureOfExpertsCudaTests, Bf16_FootprintPredictedAndInactiveBytesReported )
     {
-        const BuildContext context( shape_t{ kBatch, kContext }, RuntimeMode::Inference );
+        const BuildContext context = BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) )
+            .withAvailableDeviceBytes( readFreeDeviceBytes( Device::Cuda( 0 ) ) );
 
         MemoryStats predicted;
         {

@@ -363,7 +363,7 @@ namespace Mila::Dnn
         {
             const auto& input_shape = context.inputShape();
             const dim_t elements = elementCount( input_shape );
-            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+            const std::size_t granularity = context.getAllocationGranularity();
 
             MemoryStats stats;
 

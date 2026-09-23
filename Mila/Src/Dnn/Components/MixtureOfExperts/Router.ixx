@@ -256,7 +256,7 @@ namespace Mila::Dnn
             stats += this->template getComponentAs<RmsNormType>( n + ".norm" )->getRequiredMemory( context );
             stats += this->template getComponentAs<LinearType>( n + ".proj" )->getRequiredMemory( context );
 
-            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+            const std::size_t granularity = context.getAllocationGranularity();
 
             // scale and per_expert_scale are two allocations.
             if ( !scale_ )

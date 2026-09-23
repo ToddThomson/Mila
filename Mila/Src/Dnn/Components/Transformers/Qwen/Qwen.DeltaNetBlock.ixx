@@ -562,7 +562,7 @@ namespace Mila::Dnn
             {
                 stats.device_state_bytes += 2 * occupiedDeviceBytes(
                     storageBytes<TPrecision>( contexts.batch * contexts.chunk * config_.getDeltaNetKeyWidth() ),
-                    allocationGranularity( this->getDeviceId() ) );
+                    context.getAllocationGranularity() );
             }
 
             return stats;

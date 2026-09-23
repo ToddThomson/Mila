@@ -369,7 +369,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const dim_t head_dim = config_.getHeadDim();
 
             return 2 * occupiedDeviceBytes( storageBytes<TPrecision>( batch * kv_heads * capacity * head_dim ),
-                allocationGranularity( context_->getDeviceId() ) );
+                context.getAllocationGranularity() );
         }
 
         std::size_t getScratchBytes() const override

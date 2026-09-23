@@ -397,7 +397,7 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
-            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+            const std::size_t granularity = context.getAllocationGranularity();
 
             // A weight already present is not reallocated -- allocateParameters() returns
             // early -- so it costs this build nothing.

@@ -728,7 +728,8 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
     {
         const BuildContext context =
             BuildContext( shape_t{ batch_, seq_, kModelDim }, RuntimeMode::Inference )
-            .withPrefillSize( seq_ );
+            .withPrefillSize( seq_ )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
 
         {
             ReferenceBlock predictor( "delta_block", smallConfig(), Device::Cuda( 0 ) );

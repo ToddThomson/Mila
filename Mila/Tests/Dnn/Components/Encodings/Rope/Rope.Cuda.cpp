@@ -378,7 +378,8 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
         const std::size_t expected = static_cast<std::size_t>( T * ( kHeadDim / 2 ) ) * sizeof( float ) * 2;
 
         typename TestFixture::RopeType rope( "rope", this->config(), Device::Cuda( 0 ) );
-        const BuildContext context( shape_t{ 1, T }, RuntimeMode::Inference, false );
+        const BuildContext context = BuildContext( shape_t{ 1, T }, RuntimeMode::Inference, false )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
 
         EXPECT_EQ( rope.getRequiredMemory( context ).device_state_bytes, expected );
 

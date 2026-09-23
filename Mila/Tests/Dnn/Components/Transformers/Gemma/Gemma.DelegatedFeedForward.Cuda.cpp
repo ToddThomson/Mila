@@ -295,7 +295,9 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
             MemoryStats delegated_predicted;
             {
                 DelegatedNetwork predictor( "gemma", delegationConfig(), Device::Cuda( 0 ) );
-                delegated_predicted = predictor.getRequiredMemory( inferenceContext() );
+                delegated_predicted = predictor.getRequiredMemory( inferenceContext()
+                    .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) )
+                    .withAvailableDeviceBytes( readFreeDeviceBytes( Device::Cuda( 0 ) ) ) );
             }
 
             MemoryStats delegated_built;

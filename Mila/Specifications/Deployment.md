@@ -296,6 +296,11 @@ continues, deciding again at execution. Recorded in `Mila/Issues/Vnext.md`.
 
 - **One reading per device, per plan.** A second reading anywhere below the planner reintroduces the
   disagreement this design exists to remove. Negative N1 (section 10) guards it.
+- **Read after the graph exists.** Constructing a graph creates its execution context, which holds
+  device memory, and the build reads free memory with that context alive. A reading taken before
+  construction sees more than any build will find. Measured in Phase 1: moving Gemma's reading ahead
+  of construction moved Chat's auto context on the RTX 4070 from 121856 to 122880, deterministically,
+  with Gate A and G3 both still passing -- only G2 saw it. The planner reads after it constructs.
 - **The display card.** Its free memory moves on its own. The plan is exact against its reading; the
   load can still fail if the desktop takes memory in between, and fails cleanly.
 - **Search cost.** Contexts x chunk rungs x device sets x split points. Construction allocates nothing
@@ -325,6 +330,25 @@ fail once. Bounds are written here before any run.
   that plan's values yields an identical plan: same values, footprints and feasibility.
 - **G5. Alternatives are real plans.** For a model that fits one card, each alternative loads and passes
   G1 on its own device set.
+  **Recorded 2026-09-23 at `0.21.0-dev+3`** (`x64-claude-verify`, Release, both GPUs visible, card chosen
+  with `--device`, `mila-chat -p --output-format json`, whose `context_measurement` carries these fields).
+  Free memory is the scan's own reading; the planner is given it after Phase 3 and must pick the same row.
+
+  | Model | Card (UUID) | Free bytes | Context | Chunk | Unconstrained chunk | Held back for a full chunk |
+  |---|---|---|---|---|---|---|
+  | gemma-4-12b-it-fp4 | 4070 `GPU-11770557` | 11645485056 | 121856 | 1024 | 1024 | yes |
+  | llama-3.1-8b-instruct-fp4 | 4070 `GPU-11770557` | 11645485056 | 13312 | 512 | 512 | yes |
+  | qwen3.8-27b-fp4 | 4070 `GPU-11770557` | -- | -- | -- | -- | -- |
+  | qwen3.8-27b-cb2-3 | 4070 `GPU-11770557` | 11645485056 | 3072 | 1024 | 1024 | yes |
+  | gemma-4-12b-it-fp4 | 5060 Ti `GPU-9a81c7d1` | 15908995072 | 131072 | 1024 | 1024 | no |
+  | llama-3.1-8b-instruct-fp4 | 5060 Ti `GPU-9a81c7d1` | 15908995072 | 33792 | 512 | 512 | yes |
+  | qwen3.8-27b-fp4 | 5060 Ti `GPU-9a81c7d1` | 15908995072 | 4096 | 1024 | 1024 | yes |
+  | qwen3.8-27b-cb2-3 | 5060 Ti `GPU-9a81c7d1` | 15908995072 | 64512 | 1024 | 1024 | yes |
+
+  Qwen FP4 on the 4070 has no plan: the scan found no fitting context, fell back to 4096, and Chat
+  attempted the load anyway and failed on allocation (exit 5, weights 13.20 GB against 10.85 GB). After
+  Phase 3 that row is a refusal naming `NoDeploymentWeightsExceedAllDevices`, not a failed load.
+
 - **Negatives.** N1: the transformer re-reads free memory during build — G1 fails on the display card
   when free memory is changed between plan and build. N2: rules 3 and 4 swapped — G2 fails. N3:
   granularity taken from the bound context — G3 fails. N4: a plan priced for Gemma 4 12B passed with
@@ -337,6 +361,10 @@ fail once. Bounds are written here before any run.
 
 **Phase 1 — pricing without a bound context.** Granularity through `BuildContext`; free-memory reads leave
 `getRequiredMemory`. No behaviour change. *Exit:* Gate A exact on every existing footprint test; G3.
+*Met at `0.21.0-dev+4`:* `BuildContext` carries granularity and free memory and a prediction without them
+throws; each model entry point takes one reading after construction. G3 is
+`GemmaRequiredMemoryCudaTests.PricesAtTheGranularityTheContextCarries`, forced to fail by N3 (one component
+reading its own device) while every Gate A case still passed. G2 re-run: all eight rows identical.
 
 **Phase 2 — the build executes a chunk it is given.** `BuildContext` carries the resolved chunk;
 `resolvePrefillChunkSize` leaves `onBuilding`; the rung walk moves to one planner-owned function reading one

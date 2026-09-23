@@ -137,7 +137,7 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         std::size_t getRequiredStateMemorySize( const BuildContext& build_context ) const override
         {
             return occupiedDeviceBytes( storageBytes<TensorDataType::FP32>( gatedElements( build_context ) ),
-                allocationGranularity( context_->getDeviceId() ) );
+                build_context.getAllocationGranularity() );
         }
 
         /**

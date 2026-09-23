@@ -47,6 +47,7 @@ import Dnn.GenerateParams;
 import Dnn.GenerateStatus;
 import Compute.Device;
 import Compute.DeviceId;
+import Compute.DeviceAllocation;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.DeviceTypeTraits.Cpu;
@@ -592,11 +593,6 @@ namespace Mila::Dnn
 
             const dim_t context_length = static_cast<dim_t>( model_config.getContextLength() );
 
-            BuildContext build_context(
-                shape_t{ 1, context_length },
-                RuntimeMode::Inference,
-                false );
-
             using ConcreteTransformerType = GemmaTransformer<TDeviceType, TPrecision,
                 TWeightQuantization, TKvCachePolicy, kMixtureOfExperts, kMixtureOfExperts>;
 
@@ -605,9 +601,18 @@ namespace Mila::Dnn
             auto network = std::make_unique<ConcreteTransformerType>(
                 metadata.model_name, network_config, device_id );
 
+            // The one reading of the device this prediction takes, shared by both answers so they
+            // cannot disagree. The graph reads nothing from it (Deployment.md section 4). Taken
+            // after construction, as the build takes its own: the execution context construction
+            // creates holds device memory, and a reading before it names a chunk no build can get.
+            const BuildContext build_context =
+                BuildContext( shape_t{ 1, context_length }, RuntimeMode::Inference, false )
+                .withAllocationGranularity( allocationGranularity( device_id ) )
+                .withAvailableDeviceBytes( readFreeDeviceBytes( device_id ) );
+
             return DeploymentFootprint{
                 network->getRequiredMemory( build_context ),
-                network->prefillChunking( 1, context_length ) };
+                network->prefillChunking( build_context ) };
         }
 
         // Architecture config (from checkpoint metadata): the trained network geometry.

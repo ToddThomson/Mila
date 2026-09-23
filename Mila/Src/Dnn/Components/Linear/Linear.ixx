@@ -873,7 +873,7 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
-            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+            const std::size_t granularity = context.getAllocationGranularity();
             const dim_t input_features = config_.getInputFeatures();
             const dim_t output_features = config_.getOutputFeatures();
 
@@ -884,11 +884,11 @@ namespace Mila::Dnn
             // from the model total instead of being counted a single time.
             if ( weight_installed_ && weight_ )
             {
-                stats.device_parameter_bytes += occupiedTensorBytes( *weight_ );
+                stats.device_parameter_bytes += occupiedDeviceBytes( weight_->getStorageSize(), granularity );
 
                 if ( weight_scales_ )
                 {
-                    stats.device_parameter_bytes += occupiedTensorBytes( *weight_scales_ );
+                    stats.device_parameter_bytes += occupiedDeviceBytes( weight_scales_->getStorageSize(), granularity );
                 }
             }
             else

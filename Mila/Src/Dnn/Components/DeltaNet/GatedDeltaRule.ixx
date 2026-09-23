@@ -387,7 +387,7 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
-            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+            const std::size_t granularity = context.getAllocationGranularity();
 
             if ( !A_log_ )
             {

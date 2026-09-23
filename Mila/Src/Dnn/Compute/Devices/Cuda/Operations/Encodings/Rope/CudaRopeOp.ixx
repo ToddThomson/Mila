@@ -383,7 +383,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         {
             // cos and sin caches, two allocations
             return 2 * occupiedDeviceBytes(
-                tableBytes( build_context.inputShape()[ 1 ] ), allocationGranularity( context_->getDeviceId() ) );
+                tableBytes( build_context.inputShape()[ 1 ] ), build_context.getAllocationGranularity() );
         }
 
         std::size_t getStateMemorySize() const override

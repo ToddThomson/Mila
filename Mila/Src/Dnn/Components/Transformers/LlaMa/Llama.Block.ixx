@@ -545,7 +545,7 @@ namespace Mila::Dnn
             // Prefill-only scratch. Llama does not pool activations across layers the way
             // Gemma does, so every block owns these outright -- which is part of why the
             // Llama footprint sits higher per layer.
-            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+            const std::size_t granularity = context.getAllocationGranularity();
 
             if ( context.isInferenceMode() )
             {

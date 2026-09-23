@@ -279,7 +279,7 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
-            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+            const std::size_t granularity = context.getAllocationGranularity();
 
             // An installed shared output slot is owned and counted by the installer.
             if ( !output_installed_ && !context.hasInstalledOutput() )

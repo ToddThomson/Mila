@@ -511,7 +511,7 @@ namespace Mila::Dnn
             // Split scratch. An installed workspace is owned and counted by the transformer.
             if ( !pooled )
             {
-                const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+                const std::size_t granularity = context.getAllocationGranularity();
                 const std::size_t kv_bytes = occupiedDeviceBytes( storageBytes<TPrecision>( contexts.splitKvElements() ), granularity );
 
                 stats.device_state_bytes += occupiedDeviceBytes( storageBytes<TPrecision>( contexts.splitQElements() ), granularity );

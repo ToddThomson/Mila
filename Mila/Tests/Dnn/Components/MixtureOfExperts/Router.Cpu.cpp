@@ -346,7 +346,8 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
 
     TEST_F( RouterCpuTests, GetRequiredMemory_MatchesBuiltFootprint )
     {
-        const BuildContext context( shape_t{ 3, kHidden }, RuntimeMode::Inference, false );
+        const BuildContext context = BuildContext( shape_t{ 3, kHidden }, RuntimeMode::Inference, false )
+            .withAllocationGranularity( allocationGranularity( Device::Cpu() ) );
 
         RouterCpu predictor( "router", smallConfig(), Device::Cpu() );
         const MemoryStats predicted = predictor.getRequiredMemory( context );

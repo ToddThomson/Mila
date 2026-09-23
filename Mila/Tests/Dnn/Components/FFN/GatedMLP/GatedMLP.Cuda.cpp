@@ -209,7 +209,8 @@ namespace Mila::Tests::Dnn::Components::FFN::GatedMLP
 
         typename TestFixture::GatedMLPType predictor(
             "gmlp", GatedMLPConfig( kInFeatures, kHiddenSize ), Device::Cuda( 0 ) );
-        const MemoryStats predicted = predictor.getRequiredMemory( BuildContext( shape, RuntimeMode::Training ) );
+        const MemoryStats predicted = predictor.getRequiredMemory( BuildContext( shape, RuntimeMode::Training )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) ) );
 
         auto built = this->built( shape );
         const MemoryStats actual = built->getMemoryStats();
@@ -296,7 +297,8 @@ namespace Mila::Tests::Dnn::Components::FFN::GatedMLP
         constexpr int64_t batch = 2;
         constexpr int64_t tokens = 3;
         const shape_t shape{ batch, tokens, kInFeatures };
-        const BuildContext context = BuildContext( shape, RuntimeMode::Inference ).withPrefillSize( tokens );
+        const BuildContext context = BuildContext( shape, RuntimeMode::Inference ).withPrefillSize( tokens )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
 
         GatedMLPType unpooled_predictor( "gmlp", GatedMLPConfig( kInFeatures, kHiddenSize ), Device::Cuda( 0 ) );
         const MemoryStats unpooled = unpooled_predictor.getRequiredMemory( context );

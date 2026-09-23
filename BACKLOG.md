@@ -92,19 +92,6 @@ validated flows pass regardless, so that is a symptom of this gap rather than se
 
 ### Deployment Planning
 
-#### Pricing a deployment reads the device the model is already bound to
-
-`open` · `models` · `mila-src`
-
-Every report and prediction site takes allocation granularity from
-`allocationGranularity( this->getDeviceId() )` (about 30 files, for example `Rope.ixx:284`,
-`MixtureOfExperts.ixx:302`), and each transformer's `getRequiredMemory` reads free device memory
-itself. So a deployment can only be priced on the device a graph is already bound to, and never for
-a second candidate device or for hardware that is not present.
-
-`Deployment.md` Phase 1: granularity arrives in `BuildContext`; free memory is never read below the
-planner. No behaviour change. Exit: Gate A exact on every existing footprint test, and G3.
-
 #### The prefill chunk is predicted from one reading of free memory and built from another
 
 `open` · `models` · `mila-src`
@@ -357,7 +344,8 @@ duplicate and should be deleted rather than worked.
 `QwenModel.Load.Cuda.cpp:205` calls `model->generate(...)` for its side effects inside a lambda,
 producing C4834. The status is the only channel reporting why generation stopped, so a test that
 ignores it cannot tell a completed run from an aborted one — and the other call sites in the same
-file (`:168`, `:523`, `:813`) already bind it.
+file (`:168`, `:523`, `:813`) already bind it. The build at `+3` reports three more sites of the same
+warning: `QwenModel.Load.Cuda.cpp:1051`, `:1259` and `Tests/Common/GenerationRates.h:67`.
 
 Assert it instead of casting it away. Also one entry on the warnings-as-errors ratchet's bill.
 

@@ -495,7 +495,8 @@ namespace Mila::Tests::Dnn::Components::Linear
                 config.withBias( has_bias );
 
                 const shape_t shape{ 2, kInFeatures };
-                const BuildContext context( shape, mode, false );
+                const BuildContext context = BuildContext( shape, mode, false )
+                    .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
 
                 typename TestFixture::LinearType predictor( "linear", config, Device::Cuda( 0 ) );
                 const MemoryStats predicted = predictor.getRequiredMemory( context );
@@ -526,7 +527,8 @@ namespace Mila::Tests::Dnn::Components::Linear
         config.withBias( false );
 
         const shape_t shape{ 2, kInFeatures };
-        const BuildContext context( shape, RuntimeMode::Inference, false );
+        const BuildContext context = BuildContext( shape, RuntimeMode::Inference, false )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
 
         auto shared_weight = std::make_shared<typename TestFixture::DeviceTensor>(
             Device::Cuda( 0 ), shape_t{ kOutFeatures, kInFeatures }, "shared.weight" );

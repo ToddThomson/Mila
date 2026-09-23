@@ -93,6 +93,19 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         }
 
         /**
+         * @brief A context priced on the device these tests build on, read now.
+         *
+         * The build reads free memory itself, so the prediction takes its reading as close to
+         * that as the test allows -- the same two readings these tests always compared.
+         */
+        static BuildContext pricedOnDevice( const BuildContext& context )
+        {
+            return context
+                .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) )
+                .withAvailableDeviceBytes( readFreeDeviceBytes( Device::Cuda( 0 ) ) );
+        }
+
+        /**
          * @brief Footprint of a network built alone, then destroyed.
          *
          * Comparing two footprints requires this: the RoPE cos/sin cache is process-wide and
@@ -553,7 +566,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
 
     TEST_F( QwenTransformerCudaTests, GetRequiredMemory_MatchesBuiltFootprint )
     {
-        const BuildContext context( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
+        const BuildContext context = pricedOnDevice( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference ) );
 
         QwenCuda predictor( "qwen", allAttentionConfig(), Device::Cuda( 0 ) );
         const MemoryStats predicted = predictor.getRequiredMemory( context );
@@ -580,7 +593,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
      */
     TEST_F( QwenTransformerCudaTests, GetRequiredMemory_MatchesBuiltFootprint_HybridInterleave )
     {
-        const BuildContext context( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
+        const BuildContext context = pricedOnDevice( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference ) );
 
         QwenCuda predictor( "qwen", hybridConfig(), Device::Cuda( 0 ) );
         const MemoryStats predicted = predictor.getRequiredMemory( context );
@@ -599,7 +612,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
     // deduplication from an off-by-one.
     TEST_F( QwenTransformerCudaTests, GetRequiredMemory_PinsRopeCacheDeduplication )
     {
-        const BuildContext context( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
+        const BuildContext context = pricedOnDevice( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference ) );
 
         QwenCuda predictor( "qwen", allAttentionConfig( 8 ), Device::Cuda( 0 ) );
         const MemoryStats predicted = predictor.getRequiredMemory( context );
@@ -625,7 +638,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
      */
     TEST_F( QwenTransformerCudaTests, GetRequiredMemory_MatchesBuiltFootprint_WidenedLanguageModelHead )
     {
-        const BuildContext context( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
+        const BuildContext context = pricedOnDevice( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference ) );
 
         const QwenConfig widened = allAttentionConfig().withLanguageModelHeadPositions( seq_ );
 
@@ -653,7 +666,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
      */
     TEST_F( QwenTransformerCudaTests, LanguageModelHeadPositions_ClampToWhatAPrefillPassSupplies )
     {
-        const BuildContext context( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
+        const BuildContext context = pricedOnDevice( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference ) );
 
         const QwenConfig at_bound = allAttentionConfig().withLanguageModelHeadPositions( seq_ );
         const QwenConfig above_bound = allAttentionConfig().withLanguageModelHeadPositions( seq_ + 100 );

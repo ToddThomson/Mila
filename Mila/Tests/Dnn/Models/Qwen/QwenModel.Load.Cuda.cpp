@@ -947,7 +947,8 @@ namespace Mila::Tests::Dnn::Models
             {
                 layer_predicted = layer->getRequiredMemory(
                     BuildContext( shape_t{ 1, 512, network_config.getModelDim() },
-                        RuntimeMode::Inference, false ) );
+                        RuntimeMode::Inference, false )
+                    .withAllocationGranularity( allocationGranularity( layer->getDeviceId() ) ) );
             }
             catch ( const std::exception& e )
             {

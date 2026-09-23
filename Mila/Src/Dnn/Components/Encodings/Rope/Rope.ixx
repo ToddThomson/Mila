@@ -281,7 +281,7 @@ namespace Mila::Dnn
             if ( context.isTrainingMode() )
             {
                 const auto [q_shape, k_shape] = resolveRotatedShapes( context );
-                const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+                const std::size_t granularity = context.getAllocationGranularity();
 
                 stats.device_gradient_bytes +=
                     occupiedDeviceBytes( storageBytes<TPrecision>( elementCount( q_shape ) ), granularity );

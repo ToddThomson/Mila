@@ -252,7 +252,7 @@ namespace Mila::Dnn
             {
                 stats.device_state_bytes += occupiedDeviceBytes(
                     storageBytes<TPrecision>( elementCount( context.inputShape() ) ),
-                    allocationGranularity( this->getDeviceId() ) );
+                    context.getAllocationGranularity() );
             }
 
             if ( operation_ )

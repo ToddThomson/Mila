@@ -315,7 +315,8 @@ namespace Mila::Tests::Dnn::Components::Normalization::RmsNorm
 
     TEST_F( RmsNormCpuTests, GetRequiredMemory_MatchesBuiltFootprint )
     {
-        const BuildContext context( shape_t{ 2, 3, kChannels }, RuntimeMode::Training, false );
+        const BuildContext context = BuildContext( shape_t{ 2, 3, kChannels }, RuntimeMode::Training, false )
+            .withAllocationGranularity( allocationGranularity( Device::Cpu() ) );
 
         RmsNormCpu predictor( "rmsnorm", config( true ), Device::Cpu() );
         const MemoryStats predicted = predictor.getRequiredMemory( context );

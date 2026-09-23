@@ -735,7 +735,16 @@ static std::optional<std::filesystem::path> resolveSystemPrompt(
  * is then merged in rank sequence. The layers are captured before either pass, so both see the
  * same bytes.
  */
-static ChatConfig buildConfig( const CommandLine& line )
+struct StartupConfig
+{
+    ChatConfig config;
+
+    /// The automatic-context scan startup ran, handed to the session so /context and the one-shot
+    /// JSON report the scan that chose the number rather than only the number.
+    std::optional<ResolvedContext> measured_context;
+};
+
+static StartupConfig buildConfig( const CommandLine& line )
 {
     std::vector<SettingsPatch> overrides;
 
@@ -892,7 +901,8 @@ static ChatConfig buildConfig( const CommandLine& line )
 
     settings.applyAll( overrides );
 
-    ChatConfig config;
+    StartupConfig startup;
+    ChatConfig& config = startup.config;
     config.no_model_reason = no_model_reason;
 
     if ( resolved )
@@ -915,6 +925,11 @@ static ChatConfig buildConfig( const CommandLine& line )
         config.tokenizer_path    = resolved->tokenizer;
     }
 
+    // Read before the context below, which is measured on this device: read after it, "auto"
+    // measured CUDA device 0 whatever --device named.
+    if ( const auto device = readInteger( settings, "device" ) )
+        config.device_index = *device;
+
     // The one value resolved after the merge rather than by it, because the device is not a layer:
     // what fits the card is a value a key can TAKE, not a silent override that outranks what the
     // user asked for. A user who writes 8192 gets 8192; a user who writes nothing gets "auto" from
@@ -932,10 +947,12 @@ static ChatConfig buildConfig( const CommandLine& line )
         {
             const ResolvedContext measured = resolveAutomaticContext(
                 config.model_path, config.model_type, config.precision,
-                config.quantization_mode, traits.max_context, traits.default_context );
+                config.quantization_mode, traits.max_context, traits.default_context,
+                config.device_index );
 
             config.context_length = measured.context_length;
             config.context_is_automatic = true;
+            startup.measured_context = measured;
         }
         else if ( request.automatic )
         {
@@ -1012,9 +1029,6 @@ static ChatConfig buildConfig( const CommandLine& line )
     if ( const auto top_p = readNumber( settings, "top_p" ) )
         config.top_p = *top_p;
 
-    if ( const auto device = readInteger( settings, "device" ) )
-        config.device_index = *device;
-
     if ( const std::string prompt_path = readString( settings, "system_prompt_path" );
          !prompt_path.empty() )
     {
@@ -1025,7 +1039,7 @@ static ChatConfig buildConfig( const CommandLine& line )
             settings.describeOrigin( "system_prompt_path" ) );
     }
 
-    return config;
+    return startup;
 }
 
 int main( int argc, char* argv[] )
@@ -1091,7 +1105,8 @@ int main( int argc, char* argv[] )
 
     try
     {
-        ChatConfig config = buildConfig( line );
+        StartupConfig startup = buildConfig( line );
+        ChatConfig& config = startup.config;
 
         if ( config.detail == DetailLevel::All )
             Mila::Logging::Logger::defaultLogger().setLevel( Mila::Logging::LogLevel::Info );
@@ -1117,7 +1132,7 @@ int main( int argc, char* argv[] )
             }
         }
 
-        Chat chat( std::move( config ) );
+        Chat chat( std::move( config ), std::move( startup.measured_context ) );
 
         // Probe stub for the Gemma 4 native tool-call format experiment
         // (GemmaChatProtocol.md): returns a canned reading, no real lookup.

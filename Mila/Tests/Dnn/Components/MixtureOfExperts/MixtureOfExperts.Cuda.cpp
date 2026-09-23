@@ -621,7 +621,8 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
 
     TEST_F( MixtureOfExpertsCudaTests, Bf16_GetRequiredMemory_MatchesBuiltFootprint )
     {
-        const BuildContext context( shape_t{ 3, kHidden }, RuntimeMode::Inference, false );
+        const BuildContext context = BuildContext( shape_t{ 3, kHidden }, RuntimeMode::Inference, false )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
 
         Mila::Dnn::MixtureOfExperts<DeviceType::Cuda, TensorDataType::BF16, ActivationType::Gelu> predictor(
             "experts", MixtureOfExpertsConfig( kHidden, kIntermediate, kExperts, kTopK ), Device::Cuda( 0 ) );
@@ -733,7 +734,8 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
 
     TEST_F( MixtureOfExpertsCudaTests, Fp4_GetRequiredMemory_MatchesBuiltFootprint )
     {
-        const BuildContext context( shape_t{ 3, kFp4Hidden }, RuntimeMode::Inference, false );
+        const BuildContext context = BuildContext( shape_t{ 3, kFp4Hidden }, RuntimeMode::Inference, false )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
         const MixtureOfExpertsConfig config( kFp4Hidden, kFp4Intermediate, kFp4Experts, kFp4TopK );
 
         CudaExperts<TensorDataType::BF16, Fp4Group64> predictor( "experts", config, Device::Cuda( 0 ) );

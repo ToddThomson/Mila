@@ -27,3 +27,21 @@ Nothing reconciles the site source in the repository against what is actually de
 workflow's own verification step reads one file (`build/site/api/index.html`) out of the tree it
 assembles.
 
+## The scratch reservation test measures growth on the card that drives the display
+
+`Mila/Tests/Dnn/Models/ScratchReservation.Cuda.cpp:150` @ `1f823df4`
+
+`ScratchReservationCudaTests.Gemma4_12B_Fp4_Context8192` bounds device memory growth during
+generation at 64 MiB, measured on the current CUDA device -- ordinal 0, the RTX 4070 that drives
+the display, shared with 18 desktop processes. Same binary, three runs on 2026-09-23: 2.0, 1.9 and
+116.6 MiB; a full-suite run earlier the same day read 375.3 MiB. Scratch predicted and reported were
+identical in every run. The file's own note (`:40`) records noise reaching 47.6 MiB.
+
+## A skipped test sends the reader to a backlog entry that no longer exists
+
+`Mila/Tests/Dnn/Components/FFN/Swiglu/Swiglu.Cuda.cpp:358` @ `1f823df4`
+
+`SwigluCudaTests/Bf16.Backward_MatchesReferenceGradients` skips with "BF16 SwiGLU backward
+grad-dtype mismatch (FP32 kernel grads vs BF16 tensors) -- see BACKLOG". `BACKLOG.md` at `+3` has
+no SwiGLU entry, so the skip's only record of why it exists points at nothing.
+

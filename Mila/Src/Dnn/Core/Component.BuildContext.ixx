@@ -47,6 +47,13 @@ namespace Mila::Dnn
      *                                   run then discard parameter initialization by
      *                                   omitting the flag.
      *
+     * 5. **Device facts**            -- the allocation granularity and free memory a
+     *                                   prediction prices against. getRequiredMemory()
+     *                                   reads them from here and never from the device
+     *                                   the component is bound to, so one graph prices
+     *                                   any device (Deployment.md section 4). build()
+     *                                   does not need them.
+     *
      * ## Caller responsibility
      *
      * The Network or Transformer constructing BuildContext is responsible
@@ -158,6 +165,103 @@ namespace Mila::Dnn
             copy.prefill_size_ = prefill_size;
 
             return copy;
+        }
+
+        /**
+         * @brief A context for a child component with a different input shape.
+         *
+         * Carries the runtime mode, parameter initialization and the device facts (allocation
+         * granularity, available memory), and none of the per-component declarations -- prefill
+         * size, installed output, fused decode -- which the composite states for each child itself.
+         * withShape() is the call that keeps those.
+         */
+        [[nodiscard]] BuildContext forChild( shape_t input_shape ) const
+        {
+            BuildContext child( std::move( input_shape ), runtime_mode_, initialize_parameters_ );
+            child.allocation_granularity_ = allocation_granularity_;
+            child.available_device_bytes_ = available_device_bytes_;
+
+            return child;
+        }
+
+        // ====================================================================
+        // Device facts
+        // ====================================================================
+
+        /**
+         * @brief Return a copy of this context priced at a device's allocation granularity.
+         *
+         * A prediction rounds each allocation over 1 MiB up to this (MemoryFootprint.md 11.8) and
+         * never asks the device it is bound to, so one graph can be priced for any device. Zero
+         * rounds nothing, which is right for the CPU.
+         */
+        [[nodiscard]] BuildContext withAllocationGranularity( std::size_t granularity ) const
+        {
+            BuildContext copy( *this );
+            copy.allocation_granularity_ = granularity;
+
+            return copy;
+        }
+
+        bool hasAllocationGranularity() const noexcept
+        {
+            return allocation_granularity_.has_value();
+        }
+
+        /**
+         * @brief The allocation granularity a prediction rounds to.
+         *
+         * @throws std::logic_error when none was given. A missing granularity is a programming
+         *         error rather than zero: zero is a real answer (no rounding), and taking it by
+         *         default under-predicts every CUDA allocation over 1 MiB.
+         */
+        std::size_t getAllocationGranularity() const
+        {
+            if ( !allocation_granularity_ )
+            {
+                throw std::logic_error(
+                    "BuildContext: a prediction needs the allocation granularity of the device it prices; "
+                    "call withAllocationGranularity()" );
+            }
+
+            return *allocation_granularity_;
+        }
+
+        /**
+         * @brief Return a copy of this context priced against a reading of free device memory.
+         *
+         * What a transformer picks its prefill chunk against. Zero means the device could not say,
+         * which takes the largest chunk the context permits.
+         */
+        [[nodiscard]] BuildContext withAvailableDeviceBytes( std::size_t available_bytes ) const
+        {
+            BuildContext copy( *this );
+            copy.available_device_bytes_ = available_bytes;
+
+            return copy;
+        }
+
+        bool hasAvailableDeviceBytes() const noexcept
+        {
+            return available_device_bytes_.has_value();
+        }
+
+        /**
+         * @brief The free device memory a prediction picks its prefill chunk against.
+         *
+         * @throws std::logic_error when none was given, for the reason getAllocationGranularity()
+         *         does: zero already means "the device could not say".
+         */
+        std::size_t getAvailableDeviceBytes() const
+        {
+            if ( !available_device_bytes_ )
+            {
+                throw std::logic_error(
+                    "BuildContext: a prediction that chooses a prefill chunk needs a reading of free device "
+                    "memory; call withAvailableDeviceBytes()" );
+            }
+
+            return *available_device_bytes_;
         }
 
         // ====================================================================
@@ -275,5 +379,7 @@ namespace Mila::Dnn
         bool                     initialize_parameters_{ true };
         bool                     installed_output_{ false };
         bool                     fused_decode_{ false };
+        std::optional<std::size_t> allocation_granularity_;
+        std::optional<std::size_t> available_device_bytes_;
     };
 }

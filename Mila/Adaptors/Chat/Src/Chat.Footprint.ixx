@@ -184,6 +184,11 @@ namespace Mila::ChatApp
         /// also how a caller tells a measured answer from a fallback.
         std::size_t device_total_bytes{ 0 };
 
+        /// The free memory the scan budgeted against, zero alongside device_total_bytes. The one
+        /// input that makes the choice reproducible: the same model on the same card picks a
+        /// different context when the desktop holds more of it.
+        std::size_t device_free_bytes{ 0 };
+
         /// Why auto could not measure, from the predictor. Empty when it did.
         std::string fallback_reason;
 
@@ -514,6 +519,7 @@ namespace Mila::ChatApp
             {
                 resolved.context_length = candidate;
                 resolved.device_total_bytes = memory.total_bytes;
+                resolved.device_free_bytes = budget;
                 resolved.prefill = prediction.prefill;
                 resolved.bounded_by_prefill = candidate < largest_fitting;
 
@@ -528,6 +534,7 @@ namespace Mila::ChatApp
         {
             resolved.context_length = largest_fitting;
             resolved.device_total_bytes = memory.total_bytes;
+            resolved.device_free_bytes = budget;
             resolved.prefill = largest_fitting_prefill;
 
             return resolved;

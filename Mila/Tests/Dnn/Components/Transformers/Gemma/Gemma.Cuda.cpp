@@ -186,7 +186,10 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     protected:
         void expectPredictionMatchesBuild( const GemmaConfig& config, const char* label )
         {
-            const BuildContext context( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
+            // The build reads free memory itself, so the prediction takes its reading just before.
+            const BuildContext context = BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference )
+                .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) )
+                .withAvailableDeviceBytes( readFreeDeviceBytes( Device::Cuda( 0 ) ) );
 
             GemmaCuda predictor( "gemma", config, Device::Cuda( 0 ) );
             const MemoryStats predicted = predictor.getRequiredMemory( context );
@@ -232,6 +235,73 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     {
         expectPredictionMatchesBuild(
             allLocalConfig().withTieWordEmbeddings( true ), "tied" );
+    }
+
+    // Deployment.md G3: pricing reads nothing from the device the graph is bound to. One graph,
+    // three granularities, three predictions -- each exactly what that granularity's rounding
+    // makes of the allocations the build would make. At a vocabulary of 20480 the embedding
+    // table and the untied head are 5 MiB each and are the only allocations over 1 MiB, so every
+    // difference between the three lives in those two tables.
+    TEST_F( GemmaRequiredMemoryCudaTests, PricesAtTheGranularityTheContextCarries )
+    {
+        constexpr std::size_t kMiB = std::size_t{ 1024 } * 1024;
+        constexpr std::size_t kTableBytes = 5 * kMiB;
+
+        GemmaConfig config = heterogeneousConfig();
+        config.withVocabularyLength( 20480 );
+
+        const std::size_t native = allocationGranularity( Device::Cuda( 0 ) );
+        const BuildContext unpriced( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
+        const std::size_t free_bytes = readFreeDeviceBytes( Device::Cuda( 0 ) );
+
+        auto priced = [&]( std::size_t granularity )
+        {
+            GemmaCuda predictor( "gemma", config, Device::Cuda( 0 ) );
+
+            return predictor.getRequiredMemory( unpriced
+                .withAllocationGranularity( granularity )
+                .withAvailableDeviceBytes( free_bytes ) );
+        };
+
+        const MemoryStats at_zero = priced( 0 );
+        const MemoryStats at_native = priced( native );
+        const MemoryStats at_four = priced( 4 * kMiB );
+
+        // At the device's own granularity it is the build, category by category.
+        {
+            GemmaCuda built( "gemma", config, Device::Cuda( 0 ) );
+            built.build( unpriced );
+
+            EXPECT_EQ( at_native.device_parameter_bytes, built.getMemoryStats().device_parameter_bytes );
+            EXPECT_EQ( at_native.device_state_bytes, built.getMemoryStats().device_state_bytes );
+        }
+
+        auto rounding = [&]( std::size_t granularity )
+        {
+            return 2 * ( occupiedDeviceBytes( kTableBytes, granularity ) - kTableBytes );
+        };
+
+        ASSERT_NE( occupiedDeviceBytes( kTableBytes, native ), occupiedDeviceBytes( kTableBytes, 4 * kMiB ) )
+            << "the geometry must round differently at the two granularities or the test proves nothing";
+
+        EXPECT_EQ( at_native.device_parameter_bytes - at_zero.device_parameter_bytes, rounding( native ) );
+        EXPECT_EQ( at_four.device_parameter_bytes - at_zero.device_parameter_bytes, rounding( 4 * kMiB ) );
+
+        // Nothing else is over 1 MiB, so nothing else may move.
+        EXPECT_EQ( at_zero.device_state_bytes, at_native.device_state_bytes );
+        EXPECT_EQ( at_four.device_state_bytes, at_native.device_state_bytes );
+    }
+
+    // A prediction without a granularity is refused rather than priced at zero, which would
+    // under-predict every CUDA allocation over 1 MiB without saying so.
+    TEST_F( GemmaRequiredMemoryCudaTests, RefusesAContextWithoutAGranularity )
+    {
+        GemmaCuda predictor( "gemma", allLocalConfig(), Device::Cuda( 0 ) );
+
+        EXPECT_THROW(
+            predictor.getRequiredMemory( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference )
+                .withAvailableDeviceBytes( readFreeDeviceBytes( Device::Cuda( 0 ) ) ) ),
+            std::logic_error );
     }
 
     // The premise the model-level report rests on, asserted at model scale: a constructed

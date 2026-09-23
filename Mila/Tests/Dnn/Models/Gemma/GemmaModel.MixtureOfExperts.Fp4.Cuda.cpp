@@ -121,7 +121,8 @@ namespace Mila::Tests::Dnn::Models
         {
             ExpertBankType bank( "probe.experts", MixtureOfExpertsConfig( 2816, 704, 128, 8 ), device );
             const MemoryStats layer = bank.getRequiredMemory(
-                BuildContext( shape_t{ 1, 1, 2816 }, RuntimeMode::Inference, false ) );
+                BuildContext( shape_t{ 1, 1, 2816 }, RuntimeMode::Inference, false )
+                    .withAllocationGranularity( allocationGranularity( device ) ) );
 
             std::cout << std::format( "[fp4] one bank  parameters {} bytes  inactive {} bytes  (layout {} / {})\n",
                 layer.device_parameter_bytes, layer.device_inactive_parameter_bytes, kLayerBankBytes, kLayerInactiveBytes )

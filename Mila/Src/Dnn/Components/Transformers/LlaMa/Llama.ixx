@@ -333,21 +333,19 @@ namespace Mila::Dnn
             validateBuildContext( context );
 
             return requiredMemoryAtChunk(
-                context, prefillChunkingFor( context, readFreeDeviceBytes( this->getDeviceId() ) ).chunk_rows );
+                context, prefillChunkingFor( context, context.getAvailableDeviceBytes() ).chunk_rows );
         }
 
         /**
-         * @brief The prefill chunk this context length would use, and the largest the context permits.
+         * @brief The prefill chunk this context would use, and the largest the context permits.
          *
-         * The largest rung whose whole predicted footprint fits the device's free memory, read now.
-         * Allocates nothing, so a caller may ask before the network is built; two calls made at
-         * different moments can disagree. See Specifications/MemoryFootprint.md section 11.
+         * The largest rung whose whole predicted footprint fits the free memory the context
+         * carries. Allocates nothing, so a caller may ask before the network is built, and given
+         * the same context it agrees with getRequiredMemory(). See MemoryFootprint.md section 11.
          */
-        PrefillChunking prefillChunking( int64_t B, int64_t T_ctx ) const
+        PrefillChunking prefillChunking( const BuildContext& context ) const
         {
-            const BuildContext context( shape_t{ B, T_ctx }, RuntimeMode::Inference, false );
-
-            return prefillChunkingFor( context, readFreeDeviceBytes( this->getDeviceId() ) );
+            return prefillChunkingFor( context, context.getAvailableDeviceBytes() );
         }
 
     private:
@@ -362,19 +360,17 @@ namespace Mila::Dnn
             const dim_t T = input_shape[ 1 ];
             const dim_t NH = config_.getNumHeads();
             const dim_t HS = config_.getModelDim() / NH;
-            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+            const std::size_t granularity = context.getAllocationGranularity();
 
             BuildContext block_context =
-                BuildContext( shape_t{ B, T, config_.getModelDim() },
-                    context.getRuntimeMode(), context.shouldInitializeParameters() )
+                context.forChild( shape_t{ B, T, config_.getModelDim() } )
                 .withPrefillSize( prefill_chunk );
 
             const shape_t final_shape = context.isInferenceMode()
                 ? shape_t{ B, 1, config_.getModelDim() }
                 : shape_t{ B, T, config_.getModelDim() };
 
-            BuildContext final_context(
-                final_shape, context.getRuntimeMode(), context.shouldInitializeParameters() );
+            const BuildContext final_context = context.forChild( final_shape );
 
             const std::string n = this->getName();
 
@@ -455,9 +451,17 @@ namespace Mila::Dnn
         }
 
         // The build-time reading of the rule: the chunk a prediction reports, plus the warning.
-        int64_t resolvePrefillChunkSize( const BuildContext& context ) const
+        //
+        // The build is on this device, so unlike a prediction it prices against the device itself:
+        // its granularity when the caller gave none, and free memory read now. Deployment.md Phase 2
+        // replaces this with the chunk the plan resolved.
+        int64_t resolvePrefillChunkSize( const BuildContext& build_context ) const
         {
             const std::size_t free_bytes = readFreeDeviceBytes( this->getDeviceId() );
+            const BuildContext context = ( build_context.hasAllocationGranularity()
+                ? build_context
+                : build_context.withAllocationGranularity( allocationGranularity( this->getDeviceId() ) ) )
+                .withAvailableDeviceBytes( free_bytes );
             const PrefillChunking chunking = prefillChunkingFor( context, free_bytes );
 
             if ( !chunking.fits_available_memory )

@@ -932,7 +932,8 @@ namespace Mila::Tests::Dnn::Components::Embeddings
         EXPECT_EQ( built.device_parameter_bytes, 0u );
 
         const auto predicted = host_resident.getRequiredMemory(
-            BuildContext( token_shape, RuntimeMode::Inference, false ) );
+            BuildContext( token_shape, RuntimeMode::Inference, false )
+                .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) ) );
 
         EXPECT_EQ( predicted.host_parameter_bytes, table_bytes );
         EXPECT_EQ( predicted.device_parameter_bytes, 0u );

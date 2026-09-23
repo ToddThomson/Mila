@@ -326,7 +326,8 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
 
     TEST_F( MixtureOfExpertsCpuTests, GetRequiredMemory_MatchesBuiltFootprint )
     {
-        const BuildContext context( shape_t{ 3, kHidden }, RuntimeMode::Inference, false );
+        const BuildContext context = BuildContext( shape_t{ 3, kHidden }, RuntimeMode::Inference, false )
+            .withAllocationGranularity( allocationGranularity( Device::Cpu() ) );
 
         ExpertsCpu predictor( "experts", smallConfig(), Device::Cpu() );
         const MemoryStats predicted = predictor.getRequiredMemory( context );

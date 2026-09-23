@@ -573,7 +573,7 @@ namespace Mila::Dnn
 
             MemoryStats stats;
 
-            const std::size_t granularity = allocationGranularity( this->getDeviceId() );
+            const std::size_t granularity = context.getAllocationGranularity();
 
             // The whole point of host residency is that this number is not on the card,
             // so a footprint prediction that counted it under device bytes would report

@@ -332,8 +332,14 @@ before recursing, or every block's activation buffers are sized against a defaul
 Because it resolves it anyway, the chunk is a value the prediction already holds.
 `getDeploymentFootprint` returns it beside the memory answer; `getRequiredMemory` forwards
 to that and keeps its own signature. Every family exposes the resolution as
-`prefillChunking(B, T_ctx)`, where its rung table lives once. A caller choosing a context
+`prefillChunking( context )`, where its rung table lives once. A caller choosing a context
 length needs it: see ChatConfiguration.md section 6.
+
+Since `0.21.0-dev+4` (`Deployment.md` Phase 1) the context carries the two device facts the
+prediction used to read from the bound device -- allocation granularity and free memory -- and a
+prediction given a context without them throws rather than assuming zero. The model entry points
+take one reading and hand it to both `getRequiredMemory` and `prefillChunking`, so the two answers
+cannot straddle a change in free memory. The build still reads its own device until Phase 2.
 
 **Draft, section 11:** the resolution stops being a function of (B, T_ctx) alone. It also
 takes the available device memory, and it walks the rungs by asking this same prediction

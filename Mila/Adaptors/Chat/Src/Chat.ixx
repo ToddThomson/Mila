@@ -90,8 +90,13 @@ namespace Mila::ChatApp
          * @param config Session configuration.
          * @throws std::runtime_error on system prompt load failure.
          */
-        explicit Chat( ChatConfig config )
-            : config_( std::move( config ) )
+        /**
+         * @param startup_measurement The automatic-context scan startup ran before this session
+         *        existed, when it ran one. Taken here because it is the same fact a switch's own
+         *        scan records, and without it the first model's context has no provenance.
+         */
+        explicit Chat( ChatConfig config, std::optional<ResolvedContext> startup_measurement = std::nullopt )
+            : config_( std::move( config ) ), last_measured_context_( std::move( startup_measurement ) )
         {
             loadSystemPrompt();
         }
@@ -529,6 +534,23 @@ namespace Mila::ChatApp
             // The scripted half of the provenance the startup line prints. A caller that asked for
             // no context and got 83968 has the same right to know why as a reader of the banner.
             payload[ "context_source" ] = config_.context_is_automatic ? "auto" : "configured";
+
+            // What auto measured against and what it traded, so a script can reproduce the choice:
+            // the free memory is the input that moves between runs on a card driving a display.
+            if ( config_.context_is_automatic && last_measured_context_
+                && last_measured_context_->fallback_reason.empty() )
+            {
+                const ResolvedContext& measured = *last_measured_context_;
+
+                payload[ "context_measurement" ] = {
+                    { "device", config_.device_index },
+                    { "device_total_bytes", measured.device_total_bytes },
+                    { "device_free_bytes", measured.device_free_bytes },
+                    { "prefill_chunk_rows", measured.prefill.chunk_rows },
+                    { "unconstrained_chunk_rows", measured.prefill.unconstrained_chunk_rows },
+                    { "bounded_by_prefill", measured.bounded_by_prefill } };
+            }
+
             payload[ "tokens_generated" ] = tokens;
 
             // The interactive session reads this off /stats; a scripted caller measuring a prompt
@@ -1933,8 +1955,8 @@ namespace Mila::ChatApp
             // resident would measure a card that still holds it (MemoryFootprint.md 11.6).
             if ( !last_measured_context_ )
             {
-                // Startup resolves auto before this session object exists, so the first load has no
-                // scan of its own to show -- but under auto the context IS that scan's answer.
+                // No scan to show: the context was named rather than measured, or startup's scan
+                // was not handed to this session.
                 std::cout << ( config_.context_is_automatic
                     ? std::format( "  {:<16}{}  (measured at startup)\n",
                         "Largest fit:", config_.context_length )
@@ -3038,11 +3060,11 @@ Examples:
         }
 
         ChatConfig config_;
-        ModelVariant model_;
 
         /// The last automatic-context scan, taken with nothing resident. What /context reports and
         /// what a fit suggestion reads: a scan run now would measure a card holding this model.
         std::optional<ResolvedContext> last_measured_context_;
+        ModelVariant model_;
         SystemPromptConfig system_prompt_config_;
         std::shared_ptr<BpeTokenizer> tokenizer_{ nullptr };
         std::vector<ChatMessage> history_;

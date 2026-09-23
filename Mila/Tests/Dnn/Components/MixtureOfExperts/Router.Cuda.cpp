@@ -398,7 +398,8 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
 
     TEST_F( RouterCudaTests, Bf16_GetRequiredMemory_MatchesBuiltFootprint )
     {
-        const BuildContext context( shape_t{ 3, kHidden }, RuntimeMode::Inference, false );
+        const BuildContext context = BuildContext( shape_t{ 3, kHidden }, RuntimeMode::Inference, false )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
 
         Router<DeviceType::Cuda, TensorDataType::BF16> predictor( "router", RouterConfig( kHidden, kExperts, kTopK ), Device::Cuda( 0 ) );
         const MemoryStats predicted = predictor.getRequiredMemory( context );
