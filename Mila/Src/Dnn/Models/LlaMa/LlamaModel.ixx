@@ -12,6 +12,7 @@ module;
 #include <string>
 #include <sstream>
 #include <cstdint>
+#include <cstddef>
 #include <stdexcept>
 #include <filesystem>
 #include <format>
@@ -34,6 +35,7 @@ import Dnn.GenerateParams;
 import Dnn.GenerateStatus;
 import Dnn.LanguageModelNetwork;
 import Dnn.Models.QuantizationDispatch;
+import Dnn.Models.PrefillChunkRule;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Quantization.KvCache.QuantPolicy;
@@ -192,9 +194,9 @@ namespace Mila::Dnn
         /**
          * @brief The same prediction, plus how this deployment would chunk its prefill.
          *
-         * One graph construction answers both, because they are two readings of the same
-         * arithmetic -- the chunk is resolved on the way to sizing the attention scratch
-         * getRequiredMemory reports, and was previously discarded there.
+         * One graph construction and one reading of free memory answer both: the chunk is chosen
+         * against the reading, and the memory is priced at that chunk -- the one a load given the
+         * same reading builds with.
          *
          * The second half is what a caller choosing a context length needs and memory alone
          * cannot tell it: the scratch cost per chunk row carries a 2 * context_length term, so
@@ -245,6 +247,29 @@ namespace Mila::Dnn
         const LlamaConfig& getConfig() const noexcept
         {
             return config_;
+        }
+
+        /**
+         * @brief The network geometry a load of this file builds.
+         *
+         * Public so a caller that constructs the network itself uses the geometry a real load
+         * would, rather than a second reading of the metadata.
+         */
+        static LlamaConfig configFromMetadata( const WeightsMetadata& metadata )
+        {
+            LlamaConfig config(
+                static_cast<dim_t>(metadata.embedding_dim),
+                static_cast<dim_t>(metadata.num_layers) );
+
+            config.withVocabularyLength( static_cast<dim_t>(metadata.vocab_size) )
+                .withMaxSequenceLength( static_cast<dim_t>(metadata.max_seq_length) )
+                .withNumHeads( static_cast<dim_t>(metadata.num_heads) )
+                .withNumKVHeads( static_cast<dim_t>(metadata.num_kv_heads) )
+                .withHiddenDimension( static_cast<dim_t>(metadata.hidden_dim) )
+                .withRoPETheta( metadata.rope_theta )
+                .withBias( metadata.use_bias );
+
+            return config;
         }
 
         // ====================================================================
@@ -444,10 +469,25 @@ namespace Mila::Dnn
 
             auto context_length = model_config.getContextLength();
 
-            BuildContext build_context(
-                shape_t{ 1, context_length },
-                RuntimeMode::Inference,
-                false );
+            // The one reading this load takes, after construction as deploymentFootprintImpl takes
+            // its own. The build executes the chunk chosen against it and reads nothing itself.
+            const BuildContext priced =
+                BuildContext( shape_t{ 1, static_cast<dim_t>( context_length ) }, RuntimeMode::Inference, false )
+                .withAllocationGranularity( allocationGranularity( device_id ) );
+            const std::size_t free_bytes = readFreeDeviceBytes( device_id );
+            const PrefillChunking prefill = choosePrefillChunk( *network, priced, free_bytes );
+            const BuildContext build_context = priced.withPrefillSize( prefill.chunk_rows );
+
+            // A prediction must not warn -- a scan asks at many context lengths the user never
+            // chose -- so the warning belongs here, on the path that is about to allocate.
+            if ( !prefill.fits_available_memory )
+            {
+                Logging::Logger::warning( std::format(
+                    "LlamaModel::load: at the smallest prefill chunk ({} rows) the model needs {} bytes of "
+                    "device memory and {} are free",
+                    prefill.chunk_rows, network->getRequiredMemory( build_context ).totalDeviceBytes(),
+                    free_bytes ) );
+            }
 
             network->build( build_context );
 
@@ -497,18 +537,17 @@ namespace Mila::Dnn
 
             const dim_t context_length = static_cast<dim_t>( model_config.getContextLength() );
 
-            // The one reading of the device this prediction takes, shared by both answers so they
-            // cannot disagree. The graph reads nothing from it (Deployment.md section 4). Taken
-            // after construction, as the build takes its own: the execution context construction
-            // creates holds device memory, and a reading before it names a chunk no build can get.
-            const BuildContext build_context =
+            // The one reading of the device this prediction takes, and the graph is priced at the
+            // chunk chosen against it (Deployment.md section 4). Taken after construction, as the
+            // load takes its own: the execution context construction creates holds device memory,
+            // and a reading before it names a chunk no build can get.
+            const BuildContext priced =
                 BuildContext( shape_t{ 1, context_length }, RuntimeMode::Inference, false )
-                .withAllocationGranularity( allocationGranularity( device_id ) )
-                .withAvailableDeviceBytes( readFreeDeviceBytes( device_id ) );
+                .withAllocationGranularity( allocationGranularity( device_id ) );
+            const PrefillChunking prefill = choosePrefillChunk( *network, priced, readFreeDeviceBytes( device_id ) );
 
             return DeploymentFootprint{
-                network->getRequiredMemory( build_context ),
-                network->prefillChunking( build_context ) };
+                network->getRequiredMemory( priced.withPrefillSize( prefill.chunk_rows ) ), prefill };
         }
 
         LlamaConfig config_;
@@ -634,23 +673,6 @@ namespace Mila::Dnn
             }
 
             return static_cast<int32_t>( vocab_size - 1 );
-        }
-
-        static LlamaConfig configFromMetadata( const WeightsMetadata& metadata )
-        {
-            LlamaConfig config(
-                static_cast<dim_t>(metadata.embedding_dim),
-                static_cast<dim_t>(metadata.num_layers) );
-
-            config.withVocabularyLength( static_cast<dim_t>(metadata.vocab_size) )
-                .withMaxSequenceLength( static_cast<dim_t>(metadata.max_seq_length) )
-                .withNumHeads( static_cast<dim_t>(metadata.num_heads) )
-                .withNumKVHeads( static_cast<dim_t>(metadata.num_kv_heads) )
-                .withHiddenDimension( static_cast<dim_t>(metadata.hidden_dim) )
-                .withRoPETheta( metadata.rope_theta )
-                .withBias( metadata.use_bias );
-
-            return config;
         }
     };
 }

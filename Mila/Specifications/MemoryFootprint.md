@@ -1163,7 +1163,15 @@ driver's rounding of Mila's allocations is predicted (11.8).
 **Post-v0.20 direction (2026-09-16): `Deployment.md`.** The rule below stays the rule, but where it runs
 moves. Deployment planning takes one free-memory reading per device and resolves the chunk before
 construction, the build executes the chunk it is given, and pricing stops reading the bound context
-(`Deployment.md` sections 4 and 7, Phases 1-2). Until then this section describes the tree as it is.
+(`Deployment.md` sections 4 and 7, Phases 1-2).
+
+**Where it runs since `0.21.0-dev+5` (`Deployment.md` Phase 2).** The rule is one function,
+`choosePrefillChunk` (`Models/PrefillChunkRule.ixx`), walking each family's `kPrefillChunkRungs`. A model entry
+point -- `load` and `getDeploymentFootprint` alike -- takes one reading after construction, chooses the chunk
+against it, and builds or prices at that chunk through `BuildContext::withPrefillSize`. No transformer reads
+free memory or chooses a chunk: `getRequiredMemory` and `build` both use the chunk the context carries, and an
+inference context without one is refused. Where the subsections below say "the transformer" resolves, reads or
+warns, read "the entry point".
 
 ### 11.1 What is wrong today
 
@@ -1202,8 +1210,9 @@ footprint.
 This deletes `kGemmaPrefillActivationBudgetBytes`, `kQwenPrefillActivationBudgetBytes` and the measured
 table above it, `kPrefillScratchByteCap`, the row-cost models (`computeChunkRowCostBytes` on Gemma and
 Qwen, the scratch arithmetic in Llama's `computePrefillChunking`), and the KV terms subtracted from the
-budgets (`prefillGlobalKvBytes`, `prefillKvBytes`). `kGemmaPrefillChunkOverride` stays as the debug
-override.
+budgets (`prefillGlobalKvBytes`, `prefillKvBytes`). `kGemmaPrefillChunkOverride` stayed as the debug
+override until `Deployment.md` Phase 2 deleted it: a caller that wants a particular chunk now gives it in the
+`BuildContext`.
 
 A prediction now walks up to five rungs instead of one. Measured 2026-08-17, one Gemma 48-layer
 prediction costs 1-2 ms warm, so a full walk stays near 10 ms, and most walks stop at the first or second
@@ -1227,10 +1236,9 @@ covered, driver rounding, is predicted instead (11.8).
   spill (11.10).
 - **Only device bytes count.** Host-resident allocations, such as Qwen's embedding table, do not.
 
-**Open for the Phase 6 step 3 gate:** how the free memory reaches each transformer's rung walk without a
-public addition, and what a transformer built directly, as unit tests do, uses. To confirm there: the
-transformer reads it from its own device where it resolves the chunk, and the rung walk takes it as an
-argument so the rule tests in section 7 can give it a fixed value.
+**Settled by `Deployment.md` Phase 2:** the entry point reads it, after construction, and `choosePrefillChunk`
+takes it as an argument, so a rule test gives it a fixed value. A transformer built directly, as unit tests
+do, reads nothing: it builds at the chunk its `BuildContext` carries.
 
 ### 11.4 Scratch is predicted
 
@@ -1329,7 +1337,7 @@ prediction leaves out.
 
 ### 11.7 When nothing fits
 
-If the floor rung does not fit the available memory, the transformer builds at the floor, `PrefillChunking`
+If the floor rung does not fit the available memory, the load builds at the floor, `PrefillChunking`
 reports that it does not fit, and the load logs one warning. What happens next depends on the platform: on
 Windows, in a process that sees one GPU, the load spills and runs slowly (6.5); on Linux, and on Windows in a
 process that sees more than one GPU, the build throws `CudaBadAlloc` if the device really lacks the memory (6.5,

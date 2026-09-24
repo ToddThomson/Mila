@@ -80,7 +80,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         BuildContext inferenceContext()
         {
-            return BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference );
+            return BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference ).withPrefillSize( kContext );
         }
 
         fs::path scratchPath( const std::string& stem )
@@ -220,7 +220,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
             // Scoped so the source is gone before any arm builds: the process-wide RoPE cache
             // makes a second live network report less than it allocates.
             GemmaTransformer<DeviceType::Cuda, TensorDataType::FP32> source( "gemma", delegationConfig(), Device::Cuda( 0 ) );
-            source.build( BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference, true ) );
+            source.build( BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference, true ).withPrefillSize( kContext ) );
             saveNetwork( source, source_path_ );
         }
 
@@ -296,8 +296,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
             {
                 DelegatedNetwork predictor( "gemma", delegationConfig(), Device::Cuda( 0 ) );
                 delegated_predicted = predictor.getRequiredMemory( inferenceContext()
-                    .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) )
-                    .withAvailableDeviceBytes( readFreeDeviceBytes( Device::Cuda( 0 ) ) ) );
+                    .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) ) );
             }
 
             MemoryStats delegated_built;

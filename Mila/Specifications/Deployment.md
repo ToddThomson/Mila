@@ -209,8 +209,9 @@ Two consequences worth having:
 - **A deployment can be priced for hardware that is not present**, which is `MemoryFootprint.md`'s
   original goal and is not true today, since a price needs a context on a real device.
 
-The chunk rungs (`kGemmaPrefillChunkRungs` and siblings) become a family trait the planner reads;
-`prefillChunkingFor` and `resolvePrefillChunkSize` leave the transformers.
+The chunk rungs are a family trait, `kPrefillChunkRungs` on each transformer, walked by one function,
+`choosePrefillChunk` (`Models/PrefillChunkRule.ixx`), which the planner calls; no transformer chooses its own
+chunk (Phase 2).
 
 ---
 
@@ -370,6 +371,19 @@ reading its own device) while every Gate A case still passed. G2 re-run: all eig
 `resolvePrefillChunkSize` leaves `onBuilding`; the rung walk moves to one planner-owned function reading one
 reading. *Exit:* G1 on the single-device matrix; N1. Re-run the open display-card footprint failure and
 record whether it clears.
+*Met at `0.21.0-dev+5`:* `BuildContext` carries the chunk and no longer carries free memory; an inference
+context without a chunk is refused by both `getRequiredMemory` and `build`. The rung walk is `choosePrefillChunk`
+(`Models/PrefillChunkRule.ixx`), called by `load` and `getDeploymentFootprint` against the one reading each takes
+after construction. G1 is `PlanEqualsBuildCudaTests` (the four models, every rung whose predicted total fits the
+free memory read) and `PrefillChunkRuleCudaTests.*_EveryRungBuildsWhatItPrices` (a synthetic geometry per family,
+every rung): prediction equals build in every category on both cards. Qwen FP4 on the RTX 4070 has no rung, its
+weights exceeding the card; rung 1024 is not a pick for Qwen FP4 at 8192 on the RTX 5060 Ti or cb2-3 at 4096 on
+the RTX 4070. N1 is `PrefillChunkRuleCudaTests.*_TheBuildExecutesThePlannedChunk`: a plan made against a reading
+that admits only rung 512, on a device with room for 1024. Forced once by reading free memory in Gemma's
+`onBuilding` again: N1 failed with the build at the largest rung, and G1 failed at every rung below it, synthetic
+and real. The display-card failure clears: `GemmaFootprintCudaTests.PredictedFitDecidesWhetherTheModelLoads`
+(the successor of `GetRequiredMemory_BoundsActualConsumption`) and Llama's passed on the RTX 4070 with predicted
+equal to reported. G2 re-run: all eight rows identical, free bytes included.
 
 **Phase 3 — `planDeployment` on one device.** The request, plan and binding constraints; Chat's `"auto"`
 context and fit grading move into it and are deleted from Chat. *Exit:* G2 and N2; Chat piped sessions for

@@ -56,7 +56,6 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Logging.Logger;
 import Dnn.LanguageModelNetwork;
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -93,13 +92,6 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::Weight;
     using namespace Mila::Dnn::Quant::KvCache;
 
-    // Manual prefill-chunk override for VRAM sweeps: > 0 forces the chunk (clamped to
-    // the context length); 0 = the rule in MemoryFootprint.md section 11
-    // (prefillChunkingFor). Kept as the debug escape hatch; the chunk-32
-    // operating point it used to pin is obsolete now that the block activations are
-    // pooled (Gemma4InferenceReview.md sections 6-7).
-    inline constexpr int64_t kGemmaPrefillChunkOverride = 0;
-
     // Context length (>=) at which the BF16 attention layers switch from the cuBLASLt
     // prefill path to the fused FlashAttention kernels -- the unbounded kernel on the
     // global layers, the bounded-ring variant on the local sliding layers. Below it
@@ -111,15 +103,6 @@ namespace Mila::Dnn
     // so the workspace sizing and the op toggle stay coupled. 0 disables flash entirely
     // (always cuBLASLt).
     inline constexpr int64_t kGemmaFlashPrefillMinContext = 16384;
-
-    // The chunk rungs, largest first. Named once because two callers walk them: the resolution
-    // that sizes the workspaces at build time, and the query a caller uses to choose a context
-    // length before anything is built.
-    inline constexpr int64_t kGemmaPrefillChunkRungs[] = { 1024, 512, 256, 128, 64 };
-
-    // Below this the GEMM M dimension is tensor-core-hostile on top of the weight re-read, so
-    // it is the floor rather than another rung: if it does not fit, warn instead of limping.
-    inline constexpr int64_t kGemmaPrefillChunkFloor = 64;
 
     /**
      * @brief Gemma 4 transformer (decoder-only) for autoregressive inference.
@@ -339,27 +322,21 @@ namespace Mila::Dnn
         /**
          * @brief What build( context ) would allocate for the whole model, without allocating.
          *
-         * At the chunk the rule picks against the free memory the context carries. Reads nothing
-         * from the device this network is bound to, so one graph prices any device
-         * (Deployment.md section 4). See Specifications/MemoryFootprint.md section 11.
+         * At the prefill chunk the context carries. Reads nothing from the device this network is
+         * bound to, so one graph prices any device (Deployment.md section 4).
          */
         MemoryStats getRequiredMemory( const BuildContext& context ) const override
         {
-            return requiredMemoryAtChunk(
-                context, prefillChunkingFor( context, context.getAvailableDeviceBytes() ).chunk_rows );
+            return requiredMemoryAtChunk( context, context.getResolvedPrefillSize() );
         }
 
         /**
-         * @brief The prefill chunk this context would use, and the largest the context permits.
+         * @brief The chunk rungs choosePrefillChunk() walks for this family, largest first.
          *
-         * The largest rung whose whole predicted footprint fits the free memory the context
-         * carries. Allocates nothing, so a caller may ask before the network is built, and given
-         * the same context it agrees with getRequiredMemory(). See MemoryFootprint.md section 11.
+         * Below 64 rows the GEMM M dimension is tensor-core-hostile on top of the weight re-read,
+         * so the smallest rung is the floor rather than a step toward a smaller one.
          */
-        PrefillChunking prefillChunking( const BuildContext& context ) const
-        {
-            return prefillChunkingFor( context, context.getAvailableDeviceBytes() );
-        }
+        static constexpr dim_t kPrefillChunkRungs[] = { 1024, 512, 256, 128, 64 };
 
     private:
 
@@ -454,62 +431,6 @@ namespace Mila::Dnn
                 std::max<dim_t>( global_layers - 1, 0 ) * ropeCacheBytes( config_.getGlobalHeadDim(), T, granularity );
 
             return stats;
-        }
-
-        /**
-         * @brief The largest rung whose whole predicted footprint fits `free_bytes`.
-         *
-         * A reading of zero means the device could not say, and takes the largest rung the context
-         * permits. When even the floor does not fit, the floor is returned and marked as not
-         * fitting: the build warns, a prediction does not.
-         */
-        PrefillChunking prefillChunkingFor( const BuildContext& context, std::size_t free_bytes ) const
-        {
-            const int64_t T_ctx = context.inputShape()[ 1 ];
-
-            PrefillChunking chunking;
-
-            if constexpr ( kGemmaPrefillChunkOverride > 0 )
-            {
-                chunking.chunk_rows = std::min<int64_t>( kGemmaPrefillChunkOverride, T_ctx );
-                chunking.unconstrained_chunk_rows = chunking.chunk_rows;
-
-                return chunking;
-            }
-            else
-            {
-                // Short-context build: the whole context is a single chunk, and no rung applies.
-                if ( T_ctx < kGemmaPrefillChunkFloor )
-                {
-                    chunking.chunk_rows = T_ctx;
-                    chunking.unconstrained_chunk_rows = T_ctx;
-
-                    return chunking;
-                }
-
-                for ( int64_t candidate : kGemmaPrefillChunkRungs )
-                {
-                    if ( candidate > T_ctx )
-                        continue;
-
-                    // The first rung the context admits at all, memory aside.
-                    if ( chunking.unconstrained_chunk_rows == 0 )
-                        chunking.unconstrained_chunk_rows = candidate;
-
-                    if ( free_bytes == 0
-                        || requiredMemoryAtChunk( context, candidate ).totalDeviceBytes() <= free_bytes )
-                    {
-                        chunking.chunk_rows = candidate;
-
-                        return chunking;
-                    }
-                }
-
-                chunking.chunk_rows = kGemmaPrefillChunkFloor;
-                chunking.fits_available_memory = false;
-
-                return chunking;
-            }
         }
 
     public:
@@ -615,9 +536,9 @@ namespace Mila::Dnn
             const int64_t B = input_shape[ 0 ];
             const int64_t T = input_shape[ 1 ];
 
-            // Resolve the prefill chunk once, before anything is allocated, and thread it to every
-            // block (and its GQA op) via block_context.
-            prefill_chunk_size_ = resolvePrefillChunkSize( context );
+            // The chunk the caller resolved, threaded to every block (and its GQA op) via
+            // block_context. The build never chooses one (Deployment.md section 7).
+            prefill_chunk_size_ = context.getResolvedPrefillSize();
 
             // Blocks need full context length so GQA can size the KV cache; the block
             // handles the prefill/decode split internally.
@@ -758,7 +679,7 @@ namespace Mila::Dnn
 
         GemmaConfig config_;
 
-        // Tuned prefill chunk size -- single source of truth, set in onBuilding and
+        // The prefill chunk the caller resolved, taken from the BuildContext in onBuilding and
         // threaded to child components via BuildContext::withPrefillSize().
         int64_t prefill_chunk_size_{ 0 };
 
@@ -849,7 +770,7 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Prefill chunk rule + shared block scratch + GQA workspace
+        // Shared block scratch + GQA workspace
         // ====================================================================
 
         // Whether the BF16 layers (global AND local sliding) run fused flash prefill at
@@ -928,7 +849,7 @@ namespace Mila::Dnn
          * @brief Score width for an explicit chunk, for callers that run before build().
          *
          * getRequiredMemory() reports the workspace before prefill_chunk_size_ has been
-         * assigned, so it must pass the chunk it resolved rather than read the member.
+         * assigned, so it must pass the chunk its context carries rather than read the member.
          */
         int64_t prefillScoreWidth( int64_t T_ctx, int64_t prefill_chunk ) const noexcept
         {
@@ -936,35 +857,6 @@ namespace Mila::Dnn
                 return std::min<int64_t>( T_ctx, config_.getWindow() + prefill_chunk - 1 );
 
             return T_ctx;
-        }
-
-        // The build-time reading of the rule: the chunk a prediction reports, plus the warning. A
-        // prediction must not warn -- a scan asks at a hundred context lengths the user never chose --
-        // so the warning belongs on the path that is about to allocate.
-        //
-        // The build is on this device, so unlike a prediction it prices against the device itself:
-        // its granularity when the caller gave none, and free memory read now. Deployment.md Phase 2
-        // replaces this with the chunk the plan resolved.
-        int64_t resolvePrefillChunkSize( const BuildContext& build_context ) const
-        {
-            const std::size_t free_bytes = readFreeDeviceBytes( this->getDeviceId() );
-            const BuildContext context = ( build_context.hasAllocationGranularity()
-                ? build_context
-                : build_context.withAllocationGranularity( allocationGranularity( this->getDeviceId() ) ) )
-                .withAvailableDeviceBytes( free_bytes );
-            const PrefillChunking chunking = prefillChunkingFor( context, free_bytes );
-
-            if ( !chunking.fits_available_memory )
-            {
-                Logging::Logger::warning( std::format(
-                    "GemmaTransformer: at the smallest prefill chunk ({} rows) the model needs {} bytes of "
-                    "device memory and {} are free",
-                    kGemmaPrefillChunkFloor,
-                    requiredMemoryAtChunk( context, kGemmaPrefillChunkFloor ).totalDeviceBytes(),
-                    free_bytes ) );
-            }
-
-            return chunking.chunk_rows;
         }
 
         void allocateBlockWorkspace( int64_t B )

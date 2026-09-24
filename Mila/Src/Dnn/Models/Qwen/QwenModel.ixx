@@ -34,6 +34,7 @@ module;
 #include <string>
 #include <sstream>
 #include <cstdint>
+#include <cstddef>
 #include <stdexcept>
 #include <filesystem>
 #include <format>
@@ -50,6 +51,7 @@ import Dnn.Models.QwenModelConfig;
 import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
 import Dnn.LanguageModelNetwork;
+import Dnn.Models.PrefillChunkRule;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Tensor;
@@ -564,10 +566,26 @@ namespace Mila::Dnn
             auto network = std::make_unique<ConcreteTransformerType>(
                 metadata.model_name, network_config, device_id );
 
-            BuildContext build_context(
-                shape_t{ 1, static_cast<dim_t>( model_config.getContextLength() ) },
-                RuntimeMode::Inference,
-                false );
+            // The one reading this load takes, after construction as deploymentFootprintImpl takes
+            // its own. The build executes the chunk chosen against it and reads nothing itself.
+            const BuildContext priced =
+                BuildContext( shape_t{ 1, static_cast<dim_t>( model_config.getContextLength() ) },
+                    RuntimeMode::Inference, false )
+                .withAllocationGranularity( allocationGranularity( device_id ) );
+            const std::size_t free_bytes = readFreeDeviceBytes( device_id );
+            const PrefillChunking prefill = choosePrefillChunk( *network, priced, free_bytes );
+            const BuildContext build_context = priced.withPrefillSize( prefill.chunk_rows );
+
+            // A prediction must not warn -- a scan asks at many context lengths the user never
+            // chose -- so the warning belongs here, on the path that is about to allocate.
+            if ( !prefill.fits_available_memory )
+            {
+                Logging::Logger::warning( std::format(
+                    "QwenModel::load: at the smallest prefill chunk ({} rows) the model needs {} bytes of "
+                    "device memory and {} are free",
+                    prefill.chunk_rows, network->getRequiredMemory( build_context ).totalDeviceBytes(),
+                    free_bytes ) );
+            }
 
             network->build( build_context );
 
@@ -618,18 +636,17 @@ namespace Mila::Dnn
 
             const dim_t context_length = static_cast<dim_t>( model_config.getContextLength() );
 
-            // The one reading of the device this prediction takes, shared by both answers so they
-            // cannot disagree. The graph reads nothing from it (Deployment.md section 4). Taken
-            // after construction, as the build takes its own: the execution context construction
-            // creates holds device memory, and a reading before it names a chunk no build can get.
-            const BuildContext build_context =
+            // The one reading of the device this prediction takes, and the graph is priced at the
+            // chunk chosen against it (Deployment.md section 4). Taken after construction, as the
+            // load takes its own: the execution context construction creates holds device memory,
+            // and a reading before it names a chunk no build can get.
+            const BuildContext priced =
                 BuildContext( shape_t{ 1, context_length }, RuntimeMode::Inference, false )
-                .withAllocationGranularity( allocationGranularity( device_id ) )
-                .withAvailableDeviceBytes( readFreeDeviceBytes( device_id ) );
+                .withAllocationGranularity( allocationGranularity( device_id ) );
+            const PrefillChunking prefill = choosePrefillChunk( *network, priced, readFreeDeviceBytes( device_id ) );
 
             return DeploymentFootprint{
-                network->getRequiredMemory( build_context ),
-                network->prefillChunking( build_context ) };
+                network->getRequiredMemory( priced.withPrefillSize( prefill.chunk_rows ) ), prefill };
         }
 
         static void validateRequest(

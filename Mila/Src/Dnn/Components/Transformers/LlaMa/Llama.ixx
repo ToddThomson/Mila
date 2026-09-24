@@ -39,7 +39,6 @@ import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Components.Rope;
 import Dnn.ActivationType;
-import Logging.Logger;
 import Compute.Device;
 import Compute.DeviceAllocation;
 import Compute.DeviceType;
@@ -63,12 +62,6 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
     using namespace Mila::Dnn::Quant::Weight;
     using namespace Mila::Dnn::Quant::KvCache;
-
-    // The chunk rungs, largest first, and the floor below them. Named once because two callers
-    // walk them: the resolution that sizes the workspaces at build time, and the query a caller
-    // uses to choose a context length before anything is built.
-    inline constexpr int64_t kLlamaPrefillChunkRungs[] = { 512, 256, 128 };
-    inline constexpr int64_t kLlamaPrefillChunkFloor = 128;
 
     /**
      * @brief LLaMA-style transformer (decoder-only) for autoregressive token prediction.
@@ -320,7 +313,7 @@ namespace Mila::Dnn
         /**
          * @brief What build( context ) would allocate for the whole model, without allocating.
          *
-         * Mirrors onBuilding(): resolve the prefill chunk first, recurse with the same
+         * Mirrors onBuilding(): at the prefill chunk the context carries, recurse with the same
          * per-child contexts, then add the shared GQA workspace this transformer owns.
          *
          * Two corrections Gemma needs are absent here, and their absence is the finding
@@ -332,21 +325,13 @@ namespace Mila::Dnn
         {
             validateBuildContext( context );
 
-            return requiredMemoryAtChunk(
-                context, prefillChunkingFor( context, context.getAvailableDeviceBytes() ).chunk_rows );
+            return requiredMemoryAtChunk( context, context.getResolvedPrefillSize() );
         }
 
         /**
-         * @brief The prefill chunk this context would use, and the largest the context permits.
-         *
-         * The largest rung whose whole predicted footprint fits the free memory the context
-         * carries. Allocates nothing, so a caller may ask before the network is built, and given
-         * the same context it agrees with getRequiredMemory(). See MemoryFootprint.md section 11.
+         * @brief The chunk rungs choosePrefillChunk() walks for this family, largest first.
          */
-        PrefillChunking prefillChunking( const BuildContext& context ) const
-        {
-            return prefillChunkingFor( context, context.getAvailableDeviceBytes() );
-        }
+        static constexpr dim_t kPrefillChunkRungs[] = { 512, 256, 128 };
 
     private:
 
@@ -407,74 +392,6 @@ namespace Mila::Dnn
                 std::max<dim_t>( config_.getNumLayers() - 1, 0 ) * ropeCacheBytes( HS, T, granularity );
 
             return stats;
-        }
-
-        /**
-         * @brief The largest rung whose whole predicted footprint fits `free_bytes`.
-         *
-         * A reading of zero means the device could not say, and takes the largest rung the context
-         * permits. A context shorter than the floor rung is one chunk. When even the floor does not
-         * fit, the floor is returned and marked as not fitting: the build warns, a prediction does not.
-         */
-        PrefillChunking prefillChunkingFor( const BuildContext& context, std::size_t free_bytes ) const
-        {
-            const int64_t T_ctx = context.inputShape()[ 1 ];
-
-            PrefillChunking chunking;
-
-            for ( int64_t candidate : kLlamaPrefillChunkRungs )
-            {
-                if ( candidate > T_ctx )
-                    continue;
-
-                // The first rung the context admits at all, memory aside.
-                if ( chunking.unconstrained_chunk_rows == 0 )
-                    chunking.unconstrained_chunk_rows = candidate;
-
-                if ( free_bytes == 0
-                    || requiredMemoryAtChunk( context, candidate ).totalDeviceBytes() <= free_bytes )
-                {
-                    chunking.chunk_rows = candidate;
-
-                    return chunking;
-                }
-            }
-
-            chunking.chunk_rows = std::min<int64_t>( kLlamaPrefillChunkFloor, T_ctx );
-
-            if ( chunking.unconstrained_chunk_rows == 0 )
-                chunking.unconstrained_chunk_rows = chunking.chunk_rows;
-            else
-                chunking.fits_available_memory = false;
-
-            return chunking;
-        }
-
-        // The build-time reading of the rule: the chunk a prediction reports, plus the warning.
-        //
-        // The build is on this device, so unlike a prediction it prices against the device itself:
-        // its granularity when the caller gave none, and free memory read now. Deployment.md Phase 2
-        // replaces this with the chunk the plan resolved.
-        int64_t resolvePrefillChunkSize( const BuildContext& build_context ) const
-        {
-            const std::size_t free_bytes = readFreeDeviceBytes( this->getDeviceId() );
-            const BuildContext context = ( build_context.hasAllocationGranularity()
-                ? build_context
-                : build_context.withAllocationGranularity( allocationGranularity( this->getDeviceId() ) ) )
-                .withAvailableDeviceBytes( free_bytes );
-            const PrefillChunking chunking = prefillChunkingFor( context, free_bytes );
-
-            if ( !chunking.fits_available_memory )
-            {
-                Logging::Logger::warning( std::format(
-                    "LlamaTransformer: at the smallest prefill chunk ({} rows) the model needs {} bytes of "
-                    "device memory and {} are free",
-                    chunking.chunk_rows,
-                    requiredMemoryAtChunk( context, chunking.chunk_rows ).totalDeviceBytes(),
-                    free_bytes ) );
-            }
-
-            return chunking.chunk_rows;
         }
 
     public:
@@ -575,10 +492,10 @@ namespace Mila::Dnn
             const auto B = input_shape[ 0 ];
             const auto T = input_shape[ 1 ];
 
-            // Resolve the prefill chunk once, before anything is allocated, and thread it down to
-            // every block (and its GQA op) via block_context. Also reused by prefill() and the
-            // shared GQA workspace.
-            prefill_chunk_size_ = resolvePrefillChunkSize( context );
+            // The chunk the caller resolved, threaded down to every block (and its GQA op) via
+            // block_context. Also reused by prefill() and the shared GQA workspace. The build never
+            // chooses one (Deployment.md section 7).
+            prefill_chunk_size_ = context.getResolvedPrefillSize();
 
             // Blocks need full context_length so GQA can size the KV cache correctly.
             // LlamaBlock handles the prefill/decode split internally.
@@ -713,7 +630,7 @@ namespace Mila::Dnn
         int64_t batch_size_{ 0 };
         int64_t seq_length_{ 0 };
 
-        // Tuned prefill chunk size -- single source of truth, set in onBuilding and
+        // The prefill chunk the caller resolved, taken from the BuildContext in onBuilding and
         // threaded to child components via BuildContext::withPrefillSize().
         int64_t prefill_chunk_size_{ 0 };
 

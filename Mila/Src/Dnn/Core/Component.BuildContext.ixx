@@ -21,7 +21,8 @@ namespace Mila::Dnn
     /**
      * @brief Build-time context for Component::build().
      *
-     * Carries six orthogonal concerns down the Component hierarchy:
+     * Carries five orthogonal concerns down the Component hierarchy, plus the per-component
+     * declarations a composite makes for its children (installed output, fused decode):
      *
      * 1. **Input shape**             -- the full input shape the component receives.
      *                                  Used for parameter sizing, output buffer
@@ -35,7 +36,7 @@ namespace Mila::Dnn
      *                                  Training  -- full sequence output buffers,
      *                                              gradient buffers allocated.
      *
-     * 4. **Parameter initialization** -- whether components should initialize parameter
+     * 3. **Parameter initialization** -- whether components should initialize parameter
      *                                   tensors after allocation. Set to false when
      *                                   building for a weights load to avoid
      *                                   computing initializers (Xavier, normal, zeros)
@@ -47,12 +48,16 @@ namespace Mila::Dnn
      *                                   run then discard parameter initialization by
      *                                   omitting the flag.
      *
-     * 5. **Device facts**            -- the allocation granularity and free memory a
-     *                                   prediction prices against. getRequiredMemory()
-     *                                   reads them from here and never from the device
-     *                                   the component is bound to, so one graph prices
-     *                                   any device (Deployment.md section 4). build()
-     *                                   does not need them.
+     * 4. **Device facts**            -- the allocation granularity a prediction prices
+     *                                   against. getRequiredMemory() reads it from here
+     *                                   and never from the device the component is bound
+     *                                   to, so one graph prices any device (Deployment.md
+     *                                   section 4). build() does not need it.
+     *
+     * 5. **Prefill chunk**           -- rows per prefill pass. A language network builds
+     *                                   and prices at the chunk its caller resolved, and
+     *                                   stamps it onto the contexts of its children. No
+     *                                   component reads free memory to choose one.
      *
      * ## Caller responsibility
      *
@@ -87,11 +92,9 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Construct from all six concerns explicitly.
+         * @brief Construct from the input shape, runtime mode and parameter initialization.
          *
-         * precision_policy and quantization are extracted from ModelConfig
-         * by load() and passed here as raw values, keeping
-         * BuildContext free of any model-layer dependency.
+         * The granularity and the prefill chunk are added with their own with*() calls.
          *
          * @param input_shape            Complete input shape this component receives.
          *                               Must have at least one dimension.
@@ -153,8 +156,9 @@ namespace Mila::Dnn
         /**
          * @brief Return a copy of this context with a different prefill size.
          *
-         * All other fields are preserved. Used by the network to stamp the tuned
-         * prefill chunk size onto the contexts it builds its child components with.
+         * All other fields are preserved. A caller gives a language network the chunk it
+         * resolved this way, and the network stamps it onto the contexts it builds its child
+         * components with.
          *
          * @param prefill_size  Tokens per prefill pass.
          * @return New BuildContext with prefill_size and all other fields unchanged.
@@ -170,16 +174,14 @@ namespace Mila::Dnn
         /**
          * @brief A context for a child component with a different input shape.
          *
-         * Carries the runtime mode, parameter initialization and the device facts (allocation
-         * granularity, available memory), and none of the per-component declarations -- prefill
-         * size, installed output, fused decode -- which the composite states for each child itself.
-         * withShape() is the call that keeps those.
+         * Carries the runtime mode, parameter initialization and the allocation granularity, and
+         * none of the per-component declarations -- prefill size, installed output, fused decode --
+         * which the composite states for each child itself. withShape() is the call that keeps those.
          */
         [[nodiscard]] BuildContext forChild( shape_t input_shape ) const
         {
             BuildContext child( std::move( input_shape ), runtime_mode_, initialize_parameters_ );
             child.allocation_granularity_ = allocation_granularity_;
-            child.available_device_bytes_ = available_device_bytes_;
 
             return child;
         }
@@ -225,43 +227,6 @@ namespace Mila::Dnn
             }
 
             return *allocation_granularity_;
-        }
-
-        /**
-         * @brief Return a copy of this context priced against a reading of free device memory.
-         *
-         * What a transformer picks its prefill chunk against. Zero means the device could not say,
-         * which takes the largest chunk the context permits.
-         */
-        [[nodiscard]] BuildContext withAvailableDeviceBytes( std::size_t available_bytes ) const
-        {
-            BuildContext copy( *this );
-            copy.available_device_bytes_ = available_bytes;
-
-            return copy;
-        }
-
-        bool hasAvailableDeviceBytes() const noexcept
-        {
-            return available_device_bytes_.has_value();
-        }
-
-        /**
-         * @brief The free device memory a prediction picks its prefill chunk against.
-         *
-         * @throws std::logic_error when none was given, for the reason getAllocationGranularity()
-         *         does: zero already means "the device could not say".
-         */
-        std::size_t getAvailableDeviceBytes() const
-        {
-            if ( !available_device_bytes_ )
-            {
-                throw std::logic_error(
-                    "BuildContext: a prediction that chooses a prefill chunk needs a reading of free device "
-                    "memory; call withAvailableDeviceBytes()" );
-            }
-
-            return *available_device_bytes_;
         }
 
         // ====================================================================
@@ -359,6 +324,47 @@ namespace Mila::Dnn
             return prefill_size_;
         }
 
+        /**
+         * @brief The prefill chunk a language network builds and prices at, which its caller resolved.
+         *
+         * An inference build executes the chunk it is given and never chooses one (Deployment.md
+         * section 7), so an inference context without one is a programming error rather than an
+         * invitation to decide. A training build does not chunk its prefill, and without a chunk
+         * takes the whole context as one.
+         *
+         * @throws std::logic_error      when an inference context carries no chunk.
+         * @throws std::invalid_argument when the context is not [B, T], or the chunk exceeds T.
+         */
+        dim_t getResolvedPrefillSize() const
+        {
+            if ( input_shape_.size() < 2 )
+            {
+                throw std::invalid_argument(
+                    "BuildContext: a prefill chunk belongs to a [B, T] context" );
+            }
+
+            const dim_t context_length = input_shape_[ 1 ];
+
+            if ( prefill_size_ <= 0 )
+            {
+                if ( isTrainingMode() )
+                    return context_length;
+
+                throw std::logic_error(
+                    "BuildContext: an inference build needs the prefill chunk its caller resolved; "
+                    "call withPrefillSize()" );
+            }
+
+            if ( prefill_size_ > context_length )
+            {
+                throw std::invalid_argument( std::format(
+                    "BuildContext: prefill chunk {} exceeds the context length {}",
+                    prefill_size_, context_length ) );
+            }
+
+            return prefill_size_;
+        }
+
         // ====================================================================
         // Parameter initialization
         // ====================================================================
@@ -380,6 +386,5 @@ namespace Mila::Dnn
         bool                     installed_output_{ false };
         bool                     fused_decode_{ false };
         std::optional<std::size_t> allocation_granularity_;
-        std::optional<std::size_t> available_device_bytes_;
     };
 }

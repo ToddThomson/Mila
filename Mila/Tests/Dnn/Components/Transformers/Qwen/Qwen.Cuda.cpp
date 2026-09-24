@@ -87,22 +87,21 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
             bool initialize_parameters = false )
         {
             auto net = std::make_unique<QwenCuda>( "qwen", config, Device::Cuda( 0 ) );
-            net->build( BuildContext( shape_t{ batch, seq }, RuntimeMode::Inference, initialize_parameters ) );
+            net->build( BuildContext( shape_t{ batch, seq }, RuntimeMode::Inference, initialize_parameters )
+                .withPrefillSize( seq ) );
 
             return net;
         }
 
         /**
-         * @brief A context priced on the device these tests build on, read now.
-         *
-         * The build reads free memory itself, so the prediction takes its reading as close to
-         * that as the test allows -- the same two readings these tests always compared.
+         * @brief A context priced on the device these tests build on, prefilling its whole length
+         *        as one chunk -- what the chunk rule picks for a context this short.
          */
         static BuildContext pricedOnDevice( const BuildContext& context )
         {
             return context
                 .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) )
-                .withAvailableDeviceBytes( readFreeDeviceBytes( Device::Cuda( 0 ) ) );
+                .withPrefillSize( context.inputShape()[ 1 ] );
         }
 
         /**

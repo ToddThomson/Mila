@@ -270,6 +270,9 @@ export import Dnn.Components.QwenTransformer;
 // builds a history does not have to import a family to describe one.
 export import Dnn.Models.Conversation;
 
+// The prefill chunk a language network is built with, chosen against one reading of free memory.
+export import Dnn.Models.PrefillChunkRule;
+
 export import Dnn.Models.GptModel;
 
 export import Dnn.Models.LlamaModel;

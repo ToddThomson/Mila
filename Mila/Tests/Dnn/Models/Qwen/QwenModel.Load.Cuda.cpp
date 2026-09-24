@@ -925,7 +925,7 @@ namespace Mila::Tests::Dnn::Models
             QwenPrecisionPlan, Mila::Dnn::Quant::KvCache::NoKvCompression>;
 
         QwenPacked network( "qwen", network_config, Device::Cuda( 0 ) );
-        network.build( BuildContext( shape_t{ 1, 512 }, RuntimeMode::Inference, false ) );
+        network.build( BuildContext( shape_t{ 1, 512 }, RuntimeMode::Inference, false ).withPrefillSize( 512 ) );
 
         const double mib = 1024.0 * 1024;
 

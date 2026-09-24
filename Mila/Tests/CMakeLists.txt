@@ -255,6 +255,12 @@ if(MILA_ENABLE_CUDA)
         # A built model reserves the scratch its footprint predicts and generation stays inside it.
         # Needs exported weights -- see Specifications/MemoryFootprint.md Phase 6 step 2.
         "Dnn/Models/ScratchReservation.Cuda.cpp"
+        # The build executes the prefill chunk it is given, at every rung (Deployment.md G1 and N1), on a
+        # synthetic geometry per family. Runs anywhere.
+        "Dnn/Models/PrefillChunkRule.Cuda.cpp"
+        # G1 on the real models: every rung the rule can pick builds what it prices. Needs exported weights.
+        # Separate from the synthetic cases because together they crossed MSVC's section limit (C1128).
+        "Dnn/Models/PlanEqualsBuild.Cuda.cpp"
         # Qwen against a TRUNCATED real artifact -- the full 27B is 50 GiB at BF16 and fits
         # no card here, so 4 layers (both block kinds) is what can be exercised. Skips
         # without the fixture; see the file header for how to produce it.

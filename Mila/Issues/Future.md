@@ -437,7 +437,10 @@ It is per-target on `ChatApp` and, since the Gemma 4 MoE dispatch, on `ProfileMo
 (`Mila/Profiling/ProfileModel/CMakeLists.txt:32`). Section counts against the 65535 limit, Release /
 RelWithDebInfo: `ProfileModel.ixx` 51609 / ~66000, `ExportArtifact.ixx` 46926 / 59830,
 `Gemma.MixtureOfExperts.Cuda.cpp` 44694 / 56375, `Chat.ModelCatalog.ixx` 41647 / 52666; Debug not
-measured. So the next family or quantization breaks targets one at a time, and a consumer calling
+measured. **Recurred at `0.21.0-dev+5`** in a test file (`PrefillChunkRule.Cuda.cpp`, 53778 Release; the
+RelWithDebInfo build failed): it held three FP32 networks and four quantized BF16 models, and was split in
+two rather than flagged -- `PrefillChunkRule.Cuda.cpp` 25915 and `PlanEqualsBuild.Cuda.cpp` 51150, both
+measured at `/Ob1 /Zi`. So the next family or quantization breaks targets one at a time, and a consumer calling
 `load` inherits the exposure with no flag. The choice is a PUBLIC MSVC compile option on
 `Mila`, which changes every consumer's flags, or targets adding it as they cross. **Todd's call.**
 

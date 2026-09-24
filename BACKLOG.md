@@ -92,21 +92,6 @@ validated flows pass regardless, so that is a symptom of this gap rather than se
 
 ### Deployment Planning
 
-#### The prefill chunk is predicted from one reading of free memory and built from another
-
-`open` · `models` · `mila-src`
-
-`getRequiredMemory` (`Gemma.ixx:347`) and the build's `onBuilding` (`Gemma.ixx:623`, `Qwen.ixx:645`,
-`Llama.ixx:577`) each read free device memory, at different moments. On a card that drives a display
-the free memory moves between the two, so the build can take a different chunk than the prediction
-named — one of two candidate causes of the open
-`GemmaFootprintCudaTests.GetRequiredMemory_BoundsActualConsumption` failure in the maintainer's
-environment.
-
-`Deployment.md` Phase 2: `BuildContext` carries the resolved chunk, `resolvePrefillChunkSize` leaves
-`onBuilding`, and the rung walk moves to one function reading one reading. Exit: G1 on the
-single-device matrix and N1, and the display-card failure re-run with whether it clears recorded.
-
 #### Automatic context length is decided inside Chat, where no other caller can reach it
 
 `open` · `models` · `mila-src` · `breaking`

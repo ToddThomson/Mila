@@ -459,6 +459,7 @@ PUBLIC
         # The one runtime-to-compile-time quantization bridge, imported by the models below.
         "Src/Dnn/Models/Conversation.ixx"
         "Src/Dnn/Models/QuantizationDispatch.ixx"
+        "Src/Dnn/Models/PrefillChunkRule.ixx"
         "Src/Dnn/Models/Gpt/GptModel.ixx"
         "Src/Dnn/Models/LlaMa/LlamaModel.ixx"
         "Src/Dnn/Models/Gemma/GemmaModel.ixx"

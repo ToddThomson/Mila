@@ -181,7 +181,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
             ASSERT_TRUE( config.hasMixtureOfExperts() ) << "the converted weights carry no expert geometry";
 
             RoutedNetwork<TPrecision> network( "gemma", config, Device::Cuda( 0 ) );
-            network.build( BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference ) );
+            network.build( BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference ).withPrefillSize( kContext ) );
             network.loadParameters( weights );
 
             Serialization::WeightsReader reference( referencePath() );
@@ -312,7 +312,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
             expected = weights.getTensorNames();
 
             RoutedNetwork<TensorDataType::FP32> network( "gemma", configFromMetadata( weights.getWeightsMetadata() ), Device::Cuda( 0 ) );
-            network.build( BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference ) );
+            network.build( BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference ).withPrefillSize( kContext ) );
             network.loadParameters( weights );
 
             Serialization::SafeTensorsWriter writer( saved );
@@ -351,7 +351,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     {
         const BuildContext context = BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference )
             .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) )
-            .withAvailableDeviceBytes( readFreeDeviceBytes( Device::Cuda( 0 ) ) );
+            .withPrefillSize( kContext );
 
         MemoryStats predicted;
         {

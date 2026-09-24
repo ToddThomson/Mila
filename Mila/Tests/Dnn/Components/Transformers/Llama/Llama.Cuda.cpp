@@ -83,7 +83,10 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
         std::unique_ptr<LlamaCuda> builtNet( int64_t batch, int64_t seq, RuntimeMode mode )
         {
             auto net = std::make_unique<LlamaCuda>( "llama", smallConfig(), Device::Cuda( 0 ) );
-            net->build( BuildContext( shape_t{ batch, seq }, mode ) );
+            const BuildContext context( shape_t{ batch, seq }, mode );
+
+            // An inference build executes the chunk it is given; a training build needs none.
+            net->build( mode == RuntimeMode::Inference ? context.withPrefillSize( seq ) : context );
 
             return net;
         }

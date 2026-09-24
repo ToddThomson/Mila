@@ -96,7 +96,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         std::unique_ptr<GemmaCuda> builtNet( const GemmaConfig& config, int64_t batch, int64_t seq )
         {
             auto net = std::make_unique<GemmaCuda>( "gemma", config, Device::Cuda( 0 ) );
-            net->build( BuildContext( shape_t{ batch, seq }, RuntimeMode::Inference ) );
+            net->build( BuildContext( shape_t{ batch, seq }, RuntimeMode::Inference ).withPrefillSize( seq ) );
 
             return net;
         }
@@ -186,10 +186,9 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     protected:
         void expectPredictionMatchesBuild( const GemmaConfig& config, const char* label )
         {
-            // The build reads free memory itself, so the prediction takes its reading just before.
             const BuildContext context = BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference )
                 .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) )
-                .withAvailableDeviceBytes( readFreeDeviceBytes( Device::Cuda( 0 ) ) );
+                .withPrefillSize( seq_ );
 
             GemmaCuda predictor( "gemma", config, Device::Cuda( 0 ) );
             const MemoryStats predicted = predictor.getRequiredMemory( context );
@@ -251,16 +250,14 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         config.withVocabularyLength( 20480 );
 
         const std::size_t native = allocationGranularity( Device::Cuda( 0 ) );
-        const BuildContext unpriced( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
-        const std::size_t free_bytes = readFreeDeviceBytes( Device::Cuda( 0 ) );
+        const BuildContext unpriced = BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference )
+            .withPrefillSize( seq_ );
 
         auto priced = [&]( std::size_t granularity )
         {
             GemmaCuda predictor( "gemma", config, Device::Cuda( 0 ) );
 
-            return predictor.getRequiredMemory( unpriced
-                .withAllocationGranularity( granularity )
-                .withAvailableDeviceBytes( free_bytes ) );
+            return predictor.getRequiredMemory( unpriced.withAllocationGranularity( granularity ) );
         };
 
         const MemoryStats at_zero = priced( 0 );
@@ -300,8 +297,31 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         EXPECT_THROW(
             predictor.getRequiredMemory( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference )
-                .withAvailableDeviceBytes( readFreeDeviceBytes( Device::Cuda( 0 ) ) ) ),
+                .withPrefillSize( seq_ ) ),
             std::logic_error );
+    }
+
+    // Deployment.md section 7: the build executes the chunk it is given. An inference context
+    // without one is refused by the prediction and the build alike, rather than one being chosen.
+    TEST_F( GemmaRequiredMemoryCudaTests, RefusesAnInferenceContextWithoutAPrefillChunk )
+    {
+        const BuildContext unchunked = BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
+
+        GemmaCuda predictor( "gemma", allLocalConfig(), Device::Cuda( 0 ) );
+        EXPECT_THROW( predictor.getRequiredMemory( unchunked ), std::logic_error );
+
+        GemmaCuda built( "gemma", allLocalConfig(), Device::Cuda( 0 ) );
+        EXPECT_THROW( built.build( unchunked ), std::logic_error );
+    }
+
+    TEST_F( GemmaRequiredMemoryCudaTests, RefusesAPrefillChunkLongerThanTheContext )
+    {
+        GemmaCuda built( "gemma", allLocalConfig(), Device::Cuda( 0 ) );
+
+        EXPECT_THROW(
+            built.build( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference ).withPrefillSize( seq_ + 1 ) ),
+            std::invalid_argument );
     }
 
     // The premise the model-level report rests on, asserted at model scale: a constructed
@@ -387,7 +407,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         // Build with parameters explicitly initialized so finiteness is meaningful
         // without a loaded checkpoint (independent of the inference-mode init default).
         auto net = std::make_unique<GemmaCuda>( "gemma", allLocalConfig(), Device::Cuda( 0 ) );
-        net->build( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference, true ) );
+        net->build( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference, true ).withPrefillSize( seq_ ) );
 
         auto input = makeTokens( batch_, seq_ );
 
@@ -411,7 +431,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         constexpr int64_t kSplit = 16;
 
         auto net = std::make_unique<GemmaCuda>( "gemma", allLocalConfig(), Device::Cuda( 0 ) );
-        net->build( BuildContext( shape_t{ batch_, kSeq }, RuntimeMode::Inference, true ) );
+        net->build( BuildContext( shape_t{ batch_, kSeq }, RuntimeMode::Inference, true ).withPrefillSize( kSeq ) );
 
         auto tokens = makeTokens( batch_, kSeq );
 

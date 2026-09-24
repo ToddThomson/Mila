@@ -95,7 +95,7 @@ namespace Mila::Profiling
     // (it reports the idle baseline while a multi-GB model is resident), so the
     // reliable footprint reading is cudaMemGetInfo from inside the process. Printed
     // at baseline / after-load / after-run to bracket the chunk-scaled activation
-    // budget the prefill heuristic (Gemma resolvePrefillChunkSize) works against.
+    // budget the prefill chunk rule (choosePrefillChunk) works against.
     void printGpuMemory( const char* label )
     {
         size_t free_bytes = 0;
