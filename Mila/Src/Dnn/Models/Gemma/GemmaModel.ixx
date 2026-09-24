@@ -14,6 +14,8 @@ module;
 #include <sstream>
 #include <cstdint>
 #include <cstddef>
+#include <expected>
+#include <string_view>
 #include <stdexcept>
 #include <filesystem>
 #include <format>
@@ -32,7 +34,14 @@ import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
 import Dnn.LanguageModelNetwork;
 import Dnn.Models.QuantizationDispatch;
-import Dnn.Models.PrefillChunkRule;
+import Deployment.PrefillChunkRule;
+import Deployment.DeviceReading;
+import Deployment.DeploymentRequest;
+import Deployment.DeploymentPlan;
+import Deployment.DeploymentPlans;
+import Deployment.DeploymentRefusal;
+import Deployment.DeploymentRefusedError;
+import Deployment.DeploymentPlanner;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Quantization.KvCache.QuantPolicy;
@@ -66,6 +75,7 @@ import Logging.Logger;
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Deployment;
     using namespace Mila::Dnn::Serialization;
     using namespace Mila::Dnn::Quant::Weight;
     using namespace Mila::Dnn::Quant::KvCache;
@@ -113,32 +123,89 @@ namespace Mila::Dnn
         ~GemmaModel() = default;
 
         /**
-         * @brief Load Gemma 4 from a Mila weights file.
+         * @brief Decide how this package would run on the request's device, allocating nothing.
          *
-         * The model_config carries the deployment decisions (context length,
-         * weight quantization, KV-cache compression); every architectural
-         * parameter is read from the checkpoint metadata.
+         * Reads the weights header, constructs the graph, takes one reading of the device and plans against
+         * it (Specifications/Deployment.md). Nothing fitting is an answer, not an error: the refusal names why.
          *
-         * @param path          Path to the Gemma weights file.
-         * @param model_config  Deployment configuration for this load.
-         * @param device_id     Target device; must match TDeviceType.
-         * @return              Inference-ready GemmaModel.
+         * @throws std::invalid_argument on a device type mismatch, or a context length past the trained maximum.
+         * @throws std::runtime_error    on an unreadable package or an unsupported quantization.
+         */
+        static std::expected<DeploymentPlans, DeploymentRefusal> planDeployment(
+            const std::filesystem::path& path,
+            const DeploymentRequest& request )
+        {
+            const DeviceId device = requireDevice( "GemmaModel::planDeployment",
+                request.getDevice().value_or( DeviceId{ TDeviceType, 0 } ) );
+
+            return dispatchChassis<std::expected<DeploymentPlans, DeploymentRefusal>>(
+                path, request.getWeightQuantization(), request.getKvCacheCompression(), "GemmaModel::planDeployment",
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, bool kMixtureOfExperts>()
+                {
+                    return planImpl<TWeightQuantization, TKvCachePolicy, kMixtureOfExperts>( path, request, device );
+                } );
+        }
+
+        /**
+         * @brief Load exactly this plan: its device, context length and prefill chunk, decided nowhere else.
          *
-         * @throws std::invalid_argument on device type mismatch or zero context length.
-         * @throws std::runtime_error    on load failure or unsupported quantization.
+         * @throws std::invalid_argument when the package is not the one the plan was priced for.
+         * @throws std::runtime_error    on load failure, including an allocation that free memory no longer
+         *                               covers -- a load never re-plans.
+         */
+        static std::unique_ptr<GemmaModel<TDeviceType, TPrecision>> load(
+            const std::filesystem::path& path,
+            const DeploymentPlan& plan )
+        {
+            requireDevice( "GemmaModel::load", plan.device() );
+
+            // Gemma's Linear children (qkv/o/gate_up/down) pick up the weight-quant policy;
+            // quantized bodies additionally convert the tied embedding/lm_head table to
+            // per-vocab-row FP8 (D4 Design B -- see GemmaTransformer::TableQuantizationPolicy).
+            return dispatchChassis<std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>>(
+                path, plan.weightQuantization(), plan.kvCacheCompression(), "GemmaModel::load",
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, bool kMixtureOfExperts>()
+                {
+                    return loadImpl<TWeightQuantization, TKvCachePolicy, kMixtureOfExperts>( path, plan );
+                } );
+        }
+
+        /**
+         * @brief Plan the request and load its best plan.
+         *
+         * @throws DeploymentRefusedError when nothing fits, carrying the refusal.
+         */
+        static std::unique_ptr<GemmaModel<TDeviceType, TPrecision>> load(
+            const std::filesystem::path& path,
+            const DeploymentRequest& request )
+        {
+            const auto planned = planDeployment( path, request );
+
+            if ( !planned )
+            {
+                throw DeploymentRefusedError( "GemmaModel::load", planned.error() );
+            }
+
+            return load( path, planned->best() );
+        }
+
+        /**
+         * @brief Load Gemma 4 at a fixed context length: the request every value of which is fixed.
+         *
+         * The model_config carries the deployment decisions (context length, weight quantization, KV-cache
+         * compression); every architectural parameter is read from the checkpoint metadata. A context length
+         * that does not fit is refused rather than attempted (Deployment.md 12.2).
+         *
+         * @throws std::invalid_argument  on device type mismatch or zero context length.
+         * @throws DeploymentRefusedError when the context length does not fit the device.
+         * @throws std::runtime_error     on load failure or unsupported quantization.
          */
         static std::unique_ptr<GemmaModel<TDeviceType, TPrecision>> load(
             const std::filesystem::path& path,
             const GemmaModelConfig& model_config,
             DeviceId device_id = DeviceId{ TDeviceType, 0 } )
         {
-            if ( device_id.type != TDeviceType )
-            {
-                throw std::invalid_argument( std::format(
-                    "GemmaModel::load: device type mismatch: expected {}, got {}",
-                    deviceTypeToString( TDeviceType ),
-                    deviceTypeToString( device_id.type ) ) );
-            }
+            requireDevice( "GemmaModel::load", device_id );
 
             if ( model_config.getContextLength() == 0 )
             {
@@ -146,35 +213,13 @@ namespace Mila::Dnn
                     "GemmaModel::load: context_length must be greater than zero" );
             }
 
-            // Gemma's Linear children (qkv/o/gate_up/down) pick up the weight-quant policy;
-            // quantized bodies additionally convert the tied embedding/lm_head table to
-            // per-vocab-row FP8 (D4 Design B -- see GemmaTransformer::TableQuantizationPolicy).
-            // The routed chassis and its FP4 group are both the checkpoint's, so its geometry is
-            // read before the one dispatch.
-            using Result = std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>;
+            return load( path, DeploymentRequest::fromModelConfig( model_config ).withDevice( device_id ) );
+        }
 
-            if ( isRoutedCheckpoint( path ) )
-            {
-                return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, Result, kRoutedFp4GroupSize>(
-                    model_config.getWeightQuantization(),
-                    model_config.getKvCacheCompression(),
-                    "GemmaModel::load",
-                    [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
-                    {
-                        return loadImpl<TWeightQuantization, TKvCachePolicy, true>(
-                            path, model_config, device_id );
-                    } );
-            }
-
-            return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, Result, kDenseFp4GroupSize>(
-                model_config.getWeightQuantization(),
-                model_config.getKvCacheCompression(),
-                "GemmaModel::load",
-                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
-                {
-                    return loadImpl<TWeightQuantization, TKvCachePolicy, false>(
-                        path, model_config, device_id );
-                } );
+        /// The plan this model was loaded with: what it runs, not a second derivation of it.
+        const DeploymentPlan& getDeploymentPlan() const noexcept
+        {
+            return plan_;
         }
 
         /**
@@ -495,14 +540,15 @@ namespace Mila::Dnn
         explicit GemmaModel(
             std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             const GemmaConfig& config,
-            const GemmaModelConfig& model_config,
+            const DeploymentPlan& plan,
             const WeightsMetadata& source_metadata,
             int fp4_group_size,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode,
-                source_metadata, model_config.getWeightQuantization(), fp4_group_size )
+                source_metadata, plan.weightQuantization(), fp4_group_size )
             , config_( config )
-            , model_config_( model_config )
+            , model_config_( plan.modelConfig<GemmaModelConfig>() )
+            , plan_( plan )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
         {}
 
@@ -513,59 +559,98 @@ namespace Mila::Dnn
             return reader.getWeightsMetadata().num_experts > 0;
         }
 
+        static DeviceId requireDevice( std::string_view caller, DeviceId device_id )
+        {
+            if ( device_id.type != TDeviceType )
+            {
+                throw std::invalid_argument( std::format(
+                    "{}: device type mismatch: expected {}, got {}", caller,
+                    deviceTypeToString( TDeviceType ), deviceTypeToString( device_id.type ) ) );
+            }
+
+            return device_id;
+        }
+
+        /**
+         * @brief The one runtime-to-compile-time bridge for planning and loading.
+         *
+         * The routed chassis and its FP4 group are both the checkpoint's, so its geometry is read before the
+         * dispatch. Planning and loading reach the identical instantiation through here, or a plan would price
+         * a network the load does not build.
+         */
+        template<typename TResult, typename TAction>
+        static TResult dispatchChassis(
+            const std::filesystem::path& path, WeightQuantization weight_quantization,
+            KvCacheCompression kv_cache_compression, std::string_view caller, TAction&& action )
+        {
+            if ( isRoutedCheckpoint( path ) )
+            {
+                return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, TResult, kRoutedFp4GroupSize>(
+                    weight_quantization, kv_cache_compression, caller,
+                    [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                    {
+                        return action.template operator()<TWeightQuantization, TKvCachePolicy, true>();
+                    } );
+            }
+
+            return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, TResult, kDenseFp4GroupSize>(
+                weight_quantization, kv_cache_compression, caller,
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                {
+                    return action.template operator()<TWeightQuantization, TKvCachePolicy, false>();
+                } );
+        }
+
+        // A routed network delegates its dense branch, so both flags follow the chassis.
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, bool kMixtureOfExperts>
+        using ChassisTransformer = GemmaTransformer<TDeviceType, TPrecision,
+            TWeightQuantization, TKvCachePolicy, kMixtureOfExperts, kMixtureOfExperts>;
+
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, bool kMixtureOfExperts>
+        static std::expected<DeploymentPlans, DeploymentRefusal> planImpl(
+            const std::filesystem::path& path,
+            const DeploymentRequest& request,
+            DeviceId device_id )
+        {
+            WeightsReader reader( path );
+            const auto& metadata = reader.getWeightsMetadata();
+
+            requireStoredQuantizationMatches(
+                "GemmaModel::planDeployment", path.string(), reader.getWeightQuantization(),
+                request.getWeightQuantization(), kMixtureOfExperts ? kRoutedFp4GroupSize : kDenseFp4GroupSize );
+
+            const GemmaConfig network_config = configFromMetadata( metadata );
+
+            // Construction commits no device memory, but it creates the execution context, which holds some;
+            // the reading is taken after it, as the load's build will find the device (Deployment.md 9).
+            const ChassisTransformer<TWeightQuantization, TKvCachePolicy, kMixtureOfExperts> network(
+                metadata.model_name, network_config, device_id );
+
+            return planOnDevice( network, request, DeviceReading::take( device_id ),
+                network_config.getMaxSequenceLength(), metadata, reader.getWeightQuantization() );
+        }
+
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, bool kMixtureOfExperts>
         static std::unique_ptr<GemmaModel<TDeviceType, TPrecision>> loadImpl(
             const std::filesystem::path& path,
-            const GemmaModelConfig& model_config,
-            DeviceId device_id )
+            const DeploymentPlan& plan )
         {
             WeightsReader reader( path );
             const auto& metadata = reader.getWeightsMetadata();
             const int fp4_group_size = kMixtureOfExperts ? kRoutedFp4GroupSize : kDenseFp4GroupSize;
 
+            plan.requirePricedFor( "GemmaModel::load", path.string(), metadata, reader.getWeightQuantization() );
+
             requireStoredQuantizationMatches(
                 "GemmaModel::load", path.string(), reader.getWeightQuantization(),
-                model_config.getWeightQuantization(), fp4_group_size );
+                plan.weightQuantization(), fp4_group_size );
 
-            GemmaConfig network_config = configFromMetadata( metadata );
+            const GemmaConfig network_config = configFromMetadata( metadata );
 
-            if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
-            {
-                throw std::invalid_argument( std::format(
-                    "GemmaModel::load: context_length {} exceeds trained max_seq_len {}",
-                    model_config.getContextLength(),
-                    network_config.getMaxSequenceLength() ) );
-            }
+            auto network = std::make_unique<ChassisTransformer<TWeightQuantization, TKvCachePolicy, kMixtureOfExperts>>(
+                metadata.model_name, network_config, plan.device() );
 
-            const dim_t context_length = static_cast<dim_t>( model_config.getContextLength() );
-
-            // A routed network delegates its dense branch, so both flags follow the chassis.
-            using ConcreteTransformerType = GemmaTransformer<TDeviceType, TPrecision,
-                TWeightQuantization, TKvCachePolicy, kMixtureOfExperts, kMixtureOfExperts>;
-
-            auto network = std::make_unique<ConcreteTransformerType>( metadata.model_name, network_config, device_id );
-
-            // The one reading this load takes, after construction as deploymentFootprintImpl takes
-            // its own. The build executes the chunk chosen against it and reads nothing itself.
-            const BuildContext priced =
-                BuildContext( shape_t{ 1, context_length }, RuntimeMode::Inference, false )
-                .withAllocationGranularity( allocationGranularity( device_id ) );
-            const std::size_t free_bytes = readFreeDeviceBytes( device_id );
-            const PrefillChunking prefill = choosePrefillChunk( *network, priced, free_bytes );
-            const BuildContext build_context = priced.withPrefillSize( prefill.chunk_rows );
-
-            // A prediction must not warn -- a scan asks at many context lengths the user never
-            // chose -- so the warning belongs here, on the path that is about to allocate.
-            if ( !prefill.fits_available_memory )
-            {
-                Logging::Logger::warning( std::format(
-                    "GemmaModel::load: at the smallest prefill chunk ({} rows) the model needs {} bytes of "
-                    "device memory and {} are free",
-                    prefill.chunk_rows, network->getRequiredMemory( build_context ).totalDeviceBytes(),
-                    free_bytes ) );
-            }
-
-            network->build( build_context );
+            network->build( plan.buildContext() );
 
             Logging::Logger::info( network->toString() );
 
@@ -574,7 +659,7 @@ namespace Mila::Dnn
             return std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>(
                 new GemmaModel<TDeviceType, TPrecision>(
                     std::move( network ), network_config,
-                    model_config, metadata, fp4_group_size, RuntimeMode::Inference ) );
+                    plan, metadata, fp4_group_size, RuntimeMode::Inference ) );
         }
 
         /**
@@ -643,6 +728,9 @@ namespace Mila::Dnn
         // size. Retained for diagnostics/provenance: the weight-quant / kv-compression were
         // previously discarded after the dispatch switch.
         GemmaModelConfig model_config_;
+
+        // The plan this model executed; reported, never re-derived.
+        DeploymentPlan plan_;
 
         // Device decode-input buffer: the sampler writes the next token here in place,
         // and decode() reads it directly -- no host staging round-trip.

@@ -440,7 +440,9 @@ RelWithDebInfo: `ProfileModel.ixx` 51609 / ~66000, `ExportArtifact.ixx` 46926 / 
 measured. **Recurred at `0.21.0-dev+5`** in a test file (`PrefillChunkRule.Cuda.cpp`, 53778 Release; the
 RelWithDebInfo build failed): it held three FP32 networks and four quantized BF16 models, and was split in
 two rather than flagged -- `PrefillChunkRule.Cuda.cpp` 25915 and `PlanEqualsBuild.Cuda.cpp` 51150, both
-measured at `/Ob1 /Zi`. So the next family or quantization breaks targets one at a time, and a consumer calling
+measured at `/Ob1 /Zi`. At `0.21.0-dev+6` (the deployment planner, which every `load` now instantiates)
+`ExportArtifact.ixx` measures 61393 at `/Ob1 /Zi` and `ScratchReservation.Cuda.cpp` 58075: ExportArtifact is
+the next to cross. So the next family or quantization breaks targets one at a time, and a consumer calling
 `load` inherits the exposure with no flag. The choice is a PUBLIC MSVC compile option on
 `Mila`, which changes every consumer's flags, or targets adding it as they cross. **Todd's call.**
 

@@ -70,8 +70,8 @@ committed to a device.
 ### 3.2 Plan, then execute
 
 ```cpp
-DeploymentPlan plan = GemmaModel<Cuda, BF16>::planDeployment( path, request );   // decides; allocates nothing
-auto model = GemmaModel<Cuda, BF16>::load( path, plan );               // executes exactly this plan
+auto planned = GemmaModel<Cuda, BF16>::planDeployment( path, request );   // decides; allocates nothing
+auto model = GemmaModel<Cuda, BF16>::load( path, planned->best() );       // executes exactly this plan
 ```
 
 The plan is decided once, from one reading of each device's free memory, and the load executes it.
@@ -79,6 +79,14 @@ The plan is decided once, from one reading of each device's free memory, and the
 disappears; it is not handled more carefully.
 
 ### 3.3 The types
+
+**Decided 2026-09-23 as the shape to start from.** Names and accessors may move once real callers use
+them; the two structural decisions below -- a refusal instead of an infeasible plan, and the ranking on
+the result instead of on a plan -- are the ones to keep.
+
+```cpp
+std::expected<DeploymentPlans, DeploymentRefusal> planDeployment( path, request );
+```
 
 - **`DeploymentRequest`** — what the caller asks for. Each plannable knob is either a value or `auto`:
   devices (a list, or `auto`), context length (a number, or `auto` between a floor and a ceiling, as
@@ -88,18 +96,27 @@ disappears; it is not handled more carefully.
   machine, not a Mila constant.
 - **`DeviceReading`** — one device's identity, free bytes and allocation granularity, taken once by the
   planner.
-- **`DeploymentPlan`** — the resolved values (devices, `DevicePlacement`, context length, prefill chunk),
-  the readings they were decided against, the per-device and total `MemoryStats`, and for each value
-  the **constraint that bound it** (section 6). Also:
+- **`DeploymentPlan`** — one deployment that can be loaded: the resolved values (devices,
+  `DevicePlacement`, context length, prefill chunk), the readings they were decided against, the
+  per-device and total `MemoryStats`, and for each value the **limit** that stopped it being larger
+  (section 6). A plan exists only when it can be loaded, so it has no feasibility flag and no field that is
+  meaningless on a plan that does not fit. It is loadable *as of its readings*: on a card that drives a
+  display, free memory can still move before the load (section 9). Also:
   - **What it was priced for.** The package facts pricing read: architecture, geometry and stored
     weight format. Not a content hash — two packages with the same geometry and format price
     identically, so a plan is valid for either, and invalid for anything else (section 7).
-  - **Its ranked alternatives.** The objective's best plan for each device set it considered — each card
-    alone, and the cards together — ordered by the objective, each a complete plan with its own
-    footprints and binding constraints. The first choice is the plan itself. A caller who prefers "both
-    cards at 65536" to "one card at 8192" takes that alternative instead, without planning again.
-  - **Whether it is feasible.** A request nothing can meet still yields a plan, marked infeasible, naming
-    the constraint that failed. There is no separate error path for "does not fit".
+- **`DeploymentPlans`** — the planner's answer when anything fits: every plan it would offer, ranked by
+  the objective (section 5), never empty. `best()` is `rankedPlans().front()`. Each entry is the best
+  plan for one device set the planner considered — each card alone, and the cards together — so a
+  caller who prefers "both cards at 65536" to "one card at 8192" loads that entry without planning
+  again. Same-device trades are not entries: a caller who wants the other side of rules 3 and 4 fixes
+  the context (section 5). The ranking lives here rather than on a plan, because a loaded model keeps
+  the plan it runs (section 3.6) and must not carry plans it is not running. With one device (Phase 3)
+  the list has one entry.
+- **`DeploymentRefusal`** — the planner's answer when nothing fits: the **reason** as an enumerated
+  value (section 6), the readings, and the priced footprint that did not fit. There is no separate
+  exception path for "does not fit": a refusal is a returned value, and the caller must handle it to
+  reach a plan.
 
 `DeploymentFootprint` and `PrefillChunking` (`Component.MemoryStats.ixx:236`, `:263`) are the pricing of
 one candidate and stay as they are. A plan is a decision among candidates. **"Footprint" names a price;
@@ -114,7 +131,7 @@ A plan's parts are consumed at different stages, and each stage receives only it
 | Weight format | dispatch, before construction: it selects the transformer type (`QuantizationDispatch.ixx`) | `WeightQuantization` (existing) |
 | Devices and block placement | construction: execution contexts bind once, here | `DevicePlacement` (`LayerSplit.md` section 4) |
 | Context length, batch, prefill chunk | build | `BuildContext`, which gains the resolved chunk |
-| Readings, footprints, binding constraints | nothing in the graph | `DeploymentPlan`, kept by the model |
+| Readings, footprints, limits | nothing in the graph | `DeploymentPlan`, kept by the model |
 
 A transformer never sees a `DeploymentPlan`. `DeviceId` keeps meaning one device.
 
@@ -142,11 +159,15 @@ and in never falling back to host memory for layers (section 13).
 
 cuBLASLt's matmul API is prior art for the shape rather than the problem, and this design takes three of
 its ideas, not its interface: a query that returns **ranked candidates, each with its own resource cost**
-(its heuristic's per-algorithm workspace size; here, alternatives with per-device footprints); a **check**
+(its heuristic's per-algorithm workspace size; here, `rankedPlans()` with per-device footprints); a **check**
 that puts a caller's own choice through the same validation as a chosen one (here, a fully fixed request,
 section 7); and **a decision valid only for the inputs it was made for** (an algorithm for its descriptors;
-here, a plan for the package facts it priced). It does not take cuBLASLt's opaque ranking, which is what
-the binding constraint replaces, nor its attribute-setter style, which Mila's builders already cover.
+here, a plan for the package facts it priced). Its empty answer is kept too: when nothing qualifies there
+are no plans. What it does not take: its silence about why -- `cublasLtMatmulAlgoGetHeuristic` returns a
+count of zero or a coarse status, and the detail goes to a log -- which the refusal's reason replaces,
+because each reason here points a person at a different lever; its opaque ranking, which the per-value
+limit replaces; its null-algorithm "decide at execution" fallback, which section 7 rules out; and its
+attribute-setter style, which Mila's builders already cover.
 
 ### 3.6 One path, three depths
 
@@ -154,23 +175,29 @@ Simple to use, powerful when needed, and consistent throughout. Each depth is th
 of it visible:
 
 ```cpp
-// 1. Just run it: every plannable knob auto.
-auto model = GemmaModel<Cuda, BF16>::load( path, DeploymentRequest{} );
+// 1. Just run it: every plannable knob auto. A refusal is thrown, naming the reason and the numbers.
+auto model = QwenModel<Cuda, BF16>::load( path, DeploymentRequest{} );
 
 // 2. Look first: plan, inspect, then run exactly that.
-DeploymentPlan plan = GemmaModel<Cuda, BF16>::planDeployment( path,
-    DeploymentRequest{}.withContextLength( 32768 ).withHeadroom( 512 * MiB ) );
+auto planned = QwenModel<Cuda, BF16>::planDeployment( path,
+    DeploymentRequest{}.withHeadroom( 512 * MiB ) );
 
-if ( !plan.feasible() )
-    report( plan.bindingConstraint() );
+if ( !planned )
+    return report( planned.error().reason(), planned.error().readings(), planned.error().footprint() );
 
-auto model = GemmaModel<Cuda, BF16>::load( path, plan );
+const DeploymentPlan& best = planned->best();    // e.g. 5060 Ti alone, context 4096
+best.contextLimitedBy();                         // ContextLimit::FullPrefillChunk
 
-// 3. Choose among trades: take an alternative the objective ranked second.
-auto model = GemmaModel<Cuda, BF16>::load( path, plan.alternatives()[ 0 ] );
+auto model = QwenModel<Cuda, BF16>::load( path, best );
+
+// 3. Choose among trades: take the plan the objective ranked second (Phase 5: both cards).
+auto model = QwenModel<Cuda, BF16>::load( path, planned->rankedPlans()[ 1 ] );
 ```
 
-(Names illustrate the shape; section 12 leaves them open.)
+`std::expected` is C++23, which Mila's public surface already requires: consumers `import Mila;`, and exported
+modules already use C++23 library facilities (`std::ranges::fold_left`, `Tensor.ixx`). Calling `.value()` on a
+refusal throws `std::bad_expected_access`, whose message names no reason; `load( path, request )` therefore
+throws Mila's own exception carrying the reason and the numbers, and callers of `planDeployment` check first.
 
 Three rules keep it consistent:
 
@@ -181,7 +208,7 @@ Three rules keep it consistent:
 - **A model reports the plan it runs.** A loaded model exposes its `DeploymentPlan`, so what an adaptor
   shows is the object that ran, not a second derivation of it.
 
-Per family the surface is two entry points, `planDeployment` and `load`, and three types.
+Per family the surface is two entry points, `planDeployment` and `load`, and the types of section 3.3.
 Nothing else is added.
 
 ---
@@ -210,7 +237,7 @@ Two consequences worth having:
   original goal and is not true today, since a price needs a context on a real device.
 
 The chunk rungs are a family trait, `kPrefillChunkRungs` on each transformer, walked by one function,
-`choosePrefillChunk` (`Models/PrefillChunkRule.ixx`), which the planner calls; no transformer chooses its own
+`choosePrefillChunk` (`Deployment/PrefillChunkRule.ixx`), which the planner calls; no transformer chooses its own
 chunk (Phase 2).
 
 ---
@@ -220,8 +247,8 @@ chunk (Phase 2).
 "Auto" hides decisions unless the order in which it trades one knob against another is stated. The
 planner applies this order, strictly:
 
-1. **Honour every value the caller fixed.** If they cannot all be met, the plan says so and names the
-   binding constraint (section 12 decides whether the load then refuses).
+1. **Honour every value the caller fixed.** If they cannot all be met, there is no plan: the answer is a
+   refusal naming the reason (sections 3.3 and 12.2).
 2. **Fewest devices.** A model on one card beats the same model split: no crossings, and no second card
    (possibly the display) carrying part of it. Devices are only added when no single named device can
    hold an acceptable deployment.
@@ -243,11 +270,31 @@ wants a different trade fixes that knob.
 
 ## 6. The Plan Record
 
-For each resolved value the plan carries a **binding constraint** as an enumerated reason, not text:
-for example `ContextBoundByMemory`, `ContextBoundByFullPrefillChunk`, `ContextBoundByTrainedMaximum`,
-`SplitBecauseNoSingleDeviceFits`, `NoDeploymentWeightsExceedAllDevices`. With the readings and the
-per-device footprints, that is enough for any adaptor to explain the choice in its own voice. The
-library never phrases it.
+Two concepts, two words. A **limit** is on a plan: for each resolved value, what stopped it being larger.
+A **reason** is on a refusal: why there is no plan. Both are enumerated values, not text. With the readings
+and the footprints, that is enough for any adaptor to explain the outcome in its own voice. The library
+never phrases it.
+
+| Enum | Value | Meaning |
+|---|---|---|
+| `ContextLimit` (`plan.contextLimitedBy()`) | `FixedByCaller` | the request fixed it |
+| | `TrainedMaximum` | the model's trained maximum, or the request's ceiling |
+| | `FullPrefillChunk` | a longer context would reduce the chunk (section 5, rule 3) |
+| | `DeviceMemory` | a longer context fits at no chunk (rule 4) |
+| `PrefillChunkLimit` (`plan.prefillChunkLimitedBy()`) | `LargestTheContextPermits` | memory did not reduce it |
+| | `DeviceMemory` | a larger rung does not fit |
+| `DeploymentRefusal::Reason` | `WeightsExceedDevice` | the weights alone exceed every device the request allows |
+| | `FixedContextDoesNotFit` | the context the request fixed fits at no chunk |
+| | `NothingAboveTheFloorFits` | no automatic context at or above the request's floor fits |
+
+A plan never carries "even the smallest chunk does not fit", which Phase 2's `fits_available_memory == false`
+expresses: under section 12.2 that deployment is a refusal. Phase 5 adds limits for devices and placement
+(for example, split because no single device fits). The planner learns each limit as it scans: the scan stops
+at the trained maximum, at the step that would reduce the chunk, or at the step that does not fit, and the
+chunk's limit is `choosePrefillChunk`'s `isMemoryConstrained()`.
+
+The chunk is not a request knob: the planner always chooses it. A caller building a transformer directly
+fixes it with `BuildContext::withPrefillSize`.
 
 This is not a diagnostic addition to `Mila/Src`. It is the answer to the question every adaptor already
 asks and currently answers for itself.
@@ -257,11 +304,13 @@ asks and currently answers for itself.
 ## 7. The Load Executes The Plan
 
 - **Check.** `load( path, plan )` first compares the package's facts with the ones the plan was
-  priced for, and refuses a mismatch naming both. It refuses an infeasible plan, naming its binding
-  constraint. It never substitutes a value of its own: no fallback chunk, no default device.
+  priced for, and refuses a mismatch naming both. There is no feasibility to check: a plan exists only
+  when it can be loaded (section 3.3). It never substitutes a value of its own: no fallback chunk, no
+  default device.
 - **Execute.** It dispatches on the plan's weight format, constructs with the plan's `DevicePlacement`,
   builds with the plan's `BuildContext` (context length and resolved chunk), loads, and keeps the plan.
-- **`load( path, request )`** is `planDeployment` followed by the same check and execute.
+- **`load( path, request )`** is `planDeployment`, then the same check and execute on `best()`. A refusal
+  is thrown as Mila's own exception, carrying the reason and naming the numbers.
 - **A fully fixed request is not a second path.** Every knob set explicitly, including a single device, is
   still planned and checked; the planner's job reduces to pricing it. `load( path, config,
   device )` becomes exactly that request.
@@ -282,10 +331,14 @@ continues, deciding again at execution. Recorded in `Mila/Issues/Vnext.md`.
   `getDeploymentFootprint`. The family comes from the package; a family-neutral entry point that reads
   it from the metadata is an open question (section 12).
 - **Chat.** `"auto"` for `context_length` and for `device` both become fields of one request. An explicit
-  value that does not fit is refused with the plan's binding constraint, no longer attempted with a
-  warning (section 12.2); `--help` and `ChatConfiguration.md` §6 change with Phase 3.
-  `resolveAutomaticContext` and the fit grading in `Chat.ModelCatalog.ixx` are replaced by reading the
-  plan. `/models` renders the plan's binding constraint.
+  value that does not fit is refused, naming the refusal's reason, no longer attempted with a warning
+  (section 12.2); `--help` and `ChatConfiguration.md` §6 change with Phase 3. `resolveAutomaticContext`
+  and the fit grading in `Chat.ModelCatalog.ixx` are replaced by reading the plans. `/models` renders the
+  best plan's limits, or the refusal's reason. **Open at Phase 3:** the `/model list` column deliberately
+  prices against the card's *capacity* (total memory), so a resident model does not count against the
+  others. Planning it needs a described reading rather than a live one, which is decision 12.5; until that
+  is decided the listing keeps its capacity pricing through `getDeploymentFootprint`, and only the load
+  path and `/context` read plans.
 - **Python binding.** `from_store( name, context_length="auto", devices="auto" )`: the same request.
   The QuickStart samples and `getting-started.md` change with it.
 - **MIS.** Its settings (`config.py`) take `auto` for context and devices and pass them through the
@@ -324,13 +377,15 @@ fail once. Bounds are written here before any run.
 - **G2. Chat's choices are preserved.** Before Phase 3, record what Chat's `"auto"` picks (context
   length, chunk, `bounded_by_prefill`) for Gemma 4 12B FP4, Llama 3.1 8B FP4, Qwen 3.8 27B FP4 and cb2-3,
   on each card that holds them, pinned by UUID, with the free memory each run saw. After Phase 3, the
-  planner given those readings picks the same values.
+  planner given those readings picks the same values, and its context limit is `FullPrefillChunk`
+  exactly where the table says "held back for a full chunk".
 - **G3. Pricing does not read the bound context.** The same graph priced with two different granularities
   in `BuildContext` gives two different, individually correct predictions.
 - **G4. A fixed request agrees with the planner.** For each plan G1 builds, a request fixing every knob to
-  that plan's values yields an identical plan: same values, footprints and feasibility.
-- **G5. Alternatives are real plans.** For a model that fits one card, each alternative loads and passes
-  G1 on its own device set.
+  that plan's values yields an identical plan: same values and footprints, with each fixed value's limit
+  `FixedByCaller`. A request fixing a context the planner refused yields the same refusal reason.
+- **G5. Every ranked plan is a real plan.** For a model that fits one card, each entry of `rankedPlans()`
+  loads and passes G1 on its own device set.
   **Recorded 2026-09-23 at `0.21.0-dev+3`** (`x64-claude-verify`, Release, both GPUs visible, card chosen
   with `--device`, `mila-chat -p --output-format json`, whose `context_measurement` carries these fields).
   Free memory is the scan's own reading; the planner is given it after Phase 3 and must pick the same row.
@@ -348,13 +403,21 @@ fail once. Bounds are written here before any run.
 
   Qwen FP4 on the 4070 has no plan: the scan found no fitting context, fell back to 4096, and Chat
   attempted the load anyway and failed on allocation (exit 5, weights 13.20 GB against 10.85 GB). After
-  Phase 3 that row is a refusal naming `NoDeploymentWeightsExceedAllDevices`, not a failed load.
+  Phase 3 that row is a refusal with reason `WeightsExceedDevice`, not a failed load.
+
+  **The free bytes above were read before the scan constructed a graph; the planner reads after
+  (section 9).** Construction holds 4 MiB on both cards, the cuBLASLt workspace. Given the recorded
+  reading unchanged, the planner puts Gemma on the 4070 at 122880, one step above the table: 122880 at a
+  1024-row chunk needs 11644619776 bytes, 865 KB under the recorded reading and 3.2 MB over the reading
+  less those 4 MiB. Chat's old scan budgeted against the first reading and chose chunks against the
+  second, so the table reflects both. G2 therefore gives the planner the recorded reading less what
+  construction measurably holds, and every row matches.
 
 - **Negatives.** N1: the transformer re-reads free memory during build — G1 fails on the display card
   when free memory is changed between plan and build. N2: rules 3 and 4 swapped — G2 fails. N3:
   granularity taken from the bound context — G3 fails. N4: a plan priced for Gemma 4 12B passed with
-  Llama 3.1 8B's package — the load refuses before constructing anything. N5: an infeasible plan passed
-  to `load` — refused, and no device memory is allocated.
+  Llama 3.1 8B's package — the load refuses before constructing anything. (An N5 for an infeasible plan
+  passed to `load` was retired on 2026-09-23: under section 3.3 no such plan can exist.)
 
 ---
 
@@ -373,7 +436,7 @@ reading. *Exit:* G1 on the single-device matrix; N1. Re-run the open display-car
 record whether it clears.
 *Met at `0.21.0-dev+5`:* `BuildContext` carries the chunk and no longer carries free memory; an inference
 context without a chunk is refused by both `getRequiredMemory` and `build`. The rung walk is `choosePrefillChunk`
-(`Models/PrefillChunkRule.ixx`), called by `load` and `getDeploymentFootprint` against the one reading each takes
+(`Deployment/PrefillChunkRule.ixx`), called by `load` and `getDeploymentFootprint` against the one reading each takes
 after construction. G1 is `PlanEqualsBuildCudaTests` (the four models, every rung whose predicted total fits the
 free memory read) and `PrefillChunkRuleCudaTests.*_EveryRungBuildsWhatItPrices` (a synthetic geometry per family,
 every rung): prediction equals build in every category on both cards. Qwen FP4 on the RTX 4070 has no rung, its
@@ -385,9 +448,24 @@ and real. The display-card failure clears: `GemmaFootprintCudaTests.PredictedFit
 (the successor of `GetRequiredMemory_BoundsActualConsumption`) and Llama's passed on the RTX 4070 with predicted
 equal to reported. G2 re-run: all eight rows identical, free bytes included.
 
-**Phase 3 — `planDeployment` on one device.** The request, plan and binding constraints; Chat's `"auto"`
+**Phase 3 — `planDeployment` on one device.** The request, the ranked plans with their limits, and the
+refusal with its reason; Chat's `"auto"`
 context and fit grading move into it and are deleted from Chat. *Exit:* G2 and N2; Chat piped sessions for
 every family.
+*Met at `0.21.0-dev+6`:* the types of section 3.3 are `Deployment/`, one per file, and the decision is
+one function, `planOnDevice`, which every family's `planDeployment` calls after constructing its graph and
+taking its one reading. `load( path, config, device )` is now the fully fixed request, so it refuses a context
+that does not fit rather than attempting it. G2 is `DeploymentPlannerG2CudaTests` (all eight rows, both cards'
+readings checked on either card, G4 on each) and the same eight through `mila-chat -p --output-format json`
+on both cards: identical choices, free bytes 4 MiB lower than recorded (section 10), and the Qwen FP4 row on
+the RTX 4070 a refusal naming its 13.20 GB of weights against 10.84 GB free, where Chat used to fail on
+allocation. `DeploymentPlannerCudaTests.*_AgreesWithTheObjectiveAtEveryBudget` holds the planner against an
+oracle that prices every candidate, at every budget where the answer can change. N2 forced once by taking the
+first memory fit: every G2 model and both oracle tests failed -- Llama on the RTX 4070 went to 30720 at a
+128-row chunk instead of 13312 at 512. N4 is `DeploymentLoadCudaTests.APlanIsRefusedForAPackageItWasNotPricedFor`.
+Chat piped sessions: Gemma, Llama, Qwen FP4 and cb2-3 answered under `auto`, Gemma at a fixed 8192, and a fixed
+131072 for Llama was refused before allocating. Suite: 2010 pass on the RTX 4070, 2012 on the RTX 5060 Ti.
+The `/model list` column still prices capacity rather than reading plans (section 8, open on 12.5).
 
 **Phase 4 — the binding and MIS.** `context_length="auto"` for Python and MIS; samples and documents
 updated. *Exit:* a QuickStart Python session and an MIS request each run with `auto`.
@@ -400,7 +478,7 @@ here as a new dimension of the planner, not beside it.
 ## 12. Open Decisions
 
 1. **Does the planner ever choose the weight format? DECIDED 2026-09-23: no, for this spec's
-   phases** — the caller fixes it; the plan reports whether it fits. For a BF16 package, FP8 against
+   phases** — the caller fixes it; a format that fits nowhere is a refusal. For a BF16 package, FP8 against
    FP4 is a quality trade, not only a memory one.
 
    **Direction beyond these phases (Todd, 2026-09-16):** a caller names only the base model — "Gemma 4
@@ -409,20 +487,28 @@ here as a new dimension of the planner, not beside it.
    objective with the variants' footprints as candidates, and it needs a statement of how a quality
    difference between variants is ranked against memory. Not designed here; it builds on Phase 3 and on
    `ModelDistribution.md`'s store.
-2. **A fixed value that does not fit. DECIDED 2026-09-16: refused.** The plan is infeasible and a load of it
-   is refused, whichever depth the caller used (section 7). This changes a published Chat behaviour: an
-   explicit `context_length` is today "honoured as written, with a warning if it will not fit" (Chat's
-   `--help`, `ChatConfiguration.md` §6); from Phase 3 it is refused, naming the binding constraint.
+2. **A fixed value that does not fit. DECIDED 2026-09-16: refused.** There is no plan; the planner returns
+   a refusal and `load( path, request )` throws it, whichever depth the caller used (sections 3.3 and 7).
+   This changes a published Chat behaviour: an explicit `context_length` is today "honoured as written, with
+   a warning if it will not fit" (Chat's `--help`, `ChatConfiguration.md` §6); from Phase 3 it is refused,
+   naming the reason.
 6. **The library's default request. DECIDED 2026-09-16:** every plannable knob `auto`, weight format the
    package's own, headroom zero. Adaptors may pin any of it — Chat's device default is `LayerSplit.md` 12.3.
-7. **Names.** `DeploymentRequest`, `DeploymentPlan`, `planDeployment`, `alternatives`, `feasible` and
-   `bindingConstraint` are working names.
+7. **Names and the result shape. DECIDED 2026-09-23** (Todd), as the shape to start from and expected to
+   move once real callers use it: `planDeployment` returns `std::expected<DeploymentPlans, DeploymentRefusal>`
+   (section 3.3). Replaced: an always-returned plan marked `feasible` (it let `load` be handed a plan it
+   cannot run, and "feasible" overpromises on a display card), `alternatives` on the plan (a loaded model
+   would carry plans it is not running; "alternatives" also left unsaid whether the choice was among them)
+   -- now `rankedPlans()` on the result, best included -- and `bindingConstraint`, split into a limit per
+   value (`contextLimitedBy`, `prefillChunkLimitedBy`) and a refusal's `reason` (section 6).
+   `availablePlans` was declined: "available" already names free device memory throughout Mila.
 3. **Headroom defaults. DECIDED 2026-09-23: zero in the library; the adaptors choose.** The
    alternative was Chat, MIS and the binding sharing one non-zero default. llama.cpp defaults its per-device margin to
    1024; Chat removed its own stacked margins in `MemoryFootprint.md` Phase 6 step 4 because the
    prediction already counts what Mila allocates.
-4. **A family-neutral `planDeployment`.** One entry point reading the family from the package, or one per
-   family. Chat's catalog already dispatches on family; the binding does too.
+4. **A family-neutral `planDeployment`. DECIDED 2026-09-23 (Todd): one per family, for now.** Chat's
+   catalog already dispatches on family, and so does the binding. A family-neutral entry point reading the
+   family from the package can be added later beside the per-family ones without changing them.
 5. **Planning for hardware that is not present.** Section 4 makes it possible. Whether the request can
    carry described devices instead of readings is a later decision.
 

@@ -210,12 +210,14 @@ duplicated per adaptor.
 
 ## 6. `context_length: "auto"`
 
-**Post-v0.20 direction (2026-09-16): `Deployment.md`.** What `"auto"` resolves to, described below, moves
-into the library's deployment planner unchanged (its Phase 3, gated on reproducing Chat's choices), where
-MIS and the Python binding get it too, and where `"device": "auto"` joins it (`LayerSplit.md` section 8).
-One behaviour changes then (decided 2026-09-16, `Deployment.md` 12.2): an explicit `context_length` that
-will not fit is refused, naming the binding constraint, where it is honoured with a warning today. Until
-then this section describes Chat as it is.
+**Moved into the library at `0.21.0-dev+6` (`Deployment.md` Phase 3).** What `"auto"` resolves to, described
+below, is now decided by the library's deployment planner, unchanged: Chat sends a `DeploymentRequest` --
+the context automatic below the family ceiling, or fixed -- and reports the plan the load ran or the refusal
+it got. G2 reproduced every choice Chat made before the move. MIS and the Python binding reach the same
+planner in Phase 4, and `"device": "auto"` joins it in Phase 5 (`LayerSplit.md` section 8). One behaviour
+changed (decided 2026-09-16, `Deployment.md` 12.2): an explicit `context_length` that will not fit is
+refused, naming what it needs and what is free, where it used to be attempted with a warning. The rest of
+this section is how the rule was reached, and stays as its record.
 
 Neither a family nor a model default knows the user's card. Gemma 4 12B FP4 at 8192 measured
 **11.07 of 11.99 GB** on an RTX 4070 — at the edge. The same model on 24 GB could take far
@@ -359,6 +361,11 @@ Context 56320 (auto, 11.99 GB device, held to a full 1024-row prefill chunk)
 ```
 
 ### When auto cannot answer
+
+*Superseded at `0.21.0-dev+6`: there is no fallback. When nothing fits -- the weights alone exceed the
+card, or no context at or above the floor fits -- or the device reports no memory, the planner refuses and
+Chat does not load, saying what the model needs and what is free (`Deployment.md` sections 6 and 12.2).
+Loading the family default anyway was what turned a model too large for the card into a failed allocation.*
 
 Derivation fails honestly rather than silently: no CUDA device, a family with no footprint entry
 point, an unreadable artifact. Auto then falls back to `default_context_length`, and to the

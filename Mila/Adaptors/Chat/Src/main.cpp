@@ -431,7 +431,7 @@ static void printUsage( const char* prog_name )
         << "                     or /model install. There is no default: a fresh store has no model.\n"
         << "  context_length     Maximum sequence length, or \"auto\" (the default) to measure\n"
         << "                     the largest that fits this device. An explicit number is\n"
-        << "                     honoured as written, with a warning if it will not fit.\n"
+        << "                     used as written, and a model that does not fit at it is not loaded.\n"
         << "  thinking_effort    1-5 token-budget scale for reasoning (default 3 = balanced).\n"
         << "                     Reasoning is surfaced whenever the model has that channel.\n"
         << "  verbose            display detail: off | thoughts | all (default off).\n"
@@ -738,10 +738,6 @@ static std::optional<std::filesystem::path> resolveSystemPrompt(
 struct StartupConfig
 {
     ChatConfig config;
-
-    /// The automatic-context scan startup ran, handed to the session so /context and the one-shot
-    /// JSON report the scan that chose the number rather than only the number.
-    std::optional<ResolvedContext> measured_context;
 };
 
 static StartupConfig buildConfig( const CommandLine& line )
@@ -943,21 +939,10 @@ static StartupConfig buildConfig( const CommandLine& line )
         // the FILE a layer wrote from, which the layer alone cannot say.
         config.context_origin = settings.describeOrigin( "context_length" );
 
-        if ( request.automatic && resolved )
+        if ( request.automatic )
         {
-            const ResolvedContext measured = resolveAutomaticContext(
-                config.model_path, config.model_type, config.precision,
-                config.quantization_mode, traits.max_context, traits.default_context,
-                config.device_index );
-
-            config.context_length = measured.context_length;
-            config.context_is_automatic = true;
-            startup.measured_context = measured;
-        }
-        else if ( request.automatic )
-        {
-            // No model to measure, so nothing to measure it against. The session opens with
-            // nothing selected and /model resolves the context when one is chosen.
+            // Decided by the load, which plans the context for the model it loads against the card
+            // as it stands then (Deployment.md). With no model yet, /model's load decides it.
             config.context_is_automatic = true;
         }
         else
@@ -1132,7 +1117,7 @@ int main( int argc, char* argv[] )
             }
         }
 
-        Chat chat( std::move( config ), std::move( startup.measured_context ) );
+        Chat chat( std::move( config ) );
 
         // Probe stub for the Gemma 4 native tool-call format experiment
         // (GemmaChatProtocol.md): returns a canned reading, no real lookup.

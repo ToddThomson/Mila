@@ -13,6 +13,8 @@ module;
 #include <sstream>
 #include <cstdint>
 #include <cstddef>
+#include <expected>
+#include <string_view>
 #include <stdexcept>
 #include <filesystem>
 #include <format>
@@ -35,7 +37,14 @@ import Dnn.GenerateParams;
 import Dnn.GenerateStatus;
 import Dnn.LanguageModelNetwork;
 import Dnn.Models.QuantizationDispatch;
-import Dnn.Models.PrefillChunkRule;
+import Deployment.PrefillChunkRule;
+import Deployment.DeviceReading;
+import Deployment.DeploymentRequest;
+import Deployment.DeploymentPlan;
+import Deployment.DeploymentPlans;
+import Deployment.DeploymentRefusal;
+import Deployment.DeploymentRefusedError;
+import Deployment.DeploymentPlanner;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Quantization.KvCache.QuantPolicy;
@@ -66,6 +75,7 @@ import Logging.Logger;
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Deployment;
     using namespace Mila::Dnn::Serialization;
     using namespace Mila::Dnn::Quant::Weight;
     using namespace Mila::Dnn::Quant::KvCache;
@@ -115,39 +125,90 @@ namespace Mila::Dnn
         ~LlamaModel() = default;
 
         /**
-         * @brief Load Llama from a Mila weights file.
+         * @brief Decide how this package would run on the request's device, allocating nothing.
          *
-         * Reads a Mila weights file (e.g. converted from a
-         * HuggingFace LLaMA checkpoint) via WeightsReader. The network
-         * is built at the context length specified in model_config so RoPE
-         * embeddings and KV cache buffers cover the full range.
+         * Reads the weights header, constructs the graph, takes one reading of the device and plans against
+         * it (Specifications/Deployment.md). Nothing fitting is an answer, not an error: the refusal names why.
          *
-         * The model_config carries all deployment decisions:
-         *   - context_length     -- maximum sequence length to build for
-         *   - weight_quantization -- compile-time dispatch to quantized or BF16 path
-         *   - kv_cache_compression -- compile-time dispatch to KV cache policy
+         * @throws std::invalid_argument on a device type mismatch, or a context length past the trained maximum.
+         * @throws std::runtime_error    on an unreadable package or an unsupported quantization.
+         */
+        static std::expected<DeploymentPlans, DeploymentRefusal> planDeployment(
+            const std::filesystem::path& path,
+            const DeploymentRequest& request )
+        {
+            const DeviceId device = requireDevice( "LlamaModel::planDeployment",
+                request.getDevice().value_or( DeviceId{ TDeviceType, 0 } ) );
+
+            return dispatchWeightQuantization<TPrecision, LlamaKvPolicy, std::expected<DeploymentPlans, DeploymentRefusal>>(
+                request.getWeightQuantization(), request.getKvCacheCompression(), "LlamaModel::planDeployment",
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                {
+                    return planImpl<TWeightQuantization, TKvCachePolicy>( path, request, device );
+                } );
+        }
+
+        /**
+         * @brief Load exactly this plan: its device, context length and prefill chunk, decided nowhere else.
          *
-         * @param path          Path to the Llama weights file.
-         * @param model_config  Deployment configuration for this load.
-         * @param device_id     Target device; must match TDeviceType.
-         * @return              Inference-ready LlamaModel.
+         * @throws std::invalid_argument when the package is not the one the plan was priced for.
+         * @throws std::runtime_error    on load failure, including an allocation that free memory no longer
+         *                               covers -- a load never re-plans.
+         */
+        static std::unique_ptr<LlamaModel<TDeviceType, TPrecision>> load(
+            const std::filesystem::path& path,
+            const DeploymentPlan& plan )
+        {
+            requireDevice( "LlamaModel::load", plan.device() );
+
+            // Runtime -> compile-time bridge. PerGroupFp4<128> quantizes BF16 weights on load
+            // to packed FP4 E2M1 nibbles with per-group float32 scales, consumed by the W4A16
+            // kernel with E2M1 decode inline. Llama's chassis has no sliding-window layers, so
+            // its KV policy is NoKvCompression throughout.
+            return dispatchWeightQuantization<TPrecision, LlamaKvPolicy, std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>>(
+                plan.weightQuantization(), plan.kvCacheCompression(), "LlamaModel::load",
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                {
+                    return loadImpl<TWeightQuantization, TKvCachePolicy>( path, plan );
+                } );
+        }
+
+        /**
+         * @brief Plan the request and load its best plan.
          *
-         * @throws std::invalid_argument on device type mismatch or zero context length.
-         * @throws std::runtime_error    on load or parameter binding failure.
-         * @throws std::runtime_error    if model_config requests unsupported quantization (e.g. FP4).
+         * @throws DeploymentRefusedError when nothing fits, carrying the refusal.
+         */
+        static std::unique_ptr<LlamaModel<TDeviceType, TPrecision>> load(
+            const std::filesystem::path& path,
+            const DeploymentRequest& request )
+        {
+            const auto planned = planDeployment( path, request );
+
+            if ( !planned )
+            {
+                throw DeploymentRefusedError( "LlamaModel::load", planned.error() );
+            }
+
+            return load( path, planned->best() );
+        }
+
+        /**
+         * @brief Load Llama at a fixed context length: the request every value of which is fixed.
+         *
+         * The model_config carries the deployment decisions (context length, weight quantization, KV-cache
+         * compression); every architectural parameter is read from the checkpoint metadata. A context length
+         * that does not fit is refused rather than attempted (Deployment.md 12.2).
+         *
+         * @throws std::invalid_argument  on device type mismatch or zero context length.
+         * @throws DeploymentRefusedError when the context length does not fit the device.
+         * @throws std::runtime_error     on load failure or unsupported quantization.
          */
         static std::unique_ptr<LlamaModel<TDeviceType, TPrecision>> load(
             const std::filesystem::path& path,
             const LlamaModelConfig& model_config,
             DeviceId device_id = DeviceId{ TDeviceType, 0 } )
         {
-            if ( device_id.type != TDeviceType )
-            {
-                throw std::invalid_argument( std::format(
-                    "LlamaModel::load: device type mismatch: expected {}, got {}",
-                    deviceTypeToString( TDeviceType ),
-                    deviceTypeToString( device_id.type ) ) );
-            }
+            requireDevice( "LlamaModel::load", device_id );
 
             if ( model_config.getContextLength() == 0 )
             {
@@ -155,21 +216,13 @@ namespace Mila::Dnn
                     "LlamaModel::load: context_length must be greater than zero" );
             }
 
-            // Runtime -> compile-time bridge. PerGroupFp4<128> quantizes BF16 weights on load
-            // to packed FP4 E2M1 nibbles with per-group float32 scales, consumed by the W4A16
-            // kernel with E2M1 decode inline. Llama's chassis has no sliding-window layers, so
-            // its KV policy is NoKvCompression throughout.
-            return dispatchWeightQuantization<
-                    TPrecision, LlamaKvPolicy,
-                    std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>>(
-                model_config.getWeightQuantization(),
-                model_config.getKvCacheCompression(),
-                "LlamaModel::load",
-                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
-                {
-                    return loadImpl<TWeightQuantization, TKvCachePolicy>(
-                        path, model_config, device_id );
-                } );
+            return load( path, DeploymentRequest::fromModelConfig( model_config ).withDevice( device_id ) );
+        }
+
+        /// The plan this model was loaded with: what it runs, not a second derivation of it.
+        const DeploymentPlan& getDeploymentPlan() const noexcept
+        {
+            return plan_;
         }
 
         /**
@@ -429,67 +482,73 @@ namespace Mila::Dnn
         explicit LlamaModel(
             std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             const LlamaConfig& config,
-            int64_t context_length,
+            const DeploymentPlan& plan,
             RuntimeMode runtime_mode,
-            Serialization::WeightsMetadata source_metadata = {},
-            WeightQuantization weight_quantization = WeightQuantization::None )
+            Serialization::WeightsMetadata source_metadata )
             : ModelBase( std::move( network ), runtime_mode,
-                std::move( source_metadata ), weight_quantization )
-            , config_( config ), context_length_( context_length )
+                std::move( source_metadata ), plan.weightQuantization() )
+            , config_( config ), context_length_( plan.contextLength() ), plan_( plan )
             , decode_token_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1 } )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
             , logits_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1, static_cast<int64_t>( config.getVocabSize() ) } )
         {}
 
+        static DeviceId requireDevice( std::string_view caller, DeviceId device_id )
+        {
+            if ( device_id.type != TDeviceType )
+            {
+                throw std::invalid_argument( std::format(
+                    "{}: device type mismatch: expected {}, got {}", caller,
+                    deviceTypeToString( TDeviceType ), deviceTypeToString( device_id.type ) ) );
+            }
+
+            return device_id;
+        }
+
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
-        static std::unique_ptr<LlamaModel<TDeviceType, TPrecision>> loadImpl(
+        static std::expected<DeploymentPlans, DeploymentRefusal> planImpl(
             const std::filesystem::path& path,
-            const LlamaModelConfig& model_config,
+            const DeploymentRequest& request,
             DeviceId device_id )
         {
             WeightsReader reader( path );
             const auto& metadata = reader.getWeightsMetadata();
 
             requireStoredQuantizationMatches(
+                "LlamaModel::planDeployment", path.string(), reader.getWeightQuantization(),
+                request.getWeightQuantization() );
+
+            const LlamaConfig network_config = configFromMetadata( metadata );
+
+            // Construction commits no device memory, but it creates the execution context, which holds some;
+            // the reading is taken after it, as the load's build will find the device (Deployment.md 9).
+            const LlamaTransformer<TDeviceType, TPrecision, TWeightQuantization, TKvCachePolicy> network(
+                metadata.model_name, network_config, device_id );
+
+            return planOnDevice( network, request, DeviceReading::take( device_id ),
+                network_config.getMaxSequenceLength(), metadata, reader.getWeightQuantization() );
+        }
+
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
+        static std::unique_ptr<LlamaModel<TDeviceType, TPrecision>> loadImpl(
+            const std::filesystem::path& path,
+            const DeploymentPlan& plan )
+        {
+            WeightsReader reader( path );
+            const auto& metadata = reader.getWeightsMetadata();
+
+            plan.requirePricedFor( "LlamaModel::load", path.string(), metadata, reader.getWeightQuantization() );
+
+            requireStoredQuantizationMatches(
                 "LlamaModel::load", path.string(), reader.getWeightQuantization(),
-                model_config.getWeightQuantization() );
+                plan.weightQuantization() );
 
-            LlamaConfig network_config = configFromMetadata( metadata );
-
-            if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
-            {
-                throw std::invalid_argument( std::format(
-                    "LlamaModel::load: context_length {} exceeds max_seq_len {}",
-                    model_config.getContextLength(),
-                    network_config.getMaxSequenceLength() ) );
-            }
+            const LlamaConfig network_config = configFromMetadata( metadata );
 
             using ConcreteTransformerType = LlamaTransformer<TDeviceType, TPrecision, TWeightQuantization, TKvCachePolicy>;
-            auto network = std::make_unique<ConcreteTransformerType>( metadata.model_name, network_config, device_id );
+            auto network = std::make_unique<ConcreteTransformerType>( metadata.model_name, network_config, plan.device() );
 
-            auto context_length = model_config.getContextLength();
-
-            // The one reading this load takes, after construction as deploymentFootprintImpl takes
-            // its own. The build executes the chunk chosen against it and reads nothing itself.
-            const BuildContext priced =
-                BuildContext( shape_t{ 1, static_cast<dim_t>( context_length ) }, RuntimeMode::Inference, false )
-                .withAllocationGranularity( allocationGranularity( device_id ) );
-            const std::size_t free_bytes = readFreeDeviceBytes( device_id );
-            const PrefillChunking prefill = choosePrefillChunk( *network, priced, free_bytes );
-            const BuildContext build_context = priced.withPrefillSize( prefill.chunk_rows );
-
-            // A prediction must not warn -- a scan asks at many context lengths the user never
-            // chose -- so the warning belongs here, on the path that is about to allocate.
-            if ( !prefill.fits_available_memory )
-            {
-                Logging::Logger::warning( std::format(
-                    "LlamaModel::load: at the smallest prefill chunk ({} rows) the model needs {} bytes of "
-                    "device memory and {} are free",
-                    prefill.chunk_rows, network->getRequiredMemory( build_context ).totalDeviceBytes(),
-                    free_bytes ) );
-            }
-
-            network->build( build_context );
+            network->build( plan.buildContext() );
 
             Logging::Logger::info( network->toString() );
 
@@ -497,9 +556,7 @@ namespace Mila::Dnn
 
             return std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>(
                 new LlamaModel<TDeviceType, TPrecision>(
-                    std::move( network ), network_config,
-                    static_cast<int64_t>( context_length ), RuntimeMode::Inference,
-                    metadata, model_config.getWeightQuantization() ) );
+                    std::move( network ), network_config, plan, RuntimeMode::Inference, metadata ) );
         }
 
         /**
@@ -552,6 +609,10 @@ namespace Mila::Dnn
 
         LlamaConfig config_;
         int64_t context_length_;
+
+        // The plan this model executed; reported, never re-derived.
+        DeploymentPlan plan_;
+
         Tensor<dtype_t::INT32, StagingMR> decode_token_staging_;
         TokenIndexType decode_token_device_;
         Tensor<TensorDataType::FP32, StagingMR> logits_staging_;

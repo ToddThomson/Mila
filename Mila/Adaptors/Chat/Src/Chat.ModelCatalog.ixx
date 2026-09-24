@@ -554,7 +554,7 @@ namespace Mila::ChatApp
      *
      * Every rung is tried rather than stopping at the first miss, because the footprint curve is
      * NOT monotonic in context: it drops where prefill chunking caps the activation buffers (see
-     * Chat.Footprint.ixx), so a rung that does not fit does not prove the ones below it will not.
+     * Deployment.md section 5), so a rung that does not fit does not prove the ones below it will not.
      * Measured 2026-08-17 a probe is 1-2 ms, which is what makes trying all of them affordable.
      *
      * The bottom rungs exist for a card with little room rather than for a family with a low
@@ -606,7 +606,7 @@ namespace Mila::ChatApp
     {
         /// Measured but not displayed. A single rung quoted in the table read as a promise it could
         /// not keep -- the top rung claimed 128K for Gemma where the session runs 56320, because the
-        /// ladder tests memory alone where `resolveAutomaticContext` also requires an unconstrained
+        /// ladder tests memory alone where the library's planner also requires an unconstrained
         /// prefill chunk. Kept because it is what the search actually found, and because a CONTEXT
         /// column would need exactly this and the chunk test alongside it.
         Mila::Dnn::dim_t context_length{ 0 };

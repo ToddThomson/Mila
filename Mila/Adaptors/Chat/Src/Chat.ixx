@@ -62,6 +62,7 @@ namespace Mila::ChatApp
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Deployment;
     using namespace Mila::Data;
 
     using LlamaModelFP32Type = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
@@ -90,13 +91,8 @@ namespace Mila::ChatApp
          * @param config Session configuration.
          * @throws std::runtime_error on system prompt load failure.
          */
-        /**
-         * @param startup_measurement The automatic-context scan startup ran before this session
-         *        existed, when it ran one. Taken here because it is the same fact a switch's own
-         *        scan records, and without it the first model's context has no provenance.
-         */
-        explicit Chat( ChatConfig config, std::optional<ResolvedContext> startup_measurement = std::nullopt )
-            : config_( std::move( config ) ), last_measured_context_( std::move( startup_measurement ) )
+        explicit Chat( ChatConfig config )
+            : config_( std::move( config ) )
         {
             loadSystemPrompt();
         }
@@ -535,20 +531,20 @@ namespace Mila::ChatApp
             // no context and got 83968 has the same right to know why as a reader of the banner.
             payload[ "context_source" ] = config_.context_is_automatic ? "auto" : "configured";
 
-            // What auto measured against and what it traded, so a script can reproduce the choice:
-            // the free memory is the input that moves between runs on a card driving a display.
-            if ( config_.context_is_automatic && last_measured_context_
-                && last_measured_context_->fallback_reason.empty() )
+            // What the plan was decided against and what it traded, so a script can reproduce the
+            // choice: the free memory is the input that moves between runs on a card driving a display.
+            if ( config_.context_is_automatic && deployment_plan_ )
             {
-                const ResolvedContext& measured = *last_measured_context_;
+                const DeploymentPlan& plan = *deployment_plan_;
 
                 payload[ "context_measurement" ] = {
                     { "device", config_.device_index },
-                    { "device_total_bytes", measured.device_total_bytes },
-                    { "device_free_bytes", measured.device_free_bytes },
-                    { "prefill_chunk_rows", measured.prefill.chunk_rows },
-                    { "unconstrained_chunk_rows", measured.prefill.unconstrained_chunk_rows },
-                    { "bounded_by_prefill", measured.bounded_by_prefill } };
+                    { "device_total_bytes", plan.reading().total_bytes },
+                    { "device_free_bytes", plan.reading().free_bytes },
+                    { "prefill_chunk_rows", plan.prefillChunkRows() },
+                    { "unconstrained_chunk_rows", plan.prefillChunking().unconstrained_chunk_rows },
+                    { "bounded_by_prefill", plan.contextLimitedBy() == DeploymentPlan::ContextLimit::FullPrefillChunk },
+                    { "context_limit", std::string( DeploymentPlan::nameOf( plan.contextLimitedBy() ) ) } };
             }
 
             payload[ "tokens_generated" ] = tokens;
@@ -1511,26 +1507,16 @@ namespace Mila::ChatApp
             // avoiding a transient old+new peak that overflows the VRAM budget
             // and forces WDDM to spill into shared system memory.
             //
-            // It also has to happen before the scan below: every prediction picks its prefill
-            // chunk against the device's FREE memory, so a scan taken while the outgoing model is
-            // resident measures a card that still holds it.
+            // It also has to happen before the load plans: the planner reads the device's FREE
+            // memory, so a plan made while the outgoing model is resident describes a card that
+            // still holds it.
             std::visit( []( auto& m ) { m.reset(); }, model_ );
 
-            if ( config_.context_is_automatic )
-            {
-                // Auto means "whatever fits the card", and what fits depends on the model, so a
-                // switch re-measures rather than carrying a number derived for the model being
-                // replaced -- which is the defect configured_context_length exists to prevent,
-                // in the one shape that field cannot express.
-                const ResolvedContext measured = resolveAutomaticContext(
-                    config_.model_path, config_.model_type, config_.precision,
-                    config_.quantization_mode, traits.max_context, traits.default_context,
-                    config_.device_index );
-
-                last_measured_context_ = measured;
-                config_.context_length = measured.context_length;
-            }
-            else if ( prev_type != config_.model_type || config_.context_length == 0 )
+            // Under auto the load plans the context for the model being loaded, rather than carrying
+            // a number derived for the one being replaced -- the defect configured_context_length
+            // exists to prevent, in the one shape that field cannot express.
+            if ( !config_.context_is_automatic
+                && ( prev_type != config_.model_type || config_.context_length == 0 ) )
             {
                 const std::size_t configured = config_.configured_context_length;
 
@@ -1951,27 +1937,13 @@ namespace Mila::ChatApp
                 return;
             }
 
-            // From the scan this model's own load ran, not a fresh one: a scan with the model
-            // resident would measure a card that still holds it (MemoryFootprint.md 11.6).
-            if ( !last_measured_context_ )
+            // From the plan this model's own load ran, not a fresh one: a plan made with the model
+            // resident would describe a card that still holds it.
+            if ( !deployment_plan_
+                || deployment_plan_->contextLimitedBy() == DeploymentPlan::ContextLimit::FixedByCaller )
             {
-                // No scan to show: the context was named rather than measured, or startup's scan
-                // was not handed to this session.
-                std::cout << ( config_.context_is_automatic
-                    ? std::format( "  {:<16}{}  (measured at startup)\n",
-                        "Largest fit:", config_.context_length )
-                    : std::format( "  {:<16}not measured (set /context auto to measure it)\n",
-                        "Largest fit:" ) );
-
-                return;
-            }
-
-            const ResolvedContext& measured = *last_measured_context_;
-
-            if ( !measured.fallback_reason.empty() )
-            {
-                std::cout << std::format( "  {:<16}not measured ({})\n",
-                    "Largest fit:", measured.fallback_reason );
+                std::cout << std::format( "  {:<16}not measured (set /context auto to measure it)\n",
+                    "Largest fit:" );
 
                 return;
             }
@@ -1979,16 +1951,9 @@ namespace Mila::ChatApp
             // Why it stopped short is worth one clause here, where the reader asked about context
             // specifically -- it is the one place the prefill bound is not noise.
             std::cout << std::format( "  {:<16}{}{}\n",
-                "Largest fit:", measured.context_length,
-                measured.bounded_by_prefill
+                "Largest fit:", deployment_plan_->contextLength(),
+                deployment_plan_->contextLimitedBy() == DeploymentPlan::ContextLimit::FullPrefillChunk
                     ? "  (held back to keep a full prefill chunk)" : "" );
-
-            if ( measured.context_length != config_.context_length )
-            {
-                renderer_.printInfo( std::format(
-                    "  /context {} reloads there, /context auto keeps it measured.",
-                    measured.context_length ) );
-            }
         }
 
         /**
@@ -2055,41 +2020,17 @@ namespace Mila::ChatApp
                 return;
             }
 
-            const FamilyTraits traits = familyTraits( config_.model_type );
-
-            // Released before the scan, not after: every prediction picks its chunk against the
-            // device's free memory, so scanning with this model resident would measure a card that
-            // still holds it. The load below is what puts a model back, exactly as a switch does.
+            // Released before the load plans, not after: the planner reads the device's free memory,
+            // so planning with this model resident would describe a card that still holds it.
             const std::string name = modelName();
 
             std::visit( []( auto& model ) { model.reset(); }, model_ );
-
-            const ResolvedContext measured = resolveAutomaticContext(
-                config_.model_path, config_.model_type, config_.precision,
-                config_.quantization_mode, traits.max_context, traits.default_context,
-                config_.device_index );
-
-            last_measured_context_ = measured;
-
-            if ( !measured.fallback_reason.empty() )
-            {
-                renderer_.printError( std::format(
-                    "Could not measure a context for this card: {}.",
-                    measured.fallback_reason ) );
-
-                // The model was released to take the measurement, so put it back at the context
-                // the session already had rather than leaving the session empty.
-                loadActiveModel();
-
-                return;
-            }
 
             const std::size_t previous_length = config_.context_length;
             const bool previous_automatic = config_.context_is_automatic;
             const std::size_t previous_configured = config_.configured_context_length;
             const std::string previous_origin = config_.context_origin;
 
-            config_.context_length = measured.context_length;
             config_.context_is_automatic = true;
             config_.configured_context_length = 0;
             config_.context_origin = std::string( layerName( SettingsLayer::SessionOverride ) );
@@ -2099,20 +2040,32 @@ namespace Mila::ChatApp
                 loadActiveModel();
 
                 renderer_.printInfo( std::format(
-                    "Context {} is now re-measured on each load.", measured.context_length ) );
+                    "Context {} is now re-measured on each load.", config_.context_length ) );
+
+                return;
+            }
+            catch ( const std::exception& error )
+            {
+                renderer_.printError( std::format( "Could not reload {}: {}", name, error.what() ) );
+            }
+
+            // The model was released to plan, so put it back at the context the session already had
+            // rather than leaving the session empty.
+            config_.context_length = previous_length;
+            config_.context_is_automatic = previous_automatic;
+            config_.configured_context_length = previous_configured;
+            config_.context_origin = previous_origin;
+
+            try
+            {
+                loadActiveModel();
             }
             catch ( const std::exception& error )
             {
                 renderer_.printError( std::format(
-                    "Could not reload {} at context {}: {}", name, measured.context_length,
-                    error.what() ) );
+                    "Could not reload {} at context {}: {}", name, previous_length, error.what() ) );
 
                 std::visit( []( auto& model ) { model.reset(); }, model_ );
-
-                config_.context_length = previous_length;
-                config_.context_is_automatic = previous_automatic;
-                config_.configured_context_length = previous_configured;
-                config_.context_origin = previous_origin;
                 config_.model_name.clear();
             }
         }
@@ -2305,144 +2258,11 @@ namespace Mila::ChatApp
                 "'{}' is not a setting. Use temperature, top_k or top_p.", key ) );
         }
 
-        /**
-         * @brief Warn before the load when this model will not fit, and say nothing when it will.
-         *
-         * Silent on the fitting path deliberately: a load that is going to work needs no
-         * commentary, and this fires on every startup and every switch. What the model costs
-         * when it does fit is available on demand from /model.
-         *
-         * Costs nothing on the device: the graph is constructed, asked, and discarded without a
-         * weight being read. See Specifications/MemoryFootprint.md.
-         *
-         * Warn-and-proceed, deliberately -- there is no refusal here. What not fitting means
-         * depends on the driver model and neither outcome can be asserted in advance, so an
-         * over-eager refusal would block configurations that would have run.
-         */
-        void reportFootprintBeforeLoad()
-        {
-            const FootprintPrediction prediction =
-                predictActiveFootprint( static_cast<dim_t>( config_.context_length ) );
-
-            const std::optional<MemoryStats>& required = prediction.required;
-
-            if ( !required )
-            {
-                // Silent by contract -- a pre-flight must never be what stops a model being
-                // tried. At All the user has asked to see everything, and an absence with no
-                // reason is what left the predictor's own failure undiagnosed for a week.
-                if ( config_.detail == DetailLevel::All )
-                {
-                    renderer_.printInfo( std::format(
-                        "No footprint prediction for {}: {}.",
-                        modelName(), prediction.unavailable_reason ) );
-                }
-
-                return;
-            }
-
-            const std::size_t available =
-                availableDeviceBytes(
-                    queryDeviceMemory( config_.device_index ), residentDeviceBytes() );
-
-            // The same grader /model list uses, against a deliberately different budget: the
-            // listing asks what this card can run at all, where this asks whether one load
-            // succeeds on the machine as it stands. So a model the listing showed as fitting
-            // can still warn here, when something else is holding the memory -- which is the
-            // answer being asked for, not a disagreement.
-            const FootprintVerdict verdict = gradeFootprint( required, available );
-
-            if ( !isOverBudget( verdict ) )
-            {
-                return;
-            }
-
-            // The breakdown earns its place only here: weights against working memory is what
-            // says which lever applies.
-            renderer_.printInfo( std::format(
-                "{} at context {}: weights {}, working memory {}, about {} in total.",
-                modelName(), config_.context_length,
-                formatBytes( required->device_parameter_bytes ),
-                formatBytes( required->device_state_bytes ),
-                formatBytes( required->totalDeviceBytes() ) ) );
-
-            // One explanation of what not fitting means, shared with the listing. What the two
-            // verdicts differ on is which lever helps, not what happens.
-            renderer_.printError( doesNotFitExplanation( formatBytes( available ) ) );
-
-            if ( verdict == FootprintVerdict::WeightsExceedAvailable )
-            {
-                // Context is not the lever when the weights alone overflow, since they do not
-                // shrink with it. Quantization is, and only while the weights still permit it.
-                if ( config_.quantization_mode == QuantizationMode::None )
-                {
-                    renderer_.printInfo( std::format(
-                        "A shorter context will not help -- the weights alone are over. "
-                        "Quantizing on load is the lever -- try /model {} fp4.", modelName() ) );
-                }
-
-                return;
-            }
-
-            // The weights fit, so trimming context can bring the working memory under the line.
-            suggestFittingContext();
-        }
-
-        /**
-         * @brief Device memory the loaded model is holding, which a switch would give back.
-         *
-         * Asked of the model rather than predicted, since it is resident: a switch destroys it
-         * before allocating the replacement, so this is headroom a candidate can count on.
-         */
-        std::size_t residentDeviceBytes() const
-        {
-            return std::visit( []( const auto& model ) -> std::size_t
-                {
-                    return model ? model->getMemoryStats().totalDeviceBytes() : 0;
-                }, model_ );
-        }
-
         /// True once weights are actually on the device, which the session config cannot say --
         /// it names the model that will be loaded as readily as the one that is.
         bool modelIsResident() const
         {
             return !std::visit( []( const auto& model ) { return model == nullptr; }, model_ );
-        }
-
-        /**
-         * @brief Largest context length that would fit, reported as a suggestion.
-         *
-         * Asked through the same scan /context auto runs, for two reasons that both matter. The
-         * number is one the user can now GET -- this used to advise editing the chat config and
-         * restarting, which made it a measurement nobody could act on from where they were
-         * standing. And the scan descends the grid where this bisected: bisection assumes the
-         * footprint rises with context and Gemma's does not, it drops where prefill chunking caps
-         * the activation buffers, so a bisection can land the wrong side of that step and report a
-         * context shorter than one it had already accepted.
-         *
-         * From the scan this session's last load ran rather than a fresh one: a scan taken now
-         * would measure a card that still holds this model, and would suggest a context shorter
-         * than a reload would actually get. Silent when there is no such scan -- a suggestion the
-         * user cannot reproduce by typing the command it names would be worse than saying nothing.
-         */
-        void suggestFittingContext()
-        {
-            if ( !last_measured_context_ )
-            {
-                return;
-            }
-
-            const ResolvedContext& measured = *last_measured_context_;
-
-            if ( !measured.fallback_reason.empty()
-                || measured.context_length >= config_.context_length )
-            {
-                return;
-            }
-
-            renderer_.printInfo( std::format(
-                "Context {} would fit -- run /context {}, or /context auto to keep it measured.",
-                measured.context_length, measured.context_length ) );
         }
 
         /**
@@ -2478,15 +2298,14 @@ namespace Mila::ChatApp
         {
             // Checked against the key a user can edit, before anything is constructed. The
             // library's own guard is correct and names LanguageModelConfig, which is a type the
-            // reader of a session file has never heard of and cannot change.
-            if ( config_.context_length == 0 )
+            // reader of a session file has never heard of and cannot change. Under auto there is no
+            // number yet: the load plans one.
+            if ( !config_.context_is_automatic && config_.context_length == 0 )
             {
                 throw std::invalid_argument(
                     "context_length is zero. Set a positive 'context_length' in the session "
                     "config, or remove the key to take the model's own default." );
             }
-
-            reportFootprintBeforeLoad();
 
             if ( config_.detail == DetailLevel::All )
             {
@@ -2721,92 +2540,108 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Footprint of the session's model at a context length.
-         *
-         * The axes come from the session config rather than a store record, which is what
-         * makes this the load path's question: a prediction made under different settings
-         * than the load would use describes a different model.
+         * @brief The request this session's load sends: the model's formats, and the context either fixed
+         *        or left to the planner below the family's ceiling.
          */
-        FootprintPrediction predictActiveFootprint( dim_t context_length ) const
+        DeploymentRequest activeDeploymentRequest() const
         {
-            return Mila::ChatApp::predictFootprint(
-                config_.model_path,
-                config_.model_type,
-                config_.precision,
-                config_.quantization_mode,
-                context_length,
-                config_.device_index );
+            DeploymentRequest request =
+                deploymentRequestFor( config_.model_type, config_.quantization_mode, config_.device_index );
+
+            if ( config_.context_is_automatic )
+            {
+                request.withAutomaticContextLength(
+                    DeploymentRequest::kContextStep,
+                    static_cast<dim_t>( familyTraits( config_.model_type ).max_context ) );
+            }
+            else
+            {
+                request.withContextLength( static_cast<dim_t>( config_.context_length ) );
+            }
+
+            return request;
+        }
+
+        /**
+         * @brief A refusal in this session's words: what does not fit, against what, and what to try.
+         *
+         * The library names the reason and the numbers; the sentence is Chat's (Deployment.md section 6).
+         */
+        std::string describeRefusal( const DeploymentRefusal& refusal ) const
+        {
+            const std::string free = formatBytes( refusal.reading().free_bytes );
+
+            switch ( refusal.reason() )
+            {
+                case DeploymentRefusal::Reason::WeightsExceedDevice:
+                    return std::format(
+                        "its weights need {} and this GPU has {} free, so no context length fits.{}",
+                        formatBytes( refusal.footprint().device_parameter_bytes ), free,
+                        config_.quantization_mode == QuantizationMode::None
+                            ? std::format( " /model {} fp4 needs less.", modelName() ) : std::string{} );
+
+                case DeploymentRefusal::Reason::FixedContextDoesNotFit:
+                    return std::format(
+                        "context {} needs {} and this GPU has {} free. /context auto picks the longest that fits.",
+                        refusal.contextLength(), formatBytes( refusal.footprint().totalDeviceBytes() ), free );
+
+                case DeploymentRefusal::Reason::NothingAboveTheFloorFits:
+                    return std::format(
+                        "even context {} needs {} and this GPU has {} free.",
+                        refusal.contextLength(), formatBytes( refusal.footprint().totalDeviceBytes() ), free );
+
+                case DeploymentRefusal::Reason::DeviceDoesNotReportMemory:
+                    return "this GPU does not report its memory, so no context length can be chosen for it. "
+                           "Set one with /context <length>.";
+            }
+
+            return refusal.toString();
         }
 
         void loadModel()
         {
-            const DeviceId device{ DeviceType::Cuda, config_.device_index };
+            const DeploymentRequest request = activeDeploymentRequest();
 
-            switch ( config_.model_type )
+            // Loads, keeps the model and its plan, and takes the context length the plan resolved.
+            auto adopt = [&]( auto&& model )
+                {
+                    if ( config_.detail == DetailLevel::All )
+                    {
+                        std::cout << model->toString();
+                        std::cout << model->getMemoryStats().toString() << "\n";
+                    }
+
+                    deployment_plan_ = model->getDeploymentPlan();
+                    config_.context_length = static_cast<std::size_t>( deployment_plan_->contextLength() );
+                    model_ = std::move( model );
+                };
+
+            try
             {
-                case ModelType::Llama:
+                switch ( config_.model_type )
                 {
-                    LlamaModelConfig llama_config = LlamaModelConfig( config_.context_length );
+                    case ModelType::Llama:
+                        if ( config_.precision == ModelPrecision::BF16 )
+                            adopt( LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::load( config_.model_path, request ) );
+                        else
+                            adopt( LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::load( config_.model_path, request ) );
 
-                    if ( config_.quantization_mode == QuantizationMode::FP8 )
-                        llama_config.withFP8Quantization();
-                    else if ( config_.quantization_mode == QuantizationMode::FP4 )
-                        llama_config.withFP4Quantization();
+                        break;
 
-                    if ( config_.precision == ModelPrecision::BF16 )
-                    {
-                        auto llama_bf16 = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
-                            config_.model_path, llama_config, device );
-                        if ( config_.detail == DetailLevel::All )
-                        {
-                            std::cout << llama_bf16->toString();
-                            std::cout << llama_bf16->getMemoryStats().toString() << "\n";
-                        }
-                        model_ = std::move( llama_bf16 );
-                    }
-                    else
-                        model_ = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::load(
-                            config_.model_path, llama_config, device );
+                    case ModelType::Gemma:
+                        adopt( GemmaModelBF16Type::load( config_.model_path, request ) );
+                        break;
 
-                    break;
+                    case ModelType::Qwen:
+                        adopt( QwenModelBF16Type::load( config_.model_path, request ) );
+                        break;
                 }
+            }
+            catch ( const DeploymentRefusedError& error )
+            {
+                deployment_plan_.reset();
 
-                case ModelType::Gemma:
-                {
-                    GemmaModelConfig gemma_config = GemmaModelConfig( config_.context_length );
-
-                    if ( config_.quantization_mode == QuantizationMode::FP8 )
-                        gemma_config.withFP8Quantization();
-                    else if ( config_.quantization_mode == QuantizationMode::FP4 )
-                        gemma_config.withFP4Quantization();
-
-                    auto gemma = GemmaModelBF16Type::load(
-                        config_.model_path, gemma_config, device );
-                    if ( config_.detail == DetailLevel::All )
-                    {
-                        std::cout << gemma->toString();
-                        std::cout << gemma->getMemoryStats().toString() << "\n";
-                    }
-                    model_ = std::move( gemma );
-                    break;
-                }
-
-                case ModelType::Qwen:
-                {
-                    QwenModelConfig qwen_config = QwenModelConfig( config_.context_length );
-
-                    applyQwenQuantization( qwen_config, config_.quantization_mode );
-
-                    auto qwen = QwenModelBF16Type::load(
-                        config_.model_path, qwen_config, device );
-                    if ( config_.detail == DetailLevel::All )
-                    {
-                        std::cout << qwen->toString();
-                        std::cout << qwen->getMemoryStats().toString() << "\n";
-                    }
-                    model_ = std::move( qwen );
-                    break;
-                }
+                throw std::runtime_error( describeRefusal( error.refusal() ) );
             }
         }
 
@@ -3063,7 +2898,9 @@ Examples:
 
         /// The last automatic-context scan, taken with nothing resident. What /context reports and
         /// what a fit suggestion reads: a scan run now would measure a card holding this model.
-        std::optional<ResolvedContext> last_measured_context_;
+        // The plan the resident model was loaded with: what /context and the one-shot JSON report,
+        // rather than a second derivation of it.
+        std::optional<DeploymentPlan> deployment_plan_;
         ModelVariant model_;
         SystemPromptConfig system_prompt_config_;
         std::shared_ptr<BpeTokenizer> tokenizer_{ nullptr };

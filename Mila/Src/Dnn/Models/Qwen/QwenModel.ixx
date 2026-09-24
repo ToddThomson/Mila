@@ -35,6 +35,8 @@ module;
 #include <sstream>
 #include <cstdint>
 #include <cstddef>
+#include <expected>
+#include <string_view>
 #include <stdexcept>
 #include <filesystem>
 #include <format>
@@ -51,7 +53,14 @@ import Dnn.Models.QwenModelConfig;
 import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
 import Dnn.LanguageModelNetwork;
-import Dnn.Models.PrefillChunkRule;
+import Deployment.PrefillChunkRule;
+import Deployment.DeviceReading;
+import Deployment.DeploymentRequest;
+import Deployment.DeploymentPlan;
+import Deployment.DeploymentPlans;
+import Deployment.DeploymentRefusal;
+import Deployment.DeploymentRefusedError;
+import Deployment.DeploymentPlanner;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Tensor;
@@ -86,6 +95,7 @@ import Logging.Logger;
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Deployment;
     using namespace Mila::Dnn::Serialization;
     using namespace Mila::Dnn::Quant::Weight;
     using namespace Mila::Dnn::Quant::KvCache;
@@ -126,20 +136,81 @@ namespace Mila::Dnn
         ~QwenModel() = default;
 
         /**
-         * @brief Load Qwen 3.8 from a Mila weights file.
+         * @brief Decide how this package would run on the request's device, allocating nothing.
          *
-         * The model_config carries the deployment decisions (context length, weight
-         * quantization, KV-cache compression); every architectural parameter is read from
-         * the checkpoint metadata.
+         * Reads the weights header, constructs the graph, takes one reading of the device and plans against
+         * it (Specifications/Deployment.md). Nothing fitting is an answer, not an error: the refusal names why.
          *
-         * @param path          Path to the Qwen weights file.
-         * @param model_config  Deployment configuration for this load.
-         * @param device_id     Target device; must match TDeviceType.
-         * @return              Inference-ready QwenModel.
+         * @throws std::invalid_argument on a device type mismatch, or a context length past the trained maximum.
+         * @throws std::runtime_error    on an unreadable package or a quantization mode this chassis does not
+         *                               carry.
+         */
+        static std::expected<DeploymentPlans, DeploymentRefusal> planDeployment(
+            const std::filesystem::path& path,
+            const DeploymentRequest& request )
+        {
+            const DeviceId device = request.getDevice().value_or( DeviceId{ TDeviceType, 0 } );
+
+            validateDeployment( "QwenModel::planDeployment", request.getKvCacheCompression(), device );
+
+            return dispatchQwenWeightPlan<std::expected<DeploymentPlans, DeploymentRefusal>>(
+                request.getWeightQuantization(), "QwenModel::planDeployment",
+                [&]<typename TWeightPlan>()
+                {
+                    return planImpl<TWeightPlan>( path, request, device );
+                } );
+        }
+
+        /**
+         * @brief Load exactly this plan: its device, context length and prefill chunk, decided nowhere else.
          *
-         * @throws std::invalid_argument on device type mismatch or zero context length.
-         * @throws std::runtime_error    on load failure or a quantization mode this chassis
-         *                               does not yet carry an artifact for.
+         * @throws std::invalid_argument when the package is not the one the plan was priced for.
+         * @throws std::runtime_error    on load failure, including an allocation that free memory no longer
+         *                               covers -- a load never re-plans.
+         */
+        static std::unique_ptr<QwenModel<TDeviceType, TPrecision>> load(
+            const std::filesystem::path& path,
+            const DeploymentPlan& plan )
+        {
+            validateDeployment( "QwenModel::load", plan.kvCacheCompression(), plan.device() );
+
+            return dispatchQwenWeightPlan<std::unique_ptr<QwenModel<TDeviceType, TPrecision>>>(
+                plan.weightQuantization(), "QwenModel::load",
+                [&]<typename TWeightPlan>()
+                {
+                    return loadImpl<TWeightPlan>( path, plan );
+                } );
+        }
+
+        /**
+         * @brief Plan the request and load its best plan.
+         *
+         * @throws DeploymentRefusedError when nothing fits, carrying the refusal.
+         */
+        static std::unique_ptr<QwenModel<TDeviceType, TPrecision>> load(
+            const std::filesystem::path& path,
+            const DeploymentRequest& request )
+        {
+            const auto planned = planDeployment( path, request );
+
+            if ( !planned )
+            {
+                throw DeploymentRefusedError( "QwenModel::load", planned.error() );
+            }
+
+            return load( path, planned->best() );
+        }
+
+        /**
+         * @brief Load Qwen 3.8 at a fixed context length: the request every value of which is fixed.
+         *
+         * The model_config carries the deployment decisions (context length, weight quantization, KV-cache
+         * compression); every architectural parameter is read from the checkpoint metadata. A context length
+         * that does not fit is refused rather than attempted (Deployment.md 12.2).
+         *
+         * @throws std::invalid_argument  on device type mismatch or zero context length.
+         * @throws DeploymentRefusedError when the context length does not fit the device.
+         * @throws std::runtime_error     on load failure or a quantization mode this chassis does not carry.
          */
         static std::unique_ptr<QwenModel<TDeviceType, TPrecision>> load(
             const std::filesystem::path& path,
@@ -148,14 +219,13 @@ namespace Mila::Dnn
         {
             validateRequest( "QwenModel::load", model_config, device_id );
 
-            return dispatchQwenWeightPlan<
-                    std::unique_ptr<QwenModel<TDeviceType, TPrecision>>>(
-                model_config.getWeightQuantization(),
-                "QwenModel::load",
-                [&]<typename TWeightPlan>()
-                {
-                    return loadImpl<TWeightPlan>( path, model_config, device_id );
-                } );
+            return load( path, DeploymentRequest::fromModelConfig( model_config ).withDevice( device_id ) );
+        }
+
+        /// The plan this model was loaded with: what it runs, not a second derivation of it.
+        const DeploymentPlan& getDeploymentPlan() const noexcept
+        {
+            return plan_;
         }
 
         /**
@@ -443,13 +513,14 @@ namespace Mila::Dnn
         explicit QwenModel(
             std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             const QwenConfig& config,
-            const QwenModelConfig& model_config,
+            const DeploymentPlan& plan,
             const WeightsMetadata& source_metadata,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode,
-                source_metadata, model_config.getWeightQuantization() )
+                source_metadata, plan.weightQuantization() )
             , config_( config )
-            , model_config_( model_config )
+            , model_config_( plan.modelConfig<QwenModelConfig>() )
+            , plan_( plan )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
         {}
 
@@ -460,6 +531,9 @@ namespace Mila::Dnn
         // KV-cache depth the network was BUILT with -- it may be far below the architectural
         // max, and the prompt check and decode loop bound against THIS.
         QwenModelConfig model_config_;
+
+        // The plan this model executed; reported, never re-derived.
+        DeploymentPlan plan_;
 
         // Device decode-input buffer: the sampler writes the next token here in place, and
         // decode() reads it directly -- no host staging round-trip.
@@ -538,13 +612,54 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief The load path, once the plan is a type.
+         * @brief The network geometry this deployment builds: the checkpoint's, with the caller's head width.
+         *
+         * The head width is a deployment choice rather than checkpoint geometry, so it is applied AFTER the
+         * metadata: the artifact says how wide the vocabulary is, the caller says how many rows of it this
+         * deployment needs at once.
+         */
+        static QwenConfig deploymentNetworkConfig( const WeightsMetadata& metadata, dim_t language_model_head_positions )
+        {
+            QwenConfig network_config = configFromMetadata( metadata );
+            network_config.withLanguageModelHeadPositions( language_model_head_positions );
+
+            return network_config;
+        }
+
+        /**
+         * @brief The planning path, once the weight plan is a type.
+         */
+        template<typename TWeightPlan>
+        static std::expected<DeploymentPlans, DeploymentRefusal> planImpl(
+            const std::filesystem::path& path,
+            const DeploymentRequest& request,
+            DeviceId device_id )
+        {
+            WeightsReader reader( path );
+            const auto& metadata = reader.getWeightsMetadata();
+
+            const QwenConfig network_config =
+                deploymentNetworkConfig( metadata, request.getLanguageModelHeadPositions() );
+
+            validateArtifact( "QwenModel::planDeployment", path, reader, request.getWeightQuantization(),
+                request.isContextLengthAutomatic() ? 0 : request.getContextLength(), network_config );
+
+            // Construction commits no device memory, but it creates the execution context, which holds some;
+            // the reading is taken after it, as the load's build will find the device (Deployment.md 9).
+            const QwenTransformer<TDeviceType, TPrecision, TWeightPlan, QwenKvPolicy> network(
+                metadata.model_name, network_config, device_id );
+
+            return planOnDevice( network, request, DeviceReading::take( device_id ),
+                network_config.getMaxSequenceLength(), metadata, reader.getWeightQuantization() );
+        }
+
+        /**
+         * @brief The load path, once the weight plan is a type.
          */
         template<typename TWeightPlan>
         static std::unique_ptr<QwenModel<TDeviceType, TPrecision>> loadImpl(
             const std::filesystem::path& path,
-            const QwenModelConfig& model_config,
-            DeviceId device_id )
+            const DeploymentPlan& plan )
         {
             using ConcreteTransformerType =
                 QwenTransformer<TDeviceType, TPrecision, TWeightPlan, QwenKvPolicy>;
@@ -552,42 +667,18 @@ namespace Mila::Dnn
             WeightsReader reader( path );
             const auto& metadata = reader.getWeightsMetadata();
 
-            QwenConfig network_config = configFromMetadata( metadata );
+            plan.requirePricedFor( "QwenModel::load", path.string(), metadata, reader.getWeightQuantization() );
 
-            // A deployment choice rather than checkpoint geometry, so it is applied AFTER the
-            // metadata: the artifact says how wide the vocabulary is, the caller says how many
-            // rows of it this deployment needs at once.
-            network_config.withLanguageModelHeadPositions(
-                model_config.getLanguageModelHeadPositions() );
+            const QwenConfig network_config =
+                deploymentNetworkConfig( metadata, plan.languageModelHeadPositions() );
 
-            validateArtifact( "QwenModel::load", path, reader, model_config,
-                network_config );
+            validateArtifact( "QwenModel::load", path, reader, plan.weightQuantization(),
+                plan.contextLength(), network_config );
 
             auto network = std::make_unique<ConcreteTransformerType>(
-                metadata.model_name, network_config, device_id );
+                metadata.model_name, network_config, plan.device() );
 
-            // The one reading this load takes, after construction as deploymentFootprintImpl takes
-            // its own. The build executes the chunk chosen against it and reads nothing itself.
-            const BuildContext priced =
-                BuildContext( shape_t{ 1, static_cast<dim_t>( model_config.getContextLength() ) },
-                    RuntimeMode::Inference, false )
-                .withAllocationGranularity( allocationGranularity( device_id ) );
-            const std::size_t free_bytes = readFreeDeviceBytes( device_id );
-            const PrefillChunking prefill = choosePrefillChunk( *network, priced, free_bytes );
-            const BuildContext build_context = priced.withPrefillSize( prefill.chunk_rows );
-
-            // A prediction must not warn -- a scan asks at many context lengths the user never
-            // chose -- so the warning belongs here, on the path that is about to allocate.
-            if ( !prefill.fits_available_memory )
-            {
-                Logging::Logger::warning( std::format(
-                    "QwenModel::load: at the smallest prefill chunk ({} rows) the model needs {} bytes of "
-                    "device memory and {} are free",
-                    prefill.chunk_rows, network->getRequiredMemory( build_context ).totalDeviceBytes(),
-                    free_bytes ) );
-            }
-
-            network->build( build_context );
+            network->build( plan.buildContext() );
 
             Logging::Logger::info( network->toString() );
 
@@ -596,7 +687,7 @@ namespace Mila::Dnn
             return std::unique_ptr<QwenModel<TDeviceType, TPrecision>>(
                 new QwenModel<TDeviceType, TPrecision>(
                     std::move( network ), network_config,
-                    model_config, metadata, RuntimeMode::Inference ) );
+                    plan, metadata, RuntimeMode::Inference ) );
         }
 
         /**
@@ -618,16 +709,11 @@ namespace Mila::Dnn
             WeightsReader reader( path );
             const auto& metadata = reader.getWeightsMetadata();
 
-            QwenConfig network_config = configFromMetadata( metadata );
+            const QwenConfig network_config =
+                deploymentNetworkConfig( metadata, model_config.getLanguageModelHeadPositions() );
 
-            // A deployment choice rather than checkpoint geometry, so it is applied AFTER the
-            // metadata: the artifact says how wide the vocabulary is, the caller says how many
-            // rows of it this deployment needs at once.
-            network_config.withLanguageModelHeadPositions(
-                model_config.getLanguageModelHeadPositions() );
-
-            validateArtifact( "QwenModel::getDeploymentFootprint", path, reader, model_config,
-                network_config );
+            validateArtifact( "QwenModel::getDeploymentFootprint", path, reader,
+                model_config.getWeightQuantization(), model_config.getContextLength(), network_config );
 
             // Construction commits no device memory -- that is the whole premise. The graph
             // exists, correctly shaped, and is then asked rather than built.
@@ -654,6 +740,20 @@ namespace Mila::Dnn
             const QwenModelConfig& model_config,
             DeviceId device_id )
         {
+            validateDeployment( caller, model_config.getKvCacheCompression(), device_id );
+
+            if ( model_config.getContextLength() == 0 )
+            {
+                throw std::invalid_argument(
+                    std::format( "{}: context_length must be greater than zero", caller ) );
+            }
+        }
+
+        static void validateDeployment(
+            std::string_view caller,
+            KvCacheCompression kv_cache_compression,
+            DeviceId device_id )
+        {
             if ( device_id.type != TDeviceType )
             {
                 throw std::invalid_argument( std::format(
@@ -663,16 +763,10 @@ namespace Mila::Dnn
                     deviceTypeToString( device_id.type ) ) );
             }
 
-            if ( model_config.getContextLength() == 0 )
-            {
-                throw std::invalid_argument(
-                    std::format( "{}: context_length must be greater than zero", caller ) );
-            }
-
             // The uniform modes are refused in dispatchQwenWeightPlan, where the reason is a
             // scope boundary rather than a dispatch gap. Nothing to check here.
 
-            if ( model_config.getKvCacheCompression() == KvCacheCompression::FP8 )
+            if ( kv_cache_compression == KvCacheCompression::FP8 )
             {
                 throw std::runtime_error( std::format(
                     "{}: FP8 KV cache compression is not yet supported", caller ) );
@@ -686,20 +780,22 @@ namespace Mila::Dnn
          * predates the Qwen fields parses as all-zero, and a zeroed interleave would build a
          * stack of the wrong block kinds. Caught against the artifact rather than left to
          * surface as a missing-tensor error 40 layers in.
+         *
+         * @param context_length The fixed context length, or zero when the planner chooses it.
          */
         static void validateArtifact(
             std::string_view caller,
             const std::filesystem::path& path,
             const WeightsReader& reader,
-            const QwenModelConfig& model_config,
+            WeightQuantization weight_quantization,
+            dim_t context_length,
             const QwenConfig& network_config )
         {
             // This family is the one that most needs the derivable-format asymmetry: the
             // Phase 5 FP4 oracle is uniform PerGroupFp4 over the reference blob, and refusing
             // it would put that behind a repack reproducing what the load does anyway.
             requireStoredQuantizationMatches(
-                caller, path.string(), reader.getWeightQuantization(),
-                model_config.getWeightQuantization() );
+                caller, path.string(), reader.getWeightQuantization(), weight_quantization );
 
             const auto& metadata = reader.getWeightsMetadata();
 
@@ -711,12 +807,11 @@ namespace Mila::Dnn
                     "cannot be guessed", caller, path.string() ) );
             }
 
-            if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
+            if ( context_length > network_config.getMaxSequenceLength() )
             {
                 throw std::invalid_argument( std::format(
                     "{}: context_length {} exceeds trained max_seq_len {}",
-                    caller, model_config.getContextLength(),
-                    network_config.getMaxSequenceLength() ) );
+                    caller, context_length, network_config.getMaxSequenceLength() ) );
             }
         }
 

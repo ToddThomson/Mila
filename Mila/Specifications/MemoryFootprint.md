@@ -1166,7 +1166,7 @@ construction, the build executes the chunk it is given, and pricing stops readin
 (`Deployment.md` sections 4 and 7, Phases 1-2).
 
 **Where it runs since `0.21.0-dev+5` (`Deployment.md` Phase 2).** The rule is one function,
-`choosePrefillChunk` (`Models/PrefillChunkRule.ixx`), walking each family's `kPrefillChunkRungs`. A model entry
+`choosePrefillChunk` (`Deployment/PrefillChunkRule.ixx`), walking each family's `kPrefillChunkRungs`. A model entry
 point -- `load` and `getDeploymentFootprint` alike -- takes one reading after construction, chooses the chunk
 against it, and builds or prices at that chunk through `BuildContext::withPrefillSize`. No transformer reads
 free memory or chooses a chunk: `getRequiredMemory` and `build` both use the chunk the context carries, and an

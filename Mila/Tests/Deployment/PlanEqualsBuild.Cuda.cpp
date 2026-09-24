@@ -18,7 +18,7 @@
 
 import Mila;
 
-namespace Mila::Tests::Dnn::Models
+namespace Mila::Tests::Deployment
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;

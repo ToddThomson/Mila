@@ -94,17 +94,17 @@ validated flows pass regardless, so that is a symptom of this gap rather than se
 
 #### Automatic context length is decided inside Chat, where no other caller can reach it
 
-`open` · `models` · `mila-src` · `breaking`
+`done` · `models` · `mila-src` · `breaking`
 
 `resolveAutomaticContext` (`Chat.Footprint.ixx:448`) and the fit grading in `Chat.ModelCatalog.ixx`
 are the only automatic deployment decisions Mila makes, and they belong to one application.
 
-`Deployment.md` Phase 3: `DeploymentRequest`, `DeploymentPlan` and `planDeployment` on one device,
-with the binding constraint as an enumerated reason. Record Chat's choices first (G2 — Gemma 4 12B
+`Deployment.md` Phase 3: `planDeployment` on one device, returning ranked plans with a limit per value,
+or a refusal with its reason (§3.3, §6). Record Chat's choices first (G2 — Gemma 4 12B
 FP4, Llama 3.1 8B FP4, Qwen 3.8 27B FP4 and cb2-3, each card pinned by UUID, with the free memory
 each run saw), then move the rule and delete Chat's copy. **Breaking:** an explicit context length
-that does not fit is refused naming what bound it, where Chat today warns and tries (§12.2);
-`--help` and `ChatConfiguration.md` §6 change with it. Exit: G2, G4 and N2 to N5.
+that does not fit is refused naming the reason, where Chat today warns and tries (§12.2);
+`--help` and `ChatConfiguration.md` §6 change with it. Exit: G2, G4, N2 and N4.
 
 #### A Python or inference server user has to know the context length in advance
 

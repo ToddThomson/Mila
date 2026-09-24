@@ -456,10 +456,20 @@ PUBLIC
         
         "Src/Dnn/Compute/Operations/IKvCacheLifecycle.ixx"
         
+        # How a model runs on the hardware in front of it, decided before it loads (Deployment.md).
+        # Not a model: the families below import it.
+        "Src/Deployment/PrefillChunkRule.ixx"
+        "Src/Deployment/DeviceReading.ixx"
+        "Src/Deployment/DeploymentRequest.ixx"
+        "Src/Deployment/DeploymentPlan.ixx"
+        "Src/Deployment/DeploymentPlans.ixx"
+        "Src/Deployment/DeploymentRefusal.ixx"
+        "Src/Deployment/DeploymentRefusedError.ixx"
+        "Src/Deployment/DeploymentPlanner.ixx"
+
         # The one runtime-to-compile-time quantization bridge, imported by the models below.
         "Src/Dnn/Models/Conversation.ixx"
         "Src/Dnn/Models/QuantizationDispatch.ixx"
-        "Src/Dnn/Models/PrefillChunkRule.ixx"
         "Src/Dnn/Models/Gpt/GptModel.ixx"
         "Src/Dnn/Models/LlaMa/LlamaModel.ixx"
         "Src/Dnn/Models/Gemma/GemmaModel.ixx"

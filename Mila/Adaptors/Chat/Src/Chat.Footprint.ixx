@@ -1,10 +1,10 @@
 /**
  * @file Chat.Footprint.ixx
- * @brief Predicting what a model would cost in device memory, and grading that against the card.
+ * @brief The deployment request Chat sends for a load, what Chat says when the library refuses one, and the
+ *        /model list pricing against the card.
  *
- * One implementation, because two consumers ask the same question: the pre-flight before a load
- * and the /model list listing. A listing that graded a model differently from the load it precedes
- * would be worse than one that said nothing.
+ * What a load gets -- its context length, its prefill chunk, or a refusal -- is decided by the library's
+ * planner (Specifications/Deployment.md); Chat only asks and reports.
  */
 
 module;
@@ -18,15 +18,6 @@ module;
 #include <string>
 #include <string_view>
 
-// The one preprocessor test in this module, confined to the fragment so the module body stays
-// free of it: what happens when a model does not fit is a property of the driver model, and
-// there is no runtime query for it.
-#ifdef _WIN32
-inline constexpr bool kDriverOversubscribesToHostMemory = true;
-#else
-inline constexpr bool kDriverOversubscribesToHostMemory = false;
-#endif
-
 export module Chat.Footprint;
 
 import Chat.Config;
@@ -36,13 +27,10 @@ namespace Mila::ChatApp
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Deployment;
 
     /**
-     * @brief How a predicted footprint stands against the memory available to it.
-     *
-     * Warn-and-proceed throughout, on every platform: the consequence of not fitting differs by
-     * driver model, but neither consequence is something this can assert in advance, and an
-     * over-eager refusal blocks configurations that would have run.
+     * @brief How a predicted footprint stands against a card's capacity, for the /model list column.
      */
     export enum class FootprintVerdict
     {
@@ -64,31 +52,6 @@ namespace Mila::ChatApp
     {
         return verdict == FootprintVerdict::DoesNotFit
             || verdict == FootprintVerdict::WeightsExceedAvailable;
-    }
-
-    /**
-     * @brief What not fitting actually means here, in one sentence.
-     *
-     * One explanation rather than one per degree of overflow: the difference between the weights
-     * overflowing and the total overflowing changes which lever helps, not what happens. What it
-     * does change is the platform -- WDDM oversubscribes into shared GPU memory and keeps going
-     * (measured at 3.1 tok/s against roughly 40 for a model that fits), where a Linux driver has
-     * no such fallback and the allocation simply fails.
-     */
-    export inline std::string doesNotFitExplanation( std::string_view available )
-    {
-        if constexpr ( kDriverOversubscribesToHostMemory )
-        {
-            // The model loads; what does not fit is what goes to shared memory. Saying the
-            // model loads *into* shared memory would describe something that does not happen.
-            return std::format(
-                "Needs more than {}. The model may use shared GPU memory, with slow performance.",
-                available );
-        }
-        else
-        {
-            return std::format( "Needs more than {}. The load will likely fail.", available );
-        }
     }
 
     /**
@@ -121,29 +84,7 @@ namespace Mila::ChatApp
     }
 
     /**
-     * @brief Memory an imminent load could claim: what is free, plus what it is about to free.
-     *
-     * For the load path, where the question is whether this particular load succeeds on the
-     * machine as it stands. Chat releases the outgoing model before loading the replacement, so
-     * resident_bytes is zero by the time this is asked -- it is passed anyway rather than
-     * assumed, since a caller that has not released yet would otherwise be told the wrong thing
-     * silently.
-     *
-     * Note what this is NOT for: grading a *catalogue* of candidates. There the question is what
-     * the card can run at all, which is its capacity -- free memory would charge every candidate
-     * for whatever the desktop is holding, and a model's own report understates what releasing
-     * it returns by the residual it does not model.
-     *
-     * @param resident_bytes What the loaded model has allocated, or zero when none is loaded.
-     */
-    export inline std::size_t availableDeviceBytes(
-        const DeviceMemoryInfo& memory, std::size_t resident_bytes )
-    {
-        return memory.total_bytes == 0 ? 0 : memory.free_bytes + resident_bytes;
-    }
-
-    /**
-     * @brief Grade a footprint against what a load could actually claim.
+     * @brief Grade a footprint against a card's capacity.
      */
     export inline FootprintVerdict gradeFootprint(
         const std::optional<MemoryStats>& required, std::size_t available_bytes )
@@ -166,41 +107,6 @@ namespace Mila::ChatApp
             ? FootprintVerdict::DoesNotFit
             : FootprintVerdict::Fits;
     }
-
-    /**
-     * @brief A context length, and how it was arrived at.
-     *
-     * Carried structured rather than as a sentence because the two facts have two audiences: the
-     * startup line reads them as prose, the `--output-format json` payload as fields.
-     */
-    export struct ResolvedContext
-    {
-        std::size_t context_length{ 0 };
-
-        /// True when auto chose the number, whether by measurement or by falling back.
-        bool automatic{ false };
-
-        /// Device capacity auto measured against. Zero when there was no device to ask, which is
-        /// also how a caller tells a measured answer from a fallback.
-        std::size_t device_total_bytes{ 0 };
-
-        /// The free memory the scan budgeted against, zero alongside device_total_bytes. The one
-        /// input that makes the choice reproducible: the same model on the same card picks a
-        /// different context when the desktop holds more of it.
-        std::size_t device_free_bytes{ 0 };
-
-        /// Why auto could not measure, from the predictor. Empty when it did.
-        std::string fallback_reason;
-
-        /// How the chosen context would chunk its prefill. Zeroed on a fallback, where no
-        /// prediction was available to ask.
-        PrefillChunking prefill;
-
-        /// True when auto stopped short of the largest context that fits memory because that
-        /// context would have prefilled below a full chunk. The two numbers differ by enough to
-        /// be worth naming: on a 12 GB card Gemma fits 95232 and prefills well at roughly 54K.
-        bool bounded_by_prefill{ false };
-    };
 
     /**
      * @brief A footprint, or why there is not one.
@@ -233,11 +139,12 @@ namespace Mila::ChatApp
      * Its baseline is a BF16 cache, which fits at 16K uncompressed, so leaving the axis alone is
      * the deployment rather than a workaround. Same shape the FP4 oracle test builds.
      *
-     * Exported so the footprint pre-flight and the load configure one model one way. Splitting
-     * them is how a prediction comes to describe a deployment that never happens.
+     * Shared by the /model list pricing and the load's deployment request, so both configure one
+     * model one way. Splitting them is how a prediction comes to describe a deployment that never
+     * happens.
      */
-    export inline void applyQwenQuantization(
-        QwenModelConfig& config, QuantizationMode quantization )
+    export template<typename TConfig>
+    void applyQwenQuantization( LanguageModelConfig<TConfig>& config, QuantizationMode quantization )
     {
         switch ( quantization )
         {
@@ -256,6 +163,34 @@ namespace Mila::ChatApp
             case QuantizationMode::None:
                 break;
         }
+    }
+
+    /**
+     * @brief The deployment request a load of this family sends, before its context length is set.
+     *
+     * Configured exactly as the /model list pricing configures the same model, so a row and the load it
+     * describes cannot be two different deployments.
+     */
+    export inline DeploymentRequest deploymentRequestFor(
+        ModelType family, QuantizationMode quantization, int device_index )
+    {
+        DeploymentRequest request;
+        request.withDevice( DeviceId{ DeviceType::Cuda, device_index } );
+
+        if ( family == ModelType::Qwen )
+        {
+            applyQwenQuantization( request, quantization );
+        }
+        else if ( quantization == QuantizationMode::FP8 )
+        {
+            request.withFP8Quantization();
+        }
+        else if ( quantization == QuantizationMode::FP4 )
+        {
+            request.withFP4Quantization();
+        }
+
+        return request;
     }
 
     /**
@@ -367,10 +302,6 @@ namespace Mila::ChatApp
         }
     }
 
-    /// The grid auto searches. Also the granularity it reports: a context of 83968 says it was
-    /// measured, where 84131 would suggest a precision the prediction does not have.
-    export inline constexpr std::size_t kContextStep = 1024;
-
     /**
      * @brief Silences library logging for the duration of a prediction scan.
      *
@@ -383,8 +314,8 @@ namespace Mila::ChatApp
      * chosen is a fact about this session, where the other thirty-four were about contexts nobody
      * asked for.
      *
-     * Exported because it belongs to every caller that probes in bulk, not just to the scan below.
-     * The /model list ladder was written without it and leaked exactly the warning this was built to
+     * Exported because it belongs to every caller that probes in bulk. The /model list ladder was
+     * first written without it and leaked exactly the warning this was built to
      * suppress -- a Gemma prefill complaint about a 128K context nobody had asked to run at,
      * printed above the table it was probing for.
      */
@@ -408,144 +339,4 @@ namespace Mila::ChatApp
     private:
         Logging::LogLevel restore_;
     };
-
-    /**
-     * @brief The largest context that fits comfortably on this device, or the floor and why not.
-     *
-     * **Searched from the ceiling downward.** Not by bisection, and the difference is correctness
-     * rather than speed: bisection assumes the footprint rises with context, and Gemma's does not
-     * -- measured 2026-08-15 it climbs to 9.92 GB at 10240, drops to 9.37 at 12288 as prefill
-     * chunking caps the activation buffers, then resumes at a quarter of the slope. Scanning from
-     * the top finds the largest qualifying context on any curve. See ChatConfiguration.md
-     * section 6 for the measurements.
-     *
-     * **Runs with nothing resident.** Every prediction picks its prefill chunk against the device's
-     * free memory (MemoryFootprint.md section 11), so a scan taken while a model is loaded measures
-     * a card that still holds it. Callers release first; what a loaded session reports comes from
-     * the scan its own load ran.
-     *
-     * **Fitting in memory is not the same as running well, so the scan does not stop at the first
-     * memory fit.** A longer context leaves less free memory for the chunk, so the largest context
-     * that fits can be one where the chunk has walked
-     * down toward its floor -- measured 2026-08-15, gemma-4-12b-it-fp4 fits 95232 on a 12 GB card
-     * and prefills there at 64 rows of a possible 1024, where 56320 holds the full chunk. The scan
-     * therefore keeps the first memory fit as a floor under the answer and continues down for the
-     * largest context whose chunk is also unconstrained, preferring that when one exists.
-     *
-     * A probe that cannot be predicted does not end the search. Above a checkpoint's trained
-     * length the prediction throws, and until ModelRecord carries that length the ceiling passed
-     * here is the family's, which overshoots it -- so those probes are expected to fail and the
-     * scan simply walks down past them. Only a scan where nothing could be predicted at all falls
-     * back, carrying the last reason.
-     *
-     * @param ceiling The largest context worth trying: the family maximum today, tightened by the
-     *        checkpoint's own maximum once the manifest carries one.
-     * @param floor Where to land when nothing can be measured.
-     */
-    export inline ResolvedContext resolveAutomaticContext(
-        const std::filesystem::path& weights,
-        ModelType family,
-        ModelPrecision precision,
-        QuantizationMode quantization,
-        std::size_t ceiling,
-        std::size_t floor,
-        int device_index = 0 )
-    {
-        ResolvedContext resolved;
-        resolved.automatic = true;
-        resolved.context_length = floor;
-
-        const DeviceMemoryInfo memory = queryDeviceMemory( device_index );
-
-        if ( memory.total_bytes == 0 )
-        {
-            resolved.fallback_reason = "no CUDA device";
-
-            return resolved;
-        }
-
-        // The memory a load would actually find, with no allowance on top: the prediction already
-        // counts everything Mila allocates, rounding included (MemoryFootprint.md 11.8). The 10% of
-        // device total this used to hold back stood in for scratch, rounding and the display cut
-        // without knowing which applied, so a headless card paid for all three.
-        const std::size_t budget = memory.free_bytes;
-
-        const ScopedLogSuppression quiet;
-
-        std::string last_reason;
-
-        // The largest context that fits memory, held while the scan continues for one that also
-        // prefills at a full chunk. It is the answer if no such context exists -- a constrained
-        // chunk is a throughput cost, and giving up context to avoid it is only worth doing when
-        // there is a context left to give up.
-        std::size_t largest_fitting = 0;
-        PrefillChunking largest_fitting_prefill;
-
-        for ( std::size_t candidate = ( ceiling / kContextStep ) * kContextStep;
-              candidate >= kContextStep;
-              candidate -= kContextStep )
-        {
-            const FootprintPrediction prediction = predictFootprint(
-                weights, family, precision, quantization,
-                static_cast<dim_t>( candidate ), device_index );
-
-            if ( !prediction.required )
-            {
-                last_reason = prediction.unavailable_reason;
-
-                continue;
-            }
-
-            // Weights do not shrink with context, so once they alone are over there is no shorter
-            // context to find and the remaining probes are all going to fail. This turns the
-            // slowest case -- a card that cannot hold the model at any length -- into the fastest.
-            if ( prediction.required->device_parameter_bytes > budget )
-            {
-                break;
-            }
-
-            if ( prediction.required->totalDeviceBytes() > budget )
-            {
-                continue;
-            }
-
-            if ( largest_fitting == 0 )
-            {
-                largest_fitting = candidate;
-                largest_fitting_prefill = prediction.prefill;
-            }
-
-            if ( !prediction.prefill.isMemoryConstrained() )
-            {
-                resolved.context_length = candidate;
-                resolved.device_total_bytes = memory.total_bytes;
-                resolved.device_free_bytes = budget;
-                resolved.prefill = prediction.prefill;
-                resolved.bounded_by_prefill = candidate < largest_fitting;
-
-                return resolved;
-            }
-        }
-
-        // Every fitting context prefills below a full chunk. Memory is still the better answer
-        // than the floor: the chunk costs prefill throughput, where the floor costs the length of
-        // the conversation.
-        if ( largest_fitting != 0 )
-        {
-            resolved.context_length = largest_fitting;
-            resolved.device_total_bytes = memory.total_bytes;
-            resolved.device_free_bytes = budget;
-            resolved.prefill = largest_fitting_prefill;
-
-            return resolved;
-        }
-
-        // Nothing fit, or nothing could be predicted. The two are worth telling apart: the first
-        // is a card too small for this model at any length, and no reason of ours explains it.
-        resolved.fallback_reason = last_reason.empty()
-            ? std::string( "no context fits this device" )
-            : last_reason;
-
-        return resolved;
-    }
 }

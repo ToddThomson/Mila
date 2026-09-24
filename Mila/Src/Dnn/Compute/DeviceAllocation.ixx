@@ -37,9 +37,9 @@ namespace Mila::Dnn::Compute
      * memory allocator, which Mila does not use; every allocation here is cudaMalloc, so the agreement at
      * 2 MiB was measured rather than guaranteed.
      *
-     * NOTE: this becomes a caller input when planDeployment lands, alongside available memory, which is
-     * already an input for the same reason. Under-prediction is the direction that spills, so a device whose
-     * granularity exceeds 2 MiB is the case to measure first; SM 90 is in the supported set and untested.
+     * The deployment planner takes it once per device, in the DeviceReading every plan is decided against
+     * (Deployment.md 3.3). Under-prediction is the direction that spills, so a device whose granularity exceeds
+     * 2 MiB is the case to measure first; SM 90 is in the supported set and untested.
      */
     export inline constexpr std::size_t kCudaAllocationGranularityBytes = std::size_t{ 2 } * 1024 * 1024;
 

@@ -10,13 +10,15 @@ module;
 #include <algorithm>
 #include <cstddef>
 
-export module Dnn.Models.PrefillChunkRule;
+export module Deployment.PrefillChunkRule;
 
 import Dnn.Component;
 import Dnn.TensorTypes;
 
-namespace Mila::Dnn
+namespace Mila::Deployment
 {
+    using namespace Mila::Dnn;
+
     /**
      * @brief The largest rung of a family's table whose whole predicted footprint fits `free_bytes`.
      *

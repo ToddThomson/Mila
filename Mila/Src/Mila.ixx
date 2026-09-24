@@ -263,15 +263,27 @@ export import Dnn.Components.QwenDeltaNetBlock;
 export import Dnn.Components.QwenTransformer;
 
 // ============================================================================
+// Deployment - how a model runs on the hardware in front of it (Specifications/Deployment.md)
+// ============================================================================
+// A request, the plans that answer it or the refusal that says why none does, and the one decision
+// every family's planDeployment makes. The prefill chunk rule is the part of that decision a
+// transformer's build executes.
+export import Deployment.PrefillChunkRule;
+export import Deployment.DeviceReading;
+export import Deployment.DeploymentRequest;
+export import Deployment.DeploymentPlan;
+export import Deployment.DeploymentPlans;
+export import Deployment.DeploymentRefusal;
+export import Deployment.DeploymentRefusedError;
+export import Deployment.DeploymentPlanner;
+
+// ============================================================================
 // Models - Open Source Models
 // ============================================================================
 // The conversation a chat template renders, shared by every family's protocol module.
 // Reachable through each protocol's own re-export; named here too so a consumer that only
 // builds a history does not have to import a family to describe one.
 export import Dnn.Models.Conversation;
-
-// The prefill chunk a language network is built with, chosen against one reading of free memory.
-export import Dnn.Models.PrefillChunkRule;
 
 export import Dnn.Models.GptModel;
 

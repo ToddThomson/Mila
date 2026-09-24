@@ -76,7 +76,7 @@ Direction of travel, so new code moves with it rather than against it: the `Unar
 
 ### Model Entry Points
 
-- `<Family>Model::load(path, config, device_id)` — reads the weights, then dispatches to `loadImpl<TWeightQuantization, TKvCachePolicy>` on the config's `WeightQuantization`. One per family: Gemma, Llama, Gpt, Qwen.
+- `<Family>Model::planDeployment(path, request)` decides how the model runs on a device -- context length, prefill chunk -- from one reading of it, returning ranked plans or a refusal; `load(path, plan)` executes exactly that plan, and `load(path, config, device_id)` is the fully fixed request, refused when it does not fit. The planner lives in `Mila/Src/Deployment/` (`Mila::Deployment`), beside `Dnn/` rather than in it: a deployment is not a model. See `Specifications/Deployment.md`. One per family: Gemma, Llama, Qwen (Gpt keeps its own `load`).
 - The dispatch is `Models/QuantizationDispatch.ixx`. It keys on `LanguageModelConfig`'s own enum — **never on an adaptor's type.** `ChatConfig` lives in Chat and `Mila/Src` must not know it exists.
 - All use a two-phase KV-cache: prefill (full sequence) + decode (one token at a time, outer_size == 1).
 
