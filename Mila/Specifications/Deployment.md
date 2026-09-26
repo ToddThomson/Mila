@@ -469,6 +469,14 @@ The `/model list` column still prices capacity rather than reading plans (sectio
 
 **Phase 4 — the binding and MIS.** `context_length="auto"` for Python and MIS; samples and documents
 updated. *Exit:* a QuickStart Python session and an MIS request each run with `auto`.
+*Met at `0.21.0-dev+7`:* every session's `load` and `from_store` sends a `DeploymentRequest`, `context_length`
+defaulting to `"auto"`, and reports the resolved length as `context_length`; a refusal reaches Python as a
+`RuntimeError` in the binding's words. MIS's `MILA_CONTEXT_LENGTH` defaults to `auto` (the committed `.env` too),
+and its prompt bound and both `/v1/models` cards read the length the load resolved. On the RTX 4070: the Python
+QuickStart and the C++ QuickStart (built against this tree) both loaded Gemma 4 12B FP4 at 121856, the G2 row,
+and answered; MIS started at 121856 and served a chat completion; Llama 3.1 8B at a fixed 131072 and Qwen 3.8 27B
+FP4 were refused before allocating. A second load in one process chooses one step lower (120832) and every load
+after that the same, a one-time cost of the process's first load rather than a leak. MIS suite: 65 pass.
 
 **Phase 5 — devices.** The device list, `"auto"` devices and placement: `LayerSplit.md` Phases 4 and 5 land
 here as a new dimension of the planner, not beside it.

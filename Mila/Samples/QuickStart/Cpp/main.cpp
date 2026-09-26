@@ -43,10 +43,6 @@ namespace
     /// multi-gigabyte transfer.
     constexpr const char* kModelName = "gemma-4-12b-it-fp4";
 
-    /// Well under the model's ceiling. Context length drives KV-cache VRAM, and a first run
-    /// should fit comfortably rather than probe the limit.
-    constexpr dim_t kContextLength = 4096;
-
     /// Bounds the loop so the sample always terminates, even on a model that will not stop.
     constexpr int kMaxNewTokens = 512;
 
@@ -184,11 +180,12 @@ int main( int argc, char** argv )
 
         auto tokenizer = BpeTokenizer::loadGemma( installed->tokenizer_path );
 
-        GemmaModelConfig model_config( kContextLength );
-        model_config.withFP4Quantization();
-
+        // No context length is given, so the model loads at the longest one this GPU can
+        // hold. withContextLength( 4096 ) fixes it instead.
         auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
-            installed->weights_path, model_config );
+            installed->weights_path, Mila::Deployment::DeploymentRequest{}.withFP4Quantization() );
+
+        std::cout << "Context: " << model->getDeploymentPlan().contextLength() << " tokens\n";
 
         // TokenId is int32_t, which is what generate() takes, so this needs no conversion.
         const std::vector<TokenId> prompt_tokens =

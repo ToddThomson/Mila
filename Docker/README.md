@@ -107,8 +107,8 @@ or Claude Code at the Anthropic `/v1/messages` path (launch with `MILA_PROTOCOL=
   Chat and MIS share one — and it is on the bind mount, so it survives `run --rm` and the
   host sees the same models. **MIS never downloads**: install the model first, or it
   refuses to start and lists what is installed. `mila-mis` exports these so they win over
-  the committed `Server/.env`; the tuned `MILA_CONTEXT_LENGTH` and generation defaults in
-  that `.env` still apply.
+  the committed `Server/.env`; its `MILA_CONTEXT_LENGTH=auto` and generation defaults
+  still apply.
 
 See `Mila/Adaptors/Inference/Server/README.md` for the full protocol/endpoint and
 configuration reference.

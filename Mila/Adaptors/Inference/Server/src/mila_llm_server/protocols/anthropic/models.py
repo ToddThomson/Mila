@@ -29,7 +29,7 @@ class AnthropicModelsAdapter(ModelsCapable):
             "id": loaded.name,
             "display_name": loaded.name,
             "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "context_window": settings.context_length,
+            "context_window": loaded.context_length,
             "max_output_tokens": settings.default_max_new_tokens,
             # Beyond Anthropic's model object, which carries no lineage, and matching the
             # OpenAI card field for field so a client does not have to learn two spellings.

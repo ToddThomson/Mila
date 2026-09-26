@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
+from typing import Annotated, Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
@@ -39,7 +41,13 @@ class Settings(BaseSettings):
             "returned in API responses -- one name, so what a client sees is what is loaded."
         ),
     )
-    context_length: int = Field(4096, description="Maximum sequence length passed to from_store().")
+    context_length: Annotated[int, Field(gt=0)] | Literal["auto"] = Field(
+        "auto",
+        description=(
+            "Tokens the model holds, prompt and reply together, passed to from_store(). 'auto' "
+            "takes the longest the GPU can hold; the length actually loaded is loaded.context_length."
+        ),
+    )
     device_index: int = Field(0, description="CUDA device ordinal.")
 
     # Generation defaults
@@ -103,6 +111,10 @@ class LoadedModel:
     # presents the model, and serving it over an API is presenting it.
     base_model: str = ""
     license: str = ""
+
+    # What the model was built to hold, as the load resolved it -- settings.context_length may
+    # be "auto", so this is the number every prompt is bounded by and every model card reports.
+    context_length: int = 0
 
     @property
     def attribution(self) -> str:

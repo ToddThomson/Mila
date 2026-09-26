@@ -163,6 +163,9 @@ class ModelWorker:
             settings.device_index,
         )
 
+        loaded.context_length = self._model.context_length
+        _log.info("Context length %d (configured %s)", loaded.context_length, settings.context_length)
+
     @property
     def _is_gemma(self) -> bool:
         return loaded.family == ModelFamily.gemma

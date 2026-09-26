@@ -111,7 +111,8 @@ def parse_args():
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--weights", help="Path to a locally converted .bin, instead of --model.")
     parser.add_argument("--tokenizer", help="Path to the tokenizer .bin, with --weights.")
-    parser.add_argument("--context-length", type=int, default=2048)
+    parser.add_argument("--context-length", type=common.context_length_argument, default="auto",
+                        help="Tokens the model holds, or 'auto' for the longest the GPU can hold (default).")
     parser.add_argument("--device-index", type=int, default=0)
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--temperature", type=float, default=0.6)
@@ -138,12 +139,12 @@ def main():
     if args.weights or args.tokenizer:
         family = args.family
         weights, tokenizer_path = common.resolve_paths(family, args.weights, args.tokenizer)
-        print(f"Loading {weights.name} (context {args.context_length}) ...", flush=True)
+        print(f"Loading {weights.name} ...", flush=True)
         tokenizer, model = common.load(
             mila, family, weights, tokenizer_path,
             args.context_length, args.device_index, args.quantization)
     else:
-        print(f"Loading {args.model} (context {args.context_length}) ...", flush=True)
+        print(f"Loading {args.model} ...", flush=True)
         tokenizer, model, record = common.load_from_store(
             mila, args.model, args.context_length, args.device_index)
 
@@ -151,7 +152,7 @@ def main():
         # own architecture, so the template is chosen rather than declared.
         family = record.architecture
 
-    print(f"Loaded in {time.perf_counter() - load_started:.1f}s\n")
+    print(f"Loaded in {time.perf_counter() - load_started:.1f}s, context {model.context_length} tokens\n")
 
     config = model.get_config()
     print(f"{family}: {config['num_layers']} layers, model dim {config['model_dim']}, "

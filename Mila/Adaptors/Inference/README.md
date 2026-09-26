@@ -103,10 +103,10 @@ claude
 
 ### Context Window
 
-MIS builds the model at `MILA_CONTEXT_LENGTH` rather than at the architecture's maximum,
-because the KV cache is the dominant VRAM cost. Both harnesses send large system prompts:
-16,384 is the recommended minimum for Codex, and a full Claude Code turn has been measured
-at 35.7K tokens — see the `.env` in `Server/` for the figures behind the default.
+MIS loads the model at the longest context the GPU can hold unless `MILA_CONTEXT_LENGTH`
+fixes one, and `/v1/models` reports it as `context_window`. Both harnesses send large
+system prompts: 16,384 is the recommended minimum for Codex, and a full Claude Code turn
+has been measured at 35.7K tokens.
 
 ### Tool Calls
 

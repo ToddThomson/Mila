@@ -448,63 +448,10 @@ carries them.
 
 `api` · `build` · `mila-src` · `blocked`
 
-Held to be an **MSVC modules defect** rather than a Mila one, which is why v0.20 ships it documented
-and gated rather than fixed. Three failures, all compile-time, all absent the moment the import is
-removed, re-verified 2026-08-30 on MSVC 14.51.36231:
-
-1. **No C++ stream input.** `std::getline(cin, s)` and `cin.getline(char*, n)` both fail with
-   `C2079: '_Ok' uses undefined class 'std::basic_istream<char>::sentry'`. Output is fine. It also
-   bites *inside* `Mila/Tests`, and covers `<fstream>` — including that header in a test that
-   imports Mila reproduces it.
-2. **Instantiating a model needs `<sstream>` included first.** `Component::toString()` is pure
-   virtual (`Component.ixx:632`), so `GemmaModel::toString()`'s body (`GemmaModel.ixx:261`) compiles
-   into the consumer through the vtable and uses `std::ostringstream`.
-3. **The import must come after the `#include`s.** Import-first is fatal — C1116, whose Microsoft
-   documentation names mixing `import` and `#include` as a cause.
-
-1 and 2 are independent: `<sstream>` does not repair input.
-
-**Reachable is not visible, and more includes cannot fix it.** `GemmaModel.ixx:14` already includes
-`<sstream>` in its own global module fragment, and 91 modules under `Mila/Src` do the same — the
-consumer still needs its own copy first. GMF entities are reachable in an importing translation unit
-but not visible, and MSVC will not instantiate a class template whose definition is only reachable.
-One mechanism, all three symptoms, and no include added on Mila's side closes it.
-
-**The intended fix is `import std;` throughout.** It is the only candidate that addresses the
-mechanism rather than a symptom: with no textual std anywhere, there is no global module fragment to
-own std entities and no reachable-but-invisible state for them to be in. It needs
-`CMAKE_CXX_MODULE_STD` set before `project()`, so it means a fresh build directory and a full
-rebuild, and it is a tree-wide change to every module's GMF — which is exactly why it waits for a
-release that is not in flight.
-
-**Measured 2026-09-23 (MSVC 19.51.36260, Clang 21.1.8 + libstdc++ 15):** a standalone probe
-project (a `Component`/`Model<T>` pair plus two reader modules, no Mila) reproduces all three
-failures on MSVC and none on Clang, where every combination builds and runs. Converting the
-*library* to `import std;` clears all three on MSVC, for consumers that `#include` as well as ones
-that `import std;`. Converting only the *consumer* clears failure 2 but **not** failure 1 — the fix
-has to be on Mila's side. Failure 1 needs **two** modules that each call `istream::read` in their
-interface: bisecting Mila's real BMIs, no single module of 240 triggers it, and the minimal pair is
-`Data.CharVocabulary` + `Data.BpeVocabulary`. Two CMake facts for the conversion: the import-std
-gate is a per-CMake-version UUID that must precede `project()` (`CXX_MODULE_STD` itself can be set
-per target), and `CMAKE_CXX_EXTENSIONS OFF` must also precede `project()` — the root
-`CMakeLists.txt` sets it after, which makes CMake build `std.pcm` as `gnu++23`, and Clang then
-refuses to load it into `-std=c++23` units.
-
-The alternative is recorded only so it is not mistaken for the plan: moving the `toString()` bodies
-out of the module interfaces would stop the consumer compiling those instantiations, but it
-addresses failure 2 alone and leaves the mechanism intact.
-
-Check a newer MSVC before starting either — the cheapest outcome is that the toolchain fixed it.
-Filing upstream is worth considering: a 2026-08-13 search found no matching report, and MSVC emitted
-its own report-a-modules-bug note. **Do not narrow `Mila.ixx` in response to this** — narrowing the
-umbrella was measured and reverted, and this resolves by widening if it resolves in Mila at all.
-
-**What v0.20 ships instead.** Both workarounds are commented at the point of use in
-`Samples/QuickStart/Cpp/main.cpp` and in `Mila/Tests/Packaging/fetchcontent_consumer/main.cpp`, and
-that fixture pins all three defects by compiling — ordering for 3, a never-called
-`instantiateModelFromConsumerTranslationUnit()` that forces the vtable for 2, and the `fgets`
-workaround for 1. It needs no GPU and no model, so it will report the day the workarounds become
-unnecessary.
+[#30](https://github.com/ToddThomson/Mila/issues/30) is the record: the three failures, the
+workarounds, the measured fix (`import std;` in the library) and its open unknowns. Standalone
+repro for the Microsoft report:
+[msvc-module-std-repro](https://github.com/ToddThomson/msvc-module-std-repro).
 
 ## A dispatch row that lies still fails as a constraint cascade
 
@@ -727,19 +674,23 @@ do.
 
 ## The published binaries are built on CUDA 13.3 while 13.4 is current
 
-`build` · `ci` · `distribution` · `blocked`
+`build` · `ci` · `distribution`
 
-Move the declared toolkit to 13.4.2. Held for v0.20 (Todd, 2026-09-17): on that date Docker Hub's
-`nvidia/cuda` had no 13.4 tag for any OS, and the Linux wheels, runtime image, dev container and CI
-all build `FROM` it. Unblocks when `13.4.2-devel-ubuntu26.04` and `-runtime-ubuntu26.04` exist —
-not by an apt-installed toolkit on a plain base.
+Move the declared toolkit to 13.4.1, early in the v0.21 cycle and between pieces of native work
+(Todd, 2026-09-24). Docker Hub has carried `nvidia/cuda:13.4.1-{devel,runtime}-ubuntu{24,26}.04`
+since 2026-09-18, which clears the v0.20 hold (no 13.4 tag existed on 2026-09-17). 13.4.1 over
+waiting for 13.4.2: the minor is where behaviour and the driver floor move, so it should surface
+early in the cycle; 13.4.2, likely during the cycle, is then a patch bump of the same sites with the
+floor unchanged.
 
 Moves together (RELEASING.md, toolkit paragraph): `$cudaVersion` in
 `scripts/pypi/build-wheel-windows.ps1:59`, `Docker/Dockerfile.wheel:23`, `Docker/Dockerfile.runtime:21`,
-`Docker/Dockerfile:18`, `build-pipeline.yml:47`, and the docs naming 13.3 — `README.md:285`,
-`:295`, `:336`, `:350`, `getting-started.md:26`, `:34`, `:119-134`, `:183-191`, `:241`,
-`CONTRIBUTING.md:46`, `:58`, `:85`, `Docker/README.md:15`, `:20`, `Web/content/start.md:15`,
-`RELEASING.md:382`.
+`Docker/Dockerfile:9`, `:18`, `Docker/build-chat.sh:12`, `Docker/build-all.sh:26`,
+`build-pipeline.yml:54`, `:57`, and the docs naming 13.3 — `README.md:276`, `:286`, `:327`, `:341`,
+`getting-started.md:25`, `:33`, `:116-131` (the WSL installer URL and filename change with the
+patch level), `:183-191`, `:238`, `CONTRIBUTING.md:46`, `:113`, `:140`, `Docker/README.md:15`,
+`:20`, `Web/content/start.md:15`, `RELEASING.md:508`. `RELEASING.md:529` records what the
+`0.20.0b3` wheels were built on and stays.
 
 Consequences to carry into the work. Wheel users see nothing — the `nvidia-*` dependencies and
 minor version compatibility, and this is now checked rather than assumed: a 13.3-built wheel loads
@@ -750,7 +701,8 @@ users' driver floor rises: the base image's `NVIDIA_REQUIRE_CUDA`
 becomes `cuda>=13.4`, and the container toolkit refuses a GeForce driver below it. Every local build
 directory is configured against v13.3 while `CUDA_PATH` names v13.4 (13.4.1 installed), so a fresh
 configure already drifts — reconfigure all of them deliberately. Published tok/s figures and the
-cuBLASLt findings in the specs are 13.3 measurements; re-measure or label them. CI's first run
+cuBLASLt findings in the specs are 13.3 measurements; re-measure them once, just before the
+release, on the 13.4.x that ships -- not at 13.4.1 and again at 13.4.2. CI's first run
 starts with a cold ccache. The patch levels already differ today: Windows pins resolve to 13.3.1,
 the Linux images to 13.3.0.
 

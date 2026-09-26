@@ -90,3 +90,14 @@ already use C++23 library facilities -- `std::ranges::fold_left` at `Mila/Src/Dn
 then compiles at C++20, or the compiler's default wins, was not tested. Found while checking whether
 `std::expected` (C++23) could appear in the public API for `Deployment.md` 3.3.
 
+## A process's second automatic load chooses a shorter context than its first
+
+`Mila/Src/Deployment/DeviceReading.ixx` (`take`) @ `0.21.0-dev+7`
+
+Found verifying Deployment Phase 4 through the Python binding on the RTX 4070: four `GemmaModel.from_store(
+"gemma-4-12b-it-fp4")` loads in one process, each deleted before the next, chose 121856, 120832, 120832, 120832.
+Stable after the first, so not a leak -- memory the first load leaves held in the process (lazily loaded kernel
+modules or a library workspace are candidates; not measured). A fresh process always chooses 121856. It reaches
+any caller that loads twice in one process: Chat's `/model` switching and a Python program. Not measured how many
+bytes, or which.
+

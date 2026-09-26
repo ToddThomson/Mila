@@ -107,7 +107,7 @@ devices is Phase 5 and a later release. The weight format stays the caller's cho
 in the library and each application chooses its own; an explicit value that does not fit is refused,
 naming what bound it.
 
-**Success criteria:** `Deployment.md` gates G1 to G4 and negatives N1 to N5, each forced to fail
+**Success criteria:** `Deployment.md` gates G1 to G4 and negatives N1 to N4, each forced to fail
 once; Chat's automatic choices are reproduced by the planner on the measured models before Chat's own
 code is deleted; and a Python session and an inference server request each run with an automatic
 context length.

@@ -242,8 +242,8 @@ def parse_args():
                         help=f"Installed model to load by store name (default: {common.DEFAULT_MODEL}).")
     parser.add_argument("--weights", help="Path to a locally converted Gemma .bin, instead of --model.")
     parser.add_argument("--tokenizer", help="Path to the Gemma tokenizer .bin, with --weights.")
-    parser.add_argument("--context-length", type=int, default=4096,
-                        help="KV-cache depth to build for. Larger costs VRAM (default: 4096).")
+    parser.add_argument("--context-length", type=common.context_length_argument, default="auto",
+                        help="Tokens the model holds, or 'auto' for the longest the GPU can hold (default).")
     parser.add_argument("--device-index", type=int, default=0, help="CUDA device ordinal.")
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--temperature", type=float, default=0.6)
@@ -266,11 +266,11 @@ def main():
 
     if args.weights or args.tokenizer:
         weights, tokenizer_path = common.resolve_paths("gemma", args.weights, args.tokenizer)
-        print(f"Loading {weights.name} (FP4, context {args.context_length}) ...", flush=True)
+        print(f"Loading {weights.name} (FP4) ...", flush=True)
         tokenizer, model = common.load(
             mila, "gemma", weights, tokenizer_path, args.context_length, args.device_index)
     else:
-        print(f"Loading {args.model} (context {args.context_length}) ...", flush=True)
+        print(f"Loading {args.model} ...", flush=True)
         tokenizer, model, record = common.load_from_store(
             mila, args.model, args.context_length, args.device_index)
 
@@ -282,7 +282,7 @@ def main():
                 "the Gemma instruct template only. generate.py handles both."
             )
 
-    print(f"Ready in {time.perf_counter() - load_started:.1f}s. "
+    print(f"Ready in {time.perf_counter() - load_started:.1f}s, context {model.context_length} tokens. "
           f"Ctrl-C stops a response, /exit quits, /clear forgets the conversation.\n")
 
     history = []

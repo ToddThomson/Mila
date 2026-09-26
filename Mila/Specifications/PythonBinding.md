@@ -29,8 +29,9 @@ Complete as of `0.20.0-beta.2+45`. Source: `Mila/Bindings/Mila_py.cpp`.
 |---|---|
 | `mila.initialize` | `log_level` = `trace \| info \| warning \| error` |
 | `mila.BpeTokenizer` | `from_store(name)`, `load_llama32`, `load_gemma`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
-| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `load(path, context_length, device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
-| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `load(path, context_length, device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
+| `mila.LlamaModel` | `from_store(name, context_length="auto", device_index=0)`, `load(path, context_length="auto", device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config`, `__repr__` |
+| `mila.GemmaModel` | `from_store(name, context_length="auto", device_index=0)`, `load(path, context_length="auto", device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config`, `__repr__` |
+| `mila.QwenModel` | as `GemmaModel`; `load` also takes `quantization="cb2-3"` |
 | `mila.ModelStore` | `root`, `list`, `locate`, `remove`, `usage`, `install`, `pull`, `list_hub_models` |
 | `mila.StopController` | `request_stop`, `stop_requested` |
 
@@ -48,6 +49,15 @@ generation** (`py::gil_scoped_release`), so streaming callbacks and a Ctrl-C han
 already FP4 bytes — loads without the caller knowing what it is. `load` keeps a
 quantization argument because a loose artifact is unquantized and the choice is then real; Gemma
 defaults it to FP4 so the 12B loads on a consumer card rather than OOM-ing at BF16.
+
+**Both loads send a `DeploymentRequest`** (`Deployment.md` Phase 4, `0.21.0-dev+7`). `context_length`
+is a positive number or `"auto"`, the default, which is the library's own default request: the planner
+picks the longest context that fits, headroom zero. It crosses the std-only boundary as
+`std::optional<int64_t>`, nullopt meaning automatic, and `"auto"` is parsed in `Mila_py.cpp` so a bad
+value is a `ValueError` before any file is opened. The `context_length` property reads the loaded model's
+`DeploymentPlan`, since `get_config()["max_sequence_length"]` is the trained maximum. A refusal is caught
+as `DeploymentRefusedError` and rethrown as `RuntimeError` in the binding's own words (`describeRefusal`,
+`Mila_py.Wrappers.cpp`): the library names the reason and the numbers, the sentence is the presenter's.
 
 **Not exposed:** `GptModel`. This matters more than it looks — see *Weights* below.
 

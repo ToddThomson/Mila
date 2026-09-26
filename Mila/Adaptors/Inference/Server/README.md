@@ -153,7 +153,7 @@ up when you run MIS from the checkout.
 |---|---|---|
 | `MILA_MODEL` | `gemma-4-12b-it-fp4` | Name of an installed model in the local store |
 | `MILA_PROTOCOL` | `openai` | API protocol to expose: `mila`, `openai`, or `anthropic` (one per launch) |
-| `MILA_CONTEXT_LENGTH` | `4096` | Maximum sequence length passed to `from_store()` |
+| `MILA_CONTEXT_LENGTH` | `auto` | Tokens the model holds, prompt and reply together. `auto` takes the longest the GPU can hold; a number that does not fit stops startup, naming what it needs and what is free |
 | `MILA_DEVICE_INDEX` | `0` | CUDA device ordinal |
 | `MILA_DEFAULT_MAX_NEW_TOKENS` | `1024` | Default token budget for generation |
 | `MILA_DEFAULT_TEMPERATURE` | `0.6` | Default sampling temperature |
@@ -166,7 +166,9 @@ up when you run MIS from the checkout.
 | `MILA_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warning`, `error`) |
 
 The identifier a client sees in API responses is the **store record's** name, not `MILA_MODEL`. The
-store matches case-insensitively, so the two can differ; what is reported is what was loaded.
+store matches case-insensitively, so the two can differ; what is reported is what was loaded. The
+same holds for the context: `/v1/models` reports the length the model loaded at as `context_window`,
+and a prompt longer than it is refused.
 
 There is no family, path or quantization setting. All three are properties of the weights, which
 the store record already states — `gemma-4-12b-it-fp4` *is* FP4 weights, and a variable that said
@@ -174,12 +176,10 @@ otherwise could only ever be wrong.
 
 ### Example `.env` (Gemma 4 12B, Anthropic protocol)
 
-`MILA_CONTEXT_LENGTH=16384` is validated on the 12 GB 4070.
-
 ```env
 MILA_PROTOCOL=anthropic
 MILA_MODEL=gemma-4-12b-it-fp4
-MILA_CONTEXT_LENGTH=16384
+MILA_CONTEXT_LENGTH=auto
 MILA_DEVICE_INDEX=0
 ```
 

@@ -35,6 +35,14 @@ class FakeRecord:
         self.license = license
 
 
+class FakeSession:
+    """What ModelWorker reads off a loaded session: the context length the load resolved."""
+
+    def __init__(self, name, context_length=4096):
+        self.name = name
+        self.context_length = context_length
+
+
 class FakeStore:
     """Resolves by exact name only; the real store's case-insensitivity is exercised by
     handing back a record whose name differs from what was asked for."""
@@ -71,7 +79,7 @@ def store(monkeypatch):
         def from_store(name, context_length, device_index):
             holder["session"] = label
             holder["loaded_name"] = name
-            return f"model:{name}"
+            return FakeSession(name)
 
         return from_store
 
@@ -286,7 +294,7 @@ def test_load_passes_the_configured_context_and_device(store, monkeypatch):
     def from_store(name, context_length, device_index):
         captured["context_length"] = context_length
         captured["device_index"] = device_index
-        return "model"
+        return FakeSession(name, context_length)
 
     monkeypatch.setattr(mila.GemmaModel, "from_store", staticmethod(from_store))
     store["store"] = FakeStore([FakeRecord()])
@@ -297,3 +305,52 @@ def test_load_passes_the_configured_context_and_device(store, monkeypatch):
     ModelWorker()._load()
 
     assert captured == {"context_length": 8192, "device_index": 1}
+    assert loaded.context_length == 8192
+
+
+def test_auto_context_is_the_default_and_the_card_reports_what_loaded(store, monkeypatch):
+    # "auto" reaches the binding unchanged, and everything downstream -- the prompt bound and
+    # both /v1/models cards -- reads the length the load chose, never the setting.
+    from mila_llm_server.config import Settings
+    from mila_llm_server.protocols.anthropic import AnthropicAdapter
+    from mila_llm_server.protocols.openai.models import OpenAIModelsAdapter
+
+    captured = {}
+
+    def from_store(name, context_length, device_index):
+        captured["context_length"] = context_length
+        return FakeSession(name, 121856)
+
+    monkeypatch.setattr(mila.GemmaModel, "from_store", staticmethod(from_store))
+    monkeypatch.delenv("MILA_CONTEXT_LENGTH", raising=False)
+    monkeypatch.setattr(settings, "context_length", Settings(_env_file=None).context_length)
+    store["store"] = FakeStore([FakeRecord()])
+    monkeypatch.setattr(settings, "model", "gemma-4-12b-it-fp4")
+
+    ModelWorker()._load()
+
+    assert captured["context_length"] == "auto"
+    assert loaded.context_length == 121856
+    assert OpenAIModelsAdapter().format_models_response()["data"][0]["context_window"] == 121856
+    assert AnthropicAdapter().format_models_response()["data"][0]["context_window"] == 121856
+
+
+@pytest.mark.parametrize("value, expected", [("auto", "auto"), ("8192", 8192)])
+def test_context_length_setting_takes_auto_or_a_number(monkeypatch, value, expected):
+    from mila_llm_server.config import Settings
+
+    monkeypatch.setenv("MILA_CONTEXT_LENGTH", value)
+
+    assert Settings(_env_file=None).context_length == expected
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "long"])
+def test_context_length_setting_refuses_anything_else(monkeypatch, value):
+    from pydantic import ValidationError
+
+    from mila_llm_server.config import Settings
+
+    monkeypatch.setenv("MILA_CONTEXT_LENGTH", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

@@ -16,13 +16,46 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <stop_token>
 #include <string>
+#include <variant>
 #include <vector>
 
 import Mila.Bindings;
 
 namespace py = pybind11;
+
+/// What Python passes as a context length: a number of tokens, or "auto".
+using ContextLengthArgument = std::variant<int64_t, std::string>;
+
+/**
+ * @brief A context length as the sessions take it: a positive number, or nullopt for "auto".
+ *
+ * Raises ValueError for anything else, before any file is opened.
+ */
+static std::optional<int64_t> parseContextLength( const ContextLengthArgument& argument )
+{
+    if ( const auto* text = std::get_if<std::string>( &argument ) )
+    {
+        if ( *text == "auto" )
+        {
+            return std::nullopt;
+        }
+
+        throw py::value_error( "context_length must be a number of tokens or 'auto', not '" + *text + "'." );
+    }
+
+    const int64_t length = std::get<int64_t>( argument );
+
+    if ( length <= 0 )
+    {
+        throw py::value_error(
+            "context_length must be greater than zero, or 'auto', not " + std::to_string( length ) + "." );
+    }
+
+    return length;
+}
 
 using Mila::Bindings::GemmaConfigInfo;
 using Mila::Bindings::GemmaSession;
@@ -370,23 +403,26 @@ static void bind_llama_model( py::module_& m )
     py::class_<LlamaSession>( m, "LlamaModel" )
         .def_static( "load",
             []( const std::string& path,
-                int64_t context_length,
+                const ContextLengthArgument& context_length,
                 int device_index,
                 const std::string& quantization ) -> std::unique_ptr<LlamaSession>
             {
+                const std::optional<int64_t> length = parseContextLength( context_length );
+
                 py::gil_scoped_release _;
 
                 return LlamaSession::load(
-                    path, context_length, device_index, quantization );
+                    path, length, device_index, quantization );
             },
             py::arg( "path" ),
-            py::arg( "context_length" ),
+            py::arg( "context_length" ) = "auto",
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "bf16",
             "Load Llama 3.x Instruct weights from an unquantized Mila weights file.\n\n"
             "Args:\n"
             "    path:           Path to a Mila weights file.\n"
-            "    context_length: Maximum sequence length to build for.\n"
+            "    context_length: Tokens the model can hold, prompt and reply together,\n"
+            "                    or 'auto' (default) for the longest that fits the GPU.\n"
             "    device_index:   CUDA device index (default: 0).\n"
             "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
             "                    (default: 'bf16'). FP4 requires SM >= 8.0 (RTX 30xx\n"
@@ -395,15 +431,17 @@ static void bind_llama_model( py::module_& m )
             "FP4 or FP8, and only the store record says which. Use from_store()." )
         .def_static( "from_store",
             []( const std::string& name,
-                int64_t context_length,
+                const ContextLengthArgument& context_length,
                 int device_index ) -> std::unique_ptr<LlamaSession>
             {
+                const std::optional<int64_t> length = parseContextLength( context_length );
+
                 py::gil_scoped_release _;
 
-                return LlamaSession::fromStore( name, context_length, device_index );
+                return LlamaSession::fromStore( name, length, device_index );
             },
             py::arg( "name" ),
-            py::arg( "context_length" ),
+            py::arg( "context_length" ) = "auto",
             py::arg( "device_index" ) = 0,
             "Load an installed Llama model by store name, as its weights already are.\n\n"
             "The record settles the quantization, so a published FP4 or FP8 model\n"
@@ -411,8 +449,12 @@ static void bind_llama_model( py::module_& m )
             "uninstalled name raises RuntimeError.\n\n"
             "Args:\n"
             "    name:           Store name, e.g. 'Llama-3.2-3B-Instruct-fp4'.\n"
-            "    context_length: Maximum sequence length to build for.\n"
-            "    device_index:   CUDA device index (default: 0)." )
+            "    context_length: Tokens the model can hold, prompt and reply together,\n"
+            "                    or 'auto' (default) for the longest that fits the GPU.\n"
+            "                    The context_length property reports the one chosen.\n"
+            "    device_index:   CUDA device index (default: 0).\n\n"
+            "Raises RuntimeError if the model does not fit the GPU at that length, naming\n"
+            "what it needs and what is free." )
         .def( "generate",
             []( LlamaSession& self,
                 const std::vector<int32_t>& prompt_tokens,
@@ -467,6 +509,10 @@ static void bind_llama_model( py::module_& m )
                 d["rope_theta"] = cfg.rope_theta;
                 return d;
             } )
+        .def_property_readonly( "context_length",
+            []( const LlamaSession& self ) { return self.contextLength(); },
+            "Tokens this model can hold, prompt and reply together: the number passed\n"
+            "to the load, or the one 'auto' chose." )
         .def( "__repr__",
             []( const LlamaSession& self ) { return self.repr(); } );
 }
@@ -480,23 +526,26 @@ static void bind_gemma_model( py::module_& m )
     py::class_<GemmaSession>( m, "GemmaModel" )
         .def_static( "load",
             []( const std::string& path,
-                int64_t context_length,
+                const ContextLengthArgument& context_length,
                 int device_index,
                 const std::string& quantization ) -> std::unique_ptr<GemmaSession>
             {
+                const std::optional<int64_t> length = parseContextLength( context_length );
+
                 py::gil_scoped_release _;
 
                 return GemmaSession::load(
-                    path, context_length, device_index, quantization );
+                    path, length, device_index, quantization );
             },
             py::arg( "path" ),
-            py::arg( "context_length" ),
+            py::arg( "context_length" ) = "auto",
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "fp4",
             "Load Gemma 4 weights from an unquantized Mila weights file.\n\n"
             "Args:\n"
             "    path:           Path to a Mila weights file.\n"
-            "    context_length: Maximum sequence length to build for.\n"
+            "    context_length: Tokens the model can hold, prompt and reply together,\n"
+            "                    or 'auto' (default) for the longest that fits the GPU.\n"
             "    device_index:   CUDA device index (default: 0).\n"
             "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
             "                    (default: 'fp4' -- a BF16 Gemma 4 12B needs ~24 GB\n"
@@ -504,21 +553,27 @@ static void bind_gemma_model( py::module_& m )
             "Pre-quantized weights cannot be loaded here. Use from_store()." )
         .def_static( "from_store",
             []( const std::string& name,
-                int64_t context_length,
+                const ContextLengthArgument& context_length,
                 int device_index ) -> std::unique_ptr<GemmaSession>
             {
+                const std::optional<int64_t> length = parseContextLength( context_length );
+
                 py::gil_scoped_release _;
 
-                return GemmaSession::fromStore( name, context_length, device_index );
+                return GemmaSession::fromStore( name, length, device_index );
             },
             py::arg( "name" ),
-            py::arg( "context_length" ),
+            py::arg( "context_length" ) = "auto",
             py::arg( "device_index" ) = 0,
             "Load an installed Gemma model by store name, as its weights already are.\n\n"
             "Args:\n"
             "    name:           Store name, e.g. 'gemma-4-12b-it-fp4'.\n"
-            "    context_length: Maximum sequence length to build for.\n"
-            "    device_index:   CUDA device index (default: 0)." )
+            "    context_length: Tokens the model can hold, prompt and reply together,\n"
+            "                    or 'auto' (default) for the longest that fits the GPU.\n"
+            "                    The context_length property reports the one chosen.\n"
+            "    device_index:   CUDA device index (default: 0).\n\n"
+            "Raises RuntimeError if the model does not fit the GPU at that length, naming\n"
+            "what it needs and what is free." )
         .def( "generate",
             []( GemmaSession& self,
                 const std::vector<int32_t>& prompt_tokens,
@@ -578,6 +633,10 @@ static void bind_gemma_model( py::module_& m )
                 d["final_logit_softcapping"] = cfg.final_logit_softcapping;
                 return d;
             } )
+        .def_property_readonly( "context_length",
+            []( const GemmaSession& self ) { return self.contextLength(); },
+            "Tokens this model can hold, prompt and reply together: the number passed\n"
+            "to the load, or the one 'auto' chose." )
         .def( "__repr__",
             []( const GemmaSession& self ) { return self.repr(); } );
 }
@@ -591,23 +650,26 @@ static void bind_qwen_model( py::module_& m )
     py::class_<QwenSession>( m, "QwenModel" )
         .def_static( "load",
             []( const std::string& path,
-                int64_t context_length,
+                const ContextLengthArgument& context_length,
                 int device_index,
                 const std::string& quantization ) -> std::unique_ptr<QwenSession>
             {
+                const std::optional<int64_t> length = parseContextLength( context_length );
+
                 py::gil_scoped_release _;
 
                 return QwenSession::load(
-                    path, context_length, device_index, quantization );
+                    path, length, device_index, quantization );
             },
             py::arg( "path" ),
-            py::arg( "context_length" ),
+            py::arg( "context_length" ) = "auto",
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "fp4",
             "Load Qwen 3.8 weights from a Mila weights file.\n\n"
             "Args:\n"
             "    path:           Path to a Mila weights file.\n"
-            "    context_length: Maximum sequence length to build for.\n"
+            "    context_length: Tokens the model can hold, prompt and reply together,\n"
+            "                    or 'auto' (default) for the longest that fits the GPU.\n"
             "    device_index:   CUDA device index (default: 0).\n"
             "    quantization:   'bf16', 'fp8', 'fp4' or 'cb2-3'\n"
             "                    (default: 'fp4' -- a BF16 27B fits no card this\n"
@@ -617,21 +679,27 @@ static void bind_qwen_model( py::module_& m )
             "Prefer from_store(), which reads what the weights already are." )
         .def_static( "from_store",
             []( const std::string& name,
-                int64_t context_length,
+                const ContextLengthArgument& context_length,
                 int device_index ) -> std::unique_ptr<QwenSession>
             {
+                const std::optional<int64_t> length = parseContextLength( context_length );
+
                 py::gil_scoped_release _;
 
-                return QwenSession::fromStore( name, context_length, device_index );
+                return QwenSession::fromStore( name, length, device_index );
             },
             py::arg( "name" ),
-            py::arg( "context_length" ),
+            py::arg( "context_length" ) = "auto",
             py::arg( "device_index" ) = 0,
             "Load an installed Qwen model by store name, as its weights already are.\n\n"
             "Args:\n"
             "    name:           Store name, e.g. 'Qwen3.8-27B-fp4'.\n"
-            "    context_length: Maximum sequence length to build for.\n"
-            "    device_index:   CUDA device index (default: 0)." )
+            "    context_length: Tokens the model can hold, prompt and reply together,\n"
+            "                    or 'auto' (default) for the longest that fits the GPU.\n"
+            "                    The context_length property reports the one chosen.\n"
+            "    device_index:   CUDA device index (default: 0).\n\n"
+            "Raises RuntimeError if the model does not fit the GPU at that length, naming\n"
+            "what it needs and what is free." )
         .def( "generate",
             []( QwenSession& self,
                 const std::vector<int32_t>& prompt_tokens,
@@ -693,6 +761,10 @@ static void bind_qwen_model( py::module_& m )
                 d["linear_conv_kernel_dim"] = cfg.linear_conv_kernel_dim;
                 return d;
             } )
+        .def_property_readonly( "context_length",
+            []( const QwenSession& self ) { return self.contextLength(); },
+            "Tokens this model can hold, prompt and reply together: the number passed\n"
+            "to the load, or the one 'auto' chose." )
         .def( "__repr__",
             []( const QwenSession& self ) { return self.repr(); } );
 }
@@ -957,7 +1029,8 @@ PYBIND11_MODULE( _mila, m )
         "and so knows what the weights already are -- a published model is pre-quantized,\n"
         "and only its record says to what. load() remains for a loose weights\n"
         "file, where the quantization is the caller's choice. BpeTokenizer.from_store()\n"
-        "takes the same name, so nothing pairs two paths by hand. The GIL is released\n"
+        "takes the same name, so nothing pairs two paths by hand. Both loads choose the\n"
+        "longest context the GPU can hold unless context_length fixes one. The GIL is released\n"
         "around generation, so streaming callbacks, a StopController and Ctrl-C all work\n"
         "from Python.\n\n"
         "Distribution:\n"

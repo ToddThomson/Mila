@@ -22,10 +22,6 @@ import common
 #   mila.ModelStore().pull(MODEL, mila.default_hub_owner())
 MODEL = "gemma-4-12b-it-fp4"
 
-# Well under the model's ceiling. Context length drives KV-cache VRAM, and a first run
-# should fit comfortably rather than probe the limit.
-CONTEXT_LENGTH = 4096
-
 MAX_NEW_TOKENS = 512
 TEMPERATURE = 0.6
 TOP_K = 40
@@ -78,7 +74,11 @@ def main():
     mila = common.import_mila("warning")
 
     print(f"Loading {MODEL} ...", flush=True)
-    tokenizer, model, _record = common.load_from_store(mila, MODEL, CONTEXT_LENGTH)
+
+    # No context length is given, so the model loads at the longest one this GPU can hold.
+    # Pass context_length=4096 to fix it instead.
+    tokenizer, model, _record = common.load_from_store(mila, MODEL)
+    print(f"Context: {model.context_length} tokens")
 
     prompt_tokens = tokenizer.encode(build_prompt(user_message))
 

@@ -33,7 +33,7 @@ class OpenAIModelsAdapter(ModelsCapable):
             "object": "model",
             "created": created,
             "owned_by": "mila",
-            "context_window": settings.context_length,
+            "context_window": loaded.context_length,
             "max_output_tokens": settings.default_max_new_tokens,
             "supports_parallel_tool_calls": False,
             "supports_reasoning": False,

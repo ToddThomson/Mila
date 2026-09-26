@@ -12,6 +12,7 @@ record says to what. Loose .bin paths (resolve_paths + load) are the fallback fo
 a checkpoint converted locally from a family Mila does not publish.
 """
 
+import argparse
 import os
 import sys
 import sysconfig
@@ -33,14 +34,36 @@ MODEL_CATALOG = {
     "gemma": {
         "weights": MODELS_DIR / "Gemma" / "gemma4_12b_it_bf16.bin",
         "tokenizer": MODELS_DIR / "Gemma" / "gemma_tokenizer.bin",
-        "context_length": 4096,
     },
     "llama": {
         "weights": MODELS_DIR / "LLaMa" / "llama32_3b_instruct_bf16.bin",
         "tokenizer": MODELS_DIR / "LLaMa" / "llama32_tokenizer.bin",
-        "context_length": 4096,
     },
 }
+
+# The session class for each architecture these samples carry a prompt template for.
+SESSIONS = {
+    "gemma": "GemmaModel",
+    "llama": "LlamaModel",
+}
+
+
+def context_length_argument(text):
+    """
+    A --context-length value: 'auto' for the longest the GPU can hold, or a number of tokens.
+    """
+    if text == "auto":
+        return text
+
+    try:
+        length = int(text)
+    except ValueError:
+        length = 0
+
+    if length <= 0:
+        raise argparse.ArgumentTypeError(f"expected 'auto' or a number of tokens, not '{text}'")
+
+    return length
 
 
 def configure_console():
@@ -210,13 +233,16 @@ def resolve_paths(family, weights=None, tokenizer=None):
 # Loading
 # ---------------------------------------------------------------------------
 
-def load(mila, family, weights, tokenizer, context_length, device_index=0, quantization=None):
+def load(mila, family, weights, tokenizer, context_length="auto", device_index=0, quantization=None):
     """
     Load a tokenizer and model pair for the given family, from loose weights and
     tokenizer files.
 
+    context_length is a number of tokens, or "auto" for the longest the GPU can hold;
+    model.context_length says which was loaded.
+
     Quantization is a load-time choice here because the weights are unquantized: "bf16",
-    "fp8" or "fp4". Gemma defaults to FP4 -- a BF16 12B needs ~24 GB and OOMs on a 12 GB
+    "fp8" or "fp4". Gemma defaults to FP4 -- a BF16 12B needs ~24 GB and fits no 16 GB
     card -- and Llama to BF16.
 
     Prefer load_from_store() for an installed model: a published model's weights are
@@ -236,13 +262,16 @@ def load(mila, family, weights, tokenizer, context_length, device_index=0, quant
     )
 
 
-def load_from_store(mila, name, context_length, device_index=0):
+def load_from_store(mila, name, context_length="auto", device_index=0):
     """
     Load an installed model by the name the store lists it under.
 
     Returns (tokenizer, model, record). The record carries the architecture, the variant
     and whether the model is instruction-tuned, so a caller needs to know nothing about
     the model in advance. Nothing is downloaded: an uninstalled name raises.
+
+    context_length is a number of tokens, or "auto" for the longest the GPU can hold;
+    model.context_length says which was loaded.
     """
     record = mila.ModelStore().locate(name)
 
@@ -254,7 +283,12 @@ def load_from_store(mila, name, context_length, device_index=0):
             "or with /model install in the chat harness. Loading never downloads."
         )
 
-    session = mila.GemmaModel if record.architecture == "gemma" else mila.LlamaModel
+    if record.architecture not in SESSIONS:
+        raise ValueError(
+            f"'{name}' is a {record.architecture} model; these samples carry templates for "
+            f"{' and '.join(SESSIONS)} only.")
+
+    session = getattr(mila, SESSIONS[record.architecture])
 
     return (
         mila.BpeTokenizer.from_store(name),

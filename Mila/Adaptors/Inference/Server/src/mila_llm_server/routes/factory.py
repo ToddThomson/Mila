@@ -94,9 +94,9 @@ async def _dispatch(
 
     prompt_ids = await worker.encode(prompt_str)
 
-    remaining = settings.context_length - len(prompt_ids)
+    remaining = loaded.context_length - len(prompt_ids)
     if remaining <= 0:
-        return _prompt_too_long_error(len(prompt_ids), settings.context_length)
+        return _prompt_too_long_error(len(prompt_ids), loaded.context_length)
 
     inf_req.max_new_tokens = min(inf_req.max_new_tokens, remaining)
     inf_req.prompt_ids = prompt_ids
@@ -169,9 +169,9 @@ async def _dispatch_responses(
 ) -> JSONResponse | StreamingResponse:
     prompt_ids = await worker.encode(prompt_str)
 
-    remaining = settings.context_length - len(prompt_ids)
+    remaining = loaded.context_length - len(prompt_ids)
     if remaining <= 0:
-        return _prompt_too_long_error(len(prompt_ids), settings.context_length)
+        return _prompt_too_long_error(len(prompt_ids), loaded.context_length)
 
     inf_req.max_new_tokens = min(inf_req.max_new_tokens, remaining)
     inf_req.prompt_ids = prompt_ids

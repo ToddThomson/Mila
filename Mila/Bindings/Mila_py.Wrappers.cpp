@@ -36,6 +36,7 @@ namespace Mila::Bindings
     using namespace Mila::Data;
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Deployment;
 
     using LlamaCudaBf16 = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
     using GemmaCudaBf16 = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
@@ -337,8 +338,9 @@ namespace Mila::Bindings
          * Same shape as the chat harness's applyQwenQuantization, deliberately: two adaptors
          * loading one set of weights differently is two models wearing one name.
          */
+        template<typename TModelConfig>
         void applyQwenQuantizationVariant(
-            QwenModelConfig& model_config, const std::string& variant, const std::string& subject )
+            TModelConfig& model_config, const std::string& variant, const std::string& subject )
         {
             if ( variant == "fp4" )
             {
@@ -377,6 +379,94 @@ namespace Mila::Bindings
                     "Read ModelStore.locate(name).architecture and pick the matching session.",
                     model.record.name,
                     model.record.architecture.empty() ? "unknown" : model.record.architecture ) );
+            }
+        }
+
+        /**
+         * @brief The deployment request a session load sends, before its quantization is applied.
+         *
+         * Headroom stays the library's zero (Deployment.md 12.3): what else shares the device is known
+         * only to the program calling this binding.
+         */
+        DeploymentRequest sessionRequest( std::optional<int64_t> context_length, int device_index )
+        {
+            DeploymentRequest request;
+            request.withDevice( DeviceId{ DeviceType::Cuda, device_index } );
+
+            if ( context_length.has_value() )
+            {
+                request.withContextLength( static_cast<dim_t>( *context_length ) );
+            }
+            else
+            {
+                request.withAutomaticContextLength();
+            }
+
+            return request;
+        }
+
+        std::string formatGigabytes( std::size_t bytes )
+        {
+            return std::format( "{:.2f} GB", static_cast<double>( bytes ) / ( 1024.0 * 1024.0 * 1024.0 ) );
+        }
+
+        /**
+         * @brief A refused deployment in this binding's words: what does not fit, against what, and what
+         *        to try.
+         *
+         * The library names the reason and the numbers; the sentence belongs to whoever presents it
+         * (Deployment.md section 6).
+         */
+        std::string describeRefusal(
+            const std::string& subject, int device_index, const DeploymentRefusal& refusal )
+        {
+            const std::string free = formatGigabytes( refusal.reading().free_bytes );
+
+            switch ( refusal.reason() )
+            {
+                case DeploymentRefusal::Reason::WeightsExceedDevice:
+                    return std::format(
+                        "'{}' does not fit on CUDA device {}: its weights need {} and the device has {} free, "
+                        "so no context length fits.",
+                        subject, device_index, formatGigabytes( refusal.footprint().device_parameter_bytes ), free );
+
+                case DeploymentRefusal::Reason::FixedContextDoesNotFit:
+                    return std::format(
+                        "'{}' does not fit on CUDA device {} at context_length {}: it needs {} and the device "
+                        "has {} free. context_length='auto' chooses the longest that fits.",
+                        subject, device_index, refusal.contextLength(),
+                        formatGigabytes( refusal.footprint().totalDeviceBytes() ), free );
+
+                case DeploymentRefusal::Reason::NothingAboveTheFloorFits:
+                    return std::format(
+                        "'{}' does not fit on CUDA device {} at any context length: even {} needs {} and the "
+                        "device has {} free.",
+                        subject, device_index, refusal.contextLength(),
+                        formatGigabytes( refusal.footprint().totalDeviceBytes() ), free );
+
+                case DeploymentRefusal::Reason::DeviceDoesNotReportMemory:
+                    return std::format(
+                        "CUDA device {} does not report its free memory, so no context length can be chosen "
+                        "for '{}'. Pass context_length as a number.",
+                        device_index, subject );
+            }
+
+            return refusal.toString();
+        }
+
+        /// Plan the request and load its best plan, with a refusal reworded for a Python caller.
+        template<typename TModel>
+        std::unique_ptr<TModel> loadDeployment(
+            const std::filesystem::path& weights, const DeploymentRequest& request,
+            const std::string& subject, int device_index )
+        {
+            try
+            {
+                return TModel::load( weights, request );
+            }
+            catch ( const DeploymentRefusedError& error )
+            {
+                throw std::runtime_error( describeRefusal( subject, device_index, error.refusal() ) );
             }
         }
 
@@ -700,36 +790,35 @@ namespace Mila::Bindings
     LlamaSession::~LlamaSession() = default;
 
     std::unique_ptr<LlamaSession> LlamaSession::load(
-        const std::string& path, int64_t context_length, int device_index,
+        const std::string& path, std::optional<int64_t> context_length, int device_index,
         const std::string& quantization )
     {
-        DeviceId device_id{ DeviceType::Cuda, device_index };
-        LlamaModelConfig model_config( static_cast<dim_t>( context_length ) );
+        const std::filesystem::path weights( path );
+        DeploymentRequest request = sessionRequest( context_length, device_index );
 
-        applyQuantizationVariant( model_config, quantization, "LlamaModel.load" );
+        applyQuantizationVariant( request, quantization, "LlamaModel.load" );
 
         auto impl = std::make_unique<Impl>();
-        impl->model = LlamaCudaBf16::load(
-            std::filesystem::path( path ), model_config, device_id );
+        impl->model = loadDeployment<LlamaCudaBf16>(
+            weights, request, weights.filename().string(), device_index );
 
         return std::unique_ptr<LlamaSession>( new LlamaSession( std::move( impl ) ) );
     }
 
     std::unique_ptr<LlamaSession> LlamaSession::fromStore(
-        const std::string& name, int64_t context_length, int device_index )
+        const std::string& name, std::optional<int64_t> context_length, int device_index )
     {
         const auto model = requireInstalledModel( name );
 
         requireArchitecture( model, "llama" );
 
-        DeviceId device_id{ DeviceType::Cuda, device_index };
-        LlamaModelConfig model_config( static_cast<dim_t>( context_length ) );
+        DeploymentRequest request = sessionRequest( context_length, device_index );
 
-        applyQuantizationVariant( model_config, model.record.variant, name );
+        applyQuantizationVariant( request, model.record.variant, name );
 
         auto impl = std::make_unique<Impl>();
-        impl->model = LlamaCudaBf16::load(
-            model.weights_path, model_config, device_id );
+        impl->model = loadDeployment<LlamaCudaBf16>(
+            model.weights_path, request, model.record.name, device_index );
 
         return std::unique_ptr<LlamaSession>( new LlamaSession( std::move( impl ) ) );
     }
@@ -768,6 +857,11 @@ namespace Mila::Bindings
         };
     }
 
+    int64_t LlamaSession::contextLength() const
+    {
+        return static_cast<int64_t>( impl_->model->getDeploymentPlan().contextLength() );
+    }
+
     std::string LlamaSession::repr() const
     {
         return impl_->model->toString();
@@ -784,36 +878,35 @@ namespace Mila::Bindings
     GemmaSession::~GemmaSession() = default;
 
     std::unique_ptr<GemmaSession> GemmaSession::load(
-        const std::string& path, int64_t context_length, int device_index,
+        const std::string& path, std::optional<int64_t> context_length, int device_index,
         const std::string& quantization )
     {
-        DeviceId device_id{ DeviceType::Cuda, device_index };
-        GemmaModelConfig model_config( static_cast<dim_t>( context_length ) );
+        const std::filesystem::path weights( path );
+        DeploymentRequest request = sessionRequest( context_length, device_index );
 
-        applyQuantizationVariant( model_config, quantization, "GemmaModel.load" );
+        applyQuantizationVariant( request, quantization, "GemmaModel.load" );
 
         auto impl = std::make_unique<Impl>();
-        impl->model = GemmaCudaBf16::load(
-            std::filesystem::path( path ), model_config, device_id );
+        impl->model = loadDeployment<GemmaCudaBf16>(
+            weights, request, weights.filename().string(), device_index );
 
         return std::unique_ptr<GemmaSession>( new GemmaSession( std::move( impl ) ) );
     }
 
     std::unique_ptr<GemmaSession> GemmaSession::fromStore(
-        const std::string& name, int64_t context_length, int device_index )
+        const std::string& name, std::optional<int64_t> context_length, int device_index )
     {
         const auto model = requireInstalledModel( name );
 
         requireArchitecture( model, "gemma" );
 
-        DeviceId device_id{ DeviceType::Cuda, device_index };
-        GemmaModelConfig model_config( static_cast<dim_t>( context_length ) );
+        DeploymentRequest request = sessionRequest( context_length, device_index );
 
-        applyQuantizationVariant( model_config, model.record.variant, name );
+        applyQuantizationVariant( request, model.record.variant, name );
 
         auto impl = std::make_unique<Impl>();
-        impl->model = GemmaCudaBf16::load(
-            model.weights_path, model_config, device_id );
+        impl->model = loadDeployment<GemmaCudaBf16>(
+            model.weights_path, request, model.record.name, device_index );
 
         return std::unique_ptr<GemmaSession>( new GemmaSession( std::move( impl ) ) );
     }
@@ -857,6 +950,11 @@ namespace Mila::Bindings
         };
     }
 
+    int64_t GemmaSession::contextLength() const
+    {
+        return static_cast<int64_t>( impl_->model->getDeploymentPlan().contextLength() );
+    }
+
     std::string GemmaSession::repr() const
     {
         return impl_->model->toString();
@@ -873,36 +971,35 @@ namespace Mila::Bindings
     QwenSession::~QwenSession() = default;
 
     std::unique_ptr<QwenSession> QwenSession::load(
-        const std::string& path, int64_t context_length, int device_index,
+        const std::string& path, std::optional<int64_t> context_length, int device_index,
         const std::string& quantization )
     {
-        DeviceId device_id{ DeviceType::Cuda, device_index };
-        QwenModelConfig model_config( static_cast<dim_t>( context_length ) );
+        const std::filesystem::path weights( path );
+        DeploymentRequest request = sessionRequest( context_length, device_index );
 
-        applyQwenQuantizationVariant( model_config, quantization, "QwenModel.load" );
+        applyQwenQuantizationVariant( request, quantization, "QwenModel.load" );
 
         auto impl = std::make_unique<Impl>();
-        impl->model = QwenCudaBf16::load(
-            std::filesystem::path( path ), model_config, device_id );
+        impl->model = loadDeployment<QwenCudaBf16>(
+            weights, request, weights.filename().string(), device_index );
 
         return std::unique_ptr<QwenSession>( new QwenSession( std::move( impl ) ) );
     }
 
     std::unique_ptr<QwenSession> QwenSession::fromStore(
-        const std::string& name, int64_t context_length, int device_index )
+        const std::string& name, std::optional<int64_t> context_length, int device_index )
     {
         const auto model = requireInstalledModel( name );
 
         requireArchitecture( model, "qwen" );
 
-        DeviceId device_id{ DeviceType::Cuda, device_index };
-        QwenModelConfig model_config( static_cast<dim_t>( context_length ) );
+        DeploymentRequest request = sessionRequest( context_length, device_index );
 
-        applyQwenQuantizationVariant( model_config, model.record.variant, name );
+        applyQwenQuantizationVariant( request, model.record.variant, name );
 
         auto impl = std::make_unique<Impl>();
-        impl->model = QwenCudaBf16::load(
-            model.weights_path, model_config, device_id );
+        impl->model = loadDeployment<QwenCudaBf16>(
+            model.weights_path, request, model.record.name, device_index );
 
         return std::unique_ptr<QwenSession>( new QwenSession( std::move( impl ) ) );
     }
@@ -947,6 +1044,11 @@ namespace Mila::Bindings
             .linear_head_dim         = static_cast<int64_t>( cfg.getLinearHeadDim() ),
             .linear_conv_kernel_dim  = static_cast<int64_t>( cfg.getLinearConvKernelDim() ),
         };
+    }
+
+    int64_t QwenSession::contextLength() const
+    {
+        return static_cast<int64_t>( impl_->model->getDeploymentPlan().contextLength() );
     }
 
     std::string QwenSession::repr() const

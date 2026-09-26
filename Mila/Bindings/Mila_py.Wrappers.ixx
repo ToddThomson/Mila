@@ -268,6 +268,10 @@ namespace Mila::Bindings
     // whether it came from a record or from a caller. "fp32" is rejected rather than ignored:
     // these sessions are BF16 instantiations, and loading FP32 weights at BF16 is a
     // different model than the one asked for.
+    //
+    // A context length of nullopt is automatic: the library's planner chooses the longest that
+    // fits the device (Specifications/Deployment.md). A fixed one that does not fit is refused
+    // before anything is allocated, never attempted.
 
     export class LlamaSession
     {
@@ -278,7 +282,7 @@ namespace Mila::Bindings
          *        their bytes already are.
          */
         static std::unique_ptr<LlamaSession> load(
-            const std::string& path, int64_t context_length, int device_index,
+            const std::string& path, std::optional<int64_t> context_length, int device_index,
             const std::string& quantization );
 
         /**
@@ -290,10 +294,11 @@ namespace Mila::Bindings
          * error, never a download.
          *
          * @throws std::runtime_error if no such model is installed, its files are missing,
-         *         or its architecture or variant is not one this session can load.
+         *         its architecture or variant is not one this session can load, or it does
+         *         not fit the device at the context length asked for.
          */
         static std::unique_ptr<LlamaSession> fromStore(
-            const std::string& name, int64_t context_length, int device_index );
+            const std::string& name, std::optional<int64_t> context_length, int device_index );
 
         /**
          * @brief Generate from a prompt, streaming each token through on_token.
@@ -311,6 +316,10 @@ namespace Mila::Bindings
             std::stop_token stop );
 
         LlamaConfigInfo getConfig() const;
+
+        /// The context length this session was built for: the caller's, or the one the planner chose.
+        int64_t contextLength() const;
+
         std::string repr() const;
 
         ~LlamaSession();
@@ -524,12 +533,12 @@ namespace Mila::Bindings
          *        12B needs ~24 GB and would OOM at load on the cards this targets.
          */
         static std::unique_ptr<GemmaSession> load(
-            const std::string& path, int64_t context_length, int device_index,
+            const std::string& path, std::optional<int64_t> context_length, int device_index,
             const std::string& quantization );
 
         /// As LlamaSession::fromStore -- the record decides the quantization.
         static std::unique_ptr<GemmaSession> fromStore(
-            const std::string& name, int64_t context_length, int device_index );
+            const std::string& name, std::optional<int64_t> context_length, int device_index );
 
         /// As LlamaSession::generate -- tokens through the callback, why it stopped returned.
         std::string generate(
@@ -539,6 +548,10 @@ namespace Mila::Bindings
             std::stop_token stop );
 
         GemmaConfigInfo getConfig() const;
+
+        /// As LlamaSession::contextLength.
+        int64_t contextLength() const;
+
         std::string repr() const;
 
         ~GemmaSession();
@@ -567,12 +580,12 @@ namespace Mila::Bindings
          *        weights' format rather than applying anything on the way in.
          */
         static std::unique_ptr<QwenSession> load(
-            const std::string& path, int64_t context_length, int device_index,
+            const std::string& path, std::optional<int64_t> context_length, int device_index,
             const std::string& quantization );
 
         /// As GemmaSession::fromStore -- the record decides the quantization.
         static std::unique_ptr<QwenSession> fromStore(
-            const std::string& name, int64_t context_length, int device_index );
+            const std::string& name, std::optional<int64_t> context_length, int device_index );
 
         /// As LlamaSession::generate -- tokens through the callback, why it stopped returned.
         std::string generate(
@@ -582,6 +595,10 @@ namespace Mila::Bindings
             std::stop_token stop );
 
         QwenConfigInfo getConfig() const;
+
+        /// As LlamaSession::contextLength.
+        int64_t contextLength() const;
+
         std::string repr() const;
 
         ~QwenSession();

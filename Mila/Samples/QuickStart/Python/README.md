@@ -24,8 +24,9 @@ python quickstart.py "Why is the sky blue?"
 
 ## Prerequisites
 
-**A CUDA GPU.** The binding is CUDA-only. Gemma 4 12B FP4 wants ~12 GB of VRAM at
-a 4096 context; Llama 3.2 3B BF16 is the smaller first run.
+**A CUDA GPU.** The binding is CUDA-only. Gemma 4 12B FP4 wants a 12 GB card for a
+useful context; Llama 3.2 3B BF16 is the smaller first run. Every sample loads at the
+longest context your GPU can hold and prints it; `--context-length 4096` fixes one.
 
 **Mila itself.** `pip install mila-llm` is all of it — the samples import an
 installed wheel in preference to anything else. Alternatively, build the `MilaPy`
@@ -116,8 +117,8 @@ over the same prompt so the knobs are visible side by side. On the `--weights` p
 | `mila.BpeTokenizer` | `from_store(name)`, `load_llama32`, `load_gemma`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
 | `mila.ModelStore` | `root`, `list`, `locate(name)`, `remove(name)`, `usage`, `install(package_directory, ...)`, `pull(name, owner, transport=None)`, `list_hub_models(owner, transport=None)` |
 | `mila.http_transport` | The standard-library transport `pull` uses when none is passed; `mila.default_hub_owner()` names the owner Mila publishes under |
-| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `load(path, context_length, device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
-| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `load(path, context_length, device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `get_config`, `__repr__` |
+| `mila.GemmaModel` | `from_store(name, context_length="auto", device_index=0)`, `load(path, context_length="auto", device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config`, `__repr__` |
+| `mila.LlamaModel` | `from_store(name, context_length="auto", device_index=0)`, `load(path, context_length="auto", device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config`, `__repr__` |
 | `mila.StopController` | `request_stop`, `stop_requested` |
 
 The GIL is released around generation, so a streaming callback runs on a live

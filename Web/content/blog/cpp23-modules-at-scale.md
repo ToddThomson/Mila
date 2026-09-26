@@ -147,7 +147,7 @@ error names until the backtrace agrees.
 
 ## Lesson 4: `import Mila;` still costs a consumer part of the standard library
 
-This one is open, and it is the one I would most like help with.
+This one is still open. It is now diagnosed and reported to Microsoft, and the fix is known.
 
 A translation unit outside the library that does `import Mila;` - on MSVC 14.51 - loses parts of the
 standard library:
@@ -163,9 +163,15 @@ The C++ quick start carries all three workarounds, with comments saying they are
 I know about the cause: 94 modules include `<sstream>` in their global module fragments, and adding
 more includes on the library's side changes nothing - entities from a global module fragment are
 reachable in the importer, not visible, and MSVC will not instantiate a class template whose
-definition is only reachable. My leading hypothesis is that `import std;` in the consumer removes
-the problem, since there would be no textual standard library left to disagree with. I have not
-tested it yet.
+definition is only reachable.
+
+A [standalone repro](https://github.com/ToddThomson/msvc-module-std-repro) with no Mila code in it
+reproduces all three on MSVC 19.51 and none on Clang 21. The stream failure needs *two* modules that
+each read from a stream in their interface; either one alone is fine. The fix is `import std;`, but
+it has to be in the library: converting only the consumer clears the `<sstream>` failure and leaves
+`std::getline` broken. Converting the library clears all three, including for consumers that still
+`#include`. It is [reported to Microsoft](https://developercommunity.visualstudio.com/t/MSVC-modules-trigger-C2079-after-global-/11157342),
+and converting Mila is tracked in [#30](https://github.com/ToddThomson/Mila/issues/30).
 
 It hid for a long time because every consumer I had - the chat app, the samples, the tests - built
 inside the library's own tree. It took a consumer outside the tree to find it.

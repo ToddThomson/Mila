@@ -9,7 +9,7 @@
 # for the full table). The model is a NAME in the local Mila store, which lives on the
 # bind mount (MILA_CACHE_DIR) so it survives `run --rm` and is the same store the host
 # sees. MIS never downloads: install the model first -- from the host, or in the container
-# with the chat harness. The tuned params in Server/.env (MILA_CONTEXT_LENGTH, generation
+# with the chat harness. The params in Server/.env (MILA_CONTEXT_LENGTH=auto, generation
 # defaults) still apply; env vars set here win over it in pydantic-settings.
 #
 # Port: 6452 -- a distinctive, collision-unlikely default ("MILA" on a phone keypad),
