@@ -195,7 +195,8 @@ on families with nothing left over. The ROADMAP carries that half and its criter
 The foundation of Mila.AI. It starts with the manifest: capabilities (reasoning channel, context
 limits, modality) are declared in the record, which is additive because the manifest tolerates unknown
 fields and `instruct` already proves the pattern. Today `Chat.FamilyTraits.ixx` derives them from the
-family. The factory then reads the record rather than switching on family.
+family. The factory then reads the record rather than switching on family. Design of record:
+[`ModelHandle.md`](ModelHandle.md), which finds that not every capability belongs in the manifest.
 
 **Streaming is not a manifest capability.** Whether a display can route a model's output token by
 token depends on whether the application has written that path for the model's markers, not on the
@@ -211,7 +212,7 @@ dispatch site carries a per-family branch.
 given, `planDeployment` on one device, then the binding and MIS. Phase 5 (devices) comes after
 v0.21.0 (6.3).
 
-*Success:* `Deployment.md` gates G1 to G4 and negatives N1 to N5; Chat's `"auto"` choices are
+*Success:* `Deployment.md` gates G1 to G4 and negatives N1 to N4; Chat's `"auto"` choices are
 reproduced by the planner on the measured models before Chat's own code is deleted.
 
 ### 5.3 The agent core, with token-level splice
@@ -400,6 +401,9 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
   into section 6.1 by reference; its adaptor layering is replaced by section 3.
 - `Deployment.md` — Phases 1 to 4 are v0.21.0 (5.2), Phase 5 comes after it (6.3); its non-goal on
   shared devices is reversed by 6.5.
+- `ModelHandle.md` — the handle and factory of 3.2 and 5.1.
+- `ModelFamilyParity.md` — the definition of a finished family, which 5's "families that are finished"
+  is held to, and the 16 GB reference card.
 - `LayerSplit.md` — after v0.21.0 (6.3).
 - `ModelDistribution.md` — the store `Mila::AI::create` names models from.
 - `Observability.md` — part of what "reachable" means.

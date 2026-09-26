@@ -243,12 +243,20 @@ Mila's FP4, and its published drafter is only worth a speculative loop if a K-to
 meaningfully less than K decodes on a bandwidth-bound FP4 path. The measurements are this release;
 the implementations they would justify are not.
 
+**Finished also means level with the other families** (`ModelFamilyParity.md`). Gemma is the
+furthest along of the three, and its gaps are few but one of them is sharp: it cannot score a text,
+so its quality above 131072 tokens has never been measured, while the planner may now choose up to
+the 262144 its weights declare. And Chat still renders Gemma's prompt with its own copy of a
+template the library already has, so the two can drift.
+
 **Success criteria:** Gemma 4 12B accepts an image and answers about it, with the embedder gated
 against HuggingFace and then token-for-token on a mixed prompt; modality is declared in the manifest
 and read by the handle rather than by a family test; the 26B-A4B is fetchable and named in a
 capability row; reasoning survives across tool calls within a turn and a malformed call is refused
-rather than executed as empty; and each measurement-gated question has a recorded result, including
-the result "not worth doing".
+rather than executed as empty; each measurement-gated question has a recorded result, including
+the result "not worth doing"; Gemma scores a text at the head width a request asks for, and its
+quality is measured at every context length the planner can choose for it; and Chat renders
+Gemma's prompt with the library's template, not its own.
 
 ---
 

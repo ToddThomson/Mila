@@ -39,9 +39,11 @@ The Phase 5 prompt set is six prompts with one code prompt and no tool-call, mul
 long-context class — too few to put a threshold on the mean the way 1.25 sits on the perplexity
 ratio. Widening is two loads and ~18 s per six (`DISABLED_DivergenceAgainstTheOracle`).
 
-And only Qwen can be scored at all: Gemma, Llama and GPT-2 build their heads at T=1 with no width
-parameter (`Gemma.ixx:279`, `Llama.ixx:239`, `GptTransformer.ixx:365`), so `scoreTokens` throws the
-base's `logic_error`. Each needs a head width in its config plus the window loop.
+And only Qwen can be scored at all: Llama and GPT-2 build their heads at T=1 with no width
+parameter (`Llama.ixx:355`, `:510`; `GptTransformer.ixx:330`), so `scoreTokens` throws the base's
+`logic_error`. Each needs a head width in its config plus the window loop. Gemma's half was promoted to
+`BACKLOG.md` on 2026-09-25 ("Gemma cannot score a text"), in the family parity pass
+(`ModelFamilyParity.md`); Llama's goes with that family's pass.
 
 ## `PerGroupFp4` should carry FP16 scales, not FP32
 
@@ -92,16 +94,21 @@ silently in the MoE bank. The E2M1 decode was lifted to `Helpers/Fp4E2M1.h`; the
 `CudaTokenEmbeddingOp:Quantize` has its own copy. Move the per-group FP4 quantizer to a shared
 location both import.
 
-## Gemma 4 MTP
+## Qwen 3.8's multi-token prediction head is dropped at conversion
 
-`models` · `mila-src`
+`qwen` · `mila-src`
 
-The self-speculative drafter, sequenced ahead of MoE.
+The 27B checkpoint carries a one-layer MTP head (~0.45 B, `Qwen3.8.md` §2), and the converter skips
+it (`SKIPPED_PREFIXES`, `Tools/Converters/Qwen/convert_weights.py:82`).
 
-**The MTP head cannot be gated against HuggingFace at all.** transformers 5.12.1 declares
-`_keys_to_ignore_on_load_unexpected = [r"^mtp.*"]` and implements no MTP class, so the parity
-harness has nothing to compare against and the wiring is read from tensor shapes and family
-convention. The converter skips the tensors today.
+**It cannot be gated against HuggingFace at all.** transformers 5.12.1 declares
+`_keys_to_ignore_on_load_unexpected = [r"^mtp.*"]` and implements no MTP class, so a parity harness
+has nothing to compare against and the wiring would be read from tensor shapes and family convention
+(`Qwen3.8.md`, "MTP has no HF reference at all").
+
+Until 2026-09-25 this entry was titled "Gemma 4 MTP", but its body was this Qwen fact. Gemma's
+speculative decoding uses a separate drafter model Google ships, and lives in `Vnext.md` ("Gemma 4
+12B decodes one token per forward pass") behind the measurement in `BACKLOG.md`.
 
 ## Ministral
 

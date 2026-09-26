@@ -57,7 +57,7 @@ whenever its own blockers are gone.
 `open` · `ai` · `architecture` · `api`
 
 The architecture-to-concrete erasure exists three times in two languages — Chat's `ModelVariant`
-(`Chat.ixx:72`, eleven `std::visit` sites), the binding's per-family session classes, and the
+(`Chat.ixx:73`, ten `std::visit` sites), the binding's per-family session classes, and the
 inference server's `ModelFamily` enum (`model_worker.py:38`). Each consumer also writes its own
 bridge from the manifest's architecture string to a family (`familyFromArchitecture` in
 `Chat.ModelCatalog.ixx`, `architecture == "gemma"` in `Mila_py.Wrappers.cpp`).
@@ -449,3 +449,49 @@ looking for a flag that is not there.
 The replacement is `LanguageModel::observe` over `"*.tf_layer_*"`.
 `GemmaModel::fingerprintPrefill` is **not** the substitute — it localizes a NaN rather than
 comparing per-layer activations.
+
+#### Gemma cannot score a text, so its quality cannot be measured
+
+`open` · `gemma` · `mila-src`
+
+Only Qwen implements `scoreTokens`. Gemma builds its head at one position (`Gemma.ixx:366`, `:553`)
+and inherits the base's `logic_error`, and `withLanguageModelHeadPositions` — accepted on every
+request — is read only by Qwen, so a Gemma deployment asked for a scoring width is silently built
+without one.
+
+Port Qwen's window loop (`Qwen.ixx:280`) into the transformer the dense 12B and the 26B-A4B share, so
+both gain it. Two things Qwen did not need: the final-logit softcap applied before the log-softmax,
+and the wider head priced in `getRequiredMemory`, since the planner reads that price. Gate: width 1
+and width 64 agree to the tolerance `Qwen3.8.md` records for its own two head paths, and each
+position's argmax equals the token greedy `generate` chose. Gemma's half of `Future.md` "Widen the
+quality harness beyond the shipped gate", promoted.
+
+#### Gemma's quality above 131072 tokens has never been measured, and the planner may choose up to 262144
+
+`open` · `gemma` · `blocked`
+
+Gemma 4 12B's weights declare 262144 (`Gemma.md` §2). Chat caps it at 131072
+(`Chat.FamilyTraits.ixx:60`), but since `0.21.0-dev+7` the binding and the inference server plan
+against the weights, so on a card with room the same model can open at different contexts depending
+on which application loaded it. Blocked on the entry above.
+
+Perplexity by context length at FP4 on the RTX 5060 Ti, from 8K to as far toward 262144 as the card
+holds, by `Qwen3.8.md` §8's protocol (the ratio against the shortest length). A wikitext-2 test split
+barely fills one 262144 window, so the long lengths need a long-document corpus. The result decides
+`ModelHandle.md` 10.3: if quality holds, Chat's cap is deleted; if it does not, the ceiling comes down
+where the weights declare it, not in an application.
+
+#### Chat renders Gemma's prompt itself, and its template and the library's have drifted apart
+
+`open` · `gemma` · `mila-src` · `adaptors`
+
+`formatGemmaPrompt` (`Chat.ixx:1359`) renders thinking on — the `<|think|>` trigger in the system
+turn — and the library's `Gemma::formatPrompt` (`Gemma.Protocol.ixx:1132`), which the inference
+server uses, cannot: it always primes the empty thought channel. The library's has the tool
+declarations and `continue_open` that Chat's lacks. Each is missing half of the other.
+
+One template, in the library: `Gemma::formatPrompt` gains thinking on, proven byte-identical to Chat's
+output on recorded fixtures (thinking on and off, with and without tools, multi-turn) before Chat calls
+it — the `+34` fold's recipe. Chat's effort sentences stay Chat's text: Gemma's `<|think|>` has no
+trained budget, so they are a prompt, not grammar (`ModelHandle.md` 3.4). The Gemma half of
+`ModelHandle.md` Phase 2.
