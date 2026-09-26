@@ -429,8 +429,11 @@ Src shapes: a class plus its request/result structs (`ModelStore` has nine types
 the one class it configures (`Logger` + `LogLevel`, eight files); families of one idea
 (`Weight/Policies`, `LearningRateScheduler`); four `*Registrar` pairs, which should be deleted with
 the registrar pattern rather than split. Qwen's two blocks define their workspace inline where
-Gemma uses a partition. Ruling needed first: whether an enum used by exactly one class counts as
-that class's internal detail — it moves Src between ~25 and ~60 new files.
+Gemma uses a partition. **Ruled 2026-09-26 (Todd, CLAUDE.md):** a type other modules must name gets
+its own file; a type only its own file uses is not exported; a nested type is part of its owner only when
+it is never used apart from it. An enum only its class's own methods take may be nested, so Src lands
+between the ~25 and ~60 estimates, and each file is counted when it is touched. Any module a change
+touches is brought under the rule in that change, so this entry drains without a sweep of its own.
 
 ## The wider `Tensors/` tree has no coverage beyond `Tensor` itself
 

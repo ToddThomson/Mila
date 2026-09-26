@@ -30,7 +30,8 @@
  *  - Final logit softcap (30 * tanh(logits / 30)) is applied host-side at the
  *    sampler: it is strictly monotonic, so it does not change greedy argmax, and
  *    GemmaConfig::getFinalLogitSoftcapping() carries the scalar for samplers that
- *    need it.
+ *    need it. sequenceLogLikelihood() applies it before its log-softmax, since a
+ *    probability is not invariant to it the way an argmax is.
  */
 
 module;
@@ -53,6 +54,7 @@ import Dnn.Components.ITransformerBlock;
 
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorOps;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
@@ -262,6 +264,93 @@ namespace Mila::Dnn
             return *logits_ptr_;
         }
 
+        /**
+         * @brief Teacher-forced log-likelihood of `input` -- the corpus-perplexity path.
+         *
+         * Runs the same chunked prefill generation runs, but evaluates the head at EVERY
+         * position rather than the last, in windows of `getLogLikelihoodWindow()` rows, and
+         * reduces each window on the host before the next overwrites it. The final-logit
+         * softcap is applied to each row before the log-softmax: the sampler applies it before
+         * sampling, and a probability, unlike an argmax, is not invariant to it.
+         *
+         * The prefill overwrites the KV caches from position 0, as prefill() does.
+         */
+        SequenceLogLikelihood sequenceLogLikelihood( const TokenIndexType& input ) override
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error( "GemmaTransformer must be built before calling sequenceLogLikelihood()." );
+
+            const dim_t B = input.shape()[ 0 ];
+            const dim_t T = input.shape()[ 1 ];
+
+            if ( B != 1 )
+                throw std::invalid_argument( std::format(
+                    "GemmaTransformer::sequenceLogLikelihood: batch must be 1, got {} -- the targets are the "
+                    "sequence's own next tokens, which two rows cannot share", B ) );
+
+            if ( T < 2 )
+                throw std::invalid_argument( std::format(
+                    "GemmaTransformer::sequenceLogLikelihood: need at least 2 tokens to score one position, got {}", T ) );
+
+            const dim_t model_dim = config_.getModelDim();
+            const dim_t vocab_size = config_.getVocabSize();
+            const dim_t window = resolveLogLikelihoodWindow( prefill_chunk_size_ );
+
+            auto host_tokens = toHost<TensorDataType::INT32>( input, this->getExecutionContext() );
+
+            // Staged once rather than per window: at a 262,144 vocabulary one window is several MiB
+            // and a corpus runs thousands of them.
+            Tensor<TensorDataType::FP32, CpuMemoryResource> host_logits(
+                Device::Cpu(), shape_t{ B, window, vocab_size } );
+
+            SequenceLogLikelihood result;
+
+            dim_t offset = 0;
+
+            while ( offset < T )
+            {
+                const dim_t chunk_length = std::min<dim_t>( prefill_chunk_size_, T - offset );
+
+                auto chunk_input = input.view( shape_t{ B, chunk_length }, offset );
+
+                TensorType* block_input = &token_embedding_->forward( chunk_input );
+
+                for ( auto* block : blocks_ )
+                {
+                    block_input = &block->prefill( *block_input, offset );
+                }
+
+                for ( dim_t start = 0; start < chunk_length; start += window )
+                {
+                    const dim_t rows = std::min<dim_t>( window, chunk_length - start );
+
+                    // The sequence's last token predicts nothing, so a window holding only it
+                    // has no work. Every other window has at least one scored position.
+                    if ( offset + start + 1 >= T )
+                        break;
+
+                    auto window_input = block_input->view(
+                        shape_t{ B, rows, model_dim }, start * model_dim );
+
+                    auto& normalized = final_rmsnorm_->forward( window_input );
+                    auto& logits = lm_head_->forward( normalized );
+
+                    auto host_window = host_logits.view( shape_t{ B, rows, vocab_size } );
+
+                    copy( logits, host_window, this->getExecutionContext() );
+                    this->synchronize();
+
+                    result.addNextTokenLogProbabilities(
+                        host_logits.data(), rows, vocab_size, host_tokens.data(), offset + start, T,
+                        config_.getFinalLogitSoftcapping() );
+                }
+
+                offset += chunk_length;
+            }
+
+            return result;
+        }
+
         // ====================================================================
         // KV-cache orchestration
         // ====================================================================
@@ -363,7 +452,7 @@ namespace Mila::Dnn
                 .withFusedDecode( context.isInferenceMode() );
 
             const shape_t final_shape = context.isInferenceMode()
-                ? shape_t{ B, 1, config_.getModelDim() }
+                ? shape_t{ B, resolveLogLikelihoodWindow( prefill_chunk ), config_.getModelDim() }
                 : shape_t{ B, T, config_.getModelDim() };
 
             const BuildContext final_context = context.forChild( final_shape );
@@ -548,9 +637,11 @@ namespace Mila::Dnn
                 .withPrefillSize( prefill_chunk_size_ )
                 .withFusedDecode( context.isInferenceMode() );
 
-            // Inference: final_rmsnorm and lm_head only process the last position.
+            // Inference: final_rmsnorm and lm_head process the log-likelihood window, which is one
+            // row for generation. MUST agree with requiredMemoryAtChunk().
             shape_t final_shape = context.isInferenceMode() ?
-                shape_t{ B, 1, config_.getModelDim() } : shape_t{ B, T, config_.getModelDim() };
+                shape_t{ B, resolveLogLikelihoodWindow( prefill_chunk_size_ ), config_.getModelDim() }
+                : shape_t{ B, T, config_.getModelDim() };
 
             BuildContext final_context( final_shape, context.getRuntimeMode(), context.shouldInitializeParameters() );
 
@@ -713,6 +804,18 @@ namespace Mila::Dnn
         // Declared last so it is destroyed first -- cudaStreamSynchronize() fires in
         // releaseResources() before any tensor cudaFree() from members above.
         std::unique_ptr<IExecutionContext> exec_context_{ nullptr };
+
+        /**
+         * @brief Positions the head evaluates per pass, bounded by what a pass can supply.
+         *
+         * The head reads the block stack's output, and a prefill pass produces at most
+         * prefill_chunk rows of it. Both onBuilding() and requiredMemoryAtChunk() resolve
+         * through here, so the head cannot be built at one width and priced at another.
+         */
+        dim_t resolveLogLikelihoodWindow( dim_t prefill_chunk ) const
+        {
+            return std::min<dim_t>( config_.getLogLikelihoodWindow(), prefill_chunk );
+        }
 
         // ====================================================================
         // Graph construction

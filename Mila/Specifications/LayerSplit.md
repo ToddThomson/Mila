@@ -85,7 +85,7 @@ every expert busy.
 embedding, blocks, final norm, head:
 
 - Gemma: `Gemma.ixx:241` (prefill), `:270` (decode)
-- Qwen: `Qwen.ixx:245`, `:326` (`scoreTokens`), `:370`
+- Qwen: `Qwen.ixx:245`, `:326` (`sequenceLogLikelihood`, then named `scoreTokens`), `:370`
 - Llama: `Llama.ixx:175`, `:210`
 
 Everything else a block needs lives inside it and moves with it: its KV cache and sliding-window
@@ -373,8 +373,8 @@ logits, sampling). `getDeviceId()` keeps meaning the input device. Every current
 
 | | Blocks | Tables | Notes |
 |---|---|---|---|
-| **Qwen** | `ITransformerBlock`, heterogeneous (attention, DeltaNet) | untied; embedding host-resident on CUDA | Has `scoreTokens`, the only on-device teacher-forced scoring path. First. |
-| **Gemma** | `ITransformerBlock`, heterogeneous (sliding, global; dense or MoE) | tied (3.5) | Needs `scoreTokens` ported before its gate can run. |
+| **Qwen** | `ITransformerBlock`, heterogeneous (attention, DeltaNet) | untied; embedding host-resident on CUDA | Has `sequenceLogLikelihood`, the first teacher-forced scoring path. First. |
+| **Gemma** | `ITransformerBlock`, heterogeneous (sliding, global; dense or MoE) | tied (3.5) | Has `sequenceLogLikelihood` since `0.21.0-dev+9`. |
 | **Llama** | concrete `std::vector<std::shared_ptr<Block>>` | 3.2 3B tied, 3.1 8B untied | Also has a training `backward` (`Llama.ixx:227`), which the split does not cover. |
 | **GPT-2** | concrete vector | tied | **Out of scope.** Small enough that a split has no use; it is the training reference. |
 
@@ -443,7 +443,7 @@ RTX 4070. Each gate's bound is written into this spec before its
 first run, and each is forced to fail once.
 
 **V1. Same-device split is bit-identical.** Two stages with two contexts **on one card**, split at
-block `k`, against the unsplit model: prefill logits, a run of decode logits and `scoreTokens` are
+block `k`, against the unsplit model: prefill logits, a run of decode logits and `sequenceLogLikelihood` are
 bit-identical, for `k` in {1, N/2, N-1}. This isolates the stage machinery from the architecture,
 because nothing crosses a card. It is the primary correctness gate.
 
@@ -452,7 +452,7 @@ vocabulary is byte-identical to the unsplit one (section 4), and the sum of the 
 equals the unsplit prediction plus exactly the boundary buffer.
 
 **V3. Architecture baseline, measured first.** A model that fits both cards alone: Qwen 3.8 27B
-cb2-3 (11.05 GiB). Mean per-token negative log-likelihood from `scoreTokens` over the scoring corpus,
+cb2-3 (11.05 GiB). Mean per-token negative log-likelihood from `sequenceLogLikelihood` over the scoring corpus,
 4070 alone against 5060 Ti alone. Their difference, delta, is the size of the architecture effect.
 Recorded here before V4 is written.
 
@@ -472,8 +472,8 @@ for V4, both to settle before V4's bound is written:
 - **Resolution.** The harness Phase 3 builds for V4 prints the summed log-probability at full
   precision and re-measures delta the same way, so the bound is not set from a rounded number.
 - **Different kernels.** cb2-3 runs codebook GEMV; the FP4 model V4 splits runs FP4 kernels, whose
-  cross-architecture difference this does not measure. No FP4 Qwen fits the 4070, and no other family
-  has `scoreTokens` yet.
+  cross-architecture difference this does not measure. No FP4 Qwen fits the 4070, and Gemma had no
+  `sequenceLogLikelihood` until `0.21.0-dev+9`.
 
 **V4. Cross-card split is within the baseline.** Qwen 3.8 27B FP4 split across both cards, against
 the same model on the 5060 Ti alone: the difference in mean NLL is no larger than delta. A split
@@ -536,7 +536,7 @@ below; candidate 1 recommended.
   in the consumer (`Mila.ixx` header), so re-export is expected; `Detail` marks it as not API either way.
 
 *Gate, written before any code:* a temporary test hashes prefill logits and 16 decode steps for Gemma 4
-12B FP4, Llama 3.2 3B and Llama 3.1 8B, and the summed log-probability of Qwen cb2-3's `scoreTokens`. It
+12B FP4, Llama 3.2 3B and Llama 3.1 8B, and the summed log-probability of Qwen cb2-3's `sequenceLogLikelihood`. It
 is built and run on the unchanged tree, then after the change; every hash is identical, and the test is
 deleted. Negative: a staged block that skips its last block changes every hash. Then the full suite in
 `x64-profile` with both GPUs visible, `ChatRichTextTests`, piped Chat sessions for the three families,
@@ -563,11 +563,11 @@ context length the 5060 Ti alone cannot hold.
 short card for a model that fits neither card alone nor both; a QuickStart Python session and an MIS
 request each run split.
 
-**Phase 6 — Gemma.** `scoreTokens` ported; tied tables decided and built (3.5). *Exit:* V1, V2, V4
+**Phase 6 — Gemma.** `sequenceLogLikelihood` ported (done, `0.21.0-dev+9`); tied tables decided and built (3.5). *Exit:* V1, V2, V4
 and V5 on Gemma 4 12B; then Gemma 4 26B-A4B with BF16 non-expert weights across both cards at a
 context the single-card build cannot reach, with V4 against the FP4 build on the 5060 Ti alone.
 
-**Phase 7 — Llama.** *Exit:* V1, V2 and V5 on Llama 3.1 8B. V4 waits for a Llama `scoreTokens`.
+**Phase 7 — Llama.** *Exit:* V1, V2 and V5 on Llama 3.1 8B. V4 waits for a Llama `sequenceLogLikelihood`.
 
 ### Phase 0 result (2026-09-16)
 

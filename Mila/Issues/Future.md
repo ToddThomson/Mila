@@ -39,11 +39,10 @@ The Phase 5 prompt set is six prompts with one code prompt and no tool-call, mul
 long-context class — too few to put a threshold on the mean the way 1.25 sits on the perplexity
 ratio. Widening is two loads and ~18 s per six (`DISABLED_DivergenceAgainstTheOracle`).
 
-And only Qwen can be scored at all: Llama and GPT-2 build their heads at T=1 with no width
-parameter (`Llama.ixx:355`, `:510`; `GptTransformer.ixx:330`), so `scoreTokens` throws the base's
-`logic_error`. Each needs a head width in its config plus the window loop. Gemma's half was promoted to
-`BACKLOG.md` on 2026-09-25 ("Gemma cannot score a text"), in the family parity pass
-(`ModelFamilyParity.md`); Llama's goes with that family's pass.
+And only Qwen and Gemma can be scored: Llama and GPT-2 build their heads at T=1 with no width
+parameter (`Llama.ixx:355`, `:510`; `GptTransformer.ixx:330`), so `sequenceLogLikelihood` throws the base's
+`logic_error`. Each needs a log-likelihood window in its config plus the window loop. Gemma's half landed at
+`0.21.0-dev+9` in the family parity pass (`ModelFamilyParity.md` 8.2, G1); Llama's goes with that family's pass.
 
 ## `PerGroupFp4` should carry FP16 scales, not FP32
 
@@ -781,6 +780,12 @@ Woven through live code; trace live-vs-dead first, and 8 `REVIEW:` markers alrea
 Note the odd row it collides with: CUDA `LayerNormOp` is registered at FP32 and FP16 and *not*
 BF16, so deleting the FP16 row leaves CUDA LayerNorm FP32-only. Pinned by a `static_assert`, so this
 work must confront it.
+
+**Measured 2026-09-26 at `0.21.0-dev+8`** (`x64-claude-verify`, sm_89 fatbin of `MilaTests.exe`, kernels
+classified by name): 64 of 455 kernels are FP16, 174 KiB of 1984 KiB device code per architecture (8.8%),
+11 of them training kernels. Its five FP16-named `.cu` files took 97 s of the 990 s of CUDA compile time in
+the ninja log (9.8%). For comparison, FP32 is 171 kernels and 778 KiB (39.2%): 260 KiB of that is DeltaNet's
+FP32 instantiations and 150 KiB is training kernels. Todd, 2026-09-26: Mila models use BF16, not FP16.
 
 ## The dev container's Chat wrapper shares its name with the binary it wraps
 

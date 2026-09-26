@@ -6,7 +6,7 @@
  * Mila/Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_moe_model_reference.py, which converts its own
  * checkpoint with Gemma/convert_weights.py -- so one capture holds the converter's names and the block's
  * wiring together. Tolerances are the ones Gemma4MoE.md Phase 8 fixed before the first run; the gates
- * that read the capture skip without it.
+ * that read the capture skip without it. The sequence log-likelihood gates are ModelFamilyParity.md 8.2, G1.
  *
  * CUDA device tests -- skipped when no CUDA device is present.
  */
@@ -24,9 +24,12 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <unordered_set>
 #include <vector>
 
 import Mila;
+
+#include "Common/LogLikelihoodHarness.h"
 
 namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 {
@@ -144,6 +147,63 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
             copy( host, device );
 
             return device;
+        }
+
+        // Half the context, so the 15-token capture crosses a chunk boundary.
+        constexpr int64_t kLogLikelihoodChunk = 8;
+
+        // The FP32 logit tolerance, summed over the capture's 14 scored positions.
+        constexpr double kFp32LogLikelihoodTolerance = 1e-4;
+
+        struct LogLikelihoodReference
+        {
+            std::vector<std::int32_t> tokens;
+            double total{ 0.0 };
+            dim_t positions{ 0 };
+        };
+
+        LogLikelihoodReference readLogLikelihoodReference()
+        {
+            Serialization::WeightsReader reference( referencePath() );
+            auto token_blob = reference.readTensorBlob<CpuMemoryResource>( "tokens" );
+            auto log_probability_blob = reference.readTensorBlob<CpuMemoryResource>( "next_token_log_probabilities" );
+
+            LogLikelihoodReference result;
+            result.tokens.resize( static_cast<std::size_t>( token_blob.getMetadata().shape[ 0 ] ) );
+            std::memcpy( result.tokens.data(), token_blob.data(), result.tokens.size() * sizeof( std::int32_t ) );
+
+            std::vector<float> per_position( static_cast<std::size_t>( log_probability_blob.getMetadata().shape[ 0 ] ) );
+            std::memcpy( per_position.data(), log_probability_blob.data(), per_position.size() * sizeof( float ) );
+
+            for ( const float log_probability : per_position )
+            {
+                result.total += log_probability;
+            }
+
+            result.positions = static_cast<dim_t>( per_position.size() );
+
+            return result;
+        }
+
+        std::unique_ptr<RoutedNetwork<TensorDataType::FP32>> loadedRoutedFp32( const GemmaConfig& config )
+        {
+            Serialization::WeightsReader weights( weightsPath( TensorDataType::FP32 ) );
+
+            auto network = std::make_unique<RoutedNetwork<TensorDataType::FP32>>( "gemma", config, Device::Cuda( 0 ) );
+            network->build( BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference ).withPrefillSize( kLogLikelihoodChunk ) );
+            network->loadParameters( weights );
+
+            return network;
+        }
+
+        GemmaConfig capturedConfigWithWindow( dim_t window )
+        {
+            Serialization::WeightsReader weights( weightsPath( TensorDataType::FP32 ) );
+
+            GemmaConfig config = configFromMetadata( weights.getWeightsMetadata() );
+            config.withLogLikelihoodWindow( window );
+
+            return config;
         }
 
         void constructRouted( const GemmaConfig& config )
@@ -294,6 +354,131 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     }
 
     // ====================================================================
+    // E2. Sequence log-likelihood against HuggingFace's own (ModelFamilyParity.md 8.2, G1)
+    //
+    // The logits gates above compare the head BEFORE the softcap, because the sampler applies it and
+    // argmax is blind to it. A probability is not, so these compare what HuggingFace's loss computes:
+    // the log-probability of each next token after the softcap.
+    // ====================================================================
+
+    // Window 1 is decode's path, 3 leaves a partial final window in each chunk, and 8 is the whole chunk.
+    TEST_F( GemmaMixtureOfExpertsCudaTests, Fp32_SequenceLogLikelihood_MatchesHuggingFace )
+    {
+        if ( !captureExists() )
+        {
+            GTEST_SKIP() << "tiny MoE capture not present at: " << captureDirectory().string();
+        }
+
+        const LogLikelihoodReference reference = readLogLikelihoodReference();
+
+        for ( const dim_t window : { 1, 3, 8 } )
+        {
+            auto network = loadedRoutedFp32( capturedConfigWithWindow( window ) );
+
+            const SequenceLogLikelihood measured = Common::sequenceLogLikelihoodOf( *network, reference.tokens );
+
+            std::cout << std::format( "[ log-likelihood ] window {}: {:.9f} against HuggingFace {:.9f}, difference {:.3e}\n",
+                window, measured.total_log_probability, reference.total,
+                measured.total_log_probability - reference.total );
+
+            EXPECT_EQ( measured.scored_positions, reference.positions ) << "window " << window;
+            EXPECT_NEAR( measured.total_log_probability, reference.total, kFp32LogLikelihoodTolerance ) << "window " << window;
+        }
+    }
+
+    // The gate can fail: without the softcap, the same weights must miss HuggingFace's number. Were the logits
+    // too small for the softcap to matter, the gate above would pass whether or not it is applied.
+    TEST_F( GemmaMixtureOfExpertsCudaTests, Fp32_SequenceLogLikelihood_WithoutTheSoftcap_MissesHuggingFace )
+    {
+        if ( !captureExists() )
+        {
+            GTEST_SKIP() << "tiny MoE capture not present at: " << captureDirectory().string();
+        }
+
+        const LogLikelihoodReference reference = readLogLikelihoodReference();
+
+        GemmaConfig uncapped = capturedConfigWithWindow( 3 );
+        uncapped.withFinalLogitSoftcapping( 0.0f );
+
+        auto network = loadedRoutedFp32( uncapped );
+
+        const SequenceLogLikelihood measured = Common::sequenceLogLikelihoodOf( *network, reference.tokens );
+
+        std::cout << std::format( "[ log-likelihood ] without the softcap: difference {:.3e}\n",
+            measured.total_log_probability - reference.total );
+
+        EXPECT_GT( std::fabs( measured.total_log_probability - reference.total ), kFp32LogLikelihoodTolerance );
+    }
+
+    // Each position's most likely next token, read from the rows the log-likelihood evaluated, is the token
+    // greedy generation chose there. The rows come from observing the head, which publishes every window.
+    TEST_F( GemmaMixtureOfExpertsCudaTests, Fp32_SequenceLogLikelihood_ArgmaxIsTheGreedyToken )
+    {
+        if ( !captureExists() )
+        {
+            GTEST_SKIP() << "tiny MoE capture not present at: " << captureDirectory().string();
+        }
+
+        constexpr int kGenerated = 3;
+
+        const LogLikelihoodReference reference = readLogLikelihoodReference();
+        const std::vector<std::int32_t> prompt( reference.tokens.begin(), reference.tokens.begin() + 12 );
+
+        auto network = loadedRoutedFp32( capturedConfigWithWindow( 3 ) );
+
+        const Common::GreedyContinuation greedy =
+            Common::greedyContinuationOf( *network, prompt, kGenerated, {}, kContext );
+
+        ASSERT_EQ( greedy.tokens.size(), static_cast<std::size_t>( kGenerated ) );
+
+        std::vector<std::int32_t> sequence = prompt;
+        sequence.insert( sequence.end(), greedy.tokens.begin(), greedy.tokens.end() );
+
+        using DeviceLogits = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>;
+
+        std::vector<std::vector<float>> rows;
+        const int64_t vocab = static_cast<int64_t>( capturedConfigWithWindow( 1 ).getVocabSize() );
+
+        const std::size_t observed = network->observe( "*.lm_head", ComputePassMask::inference(),
+            [&]( std::string_view, ComputePass, std::string_view stage, const ITensor& value )
+            {
+                const auto* typed = dynamic_cast<const DeviceLogits*>( &value );
+
+                if ( stage != "output" || typed == nullptr )
+                {
+                    return;
+                }
+
+                // Published as soon as the head is enqueued; the rows exist once the stream reaches it.
+                network->synchronize();
+
+                auto host = toHost<TensorDataType::FP32>( *typed );
+
+                for ( int64_t row = 0; row * vocab < static_cast<int64_t>( host.size() ); ++row )
+                {
+                    rows.emplace_back( host.data() + row * vocab, host.data() + ( row + 1 ) * vocab );
+                }
+            } );
+
+        ASSERT_EQ( observed, 1u ) << "the head was not selected, so no rows will arrive";
+
+        (void)Common::sequenceLogLikelihoodOf( *network, sequence );
+
+        network->stopObserving();
+
+        // A row for every scored position, and for the final position too when it shares a window with one.
+        ASSERT_GE( rows.size(), sequence.size() - 1 );
+
+        for ( int generated = 0; generated < kGenerated; ++generated )
+        {
+            const std::size_t position = prompt.size() - 1 + static_cast<std::size_t>( generated );
+
+            EXPECT_EQ( Common::argMax( rows[ position ] ), greedy.tokens[ static_cast<std::size_t>( generated ) ] )
+                << "position " << position;
+        }
+    }
+
+    // ====================================================================
     // Names -- the converter's vocabulary is the network's
     // ====================================================================
 
@@ -376,6 +561,88 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         EXPECT_EQ( built.device_inactive_parameter_bytes,
             static_cast<std::size_t>( kLayers ) * bank_bytes / kExperts * ( kExperts - kTopK ) );
+    }
+
+    /**
+     * @brief A log-likelihood window is priced exactly as it is built, and costs more than the one-row default.
+     *
+     * Build and footprint resolve the window through one function, so a measurement build cannot allocate a
+     * head the prediction never named. The inequality keeps this from passing for a window both paths ignore.
+     */
+    TEST_F( GemmaMixtureOfExpertsCudaTests, Bf16_FootprintPredicted_WidenedLogLikelihoodWindow )
+    {
+        const BuildContext context = BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) )
+            .withPrefillSize( kContext );
+
+        GemmaConfig widened = routedConfig();
+        widened.withLogLikelihoodWindow( kContext );
+
+        MemoryStats predicted;
+        {
+            RoutedNetwork<TensorDataType::BF16> predictor( "gemma", widened, Device::Cuda( 0 ) );
+            predicted = predictor.getRequiredMemory( context );
+        }
+
+        MemoryStats built;
+        {
+            RoutedNetwork<TensorDataType::BF16> network( "gemma", widened, Device::Cuda( 0 ) );
+            network.build( context );
+            built = network.getMemoryStats();
+        }
+
+        MemoryStats one_row;
+        {
+            RoutedNetwork<TensorDataType::BF16> network( "gemma", routedConfig(), Device::Cuda( 0 ) );
+            network.build( context );
+            one_row = network.getMemoryStats();
+        }
+
+        EXPECT_EQ( predicted.device_parameter_bytes, built.device_parameter_bytes ) << "parameters";
+        EXPECT_EQ( predicted.device_state_bytes, built.device_state_bytes ) << "state";
+        EXPECT_EQ( predicted.device_scratch_bytes, built.device_scratch_bytes ) << "scratch";
+        EXPECT_EQ( predicted.device_gradient_bytes, built.device_gradient_bytes ) << "gradients";
+
+        EXPECT_GT( built.device_state_bytes, one_row.device_state_bytes )
+            << "a wider head must cost more state than the one-row default";
+    }
+
+    // A window above what a prefill pass supplies resolves to the pass: the head reads at most a chunk of rows.
+    TEST_F( GemmaMixtureOfExpertsCudaTests, Bf16_LogLikelihoodWindow_ClampsToThePrefillChunk )
+    {
+        const BuildContext context = BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) )
+            .withPrefillSize( kLogLikelihoodChunk );
+
+        GemmaConfig at_chunk = routedConfig();
+        at_chunk.withLogLikelihoodWindow( kLogLikelihoodChunk );
+
+        GemmaConfig above_chunk = routedConfig();
+        above_chunk.withLogLikelihoodWindow( kLogLikelihoodChunk + 100 );
+
+        MemoryStats bounded;
+        {
+            RoutedNetwork<TensorDataType::BF16> network( "gemma", at_chunk, Device::Cuda( 0 ) );
+            network.build( context );
+            bounded = network.getMemoryStats();
+        }
+
+        MemoryStats over;
+        {
+            RoutedNetwork<TensorDataType::BF16> network( "gemma", above_chunk, Device::Cuda( 0 ) );
+            network.build( context );
+            over = network.getMemoryStats();
+        }
+
+        MemoryStats over_predicted;
+        {
+            RoutedNetwork<TensorDataType::BF16> predictor( "gemma", above_chunk, Device::Cuda( 0 ) );
+            over_predicted = predictor.getRequiredMemory( context );
+        }
+
+        EXPECT_EQ( over.device_state_bytes, bounded.device_state_bytes );
+        EXPECT_EQ( over_predicted.device_state_bytes, over.device_state_bytes )
+            << "prediction must clamp exactly as the build does";
     }
 
     TEST_F( GemmaMixtureOfExpertsCudaTests, DeploymentFootprint_ReadsExpertGeometryFromTheWeights )

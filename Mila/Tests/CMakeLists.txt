@@ -261,6 +261,9 @@ if(MILA_ENABLE_CUDA)
         # Rates, all DISABLED: they exist so Qwen's have a comparator on the same card by
         # the same subtraction. Common/GenerationRates.h is the one implementation.
         "Dnn/Models/Gemma/GemmaModel.Rates.Cuda.cpp"
+        # Sequence log-likelihood on the published FP4 weights, DISABLED: window 1 against window 64 and
+        # argmax against greedy -- ModelFamilyParity.md 8.2, G1. Common/LogLikelihoodHarness.h builds the network.
+        "Dnn/Models/Gemma/Gemma.LogLikelihood.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Footprint.Cuda.cpp"
         # A load that fits BF16 weights settles at its exported form's footprint: the load staging is freed.
         # Needs both weights of each model -- see Specifications/MemoryFootprint.md Phase 6 step 1.

@@ -101,3 +101,102 @@ modules or a library workspace are candidates; not measured). A fresh process al
 any caller that loads twice in one process: Chat's `/model` switching and a Python program. Not measured how many
 bytes, or which.
 
+## The expert bank works out for itself whether its policy is FP4, and so does its operation
+
+`Mila/Src/Dnn/Components/MixtureOfExperts/MixtureOfExperts.ixx:82` @ `0.21.0-dev+8`
+
+`MixtureOfExperts::kIsFp4`, `CudaMoeOp::kIsFp4` (`CudaMoeOp.ixx:58`, the same lambda verbatim) and
+`CudaLinearOp::kIsFp4Weight` (`CudaLinearOp.ixx:178`) each probe `TWeightQuantization::kIsFp4E2M1` for
+themselves. A trait on the policy in `Quantization/Weight/Policies.ixx` would state it once. Found reviewing the MoE
+path for the Gemma parity pass.
+
+## The 26B-A4B normalizes the same residual twice in every layer
+
+`Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx` (routed branch) @ `0.21.0-dev+8`
+
+The router's norm and `pre_feedforward_layernorm_2` both RMS-normalize the unnormalized residual
+(`Gemma4MoE.md` Phase 1), so one reduction could feed both. Unmeasured; 30 layers per token.
+
+## The build targets plain `120`, and block-scaled FP4 needs `120f`
+
+`CMakePresets.json:118`, `Mila/CMakeLists.txt:31` @ `0.21.0-dev+8`
+
+`MixtureOfExperts.md` 7.2(b) requires the family-specific target for SM120 block-scaled FP4. Every preset and the
+library default list plain `120`; the comment beside it says nothing in Mila uses sm_120 instructions yet, which
+is still true. It becomes a blocker the day a CUTLASS grouped kernel or an NVFP4 path lands, and the list is kept
+in step across both wheel presets and `scripts/dockerhub/publish-image.sh`.
+
+## Training has no row in the family parity matrix, and only GPT-2 trains
+
+`Mila/Specifications/ModelFamilyParity.md` section 3 @ `0.21.0-dev+8`
+
+Todd, 2026-09-26: training is first-class, and asked for a second model with full training in 0.21.0; shelved
+the same day to keep the Gemma pass moving. `ROADMAP.md` Future places "Training (advanced)" after v0.21.0
+because GQA backward does not exist (`CudaGqaOp::backward` throws). Candidates discussed:
+- SmolLM2-135M, with 360M as a step up: Llama architecture, about 2.2 and 5.8 GB of mixed-precision state.
+  Recommended, since training would land in the Llama chassis.
+- Qwen3-0.6B: about 9.6 GB, and a new chassis.
+- Pythia-160M: MHA, so no GQA backward needed, with published loss curves.
+- GPT-2 124M at full scale.
+
+Llama 3.2 1B full training is about 20 GB, so it does not fit 16 GB; on that card it is a LoRA model. SmolLM2's
+licence is unverified. Proposed matrix rows: backward, gradient parity against PyTorch, mixed precision, optimizer,
+checkpoint save and resume, loss-curve parity. The choice also decides FP32's future; the kernel measurement is in
+`Future.md` "Remove FP16".
+
+## An out-of-range token id is an illegal memory access, not an error
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Fp8.cu:122` @ `0.21.0-dev+8`
+
+Found through a test bug on 2026-09-26: 21 uninitialized ints read past a vector reached the FP8 embedding gather as
+token ids, and the CUDA context died with `cudaErrorIllegalAddress`, reported first as a cuBLAS internal error in
+the next GEMM. Nothing between a caller's ids and the gather checks them against the vocabulary, and a dead context
+takes the whole process's CUDA state with it. `sequenceLogLikelihood` checks targets, but only on the host after
+the forward has already run.
+
+## Gemma's FP4 prefill with FP8 activations switched off lands far from decode
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx:171` (`kUseFp8ActivationPrefill`) @ `0.21.0-dev+8`
+
+Set to false as an experiment on 2026-09-26, the Gemma 4 12B FP4 prefill takes the BF16 staging path and its logits
+move far from both the default prefill and decode: argmax against decode 20 of 32 (31 with the switch on), mean KL
+1.2 (6e-2 on), and the prompt's own next-token argmax changes. The switch is on by default, so no shipped build takes
+this path for Gemma; it is unvalidated there, and it is the path the switch's own comment names as the fallback.
+Reverted after the run. Later the same day, exact FP64 recomputation showed that W4A16 -- what this path should
+compute -- is what decode computes, so this path should have landed *nearer* decode than W4A8, not far from it.
+Read that as a probable defect in the FP4 BF16-staging prefill, not rounding.
+
+## Gemma's FP4 prefill computes 2-4% away from its decode, and nothing measured what that costs
+
+`Mila/Specifications/Fp8ActivationPrefill.md` @ `0.21.0-dev+8`
+
+W4A8 -- FP8 activations per token, and the FP4 weights re-rounded to FP8 under one scale per tensor -- is
+2.0e-2..3.6e-2 relative L2 from W4A16 per projection on Gemma 4 12B layer 0, measured against exact FP64
+recomputation; Mila implements it to 1e-4. So a prompt's KV cache is built by different arithmetic than the tokens
+generated after it, and a log-likelihood measures the prefill's. It shipped on token parity for short prompts
+and a coherent chat. The one quality number available (raw-wikitext perplexity) favours W4A8 for a reason unrelated
+to quality, so whether it costs quality on text the model is built for is unknown. The design record's own
+"escalate to per-channel weight scales if parity fails" was never triggered. It buys 1.285x prefill.
+
+## The FP8 head's batched path rounds every weight before it scales
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cu:79-82` @ `0.21.0-dev+8`
+
+`dequantize_fp8_to_bf16_kernel` stores `fp8 * scale` as BF16, so every staged weight is rounded before the GEMM;
+the decode matvec multiplies exact FP8 values and applies the per-channel scale once, in FP32. An E4M3 value is
+exact in BF16, so the rounding comes only from folding the scale in early. Measured against exact logits from
+`temb.wte` (ModelFamilyParity.md 8.2, G1 result): the staged path's extra error is this rounding alone, reproduced
+to four digits by a model of it. Every per-channel FP8 Linear at more than one row takes the same path.
+Decided 2026-09-26 (Todd): the fix -- scale after the dot product -- is its own change with a Linear-level gate
+against exact FP64, and it sets `Gemma.LogLikelihood.Cuda.cpp`'s window bound back from 2e-3 to 1e-3.
+
+## The site's crawl signals lag the site
+
+`Web/hugo.toml:13-17` @ `0.21.0-dev+8`
+
+From a cloud review, partly verified: the `hugo.toml` comment still says the `/api/` tree is marked noindex by a
+workflow step that was removed at `0589673f` (verified), and `enableRobotsTXT = false` with no layout supplying a
+sitemap line (verified). Unverified: the home page's sitemap `lastmod` reads 2026-08-15 because git info is off and
+the workflows check out shallow; two blog posts link duplicate GitHub Discussions (`flash-decoding-mqa-cuda.md:8`,
+`sponsor.md:23`); old `toddthomson.github.io/Mila/` Doxygen URLs have no redirect. See the noindex entry above.
+

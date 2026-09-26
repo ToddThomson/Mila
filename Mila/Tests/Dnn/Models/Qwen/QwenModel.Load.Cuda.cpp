@@ -39,6 +39,7 @@
 #include <string>
 #include <vector>
 #include <stop_token>
+#include <unordered_set>
 
 import Mila;
 
@@ -46,6 +47,7 @@ import Mila;
 // included above, so their own includes are no-ops in this TU -- which is what keeps this
 // clear of import Mila poisoning std headers first seen after it.
 #include "Common/GenerationRates.h"
+#include "Common/LogLikelihoodHarness.h"
 
 namespace Mila::Tests::Dnn::Models
 {
@@ -361,22 +363,55 @@ namespace Mila::Tests::Dnn::Models
             double elapsed_seconds{ 0.0 };
         };
 
+        template<typename TWeightPlan>
+        using MeasuredQwen = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16, TWeightPlan, QwenBf16::QwenKvPolicy>;
+
+        /// The network geometry a load of `weights` builds, with the log-likelihood window a measurement asks for.
+        static QwenConfig measuredQwenConfig( const fs::path& weights, dim_t window )
+        {
+            Serialization::WeightsReader reader( weights );
+
+            QwenConfig config = QwenBf16::configFromMetadata( reader.getWeightsMetadata() );
+            config.withLogLikelihoodWindow( window );
+
+            return config;
+        }
+
+        template<typename TWeightPlan>
+        static std::unique_ptr<MeasuredQwen<TWeightPlan>> buildMeasuredQwen(
+            const fs::path& weights, dim_t window, dim_t context_length )
+        {
+            PrefillChunking chunking;
+
+            auto network = Common::buildMeasuredNetwork<MeasuredQwen<TWeightPlan>>(
+                weights, measuredQwenConfig( weights, window ), DeviceId{ DeviceType::Cuda, 0 }, context_length, &chunking );
+
+            std::cout << "  prefill chunk: " << chunking.chunk_rows << "\n" << std::flush;
+
+            return network;
+        }
+
+        // QwenModel's own stop set, from the checkpoint's tokenizer and generation configs: <|im_end|> and
+        // <|endoftext|>. Greedy generation here runs at the network layer, which has no stop set of its own.
+        static inline const std::unordered_set<int32_t> kQwenStopTokens{ 248046, 248044 };
+
         /**
-         * @brief Score a token stream under one deployment.
+         * @brief Score a token stream under one weight plan.
          *
          * Shared by both arms so the protocol cannot drift between them: the comparison is
-         * only meaningful if segmentation, head width and corpus are identical and the
+         * only meaningful if segmentation, window and corpus are identical and the
          * allocation is the only difference.
          */
-        ArmResult scoreCorpus( const fs::path& artifact, const QwenModelConfig& model_config,
+        template<typename TWeightPlan>
+        ArmResult scoreCorpus( const fs::path& weights, dim_t window,
             const std::vector<int32_t>& tokens, dim_t context_length )
         {
             // Announced because the oracle arm reads a 50 GiB blob and is otherwise silent
             // for half a minute before any progress is visible.
-            std::cout << "  loading " << artifact.filename().string()
+            std::cout << "  loading " << weights.filename().string()
                 << " at context " << context_length << " ...\n" << std::flush;
 
-            auto model = QwenBf16::load( artifact, model_config );
+            auto network = buildMeasuredQwen<TWeightPlan>( weights, window, context_length );
 
             SequenceLogLikelihood total;
 
@@ -387,8 +422,8 @@ namespace Mila::Tests::Dnn::Models
                 const size_t length =
                     std::min<size_t>( static_cast<size_t>( context_length ), tokens.size() - offset );
 
-                // A one-token tail scores nothing and cannot be scored -- scoreTokens needs
-                // two. Dropping it costs one position of a segment's worth.
+                // A one-token tail scores nothing and cannot be scored -- a log-likelihood needs
+                // two tokens. Dropping it costs one position of a segment's worth.
                 if ( length < 2 )
                 {
                     break;
@@ -398,7 +433,7 @@ namespace Mila::Tests::Dnn::Models
                     tokens.begin() + static_cast<std::ptrdiff_t>( offset ),
                     tokens.begin() + static_cast<std::ptrdiff_t>( offset + length ) );
 
-                const SequenceLogLikelihood scored = model->scoreTokens( segment );
+                const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( *network, segment );
 
                 total.total_log_probability += scored.total_log_probability;
                 total.scored_positions += scored.scored_positions;
@@ -454,56 +489,21 @@ namespace Mila::Tests::Dnn::Models
         };
 
         /**
-         * @brief Greedy-generate and capture the final logit row for every prompt, one load.
+         * @brief Greedy-generate and capture the prefill's logit row for every prompt, one build.
          *
-         * Order matters: the logits are read AFTER the generation for that prompt, so the
-         * prefill they come from is a fresh one over the prompt alone. Reading them first
-         * would be equivalent here -- prefill always starts at position zero and zeroes the
-         * recurrent state -- but relying on that silently is how a state-carrying bug hides.
+         * The logit row is the prefill's own output -- the distribution over what follows the
+         * prompt, before a single token has been generated. Every prompt starts a fresh prefill
+         * from position 0, which zeroes the recurrent state, so no prompt sees another's.
          */
-        ArmOutcome runPromptSet( std::string_view label, const fs::path& artifact,
-            const QwenModelConfig& model_config,
+        template<typename TWeightPlan>
+        ArmOutcome runPromptSet( std::string_view label, const fs::path& weights, dim_t context_length,
             const std::vector<std::vector<int32_t>>& prompts, int generated_tokens,
             const std::vector<std::vector<int32_t>>& other_arm_continuations = {} )
         {
-            std::cout << "  loading " << artifact.filename().string()
+            std::cout << "  loading " << weights.filename().string()
                 << " for " << label << " ...\n" << std::flush;
 
-            auto model = QwenBf16::load( artifact, model_config );
-
-            // The logit row comes from OBSERVATION rather than a purpose-built accessor: the
-            // head already publishes its output on every pass, and the first publication of a
-            // generate() call is the prefill's -- the distribution over what follows the
-            // prompt, before a single token has been sampled. Every later publication is a
-            // decode step, so `capturing` closes the gate after the first.
-            using DeviceLogits = Tensor<TensorDataType::BF16,
-                typename DeviceTypeTraits<DeviceType::Cuda>::memory_resource>;
-
-            std::vector<float> captured;
-            bool capturing = false;
-
-            const size_t observed = model->observe( "*.lm_head", ComputePassMask::inference(),
-                [&]( std::string_view, ComputePass, std::string_view stage, const ITensor& value )
-                {
-                    if ( !capturing || stage != "output" )
-                    {
-                        return;
-                    }
-
-                    const auto* typed = dynamic_cast<const DeviceLogits*>( &value );
-
-                    if ( typed == nullptr )
-                    {
-                        return;
-                    }
-
-                    auto host = toHost<TensorDataType::FP32>( *typed );
-
-                    captured.assign( host.data(), host.data() + host.size() );
-                    capturing = false;
-                } );
-
-            EXPECT_EQ( observed, 1u ) << "the head was not selected, so no logits will arrive";
+            auto network = buildMeasuredQwen<TWeightPlan>( weights, 1, context_length );
 
             ArmOutcome outcome;
 
@@ -511,42 +511,24 @@ namespace Mila::Tests::Dnn::Models
             {
                 const std::vector<int32_t>& prompt = prompts[ index ];
 
-                std::vector<int32_t> produced;
+                // A context overflow would mean the harness, not the model, ended the run.
+                EXPECT_LT( static_cast<dim_t>( prompt.size() ) + generated_tokens, context_length );
 
-                GenerateParams params;
-                params.max_new_tokens = generated_tokens;
-                params.sampling.temperature = 0.0f;
+                Common::GreedyContinuation continuation = Common::greedyContinuationOf(
+                    *network, prompt, generated_tokens, kQwenStopTokens, context_length );
 
-                captured.clear();
-                capturing = true;
+                EXPECT_FALSE( continuation.prompt_logits.empty() ) << "the prefill returned no logits for this prompt";
 
-                const GenerateStatus status = model->generate(
-                    prompt,
-                    [&]( int32_t token ) { produced.push_back( token ); },
-                    params,
-                    std::stop_token{} );
-
-                // A run that stopped early is still comparable -- both arms may hit EOS at
-                // different points, and where they do IS the divergence -- but a context
-                // overflow would mean the harness, not the model, ended it.
-                EXPECT_NE( status, GenerateStatus::ContextOverflow );
-
-                EXPECT_FALSE( captured.empty() ) << "the head published nothing for this prompt";
-
-                outcome.last_logits.push_back( captured );
+                outcome.last_logits.push_back( std::move( continuation.prompt_logits ) );
 
                 if ( index < other_arm_continuations.size() )
                 {
                     outcome.trajectories.push_back( compareTrajectories(
-                        *model, prompt, produced, other_arm_continuations[ index ] ) );
+                        *network, prompt, continuation.tokens, other_arm_continuations[ index ] ) );
                 }
 
-                outcome.generated.push_back( std::move( produced ) );
+                outcome.generated.push_back( std::move( continuation.tokens ) );
             }
-
-            // The sink captures locals by reference; detaching before they leave scope is the
-            // discipline even though the model is about to be destroyed with its context.
-            model->stopObserving();
 
             return outcome;
         }
@@ -569,7 +551,8 @@ namespace Mila::Tests::Dnn::Models
          * does not forbid, and which would be strong evidence the divergence is noise rather
          * than damage. Either way the sign is a check on the measurement.
          */
-        TrajectoryComparison compareTrajectories( QwenBf16& oracle,
+        template<typename TNetwork>
+        TrajectoryComparison compareTrajectories( TNetwork& oracle,
             const std::vector<int32_t>& prompt,
             const std::vector<int32_t>& oracle_continuation,
             const std::vector<int32_t>& plan_continuation )
@@ -591,7 +574,7 @@ namespace Mila::Tests::Dnn::Models
                     sequence.insert( sequence.end(), continuation.begin(),
                         continuation.begin() + static_cast<std::ptrdiff_t>( length ) );
 
-                    return oracle.scoreTokens( sequence ).total_log_probability;
+                    return Common::sequenceLogLikelihoodOf( oracle, sequence ).total_log_probability;
                 };
 
             comparison.oracle_path_log_probability = scorePath( oracle_continuation );
@@ -599,13 +582,6 @@ namespace Mila::Tests::Dnn::Models
             comparison.compared_tokens = static_cast<dim_t>( length );
 
             return comparison;
-        }
-
-        /// Index of the largest logit.
-        static size_t argMax( const std::vector<float>& logits )
-        {
-            return static_cast<size_t>(
-                std::distance( logits.begin(), std::max_element( logits.begin(), logits.end() ) ) );
         }
 
         /**
@@ -650,18 +626,19 @@ namespace Mila::Tests::Dnn::Models
         }
 
         void reportArm( std::string_view label, const fs::path& corpus_path,
-            dim_t context_length, dim_t head_positions, const ArmResult& result )
+            dim_t context_length, dim_t window, const ArmResult& result )
         {
             std::cout << std::format(
                 "  arm: {}\n"
                 "  corpus: {}\n"
-                "  protocol: non-overlapping segments of {} tokens, teacher-forced, head width {}\n"
+                "  protocol: non-overlapping segments of {} tokens, teacher-forced, window {}\n"
                 "  scored positions: {}\n"
-                "  mean negative log-likelihood: {:.4f} nats/token\n"
+                "  mean negative log-likelihood: {:.4f} nats/token ({:.17g})\n"
                 "  PERPLEXITY: {:.3f}\n"
                 "  elapsed: {:.1f} s ({:.1f} positions/s)\n",
-                label, corpus_path.filename().string(), context_length, head_positions,
+                label, corpus_path.filename().string(), context_length, window,
                 result.scored_positions, result.mean_negative_log_probability,
+                result.mean_negative_log_probability,
                 result.perplexity, result.elapsed_seconds,
                 result.scored_positions / result.elapsed_seconds ) << std::flush;
         }
@@ -1565,7 +1542,7 @@ namespace Mila::Tests::Dnn::Models
         // 64 rows per head pass. This was 1 until the W4A8-FP8 prefill path learned to
         // stripe its weight expansion: unstriped it asked for 1212.5 MiB of staging for the
         // head whatever the row count, which did not fit beside the model and aborted.
-        constexpr dim_t kHeadPositions = 64;
+        constexpr dim_t kWindow = 64;
 
         fs::path corpus_path;
         const std::vector<int32_t> tokens = loadCorpusTokens( kTokenBudget, kContextLength, corpus_path );
@@ -1575,13 +1552,9 @@ namespace Mila::Tests::Dnn::Models
             GTEST_SKIP() << "No corpus or tokenizer available";
         }
 
-        QwenModelConfig model_config( kContextLength );
-        model_config.withPrecisionPlan()
-            .withLanguageModelHeadPositions( kHeadPositions );
+        const ArmResult result = scoreCorpus<QwenPrecisionPlan>( artifact_, kWindow, tokens, kContextLength );
 
-        const ArmResult result = scoreCorpus( artifact_, model_config, tokens, kContextLength );
-
-        reportArm( "Section 5 plan, 2.82 bits", corpus_path, kContextLength, kHeadPositions, result );
+        reportArm( "Section 5 plan, 2.82 bits", corpus_path, kContextLength, kWindow, result );
 
         EXPECT_GT( result.perplexity, 1.0 );
     }
@@ -1607,7 +1580,7 @@ namespace Mila::Tests::Dnn::Models
     {
         constexpr dim_t kTokenBudget = 16384;
         constexpr dim_t kContextLength = 1024;
-        constexpr dim_t kHeadPositions = 1;
+        constexpr dim_t kWindow = 1;
 
         const fs::path reference_blob =
             fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_bf16.bin";
@@ -1625,13 +1598,9 @@ namespace Mila::Tests::Dnn::Models
             GTEST_SKIP() << "No corpus or tokenizer available";
         }
 
-        QwenModelConfig model_config( kContextLength );
-        model_config.withWeightQuantization( WeightQuantization::FP4 )
-            .withLanguageModelHeadPositions( kHeadPositions );
+        const ArmResult result = scoreCorpus<QwenOraclePrecisionPlan>( reference_blob, kWindow, tokens, kContextLength );
 
-        const ArmResult result = scoreCorpus( reference_blob, model_config, tokens, kContextLength );
-
-        reportArm( "FP4 oracle, 4.125 bits", corpus_path, kContextLength, kHeadPositions, result );
+        reportArm( "FP4 oracle, 4.125 bits", corpus_path, kContextLength, kWindow, result );
 
         EXPECT_GT( result.perplexity, 1.0 );
     }
@@ -1661,7 +1630,7 @@ namespace Mila::Tests::Dnn::Models
         // Above every segment length, so each row scores the same span of the same corpus
         // and only the segmentation differs.
         constexpr dim_t kTokenBudget = 32768;
-        constexpr dim_t kHeadPositions = 1;
+        constexpr dim_t kWindow = 1;
         constexpr dim_t kSegmentLengths[] = { 4096, 8192, 16384 };
 
         const fs::path reference_blob =
@@ -1686,17 +1655,10 @@ namespace Mila::Tests::Dnn::Models
                 GTEST_SKIP() << "No corpus or tokenizer available";
             }
 
-            QwenModelConfig oracle_config( context_length );
-            oracle_config.withWeightQuantization( WeightQuantization::FP4 )
-                .withLanguageModelHeadPositions( kHeadPositions );
+            const ArmResult oracle =
+                scoreCorpus<QwenOraclePrecisionPlan>( reference_blob, kWindow, tokens, context_length );
 
-            const ArmResult oracle = scoreCorpus( reference_blob, oracle_config, tokens, context_length );
-
-            QwenModelConfig packed_config( context_length );
-            packed_config.withPrecisionPlan()
-                .withLanguageModelHeadPositions( kHeadPositions );
-
-            const ArmResult packed = scoreCorpus( artifact_, packed_config, tokens, context_length );
+            const ArmResult packed = scoreCorpus<QwenPrecisionPlan>( artifact_, kWindow, tokens, context_length );
 
             ASSERT_GT( oracle.scored_positions, 0 );
             ASSERT_GT( packed.scored_positions, 0 );
@@ -1773,21 +1735,15 @@ namespace Mila::Tests::Dnn::Models
             encoded.push_back( tokenizer->encode( prompt ) );
         }
 
-        QwenModelConfig oracle_config( kContextLength );
-        oracle_config.withWeightQuantization( WeightQuantization::FP4 );
-
-        QwenModelConfig packed_config( kContextLength );
-        packed_config.withPrecisionPlan();
-
         // The PLAN loads first and the ORACLE second, which is not arbitrary: the oracle is
         // the only model entitled to judge either road, so it has to still be resident when
         // the trajectories are scored. Loading it last lets one load both generate its own
         // continuations and score the plan's -- two loads rather than three.
-        const ArmOutcome packed =
-            runPromptSet( "Section 5 plan", artifact_, packed_config, encoded, kGeneratedTokens );
+        const ArmOutcome packed = runPromptSet<QwenPrecisionPlan>(
+            "Section 5 plan", artifact_, kContextLength, encoded, kGeneratedTokens );
 
-        const ArmOutcome oracle = runPromptSet( "FP4 oracle", reference_blob, oracle_config,
-            encoded, kGeneratedTokens, packed.generated );
+        const ArmOutcome oracle = runPromptSet<QwenOraclePrecisionPlan>( "FP4 oracle", reference_blob,
+            kContextLength, encoded, kGeneratedTokens, packed.generated );
 
         ASSERT_EQ( oracle.generated.size(), prompts.size() );
         ASSERT_EQ( packed.generated.size(), prompts.size() );
@@ -1831,7 +1787,7 @@ namespace Mila::Tests::Dnn::Models
             summed_kl += kl;
 
             const bool same_top1 =
-                argMax( oracle.last_logits[ index ] ) == argMax( packed.last_logits[ index ] );
+                Common::argMax( oracle.last_logits[ index ] ) == Common::argMax( packed.last_logits[ index ] );
 
             if ( same_top1 )
             {
@@ -1897,9 +1853,8 @@ namespace Mila::Tests::Dnn::Models
     // per-position overhead scoring adds on top of it -- the head passes, the device-to-host
     // transfer of each logit row, and the host-side log-probability reduction.
     //
-    // The baseline is a one-token generate() over the same segment. That is a full prefill
-    // plus a single decode step, and it is the closest thing to a prefill-only measurement
-    // the public surface offers; the one decode step is noise against a 1023-token prefill.
+    // The baseline is the network's own prefill over the same segment: the same chunked forward
+    // the log-likelihood runs, with the head evaluated at the last position only.
     //
     // What the answer decides: whether a device-side reduction is worth building. If the
     // overhead is small against the forward, it is not, whatever the arithmetic below says
@@ -1909,10 +1864,10 @@ namespace Mila::Tests::Dnn::Models
     {
         constexpr dim_t kContextLength = 1024;
 
-        // One short of the context so the baseline's single decode step has somewhere to go.
+        // One short of the context, as the measurement recorded in Qwen3.8.md was taken.
         constexpr dim_t kSegmentLength = 1023;
         constexpr dim_t kTokenBudget = 8192;
-        constexpr dim_t kHeadPositions = 64;
+        constexpr dim_t kWindow = 64;
 
         fs::path corpus_path;
         const std::vector<int32_t> tokens =
@@ -1923,13 +1878,9 @@ namespace Mila::Tests::Dnn::Models
             GTEST_SKIP() << "No corpus or tokenizer available";
         }
 
-        QwenModelConfig model_config( kContextLength );
-        model_config.withPrecisionPlan()
-            .withLanguageModelHeadPositions( kHeadPositions );
-
         std::cout << "  loading " << artifact_.filename().string() << " ...\n" << std::flush;
 
-        auto model = QwenBf16::load( artifact_, model_config );
+        auto network = buildMeasuredQwen<QwenPrecisionPlan>( artifact_, kWindow, kContextLength );
 
         std::vector<std::vector<int32_t>> segments;
 
@@ -1954,13 +1905,10 @@ namespace Mila::Tests::Dnn::Models
         // first-touch paging, and charging that to whichever ran first would invent a
         // difference between them.
         {
-            GenerateParams warm_params;
-            warm_params.max_new_tokens = 1;
-            warm_params.sampling.temperature = 0.0f;
+            (void)network->prefill( Common::deviceTokens( *network, segments.front() ) );
+            network->synchronize();
 
-            (void)model->generate( segments.front(), []( int32_t ) {}, warm_params,
-                std::stop_token{} );
-            (void)model->scoreTokens( segments.front() );
+            (void)Common::sequenceLogLikelihoodOf( *network, segments.front() );
         }
 
         double forward_seconds = 0.0;
@@ -1969,20 +1917,17 @@ namespace Mila::Tests::Dnn::Models
 
         for ( const std::vector<int32_t>& segment : segments )
         {
-            GenerateParams params;
-            params.max_new_tokens = 1;
-            params.sampling.temperature = 0.0f;
-
             const auto forward_start = std::chrono::steady_clock::now();
 
-            (void)model->generate( segment, []( int32_t ) {}, params, std::stop_token{} );
+            (void)network->prefill( Common::deviceTokens( *network, segment ) );
+            network->synchronize();
 
             forward_seconds += std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - forward_start ).count();
 
             const auto scoring_start = std::chrono::steady_clock::now();
 
-            const SequenceLogLikelihood scored = model->scoreTokens( segment );
+            const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( *network, segment );
 
             scoring_seconds += std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - scoring_start ).count();
@@ -1993,7 +1938,7 @@ namespace Mila::Tests::Dnn::Models
         ASSERT_GT( scored_positions, 0 );
 
         const double overhead_seconds = scoring_seconds - forward_seconds;
-        const double vocabulary = static_cast<double>( model->getNetworkConfig().getVocabSize() );
+        const double vocabulary = static_cast<double>( measuredQwenConfig( artifact_, kWindow ).getVocabSize() );
 
         // What the transfer alone could possibly cost, so it can be ruled in or out rather
         // than assumed. BF16 on the wire, converted host-side.

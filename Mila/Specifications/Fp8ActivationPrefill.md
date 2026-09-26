@@ -24,6 +24,15 @@ from now on. Owner surface:
 `Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx` and its FP4 dequant kernels. Internal
 op optimization — no component API change.
 
+**Measured 2026-09-26 against exact recomputation (`ModelFamilyParity.md` 8.2, G1 result).** On Gemma 4 12B
+layer 0, the four FP4 projections match this section's arithmetic computed in FP64 from the package's FP4 bytes
+to 2.5e-5..1.1e-4 relative L2 -- the implementation is faithful, and FP8 fast accumulation adds almost nothing --
+while W4A8 itself is 2.0e-2..3.6e-2 from W4A16, the arithmetic decode uses. Compounded over 48 layers, the FP4
+prefill's hidden states are 0.44 relative L2 from HuggingFace on the same FP4 weights at BF16 activations
+(FP8 weights: 0.024), and depend on the prefill's row count 3.5 times as much. These gates never measured
+quality: token parity on short prompts and a coherent chat. Raw-wikitext perplexity cannot either -- W4A8
+scores better than W4A16 there, because noise helps a model that is confidently wrong on that text.
+
 Measured caveat (nsys @48K): even once correct, the linear GEMMs are only ~24% of Gemma prefill, so the ~2x
 GEMM speedup yields ~1.24x end-to-end; attention (~62%: global flash + local sliding-window) is the dominant
 remaining cost — the next levers are the flash kernel ladder and flashing the local layers, not more matmul.

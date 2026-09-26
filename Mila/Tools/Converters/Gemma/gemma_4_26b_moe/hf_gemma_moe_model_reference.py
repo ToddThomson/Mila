@@ -6,6 +6,10 @@
 # FP32 and BF16, so one capture holds the converter's names and the block's wiring together. The logits
 # recorded are HuggingFace's before the final softcap, which Mila applies at the sampler. No network, no GPU.
 #
+# It also records the log-probability HuggingFace assigns to each next token of the whole sequence, taken
+# after the softcap as HuggingFace's own loss takes it -- the reference for GemmaTransformer's
+# sequenceLogLikelihood, and the only one of these gates a missing softcap cannot pass.
+#
 # Two layers, sliding then global, window 8 against a 12-token prompt: the sliding mask is exercised.
 #
 #   python hf_gemma_moe_model_reference.py --output-dir ../../../../Data/models/gemma/gemma4_moe_tiny
@@ -116,9 +120,16 @@ def main():
     # The prefill's last position, then the position each decode step feeds.
     logits = raw_logits[ PROMPT_TOKENS - 1 : total ].contiguous()
 
+    # Position i predicts token i + 1, so the last position predicts nothing.
+    next_token_log_probabilities = torch.log_softmax( softcapped[ : total - 1 ].to( torch.float64 ), dim=-1 ) \
+        .gather( 1, tokens[ 0, 1 : ].unsqueeze( 1 ) ).squeeze( 1 )
+
+    loss = torch.nn.functional.cross_entropy( outputs.logits[ 0, : total - 1 ], tokens[ 0, 1 : ] )
+
     save_file( {
         'tokens': torch.tensor( ids, dtype=torch.int32 ),
         'logits': logits.to( torch.float32 ),
+        'next_token_log_probabilities': next_token_log_probabilities.to( torch.float32 ),
     }, str( output / 'gemma4_moe_tiny_reference.safetensors' ), metadata={
         'prompt_tokens': str( PROMPT_TOKENS ),
         'decode_tokens': str( DECODE_TOKENS ),
@@ -135,6 +146,8 @@ def main():
            f'{torch.allclose( softcapped, outputs.logits[ 0 ], atol=1e-6 )}' )
     print( f'logits max |value| {logits.abs().max().item():.4f}, '
            f'argmax per step {logits.argmax( dim=-1 ).tolist()}' )
+    print( f'log-likelihood {next_token_log_probabilities.sum().item():.9f} over {total - 1} positions; '
+           f'HuggingFace loss agrees: {abs( -next_token_log_probabilities.mean().item() - loss.item() ) < 1e-5}' )
 
 
 if __name__ == '__main__':

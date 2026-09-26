@@ -161,6 +161,9 @@ export import Dnn.NetworkFactory;
 // Dnn - Core Model
 // ============================================================================
 export import Dnn.Model;
+export import Dnn.SequenceLogLikelihood;
+export import Dnn.WeightQuantization;
+export import Dnn.KvCacheCompression;
 export import Dnn.LanguageModelNetwork;
 export import Dnn.LanguageModel;
 export import Dnn.SamplingParams;

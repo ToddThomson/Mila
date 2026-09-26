@@ -404,14 +404,19 @@ Ordered by dependency, not priority. Nothing here is scheduled.
    position, which is exactly what the Section 5 prefill constraint forbids materializing at
    once, so the evaluation accumulates log-likelihood chunk by chunk. Independently useful
    for Gemma and Llama.
-   *Built on Qwen:* `LanguageModelNetwork::scoreTokens` returns a `SequenceLogLikelihood`
+   *Built on Qwen:* `LanguageModelNetwork::sequenceLogLikelihood` returns a `SequenceLogLikelihood`
    (summed log-probability plus the count of scored positions, reported separately so a
    corpus divides once). `QwenTransformer` implements it by evaluating the head in windows of
-   `QwenConfig::withLanguageModelHeadPositions` rows inside the prefill chunk loop, reducing
-   each window before the next overwrites it. The width defaults to 1 -- the one row
-   generation reads -- and `resolveLanguageModelHeadPositions` bounds it by the prefill chunk
-   for both `build()` and `getRequiredMemory()`, so a scoring build cannot allocate a head the
-   prediction never named. It is a run capacity and deliberately absent from `toMetadata()`.
+   `QwenConfig::withLogLikelihoodWindow` rows inside the prefill chunk loop, reducing
+   each window before the next overwrites it. The window defaults to 1 -- the one row
+   generation reads -- and `resolveLogLikelihoodWindow` bounds it by the prefill chunk
+   for both `build()` and `getRequiredMemory()`, so a measurement build cannot allocate a head the
+   prediction never named. It is a run capacity and absent from `toMetadata()`.
+   *Renamed and moved at `0.21.0-dev+9`* (`ModelFamilyParity.md` 8.2, G1): this was
+   `scoreTokens`, reached through a public `QwenModel::scoreTokens` and a head width on every
+   family's deployment request. Both left the public surface, since nothing outside the tests
+   called them; the harnesses below build the network themselves (`Tests/Common/LogLikelihoodHarness.h`).
+   The host reduction became `SequenceLogLikelihood::addNextTokenLogProbabilities`, shared with Gemma.
    The oracle is the generation path itself: scoring position p must equal what a prefill of
    tokens[0..p] says about token p+1, which is what pins the target alignment.
    **The gate is measured and PASSES** (2026-08-25). `DISABLED_QualityGateAcrossContextLengths`

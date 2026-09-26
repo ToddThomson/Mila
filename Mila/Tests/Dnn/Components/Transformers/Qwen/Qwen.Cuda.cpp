@@ -157,17 +157,17 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
             return static_cast<double>( row[ target ] - max_logit ) - std::log( sum_exponentials );
         }
 
-        void expectScoreMatchesPrefillOracle( dim_t head_positions, dim_t sequence_length )
+        void expectLogLikelihoodMatchesPrefillOracle( dim_t window, dim_t sequence_length )
         {
             const QwenConfig config =
-                allAttentionConfig().withLanguageModelHeadPositions( head_positions );
+                allAttentionConfig().withLogLikelihoodWindow( window );
 
             auto net = builtNet( config, 1, sequence_length, /*initialize_parameters*/ true );
 
             auto device_tokens = makeTokens( 1, sequence_length );
             auto host_tokens = toHost<TensorDataType::INT32>( device_tokens );
 
-            const auto scored = net->scoreTokens( device_tokens );
+            const auto scored = net->sequenceLogLikelihood( device_tokens );
 
             EXPECT_EQ( scored.scored_positions, sequence_length - 1 )
                 << "every position but the last predicts a following token";
@@ -419,16 +419,16 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
     // position scores -log(vocab), and the comparison below passes without proving anything.
     // ====================================================================
 
-    TEST_F( QwenTransformerCudaTests, ScoreTokens_MatchesPrefillOracle_OneRowAtATime )
+    TEST_F( QwenTransformerCudaTests, SequenceLogLikelihood_MatchesPrefillOracle_OneRowAtATime )
     {
-        expectScoreMatchesPrefillOracle( /*head_positions*/ 1, /*sequence_length*/ 8 );
+        expectLogLikelihoodMatchesPrefillOracle( /*window*/ 1, /*sequence_length*/ 8 );
     }
 
     // Three does not divide eight, so the final window is partial -- the case where a window
     // loop most often reads a row it should not or skips one it should.
-    TEST_F( QwenTransformerCudaTests, ScoreTokens_MatchesPrefillOracle_PartialFinalWindow )
+    TEST_F( QwenTransformerCudaTests, SequenceLogLikelihood_MatchesPrefillOracle_PartialFinalWindow )
     {
-        expectScoreMatchesPrefillOracle( /*head_positions*/ 3, /*sequence_length*/ 8 );
+        expectLogLikelihoodMatchesPrefillOracle( /*window*/ 3, /*sequence_length*/ 8 );
     }
 
     // ====================================================================
@@ -635,11 +635,11 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
      * The inequality is what keeps this non-vacuous: a knob ignored by both paths would
      * satisfy the equalities and fail here.
      */
-    TEST_F( QwenTransformerCudaTests, GetRequiredMemory_MatchesBuiltFootprint_WidenedLanguageModelHead )
+    TEST_F( QwenTransformerCudaTests, GetRequiredMemory_MatchesBuiltFootprint_WidenedLogLikelihoodWindow )
     {
         const BuildContext context = pricedOnDevice( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference ) );
 
-        const QwenConfig widened = allAttentionConfig().withLanguageModelHeadPositions( seq_ );
+        const QwenConfig widened = allAttentionConfig().withLogLikelihoodWindow( seq_ );
 
         QwenCuda predictor( "qwen", widened, Device::Cuda( 0 ) );
         const MemoryStats predicted = predictor.getRequiredMemory( context );
@@ -663,12 +663,12 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
      * is one chunk, which makes the bound exactly seq_ and the two configurations below
      * indistinguishable in footprint.
      */
-    TEST_F( QwenTransformerCudaTests, LanguageModelHeadPositions_ClampToWhatAPrefillPassSupplies )
+    TEST_F( QwenTransformerCudaTests, LogLikelihoodWindow_ClampToWhatAPrefillPassSupplies )
     {
         const BuildContext context = pricedOnDevice( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference ) );
 
-        const QwenConfig at_bound = allAttentionConfig().withLanguageModelHeadPositions( seq_ );
-        const QwenConfig above_bound = allAttentionConfig().withLanguageModelHeadPositions( seq_ + 100 );
+        const QwenConfig at_bound = allAttentionConfig().withLogLikelihoodWindow( seq_ );
+        const QwenConfig above_bound = allAttentionConfig().withLogLikelihoodWindow( seq_ + 100 );
 
         const MemoryStats bounded = builtFootprint( at_bound, context );
         const MemoryStats over = builtFootprint( above_bound, context );

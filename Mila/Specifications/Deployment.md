@@ -49,12 +49,17 @@ The values that decide how a model runs, and which of them a caller can choose t
 | Prefill chunk | no | the transformer, at build |
 | Weight format | only for a BF16 package, by quantize-on-load to FP8 or FP4; a pre-quantized package fixes it (`requireStoredQuantizationMatches`) | caller |
 | KV-cache compression | **no**: FP8 is refused on the unquantized path and ignored on the quantized ones (`QuantizationDispatch.ixx:103`) | not a knob |
-| Head width for scoring | yes, `withLanguageModelHeadPositions` | caller, and it is a purpose, not a resource trade |
 | Batch | fixed at 1 | not a knob |
 
 The planner decides the first four. Weight format stays the caller's (section 12). KV-cache
-compression becomes a planner input only when it is a real choice. Head width and batch are part of
-the request, never decided.
+compression becomes a planner input only when it is a real choice. Batch is part of the request,
+never decided.
+
+**The head width left the request at `0.21.0-dev+9`.** It existed only so a quality harness could
+compute a sequence's log-likelihood quickly, and nothing outside `Mila/Src` and `Mila/Tests` set it; a
+measurement knob on every family's public request is a diagnostic in the user's API. It is now
+`withLogLikelihoodWindow` on the network configs that implement the measurement (`ModelFamilyParity.md`
+8.2, G1), set by the harness that builds the network.
 
 ---
 
@@ -91,7 +96,7 @@ std::expected<DeploymentPlans, DeploymentRefusal> planDeployment( path, request 
 - **`DeploymentRequest`** — what the caller asks for. Each plannable knob is either a value or `auto`:
   devices (a list, or `auto`), context length (a number, or `auto` between a floor and a ceiling, as
   Chat's `resolveAutomaticContext` already takes them, `Chat.Footprint.ixx:448`). Also
-  the fixed inputs: weight format, head width, and **headroom** — bytes to leave free on each device.
+  the fixed inputs: weight format and **headroom** — bytes to leave free on each device.
   Headroom is a caller input: how much another process or a display needs is a fact about the user's
   machine, not a Mila constant.
 - **`DeviceReading`** — one device's identity, free bytes and allocation granularity, taken once by the

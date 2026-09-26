@@ -54,7 +54,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
 
         // Generation reads one logit row, so the head costs one row until a scoring caller
         // asks for more.
-        EXPECT_EQ( config.getLanguageModelHeadPositions(), 1 );
+        EXPECT_EQ( config.getLogLikelihoodWindow(), 1 );
 
         EXPECT_NO_THROW( config.validate() );
     }
@@ -213,9 +213,9 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
 
-    TEST( QwenConfig, RejectsANonPositiveLanguageModelHeadWidth )
+    TEST( QwenConfig, RejectsANonPositiveLogLikelihoodWindow )
     {
-        EXPECT_THROW( QwenConfig( kModelDim, kLayers ).withLanguageModelHeadPositions( 0 ),
+        EXPECT_THROW( QwenConfig( kModelDim, kLayers ).withLogLikelihoodWindow( 0 ),
             std::invalid_argument );
     }
 
@@ -269,13 +269,13 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
      * is a buffer capacity the caller chooses, and restoring it from an artifact would let a
      * checkpoint written by a scoring run silently widen a generation build's head.
      */
-    TEST( QwenConfig, MetadataDoesNotCarryTheLanguageModelHeadWidth )
+    TEST( QwenConfig, MetadataDoesNotCarryTheLogLikelihoodWindow )
     {
-        QwenConfig source = QwenConfig( 1024, 12 ).withLanguageModelHeadPositions( 64 );
+        QwenConfig source = QwenConfig( 1024, 12 ).withLogLikelihoodWindow( 64 );
 
         QwenConfig restored( 1, 1 );
         restored.fromMetadata( source.toMetadata() );
 
-        EXPECT_EQ( restored.getLanguageModelHeadPositions(), 1 );
+        EXPECT_EQ( restored.getLogLikelihoodWindow(), 1 );
     }
 }

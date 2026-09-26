@@ -254,8 +254,8 @@ against HuggingFace and then token-for-token on a mixed prompt; modality is decl
 and read by the handle rather than by a family test; the 26B-A4B is fetchable and named in a
 capability row; reasoning survives across tool calls within a turn and a malformed call is refused
 rather than executed as empty; each measurement-gated question has a recorded result, including
-the result "not worth doing"; Gemma scores a text at the head width a request asks for, and its
-quality is measured at every context length the planner can choose for it; and Chat renders
+the result "not worth doing"; Gemma's quality is measured at every context length the planner can
+choose for it, by a measurement that lives in the harness rather than in the public API; and Chat renders
 Gemma's prompt with the library's template, not its own.
 
 ---

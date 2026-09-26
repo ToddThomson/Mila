@@ -154,14 +154,6 @@ namespace Mila::Tests::Deployment
 
             return TModel::configFromMetadata( reader.getWeightsMetadata() );
         }
-
-        QwenConfig qwenNetworkConfigOf( const fs::path& weights, const QwenModelConfig& model_config )
-        {
-            QwenConfig config = networkConfigOf<QwenCudaModel>( weights );
-            config.withLanguageModelHeadPositions( model_config.getLanguageModelHeadPositions() );
-
-            return config;
-        }
     }
 
     TEST( PlanEqualsBuildCudaTests, Gemma4_12B_Fp4_Context8192 )
@@ -218,7 +210,7 @@ namespace Mila::Tests::Deployment
             QwenOraclePrecisionPlan, QwenCudaModel::QwenKvPolicy>;
 
         expectPlanEqualsBuildOnThisDevice<QwenCudaModel, Network>(
-            "qwen 3.8 27b fp4", weights, config, qwenNetworkConfigOf( weights, config ) );
+            "qwen 3.8 27b fp4", weights, config, networkConfigOf<QwenCudaModel>( weights ) );
     }
 
     TEST( PlanEqualsBuildCudaTests, Qwen38_27B_Codebook_Context4096 )
@@ -237,6 +229,6 @@ namespace Mila::Tests::Deployment
             QwenPrecisionPlan, QwenCudaModel::QwenKvPolicy>;
 
         expectPlanEqualsBuildOnThisDevice<QwenCudaModel, Network>(
-            "qwen 3.8 27b cb2-3", weights, config, qwenNetworkConfigOf( weights, config ) );
+            "qwen 3.8 27b cb2-3", weights, config, networkConfigOf<QwenCudaModel>( weights ) );
     }
 }

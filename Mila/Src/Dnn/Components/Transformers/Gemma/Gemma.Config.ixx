@@ -335,6 +335,30 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        /**
+         * @brief Positions the output head evaluates per pass during sequenceLogLikelihood(). Default 1.
+         *
+         * Generation needs a logit only at the last position, and at a 262,144 vocabulary a BF16
+         * logit row is 0.5 MiB, so the head is built one row wide. A log-likelihood needs a logit at
+         * every position, which cannot be materialized for a whole prefill chunk at once, so a
+         * measurement raises this to the rows it can afford and the head is evaluated in windows of
+         * that width.
+         *
+         * A run capacity, not published geometry: it sizes buffers, describes no property of the
+         * checkpoint, and is absent from toMetadata().
+         */
+        template <typename Self>
+        decltype(auto) withLogLikelihoodWindow( this Self&& self, dim_t positions )
+        {
+            if ( positions <= 0 )
+            {
+                throw std::invalid_argument( "GemmaConfig: log_likelihood_window must be > 0" );
+            }
+
+            self.log_likelihood_window_ = positions;
+            return std::forward<Self>( self );
+        }
+
         // ====================================================================
         // Primary accessors
         // ====================================================================
@@ -496,6 +520,7 @@ namespace Mila::Dnn
         float getRoPEThetaLocal() const noexcept { return rope_theta_local_; }
         float getRoPEThetaGlobal() const noexcept { return rope_theta_global_; }
         float getFinalLogitSoftcapping() const noexcept { return final_logit_softcapping_; }
+        dim_t getLogLikelihoodWindow() const noexcept { return log_likelihood_window_; }
 
         /**
          * @brief Embedding scale applied after token lookup: sqrt(embedding_dim).
@@ -661,6 +686,11 @@ namespace Mila::Dnn
             if ( final_logit_softcapping_ < 0.0f )
             {
                 throw std::invalid_argument( "GemmaConfig: final_logit_softcapping must be >= 0" );
+            }
+
+            if ( log_likelihood_window_ <= 0 )
+            {
+                throw std::invalid_argument( "GemmaConfig: log_likelihood_window must be > 0" );
             }
 
             if ( num_experts_ < 0 )
@@ -844,6 +874,7 @@ namespace Mila::Dnn
             oss << "  RoPE theta (local/global): " << rope_theta_local_ << " / " << rope_theta_global_ << "\n";
             oss << "  Global rotary dim: " << global_rotary_dim_ << "\n";
             oss << "  Final logit softcap: " << final_logit_softcapping_ << "\n";
+            oss << "  Log-likelihood window: " << log_likelihood_window_ << "\n";
 
             if ( num_experts_ > 0 )
             {
@@ -880,6 +911,10 @@ namespace Mila::Dnn
         float rope_theta_local_ = 10000.0f;         // sliding-layer RoPE base
         float rope_theta_global_ = 1000000.0f;      // global-layer RoPE base (proportional)
         float final_logit_softcapping_ = 30.0f;     // tanh logit soft-cap; 0 disables
+
+        // A run capacity rather than published geometry: 1 is what generation needs, and a
+        // log-likelihood measurement raises it. Not serialized -- it describes the run, not the model.
+        dim_t log_likelihood_window_ = 1;
 
         // Routed feed-forward: zero experts is a dense model.
         dim_t num_experts_ = 0;

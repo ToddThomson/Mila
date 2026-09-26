@@ -79,13 +79,11 @@ namespace Mila::Deployment
             const MemoryStats& footprint,
             WeightQuantization weight_quantization,
             KvCacheCompression kv_cache_compression,
-            dim_t language_model_head_positions,
             const WeightsMetadata& priced_for,
             std::string priced_stored_quantization )
             : reading_( reading ), context_length_( context_length ), context_limit_( context_limit ),
               prefill_( prefill ), footprint_( footprint ), weight_quantization_( weight_quantization ),
               kv_cache_compression_( kv_cache_compression ),
-              language_model_head_positions_( language_model_head_positions ),
               priced_for_( priced_for ), priced_stored_quantization_( std::move( priced_stored_quantization ) )
         {
         }
@@ -145,11 +143,6 @@ namespace Mila::Deployment
             return kv_cache_compression_;
         }
 
-        [[nodiscard]] dim_t languageModelHeadPositions() const noexcept
-        {
-            return language_model_head_positions_;
-        }
-
         /// The package facts pricing read: architecture and geometry. The name is not one of them.
         [[nodiscard]] const WeightsMetadata& pricedFor() const noexcept
         {
@@ -170,8 +163,7 @@ namespace Mila::Deployment
         {
             TConfig config( context_length_ );
             config.withWeightQuantization( weight_quantization_ )
-                .withKvCacheCompression( kv_cache_compression_ )
-                .withLanguageModelHeadPositions( language_model_head_positions_ );
+                .withKvCacheCompression( kv_cache_compression_ );
 
             return config;
         }
@@ -254,7 +246,6 @@ namespace Mila::Deployment
         MemoryStats footprint_;
         WeightQuantization weight_quantization_;
         KvCacheCompression kv_cache_compression_;
-        dim_t language_model_head_positions_;
         WeightsMetadata priced_for_;
         std::string priced_stored_quantization_;
     };

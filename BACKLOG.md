@@ -389,18 +389,6 @@ is too late in this cycle. `Chat.ToolCallParser.ixx`'s over-eager `[` test — "
 containing a bracket enters the tool-call parser" in `Vnext.md` — is the same failure shape in the
 application rather than the library.
 
-#### The Gemma parity script compares two different precisions and calls it parity
-
-`open` · `gemma`
-
-`gemma_greedy_parity.py:70` loads Mila through the binding's FP4 default and diffs it against a
-BF16 HuggingFace reference, so any divergence it reports mixes quantization error with a real
-defect and a clean run proves less than it appears to. `GemmaModel.load` now takes `quantization=`,
-so the honest comparison is one argument away — on a card that can hold a BF16 12B. Either way the
-script should state which precision it ran.
-
-Full path: `Mila/Tools/Converters/Gemma/gemma_4_BF16/gemma_greedy_parity.py`.
-
 #### `gemma_protocol.py` is dead and can be deleted
 
 `open` · `gemma` · `binding`
@@ -437,35 +425,6 @@ result is "not worth doing".
 This release is the measurement only. The `PerGroupInt4<32>` policy and the compressed-tensors import
 it would need are in `Vnext.md`.
 
-#### A parity script tells the reader to diff against a debug flag that no longer exists
-
-`open` · `gemma` · `docs` · `observability`
-
-`kGemmaDumpActivations` is gone from `Mila/Src`, but
-`Mila/Tools/Converters/Gemma/gemma_4_BF16/hf_gemma_activation_dump.py:4` still names it as the
-thing to compare its output with. Anyone following the script for a parity investigation starts by
-looking for a flag that is not there.
-
-The replacement is `LanguageModel::observe` over `"*.tf_layer_*"`.
-`GemmaModel::fingerprintPrefill` is **not** the substitute — it localizes a NaN rather than
-comparing per-layer activations.
-
-#### Gemma cannot score a text, so its quality cannot be measured
-
-`open` · `gemma` · `mila-src`
-
-Only Qwen implements `scoreTokens`. Gemma builds its head at one position (`Gemma.ixx:366`, `:553`)
-and inherits the base's `logic_error`, and `withLanguageModelHeadPositions` — accepted on every
-request — is read only by Qwen, so a Gemma deployment asked for a scoring width is silently built
-without one.
-
-Port Qwen's window loop (`Qwen.ixx:280`) into the transformer the dense 12B and the 26B-A4B share, so
-both gain it. Two things Qwen did not need: the final-logit softcap applied before the log-softmax,
-and the wider head priced in `getRequiredMemory`, since the planner reads that price. Gate: width 1
-and width 64 agree to the tolerance `Qwen3.8.md` records for its own two head paths, and each
-position's argmax equals the token greedy `generate` chose. Gemma's half of `Future.md` "Widen the
-quality harness beyond the shipped gate", promoted.
-
 #### Gemma's quality above 131072 tokens has never been measured, and the planner may choose up to 262144
 
 `open` · `gemma` · `blocked`
@@ -473,11 +432,15 @@ quality harness beyond the shipped gate", promoted.
 Gemma 4 12B's weights declare 262144 (`Gemma.md` §2). Chat caps it at 131072
 (`Chat.FamilyTraits.ixx:60`), but since `0.21.0-dev+7` the binding and the inference server plan
 against the weights, so on a card with room the same model can open at different contexts depending
-on which application loaded it. Blocked on the entry above.
+on which application loaded it. The measurement exists since `0.21.0-dev+9`
+(`Tests/Common/LogLikelihoodHarness.h`); what blocks this is the corpus (`ModelFamilyParity.md` section 9,
+item 10).
 
 Perplexity by context length at FP4 on the RTX 5060 Ti, from 8K to as far toward 262144 as the card
 holds, by `Qwen3.8.md` §8's protocol (the ratio against the shortest length). A wikitext-2 test split
-barely fills one 262144 window, so the long lengths need a long-document corpus. The result decides
+barely fills one 262144 window, so the long lengths need a long-document corpus -- and raw wikitext
+cannot judge Gemma 4 *it* anyway: it reads about 1,800, and extra rounding scores better on it
+(`ModelFamilyParity.md` 8.2, G1 result). Every segment starts with `<bos>`, which the tokenizer does not add. The result decides
 `ModelHandle.md` 10.3: if quality holds, Chat's cap is deleted; if it does not, the ceiling comes down
 where the weights declare it, not in an application.
 

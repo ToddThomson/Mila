@@ -19,6 +19,11 @@
 # Greedy parity note: bf16 reductions differ slightly between implementations, so
 # some divergence depth is expected. The harness reports the matched-prefix length
 # and the first divergence rather than asserting an exact full match.
+#
+# Precision: HuggingFace runs at bf16, and so does Mila by default, so a divergence is a
+# defect or rounding and nothing else. A bf16 12B needs ~24 GB, more than a 16 GB card
+# holds; --mila-quantization fp4 fits one, but then a divergence mixes quantization error
+# with any defect, and the report says so.
 
 import argparse
 import sys
@@ -35,6 +40,8 @@ def main():
     ap.add_argument("--max-new-tokens", type=int, default=64)
     ap.add_argument("--context-length", type=int, default=4096)
     ap.add_argument("--device-index", type=int, default=0)
+    ap.add_argument("--mila-quantization", choices=["bf16", "fp8", "fp4"], default="bf16",
+                    help="Mila weight precision; bf16 matches the HuggingFace reference")
     args = ap.parse_args()
 
     try:
@@ -65,10 +72,11 @@ def main():
     print(f"           : {tokenizer.decode(hf_gen)!r}\n")
 
     # ---- Mila ----------------------------------------------------------------
-    print(f"Loading Mila {args.mila_bin}...")
+    print(f"Loading Mila {args.mila_bin} ({args.mila_quantization})...")
     mila.initialize("warning")
     model = mila.GemmaModel.load(
-        args.mila_bin, context_length=args.context_length, device_index=args.device_index)
+        args.mila_bin, context_length=args.context_length, device_index=args.device_index,
+        quantization=args.mila_quantization)
     print(f"  config: {model.get_config()}")
 
     mila_gen = []
@@ -87,6 +95,11 @@ def main():
 
     n = min(len(hf_gen), len(mila_gen))
     print("=" * 60)
+    print(f"Precision: HuggingFace bf16, Mila {args.mila_quantization}")
+
+    if args.mila_quantization != "bf16":
+        print("  The precisions differ, so a divergence below mixes quantization error with any defect.")
+
     print(f"Matched prefix: {matched}/{n} tokens")
 
     if matched == len(hf_gen) and len(mila_gen) >= len(hf_gen):

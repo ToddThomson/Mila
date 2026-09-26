@@ -1,12 +1,15 @@
 # Per-layer hidden-state summary for Gemma 4 parity LOCALIZATION (companion to
 # hf_gemma_greedy_validation.py). Runs ONE forward pass over the same prompt ids the
 # parity test feeds (kPromptIds) and PRINTS a one-line summary of each decoder layer's
-# LAST-TOKEN hidden state, in the same format Mila prints (Gemma.ixx kGemmaDumpActivations):
+# LAST-TOKEN hidden state:
 #
 #   [HF-DUMP] layer_05    l2=... mean=... min=... max=... head=[.., .., ..]
 #
-# Read the two consoles side by side, top-down. Matching numbers = that stage agrees;
-# the first stage whose l2/min/max diverges by orders of magnitude is where Mila breaks.
+# Mila's side comes from observing its layers, not from a build flag: attach
+# LanguageModel::observe( "*.tf_layer_*", ComputePassMask::inference(), sink ) to a loaded
+# GemmaModel and summarize each block's "output" in the sink. Read the two consoles side by
+# side, top-down. Matching numbers = that stage agrees; the first stage whose l2/min/max
+# diverges by orders of magnitude is where Mila breaks.
 # Uses forward hooks so each captured tensor is unambiguously that layer's output.
 #
 # REQUIRES CUDA + bfloat16 to match Mila's compute precision; run it where you ran

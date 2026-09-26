@@ -265,38 +265,37 @@ namespace Mila::Dnn
          * position instead of the final one, reading off the probability the model gave to
          * the token that actually followed. A whole chunk of logit rows cannot be
          * materialized at once (section 5), so the head is evaluated in windows of
-         * `getLanguageModelHeadPositions()` rows inside the chunk loop, and each window is
+         * `getLogLikelihoodWindow()` rows inside the chunk loop, and each window is
          * reduced before the next overwrites it.
          *
-         * The reduction is on the HOST, in double. That is deliberate for a first
-         * implementation and is the slow part: every position moves a full logit row across
-         * PCIe and is reduced single-threaded, so this is minutes on a corpus rather than
-         * seconds. It is also the trustworthy version -- a device kernel is an optimization
-         * that this can serve as the oracle for.
+         * The reduction is on the HOST, in double. It is the slow part: every position moves
+         * a full logit row across PCIe and is reduced single-threaded, so this is minutes on a
+         * corpus rather than seconds. It is also the trustworthy version -- a device kernel is
+         * an optimization that this can serve as the oracle for.
          *
-         * A width of 1 is valid and costs one head evaluation per token, which is decode's
+         * A window of 1 is valid and costs one head evaluation per token, which is decode's
          * price. Widening trades memory for passes and changes no result.
          */
-        SequenceLogLikelihood scoreTokens( const TokenIndexType& input ) override
+        SequenceLogLikelihood sequenceLogLikelihood( const TokenIndexType& input ) override
         {
             if ( !this->isBuilt() )
-                throw std::runtime_error( "QwenTransformer must be built before calling scoreTokens()." );
+                throw std::runtime_error( "QwenTransformer must be built before calling sequenceLogLikelihood()." );
 
             const dim_t B = input.shape()[ 0 ];
             const dim_t T = input.shape()[ 1 ];
 
             if ( B != 1 )
                 throw std::invalid_argument( std::format(
-                    "QwenTransformer::scoreTokens: batch must be 1, got {} -- the targets are the "
+                    "QwenTransformer::sequenceLogLikelihood: batch must be 1, got {} -- the targets are the "
                     "sequence's own next tokens, which two rows cannot share", B ) );
 
             if ( T < 2 )
                 throw std::invalid_argument( std::format(
-                    "QwenTransformer::scoreTokens: need at least 2 tokens to score one position, got {}", T ) );
+                    "QwenTransformer::sequenceLogLikelihood: need at least 2 tokens to score one position, got {}", T ) );
 
             const dim_t model_dim = config_.getModelDim();
             const dim_t vocab_size = config_.getVocabSize();
-            const dim_t head_positions = resolveLanguageModelHeadPositions( prefill_chunk_size_ );
+            const dim_t head_positions = resolveLogLikelihoodWindow( prefill_chunk_size_ );
 
             auto host_tokens = toHost<TensorDataType::INT32>( input, this->getExecutionContext() );
 
@@ -342,8 +341,9 @@ namespace Mila::Dnn
                     copy( logits, host_window, this->getExecutionContext() );
                     this->synchronize();
 
-                    accumulateWindowLogProbability(
-                        host_logits.data(), host_tokens.data(), offset + start, rows, T, result );
+                    // Qwen applies no final-logit softcap.
+                    result.addNextTokenLogProbabilities(
+                        host_logits.data(), rows, vocab_size, host_tokens.data(), offset + start, T, 0.0f );
                 }
 
                 offset += chunk_length;
@@ -451,7 +451,7 @@ namespace Mila::Dnn
                 .withFusedDecode( context.isInferenceMode() );
 
             const shape_t final_shape = context.isInferenceMode()
-                ? shape_t{ B, resolveLanguageModelHeadPositions( prefill_chunk ), config_.getModelDim() }
+                ? shape_t{ B, resolveLogLikelihoodWindow( prefill_chunk ), config_.getModelDim() }
                 : shape_t{ B, T, config_.getModelDim() };
 
             const BuildContext final_context = context.forChild( final_shape );
@@ -595,7 +595,7 @@ namespace Mila::Dnn
             // Inference: final_rmsnorm and lm_head process the configured head positions,
             // which is one row for generation. MUST agree with getRequiredMemory().
             shape_t final_shape = context.isInferenceMode()
-                ? shape_t{ B, resolveLanguageModelHeadPositions( prefill_chunk_size_ ), config_.getModelDim() }
+                ? shape_t{ B, resolveLogLikelihoodWindow( prefill_chunk_size_ ), config_.getModelDim() }
                 : shape_t{ B, T, config_.getModelDim() };
 
             BuildContext final_context(
@@ -879,61 +879,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Add one window's log-probabilities to a running total.
-         *
-         * @param logits         [rows, vocab_size], host, FP32.
-         * @param tokens         The whole sequence, host.
-         * @param first_position Absolute position of row 0.
-         * @param sequence_length Total tokens, so the final position can be skipped.
-         *
-         * Subtracting the row maximum before exponentiating is what keeps this finite: a
-         * logit of 30 overflows expf, and language-model logits reach that.
-         */
-        void accumulateWindowLogProbability(
-            const float* logits, const int32_t* tokens,
-            dim_t first_position, dim_t rows, dim_t sequence_length,
-            SequenceLogLikelihood& result ) const
-        {
-            const dim_t vocab_size = config_.getVocabSize();
-
-            for ( dim_t row = 0; row < rows; ++row )
-            {
-                const dim_t position = first_position + row;
-
-                if ( position + 1 >= sequence_length )
-                    break;
-
-                const int32_t target = tokens[ position + 1 ];
-
-                if ( target < 0 || target >= vocab_size )
-                    throw std::out_of_range( std::format(
-                        "QwenTransformer::scoreTokens: token {} at position {} is outside the "
-                        "vocabulary ({})", target, position + 1, vocab_size ) );
-
-                const float* row_logits = logits + row * vocab_size;
-
-                float max_logit = row_logits[ 0 ];
-
-                for ( dim_t v = 1; v < vocab_size; ++v )
-                {
-                    max_logit = std::fmax( max_logit, row_logits[ v ] );
-                }
-
-                double sum_exponentials = 0.0;
-
-                for ( dim_t v = 0; v < vocab_size; ++v )
-                {
-                    sum_exponentials += std::exp( static_cast<double>( row_logits[ v ] - max_logit ) );
-                }
-
-                result.total_log_probability +=
-                    static_cast<double>( row_logits[ target ] - max_logit ) - std::log( sum_exponentials );
-
-                ++result.scored_positions;
-            }
-        }
-
-        /**
          * @brief Positions the head evaluates per pass, bounded by what a pass can supply.
          *
          * The head reads the block stack's output, and a prefill pass produces at most
@@ -943,9 +888,9 @@ namespace Mila::Dnn
          * can serve. Both build() and getRequiredMemory() resolve through here so the head
          * buffer cannot be built at one width and predicted at another.
          */
-        dim_t resolveLanguageModelHeadPositions( dim_t prefill_chunk ) const
+        dim_t resolveLogLikelihoodWindow( dim_t prefill_chunk ) const
         {
-            return std::min<dim_t>( config_.getLanguageModelHeadPositions(), prefill_chunk );
+            return std::min<dim_t>( config_.getLogLikelihoodWindow(), prefill_chunk );
         }
 
         void allocateBlockWorkspace( dim_t B )

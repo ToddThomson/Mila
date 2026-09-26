@@ -438,7 +438,7 @@ namespace Mila::Tests::Deployment
     TEST( DeploymentTypesTests, AModelConfigBecomesAFixedRequestWithItsFormats )
     {
         GemmaModelConfig config( 8192 );
-        config.withFP4Quantization().withLanguageModelHeadPositions( 4 );
+        config.withFP4Quantization();
 
         const DeploymentRequest request = DeploymentRequest::fromModelConfig( config );
 
@@ -446,6 +446,5 @@ namespace Mila::Tests::Deployment
         EXPECT_EQ( request.getContextLength(), 8192 );
         EXPECT_EQ( request.getWeightQuantization(), WeightQuantization::FP4 );
         EXPECT_EQ( request.getKvCacheCompression(), KvCacheCompression::FP8 );
-        EXPECT_EQ( request.getLanguageModelHeadPositions(), 4 );
     }
 }

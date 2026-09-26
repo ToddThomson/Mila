@@ -299,36 +299,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Teacher-forced log-likelihood of a token sequence -- the perplexity path.
-         *
-         * Reports the probability the model assigned to each token given the ones before it.
-         * Nothing is sampled, so the result depends only on the model and the text, which is
-         * what makes it comparable between two quantizations of the same weights.
-         *
-         * Perplexity over a corpus is exp( -total_log_probability / scored_positions ) after
-         * summing several of these. Segment the corpus and sum, rather than averaging each
-         * segment, or a short segment weighs as much as a long one.
-         *
-         * Needs a deployment built with withLanguageModelHeadPositions() above 1 to run at a
-         * sensible rate; at the default of 1 it works and costs one head pass per token.
-         *
-         * @param tokens A single sequence, at least 2 tokens, no longer than contextLength().
-         */
-        SequenceLogLikelihood scoreTokens( const std::vector<int32_t>& tokens )
-        {
-            if ( tokens.size() > static_cast<size_t>( contextLength() ) )
-            {
-                throw std::invalid_argument( std::format(
-                    "QwenModel::scoreTokens: sequence of {} tokens exceeds the context length {}",
-                    tokens.size(), contextLength() ) );
-            }
-
-            auto device_tokens = makeTokenTensor( tokens );
-
-            return this->getNetwork().scoreTokens( device_tokens );
-        }
-
-        /**
          * @brief False, always: this stack cannot reuse a prompt prefix.
          *
          * Stated as a model property rather than left for a caller to discover through a
@@ -612,21 +582,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief The network geometry this deployment builds: the checkpoint's, with the caller's head width.
-         *
-         * The head width is a deployment choice rather than checkpoint geometry, so it is applied AFTER the
-         * metadata: the artifact says how wide the vocabulary is, the caller says how many rows of it this
-         * deployment needs at once.
-         */
-        static QwenConfig deploymentNetworkConfig( const WeightsMetadata& metadata, dim_t language_model_head_positions )
-        {
-            QwenConfig network_config = configFromMetadata( metadata );
-            network_config.withLanguageModelHeadPositions( language_model_head_positions );
-
-            return network_config;
-        }
-
-        /**
          * @brief The planning path, once the weight plan is a type.
          */
         template<typename TWeightPlan>
@@ -638,8 +593,7 @@ namespace Mila::Dnn
             WeightsReader reader( path );
             const auto& metadata = reader.getWeightsMetadata();
 
-            const QwenConfig network_config =
-                deploymentNetworkConfig( metadata, request.getLanguageModelHeadPositions() );
+            const QwenConfig network_config = configFromMetadata( metadata );
 
             validateArtifact( "QwenModel::planDeployment", path, reader, request.getWeightQuantization(),
                 request.isContextLengthAutomatic() ? 0 : request.getContextLength(), network_config );
@@ -669,8 +623,7 @@ namespace Mila::Dnn
 
             plan.requirePricedFor( "QwenModel::load", path.string(), metadata, reader.getWeightQuantization() );
 
-            const QwenConfig network_config =
-                deploymentNetworkConfig( metadata, plan.languageModelHeadPositions() );
+            const QwenConfig network_config = configFromMetadata( metadata );
 
             validateArtifact( "QwenModel::load", path, reader, plan.weightQuantization(),
                 plan.contextLength(), network_config );
@@ -709,8 +662,7 @@ namespace Mila::Dnn
             WeightsReader reader( path );
             const auto& metadata = reader.getWeightsMetadata();
 
-            const QwenConfig network_config =
-                deploymentNetworkConfig( metadata, model_config.getLanguageModelHeadPositions() );
+            const QwenConfig network_config = configFromMetadata( metadata );
 
             validateArtifact( "QwenModel::getDeploymentFootprint", path, reader,
                 model_config.getWeightQuantization(), model_config.getContextLength(), network_config );

@@ -46,8 +46,7 @@ namespace Mila::Deployment
         {
             DeploymentRequest request;
             request.withWeightQuantization( config.getWeightQuantization() )
-                .withKvCacheCompression( config.getKvCacheCompression() )
-                .withLanguageModelHeadPositions( config.getLanguageModelHeadPositions() );
+                .withKvCacheCompression( config.getKvCacheCompression() );
 
             if ( config.getContextLength() > 0 )
                 request.withContextLength( config.getContextLength() );
