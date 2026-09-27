@@ -237,11 +237,18 @@ whether image soft tokens must attend bidirectionally within a prefill, when eve
 Mila is causal, and the position scheme for image spans. Both are answered in the first stage of the
 release, before anything is built, and the answers decide whether modality stays in it.
 
-Two further questions are answered by a measurement rather than committed on intent, and each carries
-its own stop condition: Google's quantization-aware 4-bit build is only worth loading if it beats
-Mila's FP4, and its published drafter is only worth a speculative loop if a K-token verify costs
-meaningfully less than K decodes on a bandwidth-bound FP4 path. The measurements are this release;
-the implementations they would justify are not.
+**The 4-bit 12B has to hold its quality at the context lengths agentic work runs at, and today it
+does not.** Mila's FP4 package predicts text worse the more of it the model has read -- about twice
+BF16's perplexity by 32K -- and the loss is in the weights, not the implementation. Google's
+quantization-aware weights, run in the Q4_0 format they were trained for, stay within 0.03 nats per
+token of BF16 through the same range. So the 12B runs those weights in that format: a model runs in
+the format it was trained for, and Mila's own formats are the fallback for models whose producer ships
+no quantization-aware release.
+
+Google's published drafter is answered by a measurement rather than committed on intent, with its own
+stop condition: it is only worth a speculative loop if a K-token verify costs meaningfully less than K
+decodes on a bandwidth-bound 4-bit path. The measurement is this release; the loop it would justify is
+not.
 
 **Finished also means level with the other families** (`ModelFamilyParity.md`). Gemma is the
 furthest along of the three, and its gaps are few but one of them is sharp: it cannot score a text,
@@ -253,8 +260,9 @@ template the library already has, so the two can drift.
 against HuggingFace and then token-for-token on a mixed prompt; modality is declared in the manifest
 and read by the handle rather than by a family test; the 26B-A4B is fetchable and named in a
 capability row; reasoning survives across tool calls within a turn and a malformed call is refused
-rather than executed as empty; each measurement-gated question has a recorded result, including
-the result "not worth doing"; Gemma's quality is measured at every context length the planner can
+rather than executed as empty; Gemma 4 12B runs Google's quantization-aware weights in Q4_0, and its
+cost over BF16 is measured at every context length the planner can choose for it; the drafter
+question has a recorded result, including the result "not worth doing"; Gemma's quality is measured at every context length the planner can
 choose for it, by a measurement that lives in the harness rather than in the public API; and Chat renders
 Gemma's prompt with the library's template, not its own.
 

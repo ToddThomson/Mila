@@ -331,10 +331,11 @@ audit):
 **G2 -- Quality across the planner's range.** *Closes:* "Gemma's quality above 131072 tokens has never been
 measured". *Needs:* G1, and a long-document corpus whose licence is verified at its source (section 9).
 
-- Perplexity by context length at FP4 on the RTX 5060 Ti, 8K to as far toward 262144 as the card holds. The
-  result decides `ModelHandle.md` 10.3 -- Chat's 131072 cap is deleted, or the ceiling comes down where the
-  weights declare it. The card holds all of it: the planner chooses 262144 for the published FP4 package on
-  the RTX 5060 Ti (`GemmaModel.from_store`, `auto`, 2026-09-26).
+- Loss by context length on the RTX 5060 Ti, 8K to 262144, first on the published FP4 package (the result
+  below) and then, as the gate's run, on the Q4_0 package built from Google's QAT weights (section 9, item 14).
+  The result decides `ModelHandle.md` 10.3 -- Chat's 131072 cap is deleted, or the ceiling comes down to the
+  last band the gate passes. The card holds all of it: the planner chooses 262144 for the published FP4
+  package on the RTX 5060 Ti (`GemmaModel.from_store`, `auto`, 2026-09-26).
 - *Corpus* (section 9, item 10): the PG-19 test split, whose longest books fill one 262144-token window on
   their own. `Data/Datasets/PG19/README.md` records the source and how to fetch it.
 - *The text goes inside a model turn.* Gemma 4 *it* predicts running text only in its own format. On the same
@@ -344,7 +345,7 @@ measured". *Needs:* G1, and a long-document corpus whose licence is verified at 
   G2 run on bare text read 9.2 to 10.7 nats per token and gained nothing from context through 131072, so it
   measured nothing and was stopped. This is also why raw wikitext reads about 1,800 (G1 result).
 - *Protocol.* One network built at 262144, window 64, prefill chunk as the library's rule chooses it. Each
-  of the first three books that fill the window is `<bos>`, a user turn "Continue this book.", the model
+  book that fills the window -- at least two, taken in the test split's order -- is `<bos>`, a user turn "Continue this book.", the model
   primer with thinking off, then the book with its wraps joined -- 262144 tokens in all, scored at prefixes of
   8192, 16384, ... 262144. The prompt is scored alone and taken off, so every figure covers the book's tokens
   only. A book takes 45 minutes. Scoring is causal and every prefix is a whole number of prefill chunks, so the positions a shorter prefix scores come
@@ -354,14 +355,34 @@ measured". *Needs:* G1, and a long-document corpus whose licence is verified at 
   its ratio against the shortest -- and is reported beside the bands. Window 64 takes the FP8 head's staged
   path, a bias of about 1e-3 in perplexity (G1), identical at every length, so it cancels in every ratio;
   window 1 would add about 20 minutes a book in the head alone.
-- *Gate, written before the run:* pooled over the books, the perplexity of the band 131072 to 262144 is at
-  most 1.05 times that of the band 65536 to 131072. A model whose position handling fails past its trained
-  range rises sharply there; long-document prediction on book text normally stays flat or falls. Every band
-  and every book is reported, so a slow rise that passes the bound is still visible.
-- The QAT measurement ("Nobody knows whether Google's quantization-aware 4-bit Gemma 4 beats Mila's FP4")
-  uses the same corpus. Its metric is not perplexity: G1 showed raw-text perplexity cannot rank precisions on
-  this model, since extra rounding scored better. Each 4-bit build -- Mila's FP4 and Google's QAT checkpoint --
-  is measured by the KL divergence of its next-token distribution from BF16's, over the same segments.
+- *Gate, written before the run (section 9, item 15).* The first gate -- the band 131072 to 262144 within 1.05
+  times the band below -- failed on book 30312 (1.67) for a reason it was not written to catch: the FP4 loss
+  rises from 16K, not past 131072. It is replaced by three tests, on at least two books, every band and every
+  book reported; the ratio of each band to the one below stays in the report and decides nothing.
+  1. *The whole book predicts no worse than the sliding window alone,* in every band from 8K to 262144. Each
+     band is scored twice on the same target tokens: with the whole book before it, as the protocol does, and
+     fresh -- `<bos>`, the same turn and primer, then only the 1024 tokens before the band (Gemma's sliding
+     window) as unscored context. The first must not exceed the second. This asks whether the global layers
+     use the long context or damage it, which is the published FP4 package's failure (diagnostic I: 4.1 to 4.8
+     with the book before it, 3.7 to 3.8 fresh), and it needs no reference build at any length. It assumes
+     BF16 itself gains from context past 32K, which is unmeasured; a band that fails for a reason other than
+     quantization still marks where the model stops using its context, which is where the cap belongs.
+  2. *Cost over BF16 at most 0.05 nats per token in every band to 32K,* against HuggingFace on the BF16
+     checkpoint (`hf_long_context_loss.py`), the only lengths where BF16 runs on this machine. QAT at Q4_0
+     measured +0.03 there in HuggingFace. The margin covers Mila's own offset against HuggingFace, 0.04 over
+     the first 8K on FP4, where the prefill rounds activations to FP8; the Q4_0 prefill keeps them at BF16.
+  3. *Mila agrees with llama.cpp on Google's GGUF at every band to 262144* (`llama_cpp_long_context_loss.py`):
+     no band past 32K differs by more than the largest difference over 0 to 32K plus 0.02 nats per token. The
+     Q4_0 weights are identical (8.2, G2 result), the tied table is not (FP8 against Q6_K), and llama.cpp runs
+     8-bit activations, so the two need not agree exactly; a difference that grows with length is Mila's own
+     long-context arithmetic, which nothing independent has checked past 32K.
+  All three pass on every book to 262144 and Chat's cap is deleted; otherwise the ceiling is the last band
+  where all three pass.
+- The QAT measurement (now answered, and the build admitted: "Gemma 4 12B at 4 bits predicts worse the longer
+  the context..." in `BACKLOG.md`) uses the same corpus. Its metric is not perplexity: G1 showed raw-text
+  perplexity cannot rank precisions on this model, since extra rounding scored better. It was planned as the KL
+  divergence of each 4-bit build's next-token distribution from BF16's; it was answered by the per-token loss
+  over BF16 on the same tokens (+0.03 against +0.69), a gap no choice of metric reverses.
 - *Result so far, 2026-09-26* (`x64-claude-verify` Release, published FP4 weights; G2 on the RTX 5060 Ti and the
   diagnostics on the RTX 4070, each pinned by UUID; `Gemma.LogLikelihood.Cuda.cpp`, diagnostics H to J):
   - **Loss rises with context, from about 16K, and keeps rising through 262144.** Mean nats per book token by band,
@@ -427,13 +448,25 @@ measured". *Needs:* G1, and a long-document corpus whose licence is verified at 
     +0.69 at 32K, and still rising with context. QAT fitted the weights to Q4_0's grid, evenly spaced integers in
     32-element groups; E2M1 levels in 128-element groups discard part of that fit.
   - **The QAT weights are not on llama.cpp's Q4_0 grid, and no E2M1 format can hold that grid.** Rounding the
-    stored QAT weights to Q4_0 moves them by 0.051 relative (layers 0, 5, 23 and 47, every projection), so the
-    checkpoint holds weights before QAT's last rounding, or QAT rounded by another rule; the codes cannot be read
-    back exactly. E2M1's magnitudes, {0, 0.5, 1, 1.5, 2, 3, 4, 6} times a scale, miss at least two of Q4_0's
+    stored QAT weights to Q4_0 moves them by 0.051 relative (layers 0, 5, 23 and 47, every projection): the
+    checkpoint holds the weights before rounding. Google's own GGUF is exactly that rounding -- see the next
+    result. E2M1's magnitudes, {0, 0.5, 1, 1.5, 2, 3, 4, 6} times a scale, miss at least two of Q4_0's
     integer steps at any scale. What a converter can still do is choose each group's scale by squared error
     rather than by absmax: relative weight error 0.110 for Mila's FP4 today, 0.095 with best scales at 128, 0.079
     at 32, and 0.078 for NVFP4 with best E4M3 block scales (0.098 at absmax). Whether that moves the curve is
     queued: the QAT weights as NVFP4 with best scales.
+  - **Google's Q4_0 GGUF is llama.cpp's reference rounding of Google's BF16 QAT checkpoint, bit for bit**
+    (2026-09-27, header and values read from `gemma-4-12b-it-qat-q4_0.gguf` and
+    `gemma-4-12B-it-qat-q4_0-unquantized`). Every Q4_0 value in layers 0, 5, 23 and 47 (q, k, up) equals
+    `quantize_row_q4_0_ref` applied to the BF16 weights: scale the group's signed extreme over -8, code
+    `min(15, int(x / d + 8.5))`, FP16 scale. The GGUF holds 328 Q4_0 tensors (every projection; no `attn_v` on the
+    8 global layers, K=V), the tied embedding at **Q6_K** -- llama.cpp's own choice, not a trained format -- and
+    338 FP32 tensors, whose norms and `layer_output_scale` (HF `layer_scalar`) equal the checkpoint's exactly, with
+    no 1 added. No row is permuted: shapes are [out, in] with 32-element groups along the input, as in HF.
+    `rope_freqs` is p-RoPE written out (64 of 256 pairs at 1, the rest 1e30). The GGUF carries no image or audio
+    weights; the BF16 checkpoint carries both. So the BF16 checkpoint rounded by the reference rule gives the
+    GGUF's weights exactly, with the embedding from BF16 rather than from Q6_K, and the GGUF is its bit-exact
+    oracle.
   - **FP8 attention restores it.** The original weights with attention at FP8 per row and the feed-forward at FP4:
     3.683, 3.417, 3.513, 3.595 -- +0.04, +0.08, +0.08, +0.11 over BF16, against +0.19 rising to +0.69 for the
     all-FP4 build, and no worse than the feed-forward-alone arm. The cost is bytes: the attention projections are
@@ -623,7 +656,9 @@ together with whatever the table work changes in its package.
 5. **Gemma's drafter and QAT implementations under the 16 GB rule.** Section 1 puts both in scope, but
    `ROADMAP.md`'s Gemma 4 Complete text makes only their measurements this release. Recommend keeping it
    that way: each measurement carries a stop condition that can decline the work, so admitting the
-   implementation first would commit to something the number may reject.
+   implementation first would commit to something the number may reject. **QAT resolved 2026-09-27:** its
+   measurement answered in QAT's favour and the implementation is admitted (item 14). **Drafter decided
+   2026-09-27 (Todd): measurement only in 0.21**, on the QAT drafter against the Q4_0 12B.
 6. **Admit G4 and G5 (8.2).** Neither has an entry. G4 is tracked only as `Gemma4MoE.md`'s Phase 2b and Phase 8
    decision 4, which no work-tracking file names. G5 is what makes "the 26B-A4B is fetchable" true on the
    reference card. Both earn admission under Gemma 4 Complete's existing criterion, and the 26B entry's claim
@@ -667,18 +702,29 @@ together with whatever the table work changes in its package.
     (b) *The argmax gate.* Exact agreement between prefill and decode is not a property BF16 inference of this
     model has, in Mila or in HuggingFace; it holds on the tiny FP32 model, where it passes. The 12B check
     reports its agreement count instead of asserting it.
-14. **The Gemma 4 12B package** (8.2, G2 result). Measured on one book, cost over BF16 at 24K-32K: today's FP4
-    +0.69; FP4 with query and key at FP8 +0.26 (+0.53 GiB); FP4 with all attention at FP8 +0.11 (+1.05 GiB);
-    Google's QAT weights at Q4_0 +0.03 (about +0.3 GiB; confirmed in llama.cpp). Recommend QAT at Q4_0, which needs
-    a `PerGroupInt4<32>`-class policy -- `Vnext.md`'s QAT entry, whose blocking measurement is now answered and
-    whose importer is unnecessary, since `ExportArtifact` can round Google's BF16 QAT checkpoint itself. Admitting
-    it to 0.21 is scope growth against the 2026-12-15 date. Fallback: FP4 with all attention at FP8, formats Mila
-    has. Either way the change rides G4's single republish, and before it: a second book, and G2 re-run in Mila on
-    the chosen package, with the Q4_0 prefill's activation precision gated by the curve (`Untriaged.md`).
-15. **G2's gate.** "The top band within 1.05 of the band below" failed on book 30312 (1.67) for a reason it was
-    not written to catch: the loss rises from 16K, not past 131072. Rewrite it against BF16 -- the chosen
-    package's cost over BF16 by band, bounded at every length -- before G2 is re-run. Chat's 131072 cap
-    (`ModelHandle.md` 10.3) is decided on that run.
+14. ~~**The Gemma 4 12B package** (8.2, G2 result).~~ **Decided 2026-09-27 (Todd):** where the producer
+    publishes quantization-aware weights, Mila runs those weights in the format they were trained for; where it
+    does not, FP4 with all of attention at FP8. For Gemma 4 12B that is Google's QAT weights at Q4_0, which needs
+    a `PerGroupInt4<32>`-class policy (`Vnext.md`'s QAT entry, its blocking measurement answered). Measured on one
+    book, cost over BF16 at 24K-32K: today's FP4 +0.69; FP4 with query and key at FP8 +0.26 (+0.53 GiB); FP4 with
+    all attention at FP8 +0.11 (+1.05 GiB); QAT at Q4_0 +0.03 (about +0.3 GiB; confirmed in llama.cpp). The
+    fallback is all of attention, not query and key alone. **The Q4_0 policy is admitted to 0.21 (Todd,
+    2026-09-27)** -- deliberate scope growth against the 2026-12-15 date, since Gemma 4 is committed and must
+    hold up at agentic context lengths; `BACKLOG.md` carries it. **Source and delivery decided 2026-09-27
+    (Todd):** built from Google's BF16 QAT checkpoint by the reference Q4_0 rule (bit-identical to Google's GGUF,
+    8.2 G2 result), and delivered as a Mila package. Google's only complete source is 22 GiB (the 26B-A4B's far
+    more); its GGUF is small but has no image or audio weights and a Q6_K embedding. This refines item 16: a
+    recipe where the producer's trained format is usable as shipped, a package where its only complete source
+    is full precision. The change rides G4's
+    single republish, and before it: a second book, and G2 re-run in Mila on the Q4_0 build, with its prefill's
+    activation precision gated by the curve.
+15. ~~**G2's gate.**~~ **Decided 2026-09-27 (Todd):** three tests replace "the top band within 1.05 of the band
+    below", which failed on book 30312 (1.67) because the loss rises from 16K, not past 131072 (8.2, G2). A
+    gate against BF16 at every length, as first proposed here, cannot run: BF16 has no reference past 32K on
+    this machine. So the length test is the model against itself -- the whole book predicts no worse than the
+    1024-token sliding window alone -- with the cost over BF16 bounded at 0.05 nats per token to 32K, and Mila
+    checked against llama.cpp on Google's GGUF to 262144. Chat's 131072 cap (`ModelHandle.md` 10.3) is decided
+    on that run.
 16. **Recipes rather than packages, and what Mila is at the edge.** Agreed in discussion 2026-09-27 (Todd):
     where a producer publishes its trained quantized format, Mila installs it rather than republishing weights;
     and Mila's place beside llama.cpp is a library you build with and measure through, not breadth. Where each is

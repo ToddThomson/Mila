@@ -233,17 +233,6 @@ cost +0.03 nats per token at 32K in Q4_0 and +0.24 in Mila's FP4 (`ModelFamilyPa
 own `PerGroupFp4<128>` becomes the fallback for models without a QAT release. Where it is recorded (Direction,
 Quantization.md, or both) is the triage call.
 
-## A Q4_0 prefill must not quantize activations the way Mila's FP4 prefill does
-
-`Mila/Specifications/Fp8ActivationPrefill.md` @ `0.21.0-dev+9`
-
-Q4_0 codes (-8 to 7) are exact in FP8, so FP8 tensor cores on Ada and Blackwell can run a Q4_0 prefill with no
-weight loss. The activations are the risk: Mila's FP4 prefill rounds them to FP8 with one scale per token, which G1
-measured at 2.0e-2 to 3.6e-2 per projection, and Gemma 4's QAT never trained for it. llama.cpp also runs 8-bit
-activations, but with a scale per 32 values, and still matched BF16 within 0.007 nats per token through 32K
-(`ModelFamilyParity.md` 8.2, G2 result). A Q4_0 policy keeps its prefill activations at BF16, or quantizes them as
-finely as llama.cpp does, with the choice gated by the long-context curve.
-
 ## The planner could choose which published variant of a model a device runs
 
 `Mila/Specifications/Deployment.md` @ `0.21.0-dev+9`
@@ -264,7 +253,10 @@ NVIDIA's `nvidia/Gemma-4-31B-IT-NVFP4` and `nvidia/Gemma-4-26B-A4B-NVFP4`, calib
 is post-training quantization rather than QAT -- Mila installs it (fetch, then transcode into Mila's layout once
 at install, the loader untouched) instead of republishing the weights. Mila still publishes a package where it
 adds a format no producer ships (Qwen 3.8 at 2.82 bits). Bears on G6: the 26B-A4B may need no Mila package if
-NVIDIA's measures well on the G2 harness.
+NVIDIA's measures well on the G2 harness. **Refined the same day (Todd):** a package also where the producer's only
+complete source is full precision -- Gemma 4 QAT's is 22 GiB for the 12B, and its small GGUF lacks the image and
+audio weights -- so the Gemma QAT builds ship as Mila packages (`ModelFamilyParity.md` §9, item 14). Google's 26B-A4B
+QAT now outranks NVIDIA's NVFP4 build, which is post-training quantization.
 
 ## Direction does not say what Mila is at the edge next to llama.cpp
 
@@ -277,3 +269,14 @@ for harnessing intelligence rather than a runtime you call; training as well as 
 top; depth on NVIDIA over breadth; and measurement as a first-class feature -- the G2 protocol could not run on
 llama.cpp's own tools, and Mila's harness found a long-context loss in a published build. The latest direction
 documents already point this way; the statement is what is missing.
+
+## Google ships the 26B-A4B quantization-aware too, and Mila's routed expert bank has no Q4_0
+
+`Mila/Specifications/ModelFamilyParity.md` 8.2, G5 and G6 @ `0.21.0-dev+10`
+
+Google's QAT announcement (blog.google, "quantization-aware-training-gemma-4", read 2026-09-27) covers E2B, E4B, 12B
+and the 26B MoE, in Q4_0 (GGUF for llama.cpp, compressed-tensors for vLLM) and a mobile format. The Hub lists
+`google/gemma-4-26B-A4B-it-qat-q4_0-gguf`, `-qat-q4_0-unquantized` and `-qat-q4_0-unquantized-assistant` (a QAT
+drafter; the 12B has one too). Under §9 item 14 -- trained format where the producer ships one -- the 26B-A4B would
+run Q4_0 as well, which puts the Q4_0 policy into the routed expert bank as well as `Linear`, and changes the bytes
+G5's 16 GB fit is decided on. The announcement gives no benchmark numbers and says nothing about long context.

@@ -900,7 +900,7 @@ The finding is an absence, not a location: a note wherever the default device is
 
 **Blocked on the v0.21.0 measurement** ("Nobody knows whether Google's drafter would make Gemma 4
 12B decode faster" in `BACKLOG.md`): if a K-token verify costs near K decodes on the bandwidth-bound
-FP4 path, this entry goes to `Declined.md` with that number. Moved out of v0.21.0 on 2026-09-23 when
+4-bit path, this entry goes to `Declined.md` with that number. Moved out of v0.21.0 on 2026-09-23 when
 the release widened to `Direction.md` section 5 — the measurement stayed, the loop did not.
 
 Every Gemma 4 size ships a dedicated draft model (ai.google.dev/gemma/docs/core, read 2026-09-17).
@@ -911,30 +911,22 @@ names, how it combines the target's last hidden state). Work: draft/verify/accep
 exists; speculative wrap unverified), drafter KV cache, the target's last hidden state exposed,
 converter/footprint/Chat stats. Gate: greedy output token-for-token identical to plain decode.
 
-## Google's quantization-aware 4-bit Gemma 4 cannot be loaded without losing what QAT bought
-
-`gemma` · `quantization` · `mila-src` · `blocked`
-
-**Blocked on the v0.21.0 measurement** ("Nobody knows whether Google's quantization-aware 4-bit
-Gemma 4 beats Mila's FP4" in `BACKLOG.md`) and on the compressed-tensors import below. Moved out of
-v0.21.0 on 2026-09-23 with the entry above.
-
-`google/gemma-4-12b-it-qat-w4a16-ct` (compressed-tensors, read 2026-09-17): `pack-quantized`, `int`,
-`num_bits` 4, `symmetric`, `strategy` group, `group_size` 32, targets `Linear`; `lm_head` and the
-image/audio embedders ignored. Mila's FP4 is E2M1 at group 128 — re-quantizing QAT weights onto that
-grid discards the training that fitted them to the int4 grid. Work: a `PerGroupInt4<32>` symmetric
-policy (OperationTraits rows, W4A16 GEMM with an int4 value table and group-32 scales — the FP4
-kernel's nibble lookup is the part that changes), ExportArtifact transcoding int32 `pack-quantized`
-into Mila's nibble layout with `mila_quantization` metadata, footprint (4.5 bits per weight with
-16-bit scales against FP4's 4.25 — scale dtype unverified). The embedding stays Mila's FP8 tied
-table, which the QAT build leaves unquantized. Publish as its own model.
+Google's MTP announcement (blog.google, "multi-token-prediction-gemma-4", read 2026-09-27): the drafters
+"utilize the target model's activations and share its KV cache", so a separate drafter cache may not be
+work at all -- the checkpoint and HF's modelling code settle it. Claimed: "up to a 3x speedup", about 2.2x
+on Apple Silicon at batch 4 to 8; no batch-1 figure, no acceptance rates, nothing on quantized targets or
+long context. Google also ships QAT drafters (`google/gemma-4-12B-it-qat-q4_0-unquantized-assistant`, and
+the 26B-A4B's), the partner for the Q4_0 12B admitted to v0.21.0, so the measurement pairs those two.
 
 ## Mila cannot import the format most quantized models on the Hub are published in
 
 `quantization` · `distribution` · `mila-src`
 
-Moved out of v0.21.0 on 2026-09-23 when the release widened; its first consumer is the QAT entry
-above.
+Moved out of v0.21.0 on 2026-09-23 when the release widened. The Gemma 4 QAT build it was first meant
+for was admitted to v0.21.0 on 2026-09-27 without it: `google/gemma-4-12b-it-qat-w4a16-ct` (read
+2026-09-17) is `pack-quantized`, `int`, `num_bits` 4, `symmetric`, group 32, `lm_head` and the embedders
+ignored, and the release may source that build from Google's BF16 QAT checkpoint instead (`BACKLOG.md`,
+"Gemma 4 12B at 4 bits predicts worse the longer the context...").
 
 compressed-tensors (the vLLM project's format) is safetensors plus a `quantization_config` in
 `config.json`: a `format` (`pack-quantized`, `int-quantized`, `float-quantized`,

@@ -403,29 +403,44 @@ long enough to be sure.
 `open` · `gemma` · `perf` · `measured`
 
 Every Gemma 4 size ships a dedicated draft model for speculative decoding (ai.google.dev/gemma/docs/core,
-read 2026-09-17). FP4 decode is bandwidth-bound and a verify goes through the prefill GEMM, so the
-question is a measurement: what a K-token verify forward costs against K decodes on the 5060 Ti with
-today's prefill path. If K=4 costs near 4 decodes there is no win, and the recorded result is "not
-worth doing".
+read 2026-09-17), and the QAT targets ship QAT drafters (`google/gemma-4-12B-it-qat-q4_0-unquantized-assistant`),
+so the pair measured is that drafter and the Q4_0 12B. 4-bit decode is bandwidth-bound and a verify goes
+through the prefill GEMM, so the question is two measurements whose product predicts the speedup: what a
+K-token verify forward costs against K decodes on the 5060 Ti, in Mila on the Q4_0 kernels once they land,
+and how many drafted tokens the target accepts, from HuggingFace's assisted generation. If K=4 costs near 4
+decodes, or too few drafts are accepted, there is no win, and the recorded result is "not worth doing".
 
 This release is the measurement only. The loop it would justify — draft/verify/accept/rewind, the
 drafter's KV cache, wrap-safe rewind on the sliding ring — is in `Vnext.md`, and `SpeculativeDecoding.md`
 is the draft design.
 
-#### Nobody knows whether Google's quantization-aware 4-bit Gemma 4 beats Mila's FP4
+#### Gemma 4 12B at 4 bits predicts worse the longer the context, and Mila cannot run the weights Google trained to prevent it
 
-`open` · `gemma` · `quantization` · `measured`
+`open` · `gemma` · `quantization` · `mila-src` · `measured`
 
-`google/gemma-4-12b-it-qat-w4a16-ct` is int4, symmetric, group 32 (compressed-tensors, read
-2026-09-17), where Mila's FP4 is E2M1 at group 128 — so re-quantizing it onto Mila's grid discards
-the training that fitted it. The question is how far each 4-bit build's next-token distribution sits
-from BF16's -- the KL divergence, over the PG-19 segments G2 uses -- for the QAT checkpoint run in
-HuggingFace and for Mila's published FP4. Perplexity cannot answer it on this model: extra rounding
-scores better on raw text (`ModelFamilyParity.md` 8.2, G1 result). If QAT is not closer to BF16 than
-FP4, stop, and the recorded result is "not worth doing".
+Measured on one PG-19 book inside a model turn: Mila's FP4 package costs +0.19 nats per token over BF16
+in the first 8K, rising to +0.69 by 32K and still rising through 262144. Google's quantization-aware
+weights rounded to Q4_0 (32-element groups, FP16 scale) cost +0.03 through 32K, and Google's own Q4_0
+GGUF in llama.cpp agrees within 0.007. The same weights in Mila's FP4 cost +0.24, so the benefit holds
+only in the format they were trained for. The measurement's question is answered by per-token loss
+against BF16, not the KL divergence first planned; the gap is large enough that KL would not change it.
 
-This release is the measurement only. The `PerGroupInt4<32>` policy and the compressed-tensors import
-it would need are in `Vnext.md`.
+Work: a `PerGroupInt4<32>` symmetric weight policy -- OperationTraits rows, decode matvec and prefill
+GEMM, footprint at 4.5 bits per weight -- selected through `LanguageModelConfig` and exposed in Chat's
+quantization modes and the binding. The prefill keeps its activations at BF16, or quantizes them no
+coarser than one scale per 32 values, with the choice gated by the long-context curve: Mila's FP4 prefill
+rounds activations to FP8 with one scale per token, which the QAT weights never trained for. The source is
+Google's BF16 checkpoint `google/gemma-4-12B-it-qat-q4_0-unquantized`, read by the existing Gemma converter
+and rounded by llama.cpp's reference Q4_0 rule (`quantize_row_q4_0_ref`) -- the rule Google's own GGUF was
+made with, bit for bit -- in the same code that serves `ExportArtifact` and quantize-on-load. The tied
+embedding goes to FP8 from BF16. Delivered as a Mila package, not rounded at install: Google's only complete
+source is 22 GiB, and its 6.5 GiB GGUF lacks the image and audio weights (`ModelFamilyParity.md` §9, item 14).
+Ships in G4's single republish of the 12B.
+
+Gate: every Q4_0 tensor bit-identical to `google/gemma-4-12B-it-qat-q4_0-gguf`; then G2 re-run in Mila on the
+Q4_0 build, cost over BF16 by band, on a second book as well as 30312.
+
+`Mila/Specifications/ModelFamilyParity.md` §9, item 14
 
 #### Gemma's quality above 131072 tokens has never been measured, and the planner may choose up to 262144
 
@@ -436,10 +451,14 @@ Gemma 4 12B's weights declare 262144 (`Gemma.md` §2). Chat caps it at 131072
 against the weights, so on a card with room the same model can open at different contexts depending
 on which application loaded it: the binding opens it at 262144 on the RTX 5060 Ti, and Chat at 131072.
 
-Perplexity by context length at FP4 on the RTX 5060 Ti, from 8K to 262144, over the PG-19 test books
-long enough to fill the whole window (`ModelFamilyParity.md` 8.2, G2, which holds the protocol and the
-gate). The result decides `ModelHandle.md` 10.3: if quality holds, Chat's cap is deleted; if it does
-not, the ceiling comes down where the weights declare it, not in an application.
+Loss by context length on the RTX 5060 Ti, from 8K to 262144, over at least two PG-19 test books long
+enough to fill the whole window (`ModelFamilyParity.md` 8.2, G2, which holds the protocol and the gate).
+Measured on the published FP4 package, the loss rises from 16K; the gate's run is on the Q4_0 package
+(the entry above). The gate is three tests: the whole book predicts no worse than the sliding window alone
+at every length, the cost over BF16 stays within 0.05 nats per token to 32K, and Mila agrees with
+llama.cpp on Google's GGUF to 262144. The result decides `ModelHandle.md` 10.3: if all three hold, Chat's
+cap is deleted; if not, the ceiling comes down to the last band where they hold, in the library, not in an
+application.
 
 #### Chat renders Gemma's prompt itself, and its template and the library's have drifted apart
 
