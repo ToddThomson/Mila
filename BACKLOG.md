@@ -418,31 +418,28 @@ is the draft design.
 
 `google/gemma-4-12b-it-qat-w4a16-ct` is int4, symmetric, group 32 (compressed-tensors, read
 2026-09-17), where Mila's FP4 is E2M1 at group 128 — so re-quantizing it onto Mila's grid discards
-the training that fitted it. The question is wikitext perplexity of the QAT checkpoint, run in
-HuggingFace, against Mila's published FP4 and BF16. If QAT does not beat FP4, stop, and the recorded
-result is "not worth doing".
+the training that fitted it. The question is how far each 4-bit build's next-token distribution sits
+from BF16's -- the KL divergence, over the PG-19 segments G2 uses -- for the QAT checkpoint run in
+HuggingFace and for Mila's published FP4. Perplexity cannot answer it on this model: extra rounding
+scores better on raw text (`ModelFamilyParity.md` 8.2, G1 result). If QAT is not closer to BF16 than
+FP4, stop, and the recorded result is "not worth doing".
 
 This release is the measurement only. The `PerGroupInt4<32>` policy and the compressed-tensors import
 it would need are in `Vnext.md`.
 
 #### Gemma's quality above 131072 tokens has never been measured, and the planner may choose up to 262144
 
-`open` · `gemma` · `blocked`
+`in progress` · `gemma`
 
 Gemma 4 12B's weights declare 262144 (`Gemma.md` §2). Chat caps it at 131072
 (`Chat.FamilyTraits.ixx:60`), but since `0.21.0-dev+7` the binding and the inference server plan
 against the weights, so on a card with room the same model can open at different contexts depending
-on which application loaded it. The measurement exists since `0.21.0-dev+9`
-(`Tests/Common/LogLikelihoodHarness.h`); what blocks this is the corpus (`ModelFamilyParity.md` section 9,
-item 10).
+on which application loaded it: the binding opens it at 262144 on the RTX 5060 Ti, and Chat at 131072.
 
-Perplexity by context length at FP4 on the RTX 5060 Ti, from 8K to as far toward 262144 as the card
-holds, by `Qwen3.8.md` §8's protocol (the ratio against the shortest length). A wikitext-2 test split
-barely fills one 262144 window, so the long lengths need a long-document corpus -- and raw wikitext
-cannot judge Gemma 4 *it* anyway: it reads about 1,800, and extra rounding scores better on it
-(`ModelFamilyParity.md` 8.2, G1 result). Every segment starts with `<bos>`, which the tokenizer does not add. The result decides
-`ModelHandle.md` 10.3: if quality holds, Chat's cap is deleted; if it does not, the ceiling comes down
-where the weights declare it, not in an application.
+Perplexity by context length at FP4 on the RTX 5060 Ti, from 8K to 262144, over the PG-19 test books
+long enough to fill the whole window (`ModelFamilyParity.md` 8.2, G2, which holds the protocol and the
+gate). The result decides `ModelHandle.md` 10.3: if quality holds, Chat's cap is deleted; if it does
+not, the ceiling comes down where the weights declare it, not in an application.
 
 #### Chat renders Gemma's prompt itself, and its template and the library's have drifted apart
 

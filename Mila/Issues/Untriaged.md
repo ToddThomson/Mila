@@ -200,3 +200,80 @@ sitemap line (verified). Unverified: the home page's sitemap `lastmod` reads 202
 the workflows check out shallow; two blog posts link duplicate GitHub Discussions (`flash-decoding-mqa-cuda.md:8`,
 `sponsor.md:23`); old `toddthomson.github.io/Mila/` Doxygen URLs have no redirect. See the noindex entry above.
 
+
+## Loading from Python before `mila.initialize()` blames the GPU
+
+`Mila/Bindings/Mila_py.Wrappers.cpp:447` @ `0.21.0-dev+9`
+
+`mila.GemmaModel.from_store( name, "auto", 1 )` without a prior `mila.initialize()` raises "CUDA device 1 does not
+report its free memory, so no context length can be chosen ... Pass context_length as a number" -- on both cards,
+both `load` and `from_store`. With `initialize` first, the same call opens at 262144. The refusal is
+`DeviceDoesNotReportMemory` from `DeviceReading::take` (`Deployment/DeviceReading.ixx:61`), which swallows why it
+could not read the device, so the message names the wrong cause and its advice (pass a number) is not the fix.
+
+## Gemma 4 12B FP4 loses most of what long context should buy it
+
+`Mila/Specifications/ModelFamilyParity.md` 8.2, G2 result @ `0.21.0-dev+9`
+
+On PG-19 book 30312 inside a model turn, HuggingFace on BF16 weights reads 3.641, 3.339, 3.433, 3.487 nats per token
+by 8K band through 32K; on the FP4 weights as Mila quantizes them, 3.830, 3.812, 4.024, 4.173, and Mila's own FP4 run
+agrees with the FP4 row. The FP4 cost grows from +0.19 to +0.69 nats per token with context. Through 262144 Mila's FP4
+keeps rising to 5.306. One book. The attention projections carry it: FP4 on attention alone costs +0.11 rising to
++0.47 by 32K; FP4 on the feed-forward alone a flat +0.08 to +0.13. Query and key carry most of that: FP4 on q_proj
+and k_proj alone costs +0.15 rising to +0.38. Google's QAT weights at Q4_0 cost +0.03, confirmed in llama.cpp.
+
+## Direction has no principle for which 4-bit format a model runs in
+
+`Mila/Specifications/Direction.md` @ `0.21.0-dev+9`
+
+Agreed in discussion 2026-09-27, not yet written anywhere in the repo: a model runs in the format it was trained for.
+Producers now ship quantization-aware checkpoints, each fitted to one grid -- Gemma 4 QAT to llama.cpp's Q4_0,
+gpt-oss to MXFP4, NVIDIA's tooling to NVFP4 -- and the benefit does not transfer across grids: Gemma 4's QAT weights
+cost +0.03 nats per token at 32K in Q4_0 and +0.24 in Mila's FP4 (`ModelFamilyParity.md` 8.2, G2 result). Mila's
+own `PerGroupFp4<128>` becomes the fallback for models without a QAT release. Where it is recorded (Direction,
+Quantization.md, or both) is the triage call.
+
+## A Q4_0 prefill must not quantize activations the way Mila's FP4 prefill does
+
+`Mila/Specifications/Fp8ActivationPrefill.md` @ `0.21.0-dev+9`
+
+Q4_0 codes (-8 to 7) are exact in FP8, so FP8 tensor cores on Ada and Blackwell can run a Q4_0 prefill with no
+weight loss. The activations are the risk: Mila's FP4 prefill rounds them to FP8 with one scale per token, which G1
+measured at 2.0e-2 to 3.6e-2 per projection, and Gemma 4's QAT never trained for it. llama.cpp also runs 8-bit
+activations, but with a scale per 32 values, and still matched BF16 within 0.007 nats per token through 32K
+(`ModelFamilyParity.md` 8.2, G2 result). A Q4_0 policy keeps its prefill activations at BF16, or quantizes them as
+finely as llama.cpp does, with the choice gated by the long-context curve.
+
+## The planner could choose which published variant of a model a device runs
+
+`Mila/Specifications/Deployment.md` @ `0.21.0-dev+9`
+
+`planDeployment` already chooses the context and prefill chunk per device from one reading of it. Where a model
+publishes several variants, choosing the variant is the same kind of decision: quality depends on running
+quantization-aware weights in the format they were trained for, and speed on whether the device runs that format
+natively -- for example Gemma 4's QAT Q4_0 on an Ada card, an NVFP4 build on Blackwell if one exists. Raised
+2026-09-27 in the G2 discussion; not in scope for v0.21.
+
+## Mila republishes weights that producers already publish in their trained format
+
+`Mila/Specifications/ModelDistribution.md` @ `0.21.0-dev+9`
+
+Agreed with Todd 2026-09-27 as a 0.21 direction: recipes rather than gigabyte packages. Where a producer publishes an
+official quantized release -- Google's Gemma 4 QAT Q4_0, and (Todd, looked up the same day, unverified here)
+NVIDIA's `nvidia/Gemma-4-31B-IT-NVFP4` and `nvidia/Gemma-4-26B-A4B-NVFP4`, calibrated with Model Optimizer, which
+is post-training quantization rather than QAT -- Mila installs it (fetch, then transcode into Mila's layout once
+at install, the loader untouched) instead of republishing the weights. Mila still publishes a package where it
+adds a format no producer ships (Qwen 3.8 at 2.82 bits). Bears on G6: the 26B-A4B may need no Mila package if
+NVIDIA's measures well on the G2 harness.
+
+## Direction does not say what Mila is at the edge next to llama.cpp
+
+`Mila/Specifications/Direction.md` @ `0.21.0-dev+9`
+
+Faced in discussion 2026-09-27, once recipes meant Mila and llama.cpp could load the same files. Todd: "it's not a
+shift, it's where Mila must go to be a useful tool to an engineer or researcher." llama.cpp owns breadth (every
+device and format, an app ecosystem); Mila does not race it. What Mila is: a readable, typed, composable library
+for harnessing intelligence rather than a runtime you call; training as well as inference; the product family on
+top; depth on NVIDIA over breadth; and measurement as a first-class feature -- the G2 protocol could not run on
+llama.cpp's own tools, and Mila's harness found a long-context loss in a published build. The latest direction
+documents already point this way; the statement is what is missing.

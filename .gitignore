@@ -18,6 +18,9 @@ Data/Datasets/**/*.mila
 Data/Datasets/**/*.tokens
 Data/**/*.exe
 
+# Evaluation corpora fetched from their publishers; the dataset's README says how.
+Data/Datasets/PG19/raw/
+
 # Model weights: converted .bin sources and exported safetensors artifacts. Both are
 # multi-gigabyte and reproducible from the converter / Tools/ExportArtifact.
 *.bin

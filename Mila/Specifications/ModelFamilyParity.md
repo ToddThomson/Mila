@@ -331,12 +331,161 @@ audit):
 **G2 -- Quality across the planner's range.** *Closes:* "Gemma's quality above 131072 tokens has never been
 measured". *Needs:* G1, and a long-document corpus whose licence is verified at its source (section 9).
 
-- Perplexity by context length at FP4 on the RTX 5060 Ti, 8K to as far toward 262144 as the card holds, by
-  `Qwen3.8.md` §8's protocol. The result decides `ModelHandle.md` 10.3 -- Chat's 131072 cap is deleted, or the
-  ceiling comes down where the weights declare it.
+- Perplexity by context length at FP4 on the RTX 5060 Ti, 8K to as far toward 262144 as the card holds. The
+  result decides `ModelHandle.md` 10.3 -- Chat's 131072 cap is deleted, or the ceiling comes down where the
+  weights declare it. The card holds all of it: the planner chooses 262144 for the published FP4 package on
+  the RTX 5060 Ti (`GemmaModel.from_store`, `auto`, 2026-09-26).
+- *Corpus* (section 9, item 10): the PG-19 test split, whose longest books fill one 262144-token window on
+  their own. `Data/Datasets/PG19/README.md` records the source and how to fetch it.
+- *The text goes inside a model turn.* Gemma 4 *it* predicts running text only in its own format. On the same
+  32,000 characters of a PG-19 book (diagnostic H, `DISABLED_BookFormat`, RTX 4070): 9.26 nats per token as
+  bare text after `<bos>`, 9.61 with Gutenberg's 70-column wraps joined into paragraphs, and **3.79** with the
+  joined text as the model's reply to "Continue this book." (0.88 nats per character, against 2.23). A first
+  G2 run on bare text read 9.2 to 10.7 nats per token and gained nothing from context through 131072, so it
+  measured nothing and was stopped. This is also why raw wikitext reads about 1,800 (G1 result).
+- *Protocol.* One network built at 262144, window 64, prefill chunk as the library's rule chooses it. Each
+  of the first three books that fill the window is `<bos>`, a user turn "Continue this book.", the model
+  primer with thinking off, then the book with its wraps joined -- 262144 tokens in all, scored at prefixes of
+  8192, 16384, ... 262144. The prompt is scored alone and taken off, so every figure covers the book's tokens
+  only. A book takes 45 minutes. Scoring is causal and every prefix is a whole number of prefill chunks, so the positions a shorter prefix scores come
+  out the same in the longer one, and the prefix of 2L less the prefix of L is the book's log-likelihood over
+  positions L to 2L given everything before them. The top band, 131072 to 262144, is the question itself.
+  The cumulative perplexity at each prefix is `Qwen3.8.md` §8's measurement -- one segment of that length,
+  its ratio against the shortest -- and is reported beside the bands. Window 64 takes the FP8 head's staged
+  path, a bias of about 1e-3 in perplexity (G1), identical at every length, so it cancels in every ratio;
+  window 1 would add about 20 minutes a book in the head alone.
+- *Gate, written before the run:* pooled over the books, the perplexity of the band 131072 to 262144 is at
+  most 1.05 times that of the band 65536 to 131072. A model whose position handling fails past its trained
+  range rises sharply there; long-document prediction on book text normally stays flat or falls. Every band
+  and every book is reported, so a slow rise that passes the bound is still visible.
 - The QAT measurement ("Nobody knows whether Google's quantization-aware 4-bit Gemma 4 beats Mila's FP4")
-  runs on this harness: its comparison is against Mila's FP4 perplexity, which does not exist until G1, and
-  the two numbers must come from one corpus by one protocol.
+  uses the same corpus. Its metric is not perplexity: G1 showed raw-text perplexity cannot rank precisions on
+  this model, since extra rounding scored better. Each 4-bit build -- Mila's FP4 and Google's QAT checkpoint --
+  is measured by the KL divergence of its next-token distribution from BF16's, over the same segments.
+- *Result so far, 2026-09-26* (`x64-claude-verify` Release, published FP4 weights; G2 on the RTX 5060 Ti and the
+  diagnostics on the RTX 4070, each pinned by UUID; `Gemma.LogLikelihood.Cuda.cpp`, diagnostics H to J):
+  - **Loss rises with context, from about 16K, and keeps rising through 262144.** Mean nats per book token by band,
+    window 64, chunk 1024:
+
+    | Book | 0-8K | 8K-16K | 16K-32K | 32K-64K | 64K-128K | 128K-256K |
+    |---|---|---|---|---|---|---|
+    | 30312 | 3.787 | 3.816 | 4.111 | 4.448 | 4.790 | 5.306 |
+    | 3608 | 3.794 | 3.670 | 3.650 | 3.834 | 4.178 | -- |
+
+    Book 30312's top band is 1.67 times the perplexity of the band below it, against the 1.05 bound, but the rise is
+    not a failure that starts past 131072: perplexity roughly doubles from 8K to 128K before the top band adds to
+    it. Book 3608 is flat to 32K and then rises the same way. Book 30312 took 2,694 s. Book 3608's 262144 prefix ran
+    out of device memory at 71 minutes -- the 5060 Ti then showed 15 GB held with only `devenv.exe` listed on it, so
+    another process shared the card; 262144 fits with little room to spare. The third book did not run.
+  - **The text does not get harder** (diagnostic I, `DISABLED_LossAlongTheBook`). Book 30312's 8K stretches starting
+    at 0, 8K, 16K, 32K, 64K and 96K, each alone in a fresh turn, read 3.784, 3.678, 3.788, 3.738, 3.739 and 3.766.
+    The same text read with the book before it reads 4.1 to 4.8. **The model predicts the book worse with 64K of it
+    in context than with none**, which a model using its context correctly does not do.
+  - **One long reply is not the cause** (diagnostic I). The book's first 64K as four 16K model turns, each after a
+    user "Continue.", read 3.793, 4.032, 4.163 and 4.314 -- a little below the single turn's rise, and still rising.
+  - **The prefill attention kernel is not the cause** (diagnostic J, `DISABLED_DecodeAgainstPrefillAlongTheBook`).
+    The same 257 targets scored by decode, one token at a time, and by prefix differences, at window 1: after
+    4096 tokens decode 3.883 and prefill 3.925; after 32768, 3.904 and 3.933. The two paths agree to the same small
+    margin at both depths (the W4A8 prefill's known gap, G1), so whatever grows with length is something they share:
+    the weights, the RoPE tables, the KV cache, or the model itself.
+  - **HuggingFace rises the same way: the rise is not Mila's.** `hf_long_context_loss.py` (beside the G1 script)
+    scores the first 32768 tokens of book 30312's turn in HuggingFace, on the FP4 weights rebuilt as Mila quantizes
+    them, in 1024-token chunks through its KV cache; its prompt tokenizes id for id as Mila's. By 8K band:
+    3.830, 3.812, 4.024, 4.173 -- 4.099 over 16K-32K, where Mila reads 4.111, and 3.812 against Mila's 3.816 over
+    8K-16K. Mila's lower 3.787 over the first 8K is its W4A8 prefill against HuggingFace's W4A16, the direction G1
+    measured. On the FP4 weights, Gemma 4 12B *it* predicts a book worse the more of it it has read, in both
+    implementations.
+  - **BF16 does not rise: the FP4 weights cost the long context.** The same HuggingFace run on the BF16 checkpoint,
+    by 8K band: 3.641, 3.339, 3.433, 3.487. The model gains from context after the first 8K and stays below that
+    level through 32K. FP4 minus BF16, band by band: +0.19, +0.47, +0.59, +0.69 nats per token -- the cost of the
+    FP4 weights grows with context, to about twice BF16's perplexity over 24K-32K. One book, one 32K window. This
+    is a finding about the published FP4 package, not about Chat's 131072 cap, and it bears on the QAT
+    measurement: a quantization-aware checkpoint is exactly what might keep what FP4 loses here.
+  - **The attention projections carry the loss.** The same run with FP4 on one sublayer and BF16 on the other,
+    the tied table at FP8 in both, as cost over BF16 by band: attention alone +0.11, +0.33, +0.43, +0.47;
+    feed-forward alone +0.08, +0.10, +0.11, +0.13. The feed-forward cost is the flat price of 4-bit weights; the
+    attention cost grows with context, and the two add to within 0.1 of the whole FP4 build's. An FP4 build whose
+    attention projections stay FP8 is the candidate this points at -- measured next, not assumed. The published
+    sensitivity analysis of FP4 by component (Cim, Topcu and Kandemir, arXiv 2603.08747, on Qwen2.5) ranks the
+    feed-forward projections most sensitive and attention "substantially less", with no context-length axis. Over
+    the first 8K the two here are close (+0.08 and +0.11); the ranking inverts only with length. A sensitivity
+    ranking measured at short context calls attention safe, which is wrong for the lengths agentic use runs at.
+  - **Attention is more sensitive, not worse quantized.** Relative weight error by projection over every sixth
+    layer, sliding and global: Mila's FP4 (128-element groups) 0.110 to 0.116 on q, k, v and o, and 0.110 to 0.112
+    on gate, up and down; NVFP4 (16-element groups, E4M3 block scales) 0.094 to 0.095 everywhere; Q4_0 (32, the
+    format Google's QAT targets) 0.088 to 0.096; FP8 per row 0.026. Gemma's weights carry no outlier structure that
+    coarse groups trip over, so NVFP4 cuts the error by only about 15%. The same error costs attention more as the
+    context grows. Whether NVFP4 moves the curve at all, and whether FP8 attention restores it, are both queued.
+  - **Google's quantization-aware weights keep the long context at 4 bits.** `google/gemma-4-12B-it-qat-q4_0-unquantized`
+    (Apache 2.0, BF16 weights trained for llama.cpp's Q4_0), the same book, tokens and harness. As stored: 3.649,
+    3.342, 3.458, 3.532 -- within 0.05 of the original BF16 in every band. Rounded to Q4_0 (32-element groups,
+    FP16 scale; tied table at FP8 as in the package): 3.653, 3.324, 3.463, 3.518 -- within 0.03 of BF16 through
+    32K, where Mila's FP4 of the original weights is 0.69 behind. The loss is not inherent to 4-bit weights; it is
+    what rounding costs weights that were not trained to be rounded. This is most of the QAT BACKLOG entry's
+    question answered in advance of its KL measurement, and in QAT's favour. The QAT weights rounded to Mila's
+    FP4 instead: 3.731, 3.484, 3.632, 3.729 -- +0.09 rising to +0.24 over BF16, a third of the original weights'
+    +0.69 at 32K, and still rising with context. QAT fitted the weights to Q4_0's grid, evenly spaced integers in
+    32-element groups; E2M1 levels in 128-element groups discard part of that fit.
+  - **The QAT weights are not on llama.cpp's Q4_0 grid, and no E2M1 format can hold that grid.** Rounding the
+    stored QAT weights to Q4_0 moves them by 0.051 relative (layers 0, 5, 23 and 47, every projection), so the
+    checkpoint holds weights before QAT's last rounding, or QAT rounded by another rule; the codes cannot be read
+    back exactly. E2M1's magnitudes, {0, 0.5, 1, 1.5, 2, 3, 4, 6} times a scale, miss at least two of Q4_0's
+    integer steps at any scale. What a converter can still do is choose each group's scale by squared error
+    rather than by absmax: relative weight error 0.110 for Mila's FP4 today, 0.095 with best scales at 128, 0.079
+    at 32, and 0.078 for NVFP4 with best E4M3 block scales (0.098 at absmax). Whether that moves the curve is
+    queued: the QAT weights as NVFP4 with best scales.
+  - **FP8 attention restores it.** The original weights with attention at FP8 per row and the feed-forward at FP4:
+    3.683, 3.417, 3.513, 3.595 -- +0.04, +0.08, +0.08, +0.11 over BF16, against +0.19 rising to +0.69 for the
+    all-FP4 build, and no worse than the feed-forward-alone arm. The cost is bytes: the attention projections are
+    2.41 billion of the body's 10.90 billion weights, so the body grows from 5.39 GiB at 4.25 bits to 6.44 GiB,
+    about 1.05 GiB more on the device.
+  - **NVFP4 on the original weights barely moves the curve.** 3.898, 3.750, 3.965, 4.063 -- +0.26, +0.41, +0.53,
+    +0.58 over BF16, against Mila's FP4 at +0.19, +0.47, +0.59, +0.69: worse over the first 8K, a little better
+    beyond it. The emulation rounds each block's E4M3 scale to nearest, which on Gaussian test weights shrinks the
+    largest element of 14% of blocks by more than 3%; a variant rounding the scale up, so that nothing clips, is
+    queued to tell the format from the emulation.
+  - **QAT weights as NVFP4 with best block scales: flatter, not better.** 3.811, 3.511, 3.612, 3.691 -- +0.17, +0.17,
+    +0.18, +0.20 over BF16, against the same weights in Mila's FP4 at +0.09, +0.15, +0.20, +0.24. The cost barely
+    grows with context, but it starts higher; both NVFP4 arms are worse than 128-element FP4 over the first 8K, which
+    the weight error does not predict and is unexplained.
+  - **The early-context penalty was the emulation's clipping; NVFP4 still does not fix the long context.** With each
+    block scale rounded up to the next E4M3 value, so that no block's largest element exceeds 6 times its scale:
+    3.787, 3.714, 3.977, 4.153 -- +0.15, +0.38, +0.54, +0.67 over BF16. Slightly better than Mila's FP4 early, the
+    same by 32K. (The first attempt returned NaN: a scale a hair above 448 rounded up into E4M3's NaN code.)
+  - **llama.cpp, as users run it.** `llama_cpp_long_context_loss.py` drives llama.cpp b11216's `llama.dll` through
+    its C API: `llama-perplexity` cannot run this protocol (it tokenizes without parsing control tokens, scores only
+    the second half of each window and overwrites each window's first token with `<bos>`). Same 17 prompt ids as
+    Mila and HuggingFace; largest logit exactly 30, so the softcap is applied. LM Studio's
+    `lmstudio-community/gemma-4-12B-it-Q4_K_M` (original weights, 6.87 GiB against Mila's 6.33 GiB FP4 package):
+    3.789, 3.620, 3.729, 3.796 -- +0.15, +0.28, +0.30, +0.31 over HuggingFace's BF16. At about the same size, the
+    format LM Studio users get by default keeps more than half of what Mila's FP4 loses at 32K. llama.cpp's own
+    arithmetic (8-bit activations in its quantized GEMMs, FP16 KV cache) puts a small offset on any comparison
+    across implementations.
+  - **Google's QAT GGUF in llama.cpp matches BF16, and confirms the emulation.** `google/gemma-4-12B-it-qat-q4_0-gguf`:
+    3.647, 3.321, 3.462, 3.511 -- +0.01, -0.02, +0.03, +0.02 over BF16, and within 0.007 of the HuggingFace
+    emulation of QAT at Q4_0 in every band. Google's own file in llama.cpp's own kernels agrees with the
+    emulation, so the emulated rows above stand, and the cross-implementation offset is negligible here. This is
+    what a llama.cpp or LM Studio user of Gemma 4 QAT has today: BF16's long-context quality at 4.5 bits.
+  - **The training wins, not the format.** The original weights rounded to Q4_0: 3.943, 3.798, 3.995, 4.134 --
+    +0.30, +0.46, +0.56, +0.65 over BF16, the same rise as Mila's FP4 and worse over the first 8K. Q4_0 on the QAT
+    weights costs +0.03. A Q4_0 policy in Mila pays only together with Google's QAT checkpoint; the checkpoint is
+    what carries the long context.
+  - **On QAT weights, FP8 attention adds nothing.** QAT weights with attention at FP8 and the feed-forward at Q4_0:
+    3.641, 3.342, 3.462, 3.525 -- +0.00, +0.00, +0.03, +0.04 over BF16, the same as all-Q4_0 (+0.01, -0.02, +0.03,
+    +0.03). The training already protects attention, so a QAT package is all Q4_0: one format, and none of the
+    1.05 GiB that FP8 attention costs.
+  - **Query and key carry most of the attention loss, not all of it.** The original weights at FP4 with q_proj and
+    k_proj at FP8: 3.689, 3.502, 3.651, 3.751 -- +0.05, +0.16, +0.22, +0.26 over BF16, against +0.69 for all-FP4
+    and +0.11 for all attention at FP8. Query and key (1.21 billion weights; +0.53 GiB at FP8) recover about 60% of
+    the loss; value and output (1.20 billion; the other +0.52 GiB) hold most of the rest, and it still grows with
+    context. On the global layers k_proj also makes V. arXiv 2607.08734 ("The Illusion of Equivalency") reports
+    query and key as the most quantization-sensitive projections; this agrees, and adds that the effect scales
+    with context.
+  - **Query and key alone reproduce most of it.** FP4 on q_proj and k_proj only, everything else BF16 (tied table
+    at FP8): 3.790, 3.613, 3.795, 3.864 -- +0.15, +0.27, +0.36, +0.38 over BF16, against +0.47 at 32K for FP4 on
+    all of attention. Eleven percent of the body's weights produce about 80% of attention's long-context cost, and
+    it grows with context the same way: rounding error in queries and keys perturbs every attention score, and the
+    more keys there are, the more of them a perturbed score lets through.
 
 **G3 -- One protocol.** *Closes:* "Chat renders Gemma's prompt itself", "Gemma loses its own reasoning between
 tool calls in a turn", "A malformed Gemma tool call parses as a call with no arguments", and "`gemma_protocol.py`
@@ -490,7 +639,14 @@ together with whatever the table work changes in its package.
    family's rename rides its own pass.
 9. **Whether the 26B's decode kernels are admitted** -- decided on G5's measured rate against the expert
    floor, the way the drafter and QAT questions are decided on theirs.
-10. **The long-document corpus for G2**: which one, and its licence verified at the source.
+10. ~~**The long-document corpus for G2**: which one, and its licence verified at the source.~~ **Decided
+    2026-09-26 (Todd): the PG-19 test split** (DeepMind, `github.com/google-deepmind/pg19`): 100 Project
+    Gutenberg books published before 1919, the dataset Apache 2.0 and the texts public domain, read at the
+    source 2026-09-26. Kept in `Data/Datasets/PG19/raw/`, gitignored, never redistributed. The test split's
+    books run to 4.5 million characters, so single books fill a 262144 window. The books are almost certainly
+    in Gemma's training data, which matters little for a measurement that compares one build with itself
+    across lengths, and would matter for a comparison against published numbers. The same decision replaces
+    wikitext perplexity with KL divergence from BF16 as the QAT measurement's metric (8.2, G2).
 11. ~~**G1's names and tolerance.**~~ **Decided 2026-09-26 (Todd):** `sequenceLogLikelihood` and
     `withLogLikelihoodWindow`, and window 1 against window 64 within a relative perplexity difference of
     1e-3. `Qwen3.8.md` measured 7.513 against 7.515 and set no bound, so this is the first recorded one.
@@ -511,6 +667,22 @@ together with whatever the table work changes in its package.
     (b) *The argmax gate.* Exact agreement between prefill and decode is not a property BF16 inference of this
     model has, in Mila or in HuggingFace; it holds on the tiny FP32 model, where it passes. The 12B check
     reports its agreement count instead of asserting it.
+14. **The Gemma 4 12B package** (8.2, G2 result). Measured on one book, cost over BF16 at 24K-32K: today's FP4
+    +0.69; FP4 with query and key at FP8 +0.26 (+0.53 GiB); FP4 with all attention at FP8 +0.11 (+1.05 GiB);
+    Google's QAT weights at Q4_0 +0.03 (about +0.3 GiB; confirmed in llama.cpp). Recommend QAT at Q4_0, which needs
+    a `PerGroupInt4<32>`-class policy -- `Vnext.md`'s QAT entry, whose blocking measurement is now answered and
+    whose importer is unnecessary, since `ExportArtifact` can round Google's BF16 QAT checkpoint itself. Admitting
+    it to 0.21 is scope growth against the 2026-12-15 date. Fallback: FP4 with all attention at FP8, formats Mila
+    has. Either way the change rides G4's single republish, and before it: a second book, and G2 re-run in Mila on
+    the chosen package, with the Q4_0 prefill's activation precision gated by the curve (`Untriaged.md`).
+15. **G2's gate.** "The top band within 1.05 of the band below" failed on book 30312 (1.67) for a reason it was
+    not written to catch: the loss rises from 16K, not past 131072. Rewrite it against BF16 -- the chosen
+    package's cost over BF16 by band, bounded at every length -- before G2 is re-run. Chat's 131072 cap
+    (`ModelHandle.md` 10.3) is decided on that run.
+16. **Recipes rather than packages, and what Mila is at the edge.** Agreed in discussion 2026-09-27 (Todd):
+    where a producer publishes its trained quantized format, Mila installs it rather than republishing weights;
+    and Mila's place beside llama.cpp is a library you build with and measure through, not breadth. Where each is
+    written (`ModelDistribution.md`, `Direction.md`) is open, with the format principle, in `Untriaged.md`.
 
 ---
 

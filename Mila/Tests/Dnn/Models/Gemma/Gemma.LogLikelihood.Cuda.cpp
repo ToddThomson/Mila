@@ -1,11 +1,10 @@
 /**
  * @file Gemma.LogLikelihood.Cuda.cpp
- * @brief Gemma 4 12B's sequence log-likelihood on its published FP4 weights: window 1 against window 64.
+ * @brief Gemma 4 12B's sequence log-likelihood on its published FP4 weights: window 1 against window 64, and
+ *        quality across the planner's range.
  *
- * ModelFamilyParity.md 8.2, G1. The two windows take different head paths -- the decode matvec at one row, the
- * staged prefill GEMM above it -- so they are not bit-identical, and the bound on their disagreement was set
- * before the first run. Needs the exported weights, the Gemma tokenizer and the wikitext-2 test split, so it
- * never runs in CI.
+ * ModelFamilyParity.md 8.2, G1 and G2. Needs the exported weights, the Gemma tokenizer, and the wikitext-2 or
+ * PG-19 test split, so it never runs in CI.
  */
 
 #include <gtest/gtest.h>
@@ -1097,5 +1096,483 @@ namespace Mila::Tests::Dnn::Models
             auto network = buildMeasured<MeasuredGemmaFp8>( bf16WeightsPath(), 1, kContextLength );
             score( *network, "FP8 (quantized on load)" );
         }
+    }
+
+    namespace
+    {
+        fs::path pg19TestPath()
+        {
+            return fs::path( TEST_DATA_DIR ) / "Datasets" / "PG19" / "raw" / "test";
+        }
+
+        // Gemma 4 *it* predicts running text only inside a model turn: on the same book passage, 3.79 nats per token
+        // there against 9.61 as bare text after <bos> (diagnostic H). Thinking off, as Chat primes it.
+        constexpr std::string_view kBookTurn =
+            "<|turn>user\nContinue this book.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>";
+
+        /// The first `characters` bytes of a book, or fewer if it is shorter.
+        std::string readBook( const fs::path& book, std::size_t characters )
+        {
+            std::FILE* book_file = std::fopen( book.string().c_str(), "rb" );
+
+            if ( book_file == nullptr )
+            {
+                return {};
+            }
+
+            std::string text( characters, '\0' );
+            text.resize( std::fread( text.data(), 1, text.size(), book_file ) );
+            std::fclose( book_file );
+
+            return text;
+        }
+
+        /// PG-19 keeps Gutenberg's 70-column wraps: a lone newline becomes a space, and a blank line stays a paragraph.
+        std::string joinWraps( const std::string& stored )
+        {
+            std::string joined = stored;
+
+            for ( std::size_t index = 0; index < joined.size(); ++index )
+            {
+                const bool wrap = stored[ index ] == '\n'
+                    && ( index == 0 || stored[ index - 1 ] != '\n' )
+                    && ( index + 1 == stored.size() || stored[ index + 1 ] != '\n' );
+
+                if ( wrap )
+                {
+                    joined[ index ] = ' ';
+                }
+            }
+
+            return joined;
+        }
+
+        /// <bos>, the book turn's prompt, then the book: `length` tokens in all.
+        struct BookSegment
+        {
+            std::vector<std::int32_t> tokens;
+            std::size_t prompt_length{ 0 };
+        };
+
+        /// Empty when the book is too short to fill `length`.
+        BookSegment bookSegment( const fs::path& book, Mila::Data::BpeTokenizer& tokenizer, dim_t length )
+        {
+            BookSegment segment;
+            segment.tokens.push_back( kBos );
+
+            const std::vector<std::int32_t> prompt = tokenizer.encode( std::string( kBookTurn ) );
+            segment.tokens.insert( segment.tokens.end(), prompt.begin(), prompt.end() );
+            segment.prompt_length = segment.tokens.size();
+
+            const std::size_t text_tokens = static_cast<std::size_t>( length ) - segment.prompt_length;
+
+            // Six characters per token over-reads English prose, which runs about four; the tokens are truncated.
+            const std::vector<std::int32_t> text = tokenizer.encode( joinWraps( readBook( book, text_tokens * 6 ) ) );
+
+            if ( text.size() < text_tokens )
+            {
+                return {};
+            }
+
+            segment.tokens.insert( segment.tokens.end(), text.begin(), text.begin() + static_cast<std::ptrdiff_t>( text_tokens ) );
+
+            return segment;
+        }
+    }
+
+    // ====================================================================
+    // H. Whether the loss level on a PG-19 book is the text's format.
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=GemmaLogLikelihoodCudaTests.DISABLED_BookFormat
+    //
+    // The first G2 run, on bare text, read 9.2 nats per token on a book and no gain from context. The same 32,000
+    // characters are scored three ways: as stored (hard-wrapped at 70 columns), with the wraps joined into paragraphs,
+    // and joined inside a model turn after a user request. A turn's score is the whole sequence's less its prompt's,
+    // since scoring is causal. Nats per character compares the arms across their different tokenizations.
+    // Measured 2026-09-26 on book 30312, RTX 4070: 9.2561, 9.6149 and 3.7867 nats per token (2.3253, 2.2319 and
+    // 0.8790 per character) -- the turn is what G2 scores in.
+    // ====================================================================
+    TEST( GemmaLogLikelihoodCudaTests, DISABLED_BookFormat )
+    {
+        const fs::path book = pg19TestPath() / "30312.txt";
+
+        if ( getDeviceCount( DeviceType::Cuda ) == 0 || !fs::exists( weightsPath() ) || !fs::exists( tokenizerPath() )
+            || !fs::exists( book ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << weightsPath().string() << ", the Gemma tokenizer and " << book.string();
+        }
+
+        constexpr std::size_t kCharacters = 32000;
+        constexpr dim_t kContextLength = 16384;
+
+        const std::string stored = readBook( book, kCharacters );
+        ASSERT_EQ( stored.size(), kCharacters );
+
+        // Joining replaces characters one for one, so every arm covers the same characters.
+        const std::string joined = joinWraps( stored );
+
+        auto tokenizer = Mila::Data::BpeTokenizer::loadGemma( tokenizerPath() );
+
+        const std::vector<std::int32_t> prompt_tail = tokenizer->encode( std::string( kBookTurn ) );
+
+        std::cout << "  turn prompt ids:";
+
+        for ( const std::int32_t id : prompt_tail )
+        {
+            std::cout << ' ' << id;
+        }
+
+        std::cout << '\n';
+
+        auto network = buildMeasuredGemma( 64, kContextLength );
+
+        auto score = [&]( std::string_view label, const std::vector<std::int32_t>& prefix, const std::string& text )
+        {
+            std::vector<std::int32_t> sequence = prefix;
+            const std::vector<std::int32_t> text_ids = tokenizer->encode( text );
+            sequence.insert( sequence.end(), text_ids.begin(), text_ids.end() );
+
+            ASSERT_LE( static_cast<dim_t>( sequence.size() ), kContextLength );
+
+            const SequenceLogLikelihood whole = Common::sequenceLogLikelihoodOf( *network, sequence );
+            SequenceLogLikelihood before;
+
+            if ( prefix.size() > 1 )
+            {
+                before = Common::sequenceLogLikelihoodOf( *network, prefix );
+            }
+
+            const double log_probability = whole.total_log_probability - before.total_log_probability;
+            const dim_t positions = whole.scored_positions - before.scored_positions;
+
+            std::cout << std::format( "  {:<28} {:>5} tokens, {:.4f} nats/token (perplexity {:.1f}), {:.4f} nats/character\n",
+                label, positions, -log_probability / static_cast<double>( positions ),
+                std::exp( -log_probability / static_cast<double>( positions ) ),
+                -log_probability / static_cast<double>( kCharacters ) ) << std::flush;
+        };
+
+        std::vector<std::int32_t> turn{ kBos };
+        turn.insert( turn.end(), prompt_tail.begin(), prompt_tail.end() );
+
+        score( "as stored", { kBos }, stored );
+        score( "wraps joined", { kBos }, joined );
+        score( "wraps joined, in a turn", turn, joined );
+    }
+
+    // ====================================================================
+    // I. Why the loss rises along a book.
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=GemmaLogLikelihoodCudaTests.DISABLED_LossAlongTheBook
+    //
+    // In one model turn, book 30312 read 3.79 nats per token over its first 8K, rising to 4.79 by 64K-128K. Two
+    // arms over the same book tokens separate the causes. Fresh: 8K-token stretches from further into the book, each
+    // alone in its own turn -- if they read near 3.8, the text is not what got harder. Conversation: the first 64K as
+    // four 16K model turns, each after a user "Continue." -- if the loss stays flat, the model handles the long
+    // context and not one long reply. A piece's score is the prefix ending it less the prefix ending its prompt.
+    // ====================================================================
+    TEST( GemmaLogLikelihoodCudaTests, DISABLED_LossAlongTheBook )
+    {
+        const fs::path book = pg19TestPath() / "30312.txt";
+
+        if ( getDeviceCount( DeviceType::Cuda ) == 0 || !fs::exists( weightsPath() ) || !fs::exists( tokenizerPath() )
+            || !fs::exists( book ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << weightsPath().string() << ", the Gemma tokenizer and " << book.string();
+        }
+
+        constexpr std::size_t kStretch = 8192;
+        constexpr std::size_t kPiece = 16384;
+        constexpr std::size_t kPieces = 4;
+        constexpr dim_t kContextLength = 73728;
+
+        auto tokenizer = Mila::Data::BpeTokenizer::loadGemma( tokenizerPath() );
+
+        const BookSegment segment = bookSegment( book, *tokenizer, 131072 );
+        ASSERT_FALSE( segment.tokens.empty() );
+
+        const std::vector<std::int32_t> text( segment.tokens.begin() + static_cast<std::ptrdiff_t>( segment.prompt_length ),
+            segment.tokens.end() );
+        const std::vector<std::int32_t> opening( segment.tokens.begin(),
+            segment.tokens.begin() + static_cast<std::ptrdiff_t>( segment.prompt_length ) );
+        const std::vector<std::int32_t> next_turn = tokenizer->encode(
+            "<turn|>\n<|turn>user\nContinue.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>" );
+
+        auto network = buildMeasuredGemma( 64, kContextLength );
+
+        auto score = [&]( const std::vector<std::int32_t>& tokens, std::size_t length )
+        {
+            return Common::sequenceLogLikelihoodOf( *network,
+                std::vector<std::int32_t>( tokens.begin(), tokens.begin() + static_cast<std::ptrdiff_t>( length ) ) );
+        };
+
+        auto report = [&]( std::string_view label, std::size_t from, const SequenceLogLikelihood& end,
+            const SequenceLogLikelihood& start )
+        {
+            const double log_probability = end.total_log_probability - start.total_log_probability;
+            const dim_t positions = end.scored_positions - start.scored_positions;
+
+            std::cout << std::format( "  {:<13} book tokens {:>6} +{:>5}: {:.4f} nats/token\n", label, from, positions,
+                -log_probability / static_cast<double>( positions ) ) << std::flush;
+        };
+
+        const SequenceLogLikelihood opening_score = score( opening, opening.size() );
+
+        for ( const std::size_t from : { 0uz, 8192uz, 16384uz, 32768uz, 65536uz, 98304uz } )
+        {
+            std::vector<std::int32_t> tokens = opening;
+            tokens.insert( tokens.end(), text.begin() + static_cast<std::ptrdiff_t>( from ),
+                text.begin() + static_cast<std::ptrdiff_t>( from + kStretch ) );
+
+            report( "fresh", from, score( tokens, tokens.size() ), opening_score );
+        }
+
+        std::vector<std::int32_t> conversation = opening;
+        std::vector<std::size_t> piece_starts;
+
+        for ( std::size_t piece = 0; piece < kPieces; ++piece )
+        {
+            if ( piece > 0 )
+            {
+                conversation.insert( conversation.end(), next_turn.begin(), next_turn.end() );
+            }
+
+            piece_starts.push_back( conversation.size() );
+            conversation.insert( conversation.end(), text.begin() + static_cast<std::ptrdiff_t>( piece * kPiece ),
+                text.begin() + static_cast<std::ptrdiff_t>( ( piece + 1 ) * kPiece ) );
+        }
+
+        ASSERT_LE( static_cast<dim_t>( conversation.size() ), kContextLength );
+
+        for ( std::size_t piece = 0; piece < kPieces; ++piece )
+        {
+            const std::size_t end = piece_starts[ piece ] + kPiece;
+
+            report( "conversation", piece * kPiece, score( conversation, end ), score( conversation, piece_starts[ piece ] ) );
+        }
+    }
+
+    // ====================================================================
+    // J. Decode against prefill over the same positions, deep into a book.
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=GemmaLogLikelihoodCudaTests.DISABLED_DecodeAgainstPrefillAlongTheBook
+    //
+    // Diagnostic I showed the loss rising with context on text that reads flat in fresh turns, so something in Mila
+    // degrades with length. Decode and prefill share the weights, RoPE and KV cache but run different attention
+    // kernels. After P tokens of the book turn, the next 257 targets are scored both ways: decode one token at a
+    // time from a prefill of P, and the prefix of P + 257 less the prefix of P. Window 1, so both use the same head.
+    // P = 4096 is the control, where the loss is normal.
+    // ====================================================================
+    TEST( GemmaLogLikelihoodCudaTests, DISABLED_DecodeAgainstPrefillAlongTheBook )
+    {
+        const fs::path book = pg19TestPath() / "30312.txt";
+
+        if ( getDeviceCount( DeviceType::Cuda ) == 0 || !fs::exists( weightsPath() ) || !fs::exists( tokenizerPath() )
+            || !fs::exists( book ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << weightsPath().string() << ", the Gemma tokenizer and " << book.string();
+        }
+
+        constexpr dim_t kSteps = 256;
+        constexpr dim_t kContextLength = 34816;
+
+        auto tokenizer = Mila::Data::BpeTokenizer::loadGemma( tokenizerPath() );
+
+        const BookSegment segment = bookSegment( book, *tokenizer, kContextLength );
+        ASSERT_FALSE( segment.tokens.empty() );
+
+        const std::vector<std::int32_t>& tokens = segment.tokens;
+        const dim_t sequence_length = static_cast<dim_t>( tokens.size() );
+
+        const GemmaConfig config = measuredConfig( 1 );
+        auto network = buildMeasuredGemma( 1, kContextLength );
+
+        auto prefix = [&]( dim_t length )
+        {
+            return std::vector<std::int32_t>( tokens.begin(), tokens.begin() + static_cast<std::ptrdiff_t>( length ) );
+        };
+
+        for ( const dim_t start : { dim_t{ 4096 }, dim_t{ 32768 } } )
+        {
+            SequenceLogLikelihood decoded;
+
+            std::vector<float> logits = Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, prefix( start ) ) ) );
+            const dim_t vocab = static_cast<dim_t>( logits.size() );
+
+            decoded.addNextTokenLogProbabilities( logits.data(), 1, vocab, tokens.data(), start - 1, sequence_length,
+                config.getFinalLogitSoftcapping() );
+
+            for ( dim_t step = 0; step < kSteps; ++step )
+            {
+                const dim_t position = start + step;
+
+                logits = Common::hostLogits( *network,
+                    network->decode( Common::deviceTokens( *network, { tokens[ static_cast<std::size_t>( position ) ] } ), position ) );
+
+                decoded.addNextTokenLogProbabilities( logits.data(), 1, vocab, tokens.data(), position, sequence_length,
+                    config.getFinalLogitSoftcapping() );
+            }
+
+            const SequenceLogLikelihood longer = Common::sequenceLogLikelihoodOf( *network, prefix( start + kSteps + 1 ) );
+            const SequenceLogLikelihood shorter = Common::sequenceLogLikelihoodOf( *network, prefix( start ) );
+
+            const double prefilled = longer.total_log_probability - shorter.total_log_probability;
+            const dim_t prefilled_positions = longer.scored_positions - shorter.scored_positions;
+
+            std::cout << std::format( "  after {:>5}: decode {:.4f} nats/token over {}, prefill {:.4f} over {}\n", start,
+                -decoded.total_log_probability / static_cast<double>( decoded.scored_positions ), decoded.scored_positions,
+                -prefilled / static_cast<double>( prefilled_positions ), prefilled_positions ) << std::flush;
+        }
+    }
+
+    // ====================================================================
+    // Quality across the planner's range (ModelFamilyParity.md 8.2, G2)
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=GemmaLogLikelihoodCudaTests.DISABLED_QualityAcrossContextLengths_Fp4
+    //
+    // One network at 262144, and the first PG-19 test books that fill it, each inside a model turn, scored at prefixes
+    // of 8192 doubling to 262144. Scoring is causal and each prefix is a whole number of prefill chunks, so the
+    // prefix of 2L less the prefix of L is the book's log-likelihood over positions L to 2L given all that precedes
+    // them; the top band is the quality above 131072. The gate was written in the spec before the first run. Pin the
+    // 16 GB card by UUID.
+    // ====================================================================
+    TEST( GemmaLogLikelihoodCudaTests, DISABLED_QualityAcrossContextLengths_Fp4 )
+    {
+        if ( getDeviceCount( DeviceType::Cuda ) == 0 || !fs::exists( weightsPath() ) || !fs::exists( tokenizerPath() )
+            || !fs::exists( pg19TestPath() ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << weightsPath().string() << ", the Gemma tokenizer and "
+                << pg19TestPath().string() << " (Data/Datasets/PG19/README.md)";
+        }
+
+        constexpr dim_t kContextLength = 262144;
+        constexpr dim_t kShortestPrefix = 8192;
+        constexpr dim_t kWindow = 64;
+        constexpr double kTopBandPerplexityBound = 1.05;
+
+        // A book's six prefixes took 2,694 s on the RTX 5060 Ti. Three show a rise past 131072 as plainly as seven would.
+        constexpr std::size_t kBooks = 3;
+
+        std::vector<dim_t> prefixes;
+
+        for ( dim_t prefix = kShortestPrefix; prefix <= kContextLength; prefix *= 2 )
+        {
+            prefixes.push_back( prefix );
+        }
+
+        const auto tokenizer = Mila::Data::BpeTokenizer::loadGemma( tokenizerPath() );
+
+        std::vector<fs::path> books;
+
+        for ( const auto& entry : fs::directory_iterator( pg19TestPath() ) )
+        {
+            if ( entry.path().extension() == ".txt" )
+            {
+                books.push_back( entry.path() );
+            }
+        }
+
+        std::sort( books.begin(), books.end() );
+
+        PrefillChunking chunking;
+
+        auto network = Common::buildMeasuredNetwork<MeasuredGemma>( weightsPath(), measuredConfig( kWindow ),
+            DeviceId{ DeviceType::Cuda, 0 }, kContextLength, &chunking );
+
+        std::cout << std::format( "  window {}, context {}, prefill chunk {}\n", kWindow, kContextLength,
+            chunking.chunk_rows ) << std::flush;
+
+        ASSERT_EQ( kShortestPrefix % chunking.chunk_rows, 0 ) << "a prefix must end on a chunk boundary";
+
+        // Per band: summed log-probability and positions, pooled over the books. Band 0 is positions 1 to 8191;
+        // band b above it is prefixes[b-1] to prefixes[b].
+        std::vector<double> band_log_probability( prefixes.size(), 0.0 );
+        std::vector<dim_t> band_positions( prefixes.size(), 0 );
+        std::vector<double> prefix_log_probability( prefixes.size(), 0.0 );
+        std::vector<dim_t> prefix_positions( prefixes.size(), 0 );
+        std::size_t scored_books = 0;
+
+        const auto start = std::chrono::steady_clock::now();
+
+        for ( const fs::path& book : books )
+        {
+            if ( scored_books == kBooks )
+            {
+                break;
+            }
+
+            const BookSegment segment = bookSegment( book, *tokenizer, kContextLength );
+
+            if ( segment.tokens.empty() )
+            {
+                continue;
+            }
+
+            ++scored_books;
+
+            std::cout << std::format( "  {}:", book.filename().string() ) << std::flush;
+
+            // Every band and prefix counts the book's tokens only: the turn's prompt is scored alone and taken off.
+            const SequenceLogLikelihood prompt = Common::sequenceLogLikelihoodOf( *network,
+                std::vector<std::int32_t>( segment.tokens.begin(),
+                    segment.tokens.begin() + static_cast<std::ptrdiff_t>( segment.prompt_length ) ) );
+
+            SequenceLogLikelihood previous = prompt;
+
+            for ( std::size_t index = 0; index < prefixes.size(); ++index )
+            {
+                const std::vector<std::int32_t> prefix( segment.tokens.begin(),
+                    segment.tokens.begin() + static_cast<std::ptrdiff_t>( prefixes[ index ] ) );
+
+                const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( *network, prefix );
+
+                prefix_log_probability[ index ] += scored.total_log_probability - prompt.total_log_probability;
+                prefix_positions[ index ] += scored.scored_positions - prompt.scored_positions;
+
+                const double band = scored.total_log_probability - previous.total_log_probability;
+                const dim_t positions = scored.scored_positions - previous.scored_positions;
+
+                band_log_probability[ index ] += band;
+                band_positions[ index ] += positions;
+                previous = scored;
+
+                std::cout << std::format( " {:.4f}", -band / static_cast<double>( positions ) ) << std::flush;
+            }
+
+            std::cout << std::format( "  ({:.0f} s elapsed)\n",
+                std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count() ) << std::flush;
+        }
+
+        ASSERT_GT( scored_books, 0u ) << "no PG-19 test book fills " << kContextLength << " tokens";
+
+        auto perplexityOf = []( double log_probability, dim_t positions )
+        {
+            return std::exp( -log_probability / static_cast<double>( positions ) );
+        };
+
+        const double first_band = perplexityOf( band_log_probability[ 0 ], band_positions[ 0 ] );
+        const double first_prefix = perplexityOf( prefix_log_probability[ 0 ], prefix_positions[ 0 ] );
+
+        std::cout << std::format( "  {} books\n  {:>17} {:>10} {:>10} {:>8}   {:>7} {:>10} {:>8}\n", scored_books,
+            "band", "positions", "perplexity", "ratio", "prefix", "perplexity", "ratio" );
+
+        for ( std::size_t index = 0; index < prefixes.size(); ++index )
+        {
+            const dim_t band_start = index == 0 ? 0 : prefixes[ index - 1 ];
+            const double band = perplexityOf( band_log_probability[ index ], band_positions[ index ] );
+            const double prefix = perplexityOf( prefix_log_probability[ index ], prefix_positions[ index ] );
+
+            std::cout << std::format( "  {:>7} - {:>7} {:>10} {:>10.4f} {:>8.4f}   {:>7} {:>10.4f} {:>8.4f}\n",
+                band_start, prefixes[ index ], band_positions[ index ], band, band / first_band,
+                prefixes[ index ], prefix, prefix / first_prefix );
+        }
+
+        const std::size_t top = prefixes.size() - 1;
+        const double top_ratio = perplexityOf( band_log_probability[ top ], band_positions[ top ] )
+            / perplexityOf( band_log_probability[ top - 1 ], band_positions[ top - 1 ] );
+
+        std::cout << std::format( "  top band against the band below it: {:.4f} (bound {})\n", top_ratio,
+            kTopBandPerplexityBound ) << std::flush;
+
+        EXPECT_LE( top_ratio, kTopBandPerplexityBound );
     }
 }

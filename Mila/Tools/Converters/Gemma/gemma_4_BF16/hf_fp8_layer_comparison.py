@@ -55,6 +55,82 @@ def quantize_fp4_like_mila( weight: torch.Tensor, group: int = 128 ) -> torch.Te
     return ( decoded * scale ).reshape( weight.shape ).to( torch.bfloat16 )
 
 
+def round_e2m1( scaled: torch.Tensor ) -> torch.Tensor:
+    """Nearest E2M1 value, with Mila's breakpoints; the input is already divided by its scale."""
+    levels = torch.tensor( [ 0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0 ] )
+    breakpoints = torch.tensor( [ 0.25, 0.75, 1.25, 1.75, 2.5, 3.5, 5.0 ] )
+
+    return torch.sign( scaled ) * levels[ torch.bucketize( scaled.abs(), breakpoints, right=True ) ]
+
+
+def round_up_e4m3( values: torch.Tensor ) -> torch.Tensor:
+    """The smallest E4M3 value not below each input, so a block's largest element never exceeds 6 times its scale."""
+    nearest = values.to( torch.float8_e4m3fn ).float()
+    below = nearest < values
+    stepped = ( nearest.to( torch.float8_e4m3fn ).view( torch.uint8 ) + 1 ).view( torch.float8_e4m3fn ).float()
+
+    return torch.where( below, stepped, nearest )
+
+
+def quantize_nvfp4( weight: torch.Tensor, group: int = 16, round_scale_up: bool = False ) -> torch.Tensor:
+    """
+    NVFP4: E2M1 values, one E4M3 scale per 16 elements of a row, and one FP32 scale per tensor that brings the
+    block scales into E4M3's range -- global = absmax( tensor ) / ( 448 * 6 ), block = e4m3( absmax( block ) / ( 6 * global ) ).
+    Rounding the block scale to nearest can round it down and clip the block's largest element to 6; `round_scale_up`
+    rounds it up instead.
+    """
+    rows = weight.float().reshape( weight.shape[ 0 ], -1, group )
+    tensor_absmax = rows.abs().max()
+    global_scale = tensor_absmax / ( 448.0 * 6.0 ) if tensor_absmax > 0 else torch.tensor( 1.0 )
+    # The tensor's largest block asks for exactly 448, E4M3's largest value; a division can land a hair above it, and
+    # rounding that up would step into E4M3's NaN code.
+    wanted = ( rows.abs().amax( dim=2, keepdim=True ) / ( 6.0 * global_scale ) ).clamp( max=448.0 )
+    block = round_up_e4m3( wanted ) if round_scale_up else wanted.to( torch.float8_e4m3fn ).float()
+    scale = block * global_scale
+    scaled = torch.where( scale > 0, rows / torch.where( scale > 0, scale, torch.ones_like( scale ) ), torch.zeros_like( rows ) )
+
+    return ( round_e2m1( scaled ) * scale ).reshape( weight.shape ).to( torch.bfloat16 )
+
+
+def quantize_nvfp4_best_scale( weight: torch.Tensor, group: int = 16 ) -> torch.Tensor:
+    """
+    NVFP4 with each block's E4M3 scale chosen by squared error, from 29 candidates between 0.7 and 1.4 times the
+    absmax scale, rather than set by the block's absmax alone. The tensor scale is NVFP4's own.
+    """
+    rows = weight.float().reshape( weight.shape[ 0 ], -1, group )
+    tensor_absmax = rows.abs().max()
+    global_scale = tensor_absmax / ( 448.0 * 6.0 ) if tensor_absmax > 0 else torch.tensor( 1.0 )
+    base = rows.abs().amax( dim=2, keepdim=True ) / ( 6.0 * global_scale )
+
+    best = torch.zeros_like( rows )
+    best_error = torch.full_like( base, float( 'inf' ) )
+
+    for factor in torch.linspace( 0.70, 1.40, 29 ):
+        scale = ( base * factor ).to( torch.float8_e4m3fn ).float() * global_scale
+        safe = torch.where( scale > 0, scale, torch.ones_like( scale ) )
+        decoded = torch.where( scale > 0, round_e2m1( rows / safe ) * scale, torch.zeros_like( rows ) )
+        error = ( ( decoded - rows ) ** 2 ).sum( dim=2, keepdim=True )
+        better = error < best_error
+        best = torch.where( better, decoded, best )
+        best_error = torch.where( better, error, best_error )
+
+    return best.reshape( weight.shape ).to( torch.bfloat16 )
+
+
+def quantize_q4_0( weight: torch.Tensor, group: int = 32 ) -> torch.Tensor:
+    """
+    llama.cpp's Q4_0, the format Google's QAT checkpoints are trained for: per 32-element group of a row, d = the
+    signed value of largest magnitude / -8, stored FP16, q = min( 15, trunc( x / d + 8.5 ) ), decoded ( q - 8 ) * d.
+    """
+    rows = weight.float().reshape( weight.shape[ 0 ], -1, group )
+    extreme = torch.gather( rows, 2, rows.abs().argmax( dim=2, keepdim=True ) )
+    d = ( extreme / -8.0 ).half().float()
+    inverse = torch.where( d != 0, 1.0 / d, torch.zeros_like( d ) )
+    codes = torch.clamp( torch.trunc( rows * inverse + 8.5 ), max=15.0 )
+
+    return ( ( codes - 8.0 ) * d ).reshape( weight.shape ).to( torch.bfloat16 )
+
+
 def fp8_round( values: torch.Tensor ) -> torch.Tensor:
     return values.to( torch.float8_e4m3fn ).float()
 
@@ -95,24 +171,59 @@ def apply_w4a8( text ):
         text.embed_tokens.weight.copy_( quantize_like_mila( text.embed_tokens.weight ) )
 
 
-def load( weights: str ):
-    """HuggingFace's Gemma 4 12B it with the weights Mila's prefill multiplies by, dispatched over the card and CPU."""
+def load( weights: str, gpu_memory: str = '14GiB', checkpoint: str = 'google/gemma-4-12b-it' ):
+    """
+    HuggingFace's Gemma 4 12B it with the weights Mila's prefill multiplies by, dispatched over the card and CPU.
+    `checkpoint` may name Google's QAT weights (google/gemma-4-12B-it-qat-q4_0-unquantized), which are BF16.
+    """
     from accelerate import dispatch_model, infer_auto_device_map
     from transformers import AutoModelForCausalLM
 
     os.environ.setdefault( 'CUDA_VISIBLE_DEVICES', 'GPU-9a81c7d1-9db2-16b3-c256-2f991ec2a22c' )
 
-    model = AutoModelForCausalLM.from_pretrained( 'google/gemma-4-12b-it', dtype=torch.bfloat16, device_map='cpu' ).eval()
+    model = AutoModelForCausalLM.from_pretrained( checkpoint, dtype=torch.bfloat16, device_map='cpu' ).eval()
     text = model.model.language_model
 
-    if weights in ( 'fp8', 'fp4' ):
-        body = quantize_like_mila if weights == 'fp8' else quantize_fp4_like_mila
+    if weights in ( 'fp8', 'fp4', 'fp4-attention', 'fp4-mlp', 'fp4-fp8-attention', 'q4_0', 'nvfp4', 'nvfp4-best-scale',
+                    'nvfp4-scale-up', 'q4_0-fp8-attention', 'fp4-fp8-query-key', 'fp4-query-key' ):
+        body = { 'fp8': quantize_like_mila, 'q4_0': quantize_q4_0, 'nvfp4': quantize_nvfp4,
+                 'nvfp4-best-scale': quantize_nvfp4_best_scale,
+                 'nvfp4-scale-up': lambda weight: quantize_nvfp4( weight, round_scale_up=True ),
+                 'q4_0-fp8-attention': quantize_q4_0 }.get( weights, quantize_fp4_like_mila )
+
+        def format_of( projection: str ):
+            """
+            The partial FP4 arms leave the rest at BF16, to find where a loss lives; the mixed arms keep part of
+            attention at FP8, the packages those findings point at. On Gemma's global layers k_proj also makes V.
+            """
+            attention = projection in ( 'q_proj', 'k_proj', 'v_proj', 'o_proj' )
+            query_key = projection in ( 'q_proj', 'k_proj' )
+
+            if weights == 'fp4-mlp':
+                return None if attention else body
+
+            if weights == 'fp4-attention':
+                return body if attention else None
+
+            if weights in ( 'fp4-fp8-attention', 'q4_0-fp8-attention' ):
+                return quantize_like_mila if attention else body
+
+            if weights == 'fp4-fp8-query-key':
+                return quantize_like_mila if query_key else body
+
+            if weights == 'fp4-query-key':
+                return body if query_key else None
+
+            return body
 
         with torch.no_grad():
             for layer in text.layers:
-                for module in list( layer.self_attn.children() ) + list( layer.mlp.children() ):
-                    if isinstance( module, torch.nn.Linear ):
-                        module.weight.copy_( body( module.weight ) )
+                for sublayer in ( layer.self_attn, layer.mlp ):
+                    for projection, module in sublayer.named_children():
+                        quantize = format_of( projection )
+
+                        if quantize is not None and isinstance( module, torch.nn.Linear ):
+                            module.weight.copy_( quantize( module.weight ) )
 
             # A quantized body keeps its tied table at FP8 per row, whichever the body's format.
             text.embed_tokens.weight.copy_( quantize_like_mila( text.embed_tokens.weight ) )
@@ -120,7 +231,7 @@ def load( weights: str ):
     elif weights == 'w4a8':
         apply_w4a8( text )
 
-    device_map = infer_auto_device_map( model, max_memory={ 0: '14GiB', 'cpu': '26GiB' },
+    device_map = infer_auto_device_map( model, max_memory={ 0: gpu_memory, 'cpu': '26GiB' },
         no_split_module_classes=model._no_split_modules )
 
     # A layer split across devices leaves the buffers it holds directly (layer_scalar) unplaced; they go with a sibling.
