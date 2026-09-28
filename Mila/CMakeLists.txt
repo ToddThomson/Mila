@@ -481,7 +481,8 @@ PUBLIC
         "Src/Dnn/Models/Qwen/Qwen.Protocol.ixx"
 
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
-        
+        "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.Workspace.ixx"
+
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.ixx"
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
 

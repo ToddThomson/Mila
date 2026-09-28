@@ -408,7 +408,8 @@ fail once. Bounds are written here before any run.
 
   The Llama rows describe the footprint of that time. Once Llama prefilled through flash
   (`ModelFamilyParity.md` 8.4, L4) its full-context score buffers left the footprint, and the same readings
-  plan 19456 and 50176. Qwen's rows below 16384 moved for the same reason when its flash threshold went:
+  plan 19456 and 50176; once its blocks shared one activation slot set and its top rung rose to 1024 (the same
+  pass), 38912 and 69632 at chunk 1024. Qwen's rows below 16384 moved for the same reason when its flash threshold went:
   qwen3.8-27b-fp4 on the 5060 Ti plans 10240, and qwen3.8-27b-cb2-3 on the 4070 plans 8192.
   `DeploymentPlanner.G2.Cuda.cpp` holds the new figures.
 

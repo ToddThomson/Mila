@@ -902,3 +902,18 @@ symmetric -> a new `PerGroupInt4<G>`; `float-quantized` FP8 per-channel -> the e
 `PerChannelFp8` (check scale shape and dtype agree); `nvfp4-pack-quantized` -> the native NVFP4
 direction on SM120 (`Fp8ActivationPrefill.md`). Refuse any scheme with no matching policy, naming the
 scheme.
+
+## Prefilling in 2048-token chunks may be worth the context it costs
+
+`models` · `perf` · `mila-src` · `measured`
+
+Every family's largest prefill chunk is 1024. On Llama 3.1 8B at FP4 (RTX 5060 Ti, one build), 2048 prefilled
+5,206 tokens/s at an 8K prompt against 4,763 at 1024 (+9.3%), and 2,766 against 2,559 at 32K (+8.1%), for 184 MiB
+more activation memory, about 1,400 tokens of context. The planner holds context back to keep the largest chunk,
+so adding the size costs that context on every card where memory binds. Measured with the chunk test in
+`Llama.LogLikelihood.Cuda.cpp` (`DISABLED_PrefillRateByChunk_Fp4`, which already runs 2048); the full table is in
+`ModelFamilyParity.md` 8.4, L4.
+
+Not yet measured: Gemma 4 12B and Qwen 3.8 27B, whose activation widths and attention costs differ, so the gain
+and the context price there are unknown; and the 12 GB card, where the context given up is a larger share. The
+decision is one table for all three families or a per-family top chunk, and it is made on those numbers.

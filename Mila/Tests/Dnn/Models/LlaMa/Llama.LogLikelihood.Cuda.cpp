@@ -570,6 +570,103 @@ namespace Mila::Tests::Dnn::Models
         }
     }
 
+    // Flash prefill at each chunk, the planner bypassed, and what each chunk costs in context (ModelFamilyParity.md
+    // 8.4, L4). The planner prefers the largest context at which the top rung fits, so a larger top rung buys
+    // throughput with context -- both sides are printed. 2048 is above every family's top rung and is measured to
+    // show what the next one would buy.
+    TEST( LlamaFlashPrefillCudaTests, DISABLED_PrefillRateByChunk_Fp4 )
+    {
+        if ( getDeviceCount( DeviceType::Cuda ) == 0 || !inputsPresent() )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << weightsPath().string() << ", the Llama tokenizer and wikitext-2";
+        }
+
+        constexpr dim_t kChunks[] = { 2048, 1024, 512, 256, 128 };
+        const DeviceId device{ DeviceType::Cuda, 0 };
+        const LlamaConfig config = measuredConfig( 1 );
+
+        {
+            Serialization::WeightsReader reader( weightsPath() );
+            MeasuredLlama network( reader.getWeightsMetadata().model_name, config, device );
+
+            const Mila::Deployment::DeviceReading reading = Mila::Deployment::DeviceReading::take( device );
+
+            // One context step of footprint, for converting a chunk's extra bytes into context tokens.
+            for ( const dim_t context_length : { dim_t{ 19456 }, dim_t{ 50176 } } )
+            {
+                const auto priced = [&]( dim_t length, dim_t chunk ) {
+                    return network.getRequiredMemory( BuildContext( shape_t{ 1, length }, RuntimeMode::Inference, false )
+                        .withAllocationGranularity( reading.allocation_granularity )
+                        .withPrefillSize( chunk ) ).totalDeviceBytes();
+                };
+
+                const double bytes_per_token = static_cast<double>( priced( context_length + 1024, 512 ) - priced( context_length, 512 ) ) / 1024.0;
+
+                for ( const dim_t chunk : kChunks )
+                {
+                    const std::size_t bytes = priced( context_length, chunk );
+                    const double extra = static_cast<double>( bytes ) - static_cast<double>( priced( context_length, 512 ) );
+
+                    std::cout << std::format( "  context {:>6}, chunk {:>4}: footprint {:.0f} MiB, {:+.0f} MiB against 512 = {:+.0f} context tokens\n",
+                        context_length, chunk, static_cast<double>( bytes ) / ( 1024.0 * 1024.0 ), extra / ( 1024.0 * 1024.0 ),
+                        -extra / bytes_per_token ) << std::flush;
+                }
+            }
+
+            std::cout << std::format( "  free at reading {:.0f} MiB\n", static_cast<double>( reading.free_bytes ) / ( 1024.0 * 1024.0 ) );
+        }
+
+        const std::vector<std::int32_t> corpus = corpusTokens( 40960 );
+
+        for ( const dim_t prompt_length : { dim_t{ 8192 }, dim_t{ 32768 } } )
+        {
+            if ( corpus.size() + 1 < static_cast<std::size_t>( prompt_length ) )
+            {
+                std::cout << std::format( "  {}: the corpus is shorter than the prompt\n", prompt_length );
+                continue;
+            }
+
+            std::vector<std::int32_t> prompt{ kBeginOfText };
+            prompt.insert( prompt.end(), corpus.begin(), corpus.begin() + ( prompt_length - 1 ) );
+
+            for ( const dim_t chunk : kChunks )
+            {
+                Serialization::WeightsReader reader( weightsPath() );
+
+                auto network = std::make_unique<MeasuredLlama>( reader.getWeightsMetadata().model_name, config, device );
+                const Mila::Deployment::DeviceReading reading = Mila::Deployment::DeviceReading::take( device );
+
+                network->build( BuildContext( shape_t{ 1, prompt_length }, RuntimeMode::Inference, false )
+                    .withAllocationGranularity( reading.allocation_granularity )
+                    .withPrefillSize( chunk ) );
+                network->loadParameters( reader );
+
+                const auto device_prompt = Common::deviceTokens( *network, prompt );
+
+                double best = 0.0;
+
+                for ( int run = 0; run < 4; ++run )
+                {
+                    network->synchronize();
+                    const auto start = std::chrono::steady_clock::now();
+
+                    (void)network->prefill( device_prompt );
+                    network->synchronize();
+
+                    const double seconds = std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
+
+                    if ( run > 0 && ( best == 0.0 || seconds < best ) )
+                    {
+                        best = seconds;
+                    }
+                }
+
+                std::cout << std::format( "  prompt {:>6}, chunk {:>4}: {:.3f} s, {:.0f} tokens/s\n", prompt_length, chunk,
+                    best, static_cast<double>( prompt_length ) / best ) << std::flush;
+            }
+        }
+    }
+
     // Decode tokens per second with the fused decode-attention kernel and with the cuBLASLt pipeline, one build. The
     // fused kernel reads the live cache and cuBLASLt the whole allocated context, so both a short and a long prompt
     // are measured inside one 32K deployment.

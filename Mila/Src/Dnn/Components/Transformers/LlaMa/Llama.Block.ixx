@@ -45,6 +45,7 @@ module;
 
 export module Dnn.Components.LlamaTransformer:Block;
 import :Config;
+import :BlockWorkspace;
 
 import Dnn.ITensor;
 import Dnn.Tensor;
@@ -199,10 +200,6 @@ namespace Mila::Dnn
             const int64_t n_kv = config_.getNumKVHeads();
             const int64_t head_dim = config_.getModelDim() / n_heads;
 
-            // Preserve skip connection
-            auto res1_view = res1_prefill_->view( shape_t{ B, T_actual, config_.getModelDim() }, 0 );
-            copy( input, res1_view );
-
             // Pre-attention RMSNorm
             auto& rms1_out = rms1_->forward( input );
 
@@ -231,8 +228,9 @@ namespace Mila::Dnn
             // 5. Output projection
             auto& out_proj_out = out_proj_->forward( attn_out );
 
-            // 6. First residual
-            auto& res1_out = res1_->forward( res1_view, out_proj_out );
+            // 6. First residual. Reads the caller's input directly: nothing above writes it, and with a pooled workspace
+            // the stream slot it lives in is overwritten only by res_2 below.
+            auto& res1_out = res1_->forward( input, out_proj_out );
 
             // 7. Post-attention RMSNorm
             auto& rms2_out = rms2_->forward( res1_out );
@@ -473,6 +471,24 @@ namespace Mila::Dnn
                 attn_->setUseFlashDecode( enabled );
         }
 
+        /**
+         * @brief Install the transformer-owned shared activation workspace (pooling). Inference only.
+         *
+         * Must be called before build(); onBuilding then routes each slot into the matching child and keeps the
+         * split scratch for the block's own views. Self-allocation remains the default for standalone blocks.
+         */
+        void installSharedWorkspace( const LlamaBlockWorkspace<TDeviceType, TPrecision>& workspace )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error( "LlamaBlock::installSharedWorkspace: must be called before build()" );
+
+            workspace_ = workspace;
+            q_ = workspace_.q;
+            k_ = workspace_.k;
+            v_ = workspace_.v;
+            workspace_installed_ = true;
+        }
+
         // ====================================================================
         // Serialization
         // ====================================================================
@@ -501,15 +517,16 @@ namespace Mila::Dnn
                 stats += child->getMemoryStats();
             }
 
-            // Prefill scratch this block owns outright. Previously omitted, which understated
-            // every Llama footprint by these buffers -- 0.31 GiB on 3.1 8B at context 8192,
-            // chunk 512. Llama does not pool activations across layers, so unlike Gemma's
-            // installed slots these belong to no one else and must be counted here.
-            for ( auto* t : { res1_prefill_.get(), q_.get(), k_.get(), v_.get() } )
+            // Split scratch a standalone block allocates itself. An installed workspace is owned and counted by the
+            // transformer (the no-double-count rule).
+            if ( !workspace_installed_ )
             {
-                if ( t )
+                for ( auto* t : { q_.get(), k_.get(), v_.get() } )
                 {
-                    stats.device_state_bytes += occupiedTensorBytes( *t );
+                    if ( t )
+                    {
+                        stats.device_state_bytes += occupiedTensorBytes( *t );
+                    }
                 }
             }
 
@@ -542,9 +559,13 @@ namespace Mila::Dnn
             const BlockBuildContexts contexts = resolveBlockBuildContexts( context );
             const std::string n = this->getName();
 
+            // workspace_installed_ is still false here: the transformer calls installSharedWorkspace between
+            // constructing this block and building it, and states its intent through the context instead.
+            const bool pooled = workspace_installed_ || context.hasInstalledOutput();
+
             auto required = [&]( const auto& component, const BuildContext& child_context )
             {
-                return component->getRequiredMemory( child_context );
+                return component->getRequiredMemory( child_context.withInstalledOutput( pooled ) );
             };
 
             MemoryStats stats;
@@ -561,23 +582,19 @@ namespace Mila::Dnn
             stats += required( this->template getComponentAs<LinearType>( n + ".fc_down" ), contexts.hidden );
             stats += required( this->template getComponentAs<ResidualType>( n + ".res_2" ), contexts.main );
 
-            // Prefill-only scratch. Llama does not pool activations across layers the way
-            // Gemma does, so every block owns these outright -- which is part of why the
-            // Llama footprint sits higher per layer.
+            // Split scratch. An installed workspace is owned and counted by the transformer.
             const std::size_t granularity = context.getAllocationGranularity();
 
-            if ( context.isInferenceMode() )
+            if ( context.isInferenceMode() && !pooled )
             {
                 const dim_t rows = contexts.batch * contexts.sequence;
 
-                stats.device_state_bytes +=
-                    occupiedDeviceBytes( storageBytes<TPrecision>( rows * contexts.model_dim ), granularity );
                 stats.device_state_bytes += occupiedDeviceBytes(
                     storageBytes<TPrecision>( rows * contexts.num_heads * contexts.head_dim ), granularity );
                 stats.device_state_bytes += 2 * occupiedDeviceBytes(
                     storageBytes<TPrecision>( rows * contexts.num_kv_heads * contexts.head_dim ), granularity );
             }
-            else
+            else if ( !context.isInferenceMode() )
             {
                 // Backward scratch: d_res1_accum and d_input, both at the full training shape.
                 stats.device_gradient_bytes += 2 * occupiedDeviceBytes(
@@ -686,59 +703,80 @@ namespace Mila::Dnn
                 const BuildContext& gate_up_context = contexts.gate_up;
                 const BuildContext& hidden_context = contexts.hidden;
 
-                // Prefill view shapes -- prefill chunk size
-                q_prefill_shape_ = { B, prefill_chunk_size, n_heads * head_dim };
-                k_prefill_shape_ = { B, prefill_chunk_size, n_kv * head_dim };
-                q_prefill_offset_ = B * prefill_chunk_size * n_heads * head_dim;
+                // With an installed workspace, route each graph position's slot into its component before build so
+                // the component skips output self-allocation.
+                auto install = [&]( auto& component, const std::shared_ptr<TensorType>& slot )
+                {
+                    if ( workspace_installed_ )
+                        component->installSharedOutput( slot );
+                };
 
                 rms1_ = this->template getComponentAs<RmsNormType>( this->getName() + ".rmsn_1" );
+                install( rms1_, workspace_.normed );
                 rms1_->build( prefill_context );
 
                 qkv_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_qkv_proj" );
+                install( qkv_proj_, workspace_.qkv );
                 qkv_proj_->build( prefill_context );
 
                 rope_ = this->template getComponentAs<RopeType>( this->getName() + ".rope" );
                 rope_->build( contexts.rope );
 
                 attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".gqa" );
+                install( attn_, workspace_.attn );
                 attn_->build( qkv_context );
 
                 out_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_out_proj" );
+                install( out_proj_, workspace_.o );
                 out_proj_->build( prefill_context );
 
                 res1_ = this->template getComponentAs<ResidualType>( this->getName() + ".res_1" );
+                install( res1_, workspace_.res1 );
                 res1_->build( prefill_context );
 
-                rms2_ = this->template getComponentAs<RmsNormType>(
-                    this->getName() + ".rmsn_2" );
+                rms2_ = this->template getComponentAs<RmsNormType>( this->getName() + ".rmsn_2" );
+                install( rms2_, workspace_.ffn_in );
                 rms2_->build( prefill_context );
 
-                fc_gate_up_ = this->template getComponentAs<LinearType>(
-                    this->getName() + ".fc_gate_up" );
+                fc_gate_up_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_gate_up" );
+                install( fc_gate_up_, workspace_.gate_up );
                 fc_gate_up_->build( prefill_context );
 
-                swiglu_ = this->template getComponentAs<SwiGLUType>(
-                    this->getName() + ".sglu" );
+                swiglu_ = this->template getComponentAs<SwiGLUType>( this->getName() + ".sglu" );
+                install( swiglu_, workspace_.ffn_act );
                 swiglu_->build( gate_up_context );
 
-                fc_down_ = this->template getComponentAs<LinearType>(
-                    this->getName() + ".fc_down" );
+                fc_down_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_down" );
+                install( fc_down_, workspace_.ffn_down );
                 fc_down_->build( hidden_context );
 
-                res2_ = this->template getComponentAs<ResidualType>(
-                    this->getName() + ".res_2" );
+                res2_ = this->template getComponentAs<ResidualType>( this->getName() + ".res_2" );
+                install( res2_, workspace_.stream );
                 res2_->build( prefill_context );
 
-                // Skip connection buffer -- preserves input across attention block
-                // during prefill. Cannot reuse component buffers as they get
-                // overwritten by subsequent components.
-                auto device = this->getExecutionContext()->getDeviceId();
+                // Split scratch, sized at the prefill chunk; decode takes T=1 views.
+                const dim_t q_needed = B * prefill_chunk_size * n_heads * head_dim;
+                const dim_t kv_needed = B * prefill_chunk_size * n_kv * head_dim;
 
-                res1_prefill_ = std::make_unique<TensorType>( device, shape_t{ B, prefill_chunk_size, config_.getModelDim() }, this->getName() + ".res_1.prefill" );
+                if ( workspace_installed_ )
+                {
+                    const bool covered = q_ && q_->size() >= q_needed
+                        && k_ && k_->size() >= kv_needed
+                        && v_ && v_->size() >= kv_needed;
 
-                q_ = std::make_unique<TensorType>( device, shape_t{ B, prefill_chunk_size, n_heads * head_dim }, this->getName() + ".q" );
-                k_ = std::make_unique<TensorType>( device, shape_t{ B, prefill_chunk_size, n_kv * head_dim }, this->getName() + ".k" );
-                v_ = std::make_unique<TensorType>( device, shape_t{ B, prefill_chunk_size, n_kv * head_dim }, this->getName() + ".v" );
+                    if ( !covered )
+                        throw std::invalid_argument( std::format(
+                            "LlamaBlock '{}': installed shared scratch is smaller than the block geometry requires",
+                            this->getName() ) );
+                }
+                else
+                {
+                    auto device = this->getExecutionContext()->getDeviceId();
+
+                    q_ = std::make_shared<TensorType>( device, shape_t{ B, prefill_chunk_size, n_heads * head_dim }, this->getName() + ".q" );
+                    k_ = std::make_shared<TensorType>( device, shape_t{ B, prefill_chunk_size, n_kv * head_dim }, this->getName() + ".k" );
+                    v_ = std::make_shared<TensorType>( device, shape_t{ B, prefill_chunk_size, n_kv * head_dim }, this->getName() + ".v" );
+                }
             }
             else
             {
@@ -822,12 +860,7 @@ namespace Mila::Dnn
 
     private:
         LlamaConfig config_;
-        shape_t cached_input_shape_;
         bool forward_executed_{ false };
-
-        shape_t q_prefill_shape_;
-        shape_t k_prefill_shape_;
-        dim_t q_prefill_offset_;
 
         // Pre-computed at build -- reused every forward/backward call.
         shape_t q_shape_;
@@ -849,11 +882,14 @@ namespace Mila::Dnn
         std::shared_ptr<LinearType> fc_down_{ nullptr };
         std::shared_ptr<ResidualType> res2_{ nullptr };
 
-        // Inference-only prefill buffers
-        std::unique_ptr<TensorType> res1_prefill_{ nullptr };
-        std::unique_ptr<TensorType> q_{ nullptr };
-        std::unique_ptr<TensorType> k_{ nullptr };
-        std::unique_ptr<TensorType> v_{ nullptr };
+        // Split scratch: self-allocated at build, or the transformer workspace's set (installSharedWorkspace), which
+        // every layer views prefixes of.
+        std::shared_ptr<TensorType> q_{ nullptr };
+        std::shared_ptr<TensorType> k_{ nullptr };
+        std::shared_ptr<TensorType> v_{ nullptr };
+
+        LlamaBlockWorkspace<TDeviceType, TPrecision> workspace_{};
+        bool workspace_installed_{ false };
 
         // Backward scratch.
         std::unique_ptr<TensorType> d_res1_accum_{ nullptr };

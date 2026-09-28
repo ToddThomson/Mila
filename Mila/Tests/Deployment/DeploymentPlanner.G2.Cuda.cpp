@@ -179,11 +179,13 @@ namespace Mila::Tests::Deployment
             Quant::Weight::PerGroupFp4<128>, LlamaCudaModel::LlamaKvPolicy>;
 
         // Chat recorded 13312 and 33792. Flash prefill (ModelFamilyParity.md 8.4, L4) removed Llama's full-context
-        // score buffers from the footprint, so the same readings now buy these; the rule that chooses is unchanged.
+        // score buffers from the footprint (19456 and 50176 at chunk 512), and one activation slot set shared by
+        // every block replaced 32 per-block sets, which let the top rung rise to 1024; the rule that chooses is
+        // unchanged.
         expectRecordedChoices<Network>( "llama-3.1-8b-instruct-fp4", weights, networkConfigOf<LlamaCudaModel>( weights ),
             DeploymentRequest{}.withFP4Quantization().withAutomaticContextLength( 1024, kGemmaAndLlamaCeiling ),
-            Recorded{ kRtx4070FreeBytes, 19456, 512, true },
-            Recorded{ kRtx5060TiFreeBytes, 50176, 512, true } );
+            Recorded{ kRtx4070FreeBytes, 38912, 1024, true },
+            Recorded{ kRtx5060TiFreeBytes, 69632, 1024, true } );
     }
 
     // Chat found no context for this one on the RTX 4070 and tried the load anyway (exit 5); the planner refuses.

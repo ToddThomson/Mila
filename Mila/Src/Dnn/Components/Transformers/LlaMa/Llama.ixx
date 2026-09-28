@@ -20,6 +20,7 @@ module;
 export module Dnn.Components.LlamaTransformer;
 export import :Config;
 export import :Presets;
+export import :BlockWorkspace;
 export import :Block;
 
 import Dnn.Tensor;
@@ -379,6 +380,7 @@ namespace Mila::Dnn
                 stats += child->getMemoryStats();
             }
 
+            stats.device_state_bytes += block_workspace_.deviceStorageBytes();
             stats.device_state_bytes += gqa_workspace_.deviceStorageBytes();
 
             return stats;
@@ -388,12 +390,9 @@ namespace Mila::Dnn
          * @brief What build( context ) would allocate for the whole model, without allocating.
          *
          * Mirrors onBuilding(): at the prefill chunk the context carries, recurse with the same
-         * per-child contexts, then add the shared GQA workspace this transformer owns.
-         *
-         * Two corrections Gemma needs are absent here, and their absence is the finding
-         * rather than an omission. Llama does not pool per-block activations, so there is no
-         * installed-output adjustment; and it does not tie the embedding to the head, so the
-         * two largest tensors are counted separately and in full. See BACKLOG, Models.
+         * per-child contexts, then add the shared block and GQA workspaces this transformer owns.
+         * Llama does not tie the embedding to the head, so the two largest tensors are counted
+         * separately and in full.
          */
         MemoryStats getRequiredMemory( const BuildContext& context ) const override
         {
@@ -405,7 +404,7 @@ namespace Mila::Dnn
         /**
          * @brief The chunk rungs choosePrefillChunk() walks for this family, largest first.
          */
-        static constexpr dim_t kPrefillChunkRungs[] = { 512, 256, 128 };
+        static constexpr dim_t kPrefillChunkRungs[] = { 1024, 512, 256, 128 };
 
     private:
 
@@ -461,6 +460,7 @@ namespace Mila::Dnn
             BuildContext block_context =
                 context.forChild( shape_t{ B, T, config_.getModelDim() } )
                 .withPrefillSize( prefill_chunk )
+                .withInstalledOutput( context.isInferenceMode() )
                 .withFusedDecode( context.isInferenceMode() );
 
             const shape_t final_shape = context.isInferenceMode()
@@ -488,9 +488,16 @@ namespace Mila::Dnn
             stats += this->template getComponentAs<LmHeadLinearType>( n + ".lm_head" )
                 ->getRequiredMemory( final_context );
 
-            // Shared GQA transient workspace, mirroring onBuilding(), at the score width the flash decision gives.
+            // The shared block and GQA workspaces, mirroring onBuilding(), the GQA one at the score width the flash
+            // decision gives.
             if ( context.isInferenceMode() )
             {
+                for ( dim_t width : llamaBlockWorkspaceSlotWidths( config_ ) )
+                {
+                    stats.device_state_bytes +=
+                        occupiedDeviceBytes( storageBytes<TPrecision>( B * prefill_chunk * width ), granularity );
+                }
+
                 stats.device_state_bytes +=
                     gqaWorkspaceDeviceBytes<TPrecision>( granularity, B, NH, HS, T, prefill_chunk, prefillScoreWidth( T ) );
             }
@@ -611,6 +618,7 @@ namespace Mila::Dnn
             BuildContext block_context =
                 BuildContext( block_shape, context.getRuntimeMode(), context.shouldInitializeParameters() )
                 .withPrefillSize( prefill_chunk_size_ )
+                .withInstalledOutput( context.isInferenceMode() )
                 .withFusedDecode( context.isInferenceMode() );
 
             // Inference: final_rmsnorm and lm_head process the configured head positions, one row for
@@ -627,10 +635,23 @@ namespace Mila::Dnn
             token_embedding_ = this->template getComponentAs<TokenEmbeddingType>( this->getName() + ".temb" );
             token_embedding_->build( context );
 
+            // One activation slot set for the whole stack: the layers run one at a time. Declared on block_context
+            // as installed, which is how each block's footprint knows not to count the slots.
+            if ( context.isInferenceMode() )
+            {
+                block_workspace_ = makeLlamaBlockWorkspace<TDeviceType, TPrecision>(
+                    config_, this->getExecutionContext()->getDeviceId(), B, prefill_chunk_size_,
+                    this->getName() + ".block_ws." );
+            }
+
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 std::string block_name = this->getName() + ".tf_layer_" + std::to_string( i );
                 auto block = this->template getComponentAs<TransformerBlockType>( block_name );
+
+                if ( context.isInferenceMode() )
+                    block->installSharedWorkspace( block_workspace_ );
+
                 block->build( block_context );
                 transformer_blocks_.push_back( block );
             }
@@ -702,7 +723,8 @@ namespace Mila::Dnn
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
         std::shared_ptr<LmHeadLinearType> lm_head_{ nullptr };
 
-        // Shared GQA transient workspace -- inference only, owned here, shared across all blocks.
+        // Shared activation and GQA transient workspaces -- inference only, owned here, shared across all blocks.
+        LlamaBlockWorkspace<TDeviceType, TPrecision> block_workspace_{};
         GqaWorkspace<TDeviceType, TPrecision> gqa_workspace_{};
 
         // Activation pointers -- valid between forward() and the next backward().

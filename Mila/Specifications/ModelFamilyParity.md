@@ -69,10 +69,12 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 |---|---|---|---|---|
 | FP4, FP8 and BF16 weights; quantize-on-load | Y | Y | Y | `QuantizationDispatch.ixx` |
 | Embedding table and output head quantized with the body | -- | Y | Y | Llama's are always BF16 (`Llama.ixx:86`, `:88`): about 1.4 GiB on 3.1 8B |
+| A tied checkpoint's embedding and head held once | -- | Y | n/a | Llama 3.2 1B and 3B tie them upstream (3.1 8B does not); the converter copies the table into `lm_head.weight` (`convert_weights.py:226`) and the transformer loads both, a second BF16 copy of 0.73 GiB on the 3B and 0.49 GiB on the 1B, in the package and on the device. Gemma shares one table. Qwen 3.8 27B does not tie |
 | Sub-4-bit codebook weights | -- | -- | Y | the fitting and packing tools are Qwen's (`Tools/Quantization/pack_qwen.py`, `qwen_plan.py`); the dispatch is Qwen's own (`dispatchQwenWeightPlan`) |
 | KV-cache compression | -- | -- | -- | `PerChannelKvFp8<>` specified, not built (`QuantizationDispatch.ixx:103`) |
 | Sequence log-likelihood at the network layer, for the quality harness | Y | Y | Y | `sequenceLogLikelihood` on `GemmaTransformer` and `QwenTransformer`, reached through `Tests/Common/LogLikelihoodHarness.h`; what an in-library perplexity gate measures. Until `0.21.0-dev+9` it was Qwen's `scoreTokens`, public on `QwenModel` with a head width on every family's deployment request; both left the public surface (8.2, G1) |
 | Deployment planning, exact footprint | Y | Y | Y | `Deployment.md` Phases 1 to 4 |
+| Per-block activations pooled across layers | Y | Y | Y | one block workspace installed on every block: Gemma's and Qwen's `allocateBlockWorkspace`, Llama's `makeLlamaBlockWorkspace` since 8.4 L4, where the 32 per-block sets had cost 2,762 MiB from chunk 512 to 1024 on the 3.1 8B |
 
 ### 3.3 Grammar
 
@@ -724,6 +726,28 @@ user, because removing the score buffers raises the context the planner chooses 
   1,388 against 415 at 32K (where the 12 GB card plans a 128-row chunk); decode 78.0 against 40.1 and 57.1
   against 34.8. The planner's choice for the 8B on `DeploymentPlanner.G2.Cuda.cpp`'s recorded readings rises
   from 13312 to 19456 on the 4070 and from 33792 to 50176 on the 5060 Ti.
+- *Chunk rungs and llama.cpp, 2026-09-27* (3.1 8B FP4, RTX 5060 Ti, one build,
+  `LlamaFlashPrefillCudaTests.DISABLED_PrefillRateByChunk_Fp4`: each chunk built directly, the planner bypassed,
+  best of three). A 1024 rung was 12.9% faster than 512 at an 8K prompt and 6.9% at 32K, but cost 2,762 MiB,
+  about 20,800 tokens of context at 136 KiB a token: the 32 blocks each allocated their own activations at the
+  chunk, about 5.4 MB a row, where Gemma's and Qwen's share one block workspace (3.2). The planner prefers the
+  largest context at which the top rung fits, so the rung alone would have traded 20,800 tokens for that gain.
+- *Pooled.* One `LlamaBlockWorkspace` (`Llama.Block.Workspace.ixx`, 13 slots, 164 KiB a row on the 8B) is
+  installed on every block in inference, as Qwen's attention workspace is, and the per-block copy of the block's
+  input left with it: `res_1` reads the input directly, which the stream slot's alias rule makes safe. Training
+  still self-allocates. The rungs are now 1024, 512, 256 and 128. Footprint equals the build at every rung
+  (`PlanEqualsBuild`), and Gate B at context 8192 predicts 6.793 GiB against 6.799 consumed. 1024 now costs 92 MiB
+  over 512, about 700 tokens. The planner's choice on the recorded readings rises to 38912 on the 4070 and 69632
+  on the 5060 Ti, both at chunk 1024 (from 19456 and 50176 at 512). Prefill, same test and card: 5,206 / 4,763 /
+  4,238 / 3,319 / 2,210 tokens/s at an 8K prompt and chunks 2048 / 1024 / 512 / 256 / 128; 2,766 / 2,559 / 2,404
+  / 2,073 / 1,578 at 32K. Every gate re-ran on the pooled build: the 3.2 1B against HuggingFace 1.7e-7 and 2.5e-7
+  nats a token below and past 8192, greedy tokens equal; flash against cuBLASLt 8.3e-4; window 1 against 64 on the
+  8B at 9.6e-6 (perplexity 11.8863, from 11.8945 at the old chunk of 512: 0.07% with the chunk, cause not
+  measured); fused decode 66.5 and 46.4 tokens/s, unchanged. 2048, above every
+  family's top rung, would add 9.3% at 8K and 8.1% at 32K for 184 MiB more, about 1,400 tokens.
+- *llama.cpp.* b11216 on a Q4_0 GGUF of the same model (`unsloth/Llama-3.1-8B-Instruct-GGUF`,
+  `llama-bench -ngl 99 -fa 1 -p 8192,32768 -n 0 -r 3`, its default 512-token micro-batch): 3,686 and 1,883
+  tokens/s. Mila at chunk 1024 is 1.29x and 1.36x ahead.
 - *Gemma and Qwen.* `kGemmaFlashPrefillMinContext` and `kFlashPrefillMinContext` are deleted and the flash
   decision is precision alone (`usesFlashPrefill()`), after the ring kernel measured 2.0x to 3.5x ahead at the
   sliding layers' geometry (`GqaFlashAttention.md` 5.7). Gemma keeps its score buffer at the ring capacity so a
@@ -742,12 +766,14 @@ user, because removing the score buffers raises the context the planner chooses 
     in every band that fits both (Gemma's A/B agreed within 0.016 bare and 0.003 in a turn).
   - Footprint agreement stays exact (`PlanEqualsBuild`), at every rung.
   - Prefill rate at 8K and 32K on the RTX 5060 Ti, against the cuBLASLt build and against llama.cpp on a
-    Q4_0 GGUF of the same model, recorded.
+    Q4_0 GGUF of the same model, recorded. *Recorded 2026-09-27.*
 
 **L5 -- Sampling on the device, overlapped with the next forward.** *Closes:* 3.1's first two rows. Applies
 Gemma's and Qwen's sampler; `top_p` and `seedSampler` start working.
 
-**L6 -- Embedding table and output head quantized with the body.** *Closes:* 3.2's second row. Changes the
+**L6 -- Embedding table and output head quantized with the body, and held once where the checkpoint ties
+them.** *Closes:* 3.2's second and third rows. The converter writes a tied checkpoint's table once and records
+the tie, and the transformer shares it between the embedding and the head, as Gemma's does. Changes the
 package, so it is collected for L7.
 
 **L7 -- One republish, grammar in `Mila/Src`, and the rest of the matrix.** Phase 2b's FFN delegation and
