@@ -64,7 +64,6 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
                 .withHiddenDimension( kHidden )
                 .withMaxSequenceLength( kMaxSeq )
                 .withRoPETheta( 10000.0f )
-                .withRoPEScalingFactor( 1.0f )
                 .withBias( false );
         }
     }
@@ -375,5 +374,86 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
         }
 
         std::filesystem::remove( path, ec );
+    }
+
+    // ====================================================================
+    // L. Footprint at a widened log-likelihood window (ModelFamilyParity.md 8.4, L1)
+    // ====================================================================
+
+    namespace
+    {
+        BuildContext pricedOnDevice( dim_t batch, dim_t seq )
+        {
+            return BuildContext( shape_t{ batch, seq }, RuntimeMode::Inference )
+                .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) )
+                .withPrefillSize( seq );
+        }
+
+        // Built alone and destroyed: the RoPE cache is process-wide, so a second live network would find it
+        // present and report less than the same network built by itself.
+        MemoryStats builtFootprint( const LlamaConfig& config, const BuildContext& context )
+        {
+            LlamaCuda net( "llama", config, Device::Cuda( 0 ) );
+            net.build( context );
+
+            return net.getMemoryStats();
+        }
+    }
+
+    // The inequality keeps this non-vacuous: a window both paths ignored would satisfy the equalities.
+    TEST_F( LlamaTransformerCudaTests, GetRequiredMemory_MatchesBuiltFootprint_WidenedLogLikelihoodWindow )
+    {
+        const BuildContext context = pricedOnDevice( batch_, seq_ );
+        const LlamaConfig widened = smallConfig().withLogLikelihoodWindow( seq_ );
+
+        LlamaCuda predictor( "llama", widened, Device::Cuda( 0 ) );
+        const MemoryStats predicted = predictor.getRequiredMemory( context );
+
+        const MemoryStats actual = builtFootprint( widened, context );
+
+        EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes ) << "parameters";
+        EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes ) << "state";
+        EXPECT_EQ( predicted.device_gradient_bytes, actual.device_gradient_bytes ) << "gradients";
+
+        EXPECT_GT( actual.device_state_bytes, builtFootprint( smallConfig(), context ).device_state_bytes )
+            << "a wider head must cost more state than the one-row default";
+    }
+
+    // Flash prefill serves head sizes 128, 256 and 512; this fixture's is 16, as the 3.2 1B's is 64. A BF16 build at such
+    // a head size must keep the cuBLASLt pipeline and the full-context score buffer it reads, and price exactly that.
+    TEST_F( LlamaTransformerCudaTests, Bf16_UnsupportedFlashHeadSize_PrefillsThroughCublasLt )
+    {
+        using LlamaCudaBf16 = Mila::Dnn::LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16>;
+
+        const dim_t seq = 16;
+        const BuildContext context = pricedOnDevice( batch_, seq );
+
+        LlamaCudaBf16 predictor( "llama", smallConfig(), Device::Cuda( 0 ) );
+        const MemoryStats predicted = predictor.getRequiredMemory( context );
+
+        LlamaCudaBf16 net( "llama", smallConfig(), Device::Cuda( 0 ) );
+        net.build( context );
+
+        EXPECT_EQ( predicted.device_state_bytes, net.getMemoryStats().device_state_bytes );
+
+        EXPECT_NO_THROW( (void)net.prefill( makeTokens( batch_, seq ) ) );
+        EXPECT_NO_THROW( net.synchronize() );
+    }
+
+    // A pass produces at most one chunk of rows, so a wider request resolves to the chunk in the build and the
+    // prediction alike.
+    TEST_F( LlamaTransformerCudaTests, LogLikelihoodWindow_ClampsToWhatAPrefillPassSupplies )
+    {
+        const BuildContext context = pricedOnDevice( batch_, seq_ );
+
+        const MemoryStats bounded = builtFootprint( smallConfig().withLogLikelihoodWindow( seq_ ), context );
+        const MemoryStats over = builtFootprint( smallConfig().withLogLikelihoodWindow( seq_ + 100 ), context );
+
+        EXPECT_EQ( over.device_state_bytes, bounded.device_state_bytes );
+
+        LlamaCuda over_predictor( "llama", smallConfig().withLogLikelihoodWindow( seq_ + 100 ), Device::Cuda( 0 ) );
+
+        EXPECT_EQ( over_predictor.getRequiredMemory( context ).device_state_bytes, over.device_state_bytes )
+            << "prediction must clamp exactly as the build does";
     }
 }

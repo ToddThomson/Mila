@@ -194,6 +194,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
             if ( is_new )
             {
+                const RopeFrequencyScaling& scaling = config_.getFrequencyScaling();
+
                 Detail::cuda_rope_impl<ComputeType>::build_cache(
                     cos_cache_, sin_cache_,
                     static_cast<int>(table_rows),
@@ -201,6 +203,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                     config_.getBase(),
                     static_cast<int>(config_.getRotaryDim()),
                     rotaryLayoutCode(),
+                    scaling.factor,
+                    scaling.low_frequency_factor,
+                    scaling.high_frequency_factor,
+                    narrowToKernelIndex( scaling.original_context_length ),
                     context_->getStream() );
 
                 // Ensure cache is ready before any op can use it.
@@ -469,6 +475,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             // Precision is FP32 regardless of TPrecision: the cache is always
             // float. This allows BF16 and FP32 ops with identical configs to
             // share one registry entry.
+            const RopeFrequencyScaling& scaling = config_.getFrequencyScaling();
+
             return {
                 context_->getDeviceId().index,
                 table_rows,
@@ -476,6 +484,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 config_.getRotaryDim(),
                 rotaryLayoutCode(),
                 config_.getBase(),
+                scaling.factor,
+                scaling.low_frequency_factor,
+                scaling.high_frequency_factor,
+                scaling.original_context_length,
                 TensorDataType::FP32
             };
         }

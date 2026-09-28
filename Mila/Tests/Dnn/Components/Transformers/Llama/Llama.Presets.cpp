@@ -31,7 +31,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
         EXPECT_EQ( cfg.getNumKVHeads(), 8 );
         EXPECT_EQ( cfg.getHiddenDimension(), 8192 );
         EXPECT_FLOAT_EQ( cfg.getRoPETheta(), 500000.0f );
-        EXPECT_FLOAT_EQ( cfg.getRoPEScalingFactor(), 32.0f );
+        EXPECT_EQ( cfg.getRoPEFrequencyScaling(), ( RopeFrequencyScaling{ 32.0f, 1.0f, 4.0f, 8192 } ) );
         EXPECT_FALSE( cfg.useBias() );
         EXPECT_NO_THROW( cfg.validate() );
     }
@@ -46,7 +46,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
         EXPECT_EQ( cfg.getNumKVHeads(), 8 );
         EXPECT_EQ( cfg.getHiddenDimension(), 8192 );
         EXPECT_FLOAT_EQ( cfg.getRoPETheta(), 500000.0f );
-        EXPECT_FLOAT_EQ( cfg.getRoPEScalingFactor(), 32.0f );
+        EXPECT_EQ( cfg.getRoPEFrequencyScaling(), ( RopeFrequencyScaling{ 32.0f, 1.0f, 4.0f, 8192 } ) );
         EXPECT_FALSE( cfg.useBias() );
         EXPECT_NO_THROW( cfg.validate() );
     }
@@ -61,7 +61,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
         EXPECT_EQ( cfg.getNumKVHeads(), 8 );
         EXPECT_EQ( cfg.getHiddenDimension(), 14336 );
         EXPECT_FLOAT_EQ( cfg.getRoPETheta(), 500000.0f );
-        EXPECT_FLOAT_EQ( cfg.getRoPEScalingFactor(), 8.0f );
+        EXPECT_EQ( cfg.getRoPEFrequencyScaling(), ( RopeFrequencyScaling{ 8.0f, 1.0f, 4.0f, 8192 } ) );
         EXPECT_FALSE( cfg.useBias() );
         EXPECT_NO_THROW( cfg.validate() );
     }

@@ -56,6 +56,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.Component;
 import Dnn.RuntimeMode;
 import Dnn.Components.LlamaTransformer;
+import Dnn.Components.RopeFrequencyScaling;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceAllocation;
@@ -320,9 +321,45 @@ namespace Mila::Dnn
                 .withNumKVHeads( static_cast<dim_t>(metadata.num_kv_heads) )
                 .withHiddenDimension( static_cast<dim_t>(metadata.hidden_dim) )
                 .withRoPETheta( metadata.rope_theta )
+                .withRoPEFrequencyScaling( frequencyScalingFromMetadata( metadata ) )
                 .withBias( metadata.use_bias );
 
             return config;
+        }
+
+        /**
+         * @brief How the file says this model's rotary positions are scaled.
+         *
+         * @throws std::runtime_error when the file does not say, which is every Llama file written before it could:
+         *         Llama 3.1 and 3.2 are wrong at every position without their scaling, so such a file is refused
+         *         rather than run as if it had none.
+         */
+        static RopeFrequencyScaling frequencyScalingFromMetadata( const WeightsMetadata& metadata )
+        {
+            if ( metadata.rope_scaling == "none" )
+            {
+                return RopeFrequencyScaling{};
+            }
+
+            if ( metadata.rope_scaling == "llama3" )
+            {
+                return RopeFrequencyScaling{
+                    metadata.rope_scaling_factor,
+                    metadata.rope_low_frequency_factor,
+                    metadata.rope_high_frequency_factor,
+                    static_cast<dim_t>(metadata.rope_original_context_length) };
+            }
+
+            if ( metadata.rope_scaling.empty() )
+            {
+                throw std::runtime_error( std::format(
+                    "'{}' was packaged by an earlier version of Mila, which did not record how the model's positions "
+                    "are scaled. Install or convert it again.", metadata.model_name ) );
+            }
+
+            throw std::runtime_error( std::format(
+                "'{}' scales its positions by the rule '{}', which Mila does not support.",
+                metadata.model_name, metadata.rope_scaling ) );
         }
 
         // ====================================================================

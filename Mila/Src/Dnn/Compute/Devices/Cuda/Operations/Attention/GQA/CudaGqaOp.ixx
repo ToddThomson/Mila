@@ -422,6 +422,23 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
         /**
+         * @brief Whether this op's prefill can run the fused flash kernel at `head_size`.
+         *
+         * BF16 only, and the unbounded and ring kernels serve different head sizes. A caller that sizes the shared
+         * score buffer for flash must ask first: flash switched on at an unsupported head size throws at prefill.
+         */
+        static bool supportsFlashPrefill( dim_t head_size )
+        {
+            if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
+            {
+                return Detail::cuda_gqa_kernels<NativeType>::flash_prefill_supported(
+                    static_cast<int>( head_size ), kBounded );
+            }
+
+            return false;
+        }
+
+        /**
          * @brief Runtime A/B toggle for the fused decode-attention path (test hook).
          *
          * When enabled, BF16 decode routes through cuda_gqa_decode_attention_bf16 --

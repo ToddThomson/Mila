@@ -152,28 +152,38 @@ namespace Dnn::Components::Transformers::Tests
         EXPECT_THROW( cfg.withRoPETheta( -1.0f ), std::invalid_argument );
     }
 
-    // ---- withRoPEScalingFactor ----------------------------------------------
+    // ---- withRoPEFrequencyScaling -------------------------------------------
 
-    TEST( LlamaConfigTests, WithRoPEScalingFactor_SetsValue )
+    TEST( LlamaConfigTests, WithRoPEFrequencyScaling_DefaultIsNone )
     {
         LlamaConfig cfg( 64, 2 );
-        cfg.withRoPEScalingFactor( 2.0f );
 
-        EXPECT_FLOAT_EQ( cfg.getRoPEScalingFactor(), 2.0f );
+        EXPECT_FALSE( cfg.getRoPEFrequencyScaling().isScaled() );
     }
 
-    TEST( LlamaConfigTests, WithRoPEScalingFactor_ZeroValue_Throws )
+    TEST( LlamaConfigTests, WithRoPEFrequencyScaling_SetsValue )
     {
-        LlamaConfig cfg( 64, 2 );
+        const RopeFrequencyScaling scaling{ 8.0f, 1.0f, 4.0f, 8192 };
 
-        EXPECT_THROW( cfg.withRoPEScalingFactor( 0.0f ), std::invalid_argument );
+        LlamaConfig cfg( 64, 2 );
+        cfg.withRoPEFrequencyScaling( scaling );
+
+        EXPECT_EQ( cfg.getRoPEFrequencyScaling(), scaling );
     }
 
-    TEST( LlamaConfigTests, WithRoPEScalingFactor_NegativeValue_Throws )
+    TEST( LlamaConfigTests, WithRoPEFrequencyScaling_ZeroFactor_Throws )
     {
         LlamaConfig cfg( 64, 2 );
 
-        EXPECT_THROW( cfg.withRoPEScalingFactor( -0.5f ), std::invalid_argument );
+        EXPECT_THROW( cfg.withRoPEFrequencyScaling( RopeFrequencyScaling{ 0.0f, 1.0f, 4.0f, 8192 } ), std::invalid_argument );
+    }
+
+    // The interpolation divides by high - low, so the band must not be empty.
+    TEST( LlamaConfigTests, WithRoPEFrequencyScaling_EmptyBand_Throws )
+    {
+        LlamaConfig cfg( 64, 2 );
+
+        EXPECT_THROW( cfg.withRoPEFrequencyScaling( RopeFrequencyScaling{ 8.0f, 4.0f, 4.0f, 8192 } ), std::invalid_argument );
     }
 
     // ---- withBias -----------------------------------------------------------
@@ -201,6 +211,31 @@ namespace Dnn::Components::Transformers::Tests
         EXPECT_FALSE( cfg.useBias() );
     }
 
+    // ---- withLogLikelihoodWindow --------------------------------------------
+
+    TEST( LlamaConfigTests, WithLogLikelihoodWindow_DefaultIsOne )
+    {
+        LlamaConfig cfg( 64, 2 );
+
+        EXPECT_EQ( cfg.getLogLikelihoodWindow(), 1 );
+    }
+
+    TEST( LlamaConfigTests, WithLogLikelihoodWindow_ZeroValue_Throws )
+    {
+        EXPECT_THROW( LlamaConfig( 64, 2 ).withLogLikelihoodWindow( 0 ), std::invalid_argument );
+    }
+
+    // A run capacity, not geometry of the checkpoint, so a restored config falls back to the default.
+    TEST( LlamaConfigTests, WithLogLikelihoodWindow_AbsentFromMetadata )
+    {
+        const LlamaConfig source = LlamaConfig( 64, 2 ).withLogLikelihoodWindow( 64 );
+
+        LlamaConfig restored( 64, 2 );
+        restored.fromMetadata( source.toMetadata() );
+
+        EXPECT_EQ( restored.getLogLikelihoodWindow(), 1 );
+    }
+
     // ---- Getters / defaults -------------------------------------------------
 
     TEST( LlamaConfigTests, GetRMSNormEpsilon_ReturnsDefault )
@@ -221,7 +256,7 @@ namespace Dnn::Components::Transformers::Tests
             .withHiddenDimension( 256 )
             .withMaxSequenceLength( 32 )
             .withRoPETheta( 10000.0f )
-            .withRoPEScalingFactor( 1.0f )
+            .withRoPEFrequencyScaling( RopeFrequencyScaling{ 8.0f, 1.0f, 4.0f, 16 } )
             .withBias( false );
 
         EXPECT_EQ( cfg.getVocabSize(), 128 );
@@ -232,7 +267,7 @@ namespace Dnn::Components::Transformers::Tests
         EXPECT_EQ( cfg.getHiddenDimension(), 256 );
         EXPECT_EQ( cfg.getMaxSequenceLength(), 32 );
         EXPECT_FLOAT_EQ( cfg.getRoPETheta(), 10000.0f );
-        EXPECT_FLOAT_EQ( cfg.getRoPEScalingFactor(), 1.0f );
+        EXPECT_EQ( cfg.getRoPEFrequencyScaling().original_context_length, 16 );
         EXPECT_FALSE( cfg.useBias() );
     }
 
@@ -247,7 +282,7 @@ namespace Dnn::Components::Transformers::Tests
             .withHiddenDimension( 256 )
             .withMaxSequenceLength( 32 )
             .withRoPETheta( 10000.0f )
-            .withRoPEScalingFactor( 1.0f );
+            .withRoPEFrequencyScaling( RopeFrequencyScaling{ 8.0f, 1.0f, 4.0f, 16 } );
 
         EXPECT_NO_THROW( cfg.validate() );
     }
@@ -269,8 +304,7 @@ namespace Dnn::Components::Transformers::Tests
             .withNumHeads( 4 )
             .withNumKVHeads( 2 )
             .withMaxSequenceLength( 32 )
-            .withRoPETheta( 10000.0f )
-            .withRoPEScalingFactor( 1.0f );
+            .withRoPETheta( 10000.0f );
 
         std::string s = cfg.toString();
 
@@ -295,7 +329,7 @@ namespace Dnn::Components::Transformers::Tests
             .withHiddenDimension( 512 )
             .withMaxSequenceLength( 64 )
             .withRoPETheta( 10000.0f )
-            .withRoPEScalingFactor( 2.0f )
+            .withRoPEFrequencyScaling( RopeFrequencyScaling{ 8.0f, 1.0f, 4.0f, 8192 } )
             .withBias( true );
 
         auto meta = original.toMetadata();
@@ -312,7 +346,7 @@ namespace Dnn::Components::Transformers::Tests
         EXPECT_EQ( restored.getHiddenDimension(), original.getHiddenDimension() );
         EXPECT_EQ( restored.getMaxSequenceLength(), original.getMaxSequenceLength() );
         EXPECT_FLOAT_EQ( restored.getRoPETheta(), original.getRoPETheta() );
-        EXPECT_FLOAT_EQ( restored.getRoPEScalingFactor(), original.getRoPEScalingFactor() );
+        EXPECT_EQ( restored.getRoPEFrequencyScaling(), original.getRoPEFrequencyScaling() );
         EXPECT_EQ( restored.useBias(), original.useBias() );
     }
 }

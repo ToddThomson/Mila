@@ -483,6 +483,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
     }
 
+    bool cuda_gqa_flash_prefill_supported( int head_size )
+    {
+        return head_size == 128 || head_size == 256 || head_size == 512;
+    }
+
     void cuda_gqa_flash_prefill_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
         __nv_bfloat16* Y,
@@ -490,6 +495,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int position_offset, int window, float scale,
         cudaStream_t stream )
     {
+        if ( !cuda_gqa_flash_prefill_supported( HS ) )
+            throw std::runtime_error( "cuda_gqa_flash_prefill_bf16: head size " + std::to_string( HS )
+                + " is not supported; the packed kernel serves 128, 256 and 512" );
+
         if ( NKV <= 0 || NH % NKV != 0 )
             throw std::runtime_error( "cuda_gqa_flash_prefill_bf16: query heads must be a multiple of KV heads" );
 
@@ -514,10 +523,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             case 512:
                 launch_packed_prefill<512>( Q, K, V, Y, B, chunk_len, NH, NKV, cache_capacity, position_offset, window, scale, stream );
                 break;
-
-            default:
-                throw std::runtime_error( "cuda_gqa_flash_prefill_bf16: head size " + std::to_string( HS )
-                    + " is not supported; the packed kernel serves 128, 256 and 512" );
         }
     }
 }

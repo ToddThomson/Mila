@@ -22,8 +22,10 @@
 
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <random>
 #include <string>
@@ -621,6 +623,13 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
 
         // Llama 3.2 3B: a group of 3 at head_dim 128.
         constexpr FlashGeometry kLlama3B{ 24, 8, 128 };
+
+        // Llama 3.1 8B: a group of 4 at head_dim 128.
+        constexpr FlashGeometry kLlama8B{ 32, 8, 128 };
+
+        // Gemma 4 12B sliding layers: the bounded ring at head_dim 256, a group of 2, window 1024.
+        constexpr FlashGeometry kGemmaSliding{ 16, 8, 256 };
+        constexpr int kGemmaSlidingWindow = 1024;
     }
 
     class CudaGqaFlashPrefillParity : public ::testing::Test
@@ -629,6 +638,7 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
         using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
         using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
         using UnboundedBf16Op = Compute::Cuda::Gqa::CudaGqaOp<TensorDataType::BF16, false>;
+        using BoundedBf16Op = Compute::Cuda::Gqa::CudaGqaOp<TensorDataType::BF16, true>;
 
         void SetUp() override
         {
@@ -768,6 +778,126 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
     TEST_F( CudaGqaFlashPrefillParity, FlashMatchesCublasLt_Llama3BConfig )
     {
         expectFlashMatchesCublasLt( kLlama3B );
+    }
+
+    TEST_F( CudaGqaFlashPrefillParity, FlashMatchesCublasLt_Llama8BConfig )
+    {
+        expectFlashMatchesCublasLt( kLlama8B );
+    }
+
+    // ====================================================================
+    // Flash prefill rate against cuBLASLt, per family geometry and prompt length
+    //
+    // Answers whether a family needs a context threshold below which cuBLASLt
+    // prefill is kept. One op, both paths, one binary: the prompt is prefilled in
+    // chunks through the unbounded BF16 op at each geometry and length, flash on
+    // and off, and the attention time alone is printed. Disabled because it is a
+    // measurement, not a gate; run with --gtest_also_run_disabled_tests and pin
+    // the card with CUDA_VISIBLE_DEVICES.
+    // ====================================================================
+
+    class CudaGqaFlashPrefillRate : public CudaGqaFlashPrefillParity
+    {
+    protected:
+        static constexpr int kChunk = 512;
+        static constexpr int kTimedRuns = 3;
+
+        /// Mean milliseconds to prefill `context` tokens through attention alone. A window above 0 is the bounded ring.
+        double prefillMilliseconds( const FlashGeometry& geometry, int context, bool useFlash, int window = 0 )
+        {
+            if ( window > 0 )
+            {
+                BoundedBf16Op op( cuda_context_.get(),
+                    GqaConfig( geometry.modelDim(), geometry.heads, geometry.kv_heads ).withWindow( window ) );
+
+                return timePrefill( op, geometry, context, useFlash );
+            }
+
+            UnboundedBf16Op op( cuda_context_.get(),
+                GqaConfig( geometry.modelDim(), geometry.heads, geometry.kv_heads ) );
+
+            return timePrefill( op, geometry, context, useFlash );
+        }
+
+        template<typename TOp>
+        double timePrefill( TOp& op, const FlashGeometry& geometry, int context, bool useFlash )
+        {
+            op.build( BuildContext( shape_t{ kGBatch, context, geometry.packedQkv() },
+                RuntimeMode::Inference, false ).withPrefillSize( kChunk ) );
+            op.initializeKvCache( kGBatch, context );
+            op.setUseFlashPrefill( useFlash );
+
+            const int score_width = useFlash ? 1 : context;
+
+            DeviceBf16 q_permute( Device::Cuda( 0 ), shape_t{ kGBatch, geometry.heads, kChunk, geometry.head_dim } );
+            DeviceBf16 preatt( Device::Cuda( 0 ), shape_t{ kGBatch, geometry.heads, kChunk, score_width } );
+            DeviceBf16 att( Device::Cuda( 0 ), shape_t{ kGBatch, geometry.heads, kChunk, score_width } );
+            DeviceBf16 v_out( Device::Cuda( 0 ), shape_t{ kGBatch, geometry.heads, kChunk, geometry.head_dim } );
+
+            GqaState state;
+            state.q_permute = &q_permute;
+            state.preatt = &preatt;
+            state.att = &att;
+            state.v_out = &v_out;
+            op.setState( state );
+
+            // Values do not change the work either path does, so one chunk is reused.
+            std::mt19937 rng( 5u );
+            DeviceBf16 q = toDevice( randomHost( shape_t{ kGBatch, kChunk, geometry.heads * geometry.head_dim }, rng ) );
+            DeviceBf16 k = toDevice( randomHost( shape_t{ kGBatch, kChunk, geometry.kv_heads * geometry.head_dim }, rng ) );
+            DeviceBf16 v = toDevice( randomHost( shape_t{ kGBatch, kChunk, geometry.kv_heads * geometry.head_dim }, rng ) );
+            DeviceBf16 out( Device::Cuda( 0 ), shape_t{ kGBatch, kChunk, geometry.modelDim() } );
+
+            auto prefillWholePrompt = [&]()
+            {
+                for ( int offset = 0; offset < context; offset += kChunk )
+                {
+                    op.prefill( q, k, v, out, offset );
+                }
+
+                cuda_context_->synchronize();
+            };
+
+            // The untimed pass builds the cuBLASLt plans each attended length needs.
+            prefillWholePrompt();
+
+            const auto start = std::chrono::steady_clock::now();
+
+            for ( int run = 0; run < kTimedRuns; ++run )
+            {
+                prefillWholePrompt();
+            }
+
+            const std::chrono::duration<double, std::milli> elapsed = std::chrono::steady_clock::now() - start;
+
+            return elapsed.count() / kTimedRuns;
+        }
+
+        void printRates( const char* family, const FlashGeometry& geometry, int window = 0 )
+        {
+            std::printf( "%s (heads %d, KV heads %d, head_dim %d, window %d), chunk %d\n",
+                family, geometry.heads, geometry.kv_heads, geometry.head_dim, window, kChunk );
+            std::printf( "  %8s %12s %12s %8s\n", "tokens", "cuBLASLt ms", "flash ms", "speedup" );
+
+            for ( int context : { 512, 1024, 2048, 4096, 8192, 16384, 32768 } )
+            {
+                const double cublas = prefillMilliseconds( geometry, context, false, window );
+                const double flash = prefillMilliseconds( geometry, context, true, window );
+
+                std::printf( "  %8d %12.3f %12.3f %7.2fx\n", context, cublas, flash, cublas / flash );
+            }
+
+            std::fflush( stdout );
+        }
+    };
+
+    TEST_F( CudaGqaFlashPrefillRate, DISABLED_AcrossPromptLengths )
+    {
+        printRates( "Llama 3.1 8B", kLlama8B );
+        printRates( "Llama 3.2 3B", kLlama3B );
+        printRates( "Qwen 3.8 full attention", kQwenFullAttention );
+        printRates( "Gemma 4 12B global", kGemmaGlobal );
+        printRates( "Gemma 4 12B sliding", kGemmaSliding, kGemmaSlidingWindow );
     }
 
     // ====================================================================

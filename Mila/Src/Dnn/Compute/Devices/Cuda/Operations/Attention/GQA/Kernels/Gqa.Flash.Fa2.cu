@@ -40,6 +40,7 @@
 #include <math_constants.h>
 #include <cstdint>
 #include <stdexcept>
+#include <string>
 #include <cuda_pipeline.h>
 #include "CudaUtils.h"
 #include "CudaGqa.cuh"
@@ -482,6 +483,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 #endif // __CUDA_ARCH__ >= 800
     }
 
+    // A multiple of the MMA K step and of the cp.async width, and within the register accumulator bound.
+    bool cuda_gqa_flash_prefill_ring_supported( int head_size )
+    {
+        return head_size > 0
+            && head_size % kMmaK == 0
+            && head_size % kCopyElems == 0
+            && head_size <= kFa2MaxNTiles * kMmaN;
+    }
+
     void cuda_gqa_flash_prefill_ring_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
         __nv_bfloat16* Y,
@@ -489,17 +499,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int position_offset, int window, float scale,
         cudaStream_t stream )
     {
-        if ( HS % kMmaK != 0 )
-            throw std::runtime_error(
-                "cuda_gqa_flash_prefill_ring_bf16 (FA-2): head_size must be a multiple of 16" );
-
-        if ( HS % kCopyElems != 0 )
-            throw std::runtime_error(
-                "cuda_gqa_flash_prefill_ring_bf16 (FA-2): head_size must be a multiple of 8 for cp.async" );
-
-        if ( HS > kFa2MaxNTiles * kMmaN )
-            throw std::runtime_error(
-                "cuda_gqa_flash_prefill_ring_bf16 (FA-2): head_size exceeds the register accumulator bound (256)" );
+        if ( !cuda_gqa_flash_prefill_ring_supported( HS ) )
+            throw std::runtime_error( "cuda_gqa_flash_prefill_ring_bf16 (FA-2): head size " + std::to_string( HS )
+                + " is not supported; the ring kernel serves multiples of 16 up to 256" );
 
         if ( window <= 0 )
             throw std::runtime_error(

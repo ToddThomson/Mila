@@ -58,11 +58,12 @@ what it emits. This file drives its emission from that map rather than restating
         - Llama 3.1 8B does not tie word embeddings (tie_word_embeddings=False);
           lm_head.weight is a separate tensor in the state_dict. The 3.2 1B/3B
           variants tie embeddings; the converter handles both cases.
-        - Llama 3.1 8B uses rope_scaling with rope_type="llama3" for extended
-          context (up to 131072 tokens). Mila uses standard RoPE with
-          rope_theta=500000, which is accurate at context lengths <= 4096.
-          The rope_scaling dict is printed for reference but not written to the
-          Mila binary -- no Mila change required for Phase 5 validation.
+        - Llama 3.1 and 3.2 scale their rotary frequencies (rope_type "llama3"),
+          which they read every position through. The rule and its four values
+          are written as rope_scaling / rope_scaling_factor /
+          rope_low_frequency_factor / rope_high_frequency_factor /
+          rope_original_context_length; a checkpoint without scaling writes
+          rope_scaling "none". Mila refuses a Llama file that says neither.
 """
 
 import sys
@@ -120,6 +121,27 @@ def _tensor_to_numpy( tensor: torch.Tensor, dtype: str ):
         return tensor.to( torch.bfloat16 ).contiguous().view( torch.uint16 ).numpy()
     else:
         return tensor.to( torch.float32 ).numpy()
+
+
+def _rope_scaling_metadata( config ) -> dict:
+    """The rotary frequency scaling the checkpoint was trained with, as Mila's weights metadata names it."""
+    # transformers 5 keeps it in rope_parameters (also exposed as rope_scaling); 4.x in rope_scaling, None when absent.
+    parameters = getattr( config, 'rope_parameters', None ) or getattr( config, 'rope_scaling', None ) or {}
+    rope_type = parameters.get( 'rope_type', parameters.get( 'type', 'default' ) )
+
+    if rope_type == 'default':
+        return { 'rope_scaling': 'none' }
+
+    if rope_type == 'llama3':
+        return {
+            'rope_scaling':                 'llama3',
+            'rope_scaling_factor':          float( parameters['factor'] ),
+            'rope_low_frequency_factor':    float( parameters['low_freq_factor'] ),
+            'rope_high_frequency_factor':   float( parameters['high_freq_factor'] ),
+            'rope_original_context_length': int( parameters['original_max_position_embeddings'] ),
+        }
+
+    raise ValueError( f"rope_type '{rope_type}' is not one Mila implements" )
 
 
 def convert_llama( model_name: str, output_path: str, dtype: str = 'float32' ):
@@ -193,6 +215,7 @@ def convert_llama( model_name: str, output_path: str, dtype: str = 'float32' ):
         'attention_type':      'gqa',
         'positional_encoding': 'rope',
         'tie_word_embeddings': config.tie_word_embeddings,
+        **_rope_scaling_metadata( config ),
     } )
 
     state_dict = model.state_dict()

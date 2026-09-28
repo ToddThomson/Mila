@@ -244,6 +244,8 @@ PUBLIC
         "Src/Dnn/Components/Encodings/Lpe/Lpe.Config.ixx"
         "Src/Dnn/Components/Encodings/Rope/Rope.ixx"
         "Src/Dnn/Components/Encodings/Rope/Rope.Config.ixx"
+        "Src/Dnn/Components/Encodings/Rope/Rope.RotaryLayout.ixx"
+        "Src/Dnn/Components/Encodings/Rope/Rope.FrequencyScaling.ixx"
 
         # Components - Attention
         "Src/Dnn/Components/Attention/MHA/MultiHeadAttention.ixx"
@@ -451,6 +453,7 @@ PUBLIC
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
         "Src/Dnn/Serialization/SafeTensors.ixx"
+        "Src/Dnn/Serialization/WeightsMetadata.ixx"
         "Src/Dnn/Serialization/WeightsReader.ixx"
         "Src/Dnn/Serialization/Serializer.ixx"
         

@@ -428,6 +428,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     position_offset, window, scale, stream );
             }
 
+            // Whether flash_prefill (unbounded) or flash_prefill_ring (bounded) serves this head size.
+            static bool flash_prefill_supported( int head_size, bool bounded )
+            {
+                return bounded
+                    ? cuda_gqa_flash_prefill_ring_supported( head_size )
+                    : cuda_gqa_flash_prefill_supported( head_size );
+            }
+
             // Fused single-token decode attention (BF16-only; both kBounded ops route
             // here -- the kernel walks absolute positions with row = p % capacity, the
             // identity when unbounded). See cuda_gqa_decode_attention_bf16.

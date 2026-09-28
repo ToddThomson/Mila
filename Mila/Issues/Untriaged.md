@@ -321,5 +321,5 @@ far behind llama.cpp, and prefill time is what decides whether agentic workloads
 
 Profiled and fixed the same day for the FP4 build (`GqaFlashAttention.md` 5.7): the global layers' attention was 14.7 s
 of the 23.6 s at 32K; the packed kernel takes it to 6.0 s, and the FP4 prefill runs 3,134 tokens/s at 8K and 2,183 at
-32K, ahead of llama.cpp at both. What remains behind is the Q4_0 build's staged GEMM (1,296 tokens/s at 32K) and
-Llama, which has no flash prefill; Gemma and Qwen still switch flash off below a context threshold.
+32K, ahead of llama.cpp at both. What remains behind is the Q4_0 build's staged GEMM (1,296 tokens/s at 32K). The
+flash threshold is gone in every family, and Llama has flash (`ModelFamilyParity.md` 8.4, L4).

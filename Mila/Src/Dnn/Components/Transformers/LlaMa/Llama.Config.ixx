@@ -14,6 +14,7 @@ export module Dnn.Components.LlamaTransformer:Config;
 
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
+import Dnn.Components.RopeFrequencyScaling;
 import Serialization.Metadata;
 
 namespace Mila::Dnn
@@ -136,15 +137,20 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        /**
+         * @brief The rotary frequency scaling the checkpoint was trained with. Default: none.
+         *
+         * Llama 3.1 and 3.2 carry it (`rope_scaling` in the checkpoint's config) and read every position through
+         * it; Llama 3 and 2 do not.
+         *
+         * @throws std::invalid_argument when the scaling could not be applied.
+         */
         template <typename Self>
-        decltype(auto) withRoPEScalingFactor( this Self&& self, float scale_factor )
+        decltype(auto) withRoPEFrequencyScaling( this Self&& self, const RopeFrequencyScaling& frequency_scaling )
         {
-            if ( scale_factor <= 0.0f )
-            {
-                throw std::invalid_argument( "LlamaConfig: rope_scaling_factor must be > 0" );
-            }
+            frequency_scaling.validate();
 
-            self.rope_scaling_factor_ = scale_factor;
+            self.rope_frequency_scaling_ = frequency_scaling;
             return std::forward<Self>( self );
         }
 
@@ -153,6 +159,29 @@ namespace Mila::Dnn
         decltype(auto) withBias( this Self&& self, bool use_bias )
         {
             self.use_bias_ = use_bias;
+            return std::forward<Self>( self );
+        }
+
+        /**
+         * @brief Positions the output head evaluates per pass during sequenceLogLikelihood(). Default 1.
+         *
+         * Generation needs a logit only at the last position, so the head is built one row wide. A
+         * log-likelihood needs one at every position, which cannot be materialized for a whole prefill
+         * chunk at once, so a measurement raises this to the rows it can afford and the head runs in
+         * windows of that width.
+         *
+         * A run capacity, not published geometry: it sizes buffers, describes no property of the
+         * checkpoint, and is absent from toMetadata().
+         */
+        template <typename Self>
+        decltype(auto) withLogLikelihoodWindow( this Self&& self, dim_t positions )
+        {
+            if ( positions <= 0 )
+            {
+                throw std::invalid_argument( "LlamaConfig: log_likelihood_window must be > 0" );
+            }
+
+            self.log_likelihood_window_ = positions;
             return std::forward<Self>( self );
         }
 
@@ -180,9 +209,11 @@ namespace Mila::Dnn
 
         float getRoPETheta() const noexcept { return rope_theta_; }
 
-        float getRoPEScalingFactor() const noexcept { return rope_scaling_factor_; }
+        const RopeFrequencyScaling& getRoPEFrequencyScaling() const noexcept { return rope_frequency_scaling_; }
 
         float getRMSNormEpsilon() const noexcept { return rms_norm_eps_; }
+
+        dim_t getLogLikelihoodWindow() const noexcept { return log_likelihood_window_; }
 
         // New: expose bias flag
         bool useBias() const noexcept { return use_bias_; }
@@ -226,10 +257,7 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "LlamaConfig: roPE theta must be positive" );
             }
 
-            if ( rope_scaling_factor_ <= 0.0f )
-            {
-                throw std::invalid_argument( "LlamaConfig: roPE scaling factor must be positive" );
-            }
+            rope_frequency_scaling_.validate();
         }
 
         // Serialization helpers
@@ -246,9 +274,16 @@ namespace Mila::Dnn
                 .set( "num_kv_heads", static_cast<int64_t>(num_kv_heads_) )
                 .set( "hidden_dim", static_cast<int64_t>(hidden_dim_) )
                 .set( "rope_theta", static_cast<double>(rope_theta_) )
-                .set( "rope_scaling", static_cast<double>(rope_scaling_factor_) )
                 .set( "rms_norm_eps", static_cast<double>(rms_norm_eps_) )
                 .set( "use_bias", use_bias_ );
+
+            if ( rope_frequency_scaling_.isScaled() )
+            {
+                meta.set( "rope_scaling_factor", static_cast<double>(rope_frequency_scaling_.factor) )
+                    .set( "rope_low_frequency_factor", static_cast<double>(rope_frequency_scaling_.low_frequency_factor) )
+                    .set( "rope_high_frequency_factor", static_cast<double>(rope_frequency_scaling_.high_frequency_factor) )
+                    .set( "rope_original_context_length", static_cast<int64_t>(rope_frequency_scaling_.original_context_length) );
+            }
 
             return meta;
         }
@@ -295,9 +330,12 @@ namespace Mila::Dnn
                 rope_theta_ = static_cast<float>(*rt);
             }
 
-            if ( auto rs = meta.tryGetFloat( "rope_scaling" ) )
+            if ( auto original = meta.tryGetInt( "rope_original_context_length" ) )
             {
-                rope_scaling_factor_ = static_cast<float>(*rs);
+                rope_frequency_scaling_.original_context_length = static_cast<dim_t>(*original);
+                rope_frequency_scaling_.factor = meta.tryGetFloat( "rope_scaling_factor" ).value_or( 1.0f );
+                rope_frequency_scaling_.low_frequency_factor = meta.tryGetFloat( "rope_low_frequency_factor" ).value_or( 1.0f );
+                rope_frequency_scaling_.high_frequency_factor = meta.tryGetFloat( "rope_high_frequency_factor" ).value_or( 1.0f );
             }
 
             if ( auto re = meta.tryGetFloat( "rms_norm_eps" ) )
@@ -322,7 +360,17 @@ namespace Mila::Dnn
             oss << "  Num KV Heads: " << getNumKVHeads() << "\n";
             oss << "  Hidden Dim: " << hidden_dim_ << "\n";
             oss << "  Max Seq Len: " << max_seq_len_ << "\n";
-            oss << "  RoPE: theta=" << rope_theta_ << ", scaling=" << rope_scaling_factor_ << "\n";
+            oss << "  RoPE: theta=" << rope_theta_;
+
+            if ( rope_frequency_scaling_.isScaled() )
+            {
+                oss << ", scaling factor=" << rope_frequency_scaling_.factor
+                    << " (low " << rope_frequency_scaling_.low_frequency_factor
+                    << ", high " << rope_frequency_scaling_.high_frequency_factor
+                    << ", original context " << rope_frequency_scaling_.original_context_length << ")";
+            }
+
+            oss << "\n";
             oss << "  RMSNorm eps: " << rms_norm_eps_ << "\n";
             oss << "  Use Bias: " << ( use_bias_ ? "Yes" : "No" ) << "\n";
 
@@ -339,8 +387,9 @@ namespace Mila::Dnn
         dim_t max_seq_len_ = 8192;         // Llama 3 8B default
         dim_t hidden_dim_ = 14336;         // Llama 3 8B default (SwiGLU)
         float rope_theta_ = 500000.0f;
-        float rope_scaling_factor_ = 1.0f;
+        RopeFrequencyScaling rope_frequency_scaling_{};
         float rms_norm_eps_ = 1e-5f;
         bool use_bias_ = false;
+        dim_t log_likelihood_window_ = 1;
     };
 }

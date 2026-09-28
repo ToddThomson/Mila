@@ -24,6 +24,36 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      * @param half_dim head_dim / 2
      * @param base     Frequency base (10000.0f standard)
      */
+    /**
+     * @brief Llama 3's rescaling of one inverse frequency by its wavelength (RopeFrequencyScaling).
+     *
+     * Mirrors HuggingFace's `_compute_llama3_parameters`: long wavelengths are divided by the factor, short ones
+     * kept, and the band between interpolated. An original context of 0 returns the frequency unchanged.
+     */
+    __device__ __forceinline__ float scale_inverse_frequency(
+        float inverse_frequency,
+        float factor,
+        float low_frequency_factor,
+        float high_frequency_factor,
+        int original_context_length )
+    {
+        if ( original_context_length <= 0 )
+            return inverse_frequency;
+
+        const float original = static_cast<float>( original_context_length );
+        const float wavelength = 2.0f * static_cast<float>( M_PI ) / inverse_frequency;
+
+        if ( wavelength > original / low_frequency_factor )
+            return inverse_frequency / factor;
+
+        if ( wavelength < original / high_frequency_factor )
+            return inverse_frequency;
+
+        const float smooth = ( original / wavelength - low_frequency_factor ) / ( high_frequency_factor - low_frequency_factor );
+
+        return ( 1.0f - smooth ) * inverse_frequency / factor + smooth * inverse_frequency;
+    }
+
     __global__ void rope_build_cache_kernel(
         float* __restrict__ cos_out,
         float* __restrict__ sin_out,
@@ -31,7 +61,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         int max_seq_len,
         float base,
         int rope_pairs,
-        int freq_denominator )
+        int freq_denominator,
+        float scaling_factor,
+        float scaling_low_frequency_factor,
+        float scaling_high_frequency_factor,
+        int scaling_original_context_length )
     {
         int pos = blockIdx.x * blockDim.x + threadIdx.x;
         int i = blockIdx.y * blockDim.y + threadIdx.y;
@@ -42,7 +76,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
         if ( i < rope_pairs )
         {
-            float theta = __powf( base, -2.0f * static_cast<float>(i) / static_cast<float>(freq_denominator) );
+            float theta = scale_inverse_frequency(
+                __powf( base, -2.0f * static_cast<float>(i) / static_cast<float>(freq_denominator) ),
+                scaling_factor, scaling_low_frequency_factor, scaling_high_frequency_factor,
+                scaling_original_context_length );
             float angle = static_cast<float>(pos) * theta;
 
             cos_out[ idx ] = cosf( angle );
@@ -318,6 +355,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         float  base,
         int    rotary_dim,
         int    rotary_layout,
+        float  scaling_factor,
+        float  scaling_low_frequency_factor,
+        float  scaling_high_frequency_factor,
+        int    scaling_original_context_length,
         cudaStream_t stream )
     {
         assert( head_dim % 2 == 0 );
@@ -353,7 +394,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             (half_dim + TY - 1) / TY );
 
         rope_build_cache_kernel << <grid, block, 0, stream >> > (
-            cos_cache, sin_cache, half_dim, max_seq_len, base, rope_pairs, freq_denominator);
+            cos_cache, sin_cache, half_dim, max_seq_len, base, rope_pairs, freq_denominator,
+            scaling_factor, scaling_low_frequency_factor, scaling_high_frequency_factor, scaling_original_context_length );
 
         cudaCheck( cudaGetLastError() );
     }

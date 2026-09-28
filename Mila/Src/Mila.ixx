@@ -202,6 +202,8 @@ export import Dnn.Components.Gqa;
 export import Compute.GqaWorkspace;
 export import Dnn.Components.Lpe;
 export import Dnn.Components.Rope;
+export import Dnn.Components.RotaryLayout;
+export import Dnn.Components.RopeFrequencyScaling;
 export import Dnn.Components.Gelu;
 export import Dnn.Components.Activation;
 export import Dnn.Components.AttentionOutputGate;
@@ -341,6 +343,7 @@ export import Serialization.Tensor;
 export import Serialization.ArchiveSerializer;
 export import Serialization.ZipSerializer;
 export import Serialization.SafeTensors;
+export import Serialization.WeightsMetadata;
 export import Serialization.WeightsReader;
 
 // ============================================================================

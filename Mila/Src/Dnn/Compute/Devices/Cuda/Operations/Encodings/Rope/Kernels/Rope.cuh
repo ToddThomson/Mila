@@ -24,6 +24,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      *                   rotation (default). A positive value < head_dim rotates only
      *                   the first rotary_dim dims (proportional partial-rotary); the
      *                   remainder get zero frequency (identity / pass-through).
+     * @param scaling_factor, scaling_low_frequency_factor, scaling_high_frequency_factor,
+     *        scaling_original_context_length  Llama 3's wavelength-banded frequency scaling
+     *                   (RopeFrequencyScaling); an original context of 0 applies none.
      * @param stream     CUDA stream.
      */
     void cuda_rope_build_cache_fp32(
@@ -34,6 +37,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         float  base,
         int    rotary_dim,
         int    rotary_layout,
+        float  scaling_factor,
+        float  scaling_low_frequency_factor,
+        float  scaling_high_frequency_factor,
+        int    scaling_original_context_length,
         cudaStream_t stream );
 
     // ========================================================================

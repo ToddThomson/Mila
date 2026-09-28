@@ -469,8 +469,8 @@ layers and were sized to the *global* layer's `T_ctx` width. Global attention is
 
 **Coupling (the correctness constraint).** The buffer width MUST match the op's flash decision
 or the cuBLASLt global path overflows a narrow buffer. Both now derive from one source of truth,
-`GemmaTransformer::useFlashPrefillForContext(T_ctx)` (`Gemma.ixx`): flash-on when
-`T_ctx >= kGemmaFlashPrefillMinContext` (default 16384) and BF16. The transformer sets it on the
+`GemmaTransformer::usesFlashPrefill()` (`Gemma.ixx`) -- a context threshold of 16384 until 5.7's
+re-measurement removed it, so the rest of this paragraph describes that time. The transformer sets it on the
 global blocks (`setUseFlashPrefill` passthrough: `GemmaBlock` -> `GroupedQueryAttention` -> op)
 AND sizes `preatt`/`att` via `prefillScoreWidth(T_ctx)`. `CudaGqaOp::use_flash_prefill_` default
 restored to **false** (safe): a standalone op never flashes into a narrow shared buffer. Below
@@ -550,6 +550,15 @@ Gemma 4 12B FP4 prefill: 8K 2,614 ms (3,134 tokens/s, from 2,594) and 32K 15,011
 from 1,389), against llama.cpp on Google's Q4_0 GGUF at 2,385 and 1,960 tokens/s on the same card --
 1.31x and 1.11x ahead. The Q4_0 build's staged GEMM is the remaining gap there (`Quantization.md`,
 Q4_0 decision 4).
+
+**The context threshold, re-measured 2026-09-27** (`CudaGqaFlashPrefillRate.DISABLED_AcrossPromptLengths`:
+one op, both paths, chunk 512, attention alone, prompts 512 to 32768). The packed kernel wins at every
+length on both cards: Llama geometries 5.9x to 9.1x, Qwen's full attention 3.5x to 4.6x, Gemma's global
+layers 1.45x to 3.7x, the margin largest at the shortest prompts. The bounded ring kernel on Gemma's sliding
+layers (16 heads, 8 KV heads, head dimension 256, window 1024) wins too: 2.0x to 3.5x on the RTX 5060 Ti,
+2.05x to 3.1x on the RTX 4070. **The threshold is removed in every family**: flash is the prefill of every
+BF16 build, and `usesFlashPrefill()` on each transformer is the one decision the op toggle and the score-buffer
+width both read. Llama's wiring and the removal are `ModelFamilyParity.md` 8.4, L4.
 
 ## 6. Correctness / parity invariant
 

@@ -628,10 +628,9 @@ namespace Mila::Dnn
 
                     if ( context.isInferenceMode() )
                     {
-                        // The full-attention layers are unbounded, so the flash decision is
-                        // one number for the whole stack and MUST agree with
-                        // prefillScoreWidth() below. Fused decode is declared on block_context.
-                        block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
+                        // The flash decision MUST agree with prefillScoreWidth() below. Fused decode
+                        // is declared on block_context.
+                        block->setUseFlashPrefill( usesFlashPrefill() );
                     }
 
                     blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
@@ -773,17 +772,17 @@ namespace Mila::Dnn
         // Prefill chunk + shared workspaces
         // ====================================================================
 
-        // Context length (>=) at which the BF16 attention layers switch from the cuBLASLt
-        // prefill path to the fused FlashAttention kernel. Below it cuBLASLt is faster and
-        // its O(chunk x T_ctx) score workspace still fits; at or above it that workspace is
-        // the memory wall. 0 disables flash entirely.
-        static constexpr dim_t kFlashPrefillMinContext = 16384;
-
-        bool useFlashPrefillForContext( dim_t T_ctx ) const noexcept
+        /**
+         * @brief Whether the full-attention layers prefill through the fused FlashAttention kernel: every BF16 build
+         *        whose head size the kernel serves.
+         *
+         * No context threshold: the kernel is 3.5x to 4.6x faster than the cuBLASLt pipeline at these layers'
+         * geometry from a 512-token prompt up (GqaFlashAttention.md 5.7). FP32 has no flash kernel.
+         */
+        bool usesFlashPrefill() const
         {
             return TPrecision == TensorDataType::BF16
-                && kFlashPrefillMinContext > 0
-                && T_ctx >= kFlashPrefillMinContext;
+                && AttentionBlockType::AttentionType::supportsFlashPrefill( config_.getHeadDim() );
         }
 
         /**
@@ -794,9 +793,9 @@ namespace Mila::Dnn
          * O(chunk x T_ctx) term disappears from the row cost entirely. It is kept at one row
          * rather than zero so the allocation stays a valid tensor.
          */
-        dim_t prefillScoreWidth( dim_t T_ctx ) const noexcept
+        dim_t prefillScoreWidth( dim_t T_ctx ) const
         {
-            return useFlashPrefillForContext( T_ctx ) ? dim_t{ 1 } : T_ctx;
+            return usesFlashPrefill() ? dim_t{ 1 } : T_ctx;
         }
 
         // Max slot widths, shared by the workspace allocation and its footprint so the two
@@ -911,7 +910,7 @@ namespace Mila::Dnn
         {
             // score_width MUST match the op's flash decision (set on each block above via
             // setUseFlashPrefill) or the cuBLASLt path would overflow a narrow buffer; both
-            // derive from useFlashPrefillForContext(T_ctx).
+            // derive from usesFlashPrefill().
             gqa_workspace_ = makeGqaWorkspace<TDeviceType, TPrecision>(
                 this->getExecutionContext()->getDeviceId(), B, config_.getNumHeads(), config_.getHeadDim(),
                 T_ctx, prefill_chunk_size_, prefillScoreWidth( T_ctx ), this->getName() + ".gqa_ws." );

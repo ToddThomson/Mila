@@ -60,8 +60,8 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 | Sampling on the device: top-k, top-p, seedable | -- | Y | Y | Llama samples on the host, applies temperature and top-k only (so `top_p` is ignored) and seeds from the clock, so `seedSampler` has no effect (`LlamaModel.ixx:391`) |
 | Sampling overlapped with the next forward | -- | Y | Y | Llama synchronizes after every prefill and decode |
 | Prompt-prefix reuse | -- | Y | n/a | Gemma `GemmaModel.ixx:412`; Qwen `supportsPromptPrefixReuse`, `QwenModel.ixx:338` |
-| Correct at the trained context length | -- | Y | Y | Llama's `rope_scaling` is stored and never applied; the Rope component has no scaling knob (`Vnext.md`, "Llama's long-context scaling factor is stored, printed, and never used") |
-| Flash-attention prefill | -- | Y | Y | Llama's attention scratch spans the full context (`Llama.ixx:380`) |
+| Correct at the trained context length | partial | Y | Y | Llama's frequency scaling applied since 8.4 L2, and matched to HuggingFace past 8192 on the 3.2 1B; quality across the planner's range is L3 |
+| Flash-attention prefill | Y | Y | Y | every BF16 build of every family, with no context threshold (8.4, L4) |
 
 ### 3.2 Weights and memory
 
@@ -71,7 +71,7 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 | Embedding table and output head quantized with the body | -- | Y | Y | Llama's are always BF16 (`Llama.ixx:86`, `:88`): about 1.4 GiB on 3.1 8B |
 | Sub-4-bit codebook weights | -- | -- | Y | the fitting and packing tools are Qwen's (`Tools/Quantization/pack_qwen.py`, `qwen_plan.py`); the dispatch is Qwen's own (`dispatchQwenWeightPlan`) |
 | KV-cache compression | -- | -- | -- | `PerChannelKvFp8<>` specified, not built (`QuantizationDispatch.ixx:103`) |
-| Sequence log-likelihood at the network layer, for the quality harness | -- | Y | Y | `sequenceLogLikelihood` on `GemmaTransformer` and `QwenTransformer`, reached through `Tests/Common/LogLikelihoodHarness.h`; what an in-library perplexity gate measures. Until `0.21.0-dev+9` it was Qwen's `scoreTokens`, public on `QwenModel` with a head width on every family's deployment request; both left the public surface (8.2, G1) |
+| Sequence log-likelihood at the network layer, for the quality harness | Y | Y | Y | `sequenceLogLikelihood` on `GemmaTransformer` and `QwenTransformer`, reached through `Tests/Common/LogLikelihoodHarness.h`; what an in-library perplexity gate measures. Until `0.21.0-dev+9` it was Qwen's `scoreTokens`, public on `QwenModel` with a head width on every family's deployment request; both left the public surface (8.2, G1) |
 | Deployment planning, exact footprint | Y | Y | Y | `Deployment.md` Phases 1 to 4 |
 
 ### 3.3 Grammar
@@ -88,7 +88,7 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 
 | Capability | Llama | Gemma | Qwen | Anchor |
 |---|---|---|---|---|
-| Token-for-token agreement with HuggingFace, in the suite | -- | Y | Y | `GemmaModel.Parity.Cuda.cpp`, `QwenModel.Parity.Cuda.cpp`; Llama has only `LlamaModel.Footprint.Cuda.cpp`, and no parity script under `Tools/Converters/Llama` |
+| Token-for-token agreement with HuggingFace, in the suite | Y | Y | Y | `GemmaModel.Parity.Cuda.cpp`, `QwenModel.Parity.Cuda.cpp`; Llama's `Llama.HuggingFaceReference.Cuda.cpp` (tiny model, in the suite) and `Llama.LogLikelihood.Cuda.cpp` (the real 3.2 1B, opt-in) |
 | Throughput harness | -- | Y | Y | `GemmaModel.Rates.Cuda.cpp`; Qwen's `DISABLED_PrefillRate` / `DISABLED_DecodeRate*` |
 | Quality measured across the planner's range | -- | -- | partial | Qwen to 16K (`Qwen3.8.md` §8) while the planner chooses up to 64512 for cb2-3 on 16 GB; Gemma unmeasured above 131072 against a header of 262144; Llama as the RoPE row above |
 
@@ -129,7 +129,7 @@ each row is in scope unless it cannot fit 16 GB; the last column says whether th
 | Qwen 3.8 27B | Multi-token prediction head, one layer (~0.45 B) | -- both converters skip `mtp.*` | not priced | nowhere |
 | Qwen 3.8 27B | 262144-token context, 1M by YaRN | the planner allows 262144; quality measured to 16K | only with KV-cache compression, and not at FP4 | BACKLOG, "Qwen's perplexity gate has only been run to 16K"; KV compression entry |
 | Qwen 3.8 | Smaller dense members | -- | yes | BACKLOG, "The smaller dense Qwen members were never built" |
-| Llama 3.1 / 3.2 | 128K context by Llama 3 RoPE scaling | -- the factor is never applied, for either (32.0 on 3.2 1B and 3B, 8.0 on 3.1) | 8B: only with KV compression | `Vnext.md` |
+| Llama 3.1 / 3.2 | 128K context by Llama 3 RoPE scaling | Y since 8.4 L2; quality past 10240 unmeasured (L3) | 8B: only with KV compression | 8.4 |
 | Llama 3.1 | Built-in tools (the `ipython` role, `<|python_tag|>` ... `<|eom_id|>`) | custom JSON tools only (`Chat.MessageFormatter.ixx:143`) | yes | nowhere |
 
 "Nowhere" is a finding: a capability the base model has that no Mila record names.
@@ -627,15 +627,132 @@ code, gated by Qwen's scores staying bit-identical.
 
 ### 8.4 Llama 3.x
 
-Not started, and the largest. It follows section 9 item 3's order: RoPE scaling, then quality across the
-planner's range, which needs Llama's own head width and window loop over G1's shared helper; then device
-sampling with its overlap, flash prefill and table quantization, which apply work already done in the other
-families; then the grammar in `Mila/Src`, which is `ModelHandle.md` Phase 2's Llama half; then an HF parity
-test, a rate harness and streaming in Chat. The 1B shares the 3B's chassis, so every Llama cell covers
-it; what it lacks of its own is a published package, and whether that publish joins the pass or stays in
-`Future.md` is decided when the pass starts. The Llama half of `Gemma4MoE.md` Phase 2b -- delegating its FFN,
-which renames its tensors -- moves here from Gemma's pass (section 9), so that Llama republishes once,
-together with whatever the table work changes in its package.
+Started 2026-09-27, and the largest. Section 9 item 3's order: the measurement tooling first, as G1 was for
+Gemma, because every later gate reads it; then correctness, then parity inside Mila, then grammar. The 1B
+shares the 3B's chassis, so every Llama cell covers it; what it lacks of its own is a published package, and
+whether that publish joins the pass or stays in `Future.md` is decided at L7. The Llama half of
+`Gemma4MoE.md` Phase 2b -- delegating its FFN, which renames its tensors -- moves here from Gemma's pass
+(section 9), so that Llama republishes once, together with whatever L6 changes in its package.
+
+**L1 -- Sequence log-likelihood and HuggingFace token parity, in the suite.** *Closes:* 3.2's log-likelihood
+row and 3.4's first row. *Needs:* nothing. `LlamaTransformer` gains `sequenceLogLikelihood` over G1's shared
+reduction (no softcap) and `withLogLikelihoodWindow` on its config, reached only through
+`Tests/Common/LogLikelihoodHarness.h` (8.1's audit). The reference is a tiny random Llama, as Gemma's MoE
+gates use, not the real 3.2 1B: every real Llama 3.x checkpoint carries RoPE scaling, so no real model can
+match HuggingFace before L2, and the real 1B's token parity moves to L2's gate.
+`Tools/Converters/Llama/hf_llama_tiny_reference.py` builds it (head dimension 128, a group of 2, so L4 reuses
+it), converts it with the converter, and records logits and per-position log-likelihood;
+`Llama.HuggingFaceReference.Cuda.cpp` reproduces both. *Gate:* logits within 1e-4 and the total within 1e-4
+of HuggingFace's at FP32; each scored position's argmax is the greedy token; window 1 and window 64 on the
+3.1 8B at FP4 within G1's 2e-3.
+
+- *Result, 2026-09-27* (RTX 5060 Ti). FP32 logits within 7.4e-6 at the prefill and every decode step; the total
+  within 4.8e-6 of HuggingFace's -191.2256 at windows 1, 3 and 8; argmax is the greedy token at all six
+  positions. BF16 within 2.1e-2 relative L2, and one argmax differs: step 1, where HuggingFace's own two best
+  logits are 0.0087 apart, under one BF16 step at that magnitude (0.0156), which the BF16 head cannot order.
+  The BF16 gate accepts a disagreement only inside that step -- set after this run, and said so. The 3.1 8B
+  at FP4, 15,479 wikitext positions at context 1024: perplexity 11.8945 at window 1 and 11.8941 at window 64,
+  2.8e-5 apart (the head is BF16, so there is no staged FP8 path to widen it as Gemma's is), 60 s against 15 s.
+- The pass's audit removed from `LlamaTransformer` what nothing reached: five build-shape members never
+  assigned (so `toString` and the saved metadata reported zeros), an unused prefill buffer, and two helpers,
+  one of them the `createConfigFromMetadata` whose commented-out RoPE line `Vnext.md` cites.
+
+**L2 -- RoPE scaling.** *Closes:* 3.1's context row and 4's Llama 3 RoPE row (`Vnext.md`, "Llama's
+long-context scaling factor is stored, printed, and never used"). *Needs:* L1. Llama 3's frequency scaling
+in the Rope component and its CPU and CUDA operations, from the factor, the low- and high-frequency factors
+and the original context the checkpoint's `rope_scaling` carries. Below the original 8192 the scaled and
+unscaled tables differ only in the low-frequency bands, so the gate must read past it -- or shrink it: a tiny
+model with an original context of 32 shows the scaling inside a 32-token capture, and at head dimension 128
+puts frequencies in all three of the rule's bands. *Gate:* L1's tiny-model gates on a capture with Llama 3
+scaling, and *the gate can fail*: with scaling off it must; then the real 3.2 1B against HuggingFace at FP32
+over 10240 wikitext tokens, mean log-likelihood within 1e-3 nats per token below 8192 and past it, with
+scaling off missing past it; and its greedy tokens.
+
+- *Built.* `RopeFrequencyScaling` (its own module) on `RopeConfig`, applied where the cos/sin table is built and
+  part of the table's cache key; `RotaryLayout` left `Rope.Config.ixx` and `WeightsMetadata` left
+  `WeightsReader.ixx` under the one-type rule. `LlamaConfig::withRoPEFrequencyScaling` replaces the bare factor
+  nothing read. The converter writes the rule and its four values (`rope_scaling`: `none` or `llama3`), and
+  `ExportArtifact` carries them. **A Llama file that records neither is refused**: 3.1 and 3.2 are wrong at
+  every position without it, so every Llama file converted before this change must be converted and exported
+  again -- including the two published packages, which L7's republish replaces.
+- *Result, 2026-09-27* (RTX 5060 Ti). Tiny scaled capture: FP32 logits within 7.0e-6, the total within 1.1e-5
+  at windows 1, 3 and 8, BF16 argmax equal at every step; the same weights read without the scaling miss by
+  0.25 nats. The real 3.2 1B, 10240 tokens: 2.274533 and 1.855534 nats per token below and past 8192, within
+  3.3e-8 and 5.1e-7 of HuggingFace; without the scaling, 2.301501 and 1.894908 -- 0.027 and 0.039 worse. That
+  is what every Llama Mila shipped has run at: not only past 8192, at every position. Greedy tokens equal
+  HuggingFace's.
+
+**L3 -- Quality across the planner's range.** *Closes:* 3.4's third row, and section 9 item 2. *Needs:* L1,
+L2. G2's protocol and its three tests on the same PG-19 books, inside a Llama user turn, on the 3.1 8B at
+FP4 to the largest context the planner chooses on the reference card after L4.
+
+**L4 -- Flash-attention prefill, and the context threshold retired in every family.** *Closes:* 3.1's flash
+row (`Vnext.md`, "Llama prefill has no flash path and is 3.8x slower than a larger Gemma") and the rest of
+`Untriaged.md`'s long-context prefill entry ("Gemma and Qwen still switch flash off below a context
+threshold"). *Needs:* L1 for its end-to-end gate; L2, or section 9 item 2's stopgap, before it reaches a
+user, because removing the score buffers raises the context the planner chooses for Llama.
+
+- *Measured, 2026-09-27* (`CudaGqaFlashPrefillRate.DISABLED_AcrossPromptLengths`, one binary, both paths
+  on one op, chunk 512, attention alone). The packed kernel beats the cuBLASLt pipeline at every prompt
+  length from 512 to 32768 and at every unbounded geometry, on both cards:
+
+  | Geometry | RTX 5060 Ti | RTX 4070 |
+  |---|---|---|
+  | Llama 3.1 8B (32 / 8 / 128) | 6.5x at 512, 7.4x at 32K | 6.4x, 8.4x |
+  | Llama 3.2 3B (24 / 8 / 128) | 7.4x, 8.9x | 5.9x, 8.2x |
+  | Qwen 3.8 full attention (24 / 4 / 256) | 4.4x, 3.5x | 4.6x, 3.8x |
+  | Gemma 4 global (16 / 1 / 512) | 2.4x, 1.45x | 3.7x, 1.9x |
+
+  The op is built at the prompt length; a deployed op is built at the whole context, which can only add to
+  the cuBLASLt side. The threshold existed because Stage 2d lost at short prompts (`GqaFlashAttention.md`
+  5.7); the packed kernel does not, so no unbounded layer keeps it. Gemma's sliding layers run the bounded
+  ring kernel, which this table does not cover, and are measured the same way before Gemma's threshold goes.
+- *Llama.* Flash on for every BF16 build; FP32 keeps cuBLASLt. The seven loose workspace tensors become
+  `GqaWorkspace` from `makeGqaWorkspace`, as Qwen's are, with the score width derived from the same
+  decision, so the 3.1 8B at 131072 and chunk 512 stops reserving 4 GiB per score buffer. The footprint
+  (`requiredMemoryAtChunk`) reads the same width. Fused decode is wired in the same change
+  (`withFusedDecode`): its kernel already passes at Llama's geometry
+  (`CudaGqaDecodeParity.FusedMatchesCublasLt_LlamaConfig`) and nothing turns it on; it ships only if the
+  decode rate does not fall. The chunk rungs (512, 256, 128, against 1024 first in the other families) were
+  set while the score buffers scaled with the chunk; they are re-measured, not assumed.
+- *Llama result, 2026-09-27* (3.1 8B FP4, RTX 5060 Ti, one build; the cuBLASLt arm is the same network with a
+  full-width score buffer installed and flash off, `Llama.LogLikelihood.Cuda.cpp`). Flash scores 15,479
+  wikitext positions at context 4096 at 2.248195 nats per token against cuBLASLt's 2.249025, 8.3e-4 apart.
+  Prefill: 4,193 tokens/s against 1,569 at an 8K prompt (2.7x), 2,383 against 509 at 32K (4.7x). Fused decode
+  in a 32K deployment: 66.8 tokens/s against 38.3 after a 512-token prompt, 46.8 against 34.6 after 16K. The
+  tiny model's BF16 gates hold with both on. RTX 4070: 9.6e-4 apart; prefill 3,698 against 1,486 at 8K and
+  1,388 against 415 at 32K (where the 12 GB card plans a 128-row chunk); decode 78.0 against 40.1 and 57.1
+  against 34.8. The planner's choice for the 8B on `DeploymentPlanner.G2.Cuda.cpp`'s recorded readings rises
+  from 13312 to 19456 on the 4070 and from 33792 to 50176 on the 5060 Ti.
+- *Gemma and Qwen.* `kGemmaFlashPrefillMinContext` and `kFlashPrefillMinContext` are deleted and the flash
+  decision is precision alone (`usesFlashPrefill()`), after the ring kernel measured 2.0x to 3.5x ahead at the
+  sliding layers' geometry (`GqaFlashAttention.md` 5.7). Gemma keeps its score buffer at the ring capacity so a
+  standalone op's cuBLASLt fallback stays valid; Qwen's is one row.
+- *The threshold had been hiding a head-size limit.* The unbounded kernel serves head sizes 128, 256 and 512 and
+  the ring kernel multiples of 16 to 256; below 16384 nothing reached them, so nothing asked. With the threshold
+  gone the tiny Gemma models (head size 64) threw at prefill, and so would Llama 3.2 1B in BF16 (also 64). Each
+  kernel file now owns a `...supported( head_size )` its launcher checks through, `CudaGqaOp::supportsFlashPrefill`
+  and `GroupedQueryAttention::supportsFlashPrefill` carry it up, and every family's decision is BF16 *and*
+  supported, per layer kind in Gemma, whose score width is the whole context whenever a layer that needs it is
+  left on cuBLASLt. `Llama.Cuda.cpp`'s `Bf16_UnsupportedFlashHeadSize_PrefillsThroughCublasLt` holds it.
+- *Gate, written before the run:*
+  - `CudaGqaFlashPrefillParity` at the 3B and 8B geometries, on both cards. *Passed 2026-09-27.*
+  - L1's HuggingFace token parity and log-likelihood hold with flash on.
+  - The 3.1 8B at FP4 scores the same book prefix with flash and with cuBLASLt within 0.02 nats per token
+    in every band that fits both (Gemma's A/B agreed within 0.016 bare and 0.003 in a turn).
+  - Footprint agreement stays exact (`PlanEqualsBuild`), at every rung.
+  - Prefill rate at 8K and 32K on the RTX 5060 Ti, against the cuBLASLt build and against llama.cpp on a
+    Q4_0 GGUF of the same model, recorded.
+
+**L5 -- Sampling on the device, overlapped with the next forward.** *Closes:* 3.1's first two rows. Applies
+Gemma's and Qwen's sampler; `top_p` and `seedSampler` start working.
+
+**L6 -- Embedding table and output head quantized with the body.** *Closes:* 3.2's second row. Changes the
+package, so it is collected for L7.
+
+**L7 -- One republish, grammar in `Mila/Src`, and the rest of the matrix.** Phase 2b's FFN delegation and
+L6 ride one republish (8.1). The grammar is `ModelHandle.md` Phase 2's Llama half. Then a rate harness and
+streaming in Chat.
 
 ---
 
@@ -652,9 +769,9 @@ together with whatever the table work changes in its package.
    audio, the drafter, the QAT build, the 26B-A4B -- were already in `BACKLOG.md`; the drafter and QAT
    *implementations* sit in `Vnext.md` behind their measurements, which the ROADMAP text keeps out of this
    release (open, item 5).
-2. **Llama above the context it is accurate at, until RoPE scaling lands.** The planner chooses 13312 on
-   the 4070 and 33792 on the 5060 Ti for Llama 3.1 8B. Either implement the scaling first, or lower the
-   ceiling Llama reports until it lands -- which is a stopgap, and says so where it is written.
+2. ~~**Llama above the context it is accurate at, until RoPE scaling lands.**~~ **Resolved 2026-09-27: the
+   scaling landed first** (8.4, L2), before flash raised the planner's choice for the 3.1 8B from 13312 to
+   19456 on the 4070 and from 33792 to 50176 on the 5060 Ti. No stopgap was written.
 3. **The order of the three kinds of work.** Recommend correctness first (RoPE scaling, then quality across
    the planner's range), then parity inside Mila (sampling, flash prefill, tables,
    `sequenceLogLikelihood`), then grammar -- which is also `ModelHandle.md` Phase 2, so it builds the handle's

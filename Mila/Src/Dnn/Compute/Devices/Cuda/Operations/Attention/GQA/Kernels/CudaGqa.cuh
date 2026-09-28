@@ -76,9 +76,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * unpermute, no preatt/att/v_out materialization.
      *
      * Unbounded / global causal path (the caller routes kBounded == false here; the
-     * bounded ring routes to cuda_gqa_flash_prefill_ring_bf16 below). HS must be a
-     * multiple of 32 and <= 512 (Gemma 4 global_head_dim is 512, the head dim this path
-     * actually runs on; Llama 128 also qualifies). `scale` is the config-derived attention
+     * bounded ring routes to cuda_gqa_flash_prefill_ring_bf16 below). HS must be one
+     * cuda_gqa_flash_prefill_supported() accepts. `scale` is the config-derived attention
      * scale (1/sqrt(HS) for Llama, 1.0 for Gemma) -- never recomputed here. See
      * GqaFlashAttention.md.
      */
@@ -97,7 +96,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * key-tile loop starts at the sliding band (~window keys per query tile, constant per
      * block) instead of running causal-triangular from zero. Replaces the cuBLASLt QK ->
      * prefill_softmax_ring -> AV pipeline on Gemma's local sliding layers. Requires
-     * window > 0. See GqaFlashAttention.md.
+     * window > 0 and an HS cuda_gqa_flash_prefill_ring_supported() accepts. See GqaFlashAttention.md.
      */
     void cuda_gqa_flash_prefill_ring_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
@@ -105,6 +104,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
         int position_offset, int window, float scale,
         cudaStream_t stream );
+
+    /// True when the unbounded flash prefill kernel serves this head size: 128, 256 or 512. A caller that sizes
+    /// its score buffer for flash must ask first, since an unsupported head size needs the cuBLASLt pipeline.
+    bool cuda_gqa_flash_prefill_supported( int head_size );
+
+    /// True when the bounded-ring flash prefill kernel serves this head size: a multiple of 16 up to 256.
+    bool cuda_gqa_flash_prefill_ring_supported( int head_size );
 
     // ========================================================================
     // GQA Decode — fused attention (BF16)

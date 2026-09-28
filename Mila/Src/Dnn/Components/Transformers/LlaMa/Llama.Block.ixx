@@ -454,6 +454,25 @@ namespace Mila::Dnn
                 attn_->setState( state );
         }
 
+        /**
+         * @brief Route this block's attention prefill through the fused FlashAttention kernel. BF16 only.
+         *
+         * The transformer couples this to the shared score-buffer width it installs through setState: with flash
+         * on the buffer is one row wide, and the cuBLASLt path would overflow it.
+         */
+        void setUseFlashPrefill( bool enabled )
+        {
+            if ( attn_ )
+                attn_->setUseFlashPrefill( enabled );
+        }
+
+        /// Route this block's attention decode through the fused decode-attention kernel. BF16 only.
+        void setUseFlashDecode( bool enabled )
+        {
+            if ( attn_ )
+                attn_->setUseFlashDecode( enabled );
+        }
+
         // ====================================================================
         // Serialization
         // ====================================================================
@@ -884,7 +903,8 @@ namespace Mila::Dnn
 
             // RoPE.
             auto rope_cfg = RopeConfig( model_dim, n_heads, n_kv, config_.getMaxSequenceLength() )
-                .withBase( config_.getRoPETheta() );
+                .withBase( config_.getRoPETheta() )
+                .withFrequencyScaling( config_.getRoPEFrequencyScaling() );
 
             auto rope = std::make_shared<RopeType>( name + ".rope", rope_cfg );
             this->addComponent( rope );

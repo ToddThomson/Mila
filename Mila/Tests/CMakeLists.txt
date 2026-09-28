@@ -236,6 +236,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Transformers/Gpt/GptBlock.Cuda.cpp"
         "Dnn/Components/Transformers/Gpt/GptTransformer.Cuda.cpp"
         "Dnn/Components/Transformers/Llama/Llama.Cuda.cpp"
+        "Dnn/Components/Transformers/Llama/Llama.HuggingFaceReference.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Block.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.DelegatedFeedForward.Cuda.cpp"
@@ -267,6 +268,7 @@ if(MILA_ENABLE_CUDA)
         # argmax against greedy -- ModelFamilyParity.md 8.2, G1. Common/LogLikelihoodHarness.h builds the network.
         "Dnn/Models/Gemma/Gemma.LogLikelihood.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Footprint.Cuda.cpp"
+        "Dnn/Models/LlaMa/Llama.LogLikelihood.Cuda.cpp"
         # A load that fits BF16 weights settles at its exported form's footprint: the load staging is freed.
         # Needs both weights of each model -- see Specifications/MemoryFootprint.md Phase 6 step 1.
         "Dnn/Models/QuantizeOnLoad.Footprint.Cuda.cpp"

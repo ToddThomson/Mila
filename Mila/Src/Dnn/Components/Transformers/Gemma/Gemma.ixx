@@ -94,18 +94,6 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::Weight;
     using namespace Mila::Dnn::Quant::KvCache;
 
-    // Context length (>=) at which the BF16 attention layers switch from the cuBLASLt
-    // prefill path to the fused FlashAttention kernels -- the unbounded kernel on the
-    // global layers, the bounded-ring variant on the local sliding layers. Below it
-    // cuBLASLt is faster and its O(chunk x T_ctx) score workspace still fits; at/above it
-    // that workspace is the memory wall, so flash both removes the O(S^2) score
-    // materialization and lets the shared preatt/att buffer shrink to the window-bounded
-    // sliding width -- the change that makes long context (target 64K) fit on a 12-16 GB
-    // card (GqaFlashAttention.md 5.6). The build-time context length alone decides this,
-    // so the workspace sizing and the op toggle stay coupled. 0 disables flash entirely
-    // (always cuBLASLt).
-    inline constexpr int64_t kGemmaFlashPrefillMinContext = 16384;
-
     /**
      * @brief Gemma 4 transformer (decoder-only) for autoregressive inference.
      *
@@ -673,14 +661,12 @@ namespace Mila::Dnn
 
                     block->build( block_context );
 
-                    // Global (unbounded) layers own the O(chunk x T_ctx) score buffer. Route
-                    // them through fused flash prefill at long context so that buffer can be
-                    // reclaimed -- MUST agree with prefillScoreWidth() in the workspace sizing.
-                    // Fused decode is declared on block_context above, so its scratch is part of
-                    // the reservation.
+                    // The global (unbounded) layers' flash decision MUST agree with prefillScoreWidth(): the
+                    // cuBLASLt path would need an O(chunk x T_ctx) score buffer. Fused decode is declared on
+                    // block_context above, so its scratch is part of the reservation.
                     if ( context.isInferenceMode() )
                     {
-                        block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
+                        block->setUseFlashPrefill( usesFlashPrefillOnGlobalLayers() );
                     }
 
                     blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
@@ -694,14 +680,12 @@ namespace Mila::Dnn
 
                     block->build( block_context );
 
-                    // Local (sliding) layers flash at the same threshold via the bounded-
-                    // ring kernel variant, replacing the ring softmax + separate QK/AV
-                    // GEMMs. They stop reading the shared preatt/att buffer when flashed;
-                    // prefillScoreWidth() deliberately still sizes it for them so the
-                    // cuBLASLt fallback stays valid (further reclaim tracked in BACKLOG).
+                    // Local (sliding) layers flash through the bounded-ring kernel variant. They stop reading
+                    // the shared preatt/att buffer when flashed; prefillScoreWidth() still sizes it for them so
+                    // the cuBLASLt fallback stays valid.
                     if ( context.isInferenceMode() )
                     {
-                        block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
+                        block->setUseFlashPrefill( usesFlashPrefillOnLocalLayers() );
                     }
 
                     blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
@@ -876,23 +860,29 @@ namespace Mila::Dnn
         // Shared block scratch + GQA workspace
         // ====================================================================
 
-        // Whether the BF16 layers (global AND local sliding) run fused flash prefill at
-        // this build-time context length (kGemmaFlashPrefillMinContext). A pure function of
-        // T_ctx so the op toggle and the shared preatt/att workspace width stay coupled.
-        bool useFlashPrefillForContext( int64_t T_ctx ) const noexcept
+        /**
+         * @brief Whether the global layers prefill through the unbounded flash kernel: every BF16 build whose global
+         *        head size it serves.
+         *
+         * No context threshold: the kernel is 1.4x to 3.7x faster than the cuBLASLt pipeline at the global layers'
+         * geometry from a 512-token prompt up (GqaFlashAttention.md 5.7). FP32 has no flash kernel.
+         */
+        bool usesFlashPrefillOnGlobalLayers() const
         {
             return TPrecision == TensorDataType::BF16
-                && kGemmaFlashPrefillMinContext > 0
-                && T_ctx >= kGemmaFlashPrefillMinContext;
+                && GlobalBlockType::AttentionType::supportsFlashPrefill( config_.getGlobalHeadDim() );
         }
 
-        // Width of the shared prefill preatt/att score buffer. With flash on, the global
-        // layers no longer touch it, so it shrinks to the window-bounded sliding layers'
-        // exact need (matching CudaGqaOp cache_capacity_ for kBounded); otherwise the
-        // global cuBLASLt path needs the full context width. With the local layers now
-        // also flashed, no prefill path reads it at all above the threshold -- the width
-        // is deliberately KEPT at the sliding need so the cuBLASLt fallback (flash toggled
-        // off on a standalone op) stays valid; shrinking further is a tracked follow-up.
+        /**
+         * @brief Whether the sliding layers prefill through the bounded-ring flash kernel, 2.0x to 3.5x faster than
+         *        their cuBLASLt pipeline: every BF16 build whose sliding head size it serves.
+         */
+        bool usesFlashPrefillOnLocalLayers() const
+        {
+            return TPrecision == TensorDataType::BF16
+                && LocalBlockType::AttentionType::supportsFlashPrefill( config_.getHeadDim() );
+        }
+
         /**
          * @brief Bytes the pooled per-block activation workspace would take.
          *
@@ -943,23 +933,31 @@ namespace Mila::Dnn
             return 2 * occupiedDeviceBytes( static_cast<std::size_t>( cache_elements ) * sizeof( float ), granularity );
         }
 
-        int64_t prefillScoreWidth( int64_t T_ctx ) const noexcept
+        int64_t prefillScoreWidth( int64_t T_ctx ) const
         {
             return prefillScoreWidth( T_ctx, prefill_chunk_size_ );
         }
 
         /**
-         * @brief Score width for an explicit chunk, for callers that run before build().
+         * @brief Width of the shared prefill score buffer, for an explicit chunk so callers before build() can ask.
          *
-         * getRequiredMemory() reports the workspace before prefill_chunk_size_ has been
-         * assigned, so it must pass the chunk its context carries rather than read the member.
+         * A layer on the cuBLASLt path reads it across every cached column: the whole context for a global layer, or
+         * for a sliding layer built without the ring cache, and the ring capacity (CudaGqaOp's cache_capacity_ for
+         * kBounded) for a ring one. So it is the whole context when any layer of the first two kinds misses flash,
+         * and otherwise the ring capacity -- kept even when every layer flashes, so a standalone op's cuBLASLt
+         * fallback stays valid.
          */
-        int64_t prefillScoreWidth( int64_t T_ctx, int64_t prefill_chunk ) const noexcept
+        int64_t prefillScoreWidth( int64_t T_ctx, int64_t prefill_chunk ) const
         {
-            if ( useFlashPrefillForContext( T_ctx ) )
-                return std::min<int64_t>( T_ctx, config_.getWindow() + prefill_chunk - 1 );
+            constexpr bool kLocalLayersRing = std::is_same_v<TKvCachePolicy, SlidingWindowKvCache>;
 
-            return T_ctx;
+            const bool needs_whole_context = !usesFlashPrefillOnGlobalLayers()
+                || ( !kLocalLayersRing && !usesFlashPrefillOnLocalLayers() );
+
+            if ( needs_whole_context )
+                return T_ctx;
+
+            return std::min<int64_t>( T_ctx, config_.getWindow() + prefill_chunk - 1 );
         }
 
         void allocateBlockWorkspace( int64_t B )
@@ -971,13 +969,9 @@ namespace Mila::Dnn
 
         void allocateAndWireGqaWorkspace( int64_t B, int64_t T_ctx )
         {
-            // preatt/att carry the O(chunk x score_width) score matrix for the cuBLASLt
-            // path. With flash on the global layers, only the window-bounded sliding layers
-            // still use these, so score_width collapses from T_ctx to the ring capacity --
-            // reclaiming ~1 GB at 64K (GqaFlashAttention.md 5.6). MUST match the op's flash
-            // decision (set on the global blocks in the build loop via setUseFlashPrefill) or
-            // the cuBLASLt global path would overflow a narrow buffer; both derive from
-            // useFlashPrefillForContext(T_ctx).
+            // preatt/att carry the O(chunk x score_width) score matrix for the cuBLASLt path. The width MUST
+            // match the flash decision set on the blocks in the build loop, or the cuBLASLt global path would
+            // overflow a narrow buffer; both derive from usesFlashPrefillOnGlobalLayers().
             gqa_workspace_ = makeGqaWorkspace<TDeviceType, TPrecision>(
                 this->getExecutionContext()->getDeviceId(), B, config_.getNumHeads(),
                 std::max( config_.getHeadDim(), config_.getGlobalHeadDim() ),

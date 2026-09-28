@@ -357,6 +357,19 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Whether setUseFlashPrefill( true ) can run at `head_size` on this device and precision.
+         *
+         * The transformer asks before it sizes the shared score buffer for flash.
+         */
+        static bool supportsFlashPrefill( dim_t head_size )
+        {
+            if constexpr ( TDeviceType == DeviceType::Cuda )
+                return OpType::supportsFlashPrefill( head_size );
+            else
+                return false;
+        }
+
+        /**
          * @brief Route the BF16 decode through the fused decode-attention kernel.
          *
          * Only the CUDA BF16 ops honor this; other backends, FP32, and unsupported

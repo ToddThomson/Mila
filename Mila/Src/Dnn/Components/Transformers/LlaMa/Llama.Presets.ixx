@@ -3,9 +3,19 @@
 export module Dnn.Components.LlamaTransformer:Presets;
 
 import :Config;
+import Dnn.Components.RopeFrequencyScaling;
 
 namespace Mila::Dnn
 {
+    namespace
+    {
+        // Every Llama 3.1 and 3.2 checkpoint's `rope_scaling`, which differ only in the factor.
+        RopeFrequencyScaling Llama3FrequencyScaling( float factor )
+        {
+            return RopeFrequencyScaling{ factor, 1.0f, 4.0f, 8192 };
+        }
+    }
+
     /**
      * Usage Examples:
      *
@@ -47,7 +57,7 @@ namespace Mila::Dnn
             .withNumKVHeads( 8 )
             .withHiddenDimension( 8192 )
             .withRoPETheta( 500000.0f )
-            .withRoPEScalingFactor( 32.0f );
+            .withRoPEFrequencyScaling( Llama3FrequencyScaling( 32.0f ) );
     }
 
     /**
@@ -67,7 +77,7 @@ namespace Mila::Dnn
             .withNumKVHeads( 8 )
             .withHiddenDimension( 8192 )
             .withRoPETheta( 500000.0f )
-            .withRoPEScalingFactor( 32.0f );
+            .withRoPEFrequencyScaling( Llama3FrequencyScaling( 32.0f ) );
     }
 
     // ========================================================================
@@ -93,7 +103,7 @@ namespace Mila::Dnn
             .withNumKVHeads( 8 )
             .withHiddenDimension( 14336 )
             .withRoPETheta( 500000.0f )
-            .withRoPEScalingFactor( 8.0f );
+            .withRoPEFrequencyScaling( Llama3FrequencyScaling( 8.0f ) );
     }
 
     /**
@@ -112,7 +122,7 @@ namespace Mila::Dnn
             .withNumKVHeads( 8 )
             .withHiddenDimension( 28672 )
             .withRoPETheta( 500000.0f )
-            .withRoPEScalingFactor( 8.0f );
+            .withRoPEFrequencyScaling( Llama3FrequencyScaling( 8.0f ) );
     }
 
     /**
@@ -131,7 +141,7 @@ namespace Mila::Dnn
             .withNumKVHeads( 8 )
             .withHiddenDimension( 53248 )
             .withRoPETheta( 500000.0f )
-            .withRoPEScalingFactor( 8.0f );
+            .withRoPEFrequencyScaling( Llama3FrequencyScaling( 8.0f ) );
     }
 
     // ========================================================================

@@ -63,7 +63,6 @@ namespace Mila::Tests::Deployment
                 .withHiddenDimension( 128 )
                 .withMaxSequenceLength( kContext )
                 .withRoPETheta( 10000.0f )
-                .withRoPEScalingFactor( 1.0f )
                 .withBias( false );
         }
 

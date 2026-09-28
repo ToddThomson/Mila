@@ -25,7 +25,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      * @brief Process-wide shared cache for RoPE cos/sin frequency tables.
      *
      * The cos/sin tables are a pure function of (device_id, table_rows, head_dim,
-     * rotary_dim, rotary_layout, base, precision). In a typical transformer every attention layer constructs a
+     * rotary_dim, rotary_layout, base, frequency scaling, precision). In a typical transformer every attention layer constructs a
      * CudaRopeOp with identical parameters; this registry ensures the tables are
      * allocated and filled exactly once per unique configuration and freed when the
      * last referencing op is destroyed.
@@ -46,6 +46,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             dim_t                  rotary_dim;   ///< 0 = full rotation; > 0 = partial-rotary
             int                    rotary_layout; ///< 0 = WholeHead, 1 = RotaryPrefix -- CHANGES THE FREQUENCIES
             float                  base;
+            float                  scaling_factor;
+            float                  scaling_low_frequency_factor;
+            float                  scaling_high_frequency_factor;
+            dim_t                  scaling_original_context_length; ///< 0 = no frequency scaling
             Dnn::TensorDataType    precision;
 
             bool operator==( const CacheKey& ) const = default;
@@ -66,6 +70,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 seed = mix( seed, std::hash<dim_t>{}( k.rotary_dim ) );
                 seed = mix( seed, std::hash<int>{}( k.rotary_layout ) );
                 seed = mix( seed, std::hash<uint32_t>{}( std::bit_cast<uint32_t>( k.base ) ) );
+                seed = mix( seed, std::hash<uint32_t>{}( std::bit_cast<uint32_t>( k.scaling_factor ) ) );
+                seed = mix( seed, std::hash<uint32_t>{}( std::bit_cast<uint32_t>( k.scaling_low_frequency_factor ) ) );
+                seed = mix( seed, std::hash<uint32_t>{}( std::bit_cast<uint32_t>( k.scaling_high_frequency_factor ) ) );
+                seed = mix( seed, std::hash<dim_t>{}( k.scaling_original_context_length ) );
                 seed = mix( seed, std::hash<int>{}( static_cast<int>( k.precision ) ) );
                 return seed;
             }

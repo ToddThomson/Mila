@@ -178,10 +178,12 @@ namespace Mila::Tests::Deployment
         using Network = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
             Quant::Weight::PerGroupFp4<128>, LlamaCudaModel::LlamaKvPolicy>;
 
+        // Chat recorded 13312 and 33792. Flash prefill (ModelFamilyParity.md 8.4, L4) removed Llama's full-context
+        // score buffers from the footprint, so the same readings now buy these; the rule that chooses is unchanged.
         expectRecordedChoices<Network>( "llama-3.1-8b-instruct-fp4", weights, networkConfigOf<LlamaCudaModel>( weights ),
             DeploymentRequest{}.withFP4Quantization().withAutomaticContextLength( 1024, kGemmaAndLlamaCeiling ),
-            Recorded{ kRtx4070FreeBytes, 13312, 512, true },
-            Recorded{ kRtx5060TiFreeBytes, 33792, 512, true } );
+            Recorded{ kRtx4070FreeBytes, 19456, 512, true },
+            Recorded{ kRtx5060TiFreeBytes, 50176, 512, true } );
     }
 
     // Chat found no context for this one on the RTX 4070 and tried the load anyway (exit 5); the planner refuses.
@@ -195,10 +197,13 @@ namespace Mila::Tests::Deployment
         using Network = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
             QwenOraclePrecisionPlan, QwenCudaModel::QwenKvPolicy>;
 
+        // Chat recorded 4096 on the RTX 5060 Ti. Below 16384 the full-attention layers then ran cuBLASLt with a
+        // full-context score buffer; flash at every length (ModelFamilyParity.md 8.4, L4) removed it from the
+        // footprint, and the same reading buys this. The rule that chooses is unchanged.
         expectRecordedChoices<Network>( "qwen3.8-27b-fp4", weights, networkConfigOf<QwenCudaModel>( weights ),
             DeploymentRequest{}.withWeightQuantization( WeightQuantization::FP4 ).withAutomaticContextLength( 1024, kQwenCeiling ),
             Recorded{ kRtx4070FreeBytes, std::nullopt },
-            Recorded{ kRtx5060TiFreeBytes, 4096, 1024, true } );
+            Recorded{ kRtx5060TiFreeBytes, 10240, 1024, true } );
     }
 
     TEST_F( DeploymentPlannerG2CudaTests, Qwen38_27B_Codebook )
@@ -211,9 +216,11 @@ namespace Mila::Tests::Deployment
         using Network = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
             QwenPrecisionPlan, QwenCudaModel::QwenKvPolicy>;
 
+        // Chat recorded 3072 on the RTX 4070, for the reason Qwen38_27B_Fp4 gives. The RTX 5060 Ti's row was above
+        // 16384 already, where flash ran then too.
         expectRecordedChoices<Network>( "qwen3.8-27b-cb2-3", weights, networkConfigOf<QwenCudaModel>( weights ),
             DeploymentRequest{}.withPrecisionPlan().withAutomaticContextLength( 1024, kQwenCeiling ),
-            Recorded{ kRtx4070FreeBytes, 3072, 1024, true },
+            Recorded{ kRtx4070FreeBytes, 8192, 1024, true },
             Recorded{ kRtx5060TiFreeBytes, 64512, 1024, true } );
     }
 }

@@ -228,7 +228,7 @@ discards it (`:456`).
 `Gemma.ixx:686-737` -- 52 lines whose two arms are character-identical apart from
 `GlobalBlockType` versus `LocalBlockType`. Same workspace install, same build, same flash
 settings, same `push_back`; roughly half the lines are comment, and both arms restate the
-flash rationale that belongs beside `useFlashPrefillForContext()` where the decision is
+flash rationale that belongs beside `usesFlashPrefill()` where the decision is
 made. The same two-arm shape repeats at `:430/436` and `:868/873`.
 
 Qwen's equivalent branch is load-bearing -- different workspaces per kind, no flash flags

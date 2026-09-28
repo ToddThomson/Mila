@@ -145,6 +145,34 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
         EXPECT_EQ( loaded.getMaxSequenceLength(), 128 );
         EXPECT_FLOAT_EQ( loaded.getBase(), 500000.0f );
         EXPECT_EQ( loaded.getRotaryDim(), 4 );
+        EXPECT_FALSE( loaded.getFrequencyScaling().isScaled() );
+    }
+
+    TEST_F( RopeConfigTests, Metadata_RoundTripPreservesFrequencyScaling )
+    {
+        const RopeFrequencyScaling scaling{ 32.0f, 1.0f, 4.0f, 8192 };
+
+        const RopeConfig source = RopeConfig( 64, 8, 4, 128 ).withFrequencyScaling( scaling );
+
+        RopeConfig loaded( 1, 1, 1, 1 );
+        loaded.fromMetadata( source.toMetadata() );
+
+        EXPECT_EQ( loaded.getFrequencyScaling(), scaling );
+    }
+
+    // ====================================================================
+    // Frequency scaling (ModelFamilyParity.md 8.4, L2)
+    // ====================================================================
+
+    TEST_F( RopeConfigTests, Defaults_NoFrequencyScaling )
+    {
+        EXPECT_FALSE( RopeConfig( 64, 8, 4, 128 ).getFrequencyScaling().isScaled() );
+    }
+
+    TEST_F( RopeConfigTests, Validate_ThrowsForEmptyFrequencyScalingBand )
+    {
+        EXPECT_THROW( RopeConfig( 64, 8, 4, 128 ).withFrequencyScaling( RopeFrequencyScaling{ 8.0f, 4.0f, 1.0f, 8192 } ).validate(),
+            std::invalid_argument );
     }
 
     // ====================================================================

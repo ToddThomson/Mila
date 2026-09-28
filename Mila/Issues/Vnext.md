@@ -478,39 +478,6 @@ each op is touched.
 when each op's supported-precision set would be made explicit anyway — but FP16 is not used in Mila,
 so this needs its own pass or a new pairing.
 
-## Llama parity has no automated regression test
-
-`llama` · `ci`
-
-Llama's agreement with the HuggingFace reference has been established by hand, but nothing holds it
-— so the next change to the load path or the attention kernels can break it silently. Gemma has
-`GemmaModel.Parity.Cuda.cpp` as the template, and it is the right one: Qwen's
-`QwenModel.Parity.Cuda.cpp` compares hidden states one decoder block at a time, because a 50 GiB
-BF16 reference cannot be resident, so it is not a decode test. Llama is the family where a
-permanent token-for-token test is affordable at all.
-
-## Llama's long-context scaling factor is stored, printed, and never used
-
-`llama` · `mila-src`
-
-The presets carry it — 32.0 for the 3.2 models, 8.0 for the 3.1 ones (`Llama.Presets.ixx:50`, `:70`,
-`:96`) — `LlamaConfig` stores it, serializes it into the metadata and restores it, and three tests
-assert it. It reaches nothing. `getRoPEScalingFactor()` has three non-test callers and all three are
-serialization or `toString()`; `Llama.ixx:751` builds the Rope component with `.withRoPETheta()` and
-nothing else, and `Rope.Config.ixx` has no scaling knob at all — `withBase`, `withRotaryDim`,
-`withRotaryLayout`.
-
-So the commented-out `.withRoPEScalingFactor( metadata.rope_scaling )` at `Llama.ixx:837` is a
-symptom rather than the defect, and uncommenting it changes no output. The work is Llama 3's
-NTK-by-parts frequency scaling implemented in the Rope component and its CPU and CUDA operations,
-then wired through — which is why this is not the small item its `REVIEW:` marker makes it look.
-
-It leaves one question open that is worth answering before the work rather than after: Llama's
-token-for-token agreement with HuggingFace was established with the factor inert, and HuggingFace
-applies Llama 3 scaling at every position rather than only past the original window. Either the
-parity runs used checkpoints whose config declares no scaling, or the agreement is narrower than
-recorded.
-
 ## Tool calling has never been driven end to end on Llama
 
 `llama` · `adaptors`
@@ -522,8 +489,8 @@ framework itself is complete and family-neutral; what is missing is the evidence
 grammar reaches it.
 
 Moving this out narrowed two published claims in the same commit — the ROADMAP Models criterion and
-`README.md`'s Llama section — so nothing now asserts it. Related: the parity entry above, which is
-the other half of what "validated lineage" is asked to mean.
+`README.md`'s Llama section — so nothing now asserts it. Related: HuggingFace token parity, which is the other half of what
+"validated lineage" is asked to mean, is held in the suite since `ModelFamilyParity.md` 8.4 L1.
 
 ## GPT-2 and Llama 3 tokenize by approximation on every build and platform
 
@@ -579,15 +546,6 @@ computed rather than looked up, so there is no positional table to run off the e
 crashes. Where GPT-2 crashes, Llama overruns the cache quietly, so absence of reports is not
 evidence. `Tests/Dnn/Models/GptModel.Cuda.cpp` is the template: a weightless checkpoint at a small
 deployment context.
-
-## Llama prefill has no flash path and is 3.8x slower than a larger Gemma
-
-`llama` · `perf` · `mila-src` · `measured`
-
-On the RTX 5060 Ti, one build, both FP4, 22496 tokens at context 49152: Gemma 4 12B prefills at
-~1461 tok/s through `gqa_flash_prefill_mma_bf16_kernel`, Llama 3.1 8B at ~382 tok/s through
-`Gqa::prefill_softmax_bf16_kernel`. Attention is 75.3% of Llama's prefill against Gemma's 59.5%.
-Flash prefill is wired on Gemma's blocks and not Llama's. `Compute/Devices/Cuda/Operations/Gqa/`
 
 ## MIS reports every response as finished naturally, including truncated ones
 

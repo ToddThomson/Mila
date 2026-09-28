@@ -24,6 +24,7 @@ export import :Block;
 
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorOps;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
@@ -189,6 +190,86 @@ namespace Mila::Dnn
             return *logits_ptr_;
         }
 
+        /**
+         * @brief Teacher-forced log-likelihood of `input`: the log-probability the model gives each next token.
+         *
+         * Runs the prefill the generation path runs, but evaluates the head at every position rather than
+         * the last, in windows of `getLogLikelihoodWindow()` rows, each reduced on the host in double before
+         * the next overwrites it. A window of 1 costs one head evaluation per token; widening trades memory
+         * for passes and changes no result.
+         */
+        SequenceLogLikelihood sequenceLogLikelihood( const TokenIndexType& input ) override
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error( "LlamaTransformer must be built before calling sequenceLogLikelihood()." );
+
+            const dim_t B = input.shape()[ 0 ];
+            const dim_t T = input.shape()[ 1 ];
+
+            if ( B != 1 )
+                throw std::invalid_argument( std::format(
+                    "LlamaTransformer::sequenceLogLikelihood: batch must be 1, got {} -- the targets are the "
+                    "sequence's own next tokens, which two rows cannot share", B ) );
+
+            if ( T < 2 )
+                throw std::invalid_argument( std::format(
+                    "LlamaTransformer::sequenceLogLikelihood: need at least 2 tokens to score one position, got {}", T ) );
+
+            const dim_t model_dim = config_.getModelDim();
+            const dim_t vocab_size = config_.getVocabSize();
+            const dim_t head_positions = resolveLogLikelihoodWindow( prefill_chunk_size_ );
+
+            auto host_tokens = toHost<TensorDataType::INT32>( input, this->getExecutionContext() );
+
+            Tensor<TensorDataType::FP32, CpuMemoryResource> host_logits(
+                Device::Cpu(), shape_t{ B, head_positions, vocab_size } );
+
+            SequenceLogLikelihood result;
+
+            dim_t offset = 0;
+
+            while ( offset < T )
+            {
+                const dim_t chunk_length = std::min<dim_t>( prefill_chunk_size_, T - offset );
+
+                auto chunk_input = input.view( shape_t{ B, chunk_length }, offset );
+
+                TensorType* block_input = &token_embedding_->forward( chunk_input );
+
+                for ( auto& block : transformer_blocks_ )
+                {
+                    block_input = &block->prefill( *block_input, offset );
+                }
+
+                for ( dim_t start = 0; start < chunk_length; start += head_positions )
+                {
+                    const dim_t rows = std::min<dim_t>( head_positions, chunk_length - start );
+
+                    // The sequence's last token predicts nothing, so a window holding only it has no work.
+                    if ( offset + start + 1 >= T )
+                        break;
+
+                    auto window = block_input->view( shape_t{ B, rows, model_dim }, start * model_dim );
+
+                    auto& normalized = final_rmsnorm_->forward( window );
+                    auto& logits = lm_head_->forward( normalized );
+
+                    auto host_window = host_logits.view( shape_t{ B, rows, vocab_size } );
+
+                    copy( logits, host_window, this->getExecutionContext() );
+                    this->synchronize();
+
+                    // Llama applies no final-logit softcap.
+                    result.addNextTokenLogProbabilities(
+                        host_logits.data(), rows, vocab_size, host_tokens.data(), offset + start, T, 0.0f );
+                }
+
+                offset += chunk_length;
+            }
+
+            return result;
+        }
+
         TensorType& decode( const TokenIndexType& input, dim_t position ) override
         {
             auto& embed_out = token_embedding_->forward( input );
@@ -298,14 +379,7 @@ namespace Mila::Dnn
                 stats += child->getMemoryStats();
             }
 
-            // GQA state memory usage
-            for ( auto* t : { gqa_q_permute_.get(), gqa_preatt_.get(), gqa_att_.get(),
-                              gqa_v_out_.get(), gqa_preatt_decode_.get(),
-                              gqa_att_decode_.get(), gqa_v_out_decode_.get() } )
-            {
-                if ( t )
-                    stats.device_state_bytes += occupiedTensorBytes( *t );
-            }
+            stats.device_state_bytes += gqa_workspace_.deviceStorageBytes();
 
             return stats;
         }
@@ -336,6 +410,43 @@ namespace Mila::Dnn
     private:
 
         /**
+         * @brief Positions the head evaluates per pass, bounded by what a pass can supply.
+         *
+         * A prefill pass produces at most prefill_chunk rows of block output, so a wider request names
+         * rows that never exist. Both build() and getRequiredMemory() resolve through here, so the head
+         * cannot be built at one width and priced at another.
+         */
+        dim_t resolveLogLikelihoodWindow( dim_t prefill_chunk ) const
+        {
+            return std::min<dim_t>( config_.getLogLikelihoodWindow(), prefill_chunk );
+        }
+
+        /**
+         * @brief Whether prefill attention runs the fused FlashAttention kernel: every BF16 build whose head size
+         *        the kernel serves.
+         *
+         * No context threshold: the kernel is 5.9x to 9.1x faster than the cuBLASLt pipeline at Llama's
+         * geometries from a 512-token prompt up (GqaFlashAttention.md 5.7). FP32 has no flash kernel, and the
+         * 3.2 1B's head size of 64 is not one it serves.
+         */
+        bool usesFlashPrefill() const
+        {
+            return TPrecision == TensorDataType::BF16
+                && TransformerBlockType::AttentionType::supportsFlashPrefill( config_.getModelDim() / config_.getNumHeads() );
+        }
+
+        /**
+         * @brief Width of the shared prefill score buffer.
+         *
+         * Flash reads none, so it is one row -- kept a valid tensor -- and the O(chunk x context) term the cuBLASLt
+         * path needs leaves the footprint.
+         */
+        dim_t prefillScoreWidth( dim_t T_ctx ) const
+        {
+            return usesFlashPrefill() ? dim_t{ 1 } : T_ctx;
+        }
+
+        /**
          * @brief What build( context ) would allocate with the given prefill chunk.
          */
         MemoryStats requiredMemoryAtChunk( const BuildContext& context, int64_t prefill_chunk ) const
@@ -349,10 +460,11 @@ namespace Mila::Dnn
 
             BuildContext block_context =
                 context.forChild( shape_t{ B, T, config_.getModelDim() } )
-                .withPrefillSize( prefill_chunk );
+                .withPrefillSize( prefill_chunk )
+                .withFusedDecode( context.isInferenceMode() );
 
             const shape_t final_shape = context.isInferenceMode()
-                ? shape_t{ B, 1, config_.getModelDim() }
+                ? shape_t{ B, resolveLogLikelihoodWindow( prefill_chunk ), config_.getModelDim() }
                 : shape_t{ B, T, config_.getModelDim() };
 
             const BuildContext final_context = context.forChild( final_shape );
@@ -376,13 +488,11 @@ namespace Mila::Dnn
             stats += this->template getComponentAs<LmHeadLinearType>( n + ".lm_head" )
                 ->getRequiredMemory( final_context );
 
-            // Shared GQA transient workspace, mirroring onBuilding(). Note preatt/att span
-            // the full context: Llama has no flash-prefill reclaim, so this term grows
-            // linearly with context length where Gemma's collapses to the ring width.
+            // Shared GQA transient workspace, mirroring onBuilding(), at the score width the flash decision gives.
             if ( context.isInferenceMode() )
             {
                 stats.device_state_bytes +=
-                    gqaWorkspaceDeviceBytes<TPrecision>( granularity, B, NH, HS, T, prefill_chunk, T );
+                    gqaWorkspaceDeviceBytes<TPrecision>( granularity, B, NH, HS, T, prefill_chunk, prefillScoreWidth( T ) );
             }
 
             // RoPE cos/sin caches are process-wide, deduplicated by RopeCacheRegistry on
@@ -412,13 +522,11 @@ namespace Mila::Dnn
             oss << "  Number of layers: " << config_.getNumLayers() << std::endl;
             oss << "  MLP hidden dim: " << config_.getHiddenDimension() << std::endl;
             oss << "  RoPE theta: " << config_.getRoPETheta() << std::endl;
-            oss << "  RoPE scaling factor: " << config_.getRoPEScalingFactor() << std::endl;
+            oss << "  RoPE scaling factor: " << config_.getRoPEFrequencyScaling().factor << std::endl;
 
             if ( this->isBuilt() )
             {
                 oss << "  Parameters: " << this->parameterCount() << std::endl;
-                oss << "  Batch size: " << batch_size_ << std::endl;
-                oss << "  Sequence length: " << seq_length_ << std::endl;
             }
 
             return oss.str();
@@ -502,12 +610,14 @@ namespace Mila::Dnn
             shape_t block_shape = { B, T, config_.getModelDim() };
             BuildContext block_context =
                 BuildContext( block_shape, context.getRuntimeMode(), context.shouldInitializeParameters() )
-                .withPrefillSize( prefill_chunk_size_ );
+                .withPrefillSize( prefill_chunk_size_ )
+                .withFusedDecode( context.isInferenceMode() );
 
-            // Inference: final_rmsnorm and lm_head only process the last position.
-            // Training: must process full sequence for loss computation.
-            shape_t final_shape = context.isInferenceMode() ? 
-                shape_t{ B, 1, config_.getModelDim() } : shape_t{ B, T, config_.getModelDim() };
+            // Inference: final_rmsnorm and lm_head process the configured head positions, one row for
+            // generation. Training: the full sequence, for the loss. MUST agree with getRequiredMemory().
+            shape_t final_shape = context.isInferenceMode()
+                ? shape_t{ B, resolveLogLikelihoodWindow( prefill_chunk_size_ ), config_.getModelDim() }
+                : shape_t{ B, T, config_.getModelDim() };
 
             BuildContext final_context( final_shape, context.getRuntimeMode(), context.shouldInitializeParameters() );
 
@@ -531,48 +641,26 @@ namespace Mila::Dnn
             lm_head_ = this->template getComponentAs<LmHeadLinearType>( this->getName() + ".lm_head" );
             lm_head_->build( final_context );
 
-            // Allocate one shared GQA transient workspace for inference and wire it
-            // into every block's attention layer. All 28 layers execute sequentially,
-            // so a single allocation is reused across the full forward pass.
+            // One shared GQA transient for the whole stack: the layers run one at a time. Its score width and
+            // every block's flash decision MUST come from the same place, or the cuBLASLt path overflows a
+            // narrow buffer.
             if ( context.isInferenceMode() )
             {
-                const int64_t NH = config_.getNumHeads();
-                const int64_t HS = config_.getModelDim() / NH;
-                const int64_t T_ctx = input_shape[ 1 ];
-                auto device = this->getExecutionContext()->getDeviceId();
+                const dim_t NH = config_.getNumHeads();
+                const dim_t HS = config_.getModelDim() / NH;
+                const dim_t T_ctx = input_shape[ 1 ];
 
-                gqa_q_permute_ = std::make_unique<TensorType>(
-                    device, shape_t{ B, NH, prefill_chunk_size_, HS }, this->getName() + ".gqa_ws.q_perm" );
+                gqa_workspace_ = makeGqaWorkspace<TDeviceType, TPrecision>(
+                    this->getExecutionContext()->getDeviceId(), B, NH, HS, T_ctx, prefill_chunk_size_,
+                    prefillScoreWidth( T_ctx ), this->getName() + ".gqa_ws." );
 
-                gqa_preatt_ = std::make_unique<TensorType>(
-                    device, shape_t{ B, NH, prefill_chunk_size_, T_ctx }, this->getName() + ".gqa_ws.preatt" );
-
-                gqa_att_ = std::make_unique<TensorType>(
-                    device, shape_t{ B, NH, prefill_chunk_size_, T_ctx }, this->getName() + ".gqa_ws.att" );
-
-                gqa_v_out_ = std::make_unique<TensorType>(
-                    device, shape_t{ B, NH, prefill_chunk_size_, HS }, this->getName() + ".gqa_ws.v_out" );
-
-                gqa_preatt_decode_ = std::make_unique<TensorType>(
-                    device, shape_t{ B, NH, 1, T_ctx }, this->getName() + ".gqa_ws.preatt_dec" );
-
-                gqa_att_decode_ = std::make_unique<TensorType>(
-                    device, shape_t{ B, NH, 1, T_ctx }, this->getName() + ".gqa_ws.att_dec" );
-
-                gqa_v_out_decode_ = std::make_unique<TensorType>(
-                    device, shape_t{ B, NH, 1, HS }, this->getName() + ".gqa_ws.v_out_dec" );
-
-                GqaState gqa_state;
-                gqa_state.q_permute = gqa_q_permute_.get();
-                gqa_state.preatt = gqa_preatt_.get();
-                gqa_state.att = gqa_att_.get();
-                gqa_state.v_out = gqa_v_out_.get();
-                gqa_state.preatt_decode = gqa_preatt_decode_.get();
-                gqa_state.att_decode = gqa_att_decode_.get();
-                gqa_state.v_out_decode = gqa_v_out_decode_.get();
+                const GqaState gqa_state = gqa_workspace_.state();
 
                 for ( auto& block : transformer_blocks_ )
+                {
                     block->setState( gqa_state );
+                    block->setUseFlashPrefill( usesFlashPrefill() );
+                }
             }
 
             // Every operation shares the context's one scratch buffer. Reserving it at the largest
@@ -593,29 +681,10 @@ namespace Mila::Dnn
 
         void save_( ModelArchive& archive, SerializationMode /*mode*/ ) const override
         {
-            SerializationMetadata meta;
+            SerializationMetadata meta = config_.toMetadata();
             meta.set( "type", "LlamaTransformer" )
                 .set( "version", int64_t( 1 ) )
-                .set( "name", this->getName() )
-                .set( "vocab_size", config_.getVocabSize() )
-                .set( "max_seq_length", config_.getMaxSequenceLength() )
-                .set( "model_dim", config_.getModelDim() )
-                .set( "num_heads", config_.getNumHeads() )
-                .set( "num_kv_heads", config_.getNumKVHeads() )
-                .set( "num_layers", config_.getNumLayers() )
-                .set( "hidden_dim", config_.getHiddenDimension() )
-                .set( "rope_theta", static_cast<double>(config_.getRoPETheta()) )
-                .set( "rope_scaling", static_cast<double>(config_.getRoPEScalingFactor()) )
-                .set( "use_bias", config_.useBias() );
-
-            if ( this->isBuilt() )
-            {
-                meta.set( "input_shape", input_shape_ )
-                    .set( "embedding_shape", embedding_shape_ )
-                    .set( "output_shape", output_shape_ )
-                    .set( "batch_size", batch_size_ )
-                    .set( "seq_length", seq_length_ );
-            }
+                .set( "name", this->getName() );
 
             archive.writeMetadata( "transformer_meta.json", meta );
         }
@@ -623,12 +692,6 @@ namespace Mila::Dnn
     private:
 
         LlamaConfig config_;
-
-        shape_t input_shape_;
-        shape_t embedding_shape_;
-        shape_t output_shape_;
-        int64_t batch_size_{ 0 };
-        int64_t seq_length_{ 0 };
 
         // The prefill chunk the caller resolved, taken from the BuildContext in onBuilding and
         // threaded to child components via BuildContext::withPrefillSize().
@@ -638,19 +701,9 @@ namespace Mila::Dnn
         std::vector<std::shared_ptr<TransformerBlockType>> transformer_blocks_;
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
         std::shared_ptr<LmHeadLinearType> lm_head_{ nullptr };
-        
-        // Inference-only prefill buffer for autoregressive decoding.
-        std::unique_ptr<TensorType> prefill_{ nullptr };
 
         // Shared GQA transient workspace -- inference only, owned here, shared across all blocks.
-        // ~26 MB total vs ~352 MB x 28 layers in the per-layer self-owned design.
-        std::unique_ptr<TensorType> gqa_q_permute_{ nullptr };
-        std::unique_ptr<TensorType> gqa_preatt_{ nullptr };
-        std::unique_ptr<TensorType> gqa_att_{ nullptr };
-        std::unique_ptr<TensorType> gqa_v_out_{ nullptr };
-        std::unique_ptr<TensorType> gqa_preatt_decode_{ nullptr };
-        std::unique_ptr<TensorType> gqa_att_decode_{ nullptr };
-        std::unique_ptr<TensorType> gqa_v_out_decode_{ nullptr };
+        GqaWorkspace<TDeviceType, TPrecision> gqa_workspace_{};
 
         // Activation pointers -- valid between forward() and the next backward().
         TensorType* token_embed_out_ptr_{ nullptr };   // rope's input
@@ -686,6 +739,7 @@ namespace Mila::Dnn
                     .withHiddenDimension( config_.getHiddenDimension() )
                     .withBias( config_.useBias() )
                     .withRoPETheta( config_.getRoPETheta() )
+                    .withRoPEFrequencyScaling( config_.getRoPEFrequencyScaling() )
                     .withMaxSequenceLength( config_.getMaxSequenceLength() );
 
                 auto layer = std::make_shared<TransformerBlockType>(
@@ -745,36 +799,6 @@ namespace Mila::Dnn
                     "LlamaTransformer: B and T must be >= 1, got [{}, {}]",
                     input_shape[ 0 ], input_shape[ 1 ] ) );
             }
-        }
-
-        void validateLeadingShape( const shape_t& leading_shape ) const
-        {
-            if ( leading_shape.size() != 2 )
-                throw std::invalid_argument(
-                    "LlamaTransformer: Leading shape must have rank 2 (batch_size, seq_length)" );
-
-            if ( leading_shape[ 1 ] > config_.getMaxSequenceLength() )
-                throw std::invalid_argument(
-                    std::format( "LlamaTransformer: sequence length {} exceeds maximum {}",
-                        leading_shape[ 1 ], config_.getMaxSequenceLength() ) );
-        }
-
-        static LlamaConfig createConfigFromMetadata( const WeightsMetadata& metadata )
-        {
-            LlamaConfig config( static_cast<dim_t>(metadata.embedding_dim),
-                                static_cast<dim_t>(metadata.num_layers) );
-
-            config.withVocabularyLength( static_cast<dim_t>(metadata.vocab_size) )
-                .withMaxSequenceLength( static_cast<dim_t>(metadata.max_seq_length) )
-                .withNumHeads( static_cast<dim_t>(metadata.num_heads) )
-                .withNumKVHeads( static_cast<dim_t>(metadata.num_kv_heads) )
-                .withHiddenDimension( static_cast<dim_t>(metadata.hidden_dim) )
-                .withRoPETheta( metadata.rope_theta )
-                // REVIEW: There is a scaling factor but the exact reason this was commented out is unclear.
-                // .withRoPEScalingFactor( metadata.rope_scaling )
-                .withBias( metadata.use_bias );
-
-            return config;
         }
     };
 }

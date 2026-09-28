@@ -46,11 +46,17 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             float  base,
             int    rotary_dim,
             int    rotary_layout,
+            float  scaling_factor,
+            float  scaling_low_frequency_factor,
+            float  scaling_high_frequency_factor,
+            int    scaling_original_context_length,
             cudaStream_t stream )
         {
             cuda_rope_build_cache_fp32(
                 cos_cache, sin_cache,
-                max_seq_len, head_dim, base, rotary_dim, rotary_layout, stream );
+                max_seq_len, head_dim, base, rotary_dim, rotary_layout,
+                scaling_factor, scaling_low_frequency_factor, scaling_high_frequency_factor,
+                scaling_original_context_length, stream );
         }
 
         /**
@@ -128,12 +134,18 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             float base,
             int   rotary_dim,
             int   rotary_layout,
+            float scaling_factor,
+            float scaling_low_frequency_factor,
+            float scaling_high_frequency_factor,
+            int   scaling_original_context_length,
             cudaStream_t stream )
         {
             // REVIEW: Why is cache building going through the dispatcher. Call directly.
             cuda_rope_build_cache_fp32(
                 cos_cache, sin_cache,
-                max_seq_len, head_dim, base, rotary_dim, rotary_layout, stream );
+                max_seq_len, head_dim, base, rotary_dim, rotary_layout,
+                scaling_factor, scaling_low_frequency_factor, scaling_high_frequency_factor,
+                scaling_original_context_length, stream );
         }
 
         static void forward(

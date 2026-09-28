@@ -27,6 +27,9 @@ module;
 
 export module Dnn.Components.RopeConfig;
 
+export import Dnn.Components.RotaryLayout;
+export import Dnn.Components.RopeFrequencyScaling;
+
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.TensorTypes;
@@ -35,31 +38,6 @@ import Serialization.Metadata;
 namespace Mila::Dnn
 {
     using Serialization::SerializationMetadata;
-
-    /**
-     * @brief Which dimension pairs a partial rotary rotates. Families genuinely disagree.
-     *
-     * Only meaningful when `rotary_dim` is below `head_dim`; the two coincide at full rotary.
-     * Getting it wrong is silent: both layouts rotate the same NUMBER of dimensions and
-     * produce a plausible result, and at a short prompt the angles are small enough that
-     * generation still looks correct. It diverges with context.
-     */
-    export enum class RotaryLayout
-    {
-        /**
-         * Rotation spans the whole head, pairing channel `i` with `i + head_dim/2`, and the
-         * partial width is expressed by zero frequencies in the cos/sin cache. Gemma:
-         * `(x * cos) + (rotate_half(x) * sin)` over the unsliced head.
-         */
-        WholeHead,
-
-        /**
-         * Rotation is confined to the leading `rotary_dim` channels, pairing `i` with
-         * `i + rotary_dim/2`; channels at or above `rotary_dim` pass through untouched.
-         * Qwen: `q[..., :rotary_dim]` then `rotate_half` inside that slice.
-         */
-        RotaryPrefix
-    };
 
     export class RopeConfig : public ComponentConfig
     {
@@ -122,6 +100,19 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        /**
+         * @brief Rescale the rotary frequencies as the checkpoint was trained to read them.
+         *
+         * Default: no scaling. Llama 3.1 and 3.2 need it at every position, not only past their
+         * original context.
+         */
+        template <typename Self>
+        decltype(auto) withFrequencyScaling( this Self&& self, const RopeFrequencyScaling& frequency_scaling )
+        {
+            self.frequency_scaling_ = frequency_scaling;
+            return std::forward<Self>( self );
+        }
+
         // ====================================================================
         // Accessors
         // ====================================================================
@@ -174,6 +165,11 @@ namespace Mila::Dnn
         float getBase() const noexcept
         {
             return base_;
+        }
+
+        const RopeFrequencyScaling& getFrequencyScaling() const noexcept
+        {
+            return frequency_scaling_;
         }
 
         // ====================================================================
@@ -242,6 +238,8 @@ namespace Mila::Dnn
             {
                 throw std::invalid_argument( "RopeConfig: rotary_dim must be <= head_dim" );
             }
+
+            frequency_scaling_.validate();
         }
 
         // ====================================================================
@@ -261,6 +259,14 @@ namespace Mila::Dnn
             if ( rotary_dim_ != 0 )
             {
                 meta.set( "rotary_dim", static_cast<int64_t>(rotary_dim_) );
+            }
+
+            if ( frequency_scaling_.isScaled() )
+            {
+                meta.set( "scaling_factor", frequency_scaling_.factor )
+                    .set( "scaling_low_frequency_factor", frequency_scaling_.low_frequency_factor )
+                    .set( "scaling_high_frequency_factor", frequency_scaling_.high_frequency_factor )
+                    .set( "scaling_original_context_length", static_cast<int64_t>(frequency_scaling_.original_context_length) );
             }
 
             return meta;
@@ -297,6 +303,17 @@ namespace Mila::Dnn
             {
                 rotary_dim_ = static_cast<dim_t>(*v);
             }
+
+            if ( auto v = meta.tryGetInt( "scaling_original_context_length" ) )
+            {
+                frequency_scaling_.original_context_length = static_cast<dim_t>(*v);
+                frequency_scaling_.factor =
+                    static_cast<float>( meta.tryGetFloat( "scaling_factor" ).value_or( 1.0 ) );
+                frequency_scaling_.low_frequency_factor =
+                    static_cast<float>( meta.tryGetFloat( "scaling_low_frequency_factor" ).value_or( 1.0 ) );
+                frequency_scaling_.high_frequency_factor =
+                    static_cast<float>( meta.tryGetFloat( "scaling_high_frequency_factor" ).value_or( 1.0 ) );
+            }
         }
 
         std::string toString() const override
@@ -309,8 +326,17 @@ namespace Mila::Dnn
                 << ", head_dim=" << getHeadDim()
                 << ", max_sequence_length=" << max_seq_len_
                 << ", rotary_dim=" << rotary_dim_
-                << ", base=" << base_
-                << " }";
+                << ", base=" << base_;
+
+            if ( frequency_scaling_.isScaled() )
+            {
+                oss << ", scaling={ factor=" << frequency_scaling_.factor
+                    << ", low_frequency_factor=" << frequency_scaling_.low_frequency_factor
+                    << ", high_frequency_factor=" << frequency_scaling_.high_frequency_factor
+                    << ", original_context_length=" << frequency_scaling_.original_context_length << " }";
+            }
+
+            oss << " }";
             return oss.str();
         }
 
@@ -323,5 +349,6 @@ namespace Mila::Dnn
         dim_t rotary_dim_{ 0 };        ///< 0 = use full head_dim
         RotaryLayout rotary_layout_{ RotaryLayout::WholeHead };
         float base_{ 10000.0f };
+        RopeFrequencyScaling frequency_scaling_{};
     };
 }
