@@ -32,6 +32,7 @@
 
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#include <cuda_fp8.h>
 
 namespace Mila::Dnn::Compute::Cuda::Gqa
 {
@@ -83,6 +84,21 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      */
     void cuda_gqa_flash_prefill_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+        int position_offset, int window, float scale,
+        cudaStream_t stream );
+
+    /**
+     * @brief cuda_gqa_flash_prefill_bf16 over the FP8 cache (PerTokenKvFp8).
+     *
+     * K and V hold E4M3 codes and k_scales / v_scales one scale per row [B, NKV, cache_capacity]. Each tile's codes
+     * widen unscaled into BF16 for the MMAs; each key's K scale multiplies its score after QK and its V scale its
+     * probability as P is packed for PV, in FP32, while the softmax normalizer sums unscaled probabilities.
+     */
+    void cuda_gqa_flash_prefill_fp8(
+        const __nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
+        const float* k_scales, const float* v_scales,
         __nv_bfloat16* Y,
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
         int position_offset, int window, float scale,
@@ -142,6 +158,21 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      */
     void cuda_gqa_decode_attention_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y, float* split_scratch,
+        int B, int NH, int NKV, int HS, int cache_capacity,
+        int actual_len, int window, float scale,
+        cudaStream_t stream );
+
+    /**
+     * @brief cuda_gqa_decode_attention_bf16 over the FP8 cache (PerTokenKvFp8).
+     *
+     * K and V hold E4M3 codes and k_scales / v_scales one scale per row [B, NKV, cache_capacity]. The codes widen
+     * unscaled; each key's K scale multiplies its score after the dot product and its V scale its probability in the
+     * PV sum, in FP32. Same geometry, splits and scratch as the BF16 kernel.
+     */
+    void cuda_gqa_decode_attention_fp8(
+        const __nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
+        const float* k_scales, const float* v_scales,
         __nv_bfloat16* Y, float* split_scratch,
         int B, int NH, int NKV, int HS, int cache_capacity,
         int actual_len, int window, float scale,
@@ -247,6 +278,29 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int batch, int chunk_len,
         int NKV, int HS,
         int start_pos, int max_seq_len,
+        cudaStream_t stream );
+
+    // ========================================================================
+    // GQA KV Cache FP8 (PerTokenKvFp8)
+    // ========================================================================
+
+    /// True when the FP8 cache write serves this head size: 128, 256 or 512.
+    bool cuda_gqa_kvcache_write_kv_fp8_supported( int head_size );
+
+    /**
+     * @brief Quantize K and V from [B, chunk_len, NKV*HS] into the FP8 cache [B, NKV, capacity, HS].
+     *
+     * Each row -- one KV head at one token -- is stored as E4M3 codes of x * (448 / absmax), saturating, with its
+     * scale absmax / 448 in k_scales / v_scales [B, NKV, capacity]; an all-zero row stores zero codes and scale 0.
+     * The row index wraps by capacity as the BF16 write does. HS must be one the _supported query accepts.
+     */
+    void cuda_gqa_kvcache_write_kv_fp8(
+        __nv_fp8_e4m3* K, __nv_fp8_e4m3* V,
+        float* k_scales, float* v_scales,
+        const __nv_bfloat16* Xk, const __nv_bfloat16* Xv,
+        int batch, int chunk_len,
+        int NKV, int HS,
+        int start_pos, int capacity,
         cudaStream_t stream );
 
     void cuda_gqa_kvcache_expand_kv_bf16(

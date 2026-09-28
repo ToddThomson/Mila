@@ -417,6 +417,13 @@ Ordered by dependency, not priority. Nothing here is scheduled.
    family's deployment request. Both left the public surface, since nothing outside the tests
    called them; the harnesses below build the network themselves (`Tests/Common/LogLikelihoodHarness.h`).
    The host reduction became `SequenceLogLikelihood::addNextTokenLogProbabilities`, shared with Gemma.
+   *Moved to the device at `0.21.0-dev+15`:* each window is reduced where its logits are
+   (`NextTokenLogProbabilityOp`, one block per row, the exponentials summed in double), the results
+   written to pinned host memory, and the model synchronized once per sequence rather than once per
+   window. The host reduction, now `Dnn::nextTokenLogProbability`, is the op's oracle
+   (`Tests/Dnn/Core/SequenceLogLikelihood.Cuda.cpp`). On the Llama 3.1 8B at window 64, 15,496
+   wikitext positions scored in 4.1 s against 15 s with the host reduction (RTX 4070 against the
+   5060 Ti's earlier run, so the card differs too).
    The oracle is the generation path itself: scoring position p must equal what a prefill of
    tokens[0..p] says about token p+1, which is what pins the target alignment.
    **The gate is measured and PASSES** (2026-08-25). `DISABLED_QualityGateAcrossContextLengths`
@@ -1394,8 +1401,8 @@ component cannot be missed, and Qwen's block was the first composite to recurse 
 
 `Tools/Converters/Qwen/convert_tokenizer.py` plus `BpeVocabulary::loadQwen`. Qwen 3.8 is
 GPT-2 style byte-level BPE — explicit merge ranks, no byte fallback, 248,077 pieces
-(248,044 learned plus 33 control tokens) — so it takes Mila's merge-by-rank path, not the
-max-munch path the Llama loader uses. The file layout is the one Gemma's converter defined,
+(248,044 learned plus 33 control tokens) — so it takes Mila's merge-list path; the Llama
+loader has no merge list and merges by token id (`BpeTokenizer.ixx`, rank path). The file layout is the one Gemma's converter defined,
 unchanged. EOS is `<|im_end|>` and there is no BOS and no UNK.
 
 **`transformers` is not a reliable tokenizer reference for this checkpoint.** Version 5.12.1's

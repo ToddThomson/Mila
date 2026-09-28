@@ -1,22 +1,30 @@
-# Gemma 4 12B's loss along a PG-19 book in llama.cpp, beside hf_long_context_loss.py (ModelFamilyParity.md 8.2, G2).
+# A book's loss by context length in llama.cpp, beside hf_long_context_loss.py: Gemma 4 12B for G2 and Llama 3.1 8B
+# for L3 (ModelFamilyParity.md 8.2 and 8.4).
 #
 # llama-perplexity cannot run this protocol: it tokenizes without parsing control tokens, scores only the second half
 # of each window, and overwrites each window's first token with <bos>. So this drives llama.dll through its C API
 # (ctypes, struct layouts from the llama.h of the same release): the same turn and joined book text as the other
 # harnesses, tokenized with control tokens parsed, fed in 1024-token chunks through llama.cpp's KV cache, every
-# position's logits read back, and the loss reported per 8K band.
+# position's logits read back, and the loss reported per band -- 8K bands, or the bands ending at --prefixes.
 #
 #   python llama_cpp_long_context_loss.py --llama C:/Users/ToddT/llama.cpp/b11216 --model <file.gguf>
 #       --book Data/Datasets/PG19/raw/test/30312.txt --tokens 32768
+#   python llama_cpp_long_context_loss.py --family llama --llama C:/Users/ToddT/llama.cpp/b11216 --model <file.gguf>
+#       --book Data/Datasets/PG19/raw/test/30312.txt --tokens 69632 --prefixes 8192 16384 32768 65536 69632
 
 import argparse
 import ctypes
 import os
 import struct
+import sys
+from pathlib import Path
 
 import numpy as np
 
-from hf_long_context_loss import BOOK_TURN, BAND, CHUNK, join_wraps
+from hf_long_context_loss import BOOK_TURN as GEMMA_BOOK_TURN, BAND, CHUNK, join_wraps
+
+sys.path.insert( 0, str( Path( __file__ ).resolve().parents[ 2 ] / 'Llama' ) )
+from hf_llama_long_context_loss import BOOK_TURN as LLAMA_BOOK_TURN
 
 
 class Batch( ctypes.Structure ):
@@ -101,7 +109,11 @@ def main():
     parser.add_argument( '--model', required=True )
     parser.add_argument( '--book', required=True )
     parser.add_argument( '--tokens', type=int, default=32768 )
+    parser.add_argument( '--family', choices=[ 'gemma', 'llama' ], default='gemma' )
+    parser.add_argument( '--prefixes', type=int, nargs='+', help='band ends; 8K bands when omitted' )
     arguments = parser.parse_args()
+
+    book_turn = GEMMA_BOOK_TURN if arguments.family == 'gemma' else LLAMA_BOOK_TURN
 
     llama = load_library( arguments.llama )
     llama.llama_backend_init()
@@ -119,7 +131,7 @@ def main():
     with open( arguments.book, 'rb' ) as book:
         text = join_wraps( book.read( arguments.tokens * 6 ).decode( 'utf-8', errors='replace' ) )
 
-    prompt = [ llama.llama_vocab_bos( vocab ) ] + tokenize( llama, vocab, BOOK_TURN )
+    prompt = [ llama.llama_vocab_bos( vocab ) ] + tokenize( llama, vocab, book_turn )
     ids = ( prompt + tokenize( llama, vocab, text ) )[ : arguments.tokens ]
 
     print( f'  prompt ids: {" ".join( str( id ) for id in prompt )}' )
@@ -172,12 +184,13 @@ def main():
     print( f'  largest |logit| {largest_logit:.3f}' )
 
     first = len( prompt ) - 1
+    ends = arguments.prefixes or list( range( BAND, len( ids ) + BAND, BAND ) )
 
-    for band_start in range( 0, len( ids ), BAND ):
+    for band_start, band_end in zip( [ 0 ] + ends[ :-1 ], ends ):
         low = max( band_start - 1, first )
-        high = min( band_start + BAND, len( ids ) ) - 1
+        high = min( band_end, len( ids ) ) - 1
         band = log_probabilities[ low : high ]
-        print( f'  {band_start:>7} - {band_start + BAND:>7}: {band.size:>5} positions, {-band.mean():.4f} nats/token' )
+        print( f'  {band_start:>7} - {band_end:>7}: {band.size:>5} positions, {-band.mean():.4f} nats/token' )
 
 
 if __name__ == '__main__':

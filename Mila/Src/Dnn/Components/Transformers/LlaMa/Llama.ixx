@@ -54,6 +54,9 @@ import Compute.CudaPinnedMemoryResource;
 #endif
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
+import Compute.OperationTraits;
+import Compute.OperationType;
+import Dnn.SequenceLogLikelihood;
 import Serialization.ModelArchive;
 import Serialization.WeightsReader;
 import Serialization.Tensor;
@@ -195,9 +198,12 @@ namespace Mila::Dnn
          * @brief Teacher-forced log-likelihood of `input`: the log-probability the model gives each next token.
          *
          * Runs the prefill the generation path runs, but evaluates the head at every position rather than
-         * the last, in windows of `getLogLikelihoodWindow()` rows, each reduced on the host in double before
-         * the next overwrites it. A window of 1 costs one head evaluation per token; widening trades memory
-         * for passes and changes no result.
+         * the last, in windows of `getLogLikelihoodWindow()` rows, each reduced where the logits are
+         * (NextTokenLogProbabilityOp) before the next overwrites it; the model synchronizes once, at the end.
+         * A window of 1 costs one head evaluation per token; widening trades memory for passes and changes
+         * no result.
+         *
+         * @throws std::out_of_range when a token past the first is outside the vocabulary.
          */
         SequenceLogLikelihood sequenceLogLikelihood( const TokenIndexType& input ) override
         {
@@ -222,10 +228,14 @@ namespace Mila::Dnn
 
             auto host_tokens = toHost<TensorDataType::INT32>( input, this->getExecutionContext() );
 
-            Tensor<TensorDataType::FP32, CpuMemoryResource> host_logits(
-                Device::Cpu(), shape_t{ B, head_positions, vocab_size } );
+            requireTokensInVocabulary( host_tokens.data(), T, vocab_size );
 
-            SequenceLogLikelihood result;
+            if ( !log_likelihood_op_ )
+            {
+                log_likelihood_op_ = std::make_unique<LogLikelihoodOpType>( this->getExecutionContext(), 0.0f );
+            }
+
+            log_likelihood_op_->begin( T - 1 );
 
             dim_t offset = 0;
 
@@ -255,18 +265,24 @@ namespace Mila::Dnn
                     auto& normalized = final_rmsnorm_->forward( window );
                     auto& logits = lm_head_->forward( normalized );
 
-                    auto host_window = host_logits.view( shape_t{ B, rows, vocab_size } );
-
-                    copy( logits, host_window, this->getExecutionContext() );
-                    this->synchronize();
-
                     // Llama applies no final-logit softcap.
-                    result.addNextTokenLogProbabilities(
-                        host_logits.data(), rows, vocab_size, host_tokens.data(), offset + start, T, 0.0f );
+                    log_likelihood_op_->forward( logits, input, offset + start,
+                        std::min<dim_t>( rows, T - 1 - ( offset + start ) ) );
                 }
 
                 offset += chunk_length;
             }
+
+            this->synchronize();
+
+            SequenceLogLikelihood result;
+
+            for ( const float log_probability : log_likelihood_op_->logProbabilities( T - 1 ) )
+            {
+                result.total_log_probability += log_probability;
+            }
+
+            result.scored_positions = T - 1;
 
             return result;
         }
@@ -722,6 +738,12 @@ namespace Mila::Dnn
         std::vector<std::shared_ptr<TransformerBlockType>> transformer_blocks_;
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
         std::shared_ptr<LmHeadLinearType> lm_head_{ nullptr };
+
+        using LogLikelihoodOpType =
+            typename OperationTraits<OperationType::NextTokenLogProbabilityOp, TDeviceType, TPrecision>::type;
+
+        // Created at the first sequenceLogLikelihood(); holds no device memory.
+        std::unique_ptr<LogLikelihoodOpType> log_likelihood_op_;
 
         // Shared activation and GQA transient workspaces -- inference only, owned here, shared across all blocks.
         LlamaBlockWorkspace<TDeviceType, TPrecision> block_workspace_{};

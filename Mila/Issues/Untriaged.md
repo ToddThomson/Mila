@@ -308,6 +308,32 @@ carries them; the 12B QAT checkpoint's vision stack is a patch embedder only (`p
 encoder; and the Q4_0 12B package was chosen over Google's GGUF partly because the GGUF lacks these weights
 (`ModelFamilyParity.md` section 9, item 14).
 
+## An FP4 KV cache would halve FP8's, and no family here was trained for one
+
+`Mila/Specifications/Quantization.md` Part III, "Decisions, 2026-09-28" @ `0.21.0-dev+14`
+
+Raised by Todd 2026-09-28: DeepSeek-V4.1-Flash (arXiv 2609.19969) stores its main KV cache as E2M1 with one E4M3
+scale per 16 channels, quantized after RoPE, dequantized before attention, and keeps its sliding-window cache at FP8
+for sensitivity. It introduced that format by quantization-aware training during post-training, and publishes no
+quality comparison against FP8 or BF16 KV. Llama, Gemma and Qwen were not trained with it, and Gemma's long-context
+loss traced to rounding in queries and keys (`ModelFamilyParity.md` 8.2, G2), the scores an FP4 key cache perturbs.
+Measurable with the G2/L3 protocol once the FP8 cache exists.
+
+## The KV cache could be compressed below 4 bits by a transform fitted offline
+
+`Mila/Specifications/Quantization.md` Part III, "Decisions, 2026-09-28" @ `0.21.0-dev+14`
+
+Raised by Todd 2026-09-28: "KV Cache Compression Through the Lens of Transform Coding" (Laus, Mayrink Verdun, Wang,
+du Pin Calmon and Krahmer, arXiv 2608.14191). Offline, each layer's K and V projections are factored W = A B by an
+activation-whitened SVD; the cache holds X A, quantized uniformly with per-channel and per-token scales, bits per
+channel allocated by reverse waterfilling on attention-weighted importance (zero-bit channels dropped); K and V are
+rebuilt as (X A) B at read time. The first 4 and last 128 tokens stay full precision. Calibration: 256 sequences of
+2048 tokens. On Llama 3.1 8B Instruct at about 5.8x (about 2.75 bits): RULER to 32K at baseline (0.778 against
+0.775 at 32K), LongBench 0.558 against 0.570, cache 1.07 GB to 184 MB. Baselines FP16 only, nothing past 32K, no
+CUDA implementation or speed numbers; how RoPE is applied after reconstruction is not stated in what was read. The
+shape of the work is the codebook pipeline's (`Tools/Quantization`, packaged tables) plus attention kernels that
+reconstruct and rotate inside flash. The FP8 cache is the baseline it would have to beat on the G2/L3 protocol.
+
 ## Gemma's prefill falls behind llama.cpp as the prompt grows
 
 `Mila/Profiling/ProfileModel/ProfileModel.ixx` @ `0.21.0-dev+11`
@@ -323,3 +349,12 @@ Profiled and fixed the same day for the FP4 build (`GqaFlashAttention.md` 5.7): 
 of the 23.6 s at 32K; the packed kernel takes it to 6.0 s, and the FP4 prefill runs 3,134 tokens/s at 8K and 2,183 at
 32K, ahead of llama.cpp at both. What remains behind is the Q4_0 build's staged GEMM (1,296 tokens/s at 32K). The
 flash threshold is gone in every family, and Llama has flash (`ModelFamilyParity.md` 8.4, L4).
+
+Llama 3.1 8B, measured 2026-09-28 on the RTX 4070 (12 GB), prefill only, one build: Mila Q4_0 3,030 tokens/s at 8K
+and 2,640 at 16K; Mila FP4 4,244 and 3,536; llama.cpp on bit-identical Q4_0 weights (`llama31_8b_instruct_q4_0.gguf`,
+`-fa 1`) 4,370 and 3,675. Mila's Q4_0 trails llama.cpp by 1.4x on the same weights and its own FP4 by the same. nsys
+of the 8K Q4_0 prefill: the three BF16 GEMM kernels cuBLASLt picks (`cutlass_80 ... 256x128`, `ampere ... 256x128`,
+`ampere s1688 ... 128x128 stages_32x1`) 68% of GPU time, `dequantize_int4_to_bf16_kernel` 11%, packed flash 15%,
+RoPE 3%. Removing the dequantize alone bounds the gain at about 11%; the gap is the GEMM itself. Options not yet
+weighed against each other: INT8 activations per 32 with integer MMA (a change to Q4_0 decision 4 in `Quantization.md`),
+a fused BF16 kernel that dequantizes in the tile loader, or steering cuBLASLt off the s1688 kernel.

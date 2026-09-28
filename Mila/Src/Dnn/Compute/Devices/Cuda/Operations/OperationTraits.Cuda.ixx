@@ -9,7 +9,7 @@
  *
  * Migration status:
  *   LinearOp                 complete
- *   GroupedQueryAttentionOp  complete (NoKvCompression, SlidingWindowKvCache; PerChannelKvFp8 pending CudaGqaOp support)
+ *   GroupedQueryAttentionOp  complete (NoKvCompression, SlidingWindowKvCache, PerTokenKvFp8)
  *   SamplingOp               pending
  *   policy-free ops          complete
  */
@@ -34,10 +34,12 @@ import Compute.CudaLpeOp;
 import Compute.CudaTokenEmbeddingOp;
 import Compute.CudaSoftmaxCrossEntropyOp;
 import Compute.CudaSamplingOp;
+import Compute.CudaNextTokenLogProbabilityOp;
 import Compute.CudaRouterOp;
 import Compute.CudaMoeOp;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
+import Dnn.Quantization.KvCache.PerTokenKvFp8;
 
 namespace Mila::Dnn::Compute
 {
@@ -132,7 +134,7 @@ namespace Mila::Dnn::Compute
     // TPolicy = NoKvCompression:      uncompressed full-context BF16/FP32 KV cache.
     // TPolicy = SlidingWindowKvCache: uncompressed bounded ring cache for sliding
     //                                 layers (CudaGqaOp kBounded axis, SlidingWindowKvCache.md).
-    // TPolicy = PerChannelKvFp8<>:    pending CudaGqaOp FP8 cache support.
+    // TPolicy = PerTokenKvFp8<>:      FP8 cache, BF16 full-context layers only (CudaGqaOp kFp8Cache axis).
     // -------------------------------------------------------------------------
 
     /// Unquantized FP32 path. Full-context KV cache.
@@ -147,6 +149,13 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, NoKvCompression>
     {
         using type = CudaGqaOp<TensorDataType::BF16, false>;
+    };
+
+    /// FP8 KV cache, one scale per KV head per token. BF16, full-context layers, fused kernels only.
+    template<>
+    struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, PerTokenKvFp8<>>
+    {
+        using type = CudaGqaOp<TensorDataType::BF16, false, true>;
     };
 
     /// Bounded sliding-window ring cache, FP32. Sliding (local) layers only (window > 0).
@@ -433,6 +442,22 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::SamplingOp, DeviceType::Cuda, TensorDataType::BF16, void>
     {
         using type = Cuda::Sampling::CudaSamplingOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // NextTokenLogProbabilityOp -- CUDA specializations (logits precision)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::NextTokenLogProbabilityOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::LogLikelihood::CudaNextTokenLogProbabilityOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::NextTokenLogProbabilityOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::LogLikelihood::CudaNextTokenLogProbabilityOp<TensorDataType::BF16>;
     };
 
     // -------------------------------------------------------------------------

@@ -15,8 +15,9 @@ BAND = 8192
 CHUNK = 1024
 
 
-def join_wraps( stored: str ) -> str:
-    """A lone newline becomes a space; a blank line stays a paragraph. Mila's joinWraps."""
+def join_wraps( crlf: str ) -> str:
+    """CRLF becomes LF, then a lone newline becomes a space and a blank line stays a paragraph. Mila's joinWraps."""
+    stored = crlf.replace( '\r\n', '\n' )
     joined = list( stored )
 
     for index, character in enumerate( stored ):

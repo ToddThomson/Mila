@@ -16,10 +16,10 @@ namespace Mila::Dnn
      * CudaGqaOp via the load() runtime->compile-time bridge. The mapping is:
      *
      *   None  -> NoKvCompression      (BF16 cache, no compression overhead)
-     *   FP8   -> PerChannelKvFp8<>    (FP8_E4M3 cache, per-head per-token float32 scales)
+     *   FP8   -> PerTokenKvFp8<>      (FP8_E4M3 cache, per-head per-token float32 scales)
      *
-     * New compression algorithms add a value here and a corresponding policy struct in
-     * KvCache.QuantPolicy -- no other changes are required at this level.
+     * New compression algorithms add a value here and a policy struct of their own module under
+     * Quantization/KvCache.
      */
     export enum class KvCacheCompression
     {

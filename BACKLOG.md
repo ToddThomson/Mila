@@ -236,9 +236,10 @@ from the repo, so no reader can work around its absence.
 
 #### Qwen's KV cache is uncompressed on a card its weights already fill
 
-`open` · `qwen` · `quantization` · `mila-src`
+`in progress` · `qwen` · `quantization` · `mila-src`
 
-`PerChannelKvFp8<>` is specified and not built; `QuantizationDispatch.ixx:103` records that KV-cache
+`PerTokenKvFp8<>` is built in the shared attention operation and gated on Llama, but no family's load
+path reaches it and Qwen's layers do not use it; `QuantizationDispatch.ixx:103` records that KV-cache
 compression is not a live knob. On a 27B at FP4 the weights take the card, so the KV cache is what
 buys context back, and halving it is the difference between the context length that fits and the one
 the model is sold at.

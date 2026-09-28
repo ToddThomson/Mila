@@ -46,7 +46,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         constexpr int kSkew = 8;                               // row padding: rows 4 banks apart
         constexpr int kTileElements = 8192;                    // keys x head dims per K (or V) tile
 
-        template<int kHeadSize>
+        // kFp8: the cache holds E4M3 codes and one scale per row (PerTokenKvFp8). The FP8 staging carries the double
+        // buffer and each tile widens into ONE BF16 stage, since a second BF16 stage on top would pass the 99 KB a
+        // block may hold.
+        template<int kHeadSize, bool kFp8 = false>
         struct PackedGeometry
         {
             static_assert( kHeadSize % kSliceDims == 0 && kWarps % ( kHeadSize / kSliceDims ) == 0 );
@@ -61,13 +64,23 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             static constexpr int kExchangeStride = kKeys + 2;  // even (float2 stores), rows off-bank
 
             static constexpr std::size_t kStageElements = static_cast<std::size_t>( kKeys ) * kPad;
+            static constexpr int kBf16Stages = kFp8 ? 1 : 2;
 
             static constexpr std::size_t kExchangeBytes = kSplit > 1
                 ? static_cast<std::size_t>( kRowTiles ) * kSplit * kTileRows * kExchangeStride * sizeof( float )
                 : 0;
 
-            // Exchange floats first (a multiple of 16 bytes), then K stages 0-1 and V stages 0-1.
-            static constexpr std::size_t kSharedBytes = kExchangeBytes + 4 * kStageElements * sizeof( __nv_bfloat16 );
+            static constexpr std::size_t kBf16Bytes = 2 * kBf16Stages * kStageElements * sizeof( __nv_bfloat16 );
+
+            // FP8: K and V codes, two stages each, unpadded; then K and V scales, two stages each.
+            static constexpr std::size_t kCodeStageBytes = static_cast<std::size_t>( kTileElements );
+            static constexpr std::size_t kCodeBytes = kFp8 ? 4 * kCodeStageBytes : 0;
+            static constexpr std::size_t kScaleBytes = kFp8 ? 4 * static_cast<std::size_t>( kKeys ) * sizeof( float ) : 0;
+
+            // Exchange floats first (a multiple of 16 bytes), then the BF16 K stages and V stages, then FP8 staging.
+            static constexpr std::size_t kSharedBytes = kExchangeBytes + kBf16Bytes + kCodeBytes + kScaleBytes;
+
+            static_assert( kSharedBytes <= 99 * 1024, "a block holds at most 99 KB of shared memory" );
         };
 
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
@@ -146,21 +159,85 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 __pipeline_memcpy_async( v_stage + key * kPad + column, V + source, 16 );
             }
         }
+
+        // One key tile of FP8 K and V codes and their row scales into a staging stage, unpadded. Keys past the cache
+        // clamp to its last row, as load_kv_tile does.
+        template<int kHeadSize, int kKeys>
+        __device__ __forceinline__ void load_kv_tile_fp8(
+            uint8_t* k_codes, uint8_t* v_codes, float* k_scale_stage, float* v_scale_stage,
+            const uint8_t* K, const uint8_t* V, const float* k_scales, const float* v_scales,
+            std::size_t kv_base, std::size_t scale_base, int tile_start, int cache_capacity, int tid )
+        {
+            constexpr int kChunksPerRow = kHeadSize / 16;
+
+            for ( int chunk = tid; chunk < kKeys * kChunksPerRow; chunk += kWarps * 32 )
+            {
+                const int key = chunk / kChunksPerRow;
+                const int column = ( chunk % kChunksPerRow ) * 16;
+                const int position = tile_start + key;
+                const int row = position < cache_capacity ? position : cache_capacity - 1;
+                const std::size_t source = kv_base + static_cast<std::size_t>( row ) * kHeadSize + column;
+
+                __pipeline_memcpy_async( k_codes + key * kHeadSize + column, K + source, 16 );
+                __pipeline_memcpy_async( v_codes + key * kHeadSize + column, V + source, 16 );
+            }
+
+            for ( int key = tid; key < kKeys; key += kWarps * 32 )
+            {
+                const int position = tile_start + key;
+                const int row = position < cache_capacity ? position : cache_capacity - 1;
+
+                __pipeline_memcpy_async( k_scale_stage + key, k_scales + scale_base + row, 4 );
+                __pipeline_memcpy_async( v_scale_stage + key, v_scales + scale_base + row, 4 );
+            }
+        }
+
+        // Widen a staged tile of E4M3 codes into the padded BF16 stage the MMA reads, unscaled: every E4M3 value is
+        // exact in BF16.
+        template<int kHeadSize, int kKeys>
+        __device__ __forceinline__ void widen_kv_tile(
+            __nv_bfloat16* k_stage, __nv_bfloat16* v_stage, const uint8_t* k_codes, const uint8_t* v_codes, int tid )
+        {
+            constexpr int kPairsPerRow = kHeadSize / 2;
+            constexpr int kPad = kHeadSize + kSkew;
+
+            for ( int pair = tid; pair < kKeys * kPairsPerRow; pair += kWarps * 32 )
+            {
+                const int key = pair / kPairsPerRow;
+                const int column = ( pair % kPairsPerRow ) * 2;
+
+                const __nv_fp8x2_storage_t k_pair = *reinterpret_cast<const __nv_fp8x2_storage_t*>( k_codes + key * kHeadSize + column );
+                const __nv_fp8x2_storage_t v_pair = *reinterpret_cast<const __nv_fp8x2_storage_t*>( v_codes + key * kHeadSize + column );
+
+                *reinterpret_cast<__nv_bfloat162*>( k_stage + key * kPad + column ) =
+                    __float22bfloat162_rn( __half22float2( __half2( __nv_cvt_fp8x2_to_halfraw2( k_pair, __NV_E4M3 ) ) ) );
+                *reinterpret_cast<__nv_bfloat162*>( v_stage + key * kPad + column ) =
+                    __float22bfloat162_rn( __half22float2( __half2( __nv_cvt_fp8x2_to_halfraw2( v_pair, __NV_E4M3 ) ) ) );
+            }
+        }
 #endif
     }
 
-    template<int kHeadSize>
+    // kFp8: K and V hold E4M3 codes with one scale per row (PerTokenKvFp8). Codes widen unscaled into the BF16 stage;
+    // each key's K scale multiplies its score after the split-K sum, and its V scale its probability as P is packed
+    // for PV, while l sums the unscaled probabilities (Quantization.md, Part III).
+    template<int kHeadSize, bool kFp8>
     __global__ void __launch_bounds__( kWarps * 32, 1 )
     gqa_flash_prefill_packed_bf16_kernel(
         const __nv_bfloat16* __restrict__ Q,   // [B, chunk_len, NH * HS]
-        const __nv_bfloat16* __restrict__ K,   // [B, NKV, cache_capacity, HS]
-        const __nv_bfloat16* __restrict__ V,   // [B, NKV, cache_capacity, HS]
+        const void* __restrict__ K_raw,        // [B, NKV, cache_capacity, HS]
+        const void* __restrict__ V_raw,        // [B, NKV, cache_capacity, HS]
+        const float* __restrict__ k_scales,    // [B, NKV, cache_capacity], kFp8 only
+        const float* __restrict__ v_scales,    // [B, NKV, cache_capacity], kFp8 only
         __nv_bfloat16* __restrict__ Y,         // [B, chunk_len, NH * HS]
         int chunk_len, int NH, int NKV, int cache_capacity,
         int position_offset, int window, float scale )
     {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
-        using Geometry = PackedGeometry<kHeadSize>;
+        using Geometry = PackedGeometry<kHeadSize, kFp8>;
+
+        const __nv_bfloat16* __restrict__ K = static_cast<const __nv_bfloat16*>( K_raw );
+        const __nv_bfloat16* __restrict__ V = static_cast<const __nv_bfloat16*>( V_raw );
 
         const int tid = threadIdx.x;
         const int warp = tid >> 5;
@@ -183,7 +260,42 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         extern __shared__ __align__( 16 ) char smem_raw[];
         float* s_exchange = reinterpret_cast<float*>( smem_raw );
         __nv_bfloat16* s_k = reinterpret_cast<__nv_bfloat16*>( smem_raw + Geometry::kExchangeBytes );
-        __nv_bfloat16* s_v = s_k + 2 * Geometry::kStageElements;
+        __nv_bfloat16* s_v = s_k + Geometry::kBf16Stages * Geometry::kStageElements;
+
+        // FP8 staging, after the BF16 stages: K codes (two stages), V codes, then K scales and V scales.
+        uint8_t* s_k_codes = reinterpret_cast<uint8_t*>( smem_raw + Geometry::kExchangeBytes + Geometry::kBf16Bytes );
+        uint8_t* s_v_codes = s_k_codes + 2 * Geometry::kCodeStageBytes;
+        float* s_k_scale = reinterpret_cast<float*>( s_v_codes + 2 * Geometry::kCodeStageBytes );
+        float* s_v_scale = s_k_scale + 2 * Geometry::kKeys;
+        const std::size_t scale_base = ( static_cast<std::size_t>( blockIdx.z ) * NKV + blockIdx.y ) * cache_capacity;
+
+        // The tile's BF16 stage: alternating for BF16, the one widened stage for FP8.
+        const auto bf16Stage = [&]( __nv_bfloat16* base, int tile ) -> __nv_bfloat16*
+        {
+            return base + ( kFp8 ? 0 : ( tile & 1 ) ) * Geometry::kStageElements;
+        };
+
+        const auto loadTile = [&]( int tile )
+        {
+            if constexpr ( kFp8 )
+            {
+                const int stage = tile & 1;
+
+                load_kv_tile_fp8<kHeadSize, Geometry::kKeys>(
+                    s_k_codes + stage * Geometry::kCodeStageBytes, s_v_codes + stage * Geometry::kCodeStageBytes,
+                    s_k_scale + stage * Geometry::kKeys, s_v_scale + stage * Geometry::kKeys,
+                    static_cast<const uint8_t*>( K_raw ), static_cast<const uint8_t*>( V_raw ), k_scales, v_scales,
+                    kv_base, scale_base,
+                    tile * Geometry::kKeys, cache_capacity, threadIdx.x );
+            }
+            else
+            {
+                load_kv_tile<kHeadSize, Geometry::kKeys>(
+                    bf16Stage( s_k, tile ), bf16Stage( s_v, tile ),
+                    K, V, kv_base,
+                    tile * Geometry::kKeys, cache_capacity, threadIdx.x );
+            }
+        };
 
         // This lane's two rows: g and g + 8 of its row tile.
         const int row_low = block_row0 + row_tile * kTileRows + g;
@@ -239,16 +351,16 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         float m_low = -CUDART_INF_F, m_high = -CUDART_INF_F;
         float l_low = 0.0f, l_high = 0.0f;
 
-        load_kv_tile<kHeadSize, Geometry::kKeys>(
-            s_k + ( first_tile & 1 ) * Geometry::kStageElements, s_v + ( first_tile & 1 ) * Geometry::kStageElements,
-            K, V, kv_base, first_tile * Geometry::kKeys, cache_capacity, tid );
+        loadTile( first_tile );
         __pipeline_commit();
 
         for ( int tile = first_tile; tile < tile_count; ++tile )
         {
             const int tile_start = tile * Geometry::kKeys;
-            const __nv_bfloat16* k_tile = s_k + ( tile & 1 ) * Geometry::kStageElements;
-            const __nv_bfloat16* v_tile = s_v + ( tile & 1 ) * Geometry::kStageElements;
+            const __nv_bfloat16* k_tile = bf16Stage( s_k, tile );
+            const __nv_bfloat16* v_tile = bf16Stage( s_v, tile );
+            const float* k_scale_tile = s_k_scale + ( tile & 1 ) * Geometry::kKeys;
+            const float* v_scale_tile = s_v_scale + ( tile & 1 ) * Geometry::kKeys;
 
             __pipeline_wait_prior( 0 );
 
@@ -256,13 +368,24 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // tile, the stage the next prefetch writes and the exchange buffer are free.
             __syncthreads();
 
+            if constexpr ( kFp8 )
+            {
+                // The single BF16 stage is free: every thread finished the previous tile above.
+                widen_kv_tile<kHeadSize, Geometry::kKeys>( bf16Stage( s_k, tile ), bf16Stage( s_v, tile ),
+                    s_k_codes + ( tile & 1 ) * Geometry::kCodeStageBytes,
+                    s_v_codes + ( tile & 1 ) * Geometry::kCodeStageBytes, tid );
+            }
+
             if ( tile + 1 < tile_count )
             {
-                const int next = ( tile + 1 ) & 1;
-                load_kv_tile<kHeadSize, Geometry::kKeys>(
-                    s_k + next * Geometry::kStageElements, s_v + next * Geometry::kStageElements,
-                    K, V, kv_base, ( tile + 1 ) * Geometry::kKeys, cache_capacity, tid );
+                loadTile( tile + 1 );
                 __pipeline_commit();
+            }
+
+            if constexpr ( kFp8 )
+            {
+                // The widened tile visible to every warp before the MMAs read it.
+                __syncthreads();
             }
 
             // --- QK over this warp's slice ---
@@ -338,12 +461,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 for ( int j = 0; j < 2; ++j )
                 {
                     const int key = tile_start + nt * kMmaN + 2 * tg + j;
+                    const float key_scale = kFp8 ? scale * k_scale_tile[ nt * kMmaN + 2 * tg + j ] : scale;
 
-                    float low = s[ nt ][ j ] * scale;
+                    float low = s[ nt ][ j ] * key_scale;
                     if ( !active_low || key > absolute_low || key < window_low )
                         low = -CUDART_INF_F;
 
-                    float high = s[ nt ][ 2 + j ] * scale;
+                    float high = s[ nt ][ 2 + j ] * key_scale;
                     if ( !active_high || key > absolute_high || key < window_high )
                         high = -CUDART_INF_F;
 
@@ -418,10 +542,21 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 #pragma unroll
             for ( int step = 0; step < Geometry::kKeySteps; ++step )
             {
-                const uint32_t p0 = pack_bf16x2( s[ 2 * step ][ 0 ], s[ 2 * step ][ 1 ] );
-                const uint32_t p1 = pack_bf16x2( s[ 2 * step ][ 2 ], s[ 2 * step ][ 3 ] );
-                const uint32_t p2 = pack_bf16x2( s[ 2 * step + 1 ][ 0 ], s[ 2 * step + 1 ][ 1 ] );
-                const uint32_t p3 = pack_bf16x2( s[ 2 * step + 1 ][ 2 ], s[ 2 * step + 1 ][ 3 ] );
+                // Keys 2*step*8 + 2tg + {0,1} and (2*step + 1)*8 + 2tg + {0,1}; rows g and g + 8 share them.
+                float v0 = 1.0f, v1 = 1.0f, v2 = 1.0f, v3 = 1.0f;
+
+                if constexpr ( kFp8 )
+                {
+                    v0 = v_scale_tile[ 2 * step * kMmaN + 2 * tg ];
+                    v1 = v_scale_tile[ 2 * step * kMmaN + 2 * tg + 1 ];
+                    v2 = v_scale_tile[ ( 2 * step + 1 ) * kMmaN + 2 * tg ];
+                    v3 = v_scale_tile[ ( 2 * step + 1 ) * kMmaN + 2 * tg + 1 ];
+                }
+
+                const uint32_t p0 = pack_bf16x2( s[ 2 * step ][ 0 ] * v0, s[ 2 * step ][ 1 ] * v1 );
+                const uint32_t p1 = pack_bf16x2( s[ 2 * step ][ 2 ] * v0, s[ 2 * step ][ 3 ] * v1 );
+                const uint32_t p2 = pack_bf16x2( s[ 2 * step + 1 ][ 0 ] * v2, s[ 2 * step + 1 ][ 1 ] * v3 );
+                const uint32_t p3 = pack_bf16x2( s[ 2 * step + 1 ][ 2 ] * v2, s[ 2 * step + 1 ][ 3 ] * v3 );
 
 #pragma unroll
                 for ( int pair = 0; pair < kSliceNTiles / 2; ++pair )
@@ -460,26 +595,68 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
     namespace
     {
-        template<int kHeadSize>
+        template<int kHeadSize, bool kFp8>
         void launch_packed_prefill(
-            const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V, __nv_bfloat16* Y,
-            int B, int chunk_len, int NH, int NKV, int cache_capacity,
+            const __nv_bfloat16* Q, const void* K, const void* V, const float* k_scales, const float* v_scales,
+            __nv_bfloat16* Y, int B, int chunk_len, int NH, int NKV, int cache_capacity,
             int position_offset, int window, float scale, cudaStream_t stream )
         {
-            using Geometry = PackedGeometry<kHeadSize>;
+            using Geometry = PackedGeometry<kHeadSize, kFp8>;
 
             cudaCheck( cudaFuncSetAttribute(
-                gqa_flash_prefill_packed_bf16_kernel<kHeadSize>,
+                gqa_flash_prefill_packed_bf16_kernel<kHeadSize, kFp8>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
                 static_cast<int>( Geometry::kSharedBytes ) ) );
 
             const int total_rows = chunk_len * ( NH / NKV );
             const dim3 grid( ceil_div( total_rows, Geometry::kRows ), NKV, B );
 
-            gqa_flash_prefill_packed_bf16_kernel<kHeadSize> <<< grid, kWarps * 32, Geometry::kSharedBytes, stream >>> (
-                Q, K, V, Y, chunk_len, NH, NKV, cache_capacity, position_offset, window, scale );
+            gqa_flash_prefill_packed_bf16_kernel<kHeadSize, kFp8> <<< grid, kWarps * 32, Geometry::kSharedBytes, stream >>> (
+                Q, K, V, k_scales, v_scales, Y, chunk_len, NH, NKV, cache_capacity, position_offset, window, scale );
 
             cudaCheck( cudaGetLastError() );
+        }
+
+        /// Head size, geometry and device checks, then the launch for either cache.
+        template<bool kFp8>
+        void flashPrefill(
+            const char* caller,
+            const __nv_bfloat16* Q, const void* K, const void* V, const float* k_scales, const float* v_scales,
+            __nv_bfloat16* Y, int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+            int position_offset, int window, float scale, cudaStream_t stream )
+        {
+            if ( !cuda_gqa_flash_prefill_supported( HS ) )
+                throw std::runtime_error( std::string( caller ) + ": head size " + std::to_string( HS )
+                    + " is not supported; the packed kernel serves 128, 256 and 512" );
+
+            if ( NKV <= 0 || NH % NKV != 0 )
+                throw std::runtime_error( std::string( caller ) + ": query heads must be a multiple of KV heads" );
+
+            int device = 0;
+            int sm_major = 0;
+            cudaCheck( cudaGetDevice( &device ) );
+            cudaCheck( cudaDeviceGetAttribute( &sm_major, cudaDevAttrComputeCapabilityMajor, device ) );
+
+            if ( sm_major < 8 )
+                throw std::runtime_error( std::string( caller ) + ": requires compute capability 8.0 or later" );
+
+            switch ( HS )
+            {
+                case 128:
+                    launch_packed_prefill<128, kFp8>( Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, cache_capacity,
+                        position_offset, window, scale, stream );
+                    break;
+
+                case 256:
+                    launch_packed_prefill<256, kFp8>( Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, cache_capacity,
+                        position_offset, window, scale, stream );
+                    break;
+
+                case 512:
+                    launch_packed_prefill<512, kFp8>( Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, cache_capacity,
+                        position_offset, window, scale, stream );
+                    break;
+            }
         }
     }
 
@@ -495,34 +672,19 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int position_offset, int window, float scale,
         cudaStream_t stream )
     {
-        if ( !cuda_gqa_flash_prefill_supported( HS ) )
-            throw std::runtime_error( "cuda_gqa_flash_prefill_bf16: head size " + std::to_string( HS )
-                + " is not supported; the packed kernel serves 128, 256 and 512" );
+        flashPrefill<false>( "cuda_gqa_flash_prefill_bf16", Q, K, V, nullptr, nullptr, Y,
+            B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, stream );
+    }
 
-        if ( NKV <= 0 || NH % NKV != 0 )
-            throw std::runtime_error( "cuda_gqa_flash_prefill_bf16: query heads must be a multiple of KV heads" );
-
-        int device = 0;
-        int sm_major = 0;
-        cudaCheck( cudaGetDevice( &device ) );
-        cudaCheck( cudaDeviceGetAttribute( &sm_major, cudaDevAttrComputeCapabilityMajor, device ) );
-
-        if ( sm_major < 8 )
-            throw std::runtime_error( "cuda_gqa_flash_prefill_bf16: requires compute capability 8.0 or later" );
-
-        switch ( HS )
-        {
-            case 128:
-                launch_packed_prefill<128>( Q, K, V, Y, B, chunk_len, NH, NKV, cache_capacity, position_offset, window, scale, stream );
-                break;
-
-            case 256:
-                launch_packed_prefill<256>( Q, K, V, Y, B, chunk_len, NH, NKV, cache_capacity, position_offset, window, scale, stream );
-                break;
-
-            case 512:
-                launch_packed_prefill<512>( Q, K, V, Y, B, chunk_len, NH, NKV, cache_capacity, position_offset, window, scale, stream );
-                break;
-        }
+    void cuda_gqa_flash_prefill_fp8(
+        const __nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
+        const float* k_scales, const float* v_scales,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+        int position_offset, int window, float scale,
+        cudaStream_t stream )
+    {
+        flashPrefill<true>( "cuda_gqa_flash_prefill_fp8", Q, K, V, k_scales, v_scales, Y,
+            B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, stream );
     }
 }

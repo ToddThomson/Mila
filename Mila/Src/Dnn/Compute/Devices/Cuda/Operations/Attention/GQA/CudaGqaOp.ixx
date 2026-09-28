@@ -6,6 +6,7 @@
 module;
 #include <cublasLt.h>
 #include <cuda_fp16.h>
+#include <cuda_fp8.h>
 #include <cuda_runtime.h>
 #include <memory>
 #include <string>
@@ -94,15 +95,24 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      *                    context T. When false (NoKvCompression), capacity == T and
      *                    the path is byte-identical to the unbounded cache. See
      *                    SlidingWindowKvCache.md.
+     * @tparam kFp8Cache  When true (PerTokenKvFp8 policy), the cache holds E4M3 codes and one FP32 scale per KV
+     *                    head per token, written by the FP8 cache write and read only by the fused flash prefill
+     *                    and fused decode kernels; a geometry those kernels do not serve is refused at build, and
+     *                    flash off is refused at prefill or decode. BF16 and the unbounded cache only
+     *                    (Quantization.md, Part III).
      */
-    export template<TensorDataType TPrecision, bool kBounded = false>
+    export template<TensorDataType TPrecision, bool kBounded = false, bool kFp8Cache = false>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
+            && ( !kFp8Cache || ( TPrecision == TensorDataType::BF16 && !kBounded ) )
     class CudaGqaOp : public Operation<DeviceType::Cuda, TPrecision>, public IKvInference
     {
     public:
         using MR = CudaDeviceMemoryResource;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
+        using CacheTensorType = std::conditional_t<kFp8Cache, Tensor<TensorDataType::FP8_E4M3, MR>, TensorType>;
+        using CacheNativeType = std::conditional_t<kFp8Cache, __nv_fp8_e4m3, NativeType>;
+        using ScaleTensorType = Tensor<TensorDataType::FP32, MR>;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
         using ConfigType = GqaConfig;
 
@@ -210,7 +220,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         {
             ensureKvCacheEnabled();
 
-            prefill_optimized( q, k, v, output, narrowToKernelIndex( position_offset ) );
+            if constexpr ( kFp8Cache )
+                prefillFp8Cache( q, k, v, output, narrowToKernelIndex( position_offset ) );
+            else
+                prefill_optimized( q, k, v, output, narrowToKernelIndex( position_offset ) );
         }
 
         void decode(
@@ -220,7 +233,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         {
             ensureKvCacheEnabled();
 
-            decode_optimized( q, k, v, output, narrowToKernelIndex( position ) );
+            if constexpr ( kFp8Cache )
+                decodeFp8Cache( q, k, v, output, narrowToKernelIndex( position ) );
+            else
+                decode_optimized( q, k, v, output, narrowToKernelIndex( position ) );
         }
 
         // ====================================================================
@@ -260,6 +276,20 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             cached_seq_len_ = 0;
             kv_cache_enabled_ = false;
 
+            if constexpr ( kFp8Cache )
+            {
+                // Only the FP8 write, the fused flash prefill and the fused decode read this cache; there is no
+                // cuBLASLt path to fall back to.
+                if ( !Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv_fp8_supported( HS_ )
+                    || !Detail::cuda_gqa_kernels<NativeType>::flash_prefill_supported( HS_, false )
+                    || !Detail::cuda_gqa_kernels<NativeType>::decode_attention_supported( HS_, GS_ ) )
+                {
+                    throw std::invalid_argument( std::format(
+                        "CudaGqaOp: an FP8 KV cache needs the fused kernels, which do not serve head size {} with "
+                        "{} query heads per KV head", HS_, GS_ ) );
+                }
+            }
+
             initializeState_optimized( context );
 
             cublaslt_handle_ = context_->getCublasLtHandle();
@@ -269,7 +299,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     "CudaGroupedQueryAttentionOp requires cuBLASLt. "
                     "Ensure CUDA 10.1 or newer." );
 
-            buildCublasLtPlans_optimized();
+            if constexpr ( !kFp8Cache )
+            {
+                buildCublasLtPlans_optimized();
+            }
 
             Operation<DeviceType::Cuda, TPrecision>::build( context );
         }
@@ -368,13 +401,24 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const dim_t kv_heads = config_.getNumKvHeads();
             const dim_t head_dim = config_.getHeadDim();
 
-            return 2 * occupiedDeviceBytes( storageBytes<TPrecision>( batch * kv_heads * capacity * head_dim ),
-                context.getAllocationGranularity() );
+            if constexpr ( kFp8Cache )
+            {
+                // K and V codes, and one FP32 scale per row of each.
+                return 2 * occupiedDeviceBytes( storageBytes<TensorDataType::FP8_E4M3>( batch * kv_heads * capacity * head_dim ),
+                        context.getAllocationGranularity() )
+                    + 2 * occupiedDeviceBytes( storageBytes<TensorDataType::FP32>( batch * kv_heads * capacity ),
+                        context.getAllocationGranularity() );
+            }
+            else
+            {
+                return 2 * occupiedDeviceBytes( storageBytes<TPrecision>( batch * kv_heads * capacity * head_dim ),
+                    context.getAllocationGranularity() );
+            }
         }
 
         std::size_t getScratchBytes() const override
         {
-            return fusedDecodeScratchBytes( use_flash_decode_, B_, NH_, NKV_, HS_ );
+            return fusedDecodeScratchBytes( kFp8Cache || use_flash_decode_, B_, NH_, NKV_, HS_ );
         }
 
         std::size_t getRequiredScratchBytes( const BuildContext& context ) const override
@@ -383,7 +427,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             validateInputShape( input_shape );
 
-            return fusedDecodeScratchBytes( use_flash_decode_ || context.usesFusedDecode(),
+            // The FP8 cache always decodes through the fused kernel.
+            return fusedDecodeScratchBytes( kFp8Cache || use_flash_decode_ || context.usesFusedDecode(),
                 static_cast<int>( input_shape[ 0 ] ), static_cast<int>( config_.getNumHeads() ),
                 static_cast<int>( config_.getNumKvHeads() ), static_cast<int>( config_.getHeadDim() ) );
         }
@@ -535,15 +580,21 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // State tensors -- KV cache (compact NKV layout, retained across calls)
         // ====================================================================
 
-        std::shared_ptr<TensorType> k_tensor_;     // [B, NKV, T, HS]
-        std::shared_ptr<TensorType> v_tensor_;     // [B, NKV, T, HS]
+        std::shared_ptr<CacheTensorType> k_tensor_;     // [B, NKV, T, HS]
+        std::shared_ptr<CacheTensorType> v_tensor_;     // [B, NKV, T, HS]
+
+        // FP8 cache only: one scale per row of K and of V.
+        std::shared_ptr<ScaleTensorType> k_scale_tensor_;   // [B, NKV, T]
+        std::shared_ptr<ScaleTensorType> v_scale_tensor_;   // [B, NKV, T]
 
         // ====================================================================
         // Raw device pointers -- KV cache plus shared transient scratch (via setState)
         // ====================================================================
 
-        NativeType* k_opt_{ nullptr };
-        NativeType* v_opt_{ nullptr };
+        CacheNativeType* k_opt_{ nullptr };
+        CacheNativeType* v_opt_{ nullptr };
+        float* k_scale_opt_{ nullptr };
+        float* v_scale_opt_{ nullptr };
         NativeType* q_permute_opt_{ nullptr };
         NativeType* preatt_opt_{ nullptr };
         NativeType* att_opt_{ nullptr };
@@ -638,9 +689,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     "prefill or decode" );
         }
 
-        static NativeType* raw( const std::shared_ptr<TensorType>& t )
+        static CacheNativeType* raw( const std::shared_ptr<CacheTensorType>& t )
         {
-            return static_cast<NativeType*>(t->rawData());
+            return static_cast<CacheNativeType*>(t->rawData());
         }
 
         // ====================================================================
@@ -658,9 +709,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // below use the same value, so the unbounded path is unchanged.
             const shape_t kv_shape = { B_, NKV_, cache_capacity_, HS_ };
 
-            auto make = [&]( const shape_t& shape, const std::string& name )
+            auto make = [&]<typename TTensor>( const shape_t& shape, const std::string& name )
                 {
-                    auto tensor = std::make_shared<TensorType>( device, shape, name );
+                    auto tensor = std::make_shared<TTensor>( device, shape, name );
                     state_memory_size_ += occupiedTensorBytes( *tensor );
 
                     return tensor;
@@ -669,11 +720,94 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // KV cache -- compact NKV layout, retained across calls. All transient
             // scratch (Q permute, prefill/decode attention buffers) is wired via
             // setState() from the shared LlamaTransformer workspace.
-            k_tensor_ = make( kv_shape, "gqa.k" );
+            k_tensor_ = make.template operator()<CacheTensorType>( kv_shape, "gqa.k" );
             k_opt_ = raw( k_tensor_ );
 
-            v_tensor_ = make( kv_shape, "gqa.v" );
+            v_tensor_ = make.template operator()<CacheTensorType>( kv_shape, "gqa.v" );
             v_opt_ = raw( v_tensor_ );
+
+            if constexpr ( kFp8Cache )
+            {
+                const shape_t scale_shape = { B_, NKV_, cache_capacity_ };
+
+                k_scale_tensor_ = make.template operator()<ScaleTensorType>( scale_shape, "gqa.k_scale" );
+                k_scale_opt_ = static_cast<float*>( k_scale_tensor_->rawData() );
+
+                v_scale_tensor_ = make.template operator()<ScaleTensorType>( scale_shape, "gqa.v_scale" );
+                v_scale_opt_ = static_cast<float*>( v_scale_tensor_->rawData() );
+            }
+        }
+
+        // ====================================================================
+        // The FP8 cache (PerTokenKvFp8): write, then read back through the fused kernels. Every read sees the
+        // chunk's own keys as the cache holds them, so prefill and decode read the same values
+        // (Quantization.md, Part III, decision 3).
+        // ====================================================================
+
+        void prefillFp8Cache(
+            const ITensor& q, const ITensor& k, const ITensor& v,
+            ITensor& output,
+            int position_offset )
+        {
+            const int chunk_len = static_cast<int>( q.shape()[ 1 ] );
+
+            if ( position_offset < 0 || position_offset + chunk_len > active_max_seq_len_ )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaGqaOp::prefill: position_offset {} + chunk_len {} exceeds max_seq_len {}",
+                    position_offset, chunk_len, active_max_seq_len_ ) );
+            }
+
+            if ( !use_flash_prefill_ )
+            {
+                throw std::logic_error(
+                    "CudaGqaOp: an FP8 KV cache is read only by the flash prefill; switch it on before prefill" );
+            }
+
+            cudaStream_t stream = context_->getStream();
+
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv_fp8(
+                k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
+                static_cast<const NativeType*>( k.rawData() ), static_cast<const NativeType*>( v.rawData() ),
+                B_, chunk_len, NKV_, HS_, position_offset, cache_capacity_, stream );
+
+            Detail::cuda_gqa_kernels<NativeType>::flash_prefill_fp8(
+                static_cast<const NativeType*>( q.rawData() ), k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
+                static_cast<NativeType*>( output.rawData() ),
+                B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
+                position_offset, window_, attention_scale_, stream );
+
+            cached_seq_len_ = position_offset + chunk_len;
+        }
+
+        void decodeFp8Cache(
+            const ITensor& q, const ITensor& k, const ITensor& v,
+            ITensor& output,
+            int position )
+        {
+            if ( position < 0 || position >= active_max_seq_len_ )
+                throw std::invalid_argument( "CudaGqaOp::decode: position out of range" );
+
+            const int actual_len = position + 1;
+            cudaStream_t stream = context_->getStream();
+
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv_fp8(
+                k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
+                static_cast<const NativeType*>( k.rawData() ), static_cast<const NativeType*>( v.rawData() ),
+                B_, 1, NKV_, HS_, position, cache_capacity_, stream );
+
+            // The split-K partials come from the shared context scratch, fetched on every call: it may be
+            // reallocated on grow.
+            float* split_scratch = static_cast<float*>( context_->getDeviceScratchBuffer(
+                Detail::cuda_gqa_kernels<NativeType>::decode_attention_scratch_bytes( B_, NH_, HS_ ) ) );
+
+            Detail::cuda_gqa_kernels<NativeType>::decode_attention_fp8(
+                static_cast<const NativeType*>( q.rawData() ), k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
+                static_cast<NativeType*>( output.rawData() ), split_scratch,
+                B_, NH_, NKV_, HS_, cache_capacity_, actual_len, window_, attention_scale_, stream );
+
+            if ( actual_len > cached_seq_len_ )
+                cached_seq_len_ = actual_len;
         }
 
         // ====================================================================

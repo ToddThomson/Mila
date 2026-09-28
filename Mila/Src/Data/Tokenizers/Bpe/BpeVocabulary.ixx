@@ -219,10 +219,11 @@ namespace Mila::Data
          * @endcode
          *
          * Configures the GPT-2 byte-level runtime (byte_level=true, the GPT-2 byte
-         * encoder) with Qwen's own split pattern, and takes the merge-by-rank path
-         * rather than Llama's max-munch: Qwen's `ignore_merges` is false and its
-         * vocabulary is not max-munch equivalent. Chat, thinking and tool-calling
-         * markers are registered from the loaded vocabulary.
+         * encoder) with Qwen's own split pattern, and takes the merge-list path:
+         * Qwen's `ignore_merges` is false, so a pre-token the vocabulary holds whole
+         * is still built by its merges, where Llama's rank path emits it as one
+         * token. Chat, thinking and tool-calling markers are registered from the
+         * loaded vocabulary.
          *
          * @param path Path to the converted Qwen tokenizer binary.
          * @throws std::runtime_error on I/O errors or a non-BPE model type.

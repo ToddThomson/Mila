@@ -3,7 +3,7 @@
  * @brief KV cache compression policy concept and identity struct.
  *
  * Establishes the KvCachePolicy extension point consumed by GroupedQueryAttention
- * and CudaGqaOp. All active compression policies (PerChannelKvFp8, future SlidingWindow, future MLA)
+ * and CudaGqaOp. All active compression policies (PerTokenKvFp8, future SlidingWindow, future MLA)
  * satisfy this concept. GroupedQueryAttention constrains its TKvPolicy
  * parameter to KvCachePolicy.
  *

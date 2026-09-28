@@ -9,6 +9,7 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <utility>
 
 import Mila;
 
@@ -282,13 +283,66 @@ namespace Mila::Data::Tests
         std::shared_ptr<BpeTokenizer> tokenizer = BpeTokenizer::loadLlama32( p );
 
         // Ground truth from convert_llama_tokenizer.py (add_special_tokens=False).
-        // Tests the decode direction only; encode does not yet match HF because
-        // Llama 3.2 TikToken requires max-munch (longest-prefix) matching rather
-        // than explicit BPE merge rules.
         const std::vector<TokenId> ids = { 9906, 11, 1917, 0, 1115, 374, 264, 1296, 13 };
         const std::string expected = "Hello, world! This is a test.";
 
         EXPECT_EQ( tokenizer->decode( ids ), expected );
+    }
+
+    // HuggingFace's ids for meta-llama/Llama-3.1-8B-Instruct (add_special_tokens=False, transformers 5.12.1).
+    // Each word after the first is one that the longest match at each position splits differently: " seminary"
+    // is 54675 88 that way, " cradle" 46141 91485, " turrets" 65486 82.
+    TEST( BpeTokenizerLlama32, Encode_MatchesHuggingFaceIds )
+    {
+        auto p = llama32_tokenizer_path();
+
+        if ( !fs::exists( p ) )
+        {
+            GTEST_SKIP() << "Llama 3.2 tokenizer binary not present at: " << p.string();
+        }
+
+        std::shared_ptr<BpeTokenizer> tokenizer = BpeTokenizer::loadLlama32( p );
+
+        const std::pair<std::string, std::vector<TokenId>> cases[] = {
+            { "Hello, world! This is a test.", { 9906, 11, 1917, 0, 1115, 374, 264, 1296, 13 } },
+            { " seminary", { 5347, 3367 } },
+            { " CARMEN ARIZA", { 356, 18394, 965, 6395, 2913, 32 } },
+            { " Tatch", { 350, 759 } },
+            { " turrets", { 259, 88434 } },
+            { " cradle", { 1589, 72455 } },
+            { " The seminary in Seville kept its turrets.", { 578, 5347, 3367, 304, 1369, 8078, 8774, 1202, 259, 88434, 13 } },
+        };
+
+        for ( const auto& [ text, expected ] : cases )
+        {
+            EXPECT_EQ( tokenizer->encode( text ), expected ) << "\"" << text << "\"";
+        }
+    }
+
+    // A contraction matches whatever its case, so after a line break a quote before a capital splits as "'D": the
+    // pattern's (?i:...), which the ASCII fallback has to spell out. HuggingFace's ids, as above.
+    TEST( BpeTokenizerLlama32, Encode_QuoteBeforeCapital_MatchesHuggingFaceIds )
+    {
+        auto p = llama32_tokenizer_path();
+
+        if ( !fs::exists( p ) )
+        {
+            GTEST_SKIP() << "Llama 3.2 tokenizer binary not present at: " << p.string();
+        }
+
+        std::shared_ptr<BpeTokenizer> tokenizer = BpeTokenizer::loadLlama32( p );
+
+        const std::pair<std::string, std::vector<TokenId>> cases[] = {
+            { "Crass.\n\n'Didn't he", { 16384, 395, 382, 28805, 307, 77, 956, 568 } },
+            { "that.'\n\n'They calls 'em", { 9210, 22438, 17773, 36661, 6880, 364, 336 } },
+            { "\n'There's", { 198, 17773, 6881, 596 } },
+            { " IT'S WE'LL THEY'RE", { 8871, 13575, 20255, 6, 4178, 63593, 95253 } },
+        };
+
+        for ( const auto& [ text, expected ] : cases )
+        {
+            EXPECT_EQ( tokenizer->encode( text ), expected ) << "\"" << text << "\"";
+        }
     }
 
     TEST( BpeTokenizerLlama32, EncodeDecode_Roundtrip_ShortText_Diagnostic )

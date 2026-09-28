@@ -184,7 +184,7 @@ namespace Mila::Dnn
         /**
          * @brief FP8 quantization -- FP8 weights, FP8 KV cache.
          *
-         * Maps to PerChannelFp8<> on Linear and PerChannelKvFp8<> on
+         * Maps to PerChannelFp8<> on Linear and PerTokenKvFp8<> on
          * GroupedQueryAttention. Good quality/compression tradeoff for
          * standard inference on Ada Lovelace and later.
          */
@@ -199,7 +199,7 @@ namespace Mila::Dnn
         /**
          * @brief FP4 quantization -- FP4 weights, FP8 KV cache.
          *
-         * Maps to PerGroupFp4<> on Linear (future) and PerChannelKvFp8<> on
+         * Maps to PerGroupFp4<> on Linear (future) and PerTokenKvFp8<> on
          * GroupedQueryAttention. Aggressive compression; some quality loss
          * relative to FP8. FP4 KV cache is not a Mila target.
          */
@@ -293,7 +293,7 @@ namespace Mila::Dnn
                     switch ( kv )
                     {
                         case KvCacheCompression::None: return "None (BF16)";
-                        case KvCacheCompression::FP8:  return "FP8 (PerChannelKvFp8)";
+                        case KvCacheCompression::FP8:  return "FP8 (PerTokenKvFp8)";
                         default:                       return "Unknown";
                     }
                 };

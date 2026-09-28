@@ -175,7 +175,8 @@ The tells are greppable, and worth a pass before anything is published: **delibe
   Version: <Version.txt value>
   <Headline — single line>
 
-  <Body — up to 6 grouped bullets for substantial commits; omit for small ones>
+  <Body — concise bullets that account for every change, as many as that takes, under plain block headings
+  when the commit spans several areas; omit for small ones>
 
   BREAKING: <API changes, etc. — only when applicable>
   ```

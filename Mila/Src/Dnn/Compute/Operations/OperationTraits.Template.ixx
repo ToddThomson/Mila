@@ -13,7 +13,7 @@
  * Policy conventions:
  *   TPolicy = void                  policy-free ops  (Softmax, RmsNorm, RoPE, Residual, ...)
  *   TPolicy = WeightQuantPolicy     LinearOp         (NoWeightQuant, PerChannelFp8<>, ...)
- *   TPolicy = KvCachePolicy         GQA              (NoKvCompression, PerChannelKvFp8<>, ...)
+ *   TPolicy = KvCachePolicy         GQA              (NoKvCompression, PerTokenKvFp8<>, ...)
  *
  * Components hold the concrete op type via a local alias:
  *
@@ -144,6 +144,28 @@ namespace Mila::Dnn::Compute
                                           const TParams& params, float r )
     {
         op.forward( logits, token_out, params, r );
+    };
+
+    /**
+     * @brief Contract for NextTokenLogProbabilityOp: each scored position's log-probability of its actual next
+     *        token, reduced where the logits are.
+     *
+     * begin() sizes a host-readable store before any window is enqueued; forward() enqueues one window of
+     * logits rows on the model's stream, writing positions [first_position, first_position + rows); the
+     * results are read with logProbabilities() once the caller has synchronized the model. Only the log-
+     * probabilities leave the device, never the logits.
+     *
+     * @tparam TOp     Candidate op type.
+     * @tparam TLogits Logits tensor type (model compute precision).
+     * @tparam TTokens The whole sequence's token ids (INT32, on the logits' device).
+     */
+    export template<typename TOp, typename TLogits, typename TTokens>
+    concept NextTokenLogProbabilityOpConcept = requires( TOp& op, const TLogits& logits, const TTokens& tokens,
+                                                         long long position )
+    {
+        op.begin( position );
+        op.forward( logits, tokens, position, position );
+        op.logProbabilities( position );
     };
 
 }  // namespace Mila::Dnn::Compute

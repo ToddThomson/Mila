@@ -688,6 +688,129 @@ scaling off missing past it; and its greedy tokens.
 L2. G2's protocol and its three tests on the same PG-19 books, inside a Llama user turn, on the 3.1 8B at
 FP4 to the largest context the planner chooses on the reference card after L4.
 
+- *Protocol, decided 2026-09-28 (Todd).* One network built at 69632, the planner's choice for the 3.1 8B on
+  the RTX 5060 Ti at chunk 1024 (L4), window 64. Bands 0-8K, 8K-16K, 16K-32K, 32K-64K and 64K-69632, the last
+  the top of the range and the question. Five books: G2's two (30312 and 3608), so the families compare on the
+  same text, then the next three in the test split's order that fill 69632 tokens. The turn is
+  `<|begin_of_text|>`, a user turn "Continue this book.", the assistant header, then the book with its wraps
+  joined -- no system block, as Chat renders it, although HuggingFace's 3.1 template adds a dated one by default;
+  HuggingFace and llama.cpp are fed the same ids.
+- *Test 1's short arm is 1024 tokens,* as Gemma's, in 1024-target blocks each after the turn and only the 1024
+  book tokens before the block, so that the two families' tables compare. Llama has no sliding window, so the
+  length is a choice, not the architecture's. An 8192 arm -- Llama's original context -- may be reported beside
+  it and gates nothing.
+- *Test 2's bound is written after a HuggingFace measurement and before Mila's run.* Meta publishes no
+  quantization-aware 3.1 8B, so the package rounds weights not trained to be rounded, which is what cost Gemma
+  +0.69 at 32K; section 9 item 14's fallback for that case is FP4 with all of attention at FP8, which Mila cannot
+  build today. One book to 32K in HuggingFace -- BF16, FP8, FP4, FP4 with attention at FP8, and Q4_0, each as
+  Mila rounds it -- decides the package's format and the bound.
+- *Test 3 runs on a Q4_0 build,* since the FP4 package has no llama.cpp counterpart: the 8B rounded by the
+  reference Q4_0 rule against a Q4_0 GGUF of the same checkpoint, first checked equal code for code (llama.cpp
+  permutes the query and key rows, which the check undoes). It tests Mila's long-context arithmetic to 69632 on
+  identical weights, which is what test 3 is for.
+- *HuggingFace by weight format, 2026-09-28* (`Tools/Converters/Llama/hf_llama_long_context_loss.py`, books 30312
+  and 3608 to 32K, the body rounded as Mila rounds it, embedding and head BF16; the text with CRLF joined, below).
+  Cost over BF16, nats per token, by 8K band:
+
+  | Weights | Book 30312 | Book 3608 | Mean |
+  |---|---|---|---|
+  | BF16 (loss) | 2.620, 2.562, 2.535, 2.631 | 2.180, 2.164, 2.091, 2.013 | |
+  | FP8 | +0.003, +0.002, +0.003, +0.000 | -0.000, +0.000, +0.001, -0.001 | 0.001 |
+  | FP4, attention at FP8 | +0.040, +0.020, +0.029, +0.027 | +0.033, +0.033, +0.033, +0.022 | 0.030 |
+  | Q4_0 | +0.035, +0.032, +0.034, +0.036 | +0.037, +0.027, +0.040, +0.027 | 0.034 |
+  | FP4 | +0.067, +0.041, +0.051, +0.048 | +0.056, +0.053, +0.059, +0.047 | 0.053 |
+
+  **Llama does not lose long context to 4-bit weights.** Every format's cost is flat across the bands on both
+  books, where Gemma's FP4 cost rose from +0.19 to +0.69 over the same range. Q4_0 on the original weights and FP4
+  with attention at FP8 agree within 0.004 on average and both stay under 0.05 in every band; Q4_0's body is about
+  3.7 GiB against about 4.0. On Gemma the two separate: Q4_0 on the original weights cost +0.30 to +0.65, FP8
+  attention +0.04 to +0.11. The same sweep on the text before its line endings were fixed read Q4_0 ahead of FP8
+  attention in every band -- an artifact of that text, and the first statement of this decision rested on it.
+- *Decided 2026-09-28 (Todd), on that result.* Test 2's bound is 0.05 nats per token, Gemma's; today's FP4 package
+  fails it (+0.067 over book 30312's first 8K), so **the Llama package leaves FP4** at L7's republish. Section 9
+  item 14's fallback is corrected to depend on the family. **Q4_0 or FP4 with attention at FP8 is decided after
+  the Q4_0 GEMM queued for Gemma lands**, on prefill rate measured beside this table: the two are the same quality
+  within 0.004, Q4_0 is about 0.4 GiB smaller, one format across the two families, and a policy Llama already has,
+  where the mixed build needs a new one; Q4_0's prefill stages its weights to BF16 until that GEMM exists. First
+  proposed as Q4_0 outright, on the sweep over the damaged text. *How, decided 2026-09-28 (Todd):* when the GEMM
+  lands, Q4_0's prefill is measured and each projection is timed in the existing FP8 and FP4 builds (nsys); the
+  faster format per role bounds any mixed build from above, since a projection runs the same kernel at the same
+  shape in either. If Q4_0 meets that bound, Q4_0 is the package and nothing is built. Otherwise the mixed build
+  is built -- `LlamaBlock` and `LlamaTransformer` taking a precision plan as Qwen's blocks do, and
+  `Fp8AttentionPrecisionPlan<TBody>` in a module of its own -- and decides by L3's protocol and the prefill
+  harness in Mila's own arithmetic, with `PlanEqualsBuild` pricing its footprint: the estimate decides whether a
+  build is worth making, never the package.
+- *Two defects found by the first Mila run, 2026-09-28, both fixed before any result stands.* Mila's FP4 read
+  3.085 and 2.459 nats per token over the first 8K of books 30312 and 3608, against 2.567 and 2.122 in
+  HuggingFace on the same format -- far past any arithmetic offset -- because the two were not scoring the same
+  tokens.
+  1. **Mila's Llama 3 tokenizer did not produce HuggingFace's ids.** It encoded a pre-token by the longest
+     vocabulary match at each position; tiktoken, and HuggingFace's `ignore_merges` tokenizer, emit a pre-token
+     the vocabulary holds whole and otherwise merge adjacent units lowest rank first, a token's rank being its id.
+     The two agree on most words and not on rarer ones (" seminary": 54675 88 against 5347 3367), so about one
+     token in seventeen of English prose differed -- 2,913 of 45,870 on book 30312, 807 of 14,167 on wikitext.
+     The premise that `ignore_merges` made Llama 3 "max-munch equivalent" was written into the tokenizer, the
+     Qwen loader's comments, the Converters README, `Qwen3.8.md` and a test that asserted it. Separately, the ASCII
+     fallback pattern -- the one MSVC runs for all text, since its `std::regex` has no `\p{L}` -- matched
+     contractions case-sensitively where the pattern's `(?i:...)` does not, so a quote before a capital after a
+     line break ("'Didn") split differently; Qwen's fallback had the same fault. Fixed in `BpeTokenizer.ixx`
+     (rank path) and `BpePreTokenizationMode.ixx`, gated by `BpeTokenizerLlama32.Encode_MatchesHuggingFaceIds`
+     and `Encode_QuoteBeforeCapital_MatchesHuggingFaceIds` (each checked failing on the old code). All five L3
+     books now tokenize to HuggingFace's ids for all 69,618 book tokens; what still differs anywhere is non-ASCII
+     text through the fallback (20 regions in 68,538 wikitext tokens). Every Llama and GPT-2 encode in Mila --
+     Chat, the binding -- took the old path. L2 compared HuggingFace's own ids and is unaffected; L1's window
+     gate and L4's flash A/B tokenized wikitext through Mila, and were re-run (RTX 4070, the 3.1 8B at FP4): at
+     context 1024 perplexity is **8.303, where it read 11.89** -- the tokenizer alone cost the 8B 0.36 nats per
+     token on wikitext -- with windows 1 and 64 1.6e-5 apart; at context 4096, 6.807 with flash against 6.803 with
+     cuBLASLt, 6.3e-4 nats per token apart (from 9.47 and 8.3e-4).
+  2. **PG-19's books are stored with CRLF line endings, and the wrap join never saw a bare newline.** All 100 test
+     books; every line break, paragraph breaks included, became "\r " -- no paragraph survived. Mila's `joinWraps`
+     and the Python harnesses did the same, so every Mila, HuggingFace and llama.cpp comparison in G2 and here
+     read identical text, but every level was measured on it, diagnostic H's included. CRLF now becomes LF first
+     in all three; G2's results before 2026-09-28 read the old text, and its next run reads the new.
+- *Mila on the Q4_0 build, 2026-09-28* (`LlamaQualityCudaTests.DISABLED_AcrossContextLengths_Q4_0`, RTX 5060 Ti, the
+  tokenizer and line-ending fixes in, chunk 128 -- the library's rule on the live reading, below the recorded
+  readings' 1024 because Q4_0 stages its weights; 56 minutes for five books). Nats per book token, whole book
+  against 1024 tokens of it alone:
+
+  | Book | 0-8K | 8K-16K | 16K-32K | 32K-64K | 64K-69632 |
+  |---|---|---|---|---|---|
+  | 30312 | 2.6539 / 2.6713 | 2.5932 / 2.6381 | 2.6176 / 2.6476 | 2.6568 / 2.6847 | 2.6097 / 2.6813 |
+  | 3608 | 2.2168 / 2.2385 | 2.1925 / 2.2320 | 2.0849 / 2.1020 | 2.1165 / 2.1444 | 2.1459 / 2.2279 |
+  | 10321 | 3.2545 / 3.2666 | 3.2364 / 3.3035 | 3.2297 / 3.2997 | 3.0840 / 3.1503 | 3.0197 / 3.0697 |
+  | 10356 | 2.6639 / 2.7458 | 2.4720 / 2.5650 | 2.5126 / 2.6311 | 2.6279 / 2.7188 | 2.7536 / 2.8509 |
+  | 10762 | 3.1432 / 3.1470 | **3.1872 / 3.1709** | **3.1357 / 3.1233** | **3.1489 / 3.1335** | **3.1054 / 3.0687** |
+  | Pooled | 2.7865 / 2.8138 | 2.7363 / 2.7819 | 2.7161 / 2.7607 | 2.7268 / 2.7663 | 2.7269 / 2.7797 |
+
+  **Test 1 passes on four books and fails on the fifth.** Book 10762 -- George Eliot's *Impressions of Theophrastus
+  Such*, eighteen separate character essays -- reads 0.013 to 0.037 nats worse with the whole book before each band
+  than with 1024 tokens of it, in every band past 8K; the other four books gain 0.02 to 0.10 from the whole book,
+  and so does the pool in every band. **The failure is the model's, not the quantization's.** Test 1 on book 10762 in
+  HuggingFace to 32K (`hf_llama_long_context_loss.py --short-context 1024`), whole book less short context by 8K band:
+  BF16 -0.0001, +0.025, +0.009, +0.022; Q4_0 -0.004, +0.016, +0.005, +0.019. BF16 fails it by more than Q4_0 does: on a
+  collection of unrelated essays the 3.1 8B predicts slightly worse with the whole book before it, however it is
+  quantized. HuggingFace's Q4_0 matches Mila's in both arms to 0.001 (8K-16K: 3.1873 / 3.1718 against 3.1872 /
+  3.1709), which checks Mila's short-context arm as well. The gate as written counts these bands as failures and
+  reads a failure that is the model's as marking where it stops using its context -- which, from one essay
+  collection, would put the 8B's ceiling at 8192 while the other four books and the pool gain from context in every
+  band to 69632. How test 1 treats a book the model itself does not use is open (section 9).
+  **Test 2 passes on both books it has references for**: cost over HuggingFace BF16 +0.034, +0.031, +0.035 on 30312
+  and +0.037, +0.028, +0.033 on 3608 over 0-8K, 8K-16K and 16K-32K, against 0.05. Mila agrees with HuggingFace's Q4_0
+  emulation of the same weights to 0.001 in every one of those bands.
+  **Test 3 passes on all five books.** llama.cpp b11216 on the reference GGUF (below; `llama_cpp_long_context_loss.py
+  --family llama`, 1024-token chunks, RTX 5060 Ti), Mila less llama.cpp by band: 30312 -0.0005, +0.0006, +0.0007,
+  +0.0023, +0.0023; 3608 +0.0010, +0.0025, +0.0021, +0.0034, +0.0051; 10321 0.0000, +0.0004, +0.0012, +0.0031,
+  +0.0023; 10356 +0.0005, +0.0007, +0.0009, +0.0014, +0.0012; 10762 -0.0004, +0.0007, +0.0012, +0.0011, +0.0009. The
+  largest difference anywhere is 0.005, against bounds of 0.021 to 0.023. llama.cpp reads book 10762 as Mila does,
+  so its test 1 result is not Mila's arithmetic.
+- *Test 3's weights, 2026-09-28.* Published Q4_0 GGUFs of the 8B cannot serve: unsloth's is fitted with an
+  importance matrix and mixes in Q4_1 (four `ffn_down`) and a Q6_K head. `Tools/Converters/Llama/llama_q4_0_gguf.py`
+  writes one from Meta's BF16 checkpoint -- projections by gguf-py's port of the reference Q4_0 rule, query and key
+  rows permuted as llama.cpp's converter does, embedding and head BF16, metadata and the RoPE scaling table from a
+  published GGUF. `ExportArtifact --quantization q4_0` on the converted checkpoint (5.61 GiB, 14 s) equals it in
+  every code and every scale bit of all 224 Q4_0 tensors (`llama_q4_0_package_gate.py`); the same gate without
+  undoing the query and key permutation reports 598 million codes differing, all in those two projections.
+
 **L4 -- Flash-attention prefill, and the context threshold retired in every family.** *Closes:* 3.1's flash
 row (`Vnext.md`, "Llama prefill has no flash path and is 3.8x slower than a larger Gemma") and the rest of
 `Untriaged.md`'s long-context prefill entry ("Gemma and Qwen still switch flash off below a context
@@ -867,7 +990,10 @@ streaming in Chat.
     8.2 G2 result), and delivered as a Mila package. Google's only complete source is 22 GiB (the 26B-A4B's far
     more); its GGUF is small but has no image or audio weights and a Q6_K embedding. This refines item 16: a
     recipe where the producer's trained format is usable as shipped, a package where its only complete source
-    is full precision. The change rides G4's
+    is full precision. **The fallback corrected 2026-09-28 (Todd):** "FP4 with all of attention at FP8" was
+    Gemma's measurement, not a rule. Llama 3.1 8B, with no quantization-aware checkpoint, loses no long context at
+    4 bits, and Q4_0 matches FP8 attention there within 0.004 nats per token in fewer bytes (8.4, L3). Without quantization-aware
+    weights, the format is chosen per family by the long-context measurement. The change rides G4's
     single republish, and before it: a second book, and G2 re-run in Mila on the Q4_0 build, with its prefill's
     activation precision gated by the curve.
 15. ~~**G2's gate.**~~ **Decided 2026-09-27 (Todd):** three tests replace "the top band within 1.05 of the band
@@ -881,6 +1007,16 @@ streaming in Chat.
     where a producer publishes its trained quantized format, Mila installs it rather than republishing weights;
     and Mila's place beside llama.cpp is a library you build with and measure through, not breadth. Where each is
     written (`ModelDistribution.md`, `Direction.md`) is open, with the format principle, in `Untriaged.md`.
+17. **How test 1 treats a book the model does not use (8.4, L3).** Written for G2 and taken for L3: in every band of
+    every book, the whole book must predict no worse than 1024 tokens of it alone; a failure that is the model's
+    marks where it stops using its context. Book 10762, a collection of unrelated essays, fails it past 8K on the
+    Llama Q4_0 build -- and on BF16, by more. Read as written, that one book caps the 8B at 8192 while four books and
+    the pool gain in every band to 69632. (a) Keep it as written. (b) Gate test 1 on the pool of books, band by band,
+    report every book, and trace any book that fails to BF16 where BF16 runs (to 32K): a failure BF16 shares is the
+    model's and is recorded, not gated. (c) Per book, gate the build against BF16 -- the quantized build's whole-book
+    gain no smaller than BF16's less a margin -- which reaches only 32K. Recommend (b), for G2 as well: it keeps the
+    question test 1 was written to ask (does quantization damage long context) and keeps a model's own limit on one
+    kind of text from being read as its limit on all of them.
 
 ---
 

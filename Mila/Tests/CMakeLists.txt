@@ -217,6 +217,8 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp"
         "Dnn/Components/Attention/GQA/GroupedQueryAttention.Cuda.cpp"
         "Dnn/Components/Attention/GQA/CudaGqaOp.Cuda.cpp"
+        "Dnn/Components/Attention/GQA/CudaGqaOp.Fp8Cache.Cuda.cpp"
+        "Dnn/Models/LlaMa/Llama.InstructionRetention.Cuda.cpp"
         "Dnn/Components/Attention/MHA/MultiHeadAttention.Cuda.cpp"
         "Dnn/Components/Connections/Residual.Cuda.cpp"
         "Dnn/Components/Convolutions/CausalConv1d.Cuda.cpp"
@@ -291,6 +293,7 @@ if(MILA_ENABLE_CUDA)
         # Net-new: the FP32 master-parameter path has no coverage in AdamW.Cuda.cpp.
         "Dnn/Optimizers/AdamW.MixedPrecision.Cuda.cpp"
         "Dnn/Samplers/Sampling.Cuda.cpp"
+        "Dnn/Core/SequenceLogLikelihood.Cuda.cpp"
         "Dnn/Tensors/Tensor.Constructors.Cuda.cpp"
         "Dnn/Tensors/Tensor.DataAccess.Cuda.cpp"
         "Dnn/Tensors/Tensor.MemoryProperties.Cuda.cpp"

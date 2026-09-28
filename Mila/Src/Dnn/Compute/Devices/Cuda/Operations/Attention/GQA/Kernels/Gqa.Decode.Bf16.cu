@@ -15,6 +15,7 @@
 #include <math_constants.h>
 #include <algorithm>
 #include <cassert>
+#include <type_traits>
 #include "CudaUtils.h"
 #include "CudaGqa.cuh"
 
@@ -60,13 +61,19 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
          * written as [B, 1, NH*HS]: for a single token both have exactly the
          * per-(batch, head) row layout used here, which is what made the old
          * permute_q_compact / unpermute_output launches identity copies.
+         *
+         * With kFp8 the cache holds E4M3 codes and one scale per row (PerTokenKvFp8): the codes widen to float
+         * unscaled, each key's K scale multiplies its score after the dot product, and each key's V scale its
+         * probability in the PV sum, while l sums the unscaled probabilities (Quantization.md, Part III).
          */
-        template<int kHeadSize>
+        template<int kHeadSize, bool kFp8>
         __global__ void __launch_bounds__( kMaxDecodeGroupSize * 32 )
             gqa_decode_attention_bf16_kernel(
                 const __nv_bfloat16* __restrict__ q,
-                const __nv_bfloat16* __restrict__ k_cache,
-                const __nv_bfloat16* __restrict__ v_cache,
+                const void* __restrict__ k_cache_raw,
+                const void* __restrict__ v_cache_raw,
+                const float* __restrict__ k_scales,
+                const float* __restrict__ v_scales,
                 __nv_bfloat16* __restrict__ y,
                 float* __restrict__ split_partials,
                 int num_kv_heads,
@@ -79,15 +86,37 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         {
             static_assert( kHeadSize % 64 == 0, "per-lane float2 fragments need HS divisible by 64" );
 
+            using CacheType = std::conditional_t<kFp8, __nv_fp8_e4m3, __nv_bfloat16>;
+
+            const CacheType* __restrict__ k_cache = static_cast<const CacheType*>( k_cache_raw );
+            const CacheType* __restrict__ v_cache = static_cast<const CacheType*>( v_cache_raw );
+
             // Tile size chosen so the double-buffered K + V stage is 32 KB for
-            // every head size (2 stages x 2 tensors x 8 KB).
+            // every head size (2 stages x 2 tensors x 8 KB) at BF16; FP8 halves it.
             constexpr int kTilePositions = 4096 / kHeadSize;
             constexpr int kPairsPerLane = kHeadSize / 64;
-            constexpr int kInt4PerRow = kHeadSize / 8;
+            constexpr int kInt4PerRow = kHeadSize * static_cast<int>( sizeof( CacheType ) ) / 16;
             constexpr int kTileElements = kTilePositions * kHeadSize;
 
-            __shared__ __nv_bfloat16 s_k[ 2 ][ kTileElements ];
-            __shared__ __nv_bfloat16 s_v[ 2 ][ kTileElements ];
+            __shared__ __align__( 16 ) CacheType s_k[ 2 ][ kTileElements ];
+            __shared__ __align__( 16 ) CacheType s_v[ 2 ][ kTileElements ];
+            __shared__ float s_k_scale[ kFp8 ? 2 : 1 ][ kFp8 ? kTilePositions : 1 ];
+            __shared__ float s_v_scale[ kFp8 ? 2 : 1 ][ kFp8 ? kTilePositions : 1 ];
+
+            // One pair of cached values as float2: BF16 exactly, E4M3 exactly (every code is a half).
+            const auto pairAt = [&]( const CacheType* row, int pair ) -> float2
+            {
+                if constexpr ( kFp8 )
+                {
+                    const __nv_fp8x2_storage_t codes = reinterpret_cast<const __nv_fp8x2_storage_t*>( row )[ pair ];
+
+                    return __half22float2( __half2( __nv_cvt_fp8x2_to_halfraw2( codes, __NV_E4M3 ) ) );
+                }
+                else
+                {
+                    return __bfloat1622float2( reinterpret_cast<const __nv_bfloat162*>( row )[ pair ] );
+                }
+            };
 
             const int lane = threadIdx.x & 31;
             const int g = threadIdx.x >> 5;
@@ -154,6 +183,18 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                         reinterpret_cast<const int4*>( v_cache + row ) + j, sizeof( int4 ) );
                 }
 
+                if constexpr ( kFp8 )
+                {
+                    for ( int t = threadIdx.x; t < kTilePositions; t += blockDim.x )
+                    {
+                        const bool live = t < tile_rows;
+                        const size_t slot_row = kv_row_base + ( tile_begin + ( live ? t : 0 ) ) % capacity;
+
+                        s_k_scale[ stage ][ t ] = live ? k_scales[ slot_row ] : 0.0f;
+                        s_v_scale[ stage ][ t ] = live ? v_scales[ slot_row ] : 0.0f;
+                    }
+                }
+
                 // Zero the ragged tail rows (last tile only) so the compute loop's
                 // fixed-trip unroll reads defined values; the -inf score mask turns
                 // their probability weights into exact zeros.
@@ -194,20 +235,23 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 #pragma unroll
                 for ( int t = 0; t < kTilePositions; ++t )
                 {
-                    const __nv_bfloat162* k2 = reinterpret_cast<const __nv_bfloat162*>( s_k[ stage ] + t * kHeadSize );
+                    const CacheType* k_row = s_k[ stage ] + t * kHeadSize;
 
                     float dot = 0.0f;
 
 #pragma unroll
                     for ( int i = 0; i < kPairsPerLane; ++i )
                     {
-                        const float2 kf = __bfloat1622float2( k2[ lane + i * 32 ] );
+                        const float2 kf = pairAt( k_row, lane + i * 32 );
                         dot += q_frag[ i ].x * kf.x + q_frag[ i ].y * kf.y;
                     }
 
 #pragma unroll
                     for ( int offset = 16; offset > 0; offset >>= 1 )
                         dot += __shfl_xor_sync( 0xffffffffu, dot, offset );
+
+                    if constexpr ( kFp8 )
+                        dot *= s_k_scale[ stage ][ t ];
 
                     score[ t ] = ( t < tile_rows ) ? dot * scale : -CUDART_INF_F;
                 }
@@ -243,10 +287,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 #pragma unroll
                     for ( int t = 0; t < kTilePositions; ++t )
                     {
-                        const float2 vf = __bfloat1622float2(
-                            reinterpret_cast<const __nv_bfloat162*>( s_v[ stage ] + t * kHeadSize )[ lane + i * 32 ] );
-                        acc.x += p[ t ] * vf.x;
-                        acc.y += p[ t ] * vf.y;
+                        const float2 vf = pairAt( s_v[ stage ] + t * kHeadSize, lane + i * 32 );
+                        float weight = p[ t ];
+
+                        if constexpr ( kFp8 )
+                            weight *= s_v_scale[ stage ][ t ];
+
+                        acc.x += weight * vf.x;
+                        acc.y += weight * vf.y;
                     }
 
                     o_frag[ i ] = acc;
@@ -349,6 +397,68 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     __float2bfloat16( acc * s_inv_l );
             }
         }
+
+        /// Split policy and launch, shared by the BF16 and FP8 caches.
+        template<bool kFp8>
+        void launchDecodeAttention(
+            const __nv_bfloat16* Q, const void* K, const void* V, const float* k_scales, const float* v_scales,
+            __nv_bfloat16* Y, float* split_scratch,
+            int B, int NH, int NKV, int HS, int cache_capacity,
+            int actual_len, int window, float scale,
+            cudaStream_t stream )
+        {
+            const int group_size = NH / NKV;
+
+            // Split policy: fill the device (kDecodeTargetBlocks) without dropping a
+            // split's chunk below kDecodeMinPositionsPerSplit positions.
+            const int window_start = ( window > 0 ) ? std::max( 0, actual_len - window ) : 0;
+            const int band_len = actual_len - window_start;
+            const int splits_by_target = ( kDecodeTargetBlocks + NKV - 1 ) / NKV;
+            const int splits_by_band =
+                ( band_len + kDecodeMinPositionsPerSplit - 1 ) / kDecodeMinPositionsPerSplit;
+            const int num_splits =
+                std::max( 1, std::min( { splits_by_target, splits_by_band, kMaxDecodeSplits } ) );
+
+            const dim3 grid( NKV, num_splits, B );
+            const dim3 block( group_size * 32 );
+
+            switch ( HS )
+            {
+                case 128:
+                    gqa_decode_attention_bf16_kernel<128, kFp8><<<grid, block, 0, stream>>>(
+                        Q, K, V, k_scales, v_scales, Y, split_scratch, NKV, group_size, cache_capacity,
+                        actual_len, window, num_splits, scale );
+                    break;
+
+                case 256:
+                    gqa_decode_attention_bf16_kernel<256, kFp8><<<grid, block, 0, stream>>>(
+                        Q, K, V, k_scales, v_scales, Y, split_scratch, NKV, group_size, cache_capacity,
+                        actual_len, window, num_splits, scale );
+                    break;
+
+                case 512:
+                    gqa_decode_attention_bf16_kernel<512, kFp8><<<grid, block, 0, stream>>>(
+                        Q, K, V, k_scales, v_scales, Y, split_scratch, NKV, group_size, cache_capacity,
+                        actual_len, window, num_splits, scale );
+                    break;
+
+                default:
+                    assert( false && "cuda_gqa_decode_attention: unsupported head size" );
+                    return;
+            }
+
+            cudaCheck( cudaGetLastError() );
+
+            if ( num_splits > 1 )
+            {
+                const dim3 fixup_grid( NH, B );
+
+                gqa_decode_attention_fixup_bf16_kernel<<<fixup_grid, 128, 0, stream>>>(
+                    Y, split_scratch, NKV, group_size, HS, num_splits );
+
+                cudaCheck( cudaGetLastError() );
+            }
+        }
     } // anonymous namespace
 
     bool cuda_gqa_decode_attention_supported( int head_size, int group_size )
@@ -370,60 +480,27 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int actual_len, int window, float scale,
         cudaStream_t stream )
     {
-        const int group_size = NH / NKV;
-
         assert( NH % NKV == 0 );
-        assert( cuda_gqa_decode_attention_supported( HS, group_size ) );
+        assert( cuda_gqa_decode_attention_supported( HS, NH / NKV ) );
         assert( actual_len >= 1 );
 
-        // Split policy: fill the device (kDecodeTargetBlocks) without dropping a
-        // split's chunk below kDecodeMinPositionsPerSplit positions.
-        const int window_start = ( window > 0 ) ? std::max( 0, actual_len - window ) : 0;
-        const int band_len = actual_len - window_start;
-        const int splits_by_target = ( kDecodeTargetBlocks + NKV - 1 ) / NKV;
-        const int splits_by_band =
-            ( band_len + kDecodeMinPositionsPerSplit - 1 ) / kDecodeMinPositionsPerSplit;
-        const int num_splits =
-            std::max( 1, std::min( { splits_by_target, splits_by_band, kMaxDecodeSplits } ) );
+        launchDecodeAttention<false>( Q, K, V, nullptr, nullptr, Y, split_scratch,
+            B, NH, NKV, HS, cache_capacity, actual_len, window, scale, stream );
+    }
 
-        const dim3 grid( NKV, num_splits, B );
-        const dim3 block( group_size * 32 );
+    void cuda_gqa_decode_attention_fp8(
+        const __nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
+        const float* k_scales, const float* v_scales,
+        __nv_bfloat16* Y, float* split_scratch,
+        int B, int NH, int NKV, int HS, int cache_capacity,
+        int actual_len, int window, float scale,
+        cudaStream_t stream )
+    {
+        assert( NH % NKV == 0 );
+        assert( cuda_gqa_decode_attention_supported( HS, NH / NKV ) );
+        assert( actual_len >= 1 );
 
-        switch ( HS )
-        {
-            case 128:
-                gqa_decode_attention_bf16_kernel<128><<<grid, block, 0, stream>>>(
-                    Q, K, V, Y, split_scratch, NKV, group_size, cache_capacity,
-                    actual_len, window, num_splits, scale );
-                break;
-
-            case 256:
-                gqa_decode_attention_bf16_kernel<256><<<grid, block, 0, stream>>>(
-                    Q, K, V, Y, split_scratch, NKV, group_size, cache_capacity,
-                    actual_len, window, num_splits, scale );
-                break;
-
-            case 512:
-                gqa_decode_attention_bf16_kernel<512><<<grid, block, 0, stream>>>(
-                    Q, K, V, Y, split_scratch, NKV, group_size, cache_capacity,
-                    actual_len, window, num_splits, scale );
-                break;
-
-            default:
-                assert( false && "cuda_gqa_decode_attention_bf16: unsupported head size" );
-                return;
-        }
-
-        cudaCheck( cudaGetLastError() );
-
-        if ( num_splits > 1 )
-        {
-            const dim3 fixup_grid( NH, B );
-
-            gqa_decode_attention_fixup_bf16_kernel<<<fixup_grid, 128, 0, stream>>>(
-                Y, split_scratch, NKV, group_size, HS, num_splits );
-
-            cudaCheck( cudaGetLastError() );
-        }
+        launchDecodeAttention<true>( Q, K, V, k_scales, v_scales, Y, split_scratch,
+            B, NH, NKV, HS, cache_capacity, actual_len, window, scale, stream );
     }
 }

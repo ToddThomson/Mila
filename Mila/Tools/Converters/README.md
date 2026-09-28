@@ -239,7 +239,7 @@ python Qwen/convert_weights.py --model Qwen/Qwen3.8-27B --max-layers 4 --output 
 
 Qwen 3.8 is GPT-2 style byte-level BPE — explicit merge ranks, no byte fallback, 248,077 pieces
 (248,044 learned plus 33 control tokens). `BpeVocabulary::loadQwen` reads the result on the
-merge-by-rank path, not the max-munch path the Llama loader uses.
+merge-list path; the Llama loader carries no merge list and merges by token id instead.
 
 > **`convert_tokenizer.py` does not use `transformers`, and that is deliberate.** `transformers`
 > 5.12.1 rebuilds Qwen tokenizers from `vocab.json` + `merges.txt` and replaces the checkpoint's

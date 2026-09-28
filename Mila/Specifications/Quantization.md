@@ -649,6 +649,93 @@ time before attention score computation.
 **Dequantization strategy:** At read time, immediately before use in attention score
 and weighted-sum computation. Dequantized values are transient — never written back.
 
+### Decisions, 2026-09-28 (Todd)
+
+These supersede the sections below where they differ; the code follows them, and the sections are rewritten
+when it lands.
+
+1. **One E4M3 scale per KV head per token, computed at the write.** No calibration: Mila has no path that
+   calibrates activations. The scale is 4 bytes against 128 to 512 bytes of values. The policy is not per channel,
+   so `PerChannelKvFp8` is renamed `PerTokenKvFp8`, in its own module.
+2. **The flash kernels read FP8 directly.** The packed prefill kernel and the fused decode kernel load FP8 tiles and
+   dequantize them on chip before the BF16 mma. No transient BF16 buffers: they would cost memory and bandwidth at
+   the lengths the compression exists for. FP8 is the storage format, not the compute format -- an FP8 mma for
+   QK^T would round the queries too, the projection Gemma's long-context loss traced to.
+3. **Every read goes through the quantized cache**, the current chunk's own keys included, so prefill and decode
+   see the same K and V. Decode-against-prefill agreement and prefix-difference scoring (`ModelFamilyParity.md`
+   G2, L3) stay valid.
+4. **Unbounded layers only, and only where flash serves them:** every Llama layer, Qwen's full-attention layers and
+   Gemma's global layers (K = V, one tensor, one scale set). Gemma's sliding ring is bounded and stays BF16. A
+   layer on the cuBLASLt path -- an FP32 build, or head size 64 (Llama 3.2 1B) -- refuses FP8 KV at planning.
+5. **The request chooses it; the planner prices it and never chooses it** in 0.21. `KvCacheCompression::FP8` on
+   the request, priced exactly by `getRequiredMemory` so that `PlanEqualsBuild` holds. Automatic choice waits for
+   all three families' measurements.
+6. **Gate, per family, written before the run:** `ModelFamilyParity.md`'s long-context protocol (G2 / L3) on the
+   same weights, FP8 KV against BF16 KV, every band within 0.01 nats per token and the difference not growing with
+   context; then the same protocol past the BF16 plan's context, to what the FP8 plan reaches, where the whole
+   book must still predict no worse than 1024 tokens of it. Decode rate at 32K recorded. Before any family: the op
+   against BF16 on synthetic K and V. **Beside it, a behavioral arm that reports and does not gate** until its
+   noise is known: an instruction at position 0 (a format or refusal constraint), a PG-19 book filling the
+   context to the plan's length, then a question -- does the instruction still hold, BF16 KV against FP8 KV. A
+   loss averaged over book tokens cannot see whether an early instruction still governs the output; "The Pitfalls
+   of KV Cache Compression" (Chen, Geh, Grover, Van den Broeck and Israel, arXiv 2510.00231) shows compression
+   degrading some instructions far faster than others while aggregate scores hold. Their failure is eviction's,
+   which rounding every entry alike does not share; the arm checks that assumption rather than making it.
+7. **Order:** the shared GQA op and both kernels; Llama (L3's BF16-KV curve is the baseline arm); Qwen (the
+   `BACKLOG.md` entry that admits the work); Gemma's global layers. `Deployment.md` §2's "not a knob" row and
+   `QuantizationDispatch.ixx`'s refusal change in the same work.
+
+**How the kernels read it (the mechanics of decision 2).** Every E4M3 value is exact in BF16, so a tile's FP8 codes
+widen into the BF16 stage the packed flash kernel already feeds to its BF16 MMA, unscaled and without rounding. The
+per-token scales apply in FP32 where they factor out of the sums: the K scale of each key multiplies that key's score
+column after QK, and the V scale of each key multiplies its probability before P is packed for PV, while the softmax
+normalizer sums the unscaled probabilities. No scale is ever rounded into a stored value -- the ordering the FP8
+head's staged path lacked (`Untriaged.md`, "The FP8 head's batched path rounds every weight before it scales"). Tiles
+arrive by `cp.async` as FP8, half the bytes of BF16, into a staging area beside the existing stages, with each
+stage's key scales beside them. The write (`kvcache_write_kv`) quantizes each row -- one head, one token -- with its
+own absmax over 448, one warp per row. The fused decode kernel reads the same way. Both the flash prefill and the
+fused decode read the chunk's own keys back from the cache after writing them (`CudaGqaOp.ixx`, `prefill_optimized`,
+`decode_optimized`), so decision 3 holds by construction.
+
+**The op, gated 2026-09-28** (`CudaGqaOp<BF16, false, true>` from `PerTokenKvFp8<>` through `OperationTraits`;
+`Tests/Dnn/Components/Attention/GQA/CudaGqaOp.Fp8Cache.Cuda.cpp`; RTX 5060 Ti and RTX 4070 alike). On K and V the FP8
+cache holds exactly -- a power-of-two scale times E4M3 codes with one at 448 -- the FP8 op and the BF16 op agree **bit for
+bit** through chunked prefill and decode at Llama's (128, group 4), Gemma's global (512, group 16, batch 2) and Qwen's
+(256, group 6) geometries: every scale factors out of its products without rounding. On normal random K and V, each
+op's mean error against exact double attention over the values its cache holds is 3.0e-4 to 3.5e-4 for FP8 and
+2.6e-4 to 3.1e-4 for BF16 (bound 1.25x, set after the first run: a 1e-2 absolute bound written before it assumed
+outputs below 1, and they reach 3 to 4); what the quantization itself moves the output, 4.7e-3 to 5.9e-3 in the mean,
+is 16 to 20 times the kernels' own error. The footprint equals the build (`getRequiredStateMemorySize`: codes plus one
+FP32 scale per row); a head size the fused kernels do not serve is refused at build, and prefill with flash off is
+refused. The BF16 kernels, now templated on the cache type, pass every existing flash and fused-decode parity test.
+
+**Llama 3.1 8B, decision 6's first arm, 2026-09-28** (`LlamaQualityCudaTests.DISABLED_AcrossContextLengths_Q4_0_Fp8Cache`
+against `..._Q4_0`, the L3 protocol on the same Q4_0 weights and five PG-19 books at 69632, RTX 5060 Ti). FP8 cache
+less BF16 cache, whole-book nats per token, bands 0-8K, 8K-16K, 16K-32K, 32K-64K, 64K-69632:
+
+| Book | Difference |
+|---|---|
+| 30312 | +0.0014, +0.0024, +0.0028, +0.0038, +0.0050 |
+| 3608 | +0.0026, +0.0021, +0.0044, +0.0037, +0.0052 |
+| 10321 | +0.0051, +0.0046, +0.0041, +0.0050, +0.0030 |
+| 10356 | +0.0016, +0.0036, +0.0040, +0.0054, +0.0033 |
+| 10762 | +0.0036, +0.0047, +0.0044, +0.0047, +0.0047 |
+| Pooled | +0.0028, +0.0034, +0.0039, +0.0045, +0.0042 |
+
+**Every band is within the 0.01 bound; the largest is 0.0054.** The pooled difference rises by about 0.0017 from the first
+band to the fourth and then levels; two books rise to about 0.005, three do not -- growth well inside the bound,
+recorded rather than read as a failure of "not growing". Test 1 reads as with the BF16 cache on every book (book
+10762's model-side result included, `ModelFamilyParity.md` section 9, item 17). The FP8 run prefilled at chunk 1024
+where the BF16 cache left room only for 128 -- the planner's rule on the freed memory -- a difference L4 measured at
+about 0.0007 nats per token, and it ran 2.5 times faster (268 s a book against 661).
+
+**At Llama 3.1's full 131072, 2026-09-28** (`..._Q4_0_Fp8Cache_131072`, RTX 5060 Ti, book 30312). The FP8 cache fits the
+16 GB card at 131072 with a 128-token prefill chunk, where the BF16 cache stops at 69632. Whole-book nats per token by
+band, 0-8K to 64K-131072: 2.6550, 2.5948, 2.6221, 2.6592, 2.5287 -- the top band, twice as long as the BF16 cache
+reaches, is the book's best, and test 1 passes in every band (short context 2.6728, 2.6398, 2.6492, 2.6865, 2.6014).
+Against the BF16 cache on the same book, now at the same 128-token chunk: +0.0011, +0.0016, +0.0045, +0.0024 over the
+four bands both reach. 716 s for the book.
+
 ### Policy Structs
 
 ```cpp

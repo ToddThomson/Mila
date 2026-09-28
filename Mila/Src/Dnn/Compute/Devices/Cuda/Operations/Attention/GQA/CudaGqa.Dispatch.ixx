@@ -1,6 +1,7 @@
 module;
 #include <cublasLt.h>
 #include <cuda_bf16.h>
+#include <cuda_fp8.h>
 #include <vector>
 #include <memory>
 #include <string>
@@ -458,6 +459,50 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             {
                 cuda_gqa_decode_attention_bf16(
                     Q, K, V, Y, split_scratch, B, NH, NKV, HS, cache_capacity,
+                    actual_len, window, scale, stream );
+            }
+
+            // ----------------------------------------------------------------
+            // FP8 cache (PerTokenKvFp8): E4M3 codes and one FP32 scale per row
+            // ----------------------------------------------------------------
+
+            static bool kvcache_write_kv_fp8_supported( int head_size )
+            {
+                return cuda_gqa_kvcache_write_kv_fp8_supported( head_size );
+            }
+
+            static void kvcache_write_kv_fp8(
+                __nv_fp8_e4m3* K, __nv_fp8_e4m3* V, float* k_scales, float* v_scales,
+                const nv_bfloat16* Xk, const nv_bfloat16* Xv,
+                int B, int chunk_len, int NKV, int HS,
+                int position_offset, int capacity, cudaStream_t stream )
+            {
+                cuda_gqa_kvcache_write_kv_fp8(
+                    K, V, k_scales, v_scales, Xk, Xv, B, chunk_len, NKV, HS, position_offset, capacity, stream );
+            }
+
+            static void flash_prefill_fp8(
+                const nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
+                const float* k_scales, const float* v_scales, nv_bfloat16* Y,
+                int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+                int position_offset, int window, float scale,
+                cudaStream_t stream )
+            {
+                cuda_gqa_flash_prefill_fp8(
+                    Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
+                    position_offset, window, scale, stream );
+            }
+
+            static void decode_attention_fp8(
+                const nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
+                const float* k_scales, const float* v_scales,
+                nv_bfloat16* Y, float* split_scratch,
+                int B, int NH, int NKV, int HS, int cache_capacity,
+                int actual_len, int window, float scale,
+                cudaStream_t stream )
+            {
+                cuda_gqa_decode_attention_fp8(
+                    Q, K, V, k_scales, v_scales, Y, split_scratch, B, NH, NKV, HS, cache_capacity,
                     actual_len, window, scale, stream );
             }
 

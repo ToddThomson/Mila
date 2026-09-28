@@ -94,14 +94,24 @@ namespace Mila::Tests::Dnn::Compute::Operations
         OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda,
             TensorDataType::BF16, SlidingWindowKvCache>::type> );
 
-    // FP8 KV compression is the Qwen 3 milestone. There is no PerChannelKvFp8 type to
-    // assert against yet -- KvCache/Policy.ixx defines only NoKvCompression and
-    // SlidingWindowKvCache -- so the absence is pinned one level up instead: both
-    // existing policies are inactive-or-window, and neither carries a storage dtype.
     static_assert( KvCachePolicy<NoKvCompression> );
     static_assert( KvCachePolicy<SlidingWindowKvCache> );
     static_assert( !NoKvCompression::kIsActive );
     static_assert( SlidingWindowKvCache::kIsActive );
+
+    // The FP8 cache is registered at BF16 only: its kernels widen FP8 into BF16 tiles.
+    // It is its own operation type, not the uncompressed op with a flag read at run time.
+    static_assert( KvCachePolicy<PerTokenKvFp8<>> );
+    static_assert( PerTokenKvFp8<>::kIsActive );
+    static_assert( OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda,
+        TensorDataType::BF16, PerTokenKvFp8<>> );
+    static_assert( !OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda,
+        TensorDataType::FP32, PerTokenKvFp8<>> );
+    static_assert( !std::is_same_v<
+        OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda,
+            TensorDataType::BF16, NoKvCompression>::type,
+        OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda,
+            TensorDataType::BF16, PerTokenKvFp8<>>::type> );
 
     // A weight policy must not satisfy the KV-policy axis.
     static_assert( !OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda,

@@ -49,16 +49,18 @@ namespace Mila::Data
     // Note on std::regex and Unicode properties:
     //  \p{L} and \p{N} are NOT supported by MSVC's std::regex (ECMAScript mode).
     //  The ASCII fallback is used automatically when the Unicode pattern fails
-    //  to compile. This is acceptable for Mila alpha.2 but means non-ASCII
-    //  text (CJK, accented chars, etc.) may tokenize differently from HuggingFace.
-    //  Track as a known gap for post-alpha work (consider RE2 or ICU regex).
+    //  to compile, so non-ASCII text (CJK, accented chars, etc.) may tokenize
+    //  differently from HuggingFace (consider RE2 or ICU regex).
+    //  ECMAScript has no inline (?i:...), so the fallback spells out both cases
+    //  of each contraction: without them, a quote before a capital ("'Didn")
+    //  pre-tokenizes differently from the reference.
     // =========================================================================
 
     export constexpr const char* LLAMA3_PRETOKENIZATION_PATTERN =
         R"((?i:'[sdmt]|'ll|'ve|'re)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+)";
 
     export constexpr const char* LLAMA3_PRETOKENIZATION_PATTERN_ASCII_FALLBACK =
-        R"((?:'[sdmt]|'ll|'ve|'re)|[^\r\nA-Za-z0-9]?[A-Za-z]+|[0-9]{1,3}| ?[^\sA-Za-z0-9]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+)";
+        R"((?:'[sdmtSDMT]|'[lL][lL]|'[vV][eE]|'[rR][eE])|[^\r\nA-Za-z0-9]?[A-Za-z]+|[0-9]{1,3}| ?[^\sA-Za-z0-9]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+)";
 
     // =========================================================================
     // Qwen 3.x patterns (Qwen3Regex mode)
@@ -90,5 +92,5 @@ namespace Mila::Data
     // divergence between the two families is reachable ONLY through the Unicode
     // form, so an ASCII-only test cannot tell them apart.
     export constexpr const char* QWEN3_PRETOKENIZATION_PATTERN_ASCII_FALLBACK =
-        R"((?:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\nA-Za-z0-9]?[A-Za-z]+|[0-9]| ?[^\sA-Za-z0-9]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+)";
+        R"((?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\r\nA-Za-z0-9]?[A-Za-z]+|[0-9]| ?[^\sA-Za-z0-9]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+)";
 }

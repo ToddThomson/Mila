@@ -38,10 +38,11 @@ Three things differ from Llama 3.x, which is also byte-level BPE:
      checked against the constant below on every run so a checkpoint revision
      cannot change it behind the Mila runtime's back.
 
-  2. MERGES ARE WRITTEN. Mila's Llama loader uses the max-munch path and carries
-     no merge table; Qwen's `ignore_merges` is false and its vocabulary is not
-     max-munch equivalent, so the merge-by-rank path is the correct one and the
-     ranks have to travel.
+  2. MERGES ARE WRITTEN. Mila's Llama loader carries no merge table: with
+     `ignore_merges` true, a whole-word lookup and then merging by token id is
+     tiktoken's algorithm. Qwen's `ignore_merges` is false, so its merges are
+     applied even to a word the vocabulary holds whole, and the ranks have to
+     travel.
 
   3. THERE IS NO BOS. `add_bos_token` is false and `bos_token` is null; EOS is
      `<|im_end|>` (the conversational turn end), and `<|endoftext|>` serves as

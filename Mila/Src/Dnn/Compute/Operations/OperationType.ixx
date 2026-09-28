@@ -49,7 +49,8 @@ namespace Mila::Dnn::Compute
 		SamplingOp,					///< Device-side token sampling from logits
 		RouterOp,					///< Mixture-of-experts selection: router logits to top-k experts and weights
 		MoeOp,						///< Mixture-of-experts bank: each token through its selected experts, combined
-		SoftmaxCrossEntropyOp		///< WIP: Fused softmax + cross-entropy loss -- targeted for Llama training
+		SoftmaxCrossEntropyOp,		///< WIP: Fused softmax + cross-entropy loss -- targeted for Llama training
+		NextTokenLogProbabilityOp	///< Log-probability of each actual next token, reduced where the logits are
 	};
 
 	// string_view constants, no magic strings at call sites
@@ -78,6 +79,7 @@ namespace Mila::Dnn::Compute
 		constexpr std::string_view Router               = "RouterOp";
 		constexpr std::string_view Moe                  = "MoeOp";
 		constexpr std::string_view SoftmaxCrossEntropy  = "SoftmaxCrossEntropyOp"; ///< WIP -- targeted for Llama training
+		constexpr std::string_view NextTokenLogProbability = "NextTokenLogProbabilityOp";
 	}
 
 	export std::string_view operationTypeToString( OperationType op )
@@ -107,6 +109,7 @@ namespace Mila::Dnn::Compute
 			case OperationType::RouterOp:                return OperationNames::Router;
 			case OperationType::MoeOp:                   return OperationNames::Moe;
 			case OperationType::SoftmaxCrossEntropyOp:   return OperationNames::SoftmaxCrossEntropy;
+			case OperationType::NextTokenLogProbabilityOp: return OperationNames::NextTokenLogProbability;
 			default:
 				throw std::runtime_error( "operationTypeToString: unrecognized OperationType" );
 		}

@@ -28,6 +28,7 @@
 import Mila;
 
 #include "Common/LogLikelihoodHarness.h"
+#include "Common/Pg19Books.h"
 
 namespace Mila::Tests::Dnn::Models
 {
@@ -1109,52 +1110,14 @@ namespace Mila::Tests::Dnn::Models
 
     namespace
     {
-        fs::path pg19TestPath()
-        {
-            return fs::path( TEST_DATA_DIR ) / "Datasets" / "PG19" / "raw" / "test";
-        }
+        using Common::pg19TestPath;
+        using Common::readBook;
+        using Common::joinWraps;
 
         // Gemma 4 *it* predicts running text only inside a model turn: on the same book passage, 3.79 nats per token
         // there against 9.61 as bare text after <bos> (diagnostic H). Thinking off, as Chat primes it.
         constexpr std::string_view kBookTurn =
             "<|turn>user\nContinue this book.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>";
-
-        /// The first `characters` bytes of a book, or fewer if it is shorter.
-        std::string readBook( const fs::path& book, std::size_t characters )
-        {
-            std::FILE* book_file = std::fopen( book.string().c_str(), "rb" );
-
-            if ( book_file == nullptr )
-            {
-                return {};
-            }
-
-            std::string text( characters, '\0' );
-            text.resize( std::fread( text.data(), 1, text.size(), book_file ) );
-            std::fclose( book_file );
-
-            return text;
-        }
-
-        /// PG-19 keeps Gutenberg's 70-column wraps: a lone newline becomes a space, and a blank line stays a paragraph.
-        std::string joinWraps( const std::string& stored )
-        {
-            std::string joined = stored;
-
-            for ( std::size_t index = 0; index < joined.size(); ++index )
-            {
-                const bool wrap = stored[ index ] == '\n'
-                    && ( index == 0 || stored[ index - 1 ] != '\n' )
-                    && ( index + 1 == stored.size() || stored[ index + 1 ] != '\n' );
-
-                if ( wrap )
-                {
-                    joined[ index ] = ' ';
-                }
-            }
-
-            return joined;
-        }
 
         /// <bos>, the book turn's prompt, then the book: `length` tokens in all.
         struct BookSegment

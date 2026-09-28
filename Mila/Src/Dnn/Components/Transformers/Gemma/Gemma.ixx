@@ -81,6 +81,9 @@ import Compute.CudaPinnedMemoryResource;
 #endif
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
+import Compute.OperationTraits;
+import Compute.OperationType;
+import Dnn.SequenceLogLikelihood;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Metadata;
@@ -257,11 +260,14 @@ namespace Mila::Dnn
          *
          * Runs the same chunked prefill generation runs, but evaluates the head at EVERY
          * position rather than the last, in windows of `getLogLikelihoodWindow()` rows, and
-         * reduces each window on the host before the next overwrites it. The final-logit
-         * softcap is applied to each row before the log-softmax: the sampler applies it before
-         * sampling, and a probability, unlike an argmax, is not invariant to it.
+         * reduces each window where the logits are (NextTokenLogProbabilityOp) before the next
+         * overwrites it; the model synchronizes once, at the end. The final-logit softcap is
+         * applied to each row before the log-softmax: the sampler applies it before sampling,
+         * and a probability, unlike an argmax, is not invariant to it.
          *
          * The prefill overwrites the KV caches from position 0, as prefill() does.
+         *
+         * @throws std::out_of_range when a token past the first is outside the vocabulary.
          */
         SequenceLogLikelihood sequenceLogLikelihood( const TokenIndexType& input ) override
         {
@@ -286,12 +292,15 @@ namespace Mila::Dnn
 
             auto host_tokens = toHost<TensorDataType::INT32>( input, this->getExecutionContext() );
 
-            // Staged once rather than per window: at a 262,144 vocabulary one window is several MiB
-            // and a corpus runs thousands of them.
-            Tensor<TensorDataType::FP32, CpuMemoryResource> host_logits(
-                Device::Cpu(), shape_t{ B, window, vocab_size } );
+            requireTokensInVocabulary( host_tokens.data(), T, vocab_size );
 
-            SequenceLogLikelihood result;
+            if ( !log_likelihood_op_ )
+            {
+                log_likelihood_op_ = std::make_unique<LogLikelihoodOpType>(
+                    this->getExecutionContext(), config_.getFinalLogitSoftcapping() );
+            }
+
+            log_likelihood_op_->begin( T - 1 );
 
             dim_t offset = 0;
 
@@ -323,18 +332,23 @@ namespace Mila::Dnn
                     auto& normalized = final_rmsnorm_->forward( window_input );
                     auto& logits = lm_head_->forward( normalized );
 
-                    auto host_window = host_logits.view( shape_t{ B, rows, vocab_size } );
-
-                    copy( logits, host_window, this->getExecutionContext() );
-                    this->synchronize();
-
-                    result.addNextTokenLogProbabilities(
-                        host_logits.data(), rows, vocab_size, host_tokens.data(), offset + start, T,
-                        config_.getFinalLogitSoftcapping() );
+                    log_likelihood_op_->forward( logits, input, offset + start,
+                        std::min<dim_t>( rows, T - 1 - ( offset + start ) ) );
                 }
 
                 offset += chunk_length;
             }
+
+            this->synchronize();
+
+            SequenceLogLikelihood result;
+
+            for ( const float log_probability : log_likelihood_op_->logProbabilities( T - 1 ) )
+            {
+                result.total_log_probability += log_probability;
+            }
+
+            result.scored_positions = T - 1;
 
             return result;
         }
@@ -764,6 +778,12 @@ namespace Mila::Dnn
         std::vector<TransformerBlockType*> blocks_;
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
         std::shared_ptr<LmHeadLinearType> lm_head_{ nullptr };
+
+        using LogLikelihoodOpType =
+            typename OperationTraits<OperationType::NextTokenLogProbabilityOp, TDeviceType, TPrecision>::type;
+
+        // Created at the first sequenceLogLikelihood(); holds no device memory.
+        std::unique_ptr<LogLikelihoodOpType> log_likelihood_op_;
 
         // Set from checkpoint metadata in loadParameters. When true, lm_head shares the
         // token embedding table (WeightTying.md) and lm_head.weight is absent from the file.

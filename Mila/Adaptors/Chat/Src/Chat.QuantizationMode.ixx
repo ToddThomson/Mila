@@ -13,10 +13,10 @@ namespace Mila::ChatApp
 {
     export enum class QuantizationMode
     {
-        None,  ///< BF16 weights, no KV cache compression -- default.
-        FP8,   ///< FP8 weights + FP8 KV cache (PerChannelFp8 + PerChannelKvFp8).
-        FP4,   ///< FP4 E2M1 weights + FP8 KV cache (PerGroupFp4 + PerChannelKvFp8).
-        Q4_0,  ///< Q4_0 weights + FP8 KV cache (PerGroupInt4<32> + PerChannelKvFp8).
+        None,  ///< BF16 weights -- default.
+        FP8,   ///< FP8 weights, one scale per output channel (PerChannelFp8).
+        FP4,   ///< FP4 E2M1 weights (PerGroupFp4).
+        Q4_0,  ///< Q4_0 weights (PerGroupInt4<32>).
 
         /**
          * The family's own per-role bit allocation, from pre-quantized weights

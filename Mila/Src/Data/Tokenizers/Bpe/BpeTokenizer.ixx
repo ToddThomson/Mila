@@ -10,9 +10,9 @@
  *   3. Byte-encode each pre-token using the GPT-2 style byte encoder.
  *   4a. BPE path (GPT-2 / trained vocabularies): apply explicit merge rules
  *       greedily, lowest priority index first.
- *   4b. Max-munch path (Llama 3.x / TikToken): find the longest vocabulary match
- *       at each position in the encoded unit sequence. Used when no merge rules
- *       are present; the merge order is implicit in the token ID assignment.
+ *   4b. Rank path (Llama 3.x / TikToken): a pre-token held whole is one token;
+ *       otherwise adjacent units merge lowest rank first, a token's rank being its
+ *       ID. Used when no merge rules are present.
  *   4c. SentencePiece path (Gemma): Metaspace pre-tokenization (space -> U+2581),
  *       UTF-8 character initial units with <0xNN> byte fallback, then the merge
  *       rules by rank. Selected when the vocabulary uses PreTokenizationMode::SentencePiece.
@@ -23,6 +23,7 @@
  */
 
 module;
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -453,7 +454,7 @@ namespace Mila::Data
          * @brief Encode a plain text segment (guaranteed to contain no special tokens).
          *
          * Dispatches to the BPE merge path when explicit merge rules are present,
-         * or to the max-munch path for TikToken-style vocabularies (Llama 3.x).
+         * or to the rank path for TikToken-style vocabularies (Llama 3.x).
          *
          * @param text Plain text segment.
          * @param out  Accumulator for output token IDs.
@@ -473,7 +474,7 @@ namespace Mila::Data
             }
             else if ( vocab_.getMergeRules().empty() )
             {
-                encodeSegmentMaxMunch( words, out );
+                encodeSegmentByRank( words, out );
             }
             else
             {
@@ -482,15 +483,16 @@ namespace Mila::Data
         }
 
         /**
-         * @brief Max-munch encode for TikToken vocabularies (Llama 3.x).
+         * @brief TikToken encode (Llama 3.x): a pre-token the vocabulary holds whole is one token; otherwise
+         *        adjacent units merge by rank, where a token's rank is its id.
          *
-         * Byte-encodes each pre-token then scans for the longest vocabulary match
-         * at each position. Falls back to ID 0 for unrecognised units.
+         * This is tiktoken's byte-pair merge, and what HuggingFace's `ignore_merges` tokenizer computes from
+         * the merge list the ranks were written out as. Falls back to ID 0 for an unrecognised unit.
          *
          * @param words Pre-tokenized segments from the regex pass.
          * @param out   Accumulator for output token IDs.
          */
-        void encodeSegmentMaxMunch( const std::vector<std::string>& words, std::vector<TokenId>& out )
+        void encodeSegmentByRank( const std::vector<std::string>& words, std::vector<TokenId>& out )
         {
             for ( const auto& word : words )
             {
@@ -514,37 +516,48 @@ namespace Mila::Data
                     }
                 }
 
-                size_t pos = 0;
+                std::string whole;
 
-                while ( pos < units.size() )
+                for ( const auto& unit : units )
                 {
-                    bool found = false;
+                    whole += unit;
+                }
 
-                    for ( size_t len = units.size() - pos; len >= 1; --len )
+                if ( auto id = vocab_.tokenToId( whole ) )
+                {
+                    out.push_back( *id );
+                    continue;
+                }
+
+                while ( units.size() > 1 )
+                {
+                    std::size_t best_index = units.size();
+                    TokenId best_rank = std::numeric_limits<TokenId>::max();
+
+                    for ( std::size_t index = 0; index + 1 < units.size(); ++index )
                     {
-                        std::string candidate;
+                        auto rank = vocab_.tokenToId( units[ index ] + units[ index + 1 ] );
 
-                        for ( size_t j = pos; j < pos + len; ++j )
+                        if ( rank && *rank < best_rank )
                         {
-                            candidate += units[ j ];
-                        }
-
-                        auto id = vocab_.tokenToId( candidate );
-
-                        if ( id )
-                        {
-                            out.push_back( *id );
-                            pos += len;
-                            found = true;
-                            break;
+                            best_rank = *rank;
+                            best_index = index;
                         }
                     }
 
-                    if ( !found )
+                    if ( best_index == units.size() )
                     {
-                        out.push_back( 0 );
-                        ++pos;
+                        break;
                     }
+
+                    units[ best_index ] += units[ best_index + 1 ];
+                    units.erase( units.begin() + static_cast<std::ptrdiff_t>( best_index ) + 1 );
+                }
+
+                for ( const auto& unit : units )
+                {
+                    auto id = vocab_.tokenToId( unit );
+                    out.push_back( id ? *id : 0 );
                 }
             }
         }

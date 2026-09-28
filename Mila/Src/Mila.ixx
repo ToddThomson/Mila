@@ -236,6 +236,8 @@ export import Dnn.Quantization.Weight.PerGroupCodebook3;
 export import Dnn.Quantization.Weight.HasCodebookTable;
 export import Dnn.Quantization.Weight.HasHighBitPlane;
 export import Dnn.Quantization.KvCache.Policy;
+export import Dnn.Quantization.KvCache.QuantPolicy;
+export import Dnn.Quantization.KvCache.PerTokenKvFp8;
 
 // Same rule, one level up: a per-role PLAN is QwenAttentionBlock's third template argument
 // and QwenTransformer's, so the plan concepts and the uniform lift are part of a public

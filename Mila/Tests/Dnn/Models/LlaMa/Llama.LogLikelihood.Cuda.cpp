@@ -1,9 +1,9 @@
 /**
  * @file Llama.LogLikelihood.Cuda.cpp
- * @brief Llama's sequence log-likelihood on real weights: window 1 against window 64 on the 3.1 8B, and the 3.2 1B
- *        against HuggingFace on both sides of its original context.
+ * @brief Llama's sequence log-likelihood on real weights: window 1 against window 64 on the 3.1 8B, the 3.2 1B
+ *        against HuggingFace on both sides of its original context, and the 3.1 8B's quality across its context.
  *
- * ModelFamilyParity.md 8.4, L1 and L2. Needs exported weights, the Llama tokenizer, the wikitext-2 test split and a
+ * ModelFamilyParity.md 8.4, L1 to L4. Needs exported weights, the Llama tokenizer, wikitext-2, PG-19 and a
  * HuggingFace capture, so it never runs in CI.
  */
 
@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -30,6 +31,7 @@
 import Mila;
 
 #include "Common/LogLikelihoodHarness.h"
+#include "Common/Pg19Books.h"
 
 namespace Mila::Tests::Dnn::Models
 {
@@ -763,5 +765,306 @@ namespace Mila::Tests::Dnn::Models
         {
             EXPECT_EQ( greedy.tokens[ index ], expected[ index ] ) << "greedy divergence at generated token " << index;
         }
+    }
+
+    // ====================================================================
+    // Quality across the planner's range (ModelFamilyParity.md 8.4, L3)
+    //   MilaTests --gtest_also_run_disabled_tests --gtest_filter=LlamaQualityCudaTests.*
+    //
+    // G2's protocol on Llama: PG-19 books inside a user turn, one network built at 69632 -- the planner's choice for
+    // the 3.1 8B on the RTX 5060 Ti -- and each band's book tokens scored twice. Whole book: the prefix of 2L less the
+    // prefix of L. Short context: blocks of 1024 targets, each after the turn and only the 1024 book tokens before
+    // the block. Test 1: in every band of every book, whole book <= short context. Tests 2 and 3 compare the
+    // whole-book bands against HuggingFace BF16 and llama.cpp; they run outside this binary. Pin the 16 GB card by UUID.
+    // ====================================================================
+
+    namespace
+    {
+        using MeasuredLlamaQ4_0 = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            Quant::Weight::PerGroupInt4<32>, LlamaBf16::LlamaKvPolicy>;
+
+        // The same build with the FP8 KV cache (Quantization.md, Part III).
+        using MeasuredLlamaQ4_0Fp8Cache = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            Quant::Weight::PerGroupInt4<32>, Quant::KvCache::PerTokenKvFp8<>>;
+
+        fs::path q4_0WeightsPath()
+        {
+            return fs::path( TEST_DATA_DIR ) / "models" / "llama" / "llama31_8b_instruct_q4_0.safetensors";
+        }
+
+        using Common::pg19TestPath;
+        using Common::readBook;
+        using Common::joinWraps;
+
+        // Chat's rendering of a user turn and the assistant header, with no system block. HuggingFace's 3.1 template
+        // adds a dated one by default; its scripts are fed these ids instead.
+        constexpr std::string_view kBookTurn =
+            "<|start_header_id|>user<|end_header_id|>\n\nContinue this book.<|eot_id|>"
+            "<|start_header_id|>assistant<|end_header_id|>\n\n";
+
+        // What HuggingFace's tokenizer gives <|begin_of_text|> and kBookTurn (hf_llama_long_context_loss.py).
+        constexpr std::int32_t kBookTurnIds[] = {
+            128000, 128006, 882, 128007, 271, 24433, 420, 2363, 13, 128009, 128006, 78191, 128007, 271 };
+
+        // G2's two books first, so the families compare on the same text, then the test split's order.
+        constexpr std::string_view kLeadingBooks[] = { "30312.txt", "3608.txt" };
+
+        struct BookSegment
+        {
+            std::vector<std::int32_t> tokens;
+            std::size_t prompt_length{ 0 };
+        };
+
+        /// <|begin_of_text|>, the turn, then the book: `length` tokens in all. Empty when the book is shorter.
+        BookSegment bookSegment( const fs::path& book, Mila::Data::BpeTokenizer& tokenizer, dim_t length )
+        {
+            BookSegment segment;
+            segment.tokens.push_back( kBeginOfText );
+
+            const std::vector<std::int32_t> prompt = tokenizer.encode( std::string( kBookTurn ) );
+            segment.tokens.insert( segment.tokens.end(), prompt.begin(), prompt.end() );
+            segment.prompt_length = segment.tokens.size();
+
+            const std::size_t text_tokens = static_cast<std::size_t>( length ) - segment.prompt_length;
+
+            // Six characters per token over-reads English prose, which runs about four; the tokens are truncated.
+            const std::vector<std::int32_t> text = tokenizer.encode( joinWraps( readBook( book, text_tokens * 6 ) ) );
+
+            if ( text.size() < text_tokens )
+            {
+                return {};
+            }
+
+            segment.tokens.insert( segment.tokens.end(), text.begin(), text.begin() + static_cast<std::ptrdiff_t>( text_tokens ) );
+
+            return segment;
+        }
+
+        std::vector<fs::path> booksInOrder()
+        {
+            std::vector<fs::path> ordered;
+
+            for ( std::string_view name : kLeadingBooks )
+            {
+                ordered.push_back( pg19TestPath() / name );
+            }
+
+            std::vector<fs::path> rest;
+
+            for ( const auto& entry : fs::directory_iterator( pg19TestPath() ) )
+            {
+                const bool leading = std::find( std::begin( kLeadingBooks ), std::end( kLeadingBooks ),
+                    entry.path().filename().string() ) != std::end( kLeadingBooks );
+
+                if ( entry.path().extension() == ".txt" && !leading )
+                {
+                    rest.push_back( entry.path() );
+                }
+            }
+
+            std::sort( rest.begin(), rest.end() );
+            ordered.insert( ordered.end(), rest.begin(), rest.end() );
+
+            return ordered;
+        }
+
+        // The planner's choice for the 3.1 8B on the RTX 5060 Ti at chunk 1024 with the BF16 cache (L4).
+        constexpr dim_t kBf16CacheContext = 69632;
+
+        template <typename TNetwork>
+        void scoreAcrossContextLengths( const fs::path& weights, dim_t context_length = kBf16CacheContext,
+            std::vector<dim_t> prefixes = { 8192, 16384, 32768, 65536, kBf16CacheContext } )
+        {
+            constexpr dim_t kWindow = 64;
+            constexpr dim_t kShortContext = 1024;
+            constexpr std::size_t kBooks = 5;
+
+            const auto tokenizer = Mila::Data::BpeTokenizer::loadLlama32( tokenizerPath() );
+
+            Serialization::WeightsReader reader( weights );
+            LlamaConfig config = LlamaBf16::configFromMetadata( reader.getWeightsMetadata() );
+            config.withLogLikelihoodWindow( kWindow );
+
+            PrefillChunking chunking;
+
+            auto network = Common::buildMeasuredNetwork<TNetwork>( weights, config, DeviceId{ DeviceType::Cuda, 0 },
+                context_length, &chunking );
+
+            std::cout << std::format( "  {}: window {}, context {}, prefill chunk {}\n", weights.filename().string(),
+                kWindow, context_length, chunking.chunk_rows ) << std::flush;
+
+            for ( const dim_t prefix : prefixes )
+            {
+                ASSERT_EQ( prefix % chunking.chunk_rows, 0 ) << "a prefix must end on a chunk boundary";
+                ASSERT_EQ( prefix % kShortContext, 0 ) << "a short-context block must lie within one band";
+            }
+
+            const auto bandOf = [&]( dim_t position )
+            {
+                return static_cast<std::size_t>( std::upper_bound( prefixes.begin(), prefixes.end(), position ) - prefixes.begin() );
+            };
+
+            std::vector<double> whole_log_probability( prefixes.size(), 0.0 );
+            std::vector<double> short_log_probability( prefixes.size(), 0.0 );
+            std::vector<dim_t> band_positions( prefixes.size(), 0 );
+            std::size_t scored_books = 0;
+            std::size_t failures = 0;
+
+            const auto start = std::chrono::steady_clock::now();
+
+            for ( const fs::path& book : booksInOrder() )
+            {
+                if ( scored_books == kBooks )
+                {
+                    break;
+                }
+
+                const BookSegment segment = bookSegment( book, *tokenizer, context_length );
+
+                if ( segment.tokens.empty() )
+                {
+                    continue;
+                }
+
+                if ( scored_books == 0 )
+                {
+                    ASSERT_TRUE( std::equal( std::begin( kBookTurnIds ), std::end( kBookTurnIds ), segment.tokens.begin(),
+                        segment.tokens.begin() + static_cast<std::ptrdiff_t>( segment.prompt_length ) ) )
+                        << "the turn does not tokenize as HuggingFace's does";
+                }
+
+                ++scored_books;
+
+                const std::vector<std::int32_t> opening( segment.tokens.begin(),
+                    segment.tokens.begin() + static_cast<std::ptrdiff_t>( segment.prompt_length ) );
+
+                std::vector<double> whole( prefixes.size(), 0.0 );
+                std::vector<double> short_context( prefixes.size(), 0.0 );
+                std::vector<dim_t> positions( prefixes.size(), 0 );
+
+                SequenceLogLikelihood previous = Common::sequenceLogLikelihoodOf( *network, opening );
+
+                for ( std::size_t index = 0; index < prefixes.size(); ++index )
+                {
+                    const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( *network,
+                        std::vector<std::int32_t>( segment.tokens.begin(),
+                            segment.tokens.begin() + static_cast<std::ptrdiff_t>( prefixes[ index ] ) ) );
+
+                    whole[ index ] = scored.total_log_probability - previous.total_log_probability;
+                    positions[ index ] = scored.scored_positions - previous.scored_positions;
+                    previous = scored;
+                }
+
+                // Short context, in segment positions: targets [block, block + 1024), the turn's prompt excluded.
+                for ( dim_t block = 0; block < context_length; block += kShortContext )
+                {
+                    const dim_t first_target = std::max<dim_t>( block, static_cast<dim_t>( segment.prompt_length ) );
+                    const dim_t context_start = std::max<dim_t>( static_cast<dim_t>( segment.prompt_length ), block - kShortContext );
+
+                    std::vector<std::int32_t> sequence = opening;
+                    sequence.insert( sequence.end(), segment.tokens.begin() + static_cast<std::ptrdiff_t>( context_start ),
+                        segment.tokens.begin() + static_cast<std::ptrdiff_t>( first_target ) );
+
+                    const SequenceLogLikelihood before = Common::sequenceLogLikelihoodOf( *network, sequence );
+
+                    sequence.insert( sequence.end(), segment.tokens.begin() + static_cast<std::ptrdiff_t>( first_target ),
+                        segment.tokens.begin() + static_cast<std::ptrdiff_t>( block + kShortContext ) );
+
+                    const SequenceLogLikelihood after = Common::sequenceLogLikelihoodOf( *network, sequence );
+
+                    short_context[ bandOf( block ) ] += after.total_log_probability - before.total_log_probability;
+                }
+
+                std::cout << std::format( "  {} ({:.0f} s elapsed)\n  {:>17} {:>10} {:>12} {:>14} {:>8}\n",
+                    book.filename().string(),
+                    std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count(),
+                    "band", "positions", "whole book", "short context", "test 1" );
+
+                for ( std::size_t index = 0; index < prefixes.size(); ++index )
+                {
+                    const double whole_nats = -whole[ index ] / static_cast<double>( positions[ index ] );
+                    const double short_nats = -short_context[ index ] / static_cast<double>( positions[ index ] );
+                    const bool passes = whole_nats <= short_nats;
+
+                    failures += passes ? 0 : 1;
+
+                    std::cout << std::format( "  {:>7} - {:>7} {:>10} {:>12.4f} {:>14.4f} {:>8}\n",
+                        index == 0 ? 0 : prefixes[ index - 1 ], prefixes[ index ], positions[ index ], whole_nats,
+                        short_nats, passes ? "pass" : "FAIL" ) << std::flush;
+
+                    whole_log_probability[ index ] += whole[ index ];
+                    short_log_probability[ index ] += short_context[ index ];
+                    band_positions[ index ] += positions[ index ];
+                }
+            }
+
+            ASSERT_GE( scored_books, kBooks ) << "fewer than " << kBooks << " PG-19 test books fill " << context_length << " tokens";
+
+            std::cout << std::format( "  pooled over {} books\n", scored_books );
+
+            for ( std::size_t index = 0; index < prefixes.size(); ++index )
+            {
+                std::cout << std::format( "  {:>7} - {:>7} {:>10} {:>12.4f} {:>14.4f}\n",
+                    index == 0 ? 0 : prefixes[ index - 1 ], prefixes[ index ], band_positions[ index ],
+                    -whole_log_probability[ index ] / static_cast<double>( band_positions[ index ] ),
+                    -short_log_probability[ index ] / static_cast<double>( band_positions[ index ] ) ) << std::flush;
+            }
+
+            EXPECT_EQ( failures, 0u ) << "bands where the whole book predicts worse than 1024 tokens of it alone";
+        }
+
+        bool qualityInputsPresent( const fs::path& weights )
+        {
+            return getDeviceCount( DeviceType::Cuda ) > 0 && fs::exists( weights ) && fs::exists( tokenizerPath() )
+                && fs::exists( pg19TestPath() );
+        }
+    }
+
+    TEST( LlamaQualityCudaTests, DISABLED_AcrossContextLengths_Fp4 )
+    {
+        if ( !qualityInputsPresent( weightsPath() ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << weightsPath().string() << ", the Llama tokenizer and "
+                << pg19TestPath().string() << " (Data/Datasets/PG19/README.md)";
+        }
+
+        scoreAcrossContextLengths<MeasuredLlama>( weightsPath() );
+    }
+
+    TEST( LlamaQualityCudaTests, DISABLED_AcrossContextLengths_Q4_0 )
+    {
+        if ( !qualityInputsPresent( q4_0WeightsPath() ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << q4_0WeightsPath().string() << ", the Llama tokenizer and "
+                << pg19TestPath().string() << " (Data/Datasets/PG19/README.md)";
+        }
+
+        scoreAcrossContextLengths<MeasuredLlamaQ4_0>( q4_0WeightsPath() );
+    }
+
+    // The FP8 KV cache's gate (Quantization.md, Part III, decision 6), written before the run: at the BF16 cache's
+    // context, every band of every book within 0.01 nats per token of DISABLED_AcrossContextLengths_Q4_0's, the
+    // difference not growing with context; test 1 as there. The bands are compared outside the binary.
+    TEST( LlamaQualityCudaTests, DISABLED_AcrossContextLengths_Q4_0_Fp8Cache )
+    {
+        if ( !qualityInputsPresent( q4_0WeightsPath() ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << q4_0WeightsPath().string() << ", the Llama tokenizer and "
+                << pg19TestPath().string() << " (Data/Datasets/PG19/README.md)";
+        }
+
+        scoreAcrossContextLengths<MeasuredLlamaQ4_0Fp8Cache>( q4_0WeightsPath() );
+    }
+
+    // Past the BF16 cache's reach, to Llama 3.1's trained context: test 1 must still pass in every band.
+    TEST( LlamaQualityCudaTests, DISABLED_AcrossContextLengths_Q4_0_Fp8Cache_131072 )
+    {
+        if ( !qualityInputsPresent( q4_0WeightsPath() ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << q4_0WeightsPath().string() << ", the Llama tokenizer and "
+                << pg19TestPath().string() << " (Data/Datasets/PG19/README.md)";
+        }
+
+        scoreAcrossContextLengths<MeasuredLlamaQ4_0Fp8Cache>( q4_0WeightsPath(), 131072, { 8192, 16384, 32768, 65536, 131072 } );
     }
 }
