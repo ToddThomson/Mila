@@ -167,8 +167,17 @@ namespace Mila::Tests::Dnn::Quantization
             dim_t rows;
             dim_t columns;
             std::vector<std::uint16_t> weightBits;
+            std::vector<std::uint8_t> codes;
+            std::vector<std::uint16_t> scaleBits;
             std::vector<float> exactWeights;
-            std::vector<float> stagedWeights;
+
+            /// Element ( row, column ) as code - 8; even columns sit in the low nibble (Int4Packing.ixx).
+            int signedCode( dim_t row, dim_t column ) const
+            {
+                const std::uint8_t byte = codes[ static_cast<std::size_t>( ( row * columns + column ) / 2 ) ];
+
+                return static_cast<int>( ( column % 2 == 0 ) ? ( byte & 0x0Fu ) : ( byte >> 4 ) ) - 8;
+            }
         };
 
         ForwardCase makeForwardCase( dim_t rows, dim_t columns, unsigned seed )
@@ -187,17 +196,13 @@ namespace Mila::Tests::Dnn::Quantization
             for ( std::size_t index = 0; index < source.size(); ++index )
                 source[ index ] = fromBf16Bits( forward_case.weightBits[ index ] );
 
-            std::vector<std::uint8_t> codes( static_cast<std::size_t>( rows * columns / 2 ) );
-            std::vector<std::uint16_t> scales( static_cast<std::size_t>( rows * columns / kGroup ) );
-            quantizeInt4( source.data(), rows, columns, kGroup, codes.data(), scales.data() );
+            forward_case.codes.resize( static_cast<std::size_t>( rows * columns / 2 ) );
+            forward_case.scaleBits.resize( static_cast<std::size_t>( rows * columns / kGroup ) );
+            quantizeInt4( source.data(), rows, columns, kGroup, forward_case.codes.data(), forward_case.scaleBits.data() );
 
             forward_case.exactWeights.resize( source.size() );
-            dequantizeInt4( codes.data(), scales.data(), rows, columns, kGroup, forward_case.exactWeights.data() );
-
-            forward_case.stagedWeights.resize( source.size() );
-
-            for ( std::size_t index = 0; index < source.size(); ++index )
-                forward_case.stagedWeights[ index ] = roundThroughBf16( forward_case.exactWeights[ index ] );
+            dequantizeInt4( forward_case.codes.data(), forward_case.scaleBits.data(), rows, columns, kGroup,
+                forward_case.exactWeights.data() );
 
             return forward_case;
         }
@@ -303,54 +308,106 @@ namespace Mila::Tests::Dnn::Quantization
         runDecode( 200, 15360, 12u );
     }
 
-    TEST( CudaLinearOpInt4, PrefillMatchesBf16StagedWeights )
+    namespace
     {
-        auto context = makeContextOrSkip();
-
-        if ( !context )
-            GTEST_SKIP() << "no CUDA device";
-
-        // 37 rows is not a plan bucket, so the GEMM runs at a padded M.
-        const dim_t batch = 37;
-        const dim_t rows = 256;
-        const dim_t columns = 3840;
-
-        const ForwardCase forward_case = makeForwardCase( rows, columns, 13u );
-        auto linear = loadLinear( forward_case, batch );
-
-        std::mt19937 generator( 14u );
-        std::normal_distribution<float> distribution( 0.0f, 1.0f );
-        std::vector<float> input( static_cast<std::size_t>( batch * columns ) );
-
-        for ( auto& value : input )
-            value = roundThroughBf16( distribution( generator ) );
-
-        const std::vector<float> output = runForward( *linear, context.get(), input, batch, columns );
-
-        double largest_staging_effect = 0.0;
-        double largest_exact_error = 0.0;
-
-        for ( dim_t token = 0; token < batch; ++token )
+        // The activation rule of cuda_quantize_bf16_to_int8_per_block, in the same FP32 operations: per 32-element
+        // block, scale = a / 127 and code = round-half-even( x * ( 127 / a ) ), a the block's largest magnitude.
+        void quantizeActivations( const std::vector<float>& input, std::vector<int>& codes, std::vector<float>& scales )
         {
-            for ( dim_t row = 0; row < rows; ++row )
+            codes.resize( input.size() );
+            scales.resize( input.size() / kGroup );
+
+            for ( std::size_t block = 0; block < scales.size(); ++block )
             {
-                const float* x = input.data() + token * columns;
-                const Reference staged = dot( x, forward_case.stagedWeights.data() + row * columns, columns );
-                const Reference exact = dot( x, forward_case.exactWeights.data() + row * columns, columns );
-                const double produced = output[ token * rows + row ];
+                float largest = 0.0f;
 
-                ASSERT_NEAR( produced, staged.value, tolerance( staged ) ) << "token " << token << " row " << row;
+                for ( dim_t index = 0; index < kGroup; ++index )
+                    largest = std::max( largest, std::abs( input[ block * kGroup + index ] ) );
 
-                largest_staging_effect = std::max( largest_staging_effect,
-                    std::abs( staged.value - exact.value ) / exact.magnitude );
-                largest_exact_error = std::max( largest_exact_error,
-                    std::abs( produced - exact.value ) / exact.magnitude );
+                const float inverse = largest > 0.0f ? 127.0f / largest : 0.0f;
+                scales[ block ] = largest / 127.0f;
+
+                for ( dim_t index = 0; index < kGroup; ++index )
+                    codes[ block * kGroup + index ] = static_cast<int>( std::nearbyint( input[ block * kGroup + index ] * inverse ) );
             }
         }
 
-        // Relative to sum |x * w|: what BF16 staging moves a dot product by, and what the prefill's whole
-        // error is against exact weights.
-        std::printf( "  staged vs exact weights: largest %.3e; prefill vs exact: largest %.3e\n",
-            largest_staging_effect, largest_exact_error );
+        void runPrefill( dim_t batch, dim_t rows, dim_t columns, unsigned seed )
+        {
+            auto context = makeContextOrSkip();
+
+            if ( !context )
+                GTEST_SKIP() << "no CUDA device";
+
+            const ForwardCase forward_case = makeForwardCase( rows, columns, seed );
+            auto linear = loadLinear( forward_case, batch );
+
+            std::mt19937 generator( seed + 1 );
+            std::normal_distribution<float> distribution( 0.0f, 1.0f );
+            std::vector<float> input( static_cast<std::size_t>( batch * columns ) );
+
+            for ( auto& value : input )
+                value = roundThroughBf16( distribution( generator ) );
+
+            const std::vector<float> output = runForward( *linear, context.get(), input, batch, columns );
+
+            std::vector<int> activation_codes;
+            std::vector<float> activation_scales;
+            quantizeActivations( input, activation_codes, activation_scales );
+
+            const dim_t blocks = columns / kGroup;
+            double largest_activation_effect = 0.0;
+
+            for ( dim_t token = 0; token < batch; ++token )
+            {
+                for ( dim_t row = 0; row < rows; ++row )
+                {
+                    const float* w = forward_case.exactWeights.data() + row * columns;
+                    double value = 0.0;
+                    double magnitude = 0.0;
+
+                    for ( dim_t block = 0; block < blocks; ++block )
+                    {
+                        const double weight_scale = halfBitsToFloat( forward_case.scaleBits[ row * blocks + block ] );
+                        long long integer_dot = 0;
+
+                        for ( dim_t index = 0; index < kGroup; ++index )
+                        {
+                            const dim_t column = block * kGroup + index;
+                            const long long weight_code = forward_case.signedCode( row, column );
+                            integer_dot += static_cast<long long>( activation_codes[ token * columns + column ] ) * weight_code;
+                            magnitude += std::abs( static_cast<double>( input[ token * columns + column ] ) * w[ column ] );
+                        }
+
+                        value += static_cast<double>( activation_scales[ token * blocks + block ] ) * weight_scale
+                            * static_cast<double>( integer_dot );
+                    }
+
+                    const Reference exact = dot( input.data() + token * columns, w, columns );
+                    const double produced = output[ token * rows + row ];
+
+                    ASSERT_NEAR( produced, value, std::abs( value ) * 0x1p-8 + magnitude * 1e-5 + 1e-7 )
+                        << "token " << token << " row " << row;
+
+                    largest_activation_effect = std::max( largest_activation_effect,
+                        std::abs( value - exact.value ) / exact.magnitude );
+                }
+            }
+
+            // Relative to sum |x * w|: what quantizing the activations per block moves a dot product by.
+            std::printf( "  INT8 activations vs BF16 activations, exact weights: largest %.3e\n", largest_activation_effect );
+        }
+    }
+
+    // 37 rows run one partial row tile; 200 output channels a partial column tile.
+    TEST( CudaLinearOpInt4, PrefillMatchesInt8BlockArithmetic )
+    {
+        runPrefill( 37, 200, 3840, 13u );
+    }
+
+    // 300 rows span three row tiles, the last partial, at the feed-forward width.
+    TEST( CudaLinearOpInt4, PrefillMatchesInt8BlockArithmeticAcrossRowTiles )
+    {
+        runPrefill( 300, 128, 15360, 15u );
     }
 }

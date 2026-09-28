@@ -428,8 +428,9 @@ against BF16, not the KL divergence first planned; the gap is large enough that 
 
 Work: a `PerGroupInt4<32>` symmetric weight policy -- OperationTraits rows, decode matvec and prefill
 GEMM, footprint at 4.5 bits per weight -- selected through `LanguageModelConfig` and exposed in Chat's
-quantization modes and the binding. The prefill keeps its activations at BF16, or quantizes them no
-coarser than one scale per 32 values, with the choice gated by the long-context curve: Mila's FP4 prefill
+quantization modes and the binding. The prefill quantizes its activations to INT8 with one scale per 32
+values and multiplies on the INT8 tensor cores, since a BF16 prefill cannot keep pace with llama.cpp
+(`Quantization.md`, Q4_0 decision 4); the long-context curve gates that rounding. Mila's FP4 prefill
 rounds activations to FP8 with one scale per token, which the QAT weights never trained for. The source is
 Google's BF16 checkpoint `google/gemma-4-12B-it-qat-q4_0-unquantized`, read by the existing Gemma converter
 and rounded by the Q4_0 reference rule -- the rule Google's own GGUF was made with, bit for bit -- in the

@@ -33,7 +33,7 @@ module;
 #include "Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cuh"
 #include "Kernels/Codebook/CodebookDequantize.cuh"
 #include "Kernels/Codebook/CodebookGemv.cuh"
-#include "Kernels/Int4/CudaInt4Dequantize.cuh"
+#include "Kernels/Int4/CudaInt4Gemm.cuh"
 
 export module Compute.CudaLinearOp;
 import :Plans;
@@ -192,13 +192,15 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         static constexpr bool kUseFp8ActivationPrefillPath = kIsFp4Weight && kUseFp8ActivationPrefill;
 
         // Every batched path that expands packed weights into a BF16 staging buffer and
-        // then runs one standard BF16 cuBLASLt GEMM. FP8 per-channel, FP4 E2M1, INT4 and the
+        // then runs one standard BF16 cuBLASLt GEMM. FP8 per-channel, FP4 E2M1 and the
         // codebook formats differ only in which expansion kernel fills the buffer, so they
         // share one implementation -- runStagedPrefill() -- and one plan-cache shape.
+        // INT4 is not among them: its prefill quantizes the activations to INT8 per block
+        // and multiplies on the INT8 tensor cores (runInt8Prefill), because a BF16 GEMM is
+        // already at the BF16 tensor-core ceiling (Quantization.md, Q4_0 decision 4).
         static constexpr bool kUsesStagedPrefill =
             ( kIsPerChannelQuantized && !kUseW8A16Gemm )
             || kIsCodebookWeight
-            || kIsInt4Weight
             || ( kIsFp4Weight && !kUseFp8ActivationPrefillPath && !kUseFusedFp4Gemm );
 
         using WeightType = typename TensorDataTypeMap<kWeightDtype>::device_type;
@@ -604,11 +606,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             if constexpr ( kIsInt4Weight )
             {
-                if ( cached_in_features_ % TWeightQuant::kQuantizationGroupSize != 0 )
+                static_assert( TWeightQuant::kQuantizationGroupSize == kInt4GemmBlockSize,
+                    "The INT4 prefill multiplies one weight group per INT8 block" );
+
+                if ( cached_in_features_ % kInt4GemmInFeaturesMultiple != 0 )
                 {
                     throw std::invalid_argument( std::format(
-                        "CudaLinearOp::build - input features ({}) must be a multiple of the group size ({})",
-                        cached_in_features_, TWeightQuant::kQuantizationGroupSize ) );
+                        "CudaLinearOp::build - input features ({}) must be a multiple of {} for the INT4 prefill",
+                        cached_in_features_, kInt4GemmInFeaturesMultiple ) );
                 }
             }
 
@@ -684,13 +689,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          *   1. outer_size == 1:
          *      FP8/non-quantized: fused matvec via cuda_matvec_impl.
          *      FP4, INT4, codebook: the format's decode matvec.
-         *   2. outer_size > 1, use_cublaslt_:
+         *   2. outer_size > 1, INT4: activations to INT8 per block, then the INT8 GEMM.
+         *   3. outer_size > 1, use_cublaslt_:
          *      Staged formats: expand to BF16 staging, then a BF16 cuBLASLt GEMM.
          *      FP4 with FP8 activations: FP8 staging and an FP8 cuBLASLt GEMM.
          *      !kIsQuantized:          NT row-major BF16 cuBLASLt GEMM; bias via epilogue.
-         *   3. outer_size > 1, quantized, no cuBLASLt: per-row fallback loop (SM < 8.0
-         *      SM < 8.0 or plan build failure).
-         *   4. outer_size > 1, !kIsQuantized, no cuBLASLt: error -- non-quantized batch
+         *   4. outer_size > 1, quantized, no cuBLASLt: per-row fallback loop (SM < 8.0
+         *      or plan build failure).
+         *   5. outer_size > 1, !kIsQuantized, no cuBLASLt: error -- non-quantized batch
          *      compute always requires cuBLASLt.
          */
         void forward( const TensorType& input, TensorType& output ) const
@@ -740,6 +746,13 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         cached_in_features_, out_features_,
                         stream );
                 }
+
+                return;
+            }
+
+            if constexpr ( kIsInt4Weight )
+            {
+                runInt8Prefill( input_ptr, output_ptr, outer_size, stream );
 
                 return;
             }
@@ -919,7 +932,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             // a row at a time.
             // FP8:      the FP8 decode matvec.
             // FP4:      the FP4 decode matvec.
-            // INT4:     the INT4 decode matvec.
             // Codebook: the codebook GEMV.
             // Non-quantized: no fallback for batch compute.
             if constexpr ( kIsPerChannelQuantized )
@@ -948,14 +960,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     if constexpr ( kIsCodebookWeight )
                     {
                         launchCodebookDecode( out_row, in_row, weight_, weight_scales_, stream );
-                    }
-                    else if constexpr ( kIsInt4Weight )
-                    {
-                        cuda_matvec_decode_bf16_qint4(
-                            out_row, in_row,
-                            weight_, weight_scales_, bias_,
-                            cached_in_features_, out_features_,
-                            weight_group_size_, stream );
                     }
                     else if constexpr ( TWeightQuant::kIsFp4E2M1 )
                     {
@@ -1211,9 +1215,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * @brief The largest scratch request forward() makes for this geometry.
          *
          * One row always takes a decode kernel, which stages nothing. Above one row the staged
-         * prefill holds one strip of BF16 weights, and the FP8-activation prefill holds one
+         * prefill holds one strip of BF16 weights, the FP8-activation prefill holds one
          * strip of FP8 weights plus the FP8 activations and per-token scales of the plan's
-         * row bucket, whose largest value is the built row count itself.
+         * row bucket, whose largest value is the built row count itself, and the INT4 prefill
+         * holds the INT8 activations and their block scales, and no weights.
          */
         static std::size_t scratchBytesFor(
             int out_features, int in_features, int outer_size, std::size_t max_staging_bytes ) noexcept
@@ -1223,7 +1228,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 return 0;
             }
 
-            if constexpr ( kUsesStagedPrefill )
+            if constexpr ( kIsInt4Weight )
+            {
+                return int4GemmScratchBytes( static_cast<std::size_t>( outer_size ), static_cast<std::size_t>( in_features ) );
+            }
+            else if constexpr ( kUsesStagedPrefill )
             {
                 return static_cast<std::size_t>( stripRowsFor( out_features, in_features, max_staging_bytes ) )
                     * static_cast<std::size_t>( in_features ) * sizeof( __nv_bfloat16 );
@@ -1287,14 +1296,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     staging, strip_weight, weight_scales_ + begin,
                     rows, cached_in_features_, stream );
             }
-            else if constexpr ( kIsInt4Weight )
-            {
-                cuda_int4_dequantize_to_bf16(
-                    staging, strip_weight,
-                    weight_scales_ + static_cast<ptrdiff_t>( begin )
-                        * ( cached_in_features_ / weight_group_size_ ),
-                    rows, cached_in_features_, weight_group_size_, stream );
-            }
             else
             {
                 cuda_fp4_dequantize_to_bf16(
@@ -1303,6 +1304,32 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         * ( cached_in_features_ / weight_group_size_ ),
                     rows, cached_in_features_, weight_group_size_, stream );
             }
+        }
+
+        /**
+         * @brief Batched INT4 forward: the activations are quantized to INT8 once, with one FP32 scale per
+         * 32-element block, and one kernel multiplies them against the packed codes on the INT8 tensor cores.
+         *
+         * Nothing is staged per weight, so nothing is striped: the scratch holds activations only, sized by
+         * outer_size, and is fetched on every forward because the buffer is reallocated on grow.
+         */
+        void runInt8Prefill( const ComputeType* input_ptr, ComputeType* output_ptr,
+            int outer_size, cudaStream_t stream ) const requires kIsInt4Weight
+        {
+            const auto rows = static_cast<std::size_t>( outer_size );
+            const auto in_features = static_cast<std::size_t>( cached_in_features_ );
+
+            auto* scratch = static_cast<char*>( context_->getDeviceScratchBuffer( int4GemmScratchBytes( rows, in_features ) ) );
+            auto* activation_codes = reinterpret_cast<int8_t*>( scratch );
+            auto* activation_scales = reinterpret_cast<float*>( scratch + int4GemmScaleOffset( rows, in_features ) );
+
+            cuda_quantize_bf16_to_int8_per_block(
+                activation_codes, activation_scales, input_ptr, outer_size, cached_in_features_, stream );
+
+            cuda_int4_int8_gemm(
+                output_ptr, activation_codes, activation_scales,
+                weight_, weight_scales_, bias_,
+                outer_size, cached_in_features_, out_features_, stream );
         }
 
         /**
@@ -1610,8 +1637,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     return;
                 }
 
-                // Fused W4A16 / FP4 batch path: the fused kernels read packed weights and
-                // dequantize per-group inline -- no staging buffer or cuBLASLt plan needed.
+                // Fused FP4 and INT4 batch paths: the kernels read packed weights directly --
+                // no staging buffer or cuBLASLt plan needed.
                 // SM >= 8.0 is already guaranteed by supportsCuBLASLt() gating this path.
                 return;
             }

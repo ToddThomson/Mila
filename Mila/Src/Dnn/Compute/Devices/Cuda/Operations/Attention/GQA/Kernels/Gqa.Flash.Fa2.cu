@@ -32,8 +32,9 @@
 //
 // Math, masking, and the online-softmax state are equivalent to the HS-split kernel, so
 // CudaGqaFlashRingPrefillParity (HS=256, NKV=8, ragged 83-token context, window wrap +
-// no-wrap) gates this rewrite -- it takes over the cuda_gqa_flash_prefill_ring_bf16
-// symbol, so no cuh/Dispatch/Op change and the oracle exercises it unchanged.
+// no-wrap) gates it. Since 2026-09-28 the packed kernel (Gqa.Flash.Packed.cu) serves the
+// ring at the head sizes it supports -- it reads each KV head once for the whole query-head
+// group, where this kernel reads it once per query head -- and this one serves the rest.
 
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
@@ -492,7 +493,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             && head_size <= kFa2MaxNTiles * kMmaN;
     }
 
-    void cuda_gqa_flash_prefill_ring_bf16(
+    void cuda_gqa_flash_prefill_ring_fa2_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
         __nv_bfloat16* Y,
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,

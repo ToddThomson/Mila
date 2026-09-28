@@ -121,6 +121,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int position_offset, int window, float scale,
         cudaStream_t stream );
 
+    /// The FA-2 ring kernel, one query head per block: what cuda_gqa_flash_prefill_ring_bf16 runs for a head size
+    /// the packed kernel does not serve.
+    void cuda_gqa_flash_prefill_ring_fa2_bf16(
+        const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+        int position_offset, int window, float scale,
+        cudaStream_t stream );
+
     /// True when the unbounded flash prefill kernel serves this head size: 128, 256 or 512. A caller that sizes
     /// its score buffer for flash must ask first, since an unsupported head size needs the cuBLASLt pipeline.
     bool cuda_gqa_flash_prefill_supported( int head_size );

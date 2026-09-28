@@ -597,20 +597,30 @@ Gemma 4 QAT for Q4_0. Five decisions, each with the alternative it closed:
    bytes. The normative layout and reference rounding are `Quantization/Weight/Int4Packing.ixx`.
 3. **Users see `q4_0`**, the format's own name and the one in Google's repository:
    `WeightQuantization::Q4_0`, scheme name `q4_0`, Chat mode and binding variant `q4_0`.
-4. **Prefill stages BF16 first.** Codes expand to a BF16 staging buffer and cuBLASLt runs a BF16
-   GEMM, so activations stay BF16; the FP8-activation prefill is not used, because the QAT weights
-   never trained for per-token FP8 activations. The expansion rounds each `(code - 8) * d` to BF16
-   (up to 2^-9 relative; FP16 `d` has 11 significant bits). That rounding is measured per projection
-   against exact FP64 and on the G2 curve; only if it shows does a fused kernel replace it, one that
-   multiplies activations by the integer codes exactly and applies `d` per 32-element block. Decode
-   has its own matvec: code times activation summed in FP32 per block, then times `d`, exact.
-   **Measured 2026-09-27, and the staged path is too slow to ship** (RTX 5060 Ti, Gemma 4 12B,
-   `ProfileModel --phase prefill`): at an 8K prompt 1,430 tokens/s against 2,590 for the FP4 package and
-   2,385 for Google's GGUF in llama.cpp; at 32K, 965 against 1,389 and 1,960. Staging writes and reads
-   2 bytes per weight once per chunk, and the BF16 strip (225 MiB at `fc_gate_up`) plus 4.5 bits against
-   4.25 cost 474 MiB over FP4, so at a 262144 context the chunk falls from 1024 to 512 (it misses by 23
-   MiB). The prefill needs a kernel that reads the packed weights directly; which one is decided by a
-   profile, not assumed.
+4. **Prefill multiplies in INT8.** Activations are quantized to INT8 with one FP32 scale per
+   32-element block -- scale `a / 127`, code `round(x * (127 / a))` for the block's largest magnitude
+   `a` -- and one kernel multiplies them against the packed codes on the INT8 tensor cores. A k32 MMA
+   is exactly one Q4_0 block, so each block's dot product is exact in INT32 and its two scales apply
+   once, in FP32. The per-token FP8 activations of the FP4 prefill are not used: one scale per row and
+   three mantissa bits, against one per 32 elements and seven. Per element the rounding is at most
+   `a / 254`, near BF16's own for the block's large values, and it is the arithmetic llama.cpp runs
+   Google's GGUF with. Decode has its own matvec: code times BF16 activation summed in FP32 per
+   block, then times `d`, exact.
+   *Why not BF16* (decided 2026-09-28, replacing "prefill stages BF16 first"): the staged BF16 path
+   -- codes expanded to BF16, then a cuBLASLt BF16 GEMM -- already ran its GEMMs at the BF16
+   tensor-core ceiling (about 62 TFLOPS on the RTX 4070 against a measured `mma.sync` peak of 58.9),
+   so no BF16 kernel could close its gap to llama.cpp; only the 11% expansion was left to win. INT8
+   `mma.sync` issues at 232.5 TFLOPS on the 4070 and 207.5 on the RTX 5060 Ti, 4x BF16 on both
+   (`Profiling/Microbenchmarks/MmaInstructionPeak.cu`). The staged path measured 1,430 tokens/s at
+   an 8K Gemma 4 12B prompt against 2,385 for llama.cpp, and its BF16 weight strip (225 MiB at
+   `fc_gate_up`) cost the 262144 context its 1024-token chunk; the INT8 path's scratch is the
+   activations alone (15 MiB at 1024 x 15360). Kernel, 1024 rows, 2026-09-28: 92-108 TFLOPS on the
+   4070 and 84-94 on the 5060 Ti at Gemma 4 12B and Llama 3.1 8B shapes; llama.cpp's `mul_mat_q`
+   runs about 84 on the 4070. **End to end, 2026-09-28** (`ProfileModel --phase prefill`, chunk
+   1024): Gemma 4 12B on the 5060 Ti 2,688 tokens/s at 8K and 1,950 at 32K, against llama.cpp's
+   2,385 and 1,960 on Google's GGUF; Llama 3.1 8B on the 4070 4,748 at 8K and 3,862 at 16K, against
+   4,370 and 3,675 on bit-identical weights. The 12B's prefill scratch is 18 MiB, and a 262144
+   context plans a 1024-token chunk again.
 5. **Gemma dense and Llama first.** Gemma's routed 26B refuses `q4_0` until its expert bank has
    an int4 path (`Untriaged.md`), and Qwen's own dispatcher refuses it. Llama reaches it through the
    shared dispatcher, by quantize-on-load from BF16 weights.
@@ -624,8 +634,8 @@ group's extreme and may be negative -- an all-zero group stores negative zero, `
 kernel may assume it positive. Measured 2026-09-27: this rule reproduces every code and scale bit of
 Google's GGUF (`ModelFamilyParity.md` 8.2, G2 result).
 
-**Gate.** The codec's unit tests; the CUDA quantizer equal to the codec; Linear decode and prefill
-against a host reference; every Q4_0 tensor of the exported 12B equal in code and scale bits to
+**Gate.** The codec's unit tests; the CUDA quantizer equal to the codec; Linear decode against a
+host reference of exact weights, and prefill against a host reference of the INT8 block arithmetic; every Q4_0 tensor of the exported 12B equal in code and scale bits to
 `google/gemma-4-12B-it-qat-q4_0-gguf` (fused projections split by rows; the global layers have no
 `attn_v`); then G2 re-run on the Q4_0 build.
 
@@ -729,12 +739,24 @@ recorded rather than read as a failure of "not growing". Test 1 reads as with th
 where the BF16 cache left room only for 128 -- the planner's rule on the freed memory -- a difference L4 measured at
 about 0.0007 nats per token, and it ran 2.5 times faster (268 s a book against 661).
 
-**At Llama 3.1's full 131072, 2026-09-28** (`..._Q4_0_Fp8Cache_131072`, RTX 5060 Ti, book 30312). The FP8 cache fits the
-16 GB card at 131072 with a 128-token prefill chunk, where the BF16 cache stops at 69632. Whole-book nats per token by
-band, 0-8K to 64K-131072: 2.6550, 2.5948, 2.6221, 2.6592, 2.5287 -- the top band, twice as long as the BF16 cache
-reaches, is the book's best, and test 1 passes in every band (short context 2.6728, 2.6398, 2.6492, 2.6865, 2.6014).
-Against the BF16 cache on the same book, now at the same 128-token chunk: +0.0011, +0.0016, +0.0045, +0.0024 over the
-four bands both reach. 716 s for the book.
+**At Llama 3.1's full 131072, 2026-09-28** (`..._Q4_0_Fp8Cache_131072`, RTX 5060 Ti). The FP8 cache fits the 16 GB card
+at 131072 with a 128-token prefill chunk, where the BF16 cache stops at 69632. A book must be 131072 tokens long, so the
+run takes the next long-enough books in order: 30312, 3608, 28988, 30754 (10321, 10356 and 10762 are too short). Four
+of five finished, about 716 s each; the run was stopped for a reboot. Whole-book / short-context nats per token by band,
+0-8K, 8K-16K, 16K-32K, 32K-64K, 64K-131072:
+
+| Book | Whole book | Short context | Test 1 |
+|---|---|---|---|
+| 30312 | 2.6550, 2.5948, 2.6221, 2.6592, 2.5287 | 2.6728, 2.6398, 2.6492, 2.6865, 2.6014 | pass |
+| 3608 | 2.2193, 2.1952, 2.0888, 2.1202, 2.1173 | 2.2408, 2.2345, 2.1028, 2.1457, 2.1736 | pass |
+| 28988 | 2.5699, 2.4123, 2.3833, 2.3895, 2.4034 | 2.6106, 2.4401, 2.3790, 2.3895, 2.4156 | fails 16K-32K by 0.004 |
+| 30754 | 2.4255, 2.6503, 2.5777, 2.4182, 2.6510 | 2.4155, 2.6333, 2.6030, 2.4559, 2.6880 | fails 0-8K by 0.010, 8K-16K by 0.017 |
+
+**The top band never fails**: in all four books the stretch past the BF16 cache's reach is scored better with the whole
+book than with 1024 tokens of it. The four failures sit in the bands the BF16 cache also reaches, on books it has not
+been run on; whether they are the model's, as 10762's were (`ModelFamilyParity.md` section 9, item 17), is unmeasured --
+the BF16 cache at 69632 on 28988 and 30754 answers it. On 30312, the one book scored both ways at the same 128-token
+chunk, FP8 less BF16 is +0.0011, +0.0016, +0.0045, +0.0024 over the four bands both reach.
 
 ### Policy Structs
 

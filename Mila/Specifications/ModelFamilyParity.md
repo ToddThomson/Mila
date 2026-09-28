@@ -478,6 +478,14 @@ measured". *Needs:* G1, and a long-document corpus whose licence is verified at 
     (`q4_0_package_gate.py`, 27 s). The gate was checked against a planted one-code and one-scale-bit change, which
     it reports by tensor and row range. The checkpoint names its vision stack `model.vision_embedder.`, which the
     original 12B checkpoint does not use.
+  - **Gate 1 passes in Mila on the Q4_0 build, both books, every band to 262144** (2026-09-28,
+    `DISABLED_QualityAcrossContextLengths_Q4_0`, RTX 5060 Ti, prefill activations INT8 per 32-element block --
+    `Quantization.md`, Q4_0 decision 4 -- LF text, chunk 512, 45 minutes). Nats per book token, whole book / window
+    only, bands 0-8K, 8-16K, 16-32K, 32-64K, 64-128K, 128-256K: book 30312 3.476/3.623, 3.261/3.589, 3.313/3.568,
+    3.373/3.596, 3.295/3.544, 3.248/3.411; book 3608 3.433/3.561, 3.124/3.386, 2.858/3.182, 2.906/3.221, 2.967/3.289,
+    2.995/3.179; pooled 3.455, 3.192, 3.085, 3.139, 3.131, 3.122. The whole book reads better than its window in every
+    band, and the pooled curve is level from 16K to 262144, where the FP4 package's rose by 1.5 nats. Gates 2 (HF BF16
+    to 32K) and 3 (llama.cpp to 262144) are still to run on this text.
   - **FP8 attention restores it.** The original weights with attention at FP8 per row and the feed-forward at FP4:
     3.683, 3.417, 3.513, 3.595 -- +0.04, +0.08, +0.08, +0.11 over BF16, against +0.19 rising to +0.69 for the
     all-FP4 build, and no worse than the feed-forward-alone arm. The cost is bytes: the attention projections are

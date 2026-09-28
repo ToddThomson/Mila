@@ -358,3 +358,32 @@ of the 8K Q4_0 prefill: the three BF16 GEMM kernels cuBLASLt picks (`cutlass_80 
 RoPE 3%. Removing the dequantize alone bounds the gain at about 11%; the gap is the GEMM itself. Options not yet
 weighed against each other: INT8 activations per 32 with integer MMA (a change to Q4_0 decision 4 in `Quantization.md`),
 a fused BF16 kernel that dequantizes in the tile loader, or steering cuBLASLt off the s1688 kernel.
+
+Weighed 2026-09-28. The BF16 GEMMs already run at the BF16 ceiling: 1.14e14 FLOP of linear layers in about 1.84 s is
+~62 TFLOPS on the 4070, where `MmaInstructionPeak` (INT8 arm added) measures BF16 `mma.sync` at 58.9 and
+`CublasLtScaleModes` banks 52-60. Neither a fused BF16 kernel nor a different cuBLASLt pick can pass that, so both
+are bounded by the 11% dequantize. INT8 `m16n8k32` issues at 232.5 TFLOPS on the 4070 and 207.5 on the 5060 Ti -- 4x
+BF16 on both cards, 2x FP8 `mma.sync` -- and one k32 MMA is exactly one Q4_0 block. nsys of `llama-bench -p 8192 -fa 1`
+on the same GGUF (4070, per prefill): `mul_mat_q<Q4_0>` 1,360 ms (~84 TFLOPS, 36% of the INT8 ceiling),
+`quantize_mmq_q8_1` 62 ms, flash attention 308 ms. llama.cpp is ahead because it multiplies in INT8 with activations
+quantized per 32-element block, not because its BF16 is better.
+
+Built the same day (Q4_0 decision 4 changed, `Kernels/Int4/CudaInt4Gemm.cu`): Gemma 4 12B Q4_0 prefill on the 5060 Ti
+2,688 tokens/s at 8K and 1,950 at 32K against llama.cpp's 2,385 and 1,960; Llama 3.1 8B on the 4070 4,748 and 3,862 at
+8K/16K against 4,370 and 3,675. nsys of one 32K Gemma 4 12B Q4_0 prefill on the RTX 4070, both on the same card (ms per
+prefill, Mila / llama.cpp): weight GEMMs with activation quantize 7,214 / 8,499; global attention (HS 512, 8 layers,
+`gqa_flash_prefill_packed_bf16_kernel` against `flash_attn_ext_f16<512>`) 4,839 / 3,097, about 29 against 45 TFLOPS;
+sliding attention (40 layers) 1,130 / 555; RoPE 578 / ~150 (llama.cpp fuses it into the norm before it); all kernels
+14,521 / 13,639. The GEMM now leads, and the global-attention kernel alone carries the gap.
+Nsight Compute, one late HS-512 launch (4070): tensor pipe 25.7% of ncu's peak, which on GeForce counts FP16
+accumulation (`MmaInstructionPeak`: FP16-accumulate 116.1 TFLOPS, FP32-accumulate 58.9), so about half the usable rate;
+8 warps per SM (registers and shared memory each allow one block); top stalls math_pipe_throttle, wait,
+short_scoreboard, barrier. At HS 512 a key tile is 16 keys, so each warp's 32 MMAs per tile carry a block barrier,
+the split-K score exchange, a 16-key softmax and a 64-register rescale, which the second warp per scheduler cannot hide.
+The reported 4.0-way shared-load conflict is likely `ldmatrix.x4`'s four wavefronts (the 1040-byte row stride is
+conflict-free for it) -- unverified. The redesign has to amortize the per-tile work: more keys per tile or no
+exchange, inside 99 KB and with Q at 512 dims being 128 registers per thread.
+Same day, two fixes outside that kernel (4070, 32K, ms per prefill): the sliding layers moved from the FA-2 ring kernel,
+which reads each KV head once per query head, to the packed kernel with ring addressing, 1,130 -> 775 (llama.cpp 555);
+RoPE's lanes ran along heads, so every access was uncoalesced -- swapped to run along the pair index, 582 -> 63. All
+kernels 14,521 -> 13,771 against llama.cpp's 13,639. Ring parity and RoPE tests not yet re-run (MilaTests held by G2).

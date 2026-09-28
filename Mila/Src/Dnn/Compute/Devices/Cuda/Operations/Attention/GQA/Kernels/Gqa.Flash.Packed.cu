@@ -12,6 +12,9 @@
 // P is repacked from the score accumulators in registers; O stays in registers. One block barrier
 // per key tile guards the double-buffered K/V load.
 //
+// The same kernel serves the bounded sliding-window ring: key position p lives in cache row
+// p % cache_capacity, and the key loop starts at the window's band, which it already does.
+//
 // m16n8k16 .f32.bf16.bf16.f32 fragment layout (PTX ISA), g = lane/4, tg = lane%4:
 //   A[16x16] a0..a3 (row-major): a0={A[g][2t],A[g][2t+1]} a1={A[g+8][2t],..}
 //                                a2={A[g][2t+8],..}       a3={A[g+8][2t+8],..}
@@ -136,13 +139,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             return *reinterpret_cast<const uint32_t*>( &packed );
         }
 
-        // One key tile of K and V ([keys x HS] each) into a stage. Keys past the cache clamp to its
-        // last row; every such column is causally masked.
+        // One key tile of K and V ([keys x HS] each) into a stage. Unbounded, keys past the cache clamp to its
+        // last row; in a ring, position p lives in row p % cache_capacity. Either way a row that is not the key's
+        // own lands only on a column the causal or window mask sets to -inf.
         template<int kHeadSize, int kKeys>
         __device__ __forceinline__ void load_kv_tile(
             __nv_bfloat16* k_stage, __nv_bfloat16* v_stage,
             const __nv_bfloat16* K, const __nv_bfloat16* V,
-            std::size_t kv_base, int tile_start, int cache_capacity, int tid )
+            std::size_t kv_base, int tile_start, int cache_capacity, bool ring, int tid )
         {
             constexpr int kChunksPerRow = kHeadSize / kCopyElements;
             constexpr int kPad = kHeadSize + kSkew;
@@ -152,7 +156,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 const int key = chunk / kChunksPerRow;
                 const int column = ( chunk % kChunksPerRow ) * kCopyElements;
                 const int position = tile_start + key;
-                const int row = position < cache_capacity ? position : cache_capacity - 1;
+                const int row = ring ? position % cache_capacity
+                    : ( position < cache_capacity ? position : cache_capacity - 1 );
                 const std::size_t source = kv_base + static_cast<std::size_t>( row ) * kHeadSize + column;
 
                 __pipeline_memcpy_async( k_stage + key * kPad + column, K + source, 16 );
@@ -231,7 +236,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const float* __restrict__ v_scales,    // [B, NKV, cache_capacity], kFp8 only
         __nv_bfloat16* __restrict__ Y,         // [B, chunk_len, NH * HS]
         int chunk_len, int NH, int NKV, int cache_capacity,
-        int position_offset, int window, float scale )
+        int position_offset, int window, float scale, bool ring )
     {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
         using Geometry = PackedGeometry<kHeadSize, kFp8>;
@@ -293,7 +298,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 load_kv_tile<kHeadSize, Geometry::kKeys>(
                     bf16Stage( s_k, tile ), bf16Stage( s_v, tile ),
                     K, V, kv_base,
-                    tile * Geometry::kKeys, cache_capacity, threadIdx.x );
+                    tile * Geometry::kKeys, cache_capacity, ring, threadIdx.x );
             }
         };
 
@@ -599,7 +604,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         void launch_packed_prefill(
             const __nv_bfloat16* Q, const void* K, const void* V, const float* k_scales, const float* v_scales,
             __nv_bfloat16* Y, int B, int chunk_len, int NH, int NKV, int cache_capacity,
-            int position_offset, int window, float scale, cudaStream_t stream )
+            int position_offset, int window, float scale, bool ring, cudaStream_t stream )
         {
             using Geometry = PackedGeometry<kHeadSize, kFp8>;
 
@@ -612,7 +617,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const dim3 grid( ceil_div( total_rows, Geometry::kRows ), NKV, B );
 
             gqa_flash_prefill_packed_bf16_kernel<kHeadSize, kFp8> <<< grid, kWarps * 32, Geometry::kSharedBytes, stream >>> (
-                Q, K, V, k_scales, v_scales, Y, chunk_len, NH, NKV, cache_capacity, position_offset, window, scale );
+                Q, K, V, k_scales, v_scales, Y, chunk_len, NH, NKV, cache_capacity, position_offset, window, scale, ring );
 
             cudaCheck( cudaGetLastError() );
         }
@@ -623,7 +628,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const char* caller,
             const __nv_bfloat16* Q, const void* K, const void* V, const float* k_scales, const float* v_scales,
             __nv_bfloat16* Y, int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
-            int position_offset, int window, float scale, cudaStream_t stream )
+            int position_offset, int window, float scale, bool ring, cudaStream_t stream )
         {
             if ( !cuda_gqa_flash_prefill_supported( HS ) )
                 throw std::runtime_error( std::string( caller ) + ": head size " + std::to_string( HS )
@@ -644,20 +649,44 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             {
                 case 128:
                     launch_packed_prefill<128, kFp8>( Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, cache_capacity,
-                        position_offset, window, scale, stream );
+                        position_offset, window, scale, ring, stream );
                     break;
 
                 case 256:
                     launch_packed_prefill<256, kFp8>( Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, cache_capacity,
-                        position_offset, window, scale, stream );
+                        position_offset, window, scale, ring, stream );
                     break;
 
                 case 512:
                     launch_packed_prefill<512, kFp8>( Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, cache_capacity,
-                        position_offset, window, scale, stream );
+                        position_offset, window, scale, ring, stream );
                     break;
             }
         }
+    }
+
+    void cuda_gqa_flash_prefill_ring_bf16(
+        const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+        int position_offset, int window, float scale,
+        cudaStream_t stream )
+    {
+        // The packed kernel reads each KV head once for its whole query-head group; the FA-2 kernel, once per query
+        // head, serves the head sizes the packed geometry does not.
+        if ( !cuda_gqa_flash_prefill_supported( HS ) )
+        {
+            cuda_gqa_flash_prefill_ring_fa2_bf16( Q, K, V, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
+                position_offset, window, scale, stream );
+
+            return;
+        }
+
+        if ( window <= 0 )
+            throw std::runtime_error( "cuda_gqa_flash_prefill_ring_bf16: a bounded ring requires a positive window" );
+
+        flashPrefill<false>( "cuda_gqa_flash_prefill_ring_bf16", Q, K, V, nullptr, nullptr, Y,
+            B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, true, stream );
     }
 
     bool cuda_gqa_flash_prefill_supported( int head_size )
@@ -673,7 +702,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         cudaStream_t stream )
     {
         flashPrefill<false>( "cuda_gqa_flash_prefill_bf16", Q, K, V, nullptr, nullptr, Y,
-            B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, stream );
+            B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, false, stream );
     }
 
     void cuda_gqa_flash_prefill_fp8(
@@ -685,6 +714,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         cudaStream_t stream )
     {
         flashPrefill<true>( "cuda_gqa_flash_prefill_fp8", Q, K, V, k_scales, v_scales, Y,
-            B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, stream );
+            B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, false, stream );
     }
 }

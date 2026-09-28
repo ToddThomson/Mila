@@ -23,6 +23,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      *   forward  R:    [c, -s;  s, c]
      *   backward R^T:  [c,  s; -s, c]  (exact inverse, R is orthogonal)
      *
+     * Lanes run along the pair index, so a warp reads and writes contiguous elements of one
+     * head and of the cos/sin rows; heads run along threadIdx.y and the grid's x.
+     *
      * @tparam negate_sin  false -> forward rotation, true -> backward (inverse) rotation.
      */
     template <bool negate_sin>
@@ -39,8 +42,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         int n_heads,
         int position_offset )
     {
-        int bth = blockIdx.x * blockDim.x + threadIdx.x;
-        int i = blockIdx.y * blockDim.y + threadIdx.y;
+        int bth = blockIdx.x * blockDim.y + threadIdx.y;
+        int i = blockIdx.y * blockDim.x + threadIdx.x;
 
         if ( bth >= total_heads || i >= pair_half ) return;
 
@@ -92,8 +95,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         int position,
         int n_heads )
     {
-        int bh = blockIdx.x * blockDim.x + threadIdx.x;
-        int i = blockIdx.y * blockDim.y + threadIdx.y;
+        int bh = blockIdx.x * blockDim.y + threadIdx.y;
+        int i = blockIdx.y * blockDim.x + threadIdx.x;
 
         if ( bh >= total_heads || i >= pair_half ) return;
 
@@ -151,16 +154,17 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             ? ( rotary_dim / 2 )
             : cache_stride;
 
-        constexpr int TX = 32;
-        constexpr int TY = 16;
+        // TX lanes along the pair index, TY heads per block.
+        constexpr int TX = 64;
+        constexpr int TY = 4;
 
         // --- Q ---
         {
             int total = B * T * n_heads;
             dim3 block( TX, TY );
             dim3 grid(
-                (total + TX - 1) / TX,
-                (pair_half + TY - 1) / TY );
+                (total + TY - 1) / TY,
+                (pair_half + TX - 1) / TX );
 
             rope_rotate_bf16_kernel<negate_sin> << <grid, block, 0, stream >> > (
                 out_Q, in_Q, cos_cache, sin_cache,
@@ -172,8 +176,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             int total = B * T * n_kv_heads;
             dim3 block( TX, TY );
             dim3 grid(
-                (total + TX - 1) / TX,
-                (pair_half + TY - 1) / TY );
+                (total + TY - 1) / TY,
+                (pair_half + TX - 1) / TX );
 
             rope_rotate_bf16_kernel<negate_sin> << <grid, block, 0, stream >> > (
                 out_K, in_K, cos_cache, sin_cache,
@@ -208,16 +212,17 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             ? ( rotary_dim / 2 )
             : cache_stride;
 
-        constexpr int TX = 32;
-        constexpr int TY = 16;
+        // TX lanes along the pair index, TY heads per block.
+        constexpr int TX = 64;
+        constexpr int TY = 4;
 
         // --- Q ---
         {
             int total = B * n_heads;
             dim3 block( TX, TY );
             dim3 grid(
-                (total + TX - 1) / TX,
-                (pair_half + TY - 1) / TY );
+                (total + TY - 1) / TY,
+                (pair_half + TX - 1) / TX );
 
             rope_decode_bf16_kernel<negate_sin> << <grid, block, 0, stream >> > (
                 out_Q, in_Q, cos_cache, sin_cache,
@@ -229,8 +234,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             int total = B * n_kv_heads;
             dim3 block( TX, TY );
             dim3 grid(
-                (total + TX - 1) / TX,
-                (pair_half + TY - 1) / TY );
+                (total + TY - 1) / TY,
+                (pair_half + TX - 1) / TX );
 
             rope_decode_bf16_kernel<negate_sin> << <grid, block, 0, stream >> > (
                 out_K, in_K, cos_cache, sin_cache,

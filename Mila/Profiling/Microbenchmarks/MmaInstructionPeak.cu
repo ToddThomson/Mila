@@ -72,6 +72,46 @@ __global__ void mma_bf16_kernel( float* sink, int iters )
 }
 
 // ---------------------------------------------------------------------------
+// FP16 m16n8k16 with FP16 accumulation -- the control for the arm above: GeForce
+// parts may run it at a different rate from FP32 accumulation, which prices what
+// an attention kernel accumulating in FP16 could reach.
+// ---------------------------------------------------------------------------
+__global__ void mma_fp16_accumulate_fp16_kernel( float* sink, int iters )
+{
+    uint32_t a0 = 0x3c003c00u, a1 = 0x3c003c00u, a2 = 0x3c003c00u, a3 = 0x3c003c00u;
+    uint32_t b0 = 0x3c003c00u, b1 = 0x3c003c00u;
+
+    uint32_t d[kChains][2];
+#pragma unroll
+    for ( int c = 0; c < kChains; ++c )
+    {
+        d[c][0] = 0u; d[c][1] = 0u;
+    }
+
+    for ( int i = 0; i < iters; ++i )
+    {
+#pragma unroll
+        for ( int c = 0; c < kChains; ++c )
+        {
+            asm volatile(
+                "mma.sync.aligned.m16n8k16.row.col.f16.f16.f16.f16 "
+                "{%0,%1}, {%2,%3,%4,%5}, {%6,%7}, {%0,%1};\n"
+                : "+r"(d[c][0]), "+r"(d[c][1])
+                : "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(b0), "r"(b1) );
+        }
+    }
+
+    uint32_t acc = 0u;
+#pragma unroll
+    for ( int c = 0; c < kChains; ++c )
+    {
+        acc ^= d[c][0] ^ d[c][1];
+    }
+
+    if ( acc == 0x12345678u ) sink[0] = 1.0f;
+}
+
+// ---------------------------------------------------------------------------
 // FP8 e4m3 m16n8k32 -- what the shipped W4A8 prefill path runs through cuBLASLt
 // ---------------------------------------------------------------------------
 __global__ void mma_fp8_kernel( float* sink, int iters )
@@ -107,6 +147,46 @@ __global__ void mma_fp8_kernel( float* sink, int iters )
     }
 
     if ( acc == 1234.5678f ) sink[0] = acc;
+}
+
+// ---------------------------------------------------------------------------
+// INT8 s8 m16n8k32, int32 accumulate -- the Q4_0 candidate: codes widen to int8
+// exactly, activations quantized per 32-element block, and one k32 MMA is one
+// Q4_0 block, so each block's two scales apply to an exact integer dot product.
+// ---------------------------------------------------------------------------
+__global__ void mma_int8_kernel( float* sink, int iters )
+{
+    uint32_t a0 = 0x01010101u, a1 = 0x01010101u, a2 = 0x01010101u, a3 = 0x01010101u;
+    uint32_t b0 = 0x01010101u, b1 = 0x01010101u;
+
+    int d[kChains][4];
+#pragma unroll
+    for ( int c = 0; c < kChains; ++c )
+    {
+        d[c][0] = 0; d[c][1] = 0; d[c][2] = 0; d[c][3] = 0;
+    }
+
+    for ( int i = 0; i < iters; ++i )
+    {
+#pragma unroll
+        for ( int c = 0; c < kChains; ++c )
+        {
+            asm volatile(
+                "mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 "
+                "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%0,%1,%2,%3};\n"
+                : "+r"(d[c][0]), "+r"(d[c][1]), "+r"(d[c][2]), "+r"(d[c][3])
+                : "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(b0), "r"(b1) );
+        }
+    }
+
+    int acc = 0;
+#pragma unroll
+    for ( int c = 0; c < kChains; ++c )
+    {
+        acc += d[c][0] + d[c][1] + d[c][2] + d[c][3];
+    }
+
+    if ( acc == 12345678 ) sink[0] = static_cast<float>( acc );
 }
 
 // ---------------------------------------------------------------------------
@@ -320,7 +400,9 @@ int main()
 
     const Arm arms[] = {
         { "BF16 m16n8k16 (rung 0 ref)",        mma_bf16_kernel,      16, 8, 16 },
+        { "FP16 m16n8k16, FP16 accumulate",    mma_fp16_accumulate_fp16_kernel, 16, 8, 16 },
         { "FP8 e4m3 m16n8k32 (rung 0)",        mma_fp8_kernel,       16, 8, 32 },
+        { "INT8 s8 m16n8k32 (Q4_0)",           mma_int8_kernel,      16, 8, 32 },
         { "mxf8f6f4 e4m3xe4m3 k32 (control)",  mma_mxf8f6f4_fp8_kernel, 16, 8, 32 },
         { "mxf8f6f4 e2m1xe4m3 k32 (rung 1)",   mma_mxf8f6f4_kernel,  16, 8, 32 },
         { "mxf4nvf4 e2m1xe2m1 k64 (rung 2)",   mma_mxf4nvf4_kernel,  16, 8, 64 },
