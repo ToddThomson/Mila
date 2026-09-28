@@ -123,6 +123,7 @@ namespace Mila::Tools
         {
             case WeightQuantization::FP4:  return "fp4";
             case WeightQuantization::FP8:  return "fp8";
+            case WeightQuantization::Q4_0: return "q4_0";
             case WeightQuantization::Plan: return kPlanVariantName;
             default:                       return "bf16";
         }
@@ -155,6 +156,13 @@ namespace Mila::Tools
         if ( text == "fp8" )
         {
             out = WeightQuantization::FP8;
+
+            return true;
+        }
+
+        if ( text == "q4_0" )
+        {
+            out = WeightQuantization::Q4_0;
 
             return true;
         }
@@ -887,7 +895,7 @@ namespace Mila::Tools
         const std::string& quantization = reader.getWeightQuantization();
 
         for ( const auto candidate : { WeightQuantization::FP4, WeightQuantization::FP8,
-            WeightQuantization::Plan } )
+            WeightQuantization::Q4_0, WeightQuantization::Plan } )
         {
             // FP4 is one variant at either group a family builds it at.
             for ( const int fp4_group_size : { 128, 64 } )

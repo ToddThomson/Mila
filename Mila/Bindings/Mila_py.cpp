@@ -424,8 +424,8 @@ static void bind_llama_model( py::module_& m )
             "    context_length: Tokens the model can hold, prompt and reply together,\n"
             "                    or 'auto' (default) for the longest that fits the GPU.\n"
             "    device_index:   CUDA device index (default: 0).\n"
-            "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
-            "                    (default: 'bf16'). FP4 requires SM >= 8.0 (RTX 30xx\n"
+            "    quantization:   'bf16', 'fp8', 'fp4' or 'q4_0', applied at load time\n"
+            "                    (default: 'bf16'). FP4 and Q4_0 require SM >= 8.0 (RTX 30xx\n"
             "                    or newer); FP8 requires SM >= 8.9 (RTX 40xx or newer).\n\n"
             "Pre-quantized weights cannot be loaded here -- their bytes are already\n"
             "FP4 or FP8, and only the store record says which. Use from_store()." )
@@ -547,7 +547,7 @@ static void bind_gemma_model( py::module_& m )
             "    context_length: Tokens the model can hold, prompt and reply together,\n"
             "                    or 'auto' (default) for the longest that fits the GPU.\n"
             "    device_index:   CUDA device index (default: 0).\n"
-            "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
+            "    quantization:   'bf16', 'fp8', 'fp4' or 'q4_0', applied at load time\n"
             "                    (default: 'fp4' -- a BF16 Gemma 4 12B needs ~24 GB\n"
             "                    and OOMs at load on the cards this targets).\n\n"
             "Pre-quantized weights cannot be loaded here. Use from_store()." )

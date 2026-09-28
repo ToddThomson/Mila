@@ -223,8 +223,16 @@ export import Compute.OperationTraits;
 // The omission was easy to miss because it fails asymmetrically: `Linear<Cuda, BF16>` compiles
 // through this umbrella since a DEFAULT template argument only needs its type reachable, while
 // `Linear<Cuda, BF16, PerChannelFp8<>>` -- the spelling the quantization design is documented in
-// terms of -- did not, until these two lines.
-export import Dnn.Quantization.Weight.Policies;
+// terms of -- did not, until these lines.
+export import Dnn.Quantization.Weight.WeightQuantPolicy;
+export import Dnn.Quantization.Weight.NoWeightQuant;
+export import Dnn.Quantization.Weight.PerChannelFp8;
+export import Dnn.Quantization.Weight.PerGroupInt4;
+export import Dnn.Quantization.Weight.PerGroupFp4;
+export import Dnn.Quantization.Weight.PerGroupCodebook2;
+export import Dnn.Quantization.Weight.PerGroupCodebook3;
+export import Dnn.Quantization.Weight.HasCodebookTable;
+export import Dnn.Quantization.Weight.HasHighBitPlane;
 export import Dnn.Quantization.KvCache.Policy;
 
 // Same rule, one level up: a per-role PLAN is QwenAttentionBlock's third template argument

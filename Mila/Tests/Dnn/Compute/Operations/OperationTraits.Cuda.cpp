@@ -43,9 +43,7 @@ namespace Mila::Tests::Dnn::Compute::Operations
     static_assert( OperationSupported<OperationType::LinearOp, DeviceType::Cuda,
         TensorDataType::BF16, PerGroupFp4<64>> );
     static_assert( OperationSupported<OperationType::LinearOp, DeviceType::Cuda,
-        TensorDataType::BF16, PerGroupInt4<128>> );
-    static_assert( OperationSupported<OperationType::LinearOp, DeviceType::Cuda,
-        TensorDataType::BF16, PerGroupInt4<64>> );
+        TensorDataType::BF16, PerGroupInt4<32>> );
 
     static_assert( !OperationSupported<OperationType::LinearOp, DeviceType::Cuda,
         TensorDataType::FP32, PerChannelFp8<>> );
@@ -56,6 +54,8 @@ namespace Mila::Tests::Dnn::Compute::Operations
     // an unregistered group size must fail rather than silently reuse another.
     static_assert( !OperationSupported<OperationType::LinearOp, DeviceType::Cuda,
         TensorDataType::BF16, PerGroupFp4<32>> );
+    static_assert( !OperationSupported<OperationType::LinearOp, DeviceType::Cuda,
+        TensorDataType::BF16, PerGroupInt4<128>> );
 
     // Distinct policies must resolve to distinct op types. Without this, a policy
     // could be accepted and then quietly dispatch to the wrong kernel -- exactly the

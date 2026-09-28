@@ -457,9 +457,11 @@ measured". *Needs:* G1, and a long-document corpus whose licence is verified at 
     queued: the QAT weights as NVFP4 with best scales.
   - **Google's Q4_0 GGUF is llama.cpp's reference rounding of Google's BF16 QAT checkpoint, bit for bit**
     (2026-09-27, header and values read from `gemma-4-12b-it-qat-q4_0.gguf` and
-    `gemma-4-12B-it-qat-q4_0-unquantized`). Every Q4_0 value in layers 0, 5, 23 and 47 (q, k, up) equals
-    `quantize_row_q4_0_ref` applied to the BF16 weights: scale the group's signed extreme over -8, code
-    `min(15, int(x / d + 8.5))`, FP16 scale. The GGUF holds 328 Q4_0 tensors (every projection; no `attn_v` on the
+    `gemma-4-12B-it-qat-q4_0-unquantized`). Every code and every FP16 scale bit of all 328 Q4_0 tensors
+    (10,899,947,520 codes, 340,623,360 scales) equals `quantize_row_q4_0_ref` applied to the BF16 weights, with
+    no exception: d = the group's signed extreme over -8, code `min(15, trunc(fl(x * fl(1/d)) + 8.5))`, FP16
+    scale. Dividing by d, or fusing the multiply-add, also reproduces every code on these weights -- they sit away
+    from the rounding boundaries -- so the rule as written is kept (`Quantization.md`, Q4_0). The GGUF holds 328 Q4_0 tensors (every projection; no `attn_v` on the
     8 global layers, K=V), the tied embedding at **Q6_K** -- llama.cpp's own choice, not a trained format -- and
     338 FP32 tensors, whose norms and `layer_output_scale` (HF `layer_scalar`) equal the checkpoint's exactly, with
     no 1 added. No row is permuted: shapes are [out, in] with 32-element groups along the input, as in HF.
@@ -467,6 +469,13 @@ measured". *Needs:* G1, and a long-document corpus whose licence is verified at 
     weights; the BF16 checkpoint carries both. So the BF16 checkpoint rounded by the reference rule gives the
     GGUF's weights exactly, with the embedding from BF16 rather than from Q6_K, and the GGUF is its bit-exact
     oracle.
+  - **Mila's Q4_0 build equals the GGUF, bit for bit** (2026-09-27, `0.21.0-dev+11` tree plus the Q4_0 work). The
+    BF16 QAT checkpoint through the existing converter (`gemma4_12b_it_qat_bf16.bin`, 578 tensors) and
+    `ExportArtifact --quantization q4_0` (6.65 GiB: 5.08 GiB of codes, 0.63 GiB of FP16 scales, 0.94 GiB FP8
+    embedding): all 328 Q4_0 tensors equal the GGUF in every code and every scale bit
+    (`q4_0_package_gate.py`, 27 s). The gate was checked against a planted one-code and one-scale-bit change, which
+    it reports by tensor and row range. The checkpoint names its vision stack `model.vision_embedder.`, which the
+    original 12B checkpoint does not use.
   - **FP8 attention restores it.** The original weights with attention at FP8 per row and the feed-forward at FP4:
     3.683, 3.417, 3.513, 3.595 -- +0.04, +0.08, +0.08, +0.11 over BF16, against +0.19 rising to +0.69 for the
     all-FP4 build, and no worse than the feed-forward-alone arm. The cost is bytes: the attention projections are

@@ -107,7 +107,7 @@ bytes, or which.
 
 `MixtureOfExperts::kIsFp4`, `CudaMoeOp::kIsFp4` (`CudaMoeOp.ixx:58`, the same lambda verbatim) and
 `CudaLinearOp::kIsFp4Weight` (`CudaLinearOp.ixx:178`) each probe `TWeightQuantization::kIsFp4E2M1` for
-themselves. A trait on the policy in `Quantization/Weight/Policies.ixx` would state it once. Found reviewing the MoE
+themselves. A trait on the policy (`Quantization/Weight/PerGroupFp4.ixx`) would state it once. Found reviewing the MoE
 path for the Gemma parity pass.
 
 ## The 26B-A4B normalizes the same residual twice in every layer
@@ -280,3 +280,46 @@ and the 26B MoE, in Q4_0 (GGUF for llama.cpp, compressed-tensors for vLLM) and a
 drafter; the 12B has one too). Under §9 item 14 -- trained format where the producer ships one -- the 26B-A4B would
 run Q4_0 as well, which puts the Q4_0 policy into the routed expert bank as well as `Linear`, and changes the bytes
 G5's 16 GB fit is decided on. The announcement gives no benchmark numbers and says nothing about long context.
+
+## Mila has no desktop app with a window
+
+`Mila/Adaptors/Chat/` @ `0.21.0-dev+11`
+
+Raised by Todd 2026-09-27 while naming the tools (`Future.md`, the `ExportArtifact` entry): a Windows GUI app named
+`MilaStudio.exe`, whose core would come from the chat app (`MilaChat.exe` after the rename). Chat's session logic --
+model resolution against the store, the deployment request, the turn loop, tool dispatch and the streaming display's
+channel routing -- currently lives in console-bound modules (`Chat.ixx`, `Chat.Renderer.ixx`), so a second front end
+would share that core only once it is separated from the console. Not in `ROADMAP.md`, `BACKLOG.md` or
+`MilaProductFamily.md`.
+
+## A unified model loads text only, whatever its package could do
+
+`Mila/Tools/Converters/Gemma/convert_weights.py` (`SKIPPED_PREFIXES`) @ `0.21.0-dev+11`
+
+Raised by Todd 2026-09-27: for a unified model such as Gemma 4, the deployment should say which of text, vision
+and audio to enable, where the VRAM budget allows. Discussed the same day, no decision taken: modality as an axis
+of the deployment request beside context length (`Deployment.md`), the package's manifest declaring what it carries
+(`ModelHandle.md` section 10 names the manifest as a capability source), each encoder a component built only when
+enabled rather than a template flag, and "auto" enabling a modality only while the text context stays above a floor.
+Facts found along the way: the Gemma converter drops every modality tensor today (`model.vision_tower.`,
+`model.embed_vision.`, `model.vision_embedder.`, `model.audio_tower.`, `model.embed_audio.`), so no Mila package
+carries them; the 12B QAT checkpoint's vision stack is a patch embedder only (`patch_dense`, `patch_ln1`, `patch_ln2`,
+`pos_embedding`, `pos_norm`), so its cost is image tokens in the context rather than weights, while `audio_tower` is an
+encoder; and the Q4_0 12B package was chosen over Google's GGUF partly because the GGUF lacks these weights
+(`ModelFamilyParity.md` section 9, item 14).
+
+## Gemma's prefill falls behind llama.cpp as the prompt grows
+
+`Mila/Profiling/ProfileModel/ProfileModel.ixx` @ `0.21.0-dev+11`
+
+Measured 2026-09-27 on the RTX 5060 Ti, Gemma 4 12B, prefill only (`ProfileModel --phase prefill`, context 131072;
+`llama-bench -fa 1 -ngl 99`, Google's Q4_0 GGUF): at an 8K prompt Mila's FP4 package runs 2,590 tokens/s against
+llama.cpp's 2,385; at 32K, 1,389 against 1,960. From 8K to 32K Mila loses 46% of its rate and llama.cpp 18%. Scaling
+the 8K time linearly puts about 11 s of Mila's 23.6 s at 32K outside the linear layers, against about 3 s in
+llama.cpp -- attention being the likely remainder, which a profile has to confirm. Todd, the same day: Mila cannot be
+far behind llama.cpp, and prefill time is what decides whether agentic workloads are usable.
+
+Profiled and fixed the same day for the FP4 build (`GqaFlashAttention.md` 5.7): the global layers' attention was 14.7 s
+of the 23.6 s at 32K; the packed kernel takes it to 6.0 s, and the FP4 prefill runs 3,134 tokens/s at 8K and 2,183 at
+32K, ahead of llama.cpp at both. What remains behind is the Q4_0 build's staged GEMM (1,296 tokens/s at 32K) and
+Llama, which has no flash prefill; Gemma and Qwen still switch flash off below a context threshold.

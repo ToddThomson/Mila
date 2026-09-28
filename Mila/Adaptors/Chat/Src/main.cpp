@@ -440,8 +440,8 @@ static void printUsage( const char* prog_name )
         << "                     the directory of the file that set it.\n"
         << "  temperature, top_k, top_p, max_new_tokens.\n"
         << "\n"
-        << "  quantization       none | fp8 | fp4. Quantizes unquantized weights on load;\n"
-        << "                     a name ending -fp4/-fp8 is already quantized and refuses it.\n"
+        << "  quantization       none | fp8 | fp4 | q4_0. Quantizes unquantized weights on load;\n"
+        << "                     a name ending -fp4/-fp8/-q4_0 is already quantized and refuses it.\n"
         << "\n";
 
     // What is loadable is what is installed, so the list is read rather than compiled in.
@@ -842,7 +842,7 @@ static StartupConfig buildConfig( const CommandLine& line )
 
         if ( !parsed )
             throw ConfigError( std::format(
-                "quantization ({}): expected none, fp8 or fp4, but found '{}'.",
+                "quantization ({}): expected none, fp8, fp4 or q4_0, but found '{}'.",
                 chosen.describeOrigin( "quantization" ), quantization ) );
 
         requested_quantization = *parsed;

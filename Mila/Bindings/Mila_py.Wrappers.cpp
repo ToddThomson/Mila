@@ -311,6 +311,10 @@ namespace Mila::Bindings
             {
                 model_config.withFP8Quantization();
             }
+            else if ( variant == "q4_0" )
+            {
+                model_config.withQ4_0Quantization();
+            }
             else if ( variant == "bf16" || variant == "none" )
             {
                 model_config.withFullPrecision();
@@ -318,7 +322,7 @@ namespace Mila::Bindings
             else
             {
                 throw std::runtime_error( std::format(
-                    "{}: '{}' is not a variant this binding can load. Expected bf16, fp8 or fp4."
+                    "{}: '{}' is not a variant this binding can load. Expected bf16, fp8, fp4 or q4_0."
                     "{}",
                     subject, variant,
                     variant == "fp32" ? " These sessions are BF16 instantiations." : "" ) );

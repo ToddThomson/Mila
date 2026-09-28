@@ -1642,7 +1642,7 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief `/model load <name> [none|fp8|fp4]`.
+         * @brief `/model load <name> [none|fp8|fp4|q4_0]`.
          *
          * Spelled out rather than reached by a bare name, because it is the one command here that
          * costs seconds and megabytes: it releases the resident weights, builds a new graph and
@@ -1653,7 +1653,7 @@ namespace Mila::ChatApp
             if ( args.empty() )
             {
                 renderer_.printInfo(
-                    "Usage: /model load <name> [none|fp8|fp4]." );
+                    "Usage: /model load <name> [none|fp8|fp4|q4_0]." );
 
                 return;
             }
@@ -1670,7 +1670,7 @@ namespace Mila::ChatApp
                 if ( !parsed )
                 {
                     renderer_.printInfo( std::format(
-                        "Unknown option '{}'. Use none, fp8 or fp4.", args[ index ] ) );
+                        "Unknown option '{}'. Use none, fp8, fp4 or q4_0.", args[ index ] ) );
 
                     return;
                 }
@@ -2803,7 +2803,7 @@ Available commands:
   /model <name>                      Show a model, installed or published
   /model list [--online]             List installed models, or what can be installed
   /model load <name> [quant]         Load a model (clears history). quant quantizes
-                                     unquantized weights on load: none, fp8, fp4.
+                                     unquantized weights on load: none, fp8, fp4, q4_0.
   /model install <name>              Download and install a published model
   /model remove <name>               Remove an installed model and reclaim its blobs
   /context                           Show the context window and the largest that fits
@@ -2818,7 +2818,7 @@ Available commands:
 
 Models:         a bare /model <name> reports; loading is spelled out, because it takes
                 seconds and clears the conversation.
-Quantization:   a name ending -fp4/-fp8 is already quantized. For an unquantized model,
+Quantization:   a name ending -fp4/-fp8/-q4_0 is already quantized. For an unquantized model,
                 /model load <name> fp4 quantizes it on load -- same weights, less
                 VRAM, but the full file is still read.
 Thinking:       Gemma's <|think|> mode. Toggling it does not reload weights. Effort

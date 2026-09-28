@@ -588,24 +588,39 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
     namespace
     {
         constexpr int kGBatch = 1;
-        constexpr int kGNumHeads = 16;     // Gemma 4 12B query heads
-        constexpr int kGNumKvHeads = 1;    // global layers are MQA (single shared KV head)
-        constexpr int kGHeadDim = 512;     // global_head_dim (NOT the sliding head_dim 256)
-        constexpr int kGModelDim = kGNumHeads * kGHeadDim;                         // 8192
-        constexpr int kGPackedQkv = ( kGNumHeads + 2 * kGNumKvHeads ) * kGHeadDim; // 9216
-        // 83 (not 80) is deliberate: the 19-token tail chunk is NOT a multiple of the
-        // WMMA kernel's 16-row query tile, so the ragged-tile masking is exercised, and
-        // its final key tile runs past cache_capacity, exercising the cp.async OOB row
-        // clamp. A multiple-of-16 context covers neither.
+
+        // 83 (not 80) is deliberate: the 19-token tail chunk is not a multiple of a 16-row
+        // tile, so ragged-tile masking is exercised, and its final key tile runs past
+        // cache_capacity, exercising the cp.async out-of-range row clamp.
         constexpr int kGContext = 83;      // T_
         constexpr int kGPrefillChunk = 32; // 83 tokens -> chunks 32 + 32 + 19 (ragged tail)
-        constexpr int kGWindow = 0;        // global / full causal
+        constexpr int kGWindow = 0;        // full causal
 
         // Flash keeps QK scores in FP32; the cuBLASLt reference rounds preatt to BF16
         // before softmax, so the two differ by that rounding, not by algorithm. A gross
         // kernel bug (the HS=512 register overflow this guards) diverges by O(1), an
         // order of magnitude above this bound.
         constexpr float kGFlashAtol = 3e-2f;
+
+        /// One unbounded attention geometry the flash prefill serves.
+        struct FlashGeometry
+        {
+            int heads;
+            int kv_heads;
+            int head_dim;
+
+            int modelDim() const { return heads * head_dim; }
+            int packedQkv() const { return ( heads + 2 * kv_heads ) * head_dim; }
+        };
+
+        // Gemma 4 12B global layers: MQA, global_head_dim 512 (not the sliding 256).
+        constexpr FlashGeometry kGemmaGlobal{ 16, 1, 512 };
+
+        // Qwen 3.8 full-attention layers: a group of 6, which does not divide a 16-row tile.
+        constexpr FlashGeometry kQwenFullAttention{ 24, 4, 256 };
+
+        // Llama 3.2 3B: a group of 3 at head_dim 128.
+        constexpr FlashGeometry kLlama3B{ 24, 8, 128 };
     }
 
     class CudaGqaFlashPrefillParity : public ::testing::Test
@@ -660,8 +675,8 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
 
         // Chunked prefill of kGContext tokens through a fresh unbounded BF16 op with the
         // flash path toggled on/off. The random q/k/v schedule is fixed by seed so both
-        // runs see identical input; returns per-position output rows [kGModelDim].
-        std::vector<std::vector<float>> runPrefill( bool useFlash )
+        // runs see identical input; returns per-position output rows [heads * head_dim].
+        std::vector<std::vector<float>> runPrefill( const FlashGeometry& geometry, bool useFlash )
         {
             std::mt19937 rng( 7u );
 
@@ -670,24 +685,24 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
             for ( int off = 0; off < kGContext; off += kGPrefillChunk )
             {
                 const int clen = std::min( kGPrefillChunk, kGContext - off );
-                qC.push_back( randomHost( shape_t{ kGBatch, clen, kGNumHeads * kGHeadDim }, rng ) );
-                kC.push_back( randomHost( shape_t{ kGBatch, clen, kGNumKvHeads * kGHeadDim }, rng ) );
-                vC.push_back( randomHost( shape_t{ kGBatch, clen, kGNumKvHeads * kGHeadDim }, rng ) );
+                qC.push_back( randomHost( shape_t{ kGBatch, clen, geometry.heads * geometry.head_dim }, rng ) );
+                kC.push_back( randomHost( shape_t{ kGBatch, clen, geometry.kv_heads * geometry.head_dim }, rng ) );
+                vC.push_back( randomHost( shape_t{ kGBatch, clen, geometry.kv_heads * geometry.head_dim }, rng ) );
                 offs.push_back( off );
             }
 
             UnboundedBf16Op op( cuda_context_.get(),
-                GqaConfig( kGModelDim, kGNumHeads, kGNumKvHeads ).withWindow( kGWindow ) );
-            op.build( BuildContext( shape_t{ kGBatch, kGContext, kGPackedQkv },
+                GqaConfig( geometry.modelDim(), geometry.heads, geometry.kv_heads ).withWindow( kGWindow ) );
+            op.build( BuildContext( shape_t{ kGBatch, kGContext, geometry.packedQkv() },
                 RuntimeMode::Inference, false ).withPrefillSize( kGPrefillChunk ) );
             op.initializeKvCache( kGBatch, kGContext );
             op.setUseFlashPrefill( useFlash );
 
             // Prefill scratch: consumed by the cuBLASLt path, ignored by flash.
-            DeviceBf16 q_permute( Device::Cuda( 0 ), shape_t{ kGBatch, kGNumHeads, kGPrefillChunk, kGHeadDim } );
-            DeviceBf16 preatt( Device::Cuda( 0 ), shape_t{ kGBatch, kGNumHeads, kGPrefillChunk, kGContext } );
-            DeviceBf16 att( Device::Cuda( 0 ), shape_t{ kGBatch, kGNumHeads, kGPrefillChunk, kGContext } );
-            DeviceBf16 v_out( Device::Cuda( 0 ), shape_t{ kGBatch, kGNumHeads, kGPrefillChunk, kGHeadDim } );
+            DeviceBf16 q_permute( Device::Cuda( 0 ), shape_t{ kGBatch, geometry.heads, kGPrefillChunk, geometry.head_dim } );
+            DeviceBf16 preatt( Device::Cuda( 0 ), shape_t{ kGBatch, geometry.heads, kGPrefillChunk, kGContext } );
+            DeviceBf16 att( Device::Cuda( 0 ), shape_t{ kGBatch, geometry.heads, kGPrefillChunk, kGContext } );
+            DeviceBf16 v_out( Device::Cuda( 0 ), shape_t{ kGBatch, geometry.heads, kGPrefillChunk, geometry.head_dim } );
 
             GqaState state;
             state.q_permute = &q_permute;
@@ -703,16 +718,38 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
                 DeviceBf16 q = toDevice( qC[ c ] );
                 DeviceBf16 k = toDevice( kC[ c ] );
                 DeviceBf16 v = toDevice( vC[ c ] );
-                DeviceBf16 out( Device::Cuda( 0 ), shape_t{ kGBatch, clen, kGModelDim } );
+                DeviceBf16 out( Device::Cuda( 0 ), shape_t{ kGBatch, clen, geometry.modelDim() } );
 
                 op.prefill( q, k, v, out, offs[ c ] );
 
                 HostFp32 host = toFloat( out );
                 for ( int t = 0; t < clen; ++t )
-                    outputs.emplace_back( host.data() + t * kGModelDim, host.data() + ( t + 1 ) * kGModelDim );
+                    outputs.emplace_back( host.data() + t * geometry.modelDim(), host.data() + ( t + 1 ) * geometry.modelDim() );
             }
 
             return outputs;
+        }
+
+        void expectFlashMatchesCublasLt( const FlashGeometry& geometry )
+        {
+            auto flashOut = runPrefill( geometry, true );
+            auto cublasOut = runPrefill( geometry, false );
+
+            ASSERT_EQ( flashOut.size(), cublasOut.size() );
+            ASSERT_EQ( static_cast<int>( flashOut.size() ), kGContext );
+
+            float max_diff = 0.0f;
+            for ( size_t t = 0; t < flashOut.size(); ++t )
+            {
+                ASSERT_EQ( flashOut[ t ].size(), cublasOut[ t ].size() );
+
+                for ( size_t i = 0; i < flashOut[ t ].size(); ++i )
+                    max_diff = std::max( max_diff, std::fabs( flashOut[ t ][ i ] - cublasOut[ t ][ i ] ) );
+            }
+
+            EXPECT_LT( max_diff, kGFlashAtol )
+                << "flash prefill diverged from cuBLASLt at heads " << geometry.heads << ", KV heads "
+                << geometry.kv_heads << ", head_dim " << geometry.head_dim << ": max_diff=" << max_diff;
         }
 
         std::unique_ptr<IExecutionContext> cuda_context_;
@@ -720,24 +757,17 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
 
     TEST_F( CudaGqaFlashPrefillParity, FlashMatchesCublasLt_GemmaGlobalConfig )
     {
-        auto flashOut = runPrefill( true );
-        auto cublasOut = runPrefill( false );
+        expectFlashMatchesCublasLt( kGemmaGlobal );
+    }
 
-        ASSERT_EQ( flashOut.size(), cublasOut.size() );
-        ASSERT_EQ( static_cast<int>( flashOut.size() ), kGContext );
+    TEST_F( CudaGqaFlashPrefillParity, FlashMatchesCublasLt_QwenFullAttentionConfig )
+    {
+        expectFlashMatchesCublasLt( kQwenFullAttention );
+    }
 
-        float max_diff = 0.0f;
-        for ( size_t t = 0; t < flashOut.size(); ++t )
-        {
-            ASSERT_EQ( flashOut[ t ].size(), cublasOut[ t ].size() );
-
-            for ( size_t i = 0; i < flashOut[ t ].size(); ++i )
-                max_diff = std::max( max_diff, std::fabs( flashOut[ t ][ i ] - cublasOut[ t ][ i ] ) );
-        }
-
-        EXPECT_LT( max_diff, kGFlashAtol )
-            << "flash prefill diverged from cuBLASLt at the Gemma global config "
-               "(HS=512, NKV=1, window=0), max_diff=" << max_diff;
+    TEST_F( CudaGqaFlashPrefillParity, FlashMatchesCublasLt_Llama3BConfig )
+    {
+        expectFlashMatchesCublasLt( kLlama3B );
     }
 
     // ====================================================================

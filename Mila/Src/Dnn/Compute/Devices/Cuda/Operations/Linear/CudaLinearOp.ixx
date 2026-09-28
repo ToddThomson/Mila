@@ -33,6 +33,7 @@ module;
 #include "Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cuh"
 #include "Kernels/Codebook/CodebookDequantize.cuh"
 #include "Kernels/Codebook/CodebookGemv.cuh"
+#include "Kernels/Int4/CudaInt4Dequantize.cuh"
 
 export module Compute.CudaLinearOp;
 import :Plans;
@@ -118,8 +119,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         static constexpr bool kIsQuantized = TWeightQuant::kIsQuantized;
 
         // Dispatch discriminators derived from the weight quantization policy.
-        //   kIsPerChannelQuantized: FP8_E4M3 per-channel path  (PerChannelFp8, kPerChannel=true)
-        //   kIsPerGroupQuantized:   INT4 per-group path         (PerGroupInt4,  kPerChannel=false)
+        //   kIsPerChannelQuantized: FP8_E4M3 per-channel path          (PerChannelFp8, kPerChannel=true)
+        //   kIsPerGroupQuantized:   FP4, INT4 and codebook per-group paths          (kPerChannel=false)
         static constexpr bool kIsPerChannelQuantized = kIsQuantized && TWeightQuant::kPerChannel;
         static constexpr bool kIsPerGroupQuantized   = kIsQuantized && !TWeightQuant::kPerChannel;
 
@@ -183,17 +184,21 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 return false;
         }();
 
+        /// True only for PerGroupInt4: the per-group format that is neither FP4 nor a codebook.
+        static constexpr bool kIsInt4Weight = kIsPerGroupQuantized && !kIsFp4Weight && !kIsCodebookWeight;
+
         // Compile-time predicate for the active W4A8-FP8 prefill path: FP4 weights AND the
         // toggle on. Gates the FP8 plan cache member type and every FP8-specific branch.
         static constexpr bool kUseFp8ActivationPrefillPath = kIsFp4Weight && kUseFp8ActivationPrefill;
 
         // Every batched path that expands packed weights into a BF16 staging buffer and
-        // then runs one standard BF16 cuBLASLt GEMM. FP8 per-channel, FP4 E2M1 and the
+        // then runs one standard BF16 cuBLASLt GEMM. FP8 per-channel, FP4 E2M1, INT4 and the
         // codebook formats differ only in which expansion kernel fills the buffer, so they
         // share one implementation -- runStagedPrefill() -- and one plan-cache shape.
         static constexpr bool kUsesStagedPrefill =
             ( kIsPerChannelQuantized && !kUseW8A16Gemm )
             || kIsCodebookWeight
+            || kIsInt4Weight
             || ( kIsFp4Weight && !kUseFp8ActivationPrefillPath && !kUseFusedFp4Gemm );
 
         using WeightType = typename TensorDataTypeMap<kWeightDtype>::device_type;
@@ -321,8 +326,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * pre-quantized artifact.
          *
          * Must be bound before the first forward(). The element type and the extent are
-         * the policy's: FP32 per output channel for PerChannelFp8, FP32 per group for the
-         * FP4/INT4 formats, IEEE half per group for the codebook formats.
+         * the policy's: FP32 per output channel for PerChannelFp8, FP32 per group for FP4,
+         * IEEE half per group for INT4 and the codebook formats.
          *
          * @param scales Device tensor, dtype TWeightQuant::kScaleDtype.
          */
@@ -370,33 +375,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             weight_high_plane_ = highPlane != nullptr
                 ? static_cast<const std::uint8_t*>( highPlane->rawData() )
                 : nullptr;
-        }
-
-        /**
-         * @brief Bind the packed INT4 zero-point tensor for per-group asymmetric quantization.
-         *
-         * Optional -- only required for asymmetric INT4 quantization. Pass nullptr (or omit)
-         * for symmetric quantization (implicit zero = 8). The tensor layout must match
-         * the kernel expectation: [out_features, in_features / (group_size * 2)], dtype UINT8,
-         * with two packed INT4 zero values per byte.
-         *
-         * @param zero_points Device UINT8 tensor, or nullptr for symmetric.
-         */
-        void setWeightZeroPoints( ITensor* zero_points ) requires kIsPerGroupQuantized
-        {
-            if ( zero_points == nullptr )
-            {
-                weight_zero_points_ = nullptr;
-                return;
-            }
-
-            if ( zero_points->getDeviceType() != DeviceType::Cuda )
-            {
-                throw std::invalid_argument(
-                    "CudaLinearOp::setWeightZeroPoints - zero_points must be a CUDA tensor" );
-            }
-
-            weight_zero_points_ = static_cast<const uint8_t*>(zero_points->rawData());
         }
 
         /**
@@ -500,12 +478,13 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         num_scales, stream );
                 }
             }
-            else
+            else if constexpr ( kIsInt4Weight )
             {
-                // INT4 per-group: weights must come from a pre-quantized GPTQ checkpoint.
-                // On-the-fly BF16->INT4 quantization is not supported here.
-                static_assert( !sizeof( TWeightQuant ),
-                    "CudaLinearOp::quantize() is not implemented for PerGroupInt4." );
+                void* staging = context_->getLoadStagingBuffer( staging_bytes );
+                Detail::quantize_int4_per_group(
+                    blob, weight_out, scales_out, expected_shape,
+                    TWeightQuant::kQuantizationGroupSize,
+                    staging, staging_bytes, stream );
             }
         }
 
@@ -623,6 +602,16 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 }
             }
 
+            if constexpr ( kIsInt4Weight )
+            {
+                if ( cached_in_features_ % TWeightQuant::kQuantizationGroupSize != 0 )
+                {
+                    throw std::invalid_argument( std::format(
+                        "CudaLinearOp::build - input features ({}) must be a multiple of the group size ({})",
+                        cached_in_features_, TWeightQuant::kQuantizationGroupSize ) );
+                }
+            }
+
             if ( weight_out_features_ != config_.getOutputFeatures() )
             {
                 throw std::invalid_argument( std::format(
@@ -646,8 +635,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             out_features_ = static_cast<int>(config_.getOutputFeatures());
 
-            // Capture the compile-time group size for the INT4 path so it is available
-            // as a runtime int when calling cuda_w4a16_gemm.
+            // The kernels take the group size as a runtime argument.
             if constexpr ( kIsPerGroupQuantized )
             {
                 weight_group_size_ = TWeightQuant::kQuantizationGroupSize;
@@ -695,11 +683,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * Dispatch priority:
          *   1. outer_size == 1:
          *      FP8/non-quantized: fused matvec via cuda_matvec_impl.
-         *      INT4: M=1 tiled W4A16 GEMM (no dedicated decode matvec yet).
+         *      FP4, INT4, codebook: the format's decode matvec.
          *   2. outer_size > 1, use_cublaslt_:
-         *      kIsPerChannelQuantized: fused W8A16 GEMM -- reads FP8 weights once,
-         *        dequantizes per-channel inline in shared memory, bias added in-kernel.
-         *      kIsPerGroupQuantized:   fused W4A16 GEMM -- inline per-group INT4 dequant.
+         *      Staged formats: expand to BF16 staging, then a BF16 cuBLASLt GEMM.
+         *      FP4 with FP8 activations: FP8 staging and an FP8 cuBLASLt GEMM.
          *      !kIsQuantized:          NT row-major BF16 cuBLASLt GEMM; bias via epilogue.
          *   3. outer_size > 1, quantized, no cuBLASLt: per-row fallback loop (SM < 8.0
          *      SM < 8.0 or plan build failure).
@@ -720,6 +707,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 {
                     launchCodebookDecode( output_ptr, input_ptr, weight_, weight_scales_, stream );
                 }
+                else if constexpr ( kIsInt4Weight )
+                {
+                    cuda_matvec_decode_bf16_qint4(
+                        output_ptr, input_ptr,
+                        weight_, weight_scales_, bias_,
+                        cached_in_features_, out_features_,
+                        weight_group_size_, stream );
+                }
                 else if constexpr ( kIsPerGroupQuantized )
                 {
                     if constexpr ( TWeightQuant::kIsFp4E2M1 )
@@ -731,14 +726,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                             output_ptr, input_ptr,
                             weight_, weight_scales_, bias_,
                             cached_in_features_, out_features_,
-                            weight_group_size_, stream );
-                    }
-                    else
-                    {
-                        cuda_w4a16_gemm(
-                            output_ptr, input_ptr,
-                            weight_, weight_scales_, weight_zero_points_, bias_,
-                            1, cached_in_features_, out_features_,
                             weight_group_size_, stream );
                     }
                 }
@@ -896,21 +883,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                                 weight_group_size_, stream );
                         }
                     }
-                    else
-                    {
-                        // INT4 W4A16 fused GEMM: packed INT4 weights dequantized per-group
-                        // inline. Optional asymmetric zero-points via weight_zero_points_.
-                        cuda_w4a16_gemm(
-                            output_ptr,
-                            input_ptr,
-                            weight_,
-                            weight_scales_,
-                            weight_zero_points_,
-                            bias_,
-                            outer_size, cached_in_features_, out_features_,
-                            weight_group_size_,
-                            stream );
-                    }
                 }
                 else
                 {
@@ -947,8 +919,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             // a row at a time.
             // FP8:      the FP8 decode matvec.
             // FP4:      the FP4 decode matvec.
+            // INT4:     the INT4 decode matvec.
             // Codebook: the codebook GEMV.
-            // INT4:     the M=1 tiled W4A16 GEMM -- less optimal than a dedicated matvec.
             // Non-quantized: no fallback for batch compute.
             if constexpr ( kIsPerChannelQuantized )
             {
@@ -977,20 +949,20 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     {
                         launchCodebookDecode( out_row, in_row, weight_, weight_scales_, stream );
                     }
+                    else if constexpr ( kIsInt4Weight )
+                    {
+                        cuda_matvec_decode_bf16_qint4(
+                            out_row, in_row,
+                            weight_, weight_scales_, bias_,
+                            cached_in_features_, out_features_,
+                            weight_group_size_, stream );
+                    }
                     else if constexpr ( TWeightQuant::kIsFp4E2M1 )
                     {
                         cuda_matvec_decode_bf16_qfp4(
                             out_row, in_row,
                             weight_, weight_scales_, bias_,
                             cached_in_features_, out_features_,
-                            weight_group_size_, stream );
-                    }
-                    else
-                    {
-                        cuda_w4a16_gemm(
-                            out_row, in_row,
-                            weight_, weight_scales_, weight_zero_points_, bias_,
-                            1, cached_in_features_, out_features_,
                             weight_group_size_, stream );
                     }
                 }
@@ -1125,7 +1097,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         // Scales at the policy's element type. Per-channel FP32 [out_features] on the FP8
         // path; per-group [out_features x in_features/group_size] on every per-group path,
-        // FP32 for FP4/INT4 and IEEE half for the codebook formats.
+        // FP32 for FP4 and IEEE half for INT4 and the codebook formats.
         const ScaleType* weight_scales_{ nullptr };
 
         // Codebook formats only. Borrowed exactly as the weight is: the component owns the
@@ -1133,13 +1105,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         const float* weight_codebook_{ nullptr };
         const std::uint8_t* weight_high_plane_{ nullptr };
 
-        // Packed INT4 zero points [out_features x in_features/(group_size*2)] -- kIsPerGroupQuantized path only.
-        // nullptr when symmetric quantization is used (implicit zero = 8).
-        const uint8_t* weight_zero_points_{ nullptr };
-
-        // INT4 quantization group size along K -- set from TWeightQuant::kQuantizationGroupSize at build.
+        // Per-group formats: the group size along K, set from TWeightQuant::kQuantizationGroupSize at build.
         int weight_group_size_{ 128 };
-
 
         const ComputeType* bias_{ nullptr };
 
@@ -1320,6 +1287,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     staging, strip_weight, weight_scales_ + begin,
                     rows, cached_in_features_, stream );
             }
+            else if constexpr ( kIsInt4Weight )
+            {
+                cuda_int4_dequantize_to_bf16(
+                    staging, strip_weight,
+                    weight_scales_ + static_cast<ptrdiff_t>( begin )
+                        * ( cached_in_features_ / weight_group_size_ ),
+                    rows, cached_in_features_, weight_group_size_, stream );
+            }
             else
             {
                 cuda_fp4_dequantize_to_bf16(
@@ -1431,8 +1406,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          *
          * FP8 (kIsPerChannelQuantized): SM >= 8.0 (Ampere+) for both the fused W8A16 GEMM
          *   and the 2-phase dequant + cuBLASLt BF16 GEMM baseline.
-         * INT4 (kIsPerGroupQuantized):  SM >= 8.0 (Ampere+) for BF16. The fused
-         *   W4A16 kernel reads packed INT4 and dequantizes per-group inline.
+         * Per-group formats (kIsPerGroupQuantized): SM >= 8.0 (Ampere+) for BF16.
          * Non-quantized: requires a cuBLASLt-supported compute type (FP32/FP16/BF16).
          */
         bool supportsCuBLASLt() const

@@ -502,6 +502,55 @@ Build flags: `-arch=sm_89` (Ada), `-arch=sm_120`/`sm_121` (Blackwell); CUDA 13.0
 Blackwell mappings. These figures are targets to validate on hardware, not measured
 results.
 
+### 5.7 Stage 3: the global layers pack their query-head group (HS 512)
+
+**Measured 2026-09-27** (Gemma 4 12B, FP4 package, 32K prompt, RTX 5060 Ti; Nsight Systems, and
+Nsight Compute on the RTX 4070 because this Nsight Compute build returns no multi-pass counters on
+sm_120). `gqa_flash_prefill_mma_bf16_kernel` on the 8 global layers is **14.7 s of a 23.6 s
+prefill** -- 62% -- where llama.cpp's whole 32K prefill on Google's GGUF takes 16.7 s. Its 1.4e14
+FLOP run at 9.6 TFLOPS against a measured `mma.sync` BF16/FP32-accumulate peak of 52.7 TFLOPS on
+this card (59.3 on the 4070). One late launch on the 4070: 9.95e9 instructions, about 40 per MMA;
+tensor pipe 12% active, integer ALU 26%; top stall `wait`, then `short_scoreboard`,
+`math_pipe_throttle`, `barrier`; 8 warps per SM; DRAM 4%, L2 hit 98.5%, L2 55% busy. The kernel is
+instruction-bound on per-tile overhead, not memory-bound: a 16 x 16 tile feeds 16 MMAs per warp
+behind a split-K reduction, a shared-memory softmax and three block barriers.
+
+**Design.** A block owns one KV head and packs its query-head group into the MMA's M dimension.
+The block's rows run position-major over (query position, head within the group) -- row `f` is
+position `f / G`, head `f % G` for a group of `G` -- so any group size packs without padding, and
+each row carries its own position for masking. It replaces Stage 2d for every unbounded caller:
+Gemma's global layers (HS 512, G 16), Qwen 3.8's full-attention layers (HS 256, G 6), and Llama,
+which has no flash prefill today (HS 128, G 4 or 3; `Vnext.md`, "Llama prefill has no flash path").
+
+- One K/V tile in shared memory serves every head of the group, where the Stage 2d grid streamed
+  the same K/V once per query head.
+- The head dimension is split into 128-wide slices, one warp per slice, so a row tile is 1, 2 or 4
+  warps; each warp keeps Q for its slice and O for its 128 output columns in registers (32 + 64).
+  QK is split-K across a row tile's warps; their partial scores meet in shared memory behind a
+  **named barrier of those warps only**, and every warp sums the partials in the same order, so
+  they hold bitwise-identical scores and softmax state. At HS 128 there is no exchange at all.
+- The key tile is `8192 / HS` keys (16, 32, 64), which holds the double-buffered K and V at 66-70
+  KB for every head dimension.
+- P never touches shared memory: the score accumulator fragments are repacked in registers as the
+  A operand of PV.
+- One block barrier per key tile (the cooperative K/V load).
+
+K and V are loaded separately: on the K=V layers they share the projection, not the values
+(K = RoPE(k_norm(k_proj)), V = v_norm(k_proj)). Stage 2d leaves the build once this passes, as
+Iteration 2's scalar kernel did. Both families gate flash by context (`useFlashPrefillForContext`),
+a gate that exists because Stage 2d lost to cuBLASLt at short contexts; it is re-measured against
+this kernel and removed if flash wins everywhere. Gate: `CudaGqaFlashPrefillParity` at the Gemma
+global geometry plus the Qwen and Llama geometries, then Gemma and Qwen token parity, and the 32K
+prefill measured against the 14.7 s above.
+
+**Result, 2026-09-27** (`Gqa.Flash.Packed.cu`, RTX 5060 Ti, same build otherwise). Parity passes at
+all three geometries on sm_120 and sm_89 at the first run. The global layers' attention at a 32K
+prompt: **6.0 s against 14.7 s**, 2.45x, about 23 TFLOPS (44% of the measured BF16 peak, from 18%).
+Gemma 4 12B FP4 prefill: 8K 2,614 ms (3,134 tokens/s, from 2,594) and 32K 15,011 ms (2,183 tokens/s,
+from 1,389), against llama.cpp on Google's Q4_0 GGUF at 2,385 and 1,960 tokens/s on the same card --
+1.31x and 1.11x ahead. The Q4_0 build's staged GEMM is the remaining gap there (`Quantization.md`,
+Q4_0 decision 4).
+
 ## 6. Correctness / parity invariant
 
 The fused kernel must reproduce the current path -- QK (`scale = attention_scale_`) ->

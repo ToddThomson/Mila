@@ -1,145 +1,24 @@
 /**
  * @file Chat.Config.ixx
- * @brief Configuration for the Mila chat application.
- *
- * Provides ChatConfig, ModelType, ModelSize, and ModelPrecision used to
- * select and parameterize the inference backend.
+ * @brief Runtime configuration for a Chat session; re-exports the enums it is built from.
  */
 
 module;
 #include <filesystem>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <cstddef>
 
 export module Chat.Config;
 
+export import Chat.ModelType;
+export import Chat.ModelSize;
+export import Chat.ModelPrecision;
+export import Chat.QuantizationMode;
+export import Chat.DetailLevel;
+
 namespace Mila::ChatApp
 {
-    // Instruct families only. Chat refuses a base model at the catalogue (Chat.ModelCatalog.ixx),
-    // so GPT-2 has no entry here: the harness renders turns, applies a chat template and keeps
-    // history, none of which a base model reads. GPT-2 remains a first-class Mila model; it is
-    // Chat that does not run it.
-    export enum class ModelType
-    {
-        Llama,
-        Gemma,
-        Qwen
-    };
-
-    export enum class ModelSize
-    {
-        B1,  // 1B parameters (Llama 3.2 1B)
-        B3,  // 3B parameters (Llama 3.2 3B)
-        B8,  // 8B parameters (Llama 3.1 8B)
-        B12  // 12B parameters (Gemma 4 12B)
-    };
-
-    export enum class ModelPrecision
-    {
-        FP32,
-        BF16
-    };
-
-    export enum class QuantizationMode
-    {
-        None,  ///< BF16 weights, no KV cache compression — default.
-        FP8,   ///< FP8 weights + FP8 KV cache (PerChannelFp8 + PerChannelKvFp8).
-        FP4,   ///< INT4 weights + FP8 KV cache (PerGroupInt4 + PerChannelKvFp8). W4A16 kernel path.
-
-        /**
-         * The family's own per-role bit allocation, from pre-quantized weights
-         * (WeightQuantization::Plan). Qwen 3.8 spends 2 and 3 bits per weight across the body
-         * against 4.125 on full attention, which averages 2.82.
-         *
-         * Unlike the three above this can never be a load-time choice: a codebook is fitted
-         * offline against calibration data, so the weights either carry the codes or cannot
-         * be built this way at all.
-         */
-        Codebook,
-    };
-
-    /**
-     * @brief Display-verbosity ladder for a chat turn. Each level includes the lower ones.
-     *
-     * Controls how much of the model's internal activity is shown — independent of
-     * whether thinking mode is active (that is the model-side toggle). Off shows the
-     * answer plus the always-visible agentic trace (tool calls); Thoughts adds the
-     * reasoning channel; All adds raw model output plus INFO logging and load dumps.
-     * (Tool calls are conversational content, always shown, so they are no longer a
-     * verbosity level of their own.)
-     */
-    export enum class DetailLevel
-    {
-        Off,       ///< Answer + agentic trace (tool calls).
-        Thoughts,  ///< + the reasoning channel.
-        All,       ///< + raw model output, INFO logging, and model/memory load dumps.
-    };
-
-    /**
-     * @brief Parse a detail keyword ("off"/"thoughts"/"all") to a DetailLevel.
-     */
-    export constexpr std::optional<DetailLevel> parseDetailLevel( std::string_view s )
-    {
-        if ( s.empty() || s == "off" || s == "none" ) return DetailLevel::Off;
-        if ( s == "thoughts" )                        return DetailLevel::Thoughts;
-        if ( s == "all" )                             return DetailLevel::All;
-        return std::nullopt;
-    }
-
-    /**
-     * @brief Display name for a DetailLevel.
-     */
-    export constexpr std::string_view detailLevelName( DetailLevel level )
-    {
-        switch ( level )
-        {
-            case DetailLevel::Off:      return "off";
-            case DetailLevel::Thoughts: return "thoughts";
-            case DetailLevel::All:      return "all";
-        }
-
-        return "off";
-    }
-
-    /**
-     * @brief Parse a quantization keyword ("none"/"fp8"/"fp4"/"cb2-3").
-     *
-     * Returns std::nullopt for an unrecognized value. Shared by the session-config
-     * loader and the in-session /model command so both accept the same vocabulary.
-     */
-    export constexpr std::optional<QuantizationMode> parseQuantization( std::string_view s )
-    {
-        if ( s.empty() || s == "none" )  return QuantizationMode::None;
-        if ( s == "fp8" )                return QuantizationMode::FP8;
-        if ( s == "fp4" )                return QuantizationMode::FP4;
-
-        // Accepted although it can never be applied at load, so that a user who names the
-        // variant a model already IS gets the load they asked for rather than a vocabulary
-        // error. Naming it for a model that is not one is refused where the weights are
-        // known, which is the only place the difference can be seen.
-        if ( s == "cb2-3" )              return QuantizationMode::Codebook;
-
-        return std::nullopt;
-    }
-
-    /**
-     * @brief Display name for a QuantizationMode. The spelling parseQuantization accepts.
-     */
-    export constexpr std::string_view quantizationName( QuantizationMode mode )
-    {
-        switch ( mode )
-        {
-            case QuantizationMode::FP8: return "fp8";
-            case QuantizationMode::FP4: return "fp4";
-            case QuantizationMode::Codebook: return "cb2-3";
-            case QuantizationMode::None: return "none";
-        }
-
-        return "none";
-    }
-
     /**
      * @brief Runtime configuration for a Chat session.
      *

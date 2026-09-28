@@ -20,6 +20,10 @@ module;
 
 export module Chat.Footprint;
 
+export import Chat.FootprintVerdict;
+export import Chat.FootprintPrediction;
+export import Chat.ScopedLogSuppression;
+
 import Chat.Config;
 import Mila;
 
@@ -28,31 +32,6 @@ namespace Mila::ChatApp
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Deployment;
-
-    /**
-     * @brief How a predicted footprint stands against a card's capacity, for the /model list column.
-     */
-    export enum class FootprintVerdict
-    {
-        /// No prediction was available, so nothing is claimed.
-        Unknown,
-
-        Fits,
-
-        /// The weights fit but the total does not. Context is the lever.
-        DoesNotFit,
-
-        /// The weights alone exceed what is available. Context does not shrink them;
-        /// quantization does.
-        WeightsExceedAvailable
-    };
-
-    /// True when a row's verdict is one the user needs to be told about.
-    export inline bool isOverBudget( FootprintVerdict verdict )
-    {
-        return verdict == FootprintVerdict::DoesNotFit
-            || verdict == FootprintVerdict::WeightsExceedAvailable;
-    }
 
     /**
      * @brief Free and total device memory, or zeros when there is no device to ask.
@@ -109,28 +88,6 @@ namespace Mila::ChatApp
     }
 
     /**
-     * @brief A footprint, or why there is not one.
-     *
-     * The two consumers need different halves of the same answer. A pre-flight proceeds silently
-     * when nothing can be predicted, because it must never be the thing that stops a model from
-     * being tried. `context_length: "auto"` cannot: a derived number with no provenance is the
-     * complaint ChatConfiguration.md opens with, so it has to say what it fell back to and why.
-     * Carrying the reason costs the silent caller nothing.
-     */
-    export struct FootprintPrediction
-    {
-        std::optional<MemoryStats> required;
-
-        /// Why there is no prediction, phrased to read inside a parenthetical. Empty when
-        /// required holds one.
-        std::string unavailable_reason;
-
-        /// How this context length would chunk its prefill. Zeroed when there is no prediction,
-        /// and for a family whose transformer does not chunk.
-        PrefillChunking prefill;
-    };
-
-    /**
      * @brief Set Qwen's weight quantization, and NOT its KV cache compression.
      *
      * The convenience setters the other families use pair each weight format with FP8 KV --
@@ -154,6 +111,11 @@ namespace Mila::ChatApp
 
             case QuantizationMode::FP4:
                 config.withWeightQuantization( WeightQuantization::FP4 );
+                break;
+
+            // Qwen refuses it; passed through so the refusal is the library's.
+            case QuantizationMode::Q4_0:
+                config.withWeightQuantization( WeightQuantization::Q4_0 );
                 break;
 
             case QuantizationMode::Codebook:
@@ -188,6 +150,10 @@ namespace Mila::ChatApp
         else if ( quantization == QuantizationMode::FP4 )
         {
             request.withFP4Quantization();
+        }
+        else if ( quantization == QuantizationMode::Q4_0 )
+        {
+            request.withQ4_0Quantization();
         }
 
         return request;
@@ -239,6 +205,8 @@ namespace Mila::ChatApp
                         llama_config.withFP8Quantization();
                     else if ( quantization == QuantizationMode::FP4 )
                         llama_config.withFP4Quantization();
+                    else if ( quantization == QuantizationMode::Q4_0 )
+                        llama_config.withQ4_0Quantization();
 
                     const DeploymentFootprint footprint =
                         LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::getDeploymentFootprint(
@@ -263,6 +231,8 @@ namespace Mila::ChatApp
                         gemma_config.withFP8Quantization();
                     else if ( quantization == QuantizationMode::FP4 )
                         gemma_config.withFP4Quantization();
+                    else if ( quantization == QuantizationMode::Q4_0 )
+                        gemma_config.withQ4_0Quantization();
 
                     const DeploymentFootprint footprint =
                         GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getDeploymentFootprint(
@@ -301,42 +271,4 @@ namespace Mila::ChatApp
             return { std::nullopt, error.what() };
         }
     }
-
-    /**
-     * @brief Silences library logging for the duration of a prediction scan.
-     *
-     * Constructing a graph logs, and a scan constructs one per candidate: Gemma warns that it
-     * cannot prefill efficiently at long context, which arrived 35 times at startup before this.
-     * A prediction is not a deployment. What a probe learns is returned, never printed -- the same
-     * contract predictFootprint already holds, extended to the library it calls into.
-     *
-     * Warnings from the LOAD are untouched, which is the point: the one at the context actually
-     * chosen is a fact about this session, where the other thirty-four were about contexts nobody
-     * asked for.
-     *
-     * Exported because it belongs to every caller that probes in bulk. The /model list ladder was
-     * first written without it and leaked exactly the warning this was built to
-     * suppress -- a Gemma prefill complaint about a 128K context nobody had asked to run at,
-     * printed above the table it was probing for.
-     */
-    export class ScopedLogSuppression
-    {
-    public:
-        ScopedLogSuppression()
-            : restore_( Logging::Logger::defaultLogger().getLevel() )
-        {
-            Logging::Logger::defaultLogger().setLevel( Logging::LogLevel::Error );
-        }
-
-        ~ScopedLogSuppression()
-        {
-            Logging::Logger::defaultLogger().setLevel( restore_ );
-        }
-
-        ScopedLogSuppression( const ScopedLogSuppression& ) = delete;
-        ScopedLogSuppression& operator=( const ScopedLogSuppression& ) = delete;
-
-    private:
-        Logging::LogLevel restore_;
-    };
 }

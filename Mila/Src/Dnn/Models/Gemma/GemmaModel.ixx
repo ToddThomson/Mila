@@ -285,7 +285,8 @@ namespace Mila::Dnn
             // a figure it does not allocate.
             if ( isRoutedCheckpoint( path ) )
             {
-                return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, DeploymentFootprint, kRoutedFp4GroupSize>(
+                return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, DeploymentFootprint,
+                    kRoutedFp4GroupSize, kRoutedHasQ4_0>(
                     model_config.getWeightQuantization(),
                     model_config.getKvCacheCompression(),
                     "GemmaModel::getDeploymentFootprint",
@@ -537,6 +538,9 @@ namespace Mila::Dnn
         static constexpr int kDenseFp4GroupSize = 128;
         static constexpr int kRoutedFp4GroupSize = 64;
 
+        // The routed expert bank has no INT4 path.
+        static constexpr bool kRoutedHasQ4_0 = false;
+
         explicit GemmaModel(
             std::unique_ptr<LanguageModelNetwork<TDeviceType, TPrecision>> network,
             const GemmaConfig& config,
@@ -585,7 +589,8 @@ namespace Mila::Dnn
         {
             if ( isRoutedCheckpoint( path ) )
             {
-                return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, TResult, kRoutedFp4GroupSize>(
+                return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, TResult,
+                    kRoutedFp4GroupSize, kRoutedHasQ4_0>(
                     weight_quantization, kv_cache_compression, caller,
                     [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
                     {

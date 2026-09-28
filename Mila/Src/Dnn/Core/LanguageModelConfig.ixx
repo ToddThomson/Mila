@@ -207,7 +207,21 @@ namespace Mila::Dnn
         {
             weight_quantization_ = WeightQuantization::FP4;
             kv_cache_compression_ = KvCacheCompression::FP8;
-            
+
+            return static_cast<TDerived&>(*this);
+        }
+
+        /**
+         * @brief Q4_0 quantization -- Q4_0 weights, FP8 KV cache.
+         *
+         * Maps to PerGroupInt4<32> on Linear. The format of quantization-aware checkpoints
+         * trained for Q4_0, such as Gemma 4's.
+         */
+        TDerived& withQ4_0Quantization()
+        {
+            weight_quantization_ = WeightQuantization::Q4_0;
+            kv_cache_compression_ = KvCacheCompression::FP8;
+
             return static_cast<TDerived&>(*this);
         }
 
@@ -268,6 +282,7 @@ namespace Mila::Dnn
                         case WeightQuantization::None: return "None (BF16)";
                         case WeightQuantization::FP8:  return "FP8 (PerChannelFp8)";
                         case WeightQuantization::FP4:  return "FP4 (PerGroupFp4)";
+                        case WeightQuantization::Q4_0: return "Q4_0 (PerGroupInt4<32>)";
                         case WeightQuantization::Plan: return "Plan (per-role allocation)";
                         default:                       return "Unknown";
                     }

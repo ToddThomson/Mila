@@ -116,6 +116,7 @@ add_executable( MilaTests
     "Dnn/Tensors/TensorOps/Zero.Cpu.cpp"
     "Dnn/Quantization/CodebookOracle.Cpu.cpp"
     "Dnn/Quantization/CodebookPacking.Cpu.cpp"
+    "Dnn/Quantization/Int4Packing.Cpu.cpp"
     "Dnn/Quantization/PrecisionPlan.Cpu.cpp"
 
     # ==============================================================
@@ -245,6 +246,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Compute/Operations/OperationTraits.Cuda.cpp"
         "Dnn/Components/Linear/CodebookGemv.Cuda.cpp"
         "Dnn/Components/Linear/CudaLinearOp.Codebook.Cuda.cpp"
+        "Dnn/Components/Linear/CudaLinearOp.Int4.Cuda.cpp"
         # The saveParameterToArchive staging branch needs a device-only dtype (BF16),
         # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
         "Dnn/Core/Component.Cuda.cpp"
@@ -343,6 +345,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   # itself needs no such exemption -- its module units use <fstream>. Revisit when the
   # C2079 defect is fixed; the test files can then follow.
   target_compile_definitions( MilaTests PRIVATE _CRT_SECURE_NO_WARNINGS )
+
+  # The model tests instantiate every family at every weight format, and the heaviest test
+  # translation units sit within a few percent of MSVC's 65535-section object limit (C1128)
+  # under RelWithDebInfo. /bigobj widens the COFF section count; it changes no code generation.
+  target_compile_options( MilaTests PRIVATE /bigobj )
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")

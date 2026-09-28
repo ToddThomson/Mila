@@ -416,7 +416,7 @@ is the draft design.
 
 #### Gemma 4 12B at 4 bits predicts worse the longer the context, and Mila cannot run the weights Google trained to prevent it
 
-`open` · `gemma` · `quantization` · `mila-src` · `measured`
+`in progress` · `gemma` · `quantization` · `mila-src` · `measured`
 
 Measured on one PG-19 book inside a model turn: Mila's FP4 package costs +0.19 nats per token over BF16
 in the first 8K, rising to +0.69 by 32K and still rising through 262144. Google's quantization-aware
@@ -431,8 +431,8 @@ quantization modes and the binding. The prefill keeps its activations at BF16, o
 coarser than one scale per 32 values, with the choice gated by the long-context curve: Mila's FP4 prefill
 rounds activations to FP8 with one scale per token, which the QAT weights never trained for. The source is
 Google's BF16 checkpoint `google/gemma-4-12B-it-qat-q4_0-unquantized`, read by the existing Gemma converter
-and rounded by llama.cpp's reference Q4_0 rule (`quantize_row_q4_0_ref`) -- the rule Google's own GGUF was
-made with, bit for bit -- in the same code that serves `ExportArtifact` and quantize-on-load. The tied
+and rounded by the Q4_0 reference rule -- the rule Google's own GGUF was made with, bit for bit -- in the
+same code that serves `ExportArtifact` and quantize-on-load. The tied
 embedding goes to FP8 from BF16. Delivered as a Mila package, not rounded at install: Google's only complete
 source is 22 GiB, and its 6.5 GiB GGUF lacks the image and audio weights (`ModelFamilyParity.md` §9, item 14).
 Ships in G4's single republish of the 12B.
@@ -440,7 +440,7 @@ Ships in G4's single republish of the 12B.
 Gate: every Q4_0 tensor bit-identical to `google/gemma-4-12B-it-qat-q4_0-gguf`; then G2 re-run in Mila on the
 Q4_0 build, cost over BF16 by band, on a second book as well as 30312.
 
-`Mila/Specifications/ModelFamilyParity.md` §9, item 14
+`Mila/Specifications/ModelFamilyParity.md` §9, item 14 · `Mila/Specifications/Quantization.md`, "Q4_0"
 
 #### Gemma's quality above 131072 tokens has never been measured, and the planner may choose up to 262144
 

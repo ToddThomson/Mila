@@ -23,6 +23,7 @@ namespace Mila::Dnn
      *   FP8   -> PerChannelFp8<>      (FP8_E4M3 weights, per-channel float32 scales)
      *   FP4   -> PerGroupFp4<128>     (FP4_E2M1 weights, per-group float32 scales), or <64> for a
      *                                  model whose projection widths are not multiples of 128
+     *   Q4_0  -> PerGroupInt4<32>     (INT4 codes, per-group IEEE half scales)
      *
      * This enum is Mila API vocabulary. Callers set it via fluent methods on
      * the concrete model config -- they do not interact with the policy structs
@@ -33,11 +34,12 @@ namespace Mila::Dnn
         None,   ///< BF16 weights -- default; no quantization overhead.
         FP8,    ///< FP8_E4M3 per-channel weight quantization.
         FP4,    ///< Per-group FP4 weight quantization.
+        Q4_0,   ///< Q4_0: 4-bit integer codes, one FP16 scale per 32 weights.
 
         /**
          * The family's own designed per-role allocation, rather than one uniform format.
          *
-         * The three values above name a STORAGE FORMAT that applies to every Linear alike.
+         * The values above name a STORAGE FORMAT that applies to every Linear alike.
          * This one does not name a format at all: it says "build this model the way its
          * designers allocated its bits", and which formats that means is the family's to
          * define -- Qwen 3.8 spends 2.5 bits on the feed-forward gate/up pair and 4.125 on
@@ -67,6 +69,7 @@ namespace Mila::Dnn
         {
             case WeightQuantization::FP4: return std::format( "per_group_fp4_{}", fp4_group_size );
             case WeightQuantization::FP8: return "per_channel_fp8_e4m3";
+            case WeightQuantization::Q4_0: return "q4_0";
 
             // A plan's weights scheme is the FAMILY's, not this enum's -- Qwen 3.8 writes
             // "codebook" because its sub-4-bit rows are what a load cannot reconstruct. One
@@ -83,7 +86,7 @@ namespace Mila::Dnn
     /**
      * @brief True when a load can derive this format from reference weights.
      *
-     * The distinction the stored-weights check turns on. FP4 and FP8 are computed from the
+     * The distinction the stored-weights check turns on. FP4, FP8 and Q4_0 are computed from the
      * weights at load time -- absmax scales and a format-defined level table -- so BF16 weights
      * are a legitimate source for them, and every family already relies on that: Qwen's own
      * packed weights carry codebook tensors only and quantize its attention and head
@@ -95,7 +98,8 @@ namespace Mila::Dnn
     export inline bool isDerivableFromReferenceWeights( WeightQuantization quantization )
     {
         return quantization == WeightQuantization::FP4
-            || quantization == WeightQuantization::FP8;
+            || quantization == WeightQuantization::FP8
+            || quantization == WeightQuantization::Q4_0;
     }
 
     /**
@@ -138,14 +142,17 @@ namespace Mila::Dnn
             && ( weights_are_quantized != build_is_quantized
                 || ( weights_are_quantized && stored_quantization != requested ) ) )
         {
+            const std::string_view stored = weights_are_quantized ? stored_quantization : std::string_view{ "none" };
+            const std::string codebook = weightQuantizationName( WeightQuantization::Plan );
+
             throw std::runtime_error( std::format(
-                "{}: weights '{}' are stored as '{}' but this load requested '{}'. A codebook "
-                "cannot be loaded at reference precision and reference weights cannot be "
-                "decoded through one -- the codes are fitted offline against calibration data "
-                "and are not recoverable from weights",
-                caller, weights_path,
-                weights_are_quantized ? stored_quantization : std::string_view{ "none" },
-                requested ) );
+                "{}: weights '{}' are stored as '{}' but this load requested '{}'. {}",
+                caller, weights_path, stored, requested,
+                stored == codebook || requested == codebook
+                    ? "A codebook cannot be loaded at reference precision and reference weights cannot be "
+                      "decoded through one -- the codes are fitted offline against calibration data and are "
+                      "not recoverable from weights"
+                    : "Load them as the format they are stored in" ) );
         }
     }
 }

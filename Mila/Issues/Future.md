@@ -48,7 +48,7 @@ parameter (`Llama.ixx:355`, `:510`; `GptTransformer.ixx:330`), so `sequenceLogLi
 
 `quantization` · `mila-src` · `breaking`
 
-`Policies.ixx:112` sets `kScaleDtype = FP32` — 4.25 bits/weight. `Qwen3.8.md` §5 budgets 4.125 and
+`Quantization/Weight/PerGroupFp4.ixx` sets `kScaleDtype = FP32` — 4.25 bits/weight. `Qwen3.8.md` §5 budgets 4.125 and
 `formats.py`'s `fake_fp4_e2m1` simulates the FP16 rounding, so the packer's simulated damage is not
 the damage the runtime inflicts.
 
@@ -469,8 +469,10 @@ work.
 Its install/rename/validate verbs duplicate the store tool, and Chat (`Chat.ModelCatalog.ixx:387`)
 and MIS (`model_worker.py:90`) point users at the wrong one. The nine modes should be subcommands,
 since `--package` is both a mode and an option of one (`ExportArtifact.cpp:212`). Seven touch no GPU,
-yet `Tools/CMakeLists.txt:10` gates the whole binary behind `MILA_ENABLE_CUDA`. **Name is Todd's
-call**, and `mila-compress` is not it.
+yet `Tools/CMakeLists.txt:10` gates the whole binary behind `MILA_ENABLE_CUDA`. **Names decided
+2026-09-27 (Todd):** this tool is `mila-package`, the store tool `mila-cli`, and the chat app
+`MilaChat.exe`. One rename change of its own, after the Q4_0 work lands -- `mila-chat` is named on the
+website, the container image, the release scripts and the model cards.
 
 Naming drift inside the tool travels with the rename: `--emit-manifest` is a synonym for
 `--package <dir>` differing only in its default directory (`:394`);

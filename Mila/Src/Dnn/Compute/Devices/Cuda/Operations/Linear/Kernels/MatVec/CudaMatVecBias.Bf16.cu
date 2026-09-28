@@ -1,12 +1,15 @@
 /**
  * @file CudaMatVecBias.Bf16.cu
  * @brief BF16 matrix-vector multiply for the M=1 decode path. Includes BF16-weight,
- *        FP8-E4M3-weight (per-channel), and FP4-E2M1-weight (per-group) variants.
+ *        FP8-E4M3-weight (per-channel), FP4-E2M1-weight and INT4-weight (per-group) variants.
  */
 
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
+#include <cuda_fp16.h>
 #include <cuda_fp8.h>
+#include <format>
+#include <stdexcept>
 #include "device_launch_parameters.h"
 #include <cassert>
 #include <cstdint>
@@ -61,6 +64,13 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             w[ 1 ] = *reinterpret_cast<const __nv_bfloat162*>( &pair23 );
             w[ 2 ] = *reinterpret_cast<const __nv_bfloat162*>( &pair45 );
             w[ 3 ] = *reinterpret_cast<const __nv_bfloat162*>( &pair67 );
+        }
+
+        // The signed step of INT4 code `index` (0..7) of an 8-code word, exactly: 0x4B000000 | code is the
+        // float 2^23 + code, so subtracting 2^23 + 8 leaves code - 8.
+        __device__ __forceinline__ float int4_step( uint32_t word, int index )
+        {
+            return __uint_as_float( 0x4B000000u | ( ( word >> ( 4 * index ) ) & 0xFu ) ) - 8388616.0f;
         }
     } // anonymous namespace
     // Loads 4 BF16 elements as two __nv_bfloat162 pairs via an int2 (8-byte) load.
@@ -499,6 +509,129 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         }
     }
 
+    /**
+     * @brief Decode-path matvec with BF16 activations and INT4 weights (per-group IEEE half scale).
+     *
+     * y[oc] = sum over groups g of scale[oc, g] * sum_{c in g}( x[c] * ( code[oc, c] - 8 ) ) + bias[oc].
+     * Each product x * ( code - 8 ) is exact in FP32, so only the sums round. Geometry and software
+     * pipeline are those of matvec_decode_bf16_qfp4_wide_kernel.
+     */
+    template<int kGroupSize, int kNibblesPerThread>
+    __global__ void __launch_bounds__( kMatvecThreadsPerOC* kMatvecBlockOC )
+        matvec_decode_bf16_qint4_kernel(
+            __nv_bfloat16* __restrict__       y,
+            const __nv_bfloat16* __restrict__ x,
+            const uint8_t* __restrict__       weights_packed,
+            const __half* __restrict__        scales,
+            const __nv_bfloat16* __restrict__ bias,
+            int C,
+            int OC )
+    {
+        static_assert( kNibblesPerThread == 16 || kNibblesPerThread == 32,
+            "matvec_decode_bf16_qint4_kernel supports 16-code (int2) or 32-code (int4) loads" );
+        static_assert( kGroupSize % kNibblesPerThread == 0,
+            "a per-thread chunk must lie entirely within one quantization group" );
+
+        constexpr int kSubWords = kNibblesPerThread / 8;
+
+        const int oc = blockIdx.x * kMatvecBlockOC + threadIdx.y;
+
+        if ( oc >= OC ) return;
+
+        const uint8_t* w_row = weights_packed + static_cast<int64_t>( oc ) * ( C / 2 );
+        const int num_groups = C / kGroupSize;
+
+        const int c_start = threadIdx.x * kNibblesPerThread;
+        const int c_step = kMatvecThreadsPerOC * kNibblesPerThread;
+
+        uint32_t w_stage[ kSubWords ];
+        int4 x_stage[ kSubWords ];
+        __half scale_stage{};
+
+        const auto stage = [&]( int chunk_c )
+        {
+            if constexpr ( kNibblesPerThread == 32 )
+            {
+                const int4 w_packed4 = *reinterpret_cast<const int4*>( w_row + chunk_c / 2 );
+                w_stage[ 0 ] = static_cast<uint32_t>( w_packed4.x );
+                w_stage[ 1 ] = static_cast<uint32_t>( w_packed4.y );
+                w_stage[ 2 ] = static_cast<uint32_t>( w_packed4.z );
+                w_stage[ 3 ] = static_cast<uint32_t>( w_packed4.w );
+            }
+            else
+            {
+                const int2 w_packed2 = *reinterpret_cast<const int2*>( w_row + chunk_c / 2 );
+                w_stage[ 0 ] = static_cast<uint32_t>( w_packed2.x );
+                w_stage[ 1 ] = static_cast<uint32_t>( w_packed2.y );
+            }
+
+#pragma unroll
+            for ( int j = 0; j < kSubWords; ++j )
+                x_stage[ j ] = *reinterpret_cast<const int4*>( x + chunk_c + j * 8 );
+
+            scale_stage = scales[ static_cast<int64_t>( oc ) * num_groups + chunk_c / kGroupSize ];
+        };
+
+        float acc = 0.0f;
+
+        if ( c_start < C )
+            stage( c_start );
+
+        for ( int c = c_start; c < C; c += c_step )
+        {
+            uint32_t w_words[ kSubWords ];
+            int4 x_words[ kSubWords ];
+
+#pragma unroll
+            for ( int j = 0; j < kSubWords; ++j )
+            {
+                w_words[ j ] = w_stage[ j ];
+                x_words[ j ] = x_stage[ j ];
+            }
+
+            const float scale = __half2float( scale_stage );
+
+            if ( c + c_step < C )
+                stage( c + c_step );
+
+            float sub_even = 0.0f;
+            float sub_odd = 0.0f;
+
+#pragma unroll
+            for ( int j = 0; j < kSubWords; ++j )
+            {
+                const __nv_bfloat162* x_pairs = reinterpret_cast<const __nv_bfloat162*>( &x_words[ j ] );
+
+                const float2 x0 = __bfloat1622float2( x_pairs[ 0 ] );
+                const float2 x1 = __bfloat1622float2( x_pairs[ 1 ] );
+                const float2 x2 = __bfloat1622float2( x_pairs[ 2 ] );
+                const float2 x3 = __bfloat1622float2( x_pairs[ 3 ] );
+
+                const uint32_t w = w_words[ j ];
+                float& sub = ( j % 2 == 0 ) ? sub_even : sub_odd;
+
+                sub += x0.x * int4_step( w, 0 ) + x0.y * int4_step( w, 1 )
+                     + x1.x * int4_step( w, 2 ) + x1.y * int4_step( w, 3 )
+                     + x2.x * int4_step( w, 4 ) + x2.y * int4_step( w, 5 )
+                     + x3.x * int4_step( w, 6 ) + x3.y * int4_step( w, 7 );
+            }
+
+            acc = fmaf( scale, sub_even + sub_odd, acc );
+        }
+
+#pragma unroll
+        for ( int offset = kMatvecThreadsPerOC / 2; offset > 0; offset >>= 1 )
+        {
+            acc += __shfl_down_sync( 0xffffffff, acc, offset );
+        }
+
+        if ( threadIdx.x == 0 )
+        {
+            const float bias_val = ( bias != nullptr ) ? __bfloat162float( bias[ oc ] ) : 0.0f;
+            y[ oc ] = __float2bfloat16( acc + bias_val );
+        }
+    }
+
     void cuda_matvec_decode_bf16(
         __nv_bfloat16* y,
         const __nv_bfloat16* x,
@@ -592,5 +725,38 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 assert( false && "cuda_matvec_decode_bf16_qfp4: unsupported group_size (must be 64 or 128)" );
                 break;
         }
+    }
+
+    void cuda_matvec_decode_bf16_qint4(
+        __nv_bfloat16*       y,
+        const __nv_bfloat16* x,
+        const uint8_t*       weights_packed,
+        const __half*        scales,
+        const __nv_bfloat16* bias,
+        int                  C,
+        int                  OC,
+        int                  group_size,
+        cudaStream_t         stream )
+    {
+        if ( group_size != 32 || C % 32 != 0 )
+        {
+            throw std::invalid_argument( std::format(
+                "cuda_matvec_decode_bf16_qint4: group_size {} with C {} is unsupported; the group must be 32 "
+                "and divide C", group_size, C ) );
+        }
+
+        const dim3 block( kMatvecThreadsPerOC, kMatvecBlockOC );
+        const dim3 grid( ( OC + kMatvecBlockOC - 1 ) / kMatvecBlockOC );
+
+        // The FP4 kernel's load-width ladder: 128-bit loads only once the per-thread loop is long enough to
+        // hide their latency.
+        constexpr int kWideMinimumC = 8192;
+
+        if ( C >= kWideMinimumC )
+            matvec_decode_bf16_qint4_kernel<32, 32><<<grid, block, 0, stream>>>(
+                y, x, weights_packed, scales, bias, C, OC );
+        else
+            matvec_decode_bf16_qint4_kernel<32, 16><<<grid, block, 0, stream>>>(
+                y, x, weights_packed, scales, bias, C, OC );
     }
 }

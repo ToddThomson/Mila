@@ -82,9 +82,15 @@ Src/
 
     Dnn/Quantization/
         Weight/
-            Policies.ixx            — NoWeightQuant, PerChannelFp8<>, PerGroupFp4<>,
-                                      PerGroupCodebook2<>/3<>; WeightQuantPolicy concept
-            CodebookPacking.ixx     — normative packed layout + CPU reference codec
+            WeightQuantPolicy.ixx   — the concept every policy satisfies
+            NoWeightQuant.ixx, PerChannelFp8.ixx, PerGroupInt4.ixx, PerGroupFp4.ixx,
+            PerGroupCodebook2.ixx, PerGroupCodebook3.ixx
+                                    — one policy per file
+            HasCodebookTable.ixx, HasHighBitPlane.ixx
+                                    — companion-tensor concepts
+            Policies.ixx            — re-exports all of the above
+            CodebookPacking.ixx     — normative packed layout + CPU reference codec (codebook)
+            Int4Packing.ixx         — normative packed layout + CPU reference codec (INT4 / Q4_0)
             PrecisionPlan.ixx       — per-role policy table for a block (Qwen3.8)
         KvCache/
             Policy.ixx              — KvCachePolicy concept; NoKvCompression identity struct
@@ -571,6 +577,57 @@ single shape (`Linear.ixx:574`) -- was withdrawn on 2026-09-14, when quantize-on
 supported path. The dtype branch at `:601` stays, and so does the defect it guards against:
 packed bytes must never be fitted as BF16. Codebook formats keep the single shape, since they
 have no load-time fitter.
+
+### Q4_0 — `PerGroupInt4<32>`
+
+Decided 2026-09-27 (`ModelFamilyParity.md` §9 item 14; `BACKLOG.md`, the Gemma 4 QAT entry). A
+producer's quantization-aware weights run in the format they were trained for, and Google trained
+Gemma 4 QAT for Q4_0. Five decisions, each with the alternative it closed:
+
+1. **The policy replaces the old `PerGroupInt4`.** The GPTQ-shaped policy -- FP32 scales, optional
+   zero points, groups 64 and 128 -- had no model, no quantizer and no test, and its fused kernel
+   `cuda_w4a16_gemm` launches nothing for a group outside {64, 128}. `PerGroupInt4<kGroupSize>`
+   becomes symmetric only, with an FP16 scale; Q4_0 is `PerGroupInt4<32>`, 4.5 bits per weight.
+   The zero-point path and `cuda_w4a16_gemm` are deleted. An int4 import (`Vnext.md`,
+   compressed-tensors `pack-quantized`) is symmetric too, and maps here at its own group.
+2. **Mila's two-plane layout, not the GGUF 18-byte block.** Codes `[out, in/2]` in Mila's nibble
+   order, FP16 scales `[out, in/32]`, as every per-group format here: Linear's weight and
+   `weight_scale` contract is unchanged, loads stay 16-byte aligned, and adjacent elements feed
+   `bf16x2`. Equality with Google's GGUF is in value -- every code and every scale bit -- not in
+   bytes. The normative layout and reference rounding are `Quantization/Weight/Int4Packing.ixx`.
+3. **Users see `q4_0`**, the format's own name and the one in Google's repository:
+   `WeightQuantization::Q4_0`, scheme name `q4_0`, Chat mode and binding variant `q4_0`.
+4. **Prefill stages BF16 first.** Codes expand to a BF16 staging buffer and cuBLASLt runs a BF16
+   GEMM, so activations stay BF16; the FP8-activation prefill is not used, because the QAT weights
+   never trained for per-token FP8 activations. The expansion rounds each `(code - 8) * d` to BF16
+   (up to 2^-9 relative; FP16 `d` has 11 significant bits). That rounding is measured per projection
+   against exact FP64 and on the G2 curve; only if it shows does a fused kernel replace it, one that
+   multiplies activations by the integer codes exactly and applies `d` per 32-element block. Decode
+   has its own matvec: code times activation summed in FP32 per block, then times `d`, exact.
+   **Measured 2026-09-27, and the staged path is too slow to ship** (RTX 5060 Ti, Gemma 4 12B,
+   `ProfileModel --phase prefill`): at an 8K prompt 1,430 tokens/s against 2,590 for the FP4 package and
+   2,385 for Google's GGUF in llama.cpp; at 32K, 965 against 1,389 and 1,960. Staging writes and reads
+   2 bytes per weight once per chunk, and the BF16 strip (225 MiB at `fc_gate_up`) plus 4.5 bits against
+   4.25 cost 474 MiB over FP4, so at a 262144 context the chunk falls from 1024 to 512 (it misses by 23
+   MiB). The prefill needs a kernel that reads the packed weights directly; which one is decided by a
+   profile, not assumed.
+5. **Gemma dense and Llama first.** Gemma's routed 26B refuses `q4_0` until its expert bank has
+   an int4 path (`Untriaged.md`), and Qwen's own dispatcher refuses it. Llama reaches it through the
+   shared dispatcher, by quantize-on-load from BF16 weights.
+
+**Rounding.** One rule, Q4_0's reference rounding, in three places that must agree bit for bit: the
+CPU codec, the CUDA quantizer behind quantize-on-load, and therefore `ExportArtifact`. Two details
+decide individual codes: the value is multiplied by the FP32 reciprocal of `d` rather than divided
+by `d`, and the product is rounded before 8.5 is added -- a fused multiply-add moves codes on a
+boundary, so the CUDA quantizer uses `__fmul_rn` and `__fadd_rn`. `d` carries the sign of the
+group's extreme and may be negative -- an all-zero group stores negative zero, `0x8000` -- so no
+kernel may assume it positive. Measured 2026-09-27: this rule reproduces every code and scale bit of
+Google's GGUF (`ModelFamilyParity.md` 8.2, G2 result).
+
+**Gate.** The codec's unit tests; the CUDA quantizer equal to the codec; Linear decode and prefill
+against a host reference; every Q4_0 tensor of the exported 12B equal in code and scale bits to
+`google/gemma-4-12B-it-qat-q4_0-gguf` (fused projections split by rows; the global layers have no
+`attn_v`); then G2 re-run on the Q4_0 build.
 
 ---
 

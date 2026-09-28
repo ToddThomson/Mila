@@ -3,6 +3,7 @@
 #include <cublasLt.h>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
+#include <cuda_fp16.h>
 #include <cuda_fp8.h>
 #include <cstdint>
 
@@ -74,6 +75,25 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         const __nv_bfloat16* x,
         const uint8_t*       weights_packed,
         const float*         scales,
+        const __nv_bfloat16* bias,
+        int                  C,
+        int                  OC,
+        int                  group_size,
+        cudaStream_t         stream );
+
+    /**
+     * @brief BF16 activation x INT4 weight decode-path matvec with per-group IEEE half scales.
+     *
+     * Computes y[oc] = sum_c( x[c] * ( code[oc,c] - 8 ) * scale[oc, c/group_size] ) + bias[oc], the layout of
+     * Int4Packing.ixx: codes packed two per byte (low = even column), scales [OC, C/group_size].
+     *
+     * @throws std::invalid_argument unless group_size is 32 and divides C.
+     */
+    void cuda_matvec_decode_bf16_qint4(
+        __nv_bfloat16*       y,
+        const __nv_bfloat16* x,
+        const uint8_t*       weights_packed,
+        const __half*        scales,
         const __nv_bfloat16* bias,
         int                  C,
         int                  OC,

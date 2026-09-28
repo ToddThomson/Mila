@@ -44,6 +44,7 @@ namespace Mila::Tests::Dnn::Core
     {
         EXPECT_NO_THROW( check( "", WeightQuantization::FP4 ) );
         EXPECT_NO_THROW( check( "", WeightQuantization::FP8 ) );
+        EXPECT_NO_THROW( check( "", WeightQuantization::Q4_0 ) );
     }
 
     // A plan's codebooks are fitted offline against calibration data, so nothing in a
@@ -62,6 +63,7 @@ namespace Mila::Tests::Dnn::Core
         EXPECT_NO_THROW( check( "per_group_fp4_128", WeightQuantization::FP4 ) );
         EXPECT_NO_THROW( check( "per_channel_fp8_e4m3", WeightQuantization::FP8 ) );
         EXPECT_NO_THROW( check( "codebook", WeightQuantization::Plan ) );
+        EXPECT_NO_THROW( check( "q4_0", WeightQuantization::Q4_0 ) );
     }
 
     // The storage dtype cannot stand in for the scheme name -- FP4 at group 128 and FP8 are
@@ -71,6 +73,32 @@ namespace Mila::Tests::Dnn::Core
         EXPECT_THROW( check( "per_group_fp4_128", WeightQuantization::FP8 ), std::runtime_error );
         EXPECT_THROW( check( "per_channel_fp8_e4m3", WeightQuantization::FP4 ), std::runtime_error );
         EXPECT_THROW( check( "codebook", WeightQuantization::FP4 ), std::runtime_error );
+
+        // Q4_0 and FP4 are both nibble-packed U8; only the scheme tells them apart.
+        EXPECT_THROW( check( "q4_0", WeightQuantization::FP4 ), std::runtime_error );
+        EXPECT_THROW( check( "per_group_fp4_128", WeightQuantization::Q4_0 ), std::runtime_error );
+    }
+
+    // Only a refusal involving a codebook explains codebooks.
+    TEST( LanguageModelConfigQuantizationRule, MessageExplainsCodebooksOnlyWhenOneIsInvolved )
+    {
+        const auto message = []( std::string_view stored, WeightQuantization requested ) -> std::string
+        {
+            try
+            {
+                check( stored, requested );
+            }
+            catch ( const std::runtime_error& error )
+            {
+                return error.what();
+            }
+
+            return {};
+        };
+
+        EXPECT_EQ( message( "q4_0", WeightQuantization::FP4 ).find( "codebook" ), std::string::npos );
+        EXPECT_NE( message( "codebook", WeightQuantization::FP4 ).find( "fitted offline" ), std::string::npos );
+        EXPECT_NE( message( "", WeightQuantization::Plan ).find( "fitted offline" ), std::string::npos );
     }
 
     // The group is part of the scheme: FP4 at group 64 and at 128 are both U8 with different

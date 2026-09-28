@@ -19,7 +19,7 @@ add_library( Mila STATIC )
 #
 # SM 8.0 (Ampere) is the floor, and it is drawn by the kernels rather than chosen: the FP4
 # GEMM gates on major >= 8 (CudaLinearOp.ixx:661) and both GQA flash prefill paths throw
-# below it (Gqa.Flash.Fa2.cu:513, Gqa.Flash.Wmma.cu:632). Every bound model uses GQA, so
+# below it (Gqa.Flash.Fa2.cu, Gqa.Flash.Packed.cu). Every bound model uses GQA, so
 # sm_75 codegen was a compile pass for hardware the runtime refuses at runtime. This list
 # is the supported set, and the published wheels and images carry the same one -- keep it in
 # step with x64-wheel, linux-wheel and ARCHITECTURES in scripts/dockerhub/publish-image.sh.
@@ -514,6 +514,15 @@ PUBLIC
         "Src/Logging/NullSink.ixx"
         "Src/Logging/FileSink.ixx"
         
+        "Src/Dnn/Quantization/Weight/WeightQuantPolicy.ixx"
+        "Src/Dnn/Quantization/Weight/NoWeightQuant.ixx"
+        "Src/Dnn/Quantization/Weight/PerChannelFp8.ixx"
+        "Src/Dnn/Quantization/Weight/PerGroupInt4.ixx"
+        "Src/Dnn/Quantization/Weight/PerGroupFp4.ixx"
+        "Src/Dnn/Quantization/Weight/PerGroupCodebook2.ixx"
+        "Src/Dnn/Quantization/Weight/PerGroupCodebook3.ixx"
+        "Src/Dnn/Quantization/Weight/HasCodebookTable.ixx"
+        "Src/Dnn/Quantization/Weight/HasHighBitPlane.ixx"
         "Src/Dnn/Quantization/Weight/Policies.ixx"
         "Src/Dnn/Quantization/Weight/PrecisionPlan.ixx"
         "Src/Dnn/Quantization/KvCache/Policy.ixx"
@@ -521,6 +530,7 @@ PUBLIC
         "Src/Dnn/Quantization/Quantization.ixx"
 
         "Src/Dnn/Quantization/Weight/CodebookPacking.ixx"
+        "Src/Dnn/Quantization/Weight/Int4Packing.ixx"
         "Src/Dnn/Core/WeightQuantization.ixx"
         "Src/Dnn/Core/KvCacheCompression.ixx"
         "Src/Dnn/Core/LanguageModelConfig.ixx"
@@ -609,14 +619,14 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Decode.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Bf16.cu"
-            # Gqa.Flash.Bf16.cu (scalar Iteration 2) retired from the build -- profiled a
-            # non-fix (LSU-bound, GqaFlashAttention.md 5.2.1). Superseded by the WMMA path
-            # below; file kept in-tree for reference. Both define cuda_gqa_flash_prefill_bf16,
-            # so exactly one is compiled.
-            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Wmma.cu"
+            # Gqa.Flash.Bf16.cu (scalar Iteration 2) and Gqa.Flash.Wmma.cu (Stage 2d) are retired
+            # from the build and kept in-tree for reference: the first profiled LSU-bound
+            # (GqaFlashAttention.md 5.2.1), the second instruction-bound on per-tile overhead (5.7).
+            # All three define cuda_gqa_flash_prefill_bf16, so exactly one is compiled.
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Packed.cu"
             # Gqa.Flash.Fa2.cu owns cuda_gqa_flash_prefill_ring_bf16 (the HS=256 local
-            # sliding layers) as a row-split FA-2 kernel; Wmma.cu keeps only the HS=512
-            # unbounded global symbol. Exactly one TU defines each flash entry point.
+            # sliding layers) as a row-split FA-2 kernel; Packed.cu owns the unbounded
+            # symbol. Exactly one TU defines each flash entry point.
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Fa2.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Bf16.cu"
@@ -632,6 +642,8 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaInt4WeightQuantization.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Int4/CudaInt4Dequantize.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookGemv.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookDequantize.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp16.cu"
@@ -692,6 +704,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaInt4WeightQuantization.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Int4/CudaInt4Dequantize.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookGemv.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookDequantize.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"

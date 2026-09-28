@@ -61,7 +61,7 @@ namespace Mila::Profiling
 
     enum class ModelFamily { Llama, Gemma, Qwen };
     enum class Phase { Prefill, Decode, Generate };
-    enum class Quantization { None, FP8, FP4, Plan };
+    enum class Quantization { None, FP8, FP4, Q4_0, Plan };
     enum class Precision { BF16, FP32 };
 
     struct Options
@@ -229,7 +229,7 @@ namespace Mila::Profiling
             << "Usage: " << program << " [options]\n"
             << "  --model           llama | gemma | qwen.         Default: llama.\n"
             << "  --phase           prefill | decode | generate.  Default: decode.\n"
-            << "  --quantization    none | fp8 | fp4 | plan (bf16 only). plan = qwen only.\n"
+            << "  --quantization    none | fp8 | fp4 | q4_0 | plan (bf16 only). plan = qwen only.\n"
             << "                                                  Default: fp4.\n"
             << "  --precision       bf16 | fp32 (llama only).     Default: bf16.\n"
             << "  --model-path      Weights file. Default: per --model family.\n"
@@ -321,10 +321,12 @@ namespace Mila::Profiling
                     options.quantization = Quantization::FP8;
                 else if ( value == "fp4" )
                     options.quantization = Quantization::FP4;
+                else if ( value == "q4_0" )
+                    options.quantization = Quantization::Q4_0;
                 else if ( value == "plan" )
                     options.quantization = Quantization::Plan;
                 else
-                    argError( std::format( "Unknown --quantization '{}'. Expected none, fp8, fp4, or plan.", value ) );
+                    argError( std::format( "Unknown --quantization '{}'. Expected none, fp8, fp4, q4_0, or plan.", value ) );
             }
             else if ( arg == "--precision" )
             {
@@ -624,6 +626,8 @@ namespace Mila::Profiling
             model_config.withFP8Quantization();
         else if ( options.quantization == Quantization::FP4 )
             model_config.withFP4Quantization();
+        else if ( options.quantization == Quantization::Q4_0 )
+            model_config.withQ4_0Quantization();
 
         const DeviceId device{ DeviceType::Cuda, 0 };
 
@@ -670,6 +674,8 @@ namespace Mila::Profiling
             model_config.withFP8Quantization();
         else if ( options.quantization == Quantization::FP4 )
             model_config.withFP4Quantization();
+        else if ( options.quantization == Quantization::Q4_0 )
+            model_config.withQ4_0Quantization();
 
         const DeviceId device{ DeviceType::Cuda, 0 };
 
@@ -695,6 +701,20 @@ namespace Mila::Profiling
         load_sampler.stopAndReport( "during load window (transient high-water)" );
         std::cout << model->toString();
         printGpuMemory( "after model load (weights + KV cache + prefill workspace)" );
+
+        {
+            const auto& plan = model->getDeploymentPlan();
+            const auto& footprint = plan.footprint();
+            constexpr double kMiB = 1024.0 * 1024.0;
+
+            std::cout << std::format(
+                "[plan] prefill chunk {} (largest the context admits {}), free at reading {:.0f} MiB, footprint {:.0f} MiB: "
+                "parameters {:.0f}, state {:.0f}, scratch {:.0f}\n",
+                plan.prefillChunkRows(), plan.prefillChunking().unconstrained_chunk_rows,
+                plan.reading().free_bytes / kMiB, footprint.totalDeviceBytes() / kMiB,
+                footprint.device_parameter_bytes / kMiB, footprint.device_state_bytes / kMiB,
+                footprint.device_scratch_bytes / kMiB );
+        }
 
         auto tokenizer = BpeTokenizer::loadGemma( options.tokenizer_path );
         const auto encoded = tokenizer->encode( options.prompt );

@@ -105,18 +105,11 @@ namespace Mila::Dnn::Compute
         using type = CudaLinearOp<TensorDataType::BF16, PerGroupCodebook3<128>>;
     };
 
-    /// INT4 per-group quantized BF16 path. W4A16 fused GEMM, group_size=128. Requires SM >= 8.0.
+    /// INT4 at group 32 (Q4_0). Requires SM >= 8.0.
     template<>
-    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupInt4<128>>
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupInt4<32>>
     {
-        using type = CudaLinearOp<TensorDataType::BF16, PerGroupInt4<128>>;
-    };
-
-    /// INT4 per-group quantized BF16 path. W4A16 fused GEMM, group_size=64. Requires SM >= 8.0.
-    template<>
-    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupInt4<64>>
-    {
-        using type = CudaLinearOp<TensorDataType::BF16, PerGroupInt4<64>>;
+        using type = CudaLinearOp<TensorDataType::BF16, PerGroupInt4<32>>;
     };
 
     /// FP4 E2M1 per-group quantized BF16 path. W4A16 fused GEMM with E2M1 decode, group_size=128. Requires SM >= 8.0.

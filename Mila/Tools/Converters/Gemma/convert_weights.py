@@ -106,6 +106,7 @@ from common import MilaStreamingWeightWriter, ShardedCheckpoint
 SUPPORTED_MODELS = [
     'google/gemma-4-12b',
     'google/gemma-4-12b-it',
+    'google/gemma-4-12B-it-qat-q4_0-unquantized',
     'google/gemma-4-26B-A4B',
     'google/gemma-4-26B-A4B-it',
 ]
@@ -113,7 +114,8 @@ SUPPORTED_MODELS = [
 # Checkpoint tensors the text chassis does not model. Named as prefixes rather than
 # discovered, so a tensor family that appears in a future revision is reported as
 # unconsumed instead of being silently dropped.
-SKIPPED_PREFIXES = ( 'model.vision_tower.', 'model.embed_vision.', 'model.audio_tower.', 'model.embed_audio.' )
+SKIPPED_PREFIXES = ( 'model.vision_tower.', 'model.embed_vision.', 'model.vision_embedder.', 'model.audio_tower.',
+    'model.embed_audio.' )
 
 
 @dataclass( frozen=True )

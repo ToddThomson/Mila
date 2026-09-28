@@ -50,6 +50,10 @@ namespace Mila::Tests::Dnn::Models
         using MeasuredGemmaFp8 = GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16,
             Quant::Weight::PerChannelFp8<>, GemmaBf16::GemmaSlidingKvPolicy>;
 
+        // What GemmaModel builds for the Q4_0 weights exported from Google's quantization-aware checkpoint.
+        using MeasuredGemmaQ4_0 = GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            Quant::Weight::PerGroupInt4<32>, GemmaBf16::GemmaSlidingKvPolicy>;
+
         // ModelFamilyParity.md section 9, items 11 and 13. Set at 1e-3 before the first run, which measured 1.06e-3:
         // at 64 rows the tied FP8 head stages each weight as bf16( fp8 * scale ) before its GEMM
         // (CudaFp8Prefill.cu, dequantize_fp8_to_bf16_kernel), where one row applies the scale after the dot
@@ -67,6 +71,11 @@ namespace Mila::Tests::Dnn::Models
         fs::path weightsPath()
         {
             return fs::path( TEST_DATA_DIR ) / "models" / "gemma" / "gemma4_12b_it_fp4.safetensors";
+        }
+
+        fs::path q4_0WeightsPath()
+        {
+            return fs::path( TEST_DATA_DIR ) / "models" / "gemma" / "gemma4_12b_it_qat_q4_0.safetensors";
         }
 
         fs::path bf16WeightsPath()
@@ -1574,5 +1583,172 @@ namespace Mila::Tests::Dnn::Models
             kTopBandPerplexityBound ) << std::flush;
 
         EXPECT_LE( top_ratio, kTopBandPerplexityBound );
+    }
+
+    // ====================================================================
+    // G2 on the Q4_0 build: whole book against the sliding window alone (ModelFamilyParity.md 8.2, G2, gate 1)
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=GemmaLogLikelihoodCudaTests.DISABLED_QualityAcrossContextLengths_Q4_0
+    //
+    // The protocol of the FP4 run above, on the Q4_0 weights. Each band's book tokens are scored twice: with the whole
+    // book before them (a prefix of 2L less the prefix of L), and window-only -- in blocks of 1024 targets, each after
+    // <bos>, the book turn and only the 1024 book tokens before the block, so every target sees 1024 to 2047 tokens.
+    // Gate 1: in every band of every book, whole book <= window-only. Gates 2 and 3 compare these bands against
+    // HuggingFace BF16 and against the GGUF; they run outside this binary. Pin the 16 GB card by UUID.
+    // ====================================================================
+    TEST( GemmaLogLikelihoodCudaTests, DISABLED_QualityAcrossContextLengths_Q4_0 )
+    {
+        if ( getDeviceCount( DeviceType::Cuda ) == 0 || !fs::exists( q4_0WeightsPath() ) || !fs::exists( tokenizerPath() )
+            || !fs::exists( pg19TestPath() ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << q4_0WeightsPath().string() << ", the Gemma tokenizer and "
+                << pg19TestPath().string() << " (Data/Datasets/PG19/README.md)";
+        }
+
+        constexpr dim_t kContextLength = 262144;
+        constexpr dim_t kShortestPrefix = 8192;
+        constexpr dim_t kWindow = 64;
+        constexpr dim_t kSlidingWindow = 1024;
+        constexpr std::size_t kBooks = 2;
+
+        std::vector<dim_t> prefixes;
+
+        for ( dim_t prefix = kShortestPrefix; prefix <= kContextLength; prefix *= 2 )
+        {
+            prefixes.push_back( prefix );
+        }
+
+        const auto tokenizer = Mila::Data::BpeTokenizer::loadGemma( tokenizerPath() );
+
+        std::vector<fs::path> books;
+
+        for ( const auto& entry : fs::directory_iterator( pg19TestPath() ) )
+        {
+            if ( entry.path().extension() == ".txt" )
+            {
+                books.push_back( entry.path() );
+            }
+        }
+
+        std::sort( books.begin(), books.end() );
+
+        PrefillChunking chunking;
+
+        auto network = Common::buildMeasuredNetwork<MeasuredGemmaQ4_0>( q4_0WeightsPath(),
+            measuredConfigOf( q4_0WeightsPath(), kWindow ), DeviceId{ DeviceType::Cuda, 0 }, kContextLength, &chunking );
+
+        std::cout << std::format( "  {}: window {}, context {}, prefill chunk {}\n", q4_0WeightsPath().filename().string(),
+            kWindow, kContextLength, chunking.chunk_rows ) << std::flush;
+
+        ASSERT_EQ( kShortestPrefix % chunking.chunk_rows, 0 ) << "a prefix must end on a chunk boundary";
+        ASSERT_EQ( kShortestPrefix % kSlidingWindow, 0 ) << "a window-only block must lie within one band";
+
+        const auto bandOf = [&]( dim_t position )
+        {
+            return static_cast<std::size_t>( std::upper_bound( prefixes.begin(), prefixes.end(), position ) - prefixes.begin() );
+        };
+
+        // Pooled over books, per band: whole-book and window-only log-probability, over the same positions.
+        std::vector<double> whole_log_probability( prefixes.size(), 0.0 );
+        std::vector<double> window_log_probability( prefixes.size(), 0.0 );
+        std::vector<dim_t> band_positions( prefixes.size(), 0 );
+        std::size_t scored_books = 0;
+        std::size_t failures = 0;
+
+        const auto start = std::chrono::steady_clock::now();
+
+        for ( const fs::path& book : books )
+        {
+            if ( scored_books == kBooks )
+            {
+                break;
+            }
+
+            const BookSegment segment = bookSegment( book, *tokenizer, kContextLength );
+
+            if ( segment.tokens.empty() )
+            {
+                continue;
+            }
+
+            ++scored_books;
+
+            const std::vector<std::int32_t> opening( segment.tokens.begin(),
+                segment.tokens.begin() + static_cast<std::ptrdiff_t>( segment.prompt_length ) );
+            const SequenceLogLikelihood prompt = Common::sequenceLogLikelihoodOf( *network, opening );
+
+            std::vector<double> whole( prefixes.size(), 0.0 );
+            std::vector<double> window( prefixes.size(), 0.0 );
+            std::vector<dim_t> positions( prefixes.size(), 0 );
+
+            SequenceLogLikelihood previous = prompt;
+
+            for ( std::size_t index = 0; index < prefixes.size(); ++index )
+            {
+                const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( *network,
+                    std::vector<std::int32_t>( segment.tokens.begin(),
+                        segment.tokens.begin() + static_cast<std::ptrdiff_t>( prefixes[ index ] ) ) );
+
+                whole[ index ] = scored.total_log_probability - previous.total_log_probability;
+                positions[ index ] = scored.scored_positions - previous.scored_positions;
+                previous = scored;
+            }
+
+            // Window-only, in segment positions: targets [block, block + 1024), the turn's prompt excluded.
+            for ( dim_t block = 0; block < kContextLength; block += kSlidingWindow )
+            {
+                const dim_t first_target = std::max<dim_t>( block, static_cast<dim_t>( segment.prompt_length ) );
+                const dim_t context_start = std::max<dim_t>( static_cast<dim_t>( segment.prompt_length ), block - kSlidingWindow );
+
+                std::vector<std::int32_t> sequence = opening;
+                sequence.insert( sequence.end(), segment.tokens.begin() + static_cast<std::ptrdiff_t>( context_start ),
+                    segment.tokens.begin() + static_cast<std::ptrdiff_t>( first_target ) );
+
+                const SequenceLogLikelihood before = Common::sequenceLogLikelihoodOf( *network, sequence );
+
+                sequence.insert( sequence.end(), segment.tokens.begin() + static_cast<std::ptrdiff_t>( first_target ),
+                    segment.tokens.begin() + static_cast<std::ptrdiff_t>( block + kSlidingWindow ) );
+
+                const SequenceLogLikelihood after = Common::sequenceLogLikelihoodOf( *network, sequence );
+
+                window[ bandOf( block ) ] += after.total_log_probability - before.total_log_probability;
+            }
+
+            std::cout << std::format( "  {} ({:.0f} s elapsed)\n  {:>17} {:>10} {:>12} {:>12} {:>8}\n",
+                book.filename().string(),
+                std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count(),
+                "band", "positions", "whole book", "window only", "gate 1" );
+
+            for ( std::size_t index = 0; index < prefixes.size(); ++index )
+            {
+                const double whole_nats = -whole[ index ] / static_cast<double>( positions[ index ] );
+                const double window_nats = -window[ index ] / static_cast<double>( positions[ index ] );
+                const bool passes = whole_nats <= window_nats;
+
+                failures += passes ? 0 : 1;
+
+                std::cout << std::format( "  {:>7} - {:>7} {:>10} {:>12.4f} {:>12.4f} {:>8}\n",
+                    index == 0 ? 0 : prefixes[ index - 1 ], prefixes[ index ], positions[ index ], whole_nats,
+                    window_nats, passes ? "pass" : "FAIL" ) << std::flush;
+
+                whole_log_probability[ index ] += whole[ index ];
+                window_log_probability[ index ] += window[ index ];
+                band_positions[ index ] += positions[ index ];
+            }
+        }
+
+        ASSERT_GE( scored_books, kBooks ) << "fewer than " << kBooks << " PG-19 test books fill " << kContextLength << " tokens";
+
+        std::cout << std::format( "  pooled over {} books\n", scored_books );
+
+        for ( std::size_t index = 0; index < prefixes.size(); ++index )
+        {
+            std::cout << std::format( "  {:>7} - {:>7} {:>10} {:>12.4f} {:>12.4f}\n",
+                index == 0 ? 0 : prefixes[ index - 1 ], prefixes[ index ], band_positions[ index ],
+                -whole_log_probability[ index ] / static_cast<double>( band_positions[ index ] ),
+                -window_log_probability[ index ] / static_cast<double>( band_positions[ index ] ) ) << std::flush;
+        }
+
+        EXPECT_EQ( failures, 0u ) << "bands where the whole book predicts worse than the sliding window alone";
     }
 }

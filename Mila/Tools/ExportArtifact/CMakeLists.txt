@@ -23,3 +23,10 @@ set_target_properties( ExportArtifact PROPERTIES
 target_link_libraries( ExportArtifact PRIVATE
     Mila
 )
+
+# ExportArtifact.ixx loads every family at every weight format in one translation unit, which
+# crosses MSVC's 65535-section object limit (C1128) under RelWithDebInfo. /bigobj widens the COFF
+# section count; it changes no code generation. MSVC-only: clang and gcc have no such limit.
+if(MSVC)
+    target_compile_options( ExportArtifact PRIVATE /bigobj )
+endif()

@@ -572,6 +572,10 @@ namespace Mila::Dnn
                             "BF16 and requires BF16 compute precision", caller ) );
                     }
 
+                case WeightQuantization::Q4_0:
+                    throw std::runtime_error( std::format(
+                        "{}: Q4_0 is not available for Qwen models", caller ) );
+
                 default:
                     throw std::runtime_error( std::format(
                         "{}: this chassis loads Qwen at reference precision, under its own "

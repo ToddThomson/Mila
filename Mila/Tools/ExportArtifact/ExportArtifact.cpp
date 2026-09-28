@@ -17,7 +17,7 @@ namespace
         std::cout <<
             "Usage: ExportArtifact <source.bin> <destination.safetensors> [options]\n"
             "\n"
-            "  --quantization <fp4|fp8|plan|none>\n"
+            "  --quantization <fp4|fp8|q4_0|plan|none>\n"
             "                                 Weight quantization to apply on load\n"
             "                                 (default: fp4). 'plan' is the family's own\n"
             "                                 per-role allocation and needs a source whose\n"

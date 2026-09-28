@@ -1,5 +1,8 @@
 // Gqa.Flash.Wmma.cu
 //
+// RETIRED FROM THE BUILD 2026-09-27: replaced by Gqa.Flash.Packed.cu (GqaFlashAttention.md 5.7).
+// Kept in-tree for reference; it defines the same cuda_gqa_flash_prefill_bf16 symbol.
+//
 // FlashAttention prefill over the compact BF16 GQA KV cache -- tensor-core path,
 // Iteration 3 / Stage 2d (raw mma.sync throughout, restructured barrier pipeline).
 // See GqaFlashAttention.md 5.3 / 5.3.1.
