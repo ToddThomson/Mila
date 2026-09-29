@@ -84,6 +84,11 @@ option(MILA_ENABLE_TOOLS "Build Mila's developer tools (tokenize, mila CLI, Expo
 # and used to be offered there anyway. The docs CI job runs Doxygen directly against
 # Mila/Docs/Doxyfile and never configures CMake, so nothing outside a top-level build needs it.
 option(MILA_ENABLE_DOCS "Build Doxygen API documentation. Requires Doxygen and Graphviz." ${PROJECT_IS_TOP_LEVEL})
+# The pre-commit hook's checks (scripts/hooks/commit_checks.py: NOTICE pins, the version sites, Doxygen with no
+# warning) on the working tree, in every build. Off by default: it needs Python and Doxygen and costs a few seconds.
+# Turned on in a build directory whose builds are handed over for commit, so what the hook would refuse fails the
+# build instead of the commit.
+option(MILA_ENABLE_COMMIT_CHECKS "Run the pre-commit checks on the working tree in every build." OFF)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 
 # Mila's own HTTP transport. OFF drops libcurl and nothing else: the store, packaging,
@@ -339,3 +344,13 @@ endif()
 
 # The Mila library and Doxygen docs
 add_subdirectory( Mila )
+
+if( PROJECT_IS_TOP_LEVEL AND MILA_ENABLE_COMMIT_CHECKS )
+    find_package( Python3 COMPONENTS Interpreter REQUIRED )
+
+    add_custom_target( commit_checks ALL
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/hooks/commit_checks.py --worktree
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Commit checks on the working tree"
+        VERBATIM )
+endif()

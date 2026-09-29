@@ -401,19 +401,21 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Rewind the cache fill position for prompt-prefix reuse
+         * @brief Whether the cache can be rewound to `position` for prompt-prefix reuse
          * (PromptCaching.md). Unlike resetKvCache() the cache session stays live:
          * initialization state and device contents are untouched, and positions
          * [0, position) remain valid for a subsequent prefillFrom.
          *
+         * @param position      The first position a continuation will prefill.
+         * @param cached_length The positions the network's caches hold (DecodeGraph.md 4.3).
          * @return true when the underlying operation accepted the rewind.
          */
-        bool rewindKvCache( dim_t position )
+        bool rewindKvCache( dim_t position, dim_t cached_length )
         {
             if ( !kv_cache_op_ || !cache_initialized_ )
                 return false;
 
-            return kv_cache_op_->rewindKvCache( position );
+            return kv_cache_op_->rewindKvCache( position, cached_length );
         }
 
         // ====================================================================

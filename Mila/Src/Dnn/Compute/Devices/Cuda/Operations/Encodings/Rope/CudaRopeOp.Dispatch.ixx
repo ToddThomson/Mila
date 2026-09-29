@@ -106,7 +106,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             float* Q_out, float* K_out,
             const float* Q_in, const float* K_in,
             const float* cos_cache, const float* sin_cache,
-            int B, int position,
+            int B, const int* position,
             int n_heads, int n_kv_heads, int head_dim,
             int rotary_dim, int rotary_layout,
             cudaStream_t stream )
@@ -183,7 +183,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             __nv_bfloat16* Q_out, __nv_bfloat16* K_out,
             const __nv_bfloat16* Q_in, const __nv_bfloat16* K_in,
             const float* cos_cache, const float* sin_cache,
-            int B, int position,
+            int B, const int* position,
             int n_heads, int n_kv_heads, int head_dim,
             int rotary_dim, int rotary_layout,
             cudaStream_t stream )

@@ -58,6 +58,7 @@ export import Compute.OperationType;
 // ====================================================================
 export import Compute.Observation;
 export import Compute.IExecutionContext;
+export import Compute.IDecodeRecording;
 export import Compute.ExecutionContextFactory;
 
 // ====================================================================

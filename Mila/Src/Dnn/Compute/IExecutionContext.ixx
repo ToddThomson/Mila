@@ -5,12 +5,15 @@
 
 module;
 #include <cstddef>
+#include <memory>
 #include <utility>
 
 export module Compute.IExecutionContext;
 
 import Compute.DeviceId;
 import Compute.Observation;
+import Compute.IDecodeRecording;
+import Dnn.TensorTypes;
 
 namespace Mila::Dnn::Compute
 {
@@ -68,6 +71,28 @@ namespace Mila::Dnn::Compute
          */
         virtual void releaseLoadStaging() noexcept
         {
+        }
+
+        /**
+         * @brief Enqueue the position the next decode step runs at.
+         *
+         * A network calls this at the start of every decode step, before any of the step's
+         * work, and a decode op reads the position from the context rather than from its own
+         * arguments (DecodeGraph.md section 4.1). A no-op for contexts whose ops take the
+         * position as an argument.
+         */
+        virtual void setDecodePosition( [[maybe_unused]] dim_t position )
+        {
+        }
+
+        /**
+         * @brief A recording of launches on this context, for a network to record its decode step into.
+         *
+         * @return Null for a context that cannot record, whose networks decode by calling every step.
+         */
+        [[nodiscard]] virtual std::unique_ptr<IDecodeRecording> createDecodeRecording()
+        {
+            return nullptr;
         }
 
         /**

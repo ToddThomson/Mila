@@ -380,6 +380,12 @@ is asking for.
 
 ## 7. Cost — MEASURED 2026-08-25: no measurable cost, the runtime design stands
 
+**An observed generation runs every decode step called** (`DecodeGraph.md` section 5.4). A publication is a
+host callback, which a recorded decode step cannot make, so while an observer is installed the network calls
+each step instead of replaying its recording, and the step costs its launch gaps again. The recording is kept
+and replay resumes when observation stops. That cost is the called path's, not publication's; the rest of this
+section measures publication.
+
 **Result first.** An unattached publication check is not measurable on `Gelu::forward`. The
 runtime design in Section 6 stands and the `constexpr` gate described below is **not needed**
 — do not build it.

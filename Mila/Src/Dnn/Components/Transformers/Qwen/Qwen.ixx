@@ -258,6 +258,8 @@ namespace Mila::Dnn
             normalized_ptr_ = &final_rmsnorm_->forward( last_pos );
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
 
+            this->setCachedLength( T_prompt );
+
             return *logits_ptr_;
         }
 
@@ -348,6 +350,7 @@ namespace Mila::Dnn
                 offset += chunk_length;
             }
 
+            this->setCachedLength( T );
             this->synchronize();
 
             SequenceLogLikelihood result;
@@ -362,7 +365,9 @@ namespace Mila::Dnn
             return result;
         }
 
-        TensorType& decode( const TokenIndexType& input, dim_t position ) override
+    protected:
+
+        TensorType& onDecode( const TokenIndexType& input, dim_t position ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "QwenTransformer must be built before calling decode()." );
@@ -381,6 +386,57 @@ namespace Mila::Dnn
             return *logits_ptr_;
         }
 
+        /// Copy every DeltaNet layer's recurrent state and convolution windows to the host.
+        void holdDecodeState() override
+        {
+            held_decode_state_.clear();
+
+            for ( dim_t i = 0; i < config_.getNumLayers(); ++i )
+            {
+                if ( config_.isFullAttentionLayer( i ) )
+                    continue;
+
+                auto block = this->template getComponentAs<DeltaNetBlockType>( blockName( i ) );
+                auto snapshot = block->makeStateSnapshot();
+                block->snapshotState( snapshot );
+                held_decode_state_.push_back( std::move( snapshot ) );
+            }
+        }
+
+        void restoreDecodeState() override
+        {
+            std::size_t held = 0;
+
+            for ( dim_t i = 0; i < config_.getNumLayers(); ++i )
+            {
+                if ( config_.isFullAttentionLayer( i ) )
+                    continue;
+
+                this->template getComponentAs<DeltaNetBlockType>( blockName( i ) )->restoreState( held_decode_state_.at( held++ ) );
+            }
+        }
+
+        void releaseDecodeState() override
+        {
+            held_decode_state_.clear();
+            held_decode_state_.shrink_to_fit();
+        }
+
+        /**
+         * @brief Whether every layer's cache accepts a rewind to `position`. All-or-nothing to the caller.
+         */
+        bool onRewindKvCache( dim_t position, dim_t cached_length ) override
+        {
+            bool all_accepted = true;
+
+            for ( auto* block : blocks_ )
+                all_accepted = block->rewindKvCache( position, cached_length ) && all_accepted;
+
+            return all_accepted;
+        }
+
+    public:
+
         // ====================================================================
         // KV-cache orchestration
         // ====================================================================
@@ -389,19 +445,9 @@ namespace Mila::Dnn
         {
             for ( auto* block : blocks_ )
                 block->resetKvCache();
-        }
 
-        /**
-         * @brief Rewind every layer's cache to `position`. All-or-nothing to the caller.
-         */
-        bool rewindKvCache( dim_t position ) override
-        {
-            bool all_accepted = true;
-
-            for ( auto* block : blocks_ )
-                all_accepted = block->rewindKvCache( position ) && all_accepted;
-
-            return all_accepted;
+            this->setCachedLength( 0 );
+            this->discardDecodeRecording();
         }
 
         // ====================================================================
@@ -707,6 +753,10 @@ namespace Mila::Dnn
         // though every element is an attention block today -- that is what the DeltaNet block
         // slots into without touching the loops.
         std::vector<TransformerBlockType*> blocks_;
+
+        // Host copies the decode self-check takes, one per DeltaNet layer (holdDecodeState).
+        std::vector<typename DeltaNetBlockType::StateSnapshot> held_decode_state_;
+
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
         std::shared_ptr<LmHeadLinearType> lm_head_{ nullptr };
 

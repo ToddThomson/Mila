@@ -185,6 +185,8 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
                 DeviceTensor v = toDevice( vs[ t ] );
                 DeviceTensor out( Device::Cuda( 0 ), shape_t{ kBatch, 1, kModelDim } );
 
+                // An op decoded outside a network is given the position the network would write.
+                this->cuda_context_->setDecodePosition( static_cast<dim_t>( t ) );
                 op.decode( q, k, v, out, static_cast<dim_t>( t ) );
 
                 HostFp32 host = toFloat( out );
@@ -310,6 +312,7 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
                 DeviceTensor v = toDevice( vDec[ d ] );
                 DeviceTensor out( Device::Cuda( 0 ), shape_t{ kBatch, 1, kModelDim } );
 
+                this->cuda_context_->setDecodePosition( decodeStart + static_cast<dim_t>( d ) );
                 op.decode( q, k, v, out, decodeStart + static_cast<dim_t>( d ) );
 
                 HostFp32 host = toFloat( out );
@@ -453,11 +456,11 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
     // ====================================================================
     // KV-cache rewind (prompt-prefix reuse, PromptCaching.md)
     //
-    // rewindKvCache moves only the logical fill position; device contents are
-    // untouched. The unbounded cache accepts any position within the current
-    // fill. The bounded ring must additionally refuse when the stale tail
-    // [position, cached) has wrapped over the OLD rows [position - window,
-    // position) a continuation would attend to:
+    // rewindKvCache judges a rewind against the cached length the network passes
+    // (DecodeGraph.md 4.3); device contents are untouched. The unbounded cache
+    // accepts any position within that length. The bounded ring must additionally
+    // refuse when the stale tail [position, cached) has wrapped over the OLD rows
+    // [position - window, position) a continuation would attend to:
     //   valid  <=>  cached - position <= capacity - window  (= chunk - 1)
     // ====================================================================
 
@@ -481,10 +484,10 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
 
         this->runDecodeSequence( op, qs, ks, vs );
 
-        EXPECT_FALSE( op.rewindKvCache( kSeq + 1 ) );  // beyond the fill
-        EXPECT_TRUE( op.rewindKvCache( kSeq ) );       // no-op boundary
-        EXPECT_TRUE( op.rewindKvCache( 5 ) );          // deep rewind: always valid unbounded
-        EXPECT_FALSE( op.rewindKvCache( 6 ) );         // fill is now 5; forward rewinds refused
+        EXPECT_FALSE( op.rewindKvCache( kSeq + 1, kSeq ) );  // beyond the fill
+        EXPECT_TRUE( op.rewindKvCache( kSeq, kSeq ) );       // no-op boundary
+        EXPECT_TRUE( op.rewindKvCache( 5, kSeq ) );          // deep rewind: always valid unbounded
+        EXPECT_FALSE( op.rewindKvCache( 6, 5 ) );            // after that rewind the fill is 5
     }
 
     TYPED_TEST( CudaGqaOpTests, RewindKvCache_BoundedRingEnforcesWindowValidity )
@@ -509,16 +512,15 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
 
         this->runDecodeSequence( bounded, qs, ks, vs );
 
-        // Stale tail one past the tolerance: the window rows are gone -- refuse,
-        // and the fill position must be unchanged by the refusal.
-        EXPECT_FALSE( bounded.rewindKvCache( kSeq - kStaleTolerance - 1 ) );
-        EXPECT_FALSE( bounded.rewindKvCache( kSeq + 1 ) );
+        // Stale tail one past the tolerance: the window rows are gone -- refuse.
+        EXPECT_FALSE( bounded.rewindKvCache( kSeq - kStaleTolerance - 1, kSeq ) );
+        EXPECT_FALSE( bounded.rewindKvCache( kSeq + 1, kSeq ) );
 
         // Exactly at the tolerance: the oldest needed row is still resident.
-        EXPECT_TRUE( bounded.rewindKvCache( kSeq - kStaleTolerance ) );
+        EXPECT_TRUE( bounded.rewindKvCache( kSeq - kStaleTolerance, kSeq ) );
 
-        // The fill is now kSeq - kStaleTolerance; positions past it are refused.
-        EXPECT_FALSE( bounded.rewindKvCache( kSeq - kStaleTolerance + 1 ) );
+        // After that rewind the fill is kSeq - kStaleTolerance; positions past it are refused.
+        EXPECT_FALSE( bounded.rewindKvCache( kSeq - kStaleTolerance + 1, kSeq - kStaleTolerance ) );
     }
 
     // ====================================================================
@@ -1203,6 +1205,7 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
                 DeviceBf16 v = toDevice( vs[ t ] );
                 DeviceBf16 out( Device::Cuda( 0 ), shape_t{ batch, 1, model_dim } );
 
+                cuda_context_->setDecodePosition( t );
                 op.decode( q, k, v, out, t );
 
                 HostFp32 host = toFloat( out );

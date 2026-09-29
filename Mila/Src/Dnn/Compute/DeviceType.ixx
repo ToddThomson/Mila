@@ -32,7 +32,7 @@ namespace Mila::Dnn::Compute
      * @brief Converts a DeviceType to its string representation.
      *
      * @param device_type The device type to convert.
-     * @return std::string The string representation of the device type (Device::Cpu() or "CUDA").
+     * @return std::string "CPU", "CUDA", "Metal" or "ROCm".
      * @throws std::invalid_argument If the device type is invalid.
      */
     export std::string deviceTypeToString( DeviceType device_type )
@@ -56,8 +56,7 @@ namespace Mila::Dnn::Compute
      *
      * @param device_type The string representation of the device type.
      * @return DeviceType The corresponding device type enum value.
-     * @throws std::invalid_argument If the string does not represent a valid device type.
-     *                            Valid options are: Device::Cpu(), "CUDA", "AUTO".
+     * @throws std::invalid_argument If the string is not "CPU", "CUDA", "METAL" or "ROCM", in any case.
      */
     export DeviceType toDeviceType( std::string_view device_type )
     {
@@ -65,7 +64,7 @@ namespace Mila::Dnn::Compute
         std::transform( 
             type_str.begin(), type_str.end(),
             type_str.begin(),
-            []( unsigned char c ) { return std::toupper( c ); } );
+            []( unsigned char c ) { return static_cast<char>( std::toupper( c ) ); } );
 
         if ( type_str == "CPU" ) return DeviceType::Cpu;
         if ( type_str == "CUDA" ) return DeviceType::Cuda;

@@ -316,8 +316,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         /**
          * @brief Single-token decode with explicit position.
          *
-         * Reads only the cache row at `position`. Used for KV-cache autoregressive
-         * generation where T=1.
+         * Reads only the cache row at the context's decode position, which the kernel reads on the device;
+         * `position` is the same value, checked here on the host (DecodeGraph.md section 4.1). Used for
+         * KV-cache autoregressive generation where T=1.
          *
          * @param Q_in   Input Q  [B, 1, n_heads,    head_dim].
          * @param K_in   Input K  [B, 1, n_kv_heads, head_dim].
@@ -345,7 +346,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 static_cast<const ComputeType*>( Q_in.rawData() ),
                 static_cast<const ComputeType*>( K_in.rawData() ),
                 cos_cache_, sin_cache_,
-                B, narrowToKernelIndex( position ),
+                B, context_->getDecodePosition(),
                 static_cast<int>(config_.getNumHeads()),
                 static_cast<int>(config_.getNumKVHeads()),
                 static_cast<int>(config_.getHeadDim()),

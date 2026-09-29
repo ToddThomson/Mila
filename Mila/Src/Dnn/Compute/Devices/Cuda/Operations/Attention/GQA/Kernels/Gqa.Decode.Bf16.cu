@@ -38,6 +38,30 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         constexpr int kDecodeMinPositionsPerSplit = 64;
 
         /**
+         * @brief Split policy: fill the device (kDecodeTargetBlocks) without dropping a split's chunk
+         *        below kDecodeMinPositionsPerSplit positions.
+         *
+         * One function for both sides (DecodeGraph.md section 4.2): the host sizes the grid with it from the
+         * largest band the op can hold, and every block chooses the live count with it from the band at the
+         * device-resident position, so the two cannot disagree.
+         */
+        __host__ __device__ inline int decodeSplitCount( int band_len, int num_kv_heads )
+        {
+            const int by_target = ( kDecodeTargetBlocks + num_kv_heads - 1 ) / num_kv_heads;
+            const int by_band = ( band_len + kDecodeMinPositionsPerSplit - 1 ) / kDecodeMinPositionsPerSplit;
+            const int bounded = by_target < by_band ? by_target : by_band;
+            const int capped = bounded < kMaxDecodeSplits ? bounded : kMaxDecodeSplits;
+
+            return capped > 1 ? capped : 1;
+        }
+
+        /// The live band at `position`: [window_start, position + 1).
+        __device__ __forceinline__ int decodeBandStart( int actual_len, int window )
+        {
+            return ( window > 0 ) ? max( 0, actual_len - window ) : 0;
+        }
+
+        /**
          * @brief Fused decode attention: one (kv_head, split, batch) block.
          *
          * Walks ABSOLUTE positions p in [window_start, actual_len) with physical
@@ -79,9 +103,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 int num_kv_heads,
                 int group_size,
                 int capacity,
-                int actual_len,
+                const int* __restrict__ position,
                 int window,
-                int num_splits,
                 float scale )
         {
             static_assert( kHeadSize % 64 == 0, "per-lane float2 fragments need HS divisible by 64" );
@@ -126,9 +149,16 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const int h = kv * group_size + g;
             const int num_heads = num_kv_heads * group_size;
 
-            // Live band and this block's split chunk.
-            const int window_start = ( window > 0 ) ? max( 0, actual_len - window ) : 0;
+            // Live band and split count at the device position. The grid holds the most splits the op can
+            // use; a block past the live count exits before any barrier, uniformly across the block.
+            const int actual_len = *position + 1;
+            const int window_start = decodeBandStart( actual_len, window );
             const int band_len = actual_len - window_start;
+            const int num_splits = decodeSplitCount( band_len, num_kv_heads );
+
+            if ( split >= num_splits )
+                return;
+
             const int chunk = ( band_len + num_splits - 1 ) / num_splits;
             const int chunk_begin = window_start + split * chunk;
             const int chunk_end = min( chunk_begin + chunk, actual_len );
@@ -340,7 +370,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
          * One block per (head, batch). The per-split softmax weights
          * exp(m_s - m_max) are staged in shared memory once, then each thread
          * merges a strided subset of the head dims. Empty splits carry
-         * (m=-inf, l=0, O=0) and contribute exactly zero.
+         * (m=-inf, l=0, O=0) and contribute exactly zero. The split count is the
+         * attention kernel's, from the same device position; at one split that
+         * kernel wrote Y itself and this one exits.
          */
         __global__ void gqa_decode_attention_fixup_bf16_kernel(
             __nv_bfloat16* __restrict__ y,
@@ -348,10 +380,17 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             int num_kv_heads,
             int group_size,
             int head_size,
-            int num_splits )
+            const int* __restrict__ position,
+            int window )
         {
             __shared__ float s_weight[ kMaxDecodeSplits ];
             __shared__ float s_inv_l;
+
+            const int actual_len = *position + 1;
+            const int num_splits = decodeSplitCount( actual_len - decodeBandStart( actual_len, window ), num_kv_heads );
+
+            if ( num_splits == 1 )
+                return;
 
             const int h = blockIdx.x;
             const int batch = blockIdx.y;
@@ -398,28 +437,22 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             }
         }
 
-        /// Split policy and launch, shared by the BF16 and FP8 caches.
+        /**
+         * Launch shared by the BF16 and FP8 caches. The grid holds the most splits the band can ever need
+         * (max_band), so the launch is the same at every position; the blocks choose the live count.
+         */
         template<bool kFp8>
         void launchDecodeAttention(
             const __nv_bfloat16* Q, const void* K, const void* V, const float* k_scales, const float* v_scales,
             __nv_bfloat16* Y, float* split_scratch,
             int B, int NH, int NKV, int HS, int cache_capacity,
-            int actual_len, int window, float scale,
+            const int* position, int max_band, int window, float scale,
             cudaStream_t stream )
         {
             const int group_size = NH / NKV;
+            const int max_splits = decodeSplitCount( max_band, NKV );
 
-            // Split policy: fill the device (kDecodeTargetBlocks) without dropping a
-            // split's chunk below kDecodeMinPositionsPerSplit positions.
-            const int window_start = ( window > 0 ) ? std::max( 0, actual_len - window ) : 0;
-            const int band_len = actual_len - window_start;
-            const int splits_by_target = ( kDecodeTargetBlocks + NKV - 1 ) / NKV;
-            const int splits_by_band =
-                ( band_len + kDecodeMinPositionsPerSplit - 1 ) / kDecodeMinPositionsPerSplit;
-            const int num_splits =
-                std::max( 1, std::min( { splits_by_target, splits_by_band, kMaxDecodeSplits } ) );
-
-            const dim3 grid( NKV, num_splits, B );
+            const dim3 grid( NKV, max_splits, B );
             const dim3 block( group_size * 32 );
 
             switch ( HS )
@@ -427,19 +460,19 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 case 128:
                     gqa_decode_attention_bf16_kernel<128, kFp8><<<grid, block, 0, stream>>>(
                         Q, K, V, k_scales, v_scales, Y, split_scratch, NKV, group_size, cache_capacity,
-                        actual_len, window, num_splits, scale );
+                        position, window, scale );
                     break;
 
                 case 256:
                     gqa_decode_attention_bf16_kernel<256, kFp8><<<grid, block, 0, stream>>>(
                         Q, K, V, k_scales, v_scales, Y, split_scratch, NKV, group_size, cache_capacity,
-                        actual_len, window, num_splits, scale );
+                        position, window, scale );
                     break;
 
                 case 512:
                     gqa_decode_attention_bf16_kernel<512, kFp8><<<grid, block, 0, stream>>>(
                         Q, K, V, k_scales, v_scales, Y, split_scratch, NKV, group_size, cache_capacity,
-                        actual_len, window, num_splits, scale );
+                        position, window, scale );
                     break;
 
                 default:
@@ -449,12 +482,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             cudaCheck( cudaGetLastError() );
 
-            if ( num_splits > 1 )
+            if ( max_splits > 1 )
             {
                 const dim3 fixup_grid( NH, B );
 
                 gqa_decode_attention_fixup_bf16_kernel<<<fixup_grid, 128, 0, stream>>>(
-                    Y, split_scratch, NKV, group_size, HS, num_splits );
+                    Y, split_scratch, NKV, group_size, HS, position, window );
 
                 cudaCheck( cudaGetLastError() );
             }
@@ -477,15 +510,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
         __nv_bfloat16* Y, float* split_scratch,
         int B, int NH, int NKV, int HS, int cache_capacity,
-        int actual_len, int window, float scale,
+        const int* position, int max_band, int window, float scale,
         cudaStream_t stream )
     {
         assert( NH % NKV == 0 );
         assert( cuda_gqa_decode_attention_supported( HS, NH / NKV ) );
-        assert( actual_len >= 1 );
+        assert( max_band >= 1 );
 
         launchDecodeAttention<false>( Q, K, V, nullptr, nullptr, Y, split_scratch,
-            B, NH, NKV, HS, cache_capacity, actual_len, window, scale, stream );
+            B, NH, NKV, HS, cache_capacity, position, max_band, window, scale, stream );
     }
 
     void cuda_gqa_decode_attention_fp8(
@@ -493,14 +526,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const float* k_scales, const float* v_scales,
         __nv_bfloat16* Y, float* split_scratch,
         int B, int NH, int NKV, int HS, int cache_capacity,
-        int actual_len, int window, float scale,
+        const int* position, int max_band, int window, float scale,
         cudaStream_t stream )
     {
         assert( NH % NKV == 0 );
         assert( cuda_gqa_decode_attention_supported( HS, NH / NKV ) );
-        assert( actual_len >= 1 );
+        assert( max_band >= 1 );
 
         launchDecodeAttention<true>( Q, K, V, k_scales, v_scales, Y, split_scratch,
-            B, NH, NKV, HS, cache_capacity, actual_len, window, scale, stream );
+            B, NH, NKV, HS, cache_capacity, position, max_band, window, scale, stream );
     }
 }

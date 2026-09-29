@@ -88,6 +88,8 @@ Quantize-on-load is a **supported user path** for FP8 and FP4 (decided 2026-09-1
 
 **Trap:** the `getDeviceScratchBuffer()` grow-on-demand buffer in `ExecutionContext` backs the FP8 dequant staging — **fetch it at `forward()` time and never cache the pointer across calls**, since it is reallocated on grow.
 
+**A decode step must be a pure function of device memory.** Under replay (`DecodeGraph.md`) the launches of a decode step are recorded once and replayed every token. So a decode op may not pass a per-token value as a launch argument (read the decode position from the execution context), may not update host state that a later call reads, and may not allocate or read device memory back to the host after its first call. A violation is caught by the self-check on a network's third decode step, which turns replay off and warns. A decode op tested on its own is given the position first, as a network's `decode` gives it: `context->setDecodePosition( p )`.
+
 ---
 
 ## Chat Harness (`Mila/Adaptors/Chat/Src/`)

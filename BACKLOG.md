@@ -271,13 +271,15 @@ the Fast claim links to the table.
 
 `in progress` · `perf` · `llama` · `mila-src` · `measured`
 
-Llama 3.1 8B in Q4_0, the same weights in both engines, on the RTX 5060 Ti: Mila generates 62, 51 and 34 tokens a
-second at context depth 0, 8K and 32K, llama.cpp 78, 65 and 39 -- 0.80x, 0.79x and 0.87x. Prefill on the same run
-is 1.16-1.29x ahead, so the gap is in the per-token loop, not the weights' format. Generating one token reads every
-weight once, so the card's bandwidth sets a ceiling llama.cpp sits much nearer than Mila does. The other families'
-generation is unmeasured against it until their rows run. The work, in order, is in `ModelFamilyParity.md` 8.4 L5
-and `Mila/Specifications/DecodeGraph.md`. Gate: every generation cell of the comparison table
-(`Mila/Profiling/Benchmarks/benchmark_comparison.py`) shows Mila ahead.
+The same Q4_0 weights in both engines, on the RTX 5060 Ti, at context depth 0, 8K and 32K: Llama 3.1 8B generates
+80, 63 and 39 tokens a second in Mila against 79, 65 and 39 in llama.cpp; Gemma 4 12B 54, 49 and 45 against 54, 51
+and 48. Level with no context, behind at depth. Prefill is 1.16-1.29x ahead, so the gap is in the per-token loop.
+What remains is attention over a long cache: Llama's decode attention reads an 8K cache well below the card's
+bandwidth, and Gemma's head-size-512 global layers fall away with depth. One condition of the Gemma row: the compared
+weights differ in the output head, FP8 in Mila's package (1.0 GB read a token) and Q6_K in the GGUF (0.83 GB).
+`Mila/Specifications/DecodeGraph.md` section 8.
+Gate: every generation cell of the comparison table (`Mila/Profiling/Benchmarks/benchmark_comparison.py`) shows
+Mila ahead.
 
 ### Qwen 3.8 Complete
 

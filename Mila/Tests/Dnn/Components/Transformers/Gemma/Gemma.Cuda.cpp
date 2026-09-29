@@ -472,6 +472,22 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         EXPECT_FALSE( net->rewindKvCache( seq_ + 10 ) );
     }
 
+    // The fill a rewind is judged against is the network's, not an op's: prefill sets it, decode
+    // advances it and an accepted rewind moves it (DecodeGraph.md 4.3).
+    TEST_F( GemmaTransformerCudaTests, RewindKvCache_JudgesAgainstTheNetworksFill )
+    {
+        auto net = builtNet( allLocalConfig(), batch_, seq_ );
+
+        net->prefill( makeTokens( batch_, seq_ - 2 ) );
+        net->decode( makeTokens( batch_, 1 ), seq_ - 2 );
+        net->synchronize();
+
+        EXPECT_FALSE( net->rewindKvCache( seq_ ) );
+        EXPECT_TRUE( net->rewindKvCache( seq_ - 1 ) );
+        EXPECT_TRUE( net->rewindKvCache( 1 ) );
+        EXPECT_FALSE( net->rewindKvCache( 2 ) );
+    }
+
     TEST_F( GemmaTransformerCudaTests, PrefillFrom_ThrowsOnOffsetOutsidePrompt )
     {
         auto net = builtNet( allLocalConfig(), batch_, seq_ );

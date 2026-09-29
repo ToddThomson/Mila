@@ -297,8 +297,8 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         // A recurrent state is a lossy summary of every position it has seen: the
         // information needed to undo the last N steps is not in it. Accepting a rewind
         // would silently corrupt a prefix-reuse session rather than fail it.
-        EXPECT_FALSE( block->rewindKvCache( 0 ) );
-        EXPECT_FALSE( block->rewindKvCache( 4 ) );
+        EXPECT_FALSE( block->rewindKvCache( 0, 4 ) );
+        EXPECT_FALSE( block->rewindKvCache( 4, 4 ) );
     }
 
     TEST_F( QwenDeltaNetBlockCudaTests, SetStateIsAcceptedAndIgnored )

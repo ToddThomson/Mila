@@ -181,34 +181,31 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     "CudaGroupedQueryAttentionOp::initializeKvCache max_sequence_length out of range" );
 
             active_max_seq_len_ = narrowToKernelIndex( max_sequence_length );
-            cached_seq_len_ = 0;
             kv_cache_enabled_ = true;
         }
 
+        // The fill count is the network's (DecodeGraph.md 4.3); the cache itself is only positional.
         void resetKvCache() override
         {
-            cached_seq_len_ = 0;
         }
 
-        bool rewindKvCache( dim_t position ) override
+        bool rewindKvCache( dim_t position, dim_t cached_length ) override
         {
-            if ( position < 0 || position > cached_seq_len_ )
+            if ( position < 0 || position > cached_length )
                 return false;
 
             if constexpr ( kBounded )
             {
                 // Ring validity: the resident rows are the last cache_capacity_
                 // written positions. A continuation from `position` attends down to
-                // position - window_, so the stale tail [position, cached_seq_len_)
+                // position - window_, so the stale tail [position, cached_length)
                 // must not have wrapped over that range:
-                //   cached_seq_len_ - position <= cache_capacity_ - window_
+                //   cached_length - position <= cache_capacity_ - window_
                 // (the capacity is window + prefill_chunk - 1, so up to one chunk
                 // minus one of stale tokens is tolerated).
-                if ( cached_seq_len_ - position > cache_capacity_ - window_ )
+                if ( cached_length - position > cache_capacity_ - window_ )
                     return false;
             }
-
-            cached_seq_len_ = narrowToKernelIndex( position );
 
             return true;
         }
@@ -273,7 +270,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             cache_capacity_ = resolveCacheCapacity( context );
 
             active_max_seq_len_ = T_;
-            cached_seq_len_ = 0;
             kv_cache_enabled_ = false;
 
             if constexpr ( kFp8Cache )
@@ -558,7 +554,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int prefill_chunk_size_{ 0 };
         int cache_capacity_{ 0 };   ///< KV cache row count: T_ unbounded, min(T_, window+chunk-1) bounded
         int active_max_seq_len_{ 0 };
-        int cached_seq_len_{ 0 };
         bool kv_cache_enabled_{ false };
 
         cublasLtHandle_t cublaslt_handle_{ nullptr };
@@ -771,15 +766,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv_fp8(
                 k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
                 static_cast<const NativeType*>( k.rawData() ), static_cast<const NativeType*>( v.rawData() ),
-                B_, chunk_len, NKV_, HS_, position_offset, cache_capacity_, stream );
+                B_, chunk_len, NKV_, HS_, position_offset, nullptr, cache_capacity_, stream );
 
             Detail::cuda_gqa_kernels<NativeType>::flash_prefill_fp8(
                 static_cast<const NativeType*>( q.rawData() ), k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
                 static_cast<NativeType*>( output.rawData() ),
                 B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
                 position_offset, window_, attention_scale_, stream );
-
-            cached_seq_len_ = position_offset + chunk_len;
         }
 
         void decodeFp8Cache(
@@ -790,13 +783,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             if ( position < 0 || position >= active_max_seq_len_ )
                 throw std::invalid_argument( "CudaGqaOp::decode: position out of range" );
 
-            const int actual_len = position + 1;
             cudaStream_t stream = context_->getStream();
+            const int* device_position = context_->getDecodePosition();
 
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv_fp8(
                 k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
                 static_cast<const NativeType*>( k.rawData() ), static_cast<const NativeType*>( v.rawData() ),
-                B_, 1, NKV_, HS_, position, cache_capacity_, stream );
+                B_, 1, NKV_, HS_, 0, device_position, cache_capacity_, stream );
 
             // The split-K partials come from the shared context scratch, fetched on every call: it may be
             // reallocated on grow.
@@ -806,10 +799,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             Detail::cuda_gqa_kernels<NativeType>::decode_attention_fp8(
                 static_cast<const NativeType*>( q.rawData() ), k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
                 static_cast<NativeType*>( output.rawData() ), split_scratch,
-                B_, NH_, NKV_, HS_, cache_capacity_, actual_len, window_, attention_scale_, stream );
+                B_, NH_, NKV_, HS_, cache_capacity_, device_position, maximumDecodeBand(), window_,
+                attention_scale_, stream );
+        }
 
-            if ( actual_len > cached_seq_len_ )
-                cached_seq_len_ = actual_len;
+        /// The longest band a decode step can attend to: the window, or the whole context when there is none.
+        int maximumDecodeBand() const noexcept
+        {
+            return ( window_ > 0 && window_ < active_max_seq_len_ ) ? window_ : active_max_seq_len_;
         }
 
         // ====================================================================
@@ -891,7 +888,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // kernel wraps the row index by cache_capacity_ (the ring); unbounded keeps
             // cache_capacity_ == T_ so the wrap is the identity.
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
-                k_opt_, v_opt_, Xk, Xv, B_, chunk_len, NKV_, HS_, position_offset, cache_capacity_, stream );
+                k_opt_, v_opt_, Xk, Xv, B_, chunk_len, NKV_, HS_, position_offset, nullptr, cache_capacity_, stream );
 
             // FlashAttention prefill: fused, streaming, causal attention straight off the
             // compact cache -- no Q permute, no preatt/att/v_out materialization, no
@@ -916,8 +913,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                             B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
                             position_offset, window_, scale, stream );
                     }
-
-                    cached_seq_len_ = position_offset + chunk_len;
 
                     return;
                 }
@@ -982,8 +977,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             Detail::cuda_gqa_kernels<NativeType>::prefill_unpermute_output_padded(
                 v_out_opt_, Y,
                 B_, chunk_len, padded_T, NH_, HS_, stream );
-
-            cached_seq_len_ = position_offset + chunk_len;
         }
 
         void decode_optimized(
@@ -995,7 +988,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 throw std::invalid_argument(
                     "CudaGroupedQueryAttentionOp::decode_optimized position out of range" );
 
-            const int actual_len = position + 1;
+            // Every kernel below reads the position from the context, which the network wrote at the start of
+            // the step; `position` is only range-checked here (DecodeGraph.md 4.1).
+            const int* device_position = context_->getDecodePosition();
 
             const NativeType* Xq = static_cast<const NativeType*>( q.rawData() );
             const NativeType* Xk = static_cast<const NativeType*>( k.rawData() );
@@ -1011,7 +1006,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // kernel wraps the row index by cache_capacity_; unbounded keeps
             // cache_capacity_ == T_ so the wrap is the identity.
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
-                k_opt_, v_opt_, Xk, Xv, B_, 1, NKV_, HS_, position, cache_capacity_, stream );
+                k_opt_, v_opt_, Xk, Xv, B_, 1, NKV_, HS_, 0, device_position, cache_capacity_, stream );
 
             // Fused decode attention: one streaming online-softmax kernel over the live
             // band, straight from Xq to Y -- no Q permute, no preatt/att round-trip, no
@@ -1029,10 +1024,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
                     Detail::cuda_gqa_kernels<NativeType>::decode_attention(
                         Xq, k_opt_, v_opt_, Y, split_scratch,
-                        B_, NH_, NKV_, HS_, cache_capacity_, actual_len, window_, scale, stream );
-
-                    if ( actual_len > cached_seq_len_ )
-                        cached_seq_len_ = actual_len;
+                        B_, NH_, NKV_, HS_, cache_capacity_, device_position, maximumDecodeBand(), window_, scale,
+                        stream );
 
                     return;
                 }
@@ -1058,13 +1051,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             {
                 Detail::cuda_gqa_kernels<NativeType>::softmax_decode_ring_forward(
                     att_decode_opt_, 1.0f, preatt_decode_opt_,
-                    B_, NH_, cache_capacity_, actual_len, window_, stream );
+                    B_, NH_, cache_capacity_, device_position, window_, stream );
             }
             else
             {
                 Detail::cuda_gqa_kernels<NativeType>::softmax_decode_forward(
                     att_decode_opt_, 1.0f, preatt_decode_opt_,
-                    B_, NH_, cache_capacity_, actual_len, window_, stream );
+                    B_, NH_, cache_capacity_, device_position, window_, stream );
             }
 
             execute_plan<NativeType>(
@@ -1076,9 +1069,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             Detail::cuda_gqa_kernels<NativeType>::unpermute_output(
                 v_out_decode_opt_, Y, B_, 1, NH_, HS_, stream );
-
-            if ( actual_len > cached_seq_len_ )
-                cached_seq_len_ = actual_len;
         }
         // ====================================================================
         // Partial-chunk plan cache helpers (compact NKV layout)

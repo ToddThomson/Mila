@@ -225,6 +225,25 @@ namespace Mila::Dnn
             token_sampler_->reseed( seed );
         }
 
+        /**
+         * @brief Replay each generated token's forward pass from one recorded CUDA graph, or run it call by call.
+         *
+         * On after load for Llama, Gemma and Qwen. Output is identical either way; replay removes the
+         * per-kernel launch gaps. Turn it off to step through a forward pass in a debugger. If a
+         * recording cannot be made or does not reproduce the call-by-call result, the model turns
+         * replay off itself and logs a warning.
+         */
+        void setDecodeReplay( bool enabled )
+        {
+            this->getNetwork().setDecodeReplay( enabled );
+        }
+
+        /// Whether generation replays recorded forward passes (see setDecodeReplay).
+        [[nodiscard]] bool isDecodeReplayed() const noexcept
+        {
+            return this->getNetwork().isDecodeReplayed();
+        }
+
     protected:
 
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;

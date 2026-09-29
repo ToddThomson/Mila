@@ -92,7 +92,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         int pair_half,
         int cache_stride,
         int head_stride,
-        int position,
+        const int* __restrict__ position,
         int n_heads )
     {
         int bh = blockIdx.x * blockDim.y + threadIdx.y;
@@ -100,8 +100,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
         if ( bh >= total_heads || i >= pair_half ) return;
 
-        float c = cos_cache[ position * cache_stride + i ];
-        float s = sin_cache[ position * cache_stride + i ];
+        const int row = *position;
+
+        float c = cos_cache[ row * cache_stride + i ];
+        float s = sin_cache[ row * cache_stride + i ];
 
         int base_idx = bh * head_stride;
         float x0 = __bfloat162float( in[ base_idx + i ] );
@@ -195,7 +197,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const __nv_bfloat16* in_K,
         const float* cos_cache,
         const float* sin_cache,
-        int B, int position,
+        int B, const int* position,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
         cudaStream_t stream )
@@ -293,7 +295,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const __nv_bfloat16* K_in,
         const float* cos_cache,
         const float* sin_cache,
-        int B, int position,
+        int B, const int* position,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
         cudaStream_t stream )

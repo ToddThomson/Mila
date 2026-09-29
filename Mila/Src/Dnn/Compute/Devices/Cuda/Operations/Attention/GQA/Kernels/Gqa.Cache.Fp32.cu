@@ -81,6 +81,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * @param NKV       Number of key/value heads.
      * @param HS        Head dimension (elements per head).
      * @param start_pos Absolute token position of the first token in this chunk.
+     * @param device_start_pos When not null, read in place of start_pos (the decode position).
      * @param T_max     Maximum sequence length (KV cache capacity).
      */
     __global__ void kvcache_write_kv_fp32_kernel(
@@ -89,6 +90,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int B, int chunk_len,
         int NKV, int HS,
         int start_pos,
+        const int* device_start_pos,
         int T_max )
     {
         const int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -110,7 +112,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // modulo is the identity and this is byte-identical to a linear write. For
         // the bounded sliding-window ring (SlidingWindowKvCache) T_max == capacity
         // and the wrap evicts the oldest key. See SlidingWindowKvCache.md D6.
-        const int kv_pos = (start_pos + t) % T_max;
+        const int first = device_start_pos != nullptr ? *device_start_pos : start_pos;
+        const int kv_pos = (first + t) % T_max;
 
         const int out_idx =
             b * (NKV * T_max * HS)
@@ -226,7 +229,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const float* Xk, const float* Xv,
         int batch, int chunk_len,
         int NKV, int HS,
-        int start_pos, int max_seq_len,
+        int start_pos, const int* device_start_pos, int max_seq_len,
         cudaStream_t stream )
     {
         const int total = batch * NKV * chunk_len * HS;
@@ -237,7 +240,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             K, V, Xk, Xv,
             batch, chunk_len,
             NKV, HS,
-            start_pos, max_seq_len);
+            start_pos, device_start_pos, max_seq_len);
 
         cudaCheck( cudaGetLastError() );
     }

@@ -492,7 +492,10 @@ namespace Mila::Dnn
             , model_config_( plan.modelConfig<QwenModelConfig>() )
             , plan_( plan )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
-        {}
+        {
+            // Every load path builds the model here; a network built directly stays off (DecodeGraph.md 4.6).
+            this->setDecodeReplay( true );
+        }
 
         // Architecture config (from checkpoint metadata): the trained network geometry.
         QwenConfig config_;

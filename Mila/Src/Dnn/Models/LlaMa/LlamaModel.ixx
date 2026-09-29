@@ -529,7 +529,10 @@ namespace Mila::Dnn
                 std::move( source_metadata ), plan.weightQuantization() )
             , config_( config ), context_length_( plan.contextLength() ), plan_( plan )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
-        {}
+        {
+            // Every load path builds the model here; a network built directly stays off (DecodeGraph.md 4.6).
+            this->setDecodeReplay( true );
+        }
 
         static DeviceId requireDevice( std::string_view caller, DeviceId device_id )
         {

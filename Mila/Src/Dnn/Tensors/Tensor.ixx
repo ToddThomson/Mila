@@ -973,6 +973,33 @@ namespace Mila::Dnn
     }
 
     /**
+     * @brief A view of `parent` at `shape`, held in `view` as one object for the holder's lifetime.
+     *
+     * For a component that returns a reference to a view of its output: the object `view` holds is
+     * made once and re-pointed in place, and only when the shape or the parent's storage differs from
+     * what it describes. A reference a caller took stays valid for the component's lifetime -- as a
+     * reference to the output buffer itself does -- and a call at an unchanged shape allocates nothing.
+     */
+    export template <TensorDataType TDataType, typename TMemoryResource>
+        requires isValidTensor<TDataType, TMemoryResource>
+    Tensor<TDataType, TMemoryResource>& stableView(
+        std::unique_ptr<Tensor<TDataType, TMemoryResource>>& view,
+        const Tensor<TDataType, TMemoryResource>& parent,
+        const shape_t& shape )
+    {
+        if ( !view )
+        {
+            view = std::make_unique<Tensor<TDataType, TMemoryResource>>( parent.view( shape ) );
+        }
+        else if ( !( view->shape() == shape ) || view->rawData() != parent.rawData() )
+        {
+            *view = parent.view( shape );
+        }
+
+        return *view;
+    }
+
+    /**
      * @brief Host tensor alias
      */
     export template <TensorDataType TDataType>

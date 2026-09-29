@@ -112,7 +112,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
     // the QK GEMM alpha, so it is always 1.0 here.
     __global__ void softmax_decode_forward_bf16_kernel(
         __nv_bfloat16* att, const __nv_bfloat16* preatt,
-        int B_NH, int max_len, int actual_len, int window )
+        int B_NH, int max_len, const int* position, int window )
     {
         const int lane = threadIdx.x % warpSize;
         const int warp_id = threadIdx.x / warpSize;
@@ -125,6 +125,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
 
         const __nv_bfloat16* preatt_row = preatt + row * max_len;
         __nv_bfloat16* att_row = att + row * max_len;
+        const int actual_len = *position + 1;
 
         // Sliding-window lower bound (uniform across the warp). window <= 0 means
         // global (window_start = 0), reproducing the unbounded decode exactly.
@@ -175,7 +176,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
     // to the result. See SlidingWindowKvCache.md D6.
     __global__ void softmax_decode_ring_forward_bf16_kernel(
         __nv_bfloat16* att, const __nv_bfloat16* preatt,
-        int B_NH, int capacity, int actual_len, int window )
+        int B_NH, int capacity, const int* position, int window )
     {
         const int lane = threadIdx.x % warpSize;
         const int warp_id = threadIdx.x / warpSize;
@@ -187,6 +188,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
         const __nv_bfloat16* preatt_row = preatt + row * capacity;
         __nv_bfloat16* att_row = att + row * capacity;
 
+        const int actual_len = *position + 1;
         const int end = actual_len - 1;
         const int window_start = ( window > 0 ) ? max( 0, actual_len - window ) : 0;
         const int r = end % capacity;
@@ -304,7 +306,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
 
     void cuda_attention_softmax_decode_forward_bf16(
         __nv_bfloat16* att, float scale, const __nv_bfloat16* preatt,
-        int B, int NH, int max_len, int actual_len,
+        int B, int NH, int max_len, const int* position,
         cudaStream_t stream, int window )
     {
         // scale is kept for signature symmetry with the fp32/fp16 launchers but
@@ -318,14 +320,14 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
         const int num_blocks = ceil_div( B_NH, warps_per_block );
 
         softmax_decode_forward_bf16_kernel <<< num_blocks, block_size, 0, stream >>> (
-            att, preatt, B_NH, max_len, actual_len, window);
+            att, preatt, B_NH, max_len, position, window);
 
         cudaCheck( cudaGetLastError() );
     }
 
     void cuda_attention_softmax_decode_ring_forward_bf16(
         __nv_bfloat16* att, float scale, const __nv_bfloat16* preatt,
-        int B, int NH, int capacity, int actual_len,
+        int B, int NH, int capacity, const int* position,
         cudaStream_t stream, int window )
     {
         // scale unused: decode folds 1/sqrt(head_size) into the QK GEMM alpha.
@@ -337,7 +339,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
         const int num_blocks = ceil_div( B_NH, warps_per_block );
 
         softmax_decode_ring_forward_bf16_kernel <<< num_blocks, block_size, 0, stream >>> (
-            att, preatt, B_NH, capacity, actual_len, window);
+            att, preatt, B_NH, capacity, position, window);
 
         cudaCheck( cudaGetLastError() );
     }

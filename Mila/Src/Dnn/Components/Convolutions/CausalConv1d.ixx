@@ -26,6 +26,7 @@
  */
 
 module;
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -474,11 +475,16 @@ namespace Mila::Dnn
 
             if ( build_context.shouldInitializeParameters() )
             {
-                fill( *weight_, 0.0f, this->getExecutionContext() );
+                // PyTorch's Conv1d default, U(-1/sqrt(fan_in), 1/sqrt(fan_in)) for weight and bias alike. Each
+                // channel is its own filter, so fan_in is the kernel width. A zero weight would make the layer
+                // output nothing, and a built-but-unloaded network one whose convolutions are dead.
+                const float bound = 1.0f / std::sqrt( static_cast<float>( kernel_width ) );
+
+                fill_uniform( *weight_, -bound, bound, this->getExecutionContext() );
 
                 if ( bias_ )
                 {
-                    zero( *bias_, this->getExecutionContext() );
+                    fill_uniform( *bias_, -bound, bound, this->getExecutionContext() );
                 }
             }
 

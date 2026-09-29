@@ -292,6 +292,7 @@ PUBLIC
         "Src/Dnn/Compute/Observation.ixx"
         "Src/Dnn/Compute/ExecutionContext.ixx"
         "Src/Dnn/Compute/IExecutionContext.ixx"
+        "Src/Dnn/Compute/IDecodeRecording.ixx"
         "Src/Dnn/Compute/ExecutionContextFactory.ixx"
 
         
@@ -683,6 +684,7 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Structural.cu"
             "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Random.cu"
             "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Kernels/DecodePosition.cu"
     )
 
     # Kernel declaration headers: shipped, because the module units #include them with
@@ -742,6 +744,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Structural.h"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Random.h"
                 "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
+                "Src/Dnn/Compute/Devices/Cuda/Kernels/DecodePosition.cuh"
     )
 
     target_sources(Mila
@@ -758,6 +761,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/CudaDevice.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaDecodeGraph.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.Traits.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Profiling/CudaTimer.ixx"
 

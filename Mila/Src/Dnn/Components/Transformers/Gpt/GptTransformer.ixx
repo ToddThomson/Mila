@@ -337,8 +337,12 @@ namespace Mila::Dnn
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
             this->getExecutionContext()->synchronize();
 
+            this->setCachedLength( T_prompt );
+
             return *logits_ptr_;
         }
+
+    protected:
 
         /**
          * @brief Inference-only single-token decode pass.
@@ -363,7 +367,7 @@ namespace Mila::Dnn
          * @param position Current sequence position (0-based).
          * @return         Reference to logits tensor [B, 1, vocab_size].
          */
-        TensorType& decode( const TokenIndexType& input, dim_t position ) override
+        TensorType& onDecode( const TokenIndexType& input, dim_t position ) override
         {
             if ( !this->isBuilt() )
             {
@@ -403,7 +407,9 @@ namespace Mila::Dnn
 
             return *logits_ptr_;
         }
-       
+
+    public:
+
         void zeroGradients() override
         {
             if ( !this->isBuilt() )

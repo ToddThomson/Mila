@@ -233,10 +233,14 @@ namespace Mila::Dnn
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
 
+            this->setCachedLength( T_prompt );
+
             return *logits_ptr_;
         }
 
-        TensorType& decode( const TokenIndexType& input, dim_t position ) override
+    protected:
+
+        TensorType& onDecode( const TokenIndexType& input, dim_t position ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaTransformer must be built before calling decode()." );
@@ -254,6 +258,8 @@ namespace Mila::Dnn
 
             return *logits_ptr_;
         }
+
+    public:
 
         /**
          * @brief Teacher-forced log-likelihood of `input` -- the corpus-perplexity path.
@@ -339,6 +345,7 @@ namespace Mila::Dnn
                 offset += chunk_length;
             }
 
+            this->setCachedLength( T );
             this->synchronize();
 
             SequenceLogLikelihood result;
@@ -361,25 +368,31 @@ namespace Mila::Dnn
         {
             for ( auto* block : blocks_ )
                 block->resetKvCache();
+
+            this->setCachedLength( 0 );
+            this->discardDecodeRecording();
         }
 
+    protected:
+
         /**
-         * @brief Rewind every layer's KV cache to `position` for prefix reuse.
+         * @brief Whether every layer's KV cache accepts a rewind to `position` for prefix reuse.
          *
          * All-or-nothing from the caller's perspective: returns true only when
          * every layer accepted. On false the caller falls back to a full prefill,
-         * which positionally overwrites all caches -- so a partial rewind (some
-         * layers moved, a bounded ring refused) needs no cleanup.
+         * which positionally overwrites all caches -- so a refusal needs no cleanup.
          */
-        bool rewindKvCache( dim_t position ) override
+        bool onRewindKvCache( dim_t position, dim_t cached_length ) override
         {
             bool all_accepted = true;
 
             for ( auto* block : blocks_ )
-                all_accepted = block->rewindKvCache( position ) && all_accepted;
+                all_accepted = block->rewindKvCache( position, cached_length ) && all_accepted;
 
             return all_accepted;
         }
+
+    public:
 
         // ====================================================================
         // Accessors / Diagnostics

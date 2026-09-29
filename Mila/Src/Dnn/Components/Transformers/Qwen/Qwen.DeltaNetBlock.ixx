@@ -399,7 +399,7 @@ namespace Mila::Dnn
          * corrupt a prefix-reuse session rather than fail it, so prompt-prefix reuse is
          * unavailable for any model containing these layers.
          */
-        bool rewindKvCache( dim_t ) override
+        bool rewindKvCache( dim_t, dim_t ) override
         {
             return false;
         }

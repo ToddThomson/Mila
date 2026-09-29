@@ -15,14 +15,18 @@ module;
 #include <string>
 #include <format>
 #include <stdexcept>
+#include "Kernels/DecodePosition.cuh"
 
 export module Compute.CudaExecutionContext;
 
 import Compute.IExecutionContext;
+import Compute.IDecodeRecording;
+import Compute.CudaDecodeGraph;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Core.RandomGenerator;
 import Cuda.Error;
+import Dnn.TensorTypes;
 
 namespace Mila::Dnn::Compute
 {
@@ -350,6 +354,56 @@ namespace Mila::Dnn::Compute
         }
 
         /**
+         * @brief Enqueue the decode position on this context's stream (DecodeGraph.md section 4.1).
+         *
+         * The device int is allocated by the first call, so a context that never decodes holds none.
+         *
+         * @throws std::runtime_error If allocation fails.
+         */
+        void setDecodePosition( dim_t position ) override
+        {
+            if ( !decode_position_ )
+            {
+                cudaError_t err = cudaMalloc( &decode_position_, sizeof( int ) );
+
+                if ( err != cudaSuccess )
+                {
+                    cudaDiscardLastError();
+                    decode_position_ = nullptr;
+
+                    throw std::runtime_error(
+                        std::format( "Failed to allocate the decode position: {}", cudaGetErrorString( err ) ) );
+                }
+            }
+
+            Cuda::cuda_set_decode_position( decode_position_, narrowToKernelIndex( position ), stream_ );
+        }
+
+        /// A CUDA graph recorded from this context's stream (DecodeGraph.md section 4.4).
+        [[nodiscard]] std::unique_ptr<IDecodeRecording> createDecodeRecording() override
+        {
+            return std::make_unique<CudaDecodeGraph>( stream_ );
+        }
+
+        /**
+         * @brief The device int a decode kernel reads its position from.
+         *
+         * @throws std::logic_error If no decode position was ever set: a decode op ran outside a network's
+         *         decode step, and would otherwise read nothing.
+         */
+        [[nodiscard]] const int* getDecodePosition() const
+        {
+            if ( !decode_position_ )
+            {
+                throw std::logic_error(
+                    "CudaExecutionContext: a decode op ran before any decode position was set; call "
+                    "setDecodePosition( position ) before an op's decode, as a network's decode does" );
+            }
+
+            return decode_position_;
+        }
+
+        /**
          * @brief Gets or grows the pinned host staging buffer for Host->Device transfers.
          *
          * Page-locked via cudaHostAlloc so cudaMemcpyAsync from it to device memory
@@ -430,6 +484,8 @@ namespace Mila::Dnn::Compute
 
         mutable void* pinned_staging_buf_{ nullptr };
         mutable size_t pinned_staging_size_{ 0 };
+
+        int* decode_position_{ nullptr };
 
         mutable void* cublaslt_workspace_{ nullptr };
         mutable size_t cublaslt_workspace_size_{ 0 };
@@ -555,6 +611,12 @@ namespace Mila::Dnn::Compute
                 cudaFreeHost( pinned_staging_buf_ );
                 pinned_staging_buf_ = nullptr;
                 pinned_staging_size_ = 0;
+            }
+
+            if ( decode_position_ )
+            {
+                cudaFree( decode_position_ );
+                decode_position_ = nullptr;
             }
 
             if ( stream_created_ && stream_ )

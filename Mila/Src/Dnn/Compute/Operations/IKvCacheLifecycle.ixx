@@ -35,18 +35,21 @@ namespace Mila::Dnn::Compute
         virtual void resetKvCache() = 0;
 
         /**
-         * @brief Rewind the logical cache fill position without touching device
-         * K/V buffer contents, so positions [0, position) can be reused by a
-         * subsequent partial prefill (PromptCaching.md).
+         * @brief Whether positions [0, position) of this cache can be reused by a
+         * subsequent partial prefill (PromptCaching.md), device K/V contents untouched.
          *
-         * @return true when the rewind is valid and was applied. Implementations
-         * must refuse (return false, cache state unchanged) when reuse would be
-         * incorrect -- e.g. position exceeds the current fill, or a bounded
-         * sliding-window ring has already overwritten the window a continuation
-         * from `position` would attend to. On false the caller falls back to a
-         * full prefill, which positionally overwrites regardless of cache state.
+         * The number of positions the cache holds is the network's, passed as
+         * `cached_length`: the op keeps no fill count of its own, so a decode step
+         * leaves no host state behind (DecodeGraph.md section 4.3). The network
+         * applies an accepted rewind by setting its cached length to `position`.
+         *
+         * @return false when reuse would be incorrect -- e.g. position exceeds
+         * cached_length, or a bounded sliding-window ring has already overwritten
+         * the window a continuation from `position` would attend to. On false the
+         * caller falls back to a full prefill, which positionally overwrites
+         * regardless of cache state.
          */
-        virtual bool rewindKvCache( dim_t position ) = 0;
+        virtual bool rewindKvCache( dim_t position, dim_t cached_length ) = 0;
 
         virtual ~IKvCacheLifecycle() = default;
     };

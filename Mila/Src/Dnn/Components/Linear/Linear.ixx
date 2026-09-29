@@ -189,9 +189,7 @@ namespace Mila::Dnn
             {
                 auto output_shape = input_shape;
                 output_shape.back() = config_.getOutputFeatures();
-                output_view_ = std::make_unique<TensorType>( output_->view( output_shape ) );
-
-                result = output_view_.get();
+                result = &stableView( output_view_, *output_, output_shape );
             }
 
             this->publish( ComputePass::Forward, "output", *result );

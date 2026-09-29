@@ -22,7 +22,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             __nv_fp8_e4m3* __restrict__ K, __nv_fp8_e4m3* __restrict__ V,
             float* __restrict__ k_scales, float* __restrict__ v_scales,
             const __nv_bfloat16* __restrict__ Xk, const __nv_bfloat16* __restrict__ Xv,
-            int rows, int chunk_len, int NKV, int start_pos, int capacity )
+            int rows, int chunk_len, int NKV, int start_pos, const int* device_start_pos, int capacity )
         {
             constexpr int kPerLane = kHeadSize / 32;
 
@@ -62,7 +62,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             }
 
             // The ring wrap is the identity for the unbounded cache, as in the BF16 write.
-            const int slot = ( start_pos + t ) % capacity;
+            const int first = device_start_pos != nullptr ? *device_start_pos : start_pos;
+            const int slot = ( first + t ) % capacity;
             const size_t cache_row = ( static_cast<size_t>( b ) * NKV + nkv ) * capacity + slot;
 
             const float scale = absmax / 448.0f;
@@ -85,13 +86,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         template<int kHeadSize>
         void launch( __nv_fp8_e4m3* K, __nv_fp8_e4m3* V, float* k_scales, float* v_scales,
             const __nv_bfloat16* Xk, const __nv_bfloat16* Xv,
-            int batch, int chunk_len, int NKV, int start_pos, int capacity, cudaStream_t stream )
+            int batch, int chunk_len, int NKV, int start_pos, const int* device_start_pos, int capacity,
+            cudaStream_t stream )
         {
             const int rows = batch * chunk_len * NKV;
             const int blocks = ceil_div( 2 * rows, kWarpsPerBlock );
 
             kvcache_write_kv_fp8_kernel<kHeadSize><<<blocks, kWarpsPerBlock * 32, 0, stream>>>(
-                K, V, k_scales, v_scales, Xk, Xv, rows, chunk_len, NKV, start_pos, capacity );
+                K, V, k_scales, v_scales, Xk, Xv, rows, chunk_len, NKV, start_pos, device_start_pos, capacity );
         }
     }
 
@@ -106,21 +108,24 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const __nv_bfloat16* Xk, const __nv_bfloat16* Xv,
         int batch, int chunk_len,
         int NKV, int HS,
-        int start_pos, int capacity,
+        int start_pos, const int* device_start_pos, int capacity,
         cudaStream_t stream )
     {
         switch ( HS )
         {
             case 128:
-                launch<128>( K, V, k_scales, v_scales, Xk, Xv, batch, chunk_len, NKV, start_pos, capacity, stream );
+                launch<128>( K, V, k_scales, v_scales, Xk, Xv, batch, chunk_len, NKV, start_pos, device_start_pos,
+                    capacity, stream );
                 break;
 
             case 256:
-                launch<256>( K, V, k_scales, v_scales, Xk, Xv, batch, chunk_len, NKV, start_pos, capacity, stream );
+                launch<256>( K, V, k_scales, v_scales, Xk, Xv, batch, chunk_len, NKV, start_pos, device_start_pos,
+                    capacity, stream );
                 break;
 
             case 512:
-                launch<512>( K, V, k_scales, v_scales, Xk, Xv, batch, chunk_len, NKV, start_pos, capacity, stream );
+                launch<512>( K, V, k_scales, v_scales, Xk, Xv, batch, chunk_len, NKV, start_pos, device_start_pos,
+                    capacity, stream );
                 break;
 
             default:

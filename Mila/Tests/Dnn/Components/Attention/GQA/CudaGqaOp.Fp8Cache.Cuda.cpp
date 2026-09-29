@@ -220,6 +220,8 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
                     DeviceBf16 v = toDevice( slice( s.v, kv_width, position, 1 ), shape_t{ g.batch, 1, kv_width } );
                     DeviceBf16 out( Device::Cuda( 0 ), shape_t{ g.batch, 1, model_dim } );
 
+                    // An op decoded outside a network is given the position the network would write.
+                    context_->setDecodePosition( position );
                     op.decode( q, k, v, out, position );
                     keep( toFloat( out ), position, 1 );
                 }

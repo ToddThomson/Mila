@@ -457,9 +457,8 @@ namespace Mila::Dnn
 
             auto output_shape = input_shape;
             output_shape.back() = config_.getModelDim();
-            output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
 
-            return *output_view_;
+            return stableView( output_view_, *owned_output_, output_shape );
         }
 
         void validateConcatenatedQKVShape( const shape_t& shape ) const

@@ -215,8 +215,7 @@ namespace Mila::Dnn
             operation_->forward( input, *output_ );
 
             shape_t actual_out_shape = { B, T, config_.getEmbeddingDim() };
-            current_output_view_ = std::make_unique<EmbeddingTensorType>(
-                output_->view( actual_out_shape ) );
+            stableView( current_output_view_, *output_, actual_out_shape );
 
             // Gemma stores the embedding table raw and shares it with a tied lm_head;
             // the sqrt(embedding_dim) scale is applied here instead of being folded into

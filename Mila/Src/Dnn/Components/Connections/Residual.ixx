@@ -149,11 +149,11 @@ namespace Mila::Dnn
                 return *output_;
             }
 
-            output_view_ = std::make_unique<TensorType>( output_->view( input_shape ) );
+            TensorType& output = stableView( output_view_, *output_, input_shape );
 
-            this->publish( ComputePass::Forward, "output", *output_view_ );
+            this->publish( ComputePass::Forward, "output", output );
 
-            return *output_view_;
+            return output;
         }
 
         /**

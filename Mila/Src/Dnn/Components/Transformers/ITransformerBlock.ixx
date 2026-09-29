@@ -76,13 +76,15 @@ namespace Mila::Dnn
         virtual void resetKvCache() = 0;
 
         /**
-         * @brief Rewind the KV cache fill position for prompt-prefix reuse.
+         * @brief Whether the KV cache can be rewound to `position` for prompt-prefix reuse.
          *
          * Keeps the cache session live; positions [0, position) stay valid.
+         * @param position      The first position a continuation will prefill.
+         * @param cached_length The positions the network's caches hold (DecodeGraph.md 4.3).
          * @return true when the layer's attention accepted the rewind (a bounded
          * sliding-window ring refuses when the stale tail has overwritten the
          * window a continuation would attend to).
          */
-        virtual bool rewindKvCache( dim_t position ) = 0;
+        virtual bool rewindKvCache( dim_t position, dim_t cached_length ) = 0;
     };
 }

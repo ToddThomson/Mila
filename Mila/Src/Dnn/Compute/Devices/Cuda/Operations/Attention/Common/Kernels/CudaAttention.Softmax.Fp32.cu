@@ -119,12 +119,13 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
 
     __global__ void softmax_decode_forward_fp32_kernel(
         float* att, float scale, const float* preatt,
-        int B_NH, int max_len, int actual_len, int window )
+        int B_NH, int max_len, const int* position, int window )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
         if ( idx < B_NH )
         {
+            const int actual_len = *position + 1;
             const float* preatt_row = preatt + idx * max_len;
             float* att_row = att + idx * max_len;
 
@@ -177,7 +178,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
     // See SlidingWindowKvCache.md D6.
     __global__ void softmax_decode_ring_forward_fp32_kernel(
         float* att, const float* preatt,
-        int B_NH, int capacity, int actual_len, int window )
+        int B_NH, int capacity, const int* position, int window )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -186,6 +187,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
             const float* preatt_row = preatt + idx * capacity;
             float* att_row = att + idx * capacity;
 
+            const int actual_len = *position + 1;
             const int end = actual_len - 1;
             const int window_start = ( window > 0 ) ? max( 0, actual_len - window ) : 0;
             const int r = end % capacity;
@@ -302,7 +304,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
 
     void cuda_attention_softmax_decode_forward_fp32(
         float* att, float scale, const float* preatt,
-        int B, int NH, int max_len, int actual_len,
+        int B, int NH, int max_len, const int* position,
         cudaStream_t stream, int window )
     {
         const int block_size = 256;
@@ -310,14 +312,14 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
         const int num_blocks = ceil_div( B_NH, block_size );
 
         softmax_decode_forward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (
-            att, scale, preatt, B_NH, max_len, actual_len, window);
+            att, scale, preatt, B_NH, max_len, position, window);
 
         cudaCheck( cudaGetLastError() );
     }
 
     void cuda_attention_softmax_decode_ring_forward_fp32(
         float* att, float scale, const float* preatt,
-        int B, int NH, int capacity, int actual_len,
+        int B, int NH, int capacity, const int* position,
         cudaStream_t stream, int window )
     {
         // scale unused: decode folds 1/sqrt(head_size) into the QK GEMM alpha.
@@ -328,7 +330,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
         const int num_blocks = ceil_div( B_NH, block_size );
 
         softmax_decode_ring_forward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (
-            att, preatt, B_NH, capacity, actual_len, window);
+            att, preatt, B_NH, capacity, position, window);
 
         cudaCheck( cudaGetLastError() );
     }

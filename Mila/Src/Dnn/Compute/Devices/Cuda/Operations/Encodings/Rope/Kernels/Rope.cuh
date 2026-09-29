@@ -136,7 +136,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      * @param cos_cache  Precomputed cosines [max_seq_len, head_dim/2].
      * @param sin_cache  Precomputed sines   [max_seq_len, head_dim/2].
      * @param B          Batch size.
-     * @param position   Absolute sequence position (selects cache row).
+     * @param position   Device int holding the absolute sequence position (selects cache row).
      * @param n_heads    Number of query heads.
      * @param n_kv_heads Number of key/value heads.
      * @param head_dim   Per-head dimension (must be divisible by 2).
@@ -149,7 +149,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* K_in,
         const float* cos_cache,
         const float* sin_cache,
-        int B, int position,
+        int B, const int* position,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
         cudaStream_t stream );
@@ -190,7 +190,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const __nv_bfloat16* K_in,
         const float* cos_cache,
         const float* sin_cache,
-        int B, int position,
+        int B, const int* position,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
         cudaStream_t stream );

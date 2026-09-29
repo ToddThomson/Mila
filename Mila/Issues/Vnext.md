@@ -917,3 +917,19 @@ so adding the size costs that context on every card where memory binds. Measured
 Not yet measured: Gemma 4 12B and Qwen 3.8 27B, whose activation widths and attention costs differ, so the gain
 and the context price there are unknown; and the 12 GB card, where the context given up is a larger share. The
 decision is one table for all three families or a per-family top chunk, and it is made on those numbers.
+
+
+## Llama 3.2 runs on the CPU backend
+
+`llama` · `architecture` · `mila-src`
+
+Todd, 2026-09-29: wanted, and post-0.21. The CPU backend is FP32 only and GPT-2 shaped (`OperationTraits.Cpu.ixx`):
+it has `LinearOp`, `RmsNormOp`, `ResidualOp`, `SoftmaxOp`, `SamplingOp`, `ElementwiseActivationOp`, `GeluOp`,
+`LayerNormOp`, `MultiHeadAttentionOp`, `LpeOp`, `RouterOp` and `MoeOp`. Llama also needs `TokenEmbeddingOp` (CPU has
+only GPT-2's token-plus-position encoder), `RopeOp` with Llama 3's frequency scaling, `GroupedQueryAttentionOp` with a
+KV cache for chunked prefill and decode, and `SwigluOp`; then BF16 weights widened to FP32 at load, and the Llama
+transformer and model building for `DeviceType::Cpu`. `Future.md` "The GPT-2 CPU path treats build-time extents as
+runtime extents" is the defect the new ops must not repeat. Memory bandwidth bounds it: FP32 weights are about 5 GB
+(1B) and 13 GB (3B), read once per token -- roughly 10 and 4 tokens a second on desktop memory. It is also the first
+Llama that runs on an Apple M1 without a Metal backend (`Future.md` "Compute backends beyond CUDA"). The bar is the
+CUDA families': token parity with HuggingFace.

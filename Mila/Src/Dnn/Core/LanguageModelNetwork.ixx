@@ -4,9 +4,15 @@
  */
 
 module;
+#include <algorithm>
 #include <cstdint>
+#include <cstring>
+#include <format>
+#include <memory>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <vector>
 
 export module Dnn.LanguageModelNetwork;
 
@@ -14,11 +20,15 @@ export import Dnn.SequenceLogLikelihood;
 
 import Dnn.Network;
 import Dnn.Tensor;
+import Dnn.TensorOps;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
+import Compute.IExecutionContext;
+import Compute.IDecodeRecording;
+import Logging.Logger;
 
 namespace Mila::Dnn
 {
@@ -121,11 +131,49 @@ namespace Mila::Dnn
         /**
          * @brief Inference decode -- single-token autoregressive step.
          *
+         * Writes `position` into the execution context, where the step's kernels read it
+         * (DecodeGraph.md section 4.1), runs the family's step -- called, or replayed from a
+         * recording when replay is on (setDecodeReplay) -- and advances the number of positions
+         * the KV caches hold.
+         *
          * @param input    Single token index [B, 1].
          * @param position Current sequence position (0-based).
          * @return         Logits [B, 1, vocab_size].
          */
-        virtual TensorType& decode( const TokenIndexType& input, dim_t position ) = 0;
+        TensorType& decode( const TokenIndexType& input, dim_t position )
+        {
+            IExecutionContext& context = *this->getExecutionContext();
+
+            context.setDecodePosition( position );
+
+            TensorType& logits = decodeStep( context, input, position );
+
+            cached_length_ = std::max( cached_length_, position + 1 );
+
+            return logits;
+        }
+
+        /**
+         * @brief Replay each decode step from one recording instead of calling it (DecodeGraph.md).
+         *
+         * Off for a network built directly; a model turns it on at load. With it on, the first
+         * step is called, the second is recorded and replayed, the third checks a replay against
+         * the called step bit for bit, and every later step is one replay. A step that cannot be
+         * recorded, or a replay that differs, turns replay off for the network's life with a
+         * warning. A step taken while an activation observer is installed is called. Debugging a
+         * decode step means turning this off first.
+         */
+        void setDecodeReplay( bool enabled )
+        {
+            decode_replay_ = enabled;
+            discardDecodeRecording();
+        }
+
+        /// Whether decode steps are replayed: on, and not turned off by a failed recording or check.
+        [[nodiscard]] bool isDecodeReplayed() const noexcept
+        {
+            return decode_replay_;
+        }
 
         /**
          * @brief Chunked prefill starting at an absolute position (prompt-prefix reuse).
@@ -180,17 +228,217 @@ namespace Mila::Dnn
          * (PromptCaching.md). Positions [0, position) stay valid; device contents
          * are untouched.
          *
-         * @return true when every layer accepted the rewind. Default: false (no
-         * reuse capability); a full prefill positionally overwrites regardless,
-         * so a refused or partial rewind never needs cleanup.
+         * @return true when every layer accepted the rewind, which then sets the cached
+         * length to `position`. False on a network with no reuse capability; a full
+         * prefill positionally overwrites regardless, so a refused rewind never needs
+         * cleanup.
          */
-        virtual bool rewindKvCache( dim_t position )
+        bool rewindKvCache( dim_t position )
         {
             // NOTE: there is deliberately no resetKvCache counterpart. Starting a prefill at
             // position 0 already discards carried state in every stateful component, so a new
             // sequence needs no explicit reset. TransformerApiReadiness.md item 2.
+            if ( !onRewindKvCache( position, cached_length_ ) )
+                return false;
+
+            cached_length_ = position;
+
+            return true;
+        }
+
+    protected:
+
+        /// The family's decode step, the one decode() runs (DecodeGraph.md section 4.4).
+        virtual TensorType& onDecode( const TokenIndexType& input, dim_t position ) = 0;
+
+        /**
+         * @brief Whether every layer accepts a rewind to `position` from `cached_length`.
+         *
+         * Implemented by GemmaTransformer and QwenTransformer; false on any other network.
+         */
+        virtual bool onRewindKvCache( dim_t position, dim_t cached_length )
+        {
             ( void )position;
+            ( void )cached_length;
+
             return false;
         }
+
+        /**
+         * @brief Set the number of positions the KV caches hold.
+         *
+         * Every prefill path calls this when it returns, with the end of the span it wrote.
+         * The count is the network's rather than each attention op's, so a decode step leaves
+         * no host state in an op behind it (DecodeGraph.md section 4.3).
+         */
+        void setCachedLength( dim_t length ) noexcept
+        {
+            cached_length_ = length;
+        }
+
+        /**
+         * @brief Keep a copy of the state a decode step advances in place, for the self-check.
+         *
+         * The self-check runs one step twice, called and then replayed. A KV-cache write repeated
+         * lands the same rows in the same slots, so a network with only KV caches keeps nothing
+         * (the default). A recurrent state would advance twice; a network that carries one copies
+         * it here and puts it back in restoreDecodeState().
+         */
+        virtual void holdDecodeState()
+        {
+        }
+
+        /// Put back the state holdDecodeState() copied.
+        virtual void restoreDecodeState()
+        {
+        }
+
+        /// Free the copy holdDecodeState() took; the self-check is done with it.
+        virtual void releaseDecodeState()
+        {
+        }
+
+        /// Drop the decode recording; the next steps prime and record it again.
+        void discardDecodeRecording() noexcept
+        {
+            decode_recording_.reset();
+            recorded_input_ = nullptr;
+            recorded_logits_.reset();
+            replay_stage_ = ReplayStage::Unprimed;
+        }
+
+    private:
+
+        /// Where the recording's life stands (DecodeGraph.md section 4.4).
+        enum class ReplayStage
+        {
+            Unprimed,  ///< The next step is called, doing any lazy setup and touching every buffer.
+            Primed,    ///< The next step is recorded, then replayed.
+            Recorded,  ///< The next step checks a replay against the called step.
+            Verified   ///< Every step is replayed.
+        };
+
+        TensorType& decodeStep( IExecutionContext& context, const TokenIndexType& input, dim_t position )
+        {
+            if ( !decode_replay_ || context.hasActivationObserver() )
+                return onDecode( input, position );
+
+            // The recording holds the input's address; a different input tensor needs a new one.
+            if ( decode_recording_ && input.rawData() != recorded_input_ )
+                discardDecodeRecording();
+
+            switch ( replay_stage_ )
+            {
+                case ReplayStage::Unprimed:
+                {
+                    TensorType& logits = onDecode( input, position );
+                    replay_stage_ = ReplayStage::Primed;
+
+                    return logits;
+                }
+
+                case ReplayStage::Primed:
+                    return recordDecodeStep( context, input, position );
+
+                case ReplayStage::Recorded:
+                    return checkDecodeRecording( context, input, position );
+
+                case ReplayStage::Verified:
+                default:
+                    decode_recording_->replay();
+
+                    return *recorded_logits_;
+            }
+        }
+
+        TensorType& recordDecodeStep( IExecutionContext& context, const TokenIndexType& input, dim_t position )
+        {
+            decode_recording_ = context.createDecodeRecording();
+            TensorType* logits = nullptr;
+
+            if ( !decode_recording_
+                || !decode_recording_->record( [ & ] { logits = &onDecode( input, position ); } ) )
+            {
+                turnOffDecodeReplay( "its decode step could not be recorded" );
+
+                return onDecode( input, position );
+            }
+
+            // The recording outlives the step that made it: a later pass may run the head at another shape
+            // (a log-likelihood window), and the component's view then describes that. The network keeps its
+            // own description of the region the recording writes the logits to.
+            recorded_input_ = input.rawData();
+            recorded_logits_ = std::make_unique<TensorType>( logits->view( logits->shape() ) );
+            replay_stage_ = ReplayStage::Recorded;
+
+            decode_recording_->replay();
+
+            return *recorded_logits_;
+        }
+
+        /**
+         * The self-check (DecodeGraph.md section 5.1): the step called, then replayed at the same
+         * position from the same state. Writing the same K and V to the same cache slot twice
+         * leaves the cache as it was, and a recurrent state is put back between the two, so the
+         * replay sees what the called step saw and any difference is a value the recording froze.
+         */
+        TensorType& checkDecodeRecording( IExecutionContext& context, const TokenIndexType& input, dim_t position )
+        {
+            holdDecodeState();
+
+            TensorType& called = onDecode( input, position );
+            const std::vector<float> called_logits = hostLogits( called, context );
+
+            restoreDecodeState();
+            decode_recording_->replay();
+            const std::vector<float> replayed_logits = hostLogits( *recorded_logits_, context );
+
+            const bool identical = called.rawData() == recorded_logits_->rawData()
+                && called_logits.size() == replayed_logits.size()
+                && std::memcmp( called_logits.data(), replayed_logits.data(),
+                    called_logits.size() * sizeof( float ) ) == 0;
+
+            if ( !identical )
+            {
+                turnOffDecodeReplay( "a replayed decode step differed from the called one" );
+
+                // The replay overwrote the logits and advanced any recurrent state; the called step,
+                // from the held state, writes both again.
+                restoreDecodeState();
+                releaseDecodeState();
+
+                return onDecode( input, position );
+            }
+
+            releaseDecodeState();
+            replay_stage_ = ReplayStage::Verified;
+
+            return called;
+        }
+
+        std::vector<float> hostLogits( const TensorType& logits, IExecutionContext& context )
+        {
+            auto host = toHost<TensorDataType::FP32>( logits, &context );
+            context.synchronize();
+
+            return std::vector<float>( host.data(), host.data() + host.size() );
+        }
+
+        void turnOffDecodeReplay( std::string_view reason )
+        {
+            decode_replay_ = false;
+            discardDecodeRecording();
+
+            Logging::Logger::warning( std::format(
+                "{}: decode replay is off for this network -- {}; every decode step is called", this->getName(), reason ) );
+        }
+
+        dim_t cached_length_{ 0 };
+
+        bool decode_replay_{ false };
+        ReplayStage replay_stage_{ ReplayStage::Unprimed };
+        std::unique_ptr<IDecodeRecording> decode_recording_;
+        const void* recorded_input_{ nullptr };
+        std::unique_ptr<TensorType> recorded_logits_;
     };
 }

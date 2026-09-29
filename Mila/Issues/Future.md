@@ -733,6 +733,15 @@ The microscaling data path and finer per-arch gating.
 
 ROCm and Metal; `DeviceType::Rocm` / `::Metal` are reserved and unimplemented.
 
+Metal, 2026-09-29: aspirational, gated on hardware -- Todd is trying to get an Apple M1, for a Metal backend running
+Llama. What exists is scaffolding --
+`Compute/Devices/Metal/` has a device, memory resource, execution context and plugin, and no ops. The order that
+follows from the tree: Mila has never been built on ARM (the next entry), so a CPU-only build on the M1 comes first,
+and with `Vnext.md` "Llama 3.2 runs on the CPU backend" it already runs Llama there; then the Llama op set in Metal,
+where metal-cpp (Apple's header-only C++ wrapper) keeps host code C++. Unified memory means the load path should not
+stage weights through a copy -- the question the next entry raises for coherent memory. A decode step on Metal is
+called every step: `IExecutionContext::createDecodeRecording()` is null there, so replay needs nothing from it.
+
 ## Platform portability — aarch64 + coherent memory
 
 `build`

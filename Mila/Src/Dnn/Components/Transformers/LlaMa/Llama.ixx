@@ -191,6 +191,8 @@ namespace Mila::Dnn
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
 
+            this->setCachedLength( T_prompt );
+
             return *logits_ptr_;
         }
 
@@ -273,6 +275,7 @@ namespace Mila::Dnn
                 offset += chunk_length;
             }
 
+            this->setCachedLength( T );
             this->synchronize();
 
             SequenceLogLikelihood result;
@@ -287,7 +290,9 @@ namespace Mila::Dnn
             return result;
         }
 
-        TensorType& decode( const TokenIndexType& input, dim_t position ) override
+    protected:
+
+        TensorType& onDecode( const TokenIndexType& input, dim_t position ) override
         {
             auto& embed_out = token_embedding_->forward( input );
 
@@ -314,6 +319,8 @@ namespace Mila::Dnn
 
             return *logits_ptr_;
         }
+
+    public:
 
         TokenIndexType& backward( const TokenIndexType& input, const TensorType& output_grad ) override
         {

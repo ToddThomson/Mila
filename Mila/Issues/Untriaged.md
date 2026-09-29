@@ -417,6 +417,27 @@ page, so a path it cannot represent fails to open. The store lives under `%LOCAL
 name has such characters cannot load any model. Found 2026-09-29 while clearing the `fopen` deprecation warning;
 not reproduced. A fix opens by `path::c_str()` (wide on Windows) without an `#ifdef` in a module.
 
+## A Debug CPU-only MSVC build cannot compile the weights metadata module
+
+`Mila/Src/Dnn/Serialization/WeightsMetadata.ixx` (`import nlohmann.json;`) @ `0.21.0-dev+19`
+
+`out/build/x64-claude-cpuonly` (MSVC 14.51.36231, `CMAKE_BUILD_TYPE=Debug`, `MILA_ENABLE_CUDA=OFF`) fails on this module
+with `json.hpp(20512): error C2678: binary '!=': no operator found which takes a left-hand operand of type 'nullptr'`
+-- a `unique_ptr != nullptr` comparison that the Release CUDA builds of the same file compile. Neither file changed
+in `+19`. Not isolated: whether Debug or CUDA-off is the variable, and whether it is the MSVC module/header
+interaction `Vnext.md` already records, was not tested. A Release build of the same directory compiles it and passes
+1266 tests. Found 2026-09-29 verifying DecodeGraph on the CPU-only configuration.
+
+## The decode position is device memory the footprint does not predict
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx` (`setDecodePosition`) @ `0.21.0-dev+19`
+
+DecodeGraph Phase A: the context `cudaMalloc`s one `int` on its first decode step, outside `reserveScratch` and outside
+every `getMemoryStats` a plan is priced from. Four bytes requested; what the driver reserves for it was not measured,
+and a small `cudaMalloc` can cost a whole allocation granule. Every other device allocation a load makes is predicted
+(`Deployment.md` section 9), and the scratch reservation throws on growth for that reason. Found 2026-09-29 auditing
+the change for limitations met along the way.
+
 ## Two compile-time A/B toggles in CudaLinearOp keep branches no build takes
 
 `Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx` (`kUseW8A16Gemm`, `kUseFusedFp4Gemm`,

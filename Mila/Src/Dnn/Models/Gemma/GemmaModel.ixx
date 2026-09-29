@@ -554,7 +554,10 @@ namespace Mila::Dnn
             , model_config_( plan.modelConfig<GemmaModelConfig>() )
             , plan_( plan )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
-        {}
+        {
+            // Every load path builds the model here; a network built directly stays off (DecodeGraph.md 4.6).
+            this->setDecodeReplay( true );
+        }
 
         static bool isRoutedCheckpoint( const std::filesystem::path& path )
         {

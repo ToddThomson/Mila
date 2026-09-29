@@ -64,10 +64,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             static void kvcache_write_kv(
                 float* K, float* V, const float* Xk, const float* Xv,
                 int B, int chunk_len, int NKV, int HS,
-                int position_offset, int T, cudaStream_t stream )
+                int position_offset, const int* device_position, int T, cudaStream_t stream )
             {
                 cuda_gqa_kvcache_write_kv_fp32(
-                    K, V, Xk, Xv, B, chunk_len, NKV, HS, position_offset, T, stream );
+                    K, V, Xk, Xv, B, chunk_len, NKV, HS, position_offset, device_position, T, stream );
             }
 
             static void kvcache_expand_kv(
@@ -205,18 +205,18 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             static void softmax_decode_forward(
                 float* att, float scale, const float* preatt,
-                int B, int NH, int max_len, int actual_len, int window, cudaStream_t s )
+                int B, int NH, int max_len, const int* position, int window, cudaStream_t s )
             {
                 Attention::Common::cuda_attention_softmax_decode_forward_fp32(
-                    att, scale, preatt, B, NH, max_len, actual_len, s, window );
+                    att, scale, preatt, B, NH, max_len, position, s, window );
             }
 
             static void softmax_decode_ring_forward(
                 float* att, float scale, const float* preatt,
-                int B, int NH, int capacity, int actual_len, int window, cudaStream_t s )
+                int B, int NH, int capacity, const int* position, int window, cudaStream_t s )
             {
                 Attention::Common::cuda_attention_softmax_decode_ring_forward_fp32(
-                    att, scale, preatt, B, NH, capacity, actual_len, s, window );
+                    att, scale, preatt, B, NH, capacity, position, s, window );
             }
 
             static void softmax_backward(
@@ -278,9 +278,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             static void kvcache_write_kv(
                 nv_bfloat16* K, nv_bfloat16* V, const nv_bfloat16* Xk, const nv_bfloat16* Xv,
                 int B, int chunk_len, int NKV, int HS,
-                int position_offset, int T, cudaStream_t stream )
+                int position_offset, const int* device_position, int T, cudaStream_t stream )
             {
-                cuda_gqa_kvcache_write_kv_bf16( K, V, Xk, Xv, B, chunk_len, NKV, HS, position_offset, T, stream );
+                cuda_gqa_kvcache_write_kv_bf16(
+                    K, V, Xk, Xv, B, chunk_len, NKV, HS, position_offset, device_position, T, stream );
             }
 
             static void kvcache_expand_kv(
@@ -454,12 +455,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 const nv_bfloat16* Q, const nv_bfloat16* K, const nv_bfloat16* V,
                 nv_bfloat16* Y, float* split_scratch,
                 int B, int NH, int NKV, int HS, int cache_capacity,
-                int actual_len, int window, float scale,
+                const int* position, int max_band, int window, float scale,
                 cudaStream_t stream )
             {
                 cuda_gqa_decode_attention_bf16(
                     Q, K, V, Y, split_scratch, B, NH, NKV, HS, cache_capacity,
-                    actual_len, window, scale, stream );
+                    position, max_band, window, scale, stream );
             }
 
             // ----------------------------------------------------------------
@@ -475,10 +476,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 __nv_fp8_e4m3* K, __nv_fp8_e4m3* V, float* k_scales, float* v_scales,
                 const nv_bfloat16* Xk, const nv_bfloat16* Xv,
                 int B, int chunk_len, int NKV, int HS,
-                int position_offset, int capacity, cudaStream_t stream )
+                int position_offset, const int* device_position, int capacity, cudaStream_t stream )
             {
                 cuda_gqa_kvcache_write_kv_fp8(
-                    K, V, k_scales, v_scales, Xk, Xv, B, chunk_len, NKV, HS, position_offset, capacity, stream );
+                    K, V, k_scales, v_scales, Xk, Xv, B, chunk_len, NKV, HS, position_offset, device_position,
+                    capacity, stream );
             }
 
             static void flash_prefill_fp8(
@@ -498,12 +500,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 const float* k_scales, const float* v_scales,
                 nv_bfloat16* Y, float* split_scratch,
                 int B, int NH, int NKV, int HS, int cache_capacity,
-                int actual_len, int window, float scale,
+                const int* position, int max_band, int window, float scale,
                 cudaStream_t stream )
             {
                 cuda_gqa_decode_attention_fp8(
                     Q, K, V, k_scales, v_scales, Y, split_scratch, B, NH, NKV, HS, cache_capacity,
-                    actual_len, window, scale, stream );
+                    position, max_band, window, scale, stream );
             }
 
             // ----------------------------------------------------------------
@@ -527,16 +529,16 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             static void softmax_decode_forward(
                 nv_bfloat16* att, float scale, const nv_bfloat16* preatt,
-                int B, int NH, int max_len, int actual_len, int window, cudaStream_t stream )
+                int B, int NH, int max_len, const int* position, int window, cudaStream_t stream )
             {
-                Attention::Common::cuda_attention_softmax_decode_forward_bf16( att, scale, preatt, B, NH, max_len, actual_len, stream, window );
+                Attention::Common::cuda_attention_softmax_decode_forward_bf16( att, scale, preatt, B, NH, max_len, position, stream, window );
             }
 
             static void softmax_decode_ring_forward(
                 nv_bfloat16* att, float scale, const nv_bfloat16* preatt,
-                int B, int NH, int capacity, int actual_len, int window, cudaStream_t stream )
+                int B, int NH, int capacity, const int* position, int window, cudaStream_t stream )
             {
-                Attention::Common::cuda_attention_softmax_decode_ring_forward_bf16( att, scale, preatt, B, NH, capacity, actual_len, stream, window );
+                Attention::Common::cuda_attention_softmax_decode_ring_forward_bf16( att, scale, preatt, B, NH, capacity, position, stream, window );
             }
 
             static void softmax_backward(

@@ -176,18 +176,22 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * T=1 identity Q-permute/unpermute copies) with one streaming
      * online-softmax kernel that reads only the live attention band:
      * absolute positions [max(0, actual_len - window), actual_len), physical
-     * cache row = position % cache_capacity (identity when unbounded). Serves
-     * both the unbounded and bounded-ring ops. Q is read from the projection
-     * output [B, 1, NH*HS]; Y is written as [B, 1, NH*HS]. Long bands are
-     * split-K parallelized across blocks with a fixup merge launch;
-     * split_scratch must hold cuda_gqa_decode_attention_scratch_bytes.
-     * `scale` is the config-derived attention scale, applied to the QK dots.
+     * cache row = position % cache_capacity (identity when unbounded), where
+     * actual_len = *position + 1 is read on the device (DecodeGraph.md 4.1).
+     * Serves both the unbounded and bounded-ring ops. Q is read from the
+     * projection output [B, 1, NH*HS]; Y is written as [B, 1, NH*HS]. Long
+     * bands are split-K parallelized across blocks with a fixup merge launch;
+     * the grid is sized for the splits max_band (the longest band the op can
+     * hold) needs, and the live count is chosen on the device, so the launch
+     * is the same at every position (DecodeGraph.md 4.2). split_scratch must
+     * hold cuda_gqa_decode_attention_scratch_bytes. `scale` is the
+     * config-derived attention scale, applied to the QK dots.
      */
     void cuda_gqa_decode_attention_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
         __nv_bfloat16* Y, float* split_scratch,
         int B, int NH, int NKV, int HS, int cache_capacity,
-        int actual_len, int window, float scale,
+        const int* position, int max_band, int window, float scale,
         cudaStream_t stream );
 
     /**
@@ -202,7 +206,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const float* k_scales, const float* v_scales,
         __nv_bfloat16* Y, float* split_scratch,
         int B, int NH, int NKV, int HS, int cache_capacity,
-        int actual_len, int window, float scale,
+        const int* position, int max_band, int window, float scale,
         cudaStream_t stream );
 
     // ========================================================================
@@ -245,6 +249,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * @param NKV         Number of key/value heads.
      * @param HS          Head dimension.
      * @param start_pos   Absolute token position of the first chunk token.
+     * @param device_start_pos When not null, a device int read in place of start_pos: the decode
+     *                    position (DecodeGraph.md section 4.1).
      * @param max_seq_len KV cache capacity.
      * @param stream      CUDA stream for kernel scheduling.
      */
@@ -253,7 +259,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const float* Xk, const float* Xv,
         int batch, int chunk_len,
         int NKV, int HS,
-        int start_pos, int max_seq_len,
+        int start_pos, const int* device_start_pos, int max_seq_len,
         cudaStream_t stream );
 
     // ========================================================================
@@ -296,6 +302,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * @param NKV         Number of key/value heads.
      * @param HS          Head dimension.
      * @param start_pos   Absolute token position of the first chunk token.
+     * @param device_start_pos When not null, a device int read in place of start_pos: the decode
+     *                    position (DecodeGraph.md section 4.1).
      * @param max_seq_len KV cache capacity.
      * @param stream      CUDA stream for kernel scheduling.
      */
@@ -304,7 +312,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const __nv_bfloat16* Xk, const __nv_bfloat16* Xv,
         int batch, int chunk_len,
         int NKV, int HS,
-        int start_pos, int max_seq_len,
+        int start_pos, const int* device_start_pos, int max_seq_len,
         cudaStream_t stream );
 
     // ========================================================================
@@ -319,7 +327,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      *
      * Each row -- one KV head at one token -- is stored as E4M3 codes of x * (448 / absmax), saturating, with its
      * scale absmax / 448 in k_scales / v_scales [B, NKV, capacity]; an all-zero row stores zero codes and scale 0.
-     * The row index wraps by capacity as the BF16 write does. HS must be one the _supported query accepts.
+     * The row index wraps by capacity as the BF16 write does, and device_start_pos, when not null, replaces
+     * start_pos as it does there. HS must be one the _supported query accepts.
      */
     void cuda_gqa_kvcache_write_kv_fp8(
         __nv_fp8_e4m3* K, __nv_fp8_e4m3* V,
@@ -327,7 +336,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const __nv_bfloat16* Xk, const __nv_bfloat16* Xv,
         int batch, int chunk_len,
         int NKV, int HS,
-        int start_pos, int capacity,
+        int start_pos, const int* device_start_pos, int capacity,
         cudaStream_t stream );
 
     void cuda_gqa_kvcache_expand_kv_bf16(

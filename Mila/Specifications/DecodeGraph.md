@@ -133,8 +133,11 @@ A recording's life, owned by a CUDA-only type `CudaDecodeGraph` in its own modul
 | 3rd | The self-check (5.1). |
 | Every later step | One `cudaGraphLaunch`. |
 
-The recording records the input token tensor's and the logits tensor's addresses and is recorded again if
-either changes. It survives `generate()` calls and chat turns: prefill does not touch any buffer the decode
+The recording holds the input token tensor's address and is recorded again if it changes; the logits tensor is
+the network's own and cannot move, which the self-check confirms once. So a caller that decodes from a new token tensor every step is recorded every step and never
+replays; the models, and the tests, keep one tensor and write each token into it. The network reaches the
+recording through `IExecutionContext::createDecodeRecording()` (`Compute.IDecodeRecording`), which is null on a
+context that cannot record, so `LanguageModelNetwork` names no CUDA type. It survives `generate()` calls and chat turns: prefill does not touch any buffer the decode
 step uses, and scratch cannot move after build. A rebuild or a reset of the network discards it.
 
 ### 4.5 The sampler stays outside
@@ -164,6 +167,11 @@ recording, at the third step (position p + 1, the recording having been made at 
 1. Run the step called, and copy its logits to the host.
 2. Replay the recording at the same position, and copy its logits to the host. Writing the same K and V to
    the same cache slot twice leaves the cache unchanged, so the replay sees exactly what the called step saw.
+   A recurrent state is the exception: Qwen's DeltaNet layers and their convolution windows advance in place, so
+   running a step twice would advance them twice and the replay would see a different state. The network copies
+   that state to the host before the called step and puts it back before the replay (`holdDecodeState` /
+   `restoreDecodeState`, over the blocks' existing snapshots), then frees the copy. A network with only KV caches
+   copies nothing.
 3. Compare bit for bit. Equal: replay is on for this network's life. Different: replay is turned off for this
    network's life, and a warning names the network and says the called path is in use.
 
@@ -188,7 +196,7 @@ scratch-buffer trap it resembles:
 > of a decode step are recorded once and replayed every token. So a decode op may not pass a per-token value
 > as a launch argument (read the decode position from the execution context), may not update host state that
 > a later call reads, and may not allocate or read device memory back to the host after its first call. A
-> violation is caught at load by the self-check, which turns replay off and warns.
+> violation is caught by the self-check on a network's third decode step, which turns replay off and warns.
 
 ### 5.4 Observation takes the called path
 
@@ -246,6 +254,25 @@ No recording yet; every step is called.
 - **A3. The cost of C.** Decode rate at depths 16, 256, 1024 and 8192 on both packages against the build before
   the change; a regression below saturation is reported with its size before Phase B starts.
 
+**Result (2026-09-29, `+19`, RTX 5060 Ti).** A1: all eight arms of `Tests/Dnn/Models/DecodeReference.Cuda.cpp`
+(tiny Llama BF16, BF16 with FP8 KV and FP32; tiny Gemma across its window; tiny Qwen; Llama 3.1 8B Q4_0 with BF16
+and FP8 KV; Gemma 4 12B Q4_0) equal the `+18` reference at every step from 1 to 8200, bit for bit; every arm
+first reproduced itself at `+18`, so the called path was already deterministic. A2: the prefix-reuse tests pass
+with the cached length from the network. A3, tokens a second, `+18` (mean of two runs of three, measured before
+and after) against Phase A, one build each, 129 tokens:
+
+| Depth | Llama 3.1 8B | Gemma 4 12B |
+|---|---|---|
+| 16 | 74.72 -> 74.17 (+0.10 ms) | 47.64 -> 47.42 (+0.10 ms) |
+| 256 | 73.64 -> 73.29 (+0.06 ms) | 46.88 -> 46.81 (+0.03 ms) |
+| 1024 | 71.65 -> 71.37 (+0.05 ms) | 45.98 -> 45.78 (+0.10 ms) |
+| 8192 | 59.41 -> 59.22 (+0.05 ms) | 44.33 -> 44.14 (+0.10 ms) |
+
+0.1-0.7% at every depth, and about half of it past saturation, where the launched grid is today's -- so that part
+is not option C's idle blocks and fix-up. It is consistent with the dependent read of the device position at the
+head of each position-reading kernel and the one-thread write per step; inferred, not profiled. Both are small
+against the ~1 ms (Llama) and ~2.3 ms (Gemma) the recording removes.
+
 ### 7.2 Phase B -- the recording
 
 - **B1. Determinism.** The same called step twice gives bit-identical logits, per family.
@@ -259,6 +286,35 @@ No recording yet; every step is called.
   path does.
 - **B6. Rate.** `DecodeLaunch.Cuda.cpp`, the comparison table (`Mila/Profiling/Benchmarks/benchmark_comparison.py`)
   on the 5060 Ti, and the full suite on both cards.
+
+**Result (2026-09-29, `+19`, RTX 5060 Ti).** B1: every arm reproduced itself at `+18` (7.1). B2: the eight arms of
+`DecodeReference.Cuda.cpp`, replayed, equal the called `+18` reference at every step from 1 to 8200, each with
+exactly three called steps (priming, recording, self-check); `DecodeReplay.Cuda.cpp` repeats it at 300 steps in
+the suite. Its Qwen arm exposed that a build initialized `CausalConv1d` to zero, which silenced every DeltaNet layer
+of a network built without weights -- its recurrent state never reached the logits, so the A1 and B2 Qwen arms
+covered only the attention layer. The convolution now takes PyTorch's Conv1d default, a test asserts the fixture's
+logits depend on the recurrent state, and the tiny Qwen reference was rewritten from `+19`.
+B3: a step that sets a logit byte from the position through a memset's value is caught and runs called, output
+correct. B4: an observed run calls every step and delivers every decode publication. B5: prefix reuse after
+replayed steps equals the called path. Without the recurrent-state restore of 5.1 the Qwen self-check fails --
+demonstrated before it was kept. Full suite: 2087 tests on the 5060 Ti, 2083 on the 4070, clean build of every
+target, no warnings. Rates, `ProfileModel` through `generate()`, 129 tokens, tokens a second:
+
+| Depth | Llama 3.1 8B Q4_0 | Gemma 4 12B Q4_0 |
+|---|---|---|
+| 16 | 74.72 -> 80.20 (-0.91 ms) | 47.64 -> 53.43 (-2.27 ms) |
+| 256 | 73.64 -> 79.45 (-0.99 ms) | 46.88 -> 52.79 (-2.39 ms) |
+| 1024 | 71.65 -> 77.10 (-0.99 ms) | 45.98 -> 51.03 (-2.15 ms) |
+| 8192 | 59.41 -> 63.28 (-1.03 ms) | 44.33 -> 49.07 (-2.18 ms) |
+
+The saving is the one section 1 measured, at every depth. `DecodeLaunch.Cuda.cpp` on the same build: Llama 484
+kernels a step, 13.41 -> 12.38 ms; Gemma 1013, 21.04 -> 18.53 ms.
+
+The comparison table's head-to-head rows on the same build against llama.cpp b11216 (driver 617.14), generation
+of 128 tokens, Mila / llama.cpp: Llama 3.1 8B Q4_0 80 / 79 (1.02x), 63 / 65 (0.97x), 39 / 39 (1.00x) at depth 0,
+8K and 32K; Gemma 4 12B Q4_0 54 / 54 (0.99x), 49 / 51 (0.97x), 45 / 48 (0.94x). Section 8's projection held to
+within a token a second. What remains is attention at depth; the Gemma row also carries the output-head difference
+section 8 states as a condition of the comparison.
 
 ---
 
@@ -274,8 +330,9 @@ RTX 5060 Ti from the measurements before it, against llama.cpp on the same GGUF 
 
 So the recording brings Llama ahead with no context and level at 32K, and Gemma level with no context. What
 remains is attention at depth -- Llama's decode attention reads an 8K cache at about 70% of bandwidth, and
-Gemma's head-size-512 global layers fall away with depth -- and Gemma's output head (FP8, 1.0 GB a token,
-against the GGUF's Q6_K, 0.83 GB). Those are the next items, and none of them is this change.
+Gemma's head-size-512 global layers fall away with depth. That is the next item, and it is not this change. One
+condition of the Gemma row: the compared weights differ in the output head, FP8 in Mila's package (1.0 GB read a
+token) and Q6_K in the GGUF (0.83 GB).
 
 ---
 

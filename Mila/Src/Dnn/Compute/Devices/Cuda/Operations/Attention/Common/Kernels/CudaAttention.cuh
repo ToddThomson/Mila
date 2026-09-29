@@ -84,7 +84,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
     /**
      * @brief Non-causal softmax for single-token decode (FP32).
      *
-     * One thread per (b, nh) pair; attends over all actual_len cached
+     * One thread per (b, nh) pair; attends over the position + 1 cached
      * positions without causal masking (the query is the final position).
      *
      * @param att        Output attention weights  [B*NH, 1, max_len].
@@ -93,16 +93,16 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
      * @param B          Batch size.
      * @param NH         Number of attention heads.
      * @param max_len    Allocated cache length.
-     * @param actual_len Number of valid cached tokens.
+     * @param position   Device int holding the decode position; position + 1
+     *                   tokens are cached (DecodeGraph.md section 4.1).
      * @param stream     CUDA stream.
      * @param window     Sliding-window size; 0 (default) = global (attend all
-     *                   actual_len cached tokens). A positive value bounds
-     *                   attention to the most-recent @p window keys. The default
-     *                   makes this a no-op for callers that do not window (MHA).
+     *                   cached tokens). A positive value bounds attention to the
+     *                   most-recent @p window keys.
      */
     void cuda_attention_softmax_decode_forward_fp32(
         float* att, float scale, const float* preatt,
-        int B, int NH, int max_len, int actual_len,
+        int B, int NH, int max_len, const int* position,
         cudaStream_t stream, int window = 0 );
 
     /**
@@ -116,7 +116,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
      */
     void cuda_attention_softmax_decode_ring_forward_fp32(
         float* att, float scale, const float* preatt,
-        int B, int NH, int capacity, int actual_len,
+        int B, int NH, int capacity, const int* position,
         cudaStream_t stream, int window );
 
     /**
@@ -160,13 +160,13 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
     /// @copydoc cuda_attention_softmax_decode_forward_fp32
     void cuda_attention_softmax_decode_forward_bf16(
         __nv_bfloat16* att, float scale, const __nv_bfloat16* preatt,
-        int B, int NH, int max_len, int actual_len,
+        int B, int NH, int max_len, const int* position,
         cudaStream_t stream, int window = 0 );
 
     /// @copydoc cuda_attention_softmax_decode_ring_forward_fp32
     void cuda_attention_softmax_decode_ring_forward_bf16(
         __nv_bfloat16* att, float scale, const __nv_bfloat16* preatt,
-        int B, int NH, int capacity, int actual_len,
+        int B, int NH, int capacity, const int* position,
         cudaStream_t stream, int window );
 
     /// @copydoc cuda_attention_softmax_backward_fp32

@@ -157,7 +157,7 @@ namespace Mila::Dnn
 
             // Return view with actual output shape
             shape_t actual_out_shape = { B, T, config_.getEmbeddingDim() };
-            current_output_view_ = std::make_unique<EmbeddingsTensorType>( output_->view( actual_out_shape ) );
+            stableView( current_output_view_, *output_, actual_out_shape );
 
             this->publish( ComputePass::Forward, "output", *current_output_view_ );
 
@@ -254,8 +254,7 @@ namespace Mila::Dnn
 
             // Single token output shape [1, 1, C]
             shape_t decode_out_shape = { 1, 1, config_.getEmbeddingDim() };
-            current_output_view_ = std::make_unique<EmbeddingsTensorType>(
-                output_->view( decode_out_shape ) );
+            stableView( current_output_view_, *output_, decode_out_shape );
 
             this->publish( ComputePass::Decode, "output", *current_output_view_ );
 

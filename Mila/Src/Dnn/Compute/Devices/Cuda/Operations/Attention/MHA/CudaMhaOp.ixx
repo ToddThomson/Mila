@@ -131,25 +131,19 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //// DEBUG: end
 
             active_max_seq_len_ = narrowToKernelIndex( max_sequence_length );
-            cached_seq_len_ = 0;
             kv_cache_enabled_ = true;
         }
 
+        // The fill count is the network's (DecodeGraph.md 4.3); the cache itself is only positional.
         void resetKvCache() override
         {
-            cached_seq_len_ = 0;
         }
 
         // Interface parity with CudaGqaOp (PromptCaching.md 4.3): the full cache is
         // purely positional, so any rewind within the current fill is valid.
-        bool rewindKvCache( dim_t position ) override
+        bool rewindKvCache( dim_t position, dim_t cached_length ) override
         {
-            if ( position < 0 || position > cached_seq_len_ )
-                return false;
-
-            cached_seq_len_ = narrowToKernelIndex( position );
-
-            return true;
+            return position >= 0 && position <= cached_length;
         }
 
         void prefill( const ITensor& input, ITensor& output ) override
@@ -229,8 +223,6 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //
             //    Logging::Logger::info( this->getName() + ": dbg.v_out_ (device dump):\n" + v_out_dump );
             //}
-
-            cached_seq_len_ = actual_seq_len;
         }
 
         void decode( const ITensor& input, ITensor& output, dim_t position ) override
@@ -406,11 +398,6 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 v_out_decode_, Y,
                 B_, 1, NH_, HS_,
                 stream );
-
-            if ( actual_len > cached_seq_len_ )
-            {
-                cached_seq_len_ = actual_len;
-            }
         }
 
         void build( const BuildContext& config ) override
@@ -434,7 +421,6 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             // REVIEW: Why is active_max_seq_len_ initialized to T_ here?
             active_max_seq_len_ = T_;
-            cached_seq_len_ = 0;
             kv_cache_enabled_ = false;
 
             allocateStateTensors();
@@ -677,7 +663,6 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         int HS_{ 0 };
 
         int active_max_seq_len_{ 0 };
-        int cached_seq_len_{ 0 };
         bool kv_cache_enabled_{ false };
 
         cublasLtHandle_t cublaslt_handle_{ nullptr };

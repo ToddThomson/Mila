@@ -356,6 +356,8 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
         auto q_in = this->toFloat( device_q );
         auto k_in = this->toFloat( device_k );
 
+        // A network writes the position at the start of each decode step; a component decoded on its own is given it.
+        rope->getExecutionContext()->setDecodePosition( position );
         rope->decode( device_q, device_k, position );
         rope->synchronize();
 
@@ -407,6 +409,7 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
 
             if ( decode )
             {
+                rope.getExecutionContext()->setDecodePosition( T - 1 );
                 rope.decode( device_q, device_k, T - 1 );
             }
             else
@@ -468,6 +471,8 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
 
         auto device_q = this->toDevice( this->spreadHost( shape_t{ B, 1, kChannels }, 0.0f ) );
         auto device_k = this->toDevice( this->spreadHost( shape_t{ B, 1, kKvChannels }, 1.7f ) );
+
+        rope->getExecutionContext()->setDecodePosition( T - 1 );
 
         EXPECT_NO_THROW( rope->decode( device_q, device_k, T - 1 ) );
         EXPECT_THROW( rope->decode( device_q, device_k, T ), std::invalid_argument );

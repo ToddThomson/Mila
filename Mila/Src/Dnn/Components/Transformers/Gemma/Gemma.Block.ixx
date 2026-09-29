@@ -370,9 +370,9 @@ namespace Mila::Dnn
                 attn_->resetKvCache();
         }
 
-        bool rewindKvCache( dim_t position ) override
+        bool rewindKvCache( dim_t position, dim_t cached_length ) override
         {
-            return attn_ && attn_->rewindKvCache( position );
+            return attn_ && attn_->rewindKvCache( position, cached_length );
         }
 
         /**
