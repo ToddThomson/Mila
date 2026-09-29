@@ -104,6 +104,24 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int position_offset, int window, float scale,
         cudaStream_t stream );
 
+    /// The key-major kernel cuda_gqa_flash_prefill_bf16 runs at head size 512 over an unbounded cache (window 0):
+    /// each warp owns eight query rows across the whole head.
+    void cuda_gqa_flash_prefill_wide_head_bf16(
+        const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int cache_capacity,
+        int position_offset, float scale,
+        cudaStream_t stream );
+
+    /// cuda_gqa_flash_prefill_wide_head_bf16 over the FP8 cache: what cuda_gqa_flash_prefill_fp8 runs at head size 512.
+    void cuda_gqa_flash_prefill_wide_head_fp8(
+        const __nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
+        const float* k_scales, const float* v_scales,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int cache_capacity,
+        int position_offset, float scale,
+        cudaStream_t stream );
+
     /**
      * @brief Fused FlashAttention prefill over the bounded sliding-window ring cache (BF16).
      *

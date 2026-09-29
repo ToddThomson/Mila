@@ -119,7 +119,7 @@ def quantize_nvfp4_best_scale( weight: torch.Tensor, group: int = 16 ) -> torch.
 
 def quantize_q4_0( weight: torch.Tensor, group: int = 32 ) -> torch.Tensor:
     """
-    llama.cpp's Q4_0, the format Google's QAT checkpoints are trained for: per 32-element group of a row, d = the
+    Q4_0, the format Google's QAT checkpoints are trained for: per 32-element group of a row, d = the
     signed value of largest magnitude / -8, stored FP16, q = min( 15, trunc( x / d + 8.5 ) ), decoded ( q - 8 ) * d.
     """
     rows = weight.float().reshape( weight.shape[ 0 ], -1, group )

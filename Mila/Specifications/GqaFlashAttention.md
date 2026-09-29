@@ -560,6 +560,61 @@ layers (16 heads, 8 KV heads, head dimension 256, window 1024) wins too: 2.0x to
 BF16 build, and `usesFlashPrefill()` on each transformer is the one decision the op toggle and the score-buffer
 width both read. Llama's wiring and the removal are `ModelFamilyParity.md` 8.4, L4.
 
+### 5.8 Stage 4: head size 512 goes key-major
+
+**Measured 2026-09-28** (Gemma 4 12B Q4_0, 32K prompt, RTX 4070, Nsight Systems). Once the INT8 prefill GEMM
+landed, the global layers' attention carried the whole remaining gap: 4,773 ms, about 29.5 TFLOPS (50% of the
+59.3 peak), where llama.cpp on the same weights spends 3,097 ms (45 TFLOPS). Nsight Compute on the packed kernel
+at HS 512: 16-key tiles (8192 / 512), so each warp runs 32 MMAs between barriers, behind the split-K score
+exchange of four slice warps, a 16-key softmax and a 64-register rescale of O; 158 registers, 74 KB, one block
+per SM. This stage keeps FP32 accumulation; FP16 accumulation runs at twice the rate on GeForce cards
+(`MmaInstructionPeak`: 116 against 59 TFLOPS on the 4070) and is a precision trade not taken here.
+
+**Design** (`Gqa.Flash.WideHead.cu`, BF16 cache, window 0). Keys become the MMA's M dimension: S^T = K Q^T puts
+16 keys on M and eight query rows on N, so each warp owns eight rows across the whole head and sums all 512 dims
+itself -- no split-K, no exchange, no named barrier. O^T = V^T P^T holds [512 x 8] per warp in FP32 registers
+(128); P^T comes from the score accumulators by one `movmatrix.trans` per 8 keys. A block holds 64 rows (eight
+warps), twice the packed kernel's 32, so every K/V byte read from L2 serves twice the rows. Key tiles are 32
+keys; K and V alternate through one stage each, V(t) loading during QK(t) and K(t + 1) during PV(t) -- two block
+barriers per 128 MMAs per warp. Q's first 256 dims are held in registers and the rest in shared memory (100 KB
+in all): with all of Q in registers the sm_89 build spilled at 255 registers and ran 9% slower. The packed kernel
+keeps HS 128 and 256, the ring, a windowed call, and the FP8 cache.
+
+**Result, 2026-09-28** (standalone harness, one global layer's 32K causal sweep in 1024-token chunks, random
+N(0, 1) inputs, the packed kernel from the same tree beside it). Error against FP64 on sampled rows is the packed
+kernel's to three digits at offsets 0, 8192 and 31744, at scale 1/sqrt(512) and at 0.5.
+
+| Card | Packed | Key-major | |
+|---|---|---|---|
+| RTX 4070 | 646 ms, 27.2 TFLOPS | 404 ms, 43.5 TFLOPS (73% of peak) | 1.60x |
+| RTX 5060 Ti | 692 ms, 25.4 TFLOPS | 502 ms, 35.1 TFLOPS (67%) | 1.38x |
+
+On the 5060 Ti the all-in-registers variant ran 2% faster (492 ms): its compiler fitted 255 registers without a
+spill. One geometry serves both cards.
+
+**In the model, 2026-09-28** (Gemma 4 12B Q4_0, 32K prompt, RTX 4070, Nsight Systems, per prefill): the global
+layers' attention **4,773 -> 3,348 ms** (1.43x, about 42 TFLOPS) against llama.cpp's 3,097; all kernels
+**13,771 -> 12,422 ms** against llama.cpp's 13,639, which puts the whole 32K prefill 9% ahead. The FP8 cache runs
+the same kernel at head size 512, so a cache of lossless codes still matches the BF16 cache bit for bit
+(`CudaGqaFp8CacheTests`); it holds all of Q in registers, since its code staging takes the shared memory Q's
+second half would use.
+
+**FP16 accumulation for PV, measured 2026-09-28** (same harness, one layer's 32K sweep, V handed to the kernel
+already in FP16; error against FP64 at offset 31744). BF16 operands admit only FP32 accumulation, so both arms
+run PV on FP16 P and V.
+
+| PV | RTX 4070 | RTX 5060 Ti | Mean / max error | V + 4, uniform attention |
+|---|---|---|---|---|
+| FP32 accumulate (shipped) | 387 ms | 501 ms | 1.64e-5 / 1.38e-4 | 3.87e-3, finite |
+| FP16 output accumulator | 336 ms | 426 ms | 6.04e-5 / 8.81e-4 | **every output inf** |
+| FP16 per 32-key tile, folded into FP32 O | 363 ms | 436 ms | 1.09e-5 / 1.21e-4 | 3.87e-3, finite |
+
+An FP16 output accumulator overflows once a row's unnormalized sum passes 65504 -- 32K keys of mean 4 do it -- and
+is 3.7x less exact even when it does not. Summing each 32-key tile in FP16 and adding it to FP32 O cannot overflow
+while |v| < 2047 (Gemma's V leaves `v_norm`), gains 6% on the 4070 and 15% on the 5060 Ti, and is *more* exact
+than the shipped path, because P rounds to FP16's 11-bit significand instead of BF16's 8. Not built: V reaches
+the kernel as BF16, so the arm's cost to widen it in the kernel is unmeasured (an FP16 V cache would avoid it).
+
 ## 6. Correctness / parity invariant
 
 The fused kernel must reproduce the current path -- QK (`scale = attention_scale_`) ->

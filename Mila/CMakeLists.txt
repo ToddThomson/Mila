@@ -629,6 +629,7 @@ if(MILA_HAS_CUDA)
             # (GqaFlashAttention.md 5.2.1), the second instruction-bound on per-tile overhead (5.7).
             # All three define cuda_gqa_flash_prefill_bf16, so exactly one is compiled.
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Packed.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.WideHead.cu"
             # Gqa.Flash.Fa2.cu owns cuda_gqa_flash_prefill_ring_bf16 (the HS=256 local
             # sliding layers) as a row-split FA-2 kernel; Packed.cu owns the unbounded
             # symbol. Exactly one TU defines each flash entry point.

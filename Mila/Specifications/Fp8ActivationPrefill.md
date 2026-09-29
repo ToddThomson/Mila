@@ -57,7 +57,7 @@ prefill linear GEMMs on **FP8 tensor cores (~2x BF16)** instead of the current B
   attention stays BF16 and there is an activation-quantize pass; the linear GEMMs dominate prefill, so most of
   the gap closes.
 
-### Why FP8, not int8 (llama.cpp's MMQ)
+### Why FP8, not int8
 
 Same 2x on Ada, but FP8 E4M3 is floating-point (tolerates activation outliers int8 clips -> more likely to
 pass the existing oracle), and cuBLASLt has a **native** FP8 GEMM — we reuse the tuned library instead of
@@ -141,8 +141,8 @@ Out of scope (explicitly):
      **FAILED in practice (+98):** the per-layer oracle passed at 5e-2 but generation was incoherent —
      one outlier token sets the tensor scale and crushes every other token's FP8 resolution, and the
      error compounds across 48 layers.
-   - **DECIDED 2026-07-13: per-token (per-row) absmax**, the standard robust choice (llama.cpp's Q8_1 is
-     per-32-block; TensorRT-LLM uses per-token dynamic). *Mechanism:* cuBLASLt will not bind the per-token
+   - **DECIDED 2026-07-13: per-token (per-row) absmax**, the standard robust choice (TensorRT-LLM uses per-token
+     dynamic). *Mechanism:* cuBLASLt will not bind the per-token
      scales to the GEMM, so they are applied outside it. Instead the exact factorization
      `Y[m,n] = sA[m] * (sB * sum_k X8[m,k] * W8[n,k])` is applied by a post-GEMM epilogue
      (`cuda_fp8_apply_per_token_scales`, which also folds the bias): the GEMM runs with `B_SCALE = 1.0f`

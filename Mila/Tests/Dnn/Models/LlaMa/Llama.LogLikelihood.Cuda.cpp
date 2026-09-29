@@ -775,7 +775,8 @@ namespace Mila::Tests::Dnn::Models
     // the 3.1 8B on the RTX 5060 Ti -- and each band's book tokens scored twice. Whole book: the prefix of 2L less the
     // prefix of L. Short context: blocks of 1024 targets, each after the turn and only the 1024 book tokens before
     // the block. Test 1: in every band of every book, whole book <= short context. Tests 2 and 3 compare the
-    // whole-book bands against HuggingFace BF16 and llama.cpp; they run outside this binary. Pin the 16 GB card by UUID.
+    // whole-book bands against external references (ModelFamilyParity.md 8.4, L3); they run outside this binary. Pin
+    // the 16 GB card by UUID.
     // ====================================================================
 
     namespace

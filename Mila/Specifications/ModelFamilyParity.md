@@ -440,7 +440,7 @@ measured". *Needs:* G1, and a long-document corpus whose licence is verified at 
     coarse groups trip over, so NVFP4 cuts the error by only about 15%. The same error costs attention more as the
     context grows. Whether NVFP4 moves the curve at all, and whether FP8 attention restores it, are both queued.
   - **Google's quantization-aware weights keep the long context at 4 bits.** `google/gemma-4-12B-it-qat-q4_0-unquantized`
-    (Apache 2.0, BF16 weights trained for llama.cpp's Q4_0), the same book, tokens and harness. As stored: 3.649,
+    (Apache 2.0, BF16 weights trained for Q4_0), the same book, tokens and harness. As stored: 3.649,
     3.342, 3.458, 3.532 -- within 0.05 of the original BF16 in every band. Rounded to Q4_0 (32-element groups,
     FP16 scale; tied table at FP8 as in the package): 3.653, 3.324, 3.463, 3.518 -- within 0.03 of BF16 through
     32K, where Mila's FP4 of the original weights is 0.69 behind. The loss is not inherent to 4-bit weights; it is
@@ -449,7 +449,7 @@ measured". *Needs:* G1, and a long-document corpus whose licence is verified at 
     FP4 instead: 3.731, 3.484, 3.632, 3.729 -- +0.09 rising to +0.24 over BF16, a third of the original weights'
     +0.69 at 32K, and still rising with context. QAT fitted the weights to Q4_0's grid, evenly spaced integers in
     32-element groups; E2M1 levels in 128-element groups discard part of that fit.
-  - **The QAT weights are not on llama.cpp's Q4_0 grid, and no E2M1 format can hold that grid.** Rounding the
+  - **The QAT weights are not on the Q4_0 grid, and no E2M1 format can hold that grid.** Rounding the
     stored QAT weights to Q4_0 moves them by 0.051 relative (layers 0, 5, 23 and 47, every projection): the
     checkpoint holds the weights before rounding. Google's own GGUF is exactly that rounding -- see the next
     result. E2M1's magnitudes, {0, 0.5, 1, 1.5, 2, 3, 4, 6} times a scale, miss at least two of Q4_0's
@@ -457,14 +457,14 @@ measured". *Needs:* G1, and a long-document corpus whose licence is verified at 
     rather than by absmax: relative weight error 0.110 for Mila's FP4 today, 0.095 with best scales at 128, 0.079
     at 32, and 0.078 for NVFP4 with best E4M3 block scales (0.098 at absmax). Whether that moves the curve is
     queued: the QAT weights as NVFP4 with best scales.
-  - **Google's Q4_0 GGUF is llama.cpp's reference rounding of Google's BF16 QAT checkpoint, bit for bit**
+  - **Google's Q4_0 GGUF is the reference Q4_0 rounding of Google's BF16 QAT checkpoint, bit for bit**
     (2026-09-27, header and values read from `gemma-4-12b-it-qat-q4_0.gguf` and
     `gemma-4-12B-it-qat-q4_0-unquantized`). Every code and every FP16 scale bit of all 328 Q4_0 tensors
     (10,899,947,520 codes, 340,623,360 scales) equals `quantize_row_q4_0_ref` applied to the BF16 weights, with
     no exception: d = the group's signed extreme over -8, code `min(15, trunc(fl(x * fl(1/d)) + 8.5))`, FP16
     scale. Dividing by d, or fusing the multiply-add, also reproduces every code on these weights -- they sit away
     from the rounding boundaries -- so the rule as written is kept (`Quantization.md`, Q4_0). The GGUF holds 328 Q4_0 tensors (every projection; no `attn_v` on the
-    8 global layers, K=V), the tied embedding at **Q6_K** -- llama.cpp's own choice, not a trained format -- and
+    8 global layers, K=V), the tied embedding at **Q6_K** -- the file's own choice, not a trained format -- and
     338 FP32 tensors, whose norms and `layer_output_scale` (HF `layer_scalar`) equal the checkpoint's exactly, with
     no 1 added. No row is permuted: shapes are [out, in] with 32-element groups along the input, as in HF.
     `rope_freqs` is p-RoPE written out (64 of 256 pairs at 1, the rest 1e30). The GGUF carries no image or audio
@@ -814,7 +814,7 @@ FP4 to the largest context the planner chooses on the reference card after L4.
 - *Test 3's weights, 2026-09-28.* Published Q4_0 GGUFs of the 8B cannot serve: unsloth's is fitted with an
   importance matrix and mixes in Q4_1 (four `ffn_down`) and a Q6_K head. `Tools/Converters/Llama/llama_q4_0_gguf.py`
   writes one from Meta's BF16 checkpoint -- projections by gguf-py's port of the reference Q4_0 rule, query and key
-  rows permuted as llama.cpp's converter does, embedding and head BF16, metadata and the RoPE scaling table from a
+  rows permuted into the GGUF's rotary layout, embedding and head BF16, metadata and the RoPE scaling table from a
   published GGUF. `ExportArtifact --quantization q4_0` on the converted checkpoint (5.61 GiB, 14 s) equals it in
   every code and every scale bit of all 224 Q4_0 tensors (`llama_q4_0_package_gate.py`); the same gate without
   undoing the query and key permutation reports 598 million codes differing, all in those two projections.

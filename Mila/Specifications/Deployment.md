@@ -154,14 +154,6 @@ cannot choose devices or placement. Rejected.
 report what was chosen, or price a deployment without committing to it. `fit` also means *train* in
 most ML libraries, and Mila trains. Rejected in favour of plan, then execute.
 
-**Prior art.** llama.cpp decides the same question inside its load: `--fit` (on by default) adjusts
-"unset arguments to fit in device memory", with a per-device margin `--fit-target` (default 1024) and a
-minimum context `--fit-ctx` (default 4096); `--split-mode layer`, the default, splits layers and KV
-across GPUs pipelined (llama.cpp `tools/server/README.md`, read 2026-09-16). Two of this design's
-choices match it: only unset values are decided (section 5, rule 1), and the margin is per device
-(`DeploymentRequest` headroom). It differs in returning the decision as a value before anything loads,
-and in never falling back to host memory for layers (section 13).
-
 cuBLASLt's matmul API is prior art for the shape rather than the problem, and this design takes three of
 its ideas, not its interface: a query that returns **ranked candidates, each with its own resource cost**
 (its heuristic's per-algorithm workspace size; here, `rankedPlans()` with per-device footprints); a **check**
@@ -523,8 +515,7 @@ here as a new dimension of the planner, not beside it.
    value (`contextLimitedBy`, `prefillChunkLimitedBy`) and a refusal's `reason` (section 6).
    `availablePlans` was declined: "available" already names free device memory throughout Mila.
 3. **Headroom defaults. DECIDED 2026-09-23: zero in the library; the adaptors choose.** The
-   alternative was Chat, MIS and the binding sharing one non-zero default. llama.cpp defaults its per-device margin to
-   1024; Chat removed its own stacked margins in `MemoryFootprint.md` Phase 6 step 4 because the
+   alternative was Chat, MIS and the binding sharing one non-zero default. Chat removed its own stacked margins in `MemoryFootprint.md` Phase 6 step 4 because the
    prediction already counts what Mila allocates.
 4. **A family-neutral `planDeployment`. DECIDED 2026-09-23 (Todd): one per family, for now.** Chat's
    catalog already dispatches on family, and so does the binding. A family-neutral entry point reading the

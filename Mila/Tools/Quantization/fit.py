@@ -23,7 +23,7 @@ from formats import (CODEBOOK_PARAMETERS, FORMATS, GENERATOR_SEED, GPTQ_FORMATS,
 def collect_importance(model, tokenizer, texts, device):
     """Per-input-channel mean squared activation for every target linear, via hooks.
 
-    This is the calibration pass -- the analog of llama.cpp's importance matrix.
+    This is the calibration pass: an importance weight per input channel.
     A handful of forward passes over ordinary text is enough to expose which
     channels the model drives hard.
     """
@@ -298,7 +298,7 @@ def apply_scheme(model, scheme_name, importance=None, protect_first=0, protect_l
     importance: optional {module_name: per-channel mean squared activation} from
     collect_importance; feeds the weighted codebook fit.
     protect_first / protect_last: decoder layers held at fp4 instead of their
-    sub-4-bit policy (the llama.cpp UD move -- edge layers are the sensitive ones).
+    sub-4-bit policy (edge layers are the sensitive ones).
     """
     policy_by_suffix = SCHEMES[scheme_name]
     total_params = 0

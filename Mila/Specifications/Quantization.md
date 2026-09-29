@@ -603,8 +603,7 @@ Gemma 4 QAT for Q4_0. Five decisions, each with the alternative it closed:
    is exactly one Q4_0 block, so each block's dot product is exact in INT32 and its two scales apply
    once, in FP32. The per-token FP8 activations of the FP4 prefill are not used: one scale per row and
    three mantissa bits, against one per 32 elements and seven. Per element the rounding is at most
-   `a / 254`, near BF16's own for the block's large values, and it is the arithmetic llama.cpp runs
-   Google's GGUF with. Decode has its own matvec: code times BF16 activation summed in FP32 per
+   `a / 254`, near BF16's own for the block's large values. Decode has its own matvec: code times BF16 activation summed in FP32 per
    block, then times `d`, exact.
    *Why not BF16* (decided 2026-09-28, replacing "prefill stages BF16 first"): the staged BF16 path
    -- codes expanded to BF16, then a cuBLASLt BF16 GEMM -- already ran its GEMMs at the BF16

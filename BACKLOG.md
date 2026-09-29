@@ -216,6 +216,24 @@ this release and not before, which means written against what the tag actually s
 (`Direction.md` §5.7; `.internal/Marketing/Positioning.md` is superseded by it). Gate: no public
 surface describes Mila as a reference implementation first, or uses "adaptor".
 
+#### The website cannot show that Mila runs the best local models faster than llama.cpp
+
+`open` · `perf` · `models` · `docs`
+
+The site says Mila is fast and comparable to llama.cpp. The measurements that would let it say "faster" are
+one-offs in specs -- Gemma 4 12B Q4_0 prefill (`GqaFlashAttention.md` 5.8), Llama 3.1 8B prefill
+(`ModelFamilyParity.md` 8.4 L4) -- and generation (decode) has never been measured against llama.cpp at all.
+
+One script in the repository drives both engines and writes the table the site shows: every published model,
+prefill at 512, 2K, 8K and 32K, and generation (128 tokens) with an empty context and at 8K and 32K, averaged over
+at least three runs on the 16 GB reference card (RTX 5060 Ti). llama.cpp runs `llama-bench` with flash attention,
+every layer on the GPU and an FP16 KV cache. Where both run the same weights in the same format (Gemma 4 12B and
+Llama 3.1 8B in Q4_0) the cell is a head-to-head; otherwise each engine runs the format a user would pick for
+that model on that card, named in the table. Whether llama.cpp runs Qwen 3.8's architecture is checked before its
+row is promised. A cell where Mila is behind becomes its own entry here, fixed before the release -- it is not
+dropped from the table. The public copy is written in the website's voice once the numbers exist. Gate: the
+script reruns the whole table unattended, and every cell shows Mila ahead.
+
 ### Qwen 3.8 Complete
 
 #### Publish the 2.82-bit Qwen 3.8 27B so a 12 GB card can run a 27B model

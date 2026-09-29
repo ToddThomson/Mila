@@ -41,8 +41,8 @@ def main():
 
     os.environ.setdefault( 'CUDA_VISIBLE_DEVICES', 'GPU-11770557-a821-1b71-35db-34e342bae260' )
 
-    # Imported here so that llama_cpp_long_context_loss.py can share the template without loading PyTorch, whose
-    # OpenMP runtime conflicts with llama.cpp's in one process.
+    # Imported here so that the GGUF comparison script can share the template without loading PyTorch, whose
+    # OpenMP runtime conflicts with the one that engine loads into the same process.
     import torch
 
     from transformers import AutoTokenizer

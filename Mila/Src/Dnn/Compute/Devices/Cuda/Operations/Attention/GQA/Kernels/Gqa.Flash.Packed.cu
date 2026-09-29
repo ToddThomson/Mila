@@ -622,7 +622,22 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             cudaCheck( cudaGetLastError() );
         }
 
-        /// Head size, geometry and device checks, then the launch for either cache.
+        /// The geometry and device checks every flash launch shares.
+        void requireLaunchable( const char* caller, int NH, int NKV )
+        {
+            if ( NKV <= 0 || NH % NKV != 0 )
+                throw std::runtime_error( std::string( caller ) + ": query heads must be a multiple of KV heads" );
+
+            int device = 0;
+            int sm_major = 0;
+            cudaCheck( cudaGetDevice( &device ) );
+            cudaCheck( cudaDeviceGetAttribute( &sm_major, cudaDevAttrComputeCapabilityMajor, device ) );
+
+            if ( sm_major < 8 )
+                throw std::runtime_error( std::string( caller ) + ": requires compute capability 8.0 or later" );
+        }
+
+        /// Head size, geometry and device checks, then the packed launch for either cache.
         template<bool kFp8>
         void flashPrefill(
             const char* caller,
@@ -634,16 +649,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 throw std::runtime_error( std::string( caller ) + ": head size " + std::to_string( HS )
                     + " is not supported; the packed kernel serves 128, 256 and 512" );
 
-            if ( NKV <= 0 || NH % NKV != 0 )
-                throw std::runtime_error( std::string( caller ) + ": query heads must be a multiple of KV heads" );
-
-            int device = 0;
-            int sm_major = 0;
-            cudaCheck( cudaGetDevice( &device ) );
-            cudaCheck( cudaDeviceGetAttribute( &sm_major, cudaDevAttrComputeCapabilityMajor, device ) );
-
-            if ( sm_major < 8 )
-                throw std::runtime_error( std::string( caller ) + ": requires compute capability 8.0 or later" );
+            requireLaunchable( caller, NH, NKV );
 
             switch ( HS )
             {
@@ -701,6 +707,17 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int position_offset, int window, float scale,
         cudaStream_t stream )
     {
+        // Head size 512 over the whole cache runs key-major (Gqa.Flash.WideHead.cu); the packed kernel serves the
+        // other head sizes and a band-limited window.
+        if ( HS == 512 && window <= 0 )
+        {
+            requireLaunchable( "cuda_gqa_flash_prefill_bf16", NH, NKV );
+            cuda_gqa_flash_prefill_wide_head_bf16( Q, K, V, Y, B, chunk_len, NH, NKV, cache_capacity,
+                position_offset, scale, stream );
+
+            return;
+        }
+
         flashPrefill<false>( "cuda_gqa_flash_prefill_bf16", Q, K, V, nullptr, nullptr, Y,
             B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, false, stream );
     }
@@ -713,6 +730,16 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int position_offset, int window, float scale,
         cudaStream_t stream )
     {
+        // The same split as cuda_gqa_flash_prefill_bf16, so a cache of lossless codes matches the BF16 cache bit for bit.
+        if ( HS == 512 && window <= 0 )
+        {
+            requireLaunchable( "cuda_gqa_flash_prefill_fp8", NH, NKV );
+            cuda_gqa_flash_prefill_wide_head_fp8( Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, cache_capacity,
+                position_offset, scale, stream );
+
+            return;
+        }
+
         flashPrefill<true>( "cuda_gqa_flash_prefill_fp8", Q, K, V, k_scales, v_scales, Y,
             B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, false, stream );
     }

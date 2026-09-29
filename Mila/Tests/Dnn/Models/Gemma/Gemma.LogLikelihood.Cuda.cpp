@@ -1557,7 +1557,7 @@ namespace Mila::Tests::Dnn::Models
     // book before them (a prefix of 2L less the prefix of L), and window-only -- in blocks of 1024 targets, each after
     // <bos>, the book turn and only the 1024 book tokens before the block, so every target sees 1024 to 2047 tokens.
     // Gate 1: in every band of every book, whole book <= window-only. Gates 2 and 3 compare these bands against
-    // HuggingFace BF16 and against the GGUF; they run outside this binary. Pin the 16 GB card by UUID.
+    // external references (ModelFamilyParity.md 8.2, G2); they run outside this binary. Pin the 16 GB card by UUID.
     // ====================================================================
     TEST( GemmaLogLikelihoodCudaTests, DISABLED_QualityAcrossContextLengths_Q4_0 )
     {

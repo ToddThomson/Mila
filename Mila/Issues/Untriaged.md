@@ -227,7 +227,7 @@ and k_proj alone costs +0.15 rising to +0.38. Google's QAT weights at Q4_0 cost 
 `Mila/Specifications/Direction.md` @ `0.21.0-dev+9`
 
 Agreed in discussion 2026-09-27, not yet written anywhere in the repo: a model runs in the format it was trained for.
-Producers now ship quantization-aware checkpoints, each fitted to one grid -- Gemma 4 QAT to llama.cpp's Q4_0,
+Producers now ship quantization-aware checkpoints, each fitted to one grid -- Gemma 4 QAT to Q4_0,
 gpt-oss to MXFP4, NVIDIA's tooling to NVFP4 -- and the benefit does not transfer across grids: Gemma 4's QAT weights
 cost +0.03 nats per token at 32K in Q4_0 and +0.24 in Mila's FP4 (`ModelFamilyParity.md` 8.2, G2 result). Mila's
 own `PerGroupFp4<128>` becomes the fallback for models without a QAT release. Where it is recorded (Direction,
@@ -365,15 +365,15 @@ Weighed 2026-09-28. The BF16 GEMMs already run at the BF16 ceiling: 1.14e14 FLOP
 are bounded by the 11% dequantize. INT8 `m16n8k32` issues at 232.5 TFLOPS on the 4070 and 207.5 on the 5060 Ti -- 4x
 BF16 on both cards, 2x FP8 `mma.sync` -- and one k32 MMA is exactly one Q4_0 block. nsys of `llama-bench -p 8192 -fa 1`
 on the same GGUF (4070, per prefill): `mul_mat_q<Q4_0>` 1,360 ms (~84 TFLOPS, 36% of the INT8 ceiling),
-`quantize_mmq_q8_1` 62 ms, flash attention 308 ms. llama.cpp is ahead because it multiplies in INT8 with activations
-quantized per 32-element block, not because its BF16 is better.
+`quantize_mmq_q8_1` 62 ms, flash attention 308 ms. The gap is the multiply's arithmetic, not BF16 GEMM efficiency: an
+INT8 path with activations quantized per 32-element block is what closes it.
 
 Built the same day (Q4_0 decision 4 changed, `Kernels/Int4/CudaInt4Gemm.cu`): Gemma 4 12B Q4_0 prefill on the 5060 Ti
 2,688 tokens/s at 8K and 1,950 at 32K against llama.cpp's 2,385 and 1,960; Llama 3.1 8B on the 4070 4,748 and 3,862 at
 8K/16K against 4,370 and 3,675. nsys of one 32K Gemma 4 12B Q4_0 prefill on the RTX 4070, both on the same card (ms per
 prefill, Mila / llama.cpp): weight GEMMs with activation quantize 7,214 / 8,499; global attention (HS 512, 8 layers,
 `gqa_flash_prefill_packed_bf16_kernel` against `flash_attn_ext_f16<512>`) 4,839 / 3,097, about 29 against 45 TFLOPS;
-sliding attention (40 layers) 1,130 / 555; RoPE 578 / ~150 (llama.cpp fuses it into the norm before it); all kernels
+sliding attention (40 layers) 1,130 / 555; RoPE 578 / ~150; all kernels
 14,521 / 13,639. The GEMM now leads, and the global-attention kernel alone carries the gap.
 Nsight Compute, one late HS-512 launch (4070): tensor pipe 25.7% of ncu's peak, which on GeForce counts FP16
 accumulation (`MmaInstructionPeak`: FP16-accumulate 116.1 TFLOPS, FP32-accumulate 58.9), so about half the usable rate;
@@ -386,4 +386,8 @@ exchange, inside 99 KB and with Q at 512 dims being 128 registers per thread.
 Same day, two fixes outside that kernel (4070, 32K, ms per prefill): the sliding layers moved from the FA-2 ring kernel,
 which reads each KV head once per query head, to the packed kernel with ring addressing, 1,130 -> 775 (llama.cpp 555);
 RoPE's lanes ran along heads, so every access was uncoalesced -- swapped to run along the pair index, 582 -> 63. All
-kernels 14,521 -> 13,771 against llama.cpp's 13,639. Ring parity and RoPE tests not yet re-run (MilaTests held by G2).
+kernels 14,521 -> 13,771 against llama.cpp's 13,639.
+Next day, the HS-512 redesign (`Gqa.Flash.WideHead.cu`, `GqaFlashAttention.md` 5.8: keys on the MMA's M dimension, eight
+query rows per warp over the whole head, no exchange): global attention 4,773 -> 3,348 against 3,097; all kernels
+13,771 -> 12,422 against 13,639. 8% remains on global attention; accumulating PV in FP16 (twice the FP32 rate on
+GeForce) would be a precision trade, unmeasured.

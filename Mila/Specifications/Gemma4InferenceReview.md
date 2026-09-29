@@ -338,10 +338,9 @@ The alternatives all reduce back to it:
   build time, so the footprint is set by the max chunk regardless of what runs.
   (Partial chunks already work — the plan cache handles them.)
 - Industry practice is the same mechanism: vLLM's chunked-prefill token budget
-  and llama.cpp's `n_ubatch` are both a fixed chunk against a memory budget.
-  The relevant difference is that ggml sizes **one shared compute buffer** for
-  the worst-case graph and reuses it across layers — which is exactly the
-  activation-pooling BACKLOG item (option D). Mila's per-layer-owned buffers
+  is a fixed chunk against a memory budget. The relevant difference is sizing
+  **one shared compute buffer** for the worst-case graph and reusing it across
+  layers — which is exactly the activation-pooling BACKLOG item (option D). Mila's per-layer-owned buffers
   are the anomaly, not the chunk.
 
 Conclusion: improve the heuristic; pooling later changes its constant (48

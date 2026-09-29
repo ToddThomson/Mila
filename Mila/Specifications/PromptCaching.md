@@ -30,8 +30,7 @@ physically present and correct after a generate call completes. Reusing them req
 only rewinding `cached_seq_len_` to `n` and prefilling the new tokens from
 `position_offset = n`.
 
-No snapshot buffers, no device-to-device copies, no additional device memory. This is
-the same approach as llama.cpp / Ollama's `n_past` rewind.
+No snapshot buffers, no device-to-device copies, no additional device memory.
 
 K/V state at `[0, n)` is a deterministic function of the first `n` token ids and the
 fixed model weights — so **exact token equality is the sole validity test**, and reuse
