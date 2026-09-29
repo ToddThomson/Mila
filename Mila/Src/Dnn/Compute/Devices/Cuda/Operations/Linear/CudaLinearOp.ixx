@@ -685,19 +685,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         /**
          * @brief Forward pass: output = input * weight^T + bias
          *
-         * Dispatch priority:
-         *   1. outer_size == 1:
-         *      FP8/non-quantized: fused matvec via cuda_matvec_impl.
-         *      FP4, INT4, codebook: the format's decode matvec.
-         *   2. outer_size > 1, INT4: activations to INT8 per block, then the INT8 GEMM.
-         *   3. outer_size > 1, use_cublaslt_:
-         *      Staged formats: expand to BF16 staging, then a BF16 cuBLASLt GEMM.
-         *      FP4 with FP8 activations: FP8 staging and an FP8 cuBLASLt GEMM.
-         *      !kIsQuantized:          NT row-major BF16 cuBLASLt GEMM; bias via epilogue.
-         *   4. outer_size > 1, quantized, no cuBLASLt: per-row fallback loop (SM < 8.0
-         *      or plan build failure).
-         *   5. outer_size > 1, !kIsQuantized, no cuBLASLt: error -- non-quantized batch
-         *      compute always requires cuBLASLt.
+         * One row runs the weight format's decode matvec (decodeRow). More rows run the format's batched path
+         * (prefillRows): INT4 on the INT8 tensor cores, every other format through cuBLASLt, and a quantized
+         * format's decode matvec a row at a time where no cuBLASLt plan exists.
          */
         void forward( const TensorType& input, TensorType& output ) const
         {
@@ -709,273 +699,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             if ( outer_size == 1 )
             {
-                if constexpr ( kIsCodebookWeight )
-                {
-                    launchCodebookDecode( output_ptr, input_ptr, weight_, weight_scales_, stream );
-                }
-                else if constexpr ( kIsInt4Weight )
-                {
-                    cuda_matvec_decode_bf16_qint4(
-                        output_ptr, input_ptr,
-                        weight_, weight_scales_, bias_,
-                        cached_in_features_, out_features_,
-                        weight_group_size_, stream );
-                }
-                else if constexpr ( kIsPerGroupQuantized )
-                {
-                    if constexpr ( TWeightQuant::kIsFp4E2M1 )
-                    {
-                        // Dedicated FP4 E2M1 decode matvec: all threads useful, warp shuffle
-                        // reduction, one per-group scale per 8-element chunk. ~6x faster than
-                        // the M=1 tiled GEMM for this path.
-                        cuda_matvec_decode_bf16_qfp4(
-                            output_ptr, input_ptr,
-                            weight_, weight_scales_, bias_,
-                            cached_in_features_, out_features_,
-                            weight_group_size_, stream );
-                    }
-                }
-                else
-                {
-                    // FP8 and non-quantized decode: fused matvec via cuda_matvec_impl.
-                    // Handles BF16/FP32 weights and FP8_E4M3 weights transparently.
-                    Detail::cuda_matvec_impl<ComputeType, WeightType>::decode(
-                        output_ptr, input_ptr,
-                        weight_, weight_scales_,
-                        bias_,
-                        cached_in_features_, out_features_,
-                        stream );
-                }
-
-                return;
-            }
-
-            if constexpr ( kIsInt4Weight )
-            {
-                runInt8Prefill( input_ptr, output_ptr, outer_size, stream );
-
-                return;
-            }
-
-            if ( use_cublaslt_ )
-            {
-                if constexpr ( kUsesStagedPrefill )
-                {
-                    runStagedPrefill( input_ptr, output_ptr, outer_size, stream );
-                }
-                else if constexpr ( kIsPerChannelQuantized )
-                {
-                    // Fused W8A16 single-kernel path: reads FP8 weights once from VRAM,
-                    // dequantizes per-channel inline in shared memory, and accumulates
-                    // directly into BF16 output. No staging buffer required.
-                    cuda_w8a16_gemm(
-                        output_ptr, input_ptr, weight_, weight_scales_, bias_,
-                        outer_size, cached_in_features_, out_features_, stream );
-                }
-                else if constexpr ( kIsPerGroupQuantized )
-                {
-                    if constexpr ( kUseFp8ActivationPrefillPath )
-                    {
-                        // W4A8-FP8 prefill: transient FP4->FP8 weight upcast + dynamic per-token
-                        // BF16->FP8 activation quantize, then a native FP8xFP8 cuBLASLt GEMM
-                        // (~2x BF16 on Ada). Weights stay FP4 in VRAM; only this staging buffer
-                        // is FP8. The GEMM runs with a unit activation scale (Ada cuBLASLt
-                        // accepts only per-tensor scale pointers); the true per-token scales are
-                        // applied exactly by the post-GEMM epilogue below, which also folds the
-                        // bias. All three regions (FP8 weight, FP8 activation, per-token scales)
-                        // share one scratch allocation, each 16-byte aligned for cuBLASLt.
-                        // Fetched per-forward, never cached: the scratch buffer may be
-                        // reallocated on grow.
-                        // THE GEMM READS THE PLAN'S M, NOT outer_size. get() rounds up to a bucket,
-                        // so a prompt whose length is not itself a bucket runs a kernel that reads
-                        // (bucket - outer_size) * in_features bytes beyond what outer_size would
-                        // stage. Sizing the staging region by outer_size therefore reads out of
-                        // bounds -- silently while the grow-only scratch happens to have that much
-                        // slack, and as cudaErrorIllegalAddress when it does not. Measured
-                        // 2026-08-15: a 300-token prompt at prefill chunk 512 takes bucket 512 and
-                        // overran by 212 * 3072 bytes. The rows between outer_size and the bucket
-                        // are read as garbage and their outputs discarded, which is what the plan
-                        // already assumed; only the allocation was short.
-                        const int plan_rows =
-                            fp8_forward_plan_cache_.bucketFor( static_cast<int>( outer_size ) );
-
-                        // ONE STRIP of output channels, not the whole matrix. Unstriped, the
-                        // head asks for 1212.5 MiB here regardless of how many rows the
-                        // caller wants -- see kMaxStagingBytes.
-                        const size_t weight_fp8_bytes = static_cast<size_t>( strip_rows_ )
-                            * static_cast<size_t>( cached_in_features_ );
-                        const size_t weight_fp8_bytes_aligned =
-                            ( weight_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
-                        const size_t activation_fp8_bytes = static_cast<size_t>( plan_rows )
-                            * static_cast<size_t>( cached_in_features_ );
-                        const size_t activation_fp8_bytes_aligned =
-                            ( activation_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
-                        const size_t token_scale_bytes = static_cast<size_t>( plan_rows )
-                            * sizeof( float );
-
-                        auto* scratch = static_cast<char*>( context_->getDeviceScratchBuffer(
-                            weight_fp8_bytes_aligned + activation_fp8_bytes_aligned + token_scale_bytes ) );
-                        auto* weight_fp8 = reinterpret_cast<__nv_fp8_e4m3*>( scratch );
-                        auto* activation_fp8 = reinterpret_cast<__nv_fp8_e4m3*>( scratch + weight_fp8_bytes_aligned );
-                        auto* activation_token_scales = reinterpret_cast<float*>(
-                            scratch + weight_fp8_bytes_aligned + activation_fp8_bytes_aligned );
-
-                        // Once for the pass: the activation quantization does not depend on
-                        // which output channels are being computed.
-                        cuda_quantize_bf16_to_fp8_per_token(
-                            activation_fp8,
-                            activation_token_scales,
-                            input_ptr,
-                            outer_size, cached_in_features_,
-                            stream );
-
-                        const float alpha = 1.0f;
-                        const float beta  = 0.0f;
-
-                        for ( int begin = 0; begin < out_features_; begin += strip_rows_ )
-                        {
-                            const int rows = std::min( strip_rows_, out_features_ - begin );
-
-                            // The expansion kernel addresses its planes relative to row 0 of
-                            // the pointers it is handed, so a strip needs only the row offset
-                            // folded in and its own row count -- the same property
-                            // dequantizeStrip relies on for the BF16 formats.
-                            cuda_fp4_dequantize_to_fp8(
-                                weight_fp8,
-                                weight_ + static_cast<ptrdiff_t>( begin )
-                                    * ( cached_in_features_ / kElementsPerStorageByte ),
-                                weight_scales_ + static_cast<ptrdiff_t>( begin )
-                                    * ( cached_in_features_ / weight_group_size_ ),
-                                weight_fp8_scale_,
-                                rows, cached_in_features_,
-                                weight_group_size_,
-                                stream );
-
-                            const auto& cache = ( rows != strip_rows_ )
-                                ? fp8_trailing_plan_cache_ : fp8_forward_plan_cache_;
-
-                            // output_ptr + begin with the plan's ldc set to out_features_:
-                            // column-major C with a leading dimension writes this strip's
-                            // channels into their columns of the full row-major output.
-                            execute_fp8_prefill_plan<TComputePrecision>(
-                                cached_cublaslt_handle_,
-                                cache.get( outer_size ),
-                                &alpha,
-                                weight_fp8,
-                                activation_fp8,
-                                &beta,
-                                output_ptr + begin,
-                                stream,
-                                context_->getCublasLtWorkspace(),
-                                context_->getCublasLtWorkspaceSize() );
-                        }
-
-                        // After every strip: the per-token scales and the bias apply to the
-                        // whole output row, not to one strip of it.
-                        cuda_fp8_apply_per_token_scales(
-                            output_ptr,
-                            activation_token_scales,
-                            bias_,
-                            outer_size, out_features_,
-                            stream );
-                    }
-                    else if constexpr ( TWeightQuant::kIsFp4E2M1 )
-                    {
-                        if ( use_wmma_fp4_gemm_ )
-                        {
-                            cuda_fp4a16_gemm_wmma(
-                                output_ptr, input_ptr, weight_, weight_scales_, bias_,
-                                outer_size, cached_in_features_, out_features_,
-                                weight_group_size_, stream );
-                        }
-                        else
-                        {
-                            cuda_fp4a16_gemm(
-                                output_ptr, input_ptr, weight_, weight_scales_, bias_,
-                                outer_size, cached_in_features_, out_features_,
-                                weight_group_size_, stream );
-                        }
-                    }
-                }
-                else
-                {
-                    const float alpha = 1.0f;
-                    const float beta  = 0.0f;
-
-                    // Bias intentionally omitted from the plan (built has_bias=false) and
-                    // added post-GEMM below -- see buildCublasLtPlans for why the FP32
-                    // bias epilogue is unsupported.
-                    execute_linear_plan<TComputePrecision>(
-                        cached_cublaslt_handle_,
-                        forward_plan_cache_.get( outer_size ),
-                        &alpha,
-                        input_ptr,
-                        weight_,
-                        &beta,
-                        output_ptr,
-                        nullptr,
-                        nullptr,
-                        stream,
-                        context_->getCublasLtWorkspace(),
-                        context_->getCublasLtWorkspaceSize() );
-
-                    if ( bias_ != nullptr )
-                    {
-                        cuda_add_bias( output_ptr, bias_, outer_size, out_features_, stream );
-                    }
-                }
-
-                return;
-            }
-
-            // No cuBLASLt plan -- fallback paths, every one of them the decode kernel driven
-            // a row at a time.
-            // FP8:      the FP8 decode matvec.
-            // FP4:      the FP4 decode matvec.
-            // Codebook: the codebook GEMV.
-            // Non-quantized: no fallback for batch compute.
-            if constexpr ( kIsPerChannelQuantized )
-            {
-                for ( int t = 0; t < outer_size; ++t )
-                {
-                    Detail::cuda_matvec_impl<ComputeType, WeightType>::decode(
-                        output_ptr + static_cast<ptrdiff_t>(t) * out_features_,
-                        input_ptr  + static_cast<ptrdiff_t>(t) * cached_in_features_,
-                        weight_, weight_scales_,
-                        bias_,
-                        cached_in_features_, out_features_,
-                        stream );
-                }
-
-                return;
-            }
-            else if constexpr ( kIsPerGroupQuantized )
-            {
-                // Fallback: drive the matvec / tiled GEMM one row at a time.
-                for ( int t = 0; t < outer_size; ++t )
-                {
-                    const auto* in_row  = input_ptr  + static_cast<ptrdiff_t>(t) * cached_in_features_;
-                    auto*       out_row = output_ptr + static_cast<ptrdiff_t>(t) * out_features_;
-
-                    if constexpr ( kIsCodebookWeight )
-                    {
-                        launchCodebookDecode( out_row, in_row, weight_, weight_scales_, stream );
-                    }
-                    else if constexpr ( TWeightQuant::kIsFp4E2M1 )
-                    {
-                        cuda_matvec_decode_bf16_qfp4(
-                            out_row, in_row,
-                            weight_, weight_scales_, bias_,
-                            cached_in_features_, out_features_,
-                            weight_group_size_, stream );
-                    }
-                }
-
-                return;
+                decodeRow( input_ptr, output_ptr, stream );
             }
             else
             {
-                throw std::runtime_error( "CudaLinearOp: no valid forward execution path available" );
+                prefillRows( input_ptr, output_ptr, outer_size, stream );
             }
         }
 
@@ -1403,9 +1131,281 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         }
 
         /**
-         * @brief Decode (outer_size == 1) through the codebook GEMV.
+         * @brief One row through the weight format's decode matvec.
+         */
+        void decodeRow( const ComputeType* input_row, ComputeType* output_row, cudaStream_t stream ) const
+        {
+            if constexpr ( kIsCodebookWeight )
+            {
+                launchCodebookDecode( output_row, input_row, weight_, weight_scales_, stream );
+            }
+            else if constexpr ( kIsInt4Weight )
+            {
+                cuda_matvec_decode_bf16_qint4(
+                    output_row, input_row,
+                    weight_, weight_scales_, bias_,
+                    cached_in_features_, out_features_,
+                    weight_group_size_, stream );
+            }
+            else if constexpr ( kIsFp4Weight )
+            {
+                // All threads useful, a warp shuffle reduction, one per-group scale per 8-element chunk:
+                // ~6x faster than the M=1 tiled GEMM.
+                cuda_matvec_decode_bf16_qfp4(
+                    output_row, input_row,
+                    weight_, weight_scales_, bias_,
+                    cached_in_features_, out_features_,
+                    weight_group_size_, stream );
+            }
+            else
+            {
+                // FP8 per-channel and non-quantized weights share one fused matvec.
+                Detail::cuda_matvec_impl<ComputeType, WeightType>::decode(
+                    output_row, input_row,
+                    weight_, weight_scales_,
+                    bias_,
+                    cached_in_features_, out_features_,
+                    stream );
+            }
+        }
+
+        /**
+         * @brief More than one row: INT4 on the INT8 tensor cores; every other format through cuBLASLt, or a row
+         * at a time where no cuBLASLt plan exists (SM < 8.0, or a plan that failed to build).
+         */
+        void prefillRows( const ComputeType* input_ptr, ComputeType* output_ptr,
+            int outer_size, cudaStream_t stream ) const
+        {
+            if constexpr ( kIsInt4Weight )
+            {
+                runInt8Prefill( input_ptr, output_ptr, outer_size, stream );
+            }
+            else if ( use_cublaslt_ )
+            {
+                runCublasLtPrefill( input_ptr, output_ptr, outer_size, stream );
+            }
+            else
+            {
+                runPrefillRowByRow( input_ptr, output_ptr, outer_size, stream );
+            }
+        }
+
+        /**
+         * @brief The cuBLASLt batched path of every format but INT4, chosen by the weight policy.
+         */
+        void runCublasLtPrefill( const ComputeType* input_ptr, ComputeType* output_ptr,
+            int outer_size, cudaStream_t stream ) const requires ( !kIsInt4Weight )
+        {
+            if constexpr ( kUsesStagedPrefill )
+            {
+                runStagedPrefill( input_ptr, output_ptr, outer_size, stream );
+            }
+            else if constexpr ( kUseFp8ActivationPrefillPath )
+            {
+                runFp8ActivationPrefill( input_ptr, output_ptr, outer_size, stream );
+            }
+            else if constexpr ( kIsPerChannelQuantized )
+            {
+                // kUseW8A16Gemm: one kernel reads the FP8 weights once, dequantizes them per channel in shared
+                // memory, and accumulates into BF16. No staging buffer.
+                cuda_w8a16_gemm(
+                    output_ptr, input_ptr, weight_, weight_scales_, bias_,
+                    outer_size, cached_in_features_, out_features_, stream );
+            }
+            else if constexpr ( kIsFp4Weight )
+            {
+                runFusedFp4Prefill( input_ptr, output_ptr, outer_size, stream );
+            }
+            else
+            {
+                runUnquantizedPrefill( input_ptr, output_ptr, outer_size, stream );
+            }
+        }
+
+        /**
+         * @brief W4A8-FP8 prefill: a transient FP4->FP8 weight upcast and a dynamic per-token BF16->FP8 activation
+         * quantize, then a native FP8xFP8 cuBLASLt GEMM (~2x BF16 on Ada).
          *
-         * Kept a separate entry because the fallback loop drives it per row as well.
+         * Weights stay FP4 in VRAM; only this staging buffer is FP8. The GEMM runs with a unit activation scale
+         * (Ada cuBLASLt accepts only per-tensor scale pointers); the true per-token scales are applied exactly by
+         * the post-GEMM epilogue, which also folds the bias. All three regions (FP8 weight, FP8 activation,
+         * per-token scales) share one scratch allocation, each 16-byte aligned for cuBLASLt, fetched per forward
+         * because the scratch buffer may be reallocated on grow.
+         *
+         * THE GEMM READS THE PLAN'S M, NOT outer_size. get() rounds up to a bucket, so a prompt whose length is not
+         * itself a bucket runs a kernel that reads (bucket - outer_size) * in_features bytes beyond what outer_size
+         * would stage. Sizing the staging region by outer_size therefore reads out of bounds -- silently while the
+         * grow-only scratch happens to have that much slack, and as cudaErrorIllegalAddress when it does not.
+         * Measured 2026-08-15: a 300-token prompt at prefill chunk 512 takes bucket 512 and overran by 212 * 3072
+         * bytes. The rows between outer_size and the bucket are read as garbage and their outputs discarded, which
+         * is what the plan already assumed; only the allocation was short.
+         */
+        void runFp8ActivationPrefill( const ComputeType* input_ptr, ComputeType* output_ptr,
+            int outer_size, cudaStream_t stream ) const requires kUseFp8ActivationPrefillPath
+        {
+            const int plan_rows =
+                fp8_forward_plan_cache_.bucketFor( static_cast<int>( outer_size ) );
+
+            // ONE STRIP of output channels, not the whole matrix. Unstriped, the
+            // head asks for 1212.5 MiB here regardless of how many rows the
+            // caller wants -- see kMaxStagingBytes.
+            const size_t weight_fp8_bytes = static_cast<size_t>( strip_rows_ )
+                * static_cast<size_t>( cached_in_features_ );
+            const size_t weight_fp8_bytes_aligned =
+                ( weight_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
+            const size_t activation_fp8_bytes = static_cast<size_t>( plan_rows )
+                * static_cast<size_t>( cached_in_features_ );
+            const size_t activation_fp8_bytes_aligned =
+                ( activation_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
+            const size_t token_scale_bytes = static_cast<size_t>( plan_rows )
+                * sizeof( float );
+
+            auto* scratch = static_cast<char*>( context_->getDeviceScratchBuffer(
+                weight_fp8_bytes_aligned + activation_fp8_bytes_aligned + token_scale_bytes ) );
+            auto* weight_fp8 = reinterpret_cast<__nv_fp8_e4m3*>( scratch );
+            auto* activation_fp8 = reinterpret_cast<__nv_fp8_e4m3*>( scratch + weight_fp8_bytes_aligned );
+            auto* activation_token_scales = reinterpret_cast<float*>(
+                scratch + weight_fp8_bytes_aligned + activation_fp8_bytes_aligned );
+
+            // Once for the pass: the activation quantization does not depend on
+            // which output channels are being computed.
+            cuda_quantize_bf16_to_fp8_per_token(
+                activation_fp8,
+                activation_token_scales,
+                input_ptr,
+                outer_size, cached_in_features_,
+                stream );
+
+            const float alpha = 1.0f;
+            const float beta  = 0.0f;
+
+            for ( int begin = 0; begin < out_features_; begin += strip_rows_ )
+            {
+                const int rows = std::min( strip_rows_, out_features_ - begin );
+
+                // The expansion kernel addresses its planes relative to row 0 of
+                // the pointers it is handed, so a strip needs only the row offset
+                // folded in and its own row count -- the same property
+                // dequantizeStrip relies on for the BF16 formats.
+                cuda_fp4_dequantize_to_fp8(
+                    weight_fp8,
+                    weight_ + static_cast<ptrdiff_t>( begin )
+                        * ( cached_in_features_ / kElementsPerStorageByte ),
+                    weight_scales_ + static_cast<ptrdiff_t>( begin )
+                        * ( cached_in_features_ / weight_group_size_ ),
+                    weight_fp8_scale_,
+                    rows, cached_in_features_,
+                    weight_group_size_,
+                    stream );
+
+                const auto& cache = ( rows != strip_rows_ )
+                    ? fp8_trailing_plan_cache_ : fp8_forward_plan_cache_;
+
+                // output_ptr + begin with the plan's ldc set to out_features_:
+                // column-major C with a leading dimension writes this strip's
+                // channels into their columns of the full row-major output.
+                execute_fp8_prefill_plan<TComputePrecision>(
+                    cached_cublaslt_handle_,
+                    cache.get( outer_size ),
+                    &alpha,
+                    weight_fp8,
+                    activation_fp8,
+                    &beta,
+                    output_ptr + begin,
+                    stream,
+                    context_->getCublasLtWorkspace(),
+                    context_->getCublasLtWorkspaceSize() );
+            }
+
+            // After every strip: the per-token scales and the bias apply to the
+            // whole output row, not to one strip of it.
+            cuda_fp8_apply_per_token_scales(
+                output_ptr,
+                activation_token_scales,
+                bias_,
+                outer_size, out_features_,
+                stream );
+        }
+
+        /**
+         * @brief kUseFusedFp4Gemm: the fused FP4 GEMM, on the tensor cores from SM 8.0 and the tiled kernel below it.
+         */
+        void runFusedFp4Prefill( const ComputeType* input_ptr, ComputeType* output_ptr,
+            int outer_size, cudaStream_t stream ) const
+        {
+            if ( use_wmma_fp4_gemm_ )
+            {
+                cuda_fp4a16_gemm_wmma(
+                    output_ptr, input_ptr, weight_, weight_scales_, bias_,
+                    outer_size, cached_in_features_, out_features_,
+                    weight_group_size_, stream );
+            }
+            else
+            {
+                cuda_fp4a16_gemm(
+                    output_ptr, input_ptr, weight_, weight_scales_, bias_,
+                    outer_size, cached_in_features_, out_features_,
+                    weight_group_size_, stream );
+            }
+        }
+
+        /**
+         * @brief Non-quantized weights: one NT row-major cuBLASLt GEMM, then the bias.
+         *
+         * The bias is left out of the plan (built has_bias=false) and added after the GEMM -- see
+         * buildCublasLtPlans for why the FP32 bias epilogue is unsupported.
+         */
+        void runUnquantizedPrefill( const ComputeType* input_ptr, ComputeType* output_ptr,
+            int outer_size, cudaStream_t stream ) const
+        {
+            const float alpha = 1.0f;
+            const float beta  = 0.0f;
+
+            execute_linear_plan<TComputePrecision>(
+                cached_cublaslt_handle_,
+                forward_plan_cache_.get( outer_size ),
+                &alpha,
+                input_ptr,
+                weight_,
+                &beta,
+                output_ptr,
+                nullptr,
+                nullptr,
+                stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
+
+            if ( bias_ != nullptr )
+            {
+                cuda_add_bias( output_ptr, bias_, outer_size, out_features_, stream );
+            }
+        }
+
+        /**
+         * @brief No cuBLASLt plan: a quantized format's decode matvec, a row at a time. Non-quantized weights have
+         * no such fallback.
+         */
+        void runPrefillRowByRow( const ComputeType* input_ptr, ComputeType* output_ptr,
+            int outer_size, cudaStream_t stream ) const requires ( !kIsInt4Weight )
+        {
+            if constexpr ( kIsQuantized )
+            {
+                for ( int t = 0; t < outer_size; ++t )
+                {
+                    decodeRow(
+                        input_ptr + static_cast<ptrdiff_t>( t ) * cached_in_features_,
+                        output_ptr + static_cast<ptrdiff_t>( t ) * out_features_,
+                        stream );
+                }
+            }
+            else
+            {
+                throw std::runtime_error( "CudaLinearOp: no valid forward execution path available" );
+            }
+        }
+
+        /**
+         * @brief Decode through the codebook GEMV: the two-plane and three-plane tables have their own launchers.
          */
         void launchCodebookDecode( ComputeType* output_row, const ComputeType* input_row,
             const WeightType* codes, const ScaleType* scales, cudaStream_t stream ) const

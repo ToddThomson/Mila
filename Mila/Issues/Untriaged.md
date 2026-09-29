@@ -391,3 +391,39 @@ Next day, the HS-512 redesign (`Gqa.Flash.WideHead.cu`, `GqaFlashAttention.md` 5
 query rows per warp over the whole head, no exchange): global attention 4,773 -> 3,348 against 3,097; all kernels
 13,771 -> 12,422 against 13,639. 8% remains on global attention; accumulating PV in FP16 (twice the FP32 rate on
 GeForce) would be a precision trade, unmeasured.
+
+## Gemma printed an image-closing token in the middle of a text reply
+
+No location: nothing masks modality tokens out of sampling today.
+
+Todd, Chat on Gemma 4 12B, 2026-09-28, the evening `+17` was committed: asked for puns, the reply ran "Why did
+the<image|>Animals:" -- the rest of that pun lost, the reply continuing coherently after it. The model sampled
+`<image|>` (258882) mid-sentence in a text-only conversation. Gemma 4 has seven modality markers (`<|image>`
+255999, `<|audio>` 256000, `<|image|>` 258880, `<|audio|>` 258881, `<image|>` 258882, `<audio|>` 258883,
+`<|video|>` 258884); Chat now hides all seven, where it printed five of them and stored them in the history.
+
+Not the HS-512 prefill kernel that landed the same day: on `+17`, 257 targets of PG-19 book 30312 scored by
+decode (which that kernel does not run) and by prefill agree as closely as before it -- 3.559 vs 3.583 nats/token
+after 4096 tokens, 4.108 vs 4.140 after 32768, against gaps of 0.042 and 0.029 before `+17`
+(`DISABLED_DecodeAgainstPrefillAlongTheBook`). What remains is sampling at temperature landing in the tail, and
+whether a text-only session should mask the modality markers out of sampling -- a sampler change, open.
+
+## A model under a Windows path with characters outside the ANSI code page cannot be opened
+
+`Mila/Src/Dnn/Serialization/WeightsReader.ixx:189`, `SafeTensors.ixx:184`
+
+Both open with `std::fopen( filepath.string().c_str(), ... )`. On Windows `path::string()` converts to the ANSI code
+page, so a path it cannot represent fails to open. The store lives under `%LOCALAPPDATA%`, so a user whose profile
+name has such characters cannot load any model. Found 2026-09-29 while clearing the `fopen` deprecation warning;
+not reproduced. A fix opens by `path::c_str()` (wide on Windows) without an `#ifdef` in a module.
+
+## Two compile-time A/B toggles in CudaLinearOp keep branches no build takes
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx` (`kUseW8A16Gemm`, `kUseFusedFp4Gemm`,
+`kUseFp8ActivationPrefill`)
+
+`kUseW8A16Gemm` and `kUseFusedFp4Gemm` are `false` and `kUseFp8ActivationPrefill` is `true`, so `cuda_w8a16_gemm`,
+the fused FP4 GEMMs (`cuda_fp4a16_gemm`, `cuda_fp4a16_gemm_wmma`) and `use_wmma_fp4_gemm_` are reached by no build.
+Found 2026-09-29 while splitting `forward()` into one method per path, which kept them (`runCublasLtPrefill`,
+`runFusedFp4Prefill`) so that change stayed a restructure. Retiring the toggles means deciding whether the fused
+kernels keep a measured purpose.

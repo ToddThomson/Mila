@@ -16,7 +16,11 @@ This document records the protocol and how the Mila chat harness
 | `thought`        | Channel name emitted after `<|channel>`         |
 | `<|tool_call>` / `<tool_call|>` | Model requests a tool            |
 | `<|tool_response>` / `<tool_response|>` | Tool result returned     |
-| `<|image|>` / `<|audio|>` | Multimodal embedding placeholders      |
+| `<|image|>` / `<|audio|>` / `<|video|>` | Multimodal embedding placeholders |
+| `<|image>` / `<image|>`, `<|audio>` / `<audio|>` | Open / close a modality's embeddings |
+
+Chat runs text only and has no display form for any of the seven modality markers: both the buffered
+strip and the streaming router drop them.
 
 ## Turn structure
 

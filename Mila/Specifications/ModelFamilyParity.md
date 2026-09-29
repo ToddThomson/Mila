@@ -57,8 +57,8 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 
 | Capability | Llama | Gemma | Qwen | Anchor |
 |---|---|---|---|---|
-| Sampling on the device: top-k, top-p, seedable | -- | Y | Y | Llama samples on the host, applies temperature and top-k only (so `top_p` is ignored) and seeds from the clock, so `seedSampler` has no effect (`LlamaModel.ixx:391`) |
-| Sampling overlapped with the next forward | -- | Y | Y | Llama synchronizes after every prefill and decode |
+| Sampling on the device: top-k, top-p, seedable | Y | Y | Y | the shared `TokenSampler`; Llama since 8.4 L5 |
+| Sampling overlapped with the next forward | Y | Y | Y | every family's loop enqueues the next decode before reading the token back; Llama since 8.4 L5 |
 | Prompt-prefix reuse | -- | Y | n/a | Gemma `GemmaModel.ixx:412`; Qwen `supportsPromptPrefixReuse`, `QwenModel.ixx:338` |
 | Correct at the trained context length | partial | Y | Y | Llama's frequency scaling applied since 8.4 L2, and matched to HuggingFace past 8192 on the 3.2 1B; quality across the planner's range is L3 |
 | Flash-attention prefill | Y | Y | Y | every BF16 build of every family, with no context threshold (8.4, L4) |
@@ -900,7 +900,80 @@ user, because removing the score buffers raises the context the planner chooses 
     Q4_0 GGUF of the same model, recorded. *Recorded 2026-09-27.*
 
 **L5 -- Sampling on the device, overlapped with the next forward.** *Closes:* 3.1's first two rows. Applies
-Gemma's and Qwen's sampler; `top_p` and `seedSampler` start working.
+Gemma's and Qwen's sampler; `top_p` and `seedSampler` start working. *Done 2026-09-29:* `LlamaModel::onGenerating`
+is Qwen's loop, and the host sampler, its logits staging and its clock-seeded RNG are gone. Gates
+(`LlamaModel.Generation.Cuda.cpp`, tiny HuggingFace Llama): greedy generation equals a prefill-argmax-decode walk
+of the same network; one seed twice gives one token stream, another seed a different one; a `top_p` of 1e-6 is
+greedy; a run to the context bound reports every position and ends in `ContextOverflow`.
+
+*Measured 2026-09-29, before L5 (`Mila/Profiling/Benchmarks/benchmark_comparison.py`, nsys on ProfileModel, RTX
+5060 Ti).* Llama 3.1 8B Q4_0 generates 62 / 51 / 34 tokens a second at depth 0 / 8K / 32K against llama.cpp's 78 /
+65 / 39 on the same GGUF weights -- whose output head is BF16, as Mila's is, so the head is not the difference.
+One token at depth 0 takes 16.17 ms of wall time, 13.81 ms of it kernels (465 of them):
+
+| Per token | ms | Note |
+|---|---|---|
+| Q4_0 matvecs, 224 projections | 9.47 | 3.93 GB at 415 GB/s -- at the card's bandwidth already |
+| Output head, BF16 matvec | 2.46 | 1.05 GB, the same in both engines |
+| RMSNorm, 65 launches | 1.63 | 25 us each: one warp per row, so a decode row runs on one warp of the GPU |
+| Everything else | 0.25 | attention at depth 0, RoPE, residuals, SwiGLU, cache writes |
+| GPU idle | 2.36 | 1.33 ms in gaps over 20 us, after the head: the host synchronizes (3 `cudaStreamSynchronize` a token), copies 128K logits back, samples on the CPU and copies the token up before it enqueues the next forward; the rest is ~1.7 us between consecutive kernels |
+
+Three levers, in order of size: the RMSNorm kernel at decode shape (a block per row, vectorised) returns ~1.4 ms;
+L5 itself returns the 1.33 ms of host gaps; fewer launches (fusing residual + norm, the split + RoPE + cache write,
+or one CUDA graph per decode step) return part of the ~0.8 ms between kernels. Together about 12.5 ms, 80 tokens a
+second -- ahead at depth 0 by a few percent only. Decode attention reads the 8K cache at ~70% of bandwidth
+(106 us a layer), about 0.8 ms a token behind at 8K; level at 32K. L6's quantized head would take ~1.2 ms more.
+
+The RMSNorm kernel is shared: Gemma 4 12B Q4_0 spends 4.96 of 23.01 kernel-ms a token in it (337 launches, 21.6%),
+at 25.23 ms a token with its decode-ahead sampler already in place.
+
+*After the first two levers, 2026-09-29, same card, three runs each.* RMSNorm now runs a block per contiguous row
+with 16-byte loads (`RmsNorm.Bf16.cu`; the warp-per-row kernel remains for strided or unaligned input), and L5 is
+done. Generation at depth 0 / 8K / 32K:
+
+| Tokens a second | 0 | 8K | 32K |
+|---|---|---|---|
+| Llama 3.1 8B Q4_0, before | 62 | 51 | 34 |
+| after RMSNorm | 68 | 55 | -- |
+| after RMSNorm and L5 | 75 | 59 | 38 |
+| llama.cpp, same GGUF | 78 | 65 | 39 |
+| Gemma 4 12B Q4_0, before | 40 | 37 | 35 |
+| after RMSNorm | 48 | 44 | 41 |
+| llama.cpp, Google's GGUF | 54 | 50 | 48 |
+
+(The RMSNorm-only 32K Llama cell is not reported: a build ran beside it and its runs read 35.7, 30.2, 11.1.)
+Prefill rose by 0-2% in every cell. Llama is at 0.96x / 0.91x / 0.96x, Gemma 0.89x / 0.88x / 0.85x;
+launch count and decode attention are the next levers.
+
+*Launches, measured after L5 (nsys, depth 0).* The idle time is the launch count times the gap between consecutive
+kernels, and nothing else: Llama 468 kernels a token x 2.1 us = 0.98 ms of 13.36; Gemma 989 x 2.55 us = 2.52 ms of
+21.04. No host stall remains (Llama's per-token `cudaMallocAsync` left with its host sampler). Gemma's kernels alone
+take 18.52 ms, which is llama.cpp's whole token (18.5 ms), so at depth 0 fewer launches can bring Gemma level and no
+further. A third of Gemma's launches are RMSNorm (337 a token: four a layer, and the q/k/v norms). Gemma's host shows
+19 us a launch against Llama's 4.5 because two queued forwards fill the launch queue and launches wait for room.
+
+*The ceiling* (`DecodeLaunch.Cuda.cpp`, `DISABLED_DecodeStepAsOneGraph_*`): one decode step, at a fixed position so
+both arms do the same work, launched as today and replayed as one captured CUDA graph. Capture needed no change.
+
+| One decode step | Kernels | Launched | One graph | Saved |
+|---|---|---|---|---|
+| Llama 3.1 8B Q4_0, RTX 5060 Ti | 451 | 13.28 ms (75.3 tokens/s) | 12.33 ms (81.1) | 0.95 ms, 2.1 us a kernel |
+| Gemma 4 12B Q4_0, RTX 5060 Ti | 964 | 20.77 ms (48.2) | 18.45 ms (54.2) | 2.32 ms, 2.4 us a kernel |
+| Llama 3.1 8B Q4_0, RTX 4070 | 451 | 12.60 ms (79.4) | 11.49 ms (87.1) | 1.11 ms, 2.5 us a kernel |
+| Gemma 4 12B Q4_0, RTX 4070 | 964 | 20.23 ms (49.4) | 17.32 ms (57.7) | 2.91 ms, 3.0 us a kernel |
+
+This reverses the May 2026 reading that graphs would not pay (Llama 3.1 8B FP4 on the 4070, and
+`Gemma4InferenceReview.md` 4.6 after it). That reading was inferred from a busy/idle ratio, never measured with a
+graph, and it was true of its token: 17.5-21 ms of which a decode softmax, an M=1 tile GEMM for attention and a
+warp-per-row RMSNorm held most, with the host's per-token synchronize hiding the gaps behind it. Since then those
+kernels were replaced, the host left the token loop (decode-ahead, and L5 for Llama), and the matvecs reached the
+card's bandwidth -- so a fixed ~2-3 us a launch went from a few percent of a slow token to 7-14% of a fast one.
+
+The replay equals the kernels' own time: a graph removes the whole gap. Design of record: `DecodeGraph.md`
+(agreed 2026-09-29). Fusion removes it only for the launches it
+deletes -- residual + norm, split + RoPE + cache write, the gated activation and the attention fix-up come to about
+200 of Llama's 451 (about 0.42 ms, ~78 tokens a second) and about 500 of Gemma's 964 (about 1.2 ms, ~51).
 
 **L6 -- Embedding table and output head quantized with the body, and held once where the checkpoint ties
 them.** *Closes:* 3.2's second and third rows. The converter writes a tied checkpoint's table once and records

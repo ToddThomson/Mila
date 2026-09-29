@@ -908,7 +908,8 @@ namespace Mila::ChatApp
                 "<|turn>", "<turn|>", "<|think|>",
                 "<|tool>", "<tool|>", "<|tool_call>", "<tool_call|>",
                 "<|tool_response>", "<tool_response|>",
-                "<|image|>", "<|audio|>",
+                "<|image>", "<image|>", "<|image|>",
+                "<|audio>", "<audio|>", "<|audio|>", "<|video|>",
                 // Qwen 3.8 ChatML and tool markers. <think>/</think> are deliberately omitted
                 // for the same reason Gemma's channel pair is: ChannelParser consumes them
                 // before this runs, and removing them here would erase the boundary it splits on.
@@ -2495,7 +2496,8 @@ namespace Mila::ChatApp
                             "<|turn>", "<turn|>", "<|think|>", "<|tool>", "<tool|>",
                             "<|tool_response>", "<tool_response|>",
                             "<end_of_turn>", "<start_of_turn>", "<bos>", "<eos>", "<pad>",
-                            "<|image|>", "<|audio|>"
+                            "<|image>", "<image|>", "<|image|>",
+                            "<|audio>", "<audio|>", "<|audio|>", "<|video|>"
                         };
 
                         for ( const auto control : kSuppressedControlTokens )

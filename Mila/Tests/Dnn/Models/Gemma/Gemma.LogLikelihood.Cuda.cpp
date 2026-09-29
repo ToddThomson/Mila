@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -420,6 +421,14 @@ namespace Mila::Tests::Dnn::Models
 
             std::fwrite( values.data(), sizeof( float ), values.size(), file );
             std::fclose( file );
+        }
+
+        // Token ids go into the dumps as floats, so a reading script loads every dump the same way; ids below 2^24
+        // are exact.
+        void appendTokenIds( std::vector<float>& values, const std::vector<std::int32_t>& ids )
+        {
+            std::ranges::transform( ids, std::back_inserter( values ),
+                []( std::int32_t id ) { return static_cast<float>( id ); } );
         }
     }
 
@@ -957,7 +966,10 @@ namespace Mila::Tests::Dnn::Models
 
         writeFloats( directory / std::format( "mila_{}_layers_longer.f32", format ), dump( longer ) );
         writeFloats( directory / std::format( "mila_{}_layers_prefix.f32", format ), dump( prefix ) );
-        writeFloats( directory / std::format( "mila_{}_layers_tokens.f32", format ), std::vector<float>( longer.begin(), longer.end() ) );
+        std::vector<float> token_ids;
+        appendTokenIds( token_ids, longer );
+
+        writeFloats( directory / std::format( "mila_{}_layers_tokens.f32", format ), token_ids );
 
         std::cout << std::format( "  wrote layers of {} and {} tokens to {}\n", kLonger, kPrefix, directory.string() ) << std::flush;
     }
@@ -1074,7 +1086,7 @@ namespace Mila::Tests::Dnn::Models
             ids.insert( ids.end(), text.begin() + static_cast<std::ptrdiff_t>( segment * kText ),
                 text.begin() + static_cast<std::ptrdiff_t>( ( segment + 1 ) * kText ) );
 
-            flat.insert( flat.end(), ids.begin(), ids.end() );
+            appendTokenIds( flat, ids );
             segments.push_back( std::move( ids ) );
         }
 

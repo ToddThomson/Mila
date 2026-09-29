@@ -213,16 +213,31 @@ the Python one moves to `mila.AI`. Each keeps a path that builds a network from 
 `README.md`, the website under `Web/` and `getting-started.md` lead with the v0.20 message, and
 several use "adaptor". They move to the trait — a library for developers to harness intelligence — in
 this release and not before, which means written against what the tag actually ships
-(`Direction.md` §5.7; `.internal/Marketing/Positioning.md` is superseded by it). Gate: no public
-surface describes Mila as a reference implementation first, or uses "adaptor".
+(`Direction.md` §5.7; `.internal/Marketing/Positioning.md` is superseded by it).
+
+The landing page's four claims -- Explicit, Validated, Fast, and the type is the configuration -- each gain a
+link to a page that explains the claim fully. Each claim's one line still stands without the click, and each
+link names its topic, not "Read more" alone. Explicit and the type is the configuration go to their sections of
+the Design page (`Web/content/docs.md`), expanded: the decode recording explained as a cache of the explicit
+calls, with its off switch (`DecodeGraph.md`), and the typed configuration of components told apart from a load
+mapping a package's declared format to its type -- the section says today that the converter always writes BF16
+and quantization happens on load, which published packages no longer do. Validated gets a page of its own:
+what is checked, against what, at which precision and length, for every model including Qwen 3.8 -- replacing a
+"token-for-token" claim that is wider than what the parity tests check. Fast's page belongs to the llama.cpp
+entry below. `hugo.toml`'s comment that the claims carry no links is replaced with the reason these do. Written
+late in the cycle, on the numbers the tag ships. Gate: no public surface describes Mila as a reference
+implementation first, or uses "adaptor", and every landing-page claim links to a page that states exactly what
+backs it.
 
 #### The website cannot show that Mila runs the best local models faster than llama.cpp
 
-`open` · `perf` · `models` · `docs`
+`in progress` · `perf` · `models` · `docs`
 
-The site says Mila is fast and comparable to llama.cpp. The measurements that would let it say "faster" are
-one-offs in specs -- Gemma 4 12B Q4_0 prefill (`GqaFlashAttention.md` 5.8), Llama 3.1 8B prefill
-(`ModelFamilyParity.md` 8.4 L4) -- and generation (decode) has never been measured against llama.cpp at all.
+The site's Fast claim is a 4070 measurement against llama.cpp under LM Studio at Q4_K_M, from before this
+release's kernels. The measurements that would let it say "faster" come from the comparison script
+(`Mila/Profiling/Benchmarks/benchmark_comparison.py`), which runs Llama 3.1 8B and Gemma 4 12B today; the
+Llama 3.2 3B row needs its Q4_0 GGUF and the Qwen 3.8 rows a GGUF of their own (llama.cpp knows the
+architecture).
 
 One script in the repository drives both engines and writes the table the site shows: every published model,
 prefill at 512, 2K, 8K and 32K, and generation (128 tokens) with an empty context and at 8K and 32K, averaged over
@@ -231,8 +246,38 @@ every layer on the GPU and an FP16 KV cache. Where both run the same weights in 
 Llama 3.1 8B in Q4_0) the cell is a head-to-head; otherwise each engine runs the format a user would pick for
 that model on that card, named in the table. Whether llama.cpp runs Qwen 3.8's architecture is checked before its
 row is promised. A cell where Mila is behind becomes its own entry here, fixed before the release -- it is not
-dropped from the table. The public copy is written in the website's voice once the numbers exist. Gate: the
-script reruns the whole table unattended, and every cell shows Mila ahead.
+dropped from the table. The table is the page the landing page's Fast claim links to, with the card, the method
+and the command that reruns it; its public copy is written in the website's voice once the numbers exist, measured
+once on the CUDA toolkit the tag ships.
+
+The comparison is as fair as the script can make it, because a win that comes from the setup is not a win. Every
+cell holds these, and the page states them:
+
+- **Like against like.** The same weights where both engines load them; any tensor stored differently -- Gemma's
+  output head is FP8 in Mila and Q6_K in Google's GGUF -- is named in the cell. The KV cache matches too: where Mila
+  runs FP8 KV, llama.cpp runs its 8-bit cache (`-ctk q8_0 -ctv q8_0`) in the same cell; BF16 against FP16 otherwise.
+- **llama.cpp at its best.** Its batch and micro-batch sizes (`-b`, `-ub`) are swept per cell and its fastest
+  setting kept and recorded; Mila runs the plan it chooses for itself, with nothing a user could not set.
+- **The same conditions.** One card, one driver, both builds' versions and CUDA runtimes recorded; each engine sized
+  to the test; a warm-up and at least three runs in both, mean and spread shown; nothing else running on the machine.
+- **The same work timed.** What each engine's timer includes is stated; where one counts work the other does not --
+  Mila's generation includes on-device sampling and the token's readback -- it is measured and either removed or
+  shown.
+
+Gate: the script reruns the whole table unattended and enforces the rules above, every cell shows Mila ahead, and
+the Fast claim links to the table.
+
+#### Mila generates text more slowly than llama.cpp on the same weights
+
+`in progress` · `perf` · `llama` · `mila-src` · `measured`
+
+Llama 3.1 8B in Q4_0, the same weights in both engines, on the RTX 5060 Ti: Mila generates 62, 51 and 34 tokens a
+second at context depth 0, 8K and 32K, llama.cpp 78, 65 and 39 -- 0.80x, 0.79x and 0.87x. Prefill on the same run
+is 1.16-1.29x ahead, so the gap is in the per-token loop, not the weights' format. Generating one token reads every
+weight once, so the card's bandwidth sets a ceiling llama.cpp sits much nearer than Mila does. The other families'
+generation is unmeasured against it until their rows run. The work, in order, is in `ModelFamilyParity.md` 8.4 L5
+and `Mila/Specifications/DecodeGraph.md`. Gate: every generation cell of the comparison table
+(`Mila/Profiling/Benchmarks/benchmark_comparison.py`) shows Mila ahead.
 
 ### Qwen 3.8 Complete
 
@@ -317,18 +362,6 @@ free performance knob, so both arms of a quantization comparison have to use the
 
 Probably already recorded at `Qwen3.8.md:509` and `:546` — verify, and if so this entry is a
 duplicate and should be deleted rather than worked.
-
-#### A Qwen load test discards a `[[nodiscard]]` status and warns on every build
-
-`open` · `qwen` · `ci`
-
-`QwenModel.Load.Cuda.cpp:205` calls `model->generate(...)` for its side effects inside a lambda,
-producing C4834. The status is the only channel reporting why generation stopped, so a test that
-ignores it cannot tell a completed run from an aborted one — and the other call sites in the same
-file (`:168`, `:523`, `:813`) already bind it. The build at `+3` reports three more sites of the same
-warning: `QwenModel.Load.Cuda.cpp:1051`, `:1259` and `Tests/Common/GenerationRates.h:67`.
-
-Assert it instead of casting it away. Also one entry on the warnings-as-errors ratchet's bill.
 
 ### Gemma 4 Complete
 

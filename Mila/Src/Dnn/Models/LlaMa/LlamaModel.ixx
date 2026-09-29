@@ -18,11 +18,7 @@ module;
 #include <stdexcept>
 #include <filesystem>
 #include <format>
-#include <random>
 #include <optional>
-#include <chrono>
-#include <algorithm>
-#include <numeric>
 #include <functional>
 #include <stop_token>
 #include <cstring>
@@ -66,7 +62,6 @@ import Compute.DeviceTypeTraits.Cpu;
 import Compute.CpuMemoryResource;
 #ifdef MILA_HAS_CUDA
 import Compute.DeviceTypeTraits.Cuda;
-import Compute.CudaPinnedMemoryResource;
 #endif
 import Compute.ExecutionContextFactory;
 import Serialization.WeightsReader;
@@ -112,11 +107,6 @@ namespace Mila::Dnn
         using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
-#ifdef MILA_HAS_CUDA
-        using StagingMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaPinnedMemoryResource, CpuMemoryResource>;
-#else
-        using StagingMR = CpuMemoryResource;
-#endif
 
         LlamaModel( const LlamaModel& ) = delete;
         LlamaModel& operator=( const LlamaModel& ) = delete;
@@ -400,13 +390,12 @@ namespace Mila::Dnn
          * Phase 1 (prefill): runs the full prompt through prefill() to populate
          * the KV cache and samples the first new token from the last position.
          * Phase 2 (decode): iterates one token at a time until max_new_tokens
-         * is reached, EOS is emitted, or stop is requested.
+         * is reached, a stop token is sampled, or stop is requested.
          *
-         * on_token is called for every generated token except EOS.
+         * on_token is called for every generated token except a stop token.
          *
-         * @param prompt_tokens  Input token ids; truncated from the start if
-         *                       they exceed the model's max sequence length.
-         * @param on_token       Callback invoked once per generated token (not EOS).
+         * @param prompt_tokens  Input token ids; refused if they exceed the deployment context.
+         * @param on_token       Callback invoked once per generated token (not a stop token).
          * @param params         Per-call generation parameters (loop bound + sampling).
          * @param stop           Stop token for cooperative cancellation.
          * @return               Why generation stopped.
@@ -417,20 +406,6 @@ namespace Mila::Dnn
             const GenerateParams& params,
             std::stop_token stop ) override
         {
-            // Stop set: model defaults, or the caller's per-call override.
-            std::unordered_set<int32_t> stop_ids;
-            if ( params.stop_tokens.empty() )
-                stop_ids = stopTokens();
-            else
-                for ( auto id : params.stop_tokens )
-                    stop_ids.insert( static_cast<int32_t>( id ) );
-
-            // Host sampler path (device-sampler migration deferred): time-seeded.
-            // Seedable/reproducible sampling arrives with the device-sampler migration
-            // (LanguageModel::seedSampler), not a per-call parameter.
-            std::mt19937 rng( static_cast<std::mt19937::result_type>(
-                std::chrono::high_resolution_clock::now().time_since_epoch().count() ) );
-
             if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
             {
                 throw std::invalid_argument( std::format(
@@ -438,53 +413,81 @@ namespace Mila::Dnn
                     prompt_tokens.size(), context_length_ ) );
             }
 
-            const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
+            // Stop set: model defaults, or the caller's per-call override.
+            std::unordered_set<int32_t> stop_ids;
 
+            if ( params.stop_tokens.empty() )
+                stop_ids = stopTokens();
+            else
+                for ( auto id : params.stop_tokens )
+                    stop_ids.insert( static_cast<int32_t>( id ) );
+
+            const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
             auto& logits = this->getNetwork().prefill( prefill_input );
-            this->getNetwork().synchronize();
 
-            int32_t next_token = sampleFromLogits(
-                logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
-
-            if ( stop_ids.contains( next_token ) )
-                return GenerateStatus::Success;
-
-            on_token( next_token );
+            // Decode-ahead pipeline: the sampler runs on the network stream (ordered after the
+            // forward that produced the logits) and writes the sampled token into
+            // decode_token_device_ in place, so the NEXT forward is enqueued before the host has
+            // read the token id back and the host's per-token work overlaps the GPU's.
+            this->enqueueSampleNext( logits, decode_token_device_, params.sampling );
 
             dim_t position = seq_len;
+            int emitted = 0;
+
+            // nullopt max_new_tokens => run to a stop token / the context bound (the guard below).
             const int max_new = params.max_new_tokens.value_or( static_cast<int>( context_length_ ) );
 
-            for ( int step = 1; step < max_new; ++step )
+            while ( true )
             {
                 if ( stop.stop_requested() )
+                {
+                    // Drain the in-flight sampling step so nothing runs past return.
+                    this->getNetwork().synchronize();
+
                     return GenerateStatus::ClientCancelled;
+                }
 
-                // decode cannot write the KV cache at a position past the deployment context
-                // length. RoPE is computed rather than looked up, so there is no positional
-                // table to run off the end of and nothing crashes -- the cache is overrun
-                // quietly instead, which is the worse failure. Mirrors GemmaModel.
-                if ( position >= context_length_ )
-                    return GenerateStatus::ContextOverflow;
+                // Decode ahead only when another step could consume its logits: within the
+                // per-call token budget, and with KV-cache room. RoPE is computed rather than
+                // looked up, so a decode past the context length would overrun the cache quietly
+                // instead of failing.
+                const bool more_steps_allowed = emitted + 1 < max_new;
+                const bool cache_has_room = position < context_length_;
 
-                decode_token_staging_.data()[ 0 ] = next_token;
-                copy( decode_token_staging_, decode_token_device_ );
+                TensorType* decode_logits = nullptr;
 
-                auto& decode_logits = this->getNetwork().decode( decode_token_device_, position );
-                this->getNetwork().synchronize();
+                if ( more_steps_allowed && cache_has_room )
+                    decode_logits = &this->getNetwork().decode( decode_token_device_, position );
 
-                next_token = sampleFromLogits(
-                    decode_logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
+                const int32_t token = this->awaitSampledToken();
 
-                if ( stop_ids.contains( next_token ) )
+                if ( decode_logits )
+                    ++position;
+
+                if ( stop_ids.contains( token ) )
+                {
+                    // The ahead-decode of the stop token may still be in flight.
+                    this->getNetwork().synchronize();
+
                     return GenerateStatus::Success;
+                }
 
-                on_token( next_token );
-                ++position;
+                on_token( token );
+                ++emitted;
+
+                if ( !decode_logits )
+                {
+                    // No ahead-decode was enqueued, so the stream drained at the await above.
+                    // Token budget takes precedence over the context bound.
+                    return more_steps_allowed
+                        ? GenerateStatus::ContextOverflow
+                        : GenerateStatus::MaxNewTokensReached;
+                }
+
+                this->enqueueSampleNext( *decode_logits, decode_token_device_, params.sampling );
             }
-
-            return GenerateStatus::MaxNewTokensReached;
         }
 
         /**
@@ -525,9 +528,7 @@ namespace Mila::Dnn
             : ModelBase( std::move( network ), runtime_mode,
                 std::move( source_metadata ), plan.weightQuantization() )
             , config_( config ), context_length_( plan.contextLength() ), plan_( plan )
-            , decode_token_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1 } )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
-            , logits_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1, static_cast<int64_t>( config.getVocabSize() ) } )
         {}
 
         static DeviceId requireDevice( std::string_view caller, DeviceId device_id )
@@ -650,9 +651,8 @@ namespace Mila::Dnn
         // The plan this model executed; reported, never re-derived.
         DeploymentPlan plan_;
 
-        Tensor<dtype_t::INT32, StagingMR> decode_token_staging_;
+        // The sampled token, written in place by the sampler and read by the next decode.
         TokenIndexType decode_token_device_;
-        Tensor<TensorDataType::FP32, StagingMR> logits_staging_;
 
         /**
          * @brief LLaMA 3.x end-of-sequence token.
@@ -691,86 +691,6 @@ namespace Mila::Dnn
             copy( cpu_tensor, device_tensor );
 
             return device_tensor;
-        }
-
-        int32_t sampleFromLogits(
-            const TensorType& logits,
-            dim_t position,
-            float temperature,
-            int top_k,
-            std::mt19937& rng )
-        {
-            copy( logits, logits_staging_ );
-
-            const float* row = logits_staging_.data() + position * config_.getVocabSize();
-
-            return sampleToken(
-                row,
-                static_cast<size_t>(config_.getVocabSize()),
-                temperature, top_k, rng );
-        }
-
-        static int32_t sampleToken(
-            const float* logits,
-            size_t vocab_size,
-            float temperature,
-            int top_k,
-            std::mt19937& rng )
-        {
-            if ( temperature <= 0.0f || top_k == 1 )
-            {
-                return static_cast<int32_t>( std::max_element( logits, logits + vocab_size ) - logits );
-            }
-
-            float max_logit = *std::max_element( logits, logits + vocab_size );
-
-            std::vector<float> probs( vocab_size );
-            double sum = 0.0;
-
-            for ( size_t i = 0; i < vocab_size; ++i )
-            {
-                float v = std::exp( (logits[ i ] - max_logit) / temperature );
-                probs[ i ] = v;
-                sum += v;
-            }
-
-            for ( size_t i = 0; i < vocab_size; ++i )
-                probs[ i ] /= static_cast<float>( sum );
-
-            if ( top_k > 0 && top_k < static_cast<int>( vocab_size ) )
-            {
-                std::vector<size_t> indices( vocab_size );
-                std::iota( indices.begin(), indices.end(), 0 );
-                std::partial_sort( indices.begin(), indices.begin() + top_k,
-                    indices.end(),
-                    [&]( size_t a, size_t b ) { return probs[ a ] > probs[ b ]; } );
-
-                std::vector<float> filtered( vocab_size, 0.0f );
-                double filtered_sum = 0.0;
-
-                for ( int i = 0; i < top_k; ++i )
-                {
-                    filtered[ indices[ i ] ] = probs[ indices[ i ] ];
-                    filtered_sum += probs[ indices[ i ] ];
-                }
-
-                for ( size_t i = 0; i < vocab_size; ++i )
-                    probs[ i ] = filtered[ i ] / static_cast<float>( filtered_sum );
-            }
-
-            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
-            float r = dist( rng );
-            float cumsum = 0.0f;
-
-            for ( size_t i = 0; i < vocab_size; ++i )
-            {
-                cumsum += probs[ i ];
-
-                if ( r < cumsum )
-                    return static_cast<int32_t>( i );
-            }
-
-            return static_cast<int32_t>( vocab_size - 1 );
         }
     };
 }

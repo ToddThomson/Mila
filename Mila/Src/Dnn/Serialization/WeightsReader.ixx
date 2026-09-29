@@ -19,6 +19,10 @@
  */
 
 module;
+// std::fopen is deprecated by the MSVC CRT and not by the C++ standard, and fopen_s is not portable. The reader
+// owns the FILE* it opens and never hands it out. Confined to this file, as Environment.ixx confines getenv's.
+#define _CRT_SECURE_NO_WARNINGS
+
 #include <cstdio>
 #include <filesystem>
 #include <memory>

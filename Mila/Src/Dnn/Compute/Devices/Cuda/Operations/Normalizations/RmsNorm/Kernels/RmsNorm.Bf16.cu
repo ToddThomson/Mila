@@ -6,6 +6,8 @@
  * Requires SM >= 8.0 (Ampere) for native BF16 and BF16 atomicAdd support.
  */
 
+#include <algorithm>
+#include <cstdint>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
 #include "device_launch_parameters.h"
@@ -14,6 +16,127 @@
 
 namespace Mila::Dnn::Compute::Cuda::RmsNorm
 {
+    namespace
+    {
+        constexpr int kValuesPerVector = 8;
+        constexpr int kMaximumRowThreads = 1024;
+
+        // Sum of v over the block, returned to every thread.
+        __device__ float blockSum( float v )
+        {
+            __shared__ float warp_sums[ kMaximumRowThreads / WARP_SIZE ];
+            __shared__ float total;
+
+            const int lane_id = threadIdx.x % WARP_SIZE;
+            const int warp_id = threadIdx.x / WARP_SIZE;
+            const int num_warps = (blockDim.x + WARP_SIZE - 1) / WARP_SIZE;
+
+            for ( int offset = WARP_SIZE / 2; offset > 0; offset /= 2 )
+                v += __shfl_xor_sync( 0xffffffff, v, offset );
+
+            if ( lane_id == 0 )
+                warp_sums[ warp_id ] = v;
+
+            __syncthreads();
+
+            if ( warp_id == 0 )
+            {
+                v = lane_id < num_warps ? warp_sums[ lane_id ] : 0.0f;
+
+                for ( int offset = WARP_SIZE / 2; offset > 0; offset /= 2 )
+                    v += __shfl_xor_sync( 0xffffffff, v, offset );
+
+                if ( lane_id == 0 )
+                    total = v;
+            }
+
+            __syncthreads();
+
+            return total;
+        }
+
+        bool isVectorAligned( const void* pointer )
+        {
+            return reinterpret_cast<std::uintptr_t>( pointer ) % sizeof( uint4 ) == 0;
+        }
+    }
+
+    // One block per contiguous row, 16-byte loads. A decode step normalizes a single row, which the
+    // warp-per-row kernel below runs on one warp of the whole GPU; a block per row keeps every row's
+    // arithmetic the same whatever the row count, so prefill and decode share one normalization.
+    // Each thread writes only the vectors it read, so out may alias inp.
+    __global__ void rmsnorm_forward_bf16_row_kernel(
+        __nv_bfloat16*                    out,
+        __nv_bfloat16* __restrict__       rstd,
+        const __nv_bfloat16*              inp,
+        const __nv_bfloat16* __restrict__ weight,
+        const __nv_bfloat16* __restrict__ bias,
+        int norm_dim, float epsilon, float weight_offset )
+    {
+        const size_t row_offset = static_cast<size_t>( blockIdx.x ) * static_cast<size_t>( norm_dim );
+        const uint4* x = reinterpret_cast<const uint4*>( inp + row_offset );
+        uint4* o = reinterpret_cast<uint4*>( out + row_offset );
+        const uint4* w = reinterpret_cast<const uint4*>( weight );
+        const uint4* b = reinterpret_cast<const uint4*>( bias );
+        const int vectors = norm_dim / kValuesPerVector;
+
+        float m2 = 0.0f;
+
+        for ( int v = threadIdx.x; v < vectors; v += blockDim.x )
+        {
+            const uint4 packed = x[ v ];
+            const __nv_bfloat162* pairs = reinterpret_cast<const __nv_bfloat162*>( &packed );
+
+            #pragma unroll
+            for ( int k = 0; k < kValuesPerVector / 2; ++k )
+            {
+                const float2 value = __bfloat1622float2( pairs[ k ] );
+                m2 += value.x * value.x + value.y * value.y;
+            }
+        }
+
+        m2 = blockSum( m2 );
+
+        const float rstd_val = rsqrtf( m2 / static_cast<float>( norm_dim ) + epsilon );
+
+        if ( threadIdx.x == 0 && rstd != nullptr )
+            rstd[ blockIdx.x ] = __float2bfloat16( rstd_val );
+
+        for ( int v = threadIdx.x; v < vectors; v += blockDim.x )
+        {
+            const uint4 packed = x[ v ];
+            const uint4 packed_weight = w ? w[ v ] : uint4{};
+            const uint4 packed_bias = b ? b[ v ] : uint4{};
+            const __nv_bfloat162* pairs = reinterpret_cast<const __nv_bfloat162*>( &packed );
+            const __nv_bfloat162* weight_pairs = reinterpret_cast<const __nv_bfloat162*>( &packed_weight );
+            const __nv_bfloat162* bias_pairs = reinterpret_cast<const __nv_bfloat162*>( &packed_bias );
+
+            uint4 result;
+            __nv_bfloat162* result_pairs = reinterpret_cast<__nv_bfloat162*>( &result );
+
+            #pragma unroll
+            for ( int k = 0; k < kValuesPerVector / 2; ++k )
+            {
+                const float2 xv = __bfloat1622float2( pairs[ k ] );
+                float2 wv{ 1.0f, 1.0f };
+                const float2 bv = b ? __bfloat1622float2( bias_pairs[ k ] ) : float2{ 0.0f, 0.0f };
+
+                if ( w )
+                {
+                    wv = __bfloat1622float2( weight_pairs[ k ] );
+                    wv.x += weight_offset;
+                    wv.y += weight_offset;
+                }
+
+                result_pairs[ k ] = __floats2bfloat162_rn(
+                    xv.x * rstd_val * wv.x + bv.x,
+                    xv.y * rstd_val * wv.y + bv.y );
+            }
+
+            o[ v ] = result;
+        }
+    }
+
     // Each warp processes one normalization slice. Inputs are loaded as BF16
     // and immediately widened to float for all arithmetic. rstd is stored as
     // BF16 to match the typed buffer, with sufficient range for O(1) values.
@@ -157,6 +280,25 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         float weight_offset,
         cudaStream_t stream )
     {
+        const bool contiguous_rows = inner_size == 1 && norm_dim % kValuesPerVector == 0
+            && isVectorAligned( Y ) && isVectorAligned( X ) && isVectorAligned( weight ) && isVectorAligned( bias );
+
+        if ( contiguous_rows )
+        {
+            const int vectors = norm_dim / kValuesPerVector;
+            const int block_size = std::min( kMaximumRowThreads, (vectors + WARP_SIZE - 1) / WARP_SIZE * WARP_SIZE );
+
+            if ( outer_size > 0 )
+            {
+                rmsnorm_forward_bf16_row_kernel<<<outer_size, block_size, 0, stream>>>(
+                    Y, rstd, X, weight, bias, norm_dim, epsilon, weight_offset );
+            }
+
+            cudaCheck( cudaGetLastError() );
+
+            return;
+        }
+
         const int block_size = 512;
         const int warps_per_block = block_size / WARP_SIZE;
         const int num_slices = outer_size * inner_size;

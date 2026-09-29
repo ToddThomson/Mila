@@ -17,8 +17,8 @@
  * Every phase runs through generate(), the entry a consumer calls. It streams
  * tokens through a callback and returns only a finish reason, so the profiler
  * reads prefill (call -> first token) and decode (first -> last token) from the
- * callback cadence. Prefill caps generation at one token and reports the first
- * boundary, which costs one decode step and needs no profiling-only entry point.
+ * callback cadence. Prefill caps generation at one token, which generate() samples
+ * from the prefill's own logits, so no decode step enters the prefill time.
  *
  * All Mila template instantiation (model loading via load) is confined
  * to this module interface unit. See [[feedback-build-in-vs]]: the latest VS2026
@@ -78,6 +78,8 @@ namespace Mila::Profiling
         std::size_t prefill_seq_len{ 0 };  // 0 => use the encoded prompt length
         float temperature{ 0.0f };  // 0 => greedy (repeatable); > 0 => stochastic sampler
         int warmup_runs{ 1 };
+        int measured_runs{ 5 };
+        bool ignore_eos{ false };
         std::size_t context_length{ 4096 };
     };
 
@@ -236,9 +238,12 @@ namespace Mila::Profiling
             << "  --tokenizer       Tokenizer file. Default: per --model family.\n"
             << "  --prompt          Prompt text (decode/generate, and prefill unless --seq-len).\n"
             << "  --tokens          Max new tokens for decode/generate. Default: 256.\n"
-            << "  --seq-len         Prefill with this many dummy tokens instead of the prompt.\n"
+            << "  --seq-len         Use this many dummy tokens instead of the prompt; for decode/generate\n"
+            << "                    it is the context depth the tokens are generated at.\n"
+            << "  --ignore-eos      Generate --tokens tokens even past an end-of-sequence token.\n"
             << "  --temperature     0 = greedy (repeatable); > 0 profiles the stochastic sampler. Default: 0.\n"
-            << "  --warmup          Unmeasured priming runs before the measured run. Default: 1.\n"
+            << "  --warmup          Unmeasured priming runs before the measured runs. Default: 1.\n"
+            << "  --runs            Measured runs. Default: 5.\n"
             << "  --context-length  Max sequence length allocated at load. Default: 4096.\n";
     }
 
@@ -372,6 +377,17 @@ namespace Mila::Profiling
             else if ( arg == "--warmup" )
             {
                 options.warmup_runs = static_cast<int>( parseSize( nextValue( "--warmup" ), "--warmup" ) );
+            }
+            else if ( arg == "--runs" )
+            {
+                options.measured_runs = static_cast<int>( parseSize( nextValue( "--runs" ), "--runs" ) );
+
+                if ( options.measured_runs == 0 )
+                    argError( "--runs must be greater than zero" );
+            }
+            else if ( arg == "--ignore-eos" )
+            {
+                options.ignore_eos = true;
             }
             else if ( arg == "--context-length" )
             {
@@ -510,23 +526,24 @@ namespace Mila::Profiling
             for ( int run = 0; run < options.warmup_runs; ++run )
                 timedPrefill( salt++ );
 
-            // A few measured runs; report min (least noise) and mean. The tax-gone
-            // sweep (GqaFlashAttention.md 10, item 2) reads min_ms across context
-            // lengths -- a flat curve means the over-allocation tax is gone.
-            constexpr int kMeasuredRuns = 5;
+            // Report min (least noise) and mean. The tax-gone sweep (GqaFlashAttention.md
+            // 10, item 2) reads min_ms across context lengths -- a flat curve means the
+            // over-allocation tax is gone.
             float min_ms = std::numeric_limits<float>::max();
             float sum_ms = 0.0f;
+            std::string run_ms;
 
-            for ( int run = 0; run < kMeasuredRuns; ++run )
+            for ( int run = 0; run < options.measured_runs; ++run )
             {
                 const float ms = timedPrefill( salt++ );
                 min_ms = std::min( min_ms, ms );
                 sum_ms += ms;
+                run_ms += std::format( "{}{:.2f}", run == 0 ? "" : ",", ms );
             }
 
             std::cout << std::format(
-                "[prefill] runs={} min_ms={:.2f} mean_ms={:.2f}\n",
-                kMeasuredRuns, min_ms, sum_ms / kMeasuredRuns );
+                "[prefill] runs={} min_ms={:.2f} mean_ms={:.2f} run_ms={}\n",
+                options.measured_runs, min_ms, sum_ms / options.measured_runs, run_ms );
 
             // Final capture run for Nsight (--capture-range=cudaProfilerApi): the
             // attribution split (attention vs linear GEMM vs launch gaps) is read here.
@@ -541,9 +558,23 @@ namespace Mila::Profiling
         // sequence deterministic so successive runs and captures are repeatable.
         // --temperature > 0 keeps the library sampling defaults active so the
         // stochastic sampler kernel shows up in the capture instead of argmax.
-        auto runGeneration = [&]( const char* label, bool profiled )
+        //
+        // --seq-len replaces the prompt with that many dummy tokens: the depth the tokens
+        // are generated at. The same salt as prefill keeps every run from reusing the
+        // previous run's KV prefix, so each run fills its depth itself.
+        int salt = 0;
+
+        auto runGeneration = [&]( const char* label, bool profiled ) -> float
         {
             std::size_t produced = 0;
+
+            std::vector<int32_t> tokens = prompt_tokens;
+
+            if ( options.prefill_seq_len > 0 )
+            {
+                tokens.assign( options.prefill_seq_len, 0 );
+                tokens[ 0 ] = ++salt;
+            }
 
             if ( profiled )
                 cudaProfilerStart();
@@ -555,6 +586,10 @@ namespace Mila::Profiling
             if ( options.temperature == 0.0f )
                 gen_params.sampling.top_k = 0;
 
+            // A stop set holding only an id no vocabulary has: nothing ends the run early.
+            if ( options.ignore_eos )
+                gen_params.stop_tokens = { -1 };
+
             // The library streams tokens and returns only a finish reason; the profiler
             // measures timing from the callback cadence (prefill = call -> first token,
             // decode = first -> last token).
@@ -565,7 +600,7 @@ namespace Mila::Profiling
             {
                 Mila::Profiling::NvtxRange range( label );
                 [[maybe_unused]] const auto status = model.generate(
-                    prompt_tokens,
+                    tokens,
                     [&]( int32_t )
                     {
                         const auto now = std::chrono::high_resolution_clock::now();
@@ -595,24 +630,39 @@ namespace Mila::Profiling
                 "[{}] prompt_tokens={} tokens_generated={} prefill_ms={:.2f} "
                 "decode_ms={:.2f} decode_tok_per_s={:.2f}\n",
                 label,
-                prompt_tokens.size(),
+                tokens.size(),
                 produced,
                 prefill_ms,
                 decode_ms,
                 decode_tok_per_s );
+
+            return decode_tok_per_s;
         };
 
         std::cout << std::format(
-            "[{}] prompt_tokens={} max_new_tokens={} temperature={} warmup_runs={}\n",
-            phaseName( options.phase ), prompt_tokens.size(), options.max_new_tokens,
-            options.temperature, options.warmup_runs );
+            "[{}] prompt_tokens={} max_new_tokens={} temperature={} warmup_runs={} runs={}\n",
+            phaseName( options.phase ),
+            options.prefill_seq_len > 0 ? options.prefill_seq_len : prompt_tokens.size(),
+            options.max_new_tokens, options.temperature, options.warmup_runs, options.measured_runs );
 
         for ( int run = 0; run < options.warmup_runs; ++run )
             runGeneration( "warmup", false );
 
-        runGeneration(
-            options.phase == Phase::Decode ? "decode_measured" : "generate_measured",
-            true );
+        const char* measured_label = options.phase == Phase::Decode ? "decode_measured" : "generate_measured";
+        float sum_tok_per_s = 0.0f;
+        std::string run_tok_per_s;
+
+        // Only the first measured run is captured, so an Nsight trace holds one generation.
+        for ( int run = 0; run < options.measured_runs; ++run )
+        {
+            const float tok_per_s = runGeneration( measured_label, run == 0 );
+            sum_tok_per_s += tok_per_s;
+            run_tok_per_s += std::format( "{}{:.2f}", run == 0 ? "" : ",", tok_per_s );
+        }
+
+        std::cout << std::format(
+            "[{}] runs={} mean_tok_per_s={:.2f} run_tok_per_s={}\n",
+            phaseName( options.phase ), options.measured_runs, sum_tok_per_s / options.measured_runs, run_tok_per_s );
     }
 
     template<TensorDataType TPrecision>

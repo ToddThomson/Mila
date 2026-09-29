@@ -204,8 +204,10 @@ namespace Mila::Tests::Dnn::Models
         {
             std::vector<int32_t> tokens;
 
-            model->generate( prompt, [&]( int32_t token ) { tokens.push_back( token ); },
-                params, std::stop_token{} );
+            const GenerateStatus status = model->generate(
+                prompt, [&]( int32_t token ) { tokens.push_back( token ); }, params, std::stop_token{} );
+
+            EXPECT_TRUE( status == GenerateStatus::MaxNewTokensReached || status == GenerateStatus::Success );
 
             return tokens;
         };
@@ -1026,7 +1028,10 @@ namespace Mila::Tests::Dnn::Models
 
                 const auto start = std::chrono::steady_clock::now();
 
-                model->generate( prompt, []( int32_t ) {}, params, std::stop_token{} );
+                const GenerateStatus status = model->generate( prompt, []( int32_t ) {}, params, std::stop_token{} );
+
+                // One new token either way, so the prompt was prefilled whether or not that token stopped the run.
+                EXPECT_TRUE( status == GenerateStatus::MaxNewTokensReached || status == GenerateStatus::Success );
 
                 return std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - start ).count();
@@ -1234,11 +1239,14 @@ namespace Mila::Tests::Dnn::Models
 
                 const auto start = std::chrono::steady_clock::now();
 
-                model->generate(
+                const GenerateStatus status = model->generate(
                     prompt,
                     [&]( int32_t token ) { produced.push_back( token ); },
                     params,
                     std::stop_token{} );
+
+                // A run that stopped early timed fewer tokens than the subtraction below assumes.
+                EXPECT_EQ( status, GenerateStatus::MaxNewTokensReached );
 
                 return std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - start ).count();

@@ -479,8 +479,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 return Detail::cuda_gqa_kernels<NativeType>::flash_prefill_supported(
                     static_cast<int>( head_size ), kBounded );
             }
-
-            return false;
+            else
+            {
+                return false;
+            }
         }
 
         /**

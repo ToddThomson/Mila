@@ -317,4 +317,162 @@ namespace Mila::Tests::Dnn::Components::Normalization::RmsNorm
 
         EXPECT_EQ( norm.getType(), ComponentType::RmsNorm );
     }
+
+    // ====================================================================
+    // K. BF16 at model widths
+    //
+    // The families' hidden widths (Llama 4096, Gemma 4 12B 3840, Qwen 3.8 5120) and head width (256) take the
+    // block-per-row kernel; 36 is not a whole number of 16-byte vectors and takes the warp-per-row one. One row
+    // is a decode step.
+    // ====================================================================
+
+    class RmsNormBf16WidthTests : public ::testing::Test
+    {
+    protected:
+        using RmsNormType = Mila::Dnn::RmsNorm<DeviceType::Cuda, TensorDataType::BF16>;
+        using DeviceTensor = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+        static constexpr int64_t kWidths[] = { 4096, 3840, 5120, 256, 36 };
+
+        void SetUp() override
+        {
+            try
+            {
+                cuda_context_ = createExecutionContext( Device::Cuda( 0 ) );
+            }
+            catch ( const std::exception& )
+            {
+                cuda_context_ = nullptr;
+            }
+
+            if ( !cuda_context_ )
+            {
+                GTEST_SKIP() << "CUDA device not available";
+            }
+        }
+
+        std::unique_ptr<RmsNormType> built( int64_t rows, int64_t width, float unit_offset )
+        {
+            auto norm = std::make_unique<RmsNormType>( "rmsnorm",
+                RmsNormConfig( shape_t{ width } ).withEpsilon( kEpsilon ).withBias( false ).withUnitOffset( unit_offset ),
+                Device::Cuda( 0 ) );
+            norm->build( BuildContext( shape_t{ rows, width }, RuntimeMode::Inference, false ) );
+
+            HostFp32 host_weight( Device::Cpu(), shape_t{ width } );
+
+            for ( int64_t i = 0; i < width; ++i )
+                host_weight.data()[ i ] = weightValue( i );
+
+            copy( host_weight, *static_cast<DeviceTensor*>( norm->getParameters()[ 0 ] ), cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return norm;
+        }
+
+        // Varied magnitudes and signs, so a lane or vector mapped to the wrong element changes the result.
+        DeviceTensor input( int64_t rows, int64_t width, int64_t first_row = 0 )
+        {
+            HostFp32 host( Device::Cpu(), shape_t{ rows, width } );
+
+            for ( int64_t r = 0; r < rows; ++r )
+            {
+                for ( int64_t i = 0; i < width; ++i )
+                {
+                    const double index = static_cast<double>( ( r + first_row ) * width + i );
+                    host.data()[ r * width + i ] = static_cast<float>( 3.0 * std::sin( 0.37 * index ) * ( 1.0 + ( i % 11 ) ) );
+                }
+            }
+
+            DeviceTensor device( Device::Cuda( 0 ), host.shape() );
+            copy( host, device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return device;
+        }
+
+        HostFp32 toFloat( const DeviceTensor& device )
+        {
+            auto host = toHost<TensorDataType::FP32>( device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return host;
+        }
+
+        std::unique_ptr<IExecutionContext> cuda_context_;
+    };
+
+    TEST_F( RmsNormBf16WidthTests, Forward_MatchesReferenceAtModelWidths )
+    {
+        for ( const float unit_offset : { 0.0f, 1.0f } )
+        {
+            for ( const int64_t rows : { int64_t{ 1 }, int64_t{ 5 } } )
+            {
+                for ( const int64_t width : kWidths )
+                {
+                    auto norm = built( rows, width, unit_offset );
+                    auto device_in = input( rows, width );
+
+                    auto& device_out = norm->forward( device_in );
+                    norm->synchronize();
+
+                    const auto in = toFloat( device_in );
+                    const auto out = toFloat( device_out );
+
+                    std::vector<float> weight( static_cast<size_t>( width ) );
+                    std::vector<float> bias( static_cast<size_t>( width ), 0.0f );
+
+                    // The weight as the kernel reads it: BF16, then the offset in FP32.
+                    const auto device_weight = toFloat( *static_cast<DeviceTensor*>( norm->getParameters()[ 0 ] ) );
+
+                    for ( int64_t i = 0; i < width; ++i )
+                        weight[ static_cast<size_t>( i ) ] = device_weight.data()[ i ] + unit_offset;
+
+                    std::vector<float> expected;
+                    referenceForward( in.data(), weight.data(), bias.data(), rows, width, kEpsilon, expected );
+
+                    int mismatches = 0;
+
+                    for ( dim_t i = 0; i < out.size(); ++i )
+                    {
+                        // One BF16 rounding of the output, plus FP32 summation order.
+                        const float tolerance = 1e-3f + 8e-3f * std::fabs( expected[ static_cast<size_t>( i ) ] );
+
+                        if ( std::fabs( out.data()[ i ] - expected[ static_cast<size_t>( i ) ] ) > tolerance && mismatches++ < 3 )
+                        {
+                            ADD_FAILURE() << "width " << width << ", rows " << rows << ", offset " << unit_offset
+                                << ": index " << i << " is " << out.data()[ i ] << ", expected " << expected[ static_cast<size_t>( i ) ];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    TEST_F( RmsNormBf16WidthTests, Forward_RowIsTheSameAloneAsInABatch )
+    {
+        constexpr int64_t kRows = 64;
+        constexpr int64_t kRow = 17;
+
+        for ( const int64_t width : kWidths )
+        {
+            auto batch_norm = built( kRows, width, 1.0f );
+            auto batch_in = input( kRows, width );
+            auto& batch_out = batch_norm->forward( batch_in );
+            batch_norm->synchronize();
+            const auto batch = toFloat( batch_out );
+
+            auto single_norm = built( 1, width, 1.0f );
+            auto single_in = input( 1, width, kRow );
+            auto& single_out = single_norm->forward( single_in );
+            single_norm->synchronize();
+            const auto single = toFloat( single_out );
+
+            for ( int64_t i = 0; i < width; ++i )
+            {
+                ASSERT_EQ( single.data()[ i ], batch.data()[ kRow * width + i ] )
+                    << "width " << width << ": element " << i << " of row " << kRow << " differs alone and in a batch";
+            }
+        }
+    }
 }

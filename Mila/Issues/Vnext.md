@@ -638,12 +638,12 @@ do.
 
 `build` · `ci` · `distribution`
 
-Move the declared toolkit to 13.4.1, early in the v0.21 cycle and between pieces of native work
-(Todd, 2026-09-24). Docker Hub has carried `nvidia/cuda:13.4.1-{devel,runtime}-ubuntu{24,26}.04`
-since 2026-09-18, which clears the v0.20 hold (no 13.4 tag existed on 2026-09-17). 13.4.1 over
-waiting for 13.4.2: the minor is where behaviour and the driver floor move, so it should surface
-early in the cycle; 13.4.2, likely during the cycle, is then a patch bump of the same sites with the
-floor unchanged.
+Move the declared toolkit to 13.4.2, between pieces of native work. Docker Hub has carried
+`nvidia/cuda:13.4.2-{base,runtime,devel}-ubuntu{22,24,26}.04` since 2026-09-29 (read on Docker Hub that
+day). The move was decided for 13.4.1 on 2026-09-24 (Todd) -- the minor is where behaviour and the driver
+floor move, so it should surface early in the cycle, with 13.4.2 a later patch bump -- but it never
+happened, and 13.4.2 now exists: one move to it replaces both. The local toolkit is 13.4.1 and needs
+13.4.2 installed first.
 
 Moves together (RELEASING.md, toolkit paragraph): `$cudaVersion` in
 `scripts/pypi/build-wheel-windows.ps1:59`, `Docker/Dockerfile.wheel:23`, `Docker/Dockerfile.runtime:21`,
@@ -664,7 +664,7 @@ becomes `cuda>=13.4`, and the container toolkit refuses a GeForce driver below i
 directory is configured against v13.3 while `CUDA_PATH` names v13.4 (13.4.1 installed), so a fresh
 configure already drifts — reconfigure all of them deliberately. Published tok/s figures and the
 cuBLASLt findings in the specs are 13.3 measurements; re-measure them once, just before the
-release, on the 13.4.x that ships -- not at 13.4.1 and again at 13.4.2. CI's first run
+release, on the 13.4.x that ships. CI's first run
 starts with a cold ccache. The patch levels already differ today: Windows pins resolve to 13.3.1,
 the Linux images to 13.3.0.
 

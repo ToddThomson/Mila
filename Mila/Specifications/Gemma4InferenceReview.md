@@ -248,6 +248,13 @@ Re-measure only after D1/D2/D3 have removed the launches they were going to
 hide; the Llama measurement showed Graphs do not pay once bandwidth-bound, and
 the fusion work attacks the same overhead while also reducing traffic.
 
+**Superseded 2026-09-29.** Re-measured with a captured graph, on both cards: one
+decode step replayed as a graph saves 2.3-2.9 ms of Gemma 4 12B Q4_0's 20-21 ms
+and 0.95-1.1 ms of Llama 3.1 8B Q4_0's 12.6-13.3 ms -- the whole gap between
+kernels. The Llama reading above was inferred from a busy/idle ratio on a token
+whose kernels have since been replaced. `ModelFamilyParity.md` 8.4 L5 "The
+ceiling" has the table and the reasoning.
+
 ---
 
 ## 5. Prefill Findings

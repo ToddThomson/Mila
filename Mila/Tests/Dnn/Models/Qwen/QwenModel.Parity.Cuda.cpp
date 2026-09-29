@@ -92,10 +92,9 @@ namespace Mila::Tests::Dnn::Models
         /**
          * @brief Wait for every stream on the device.
          *
-         * Blunt on purpose. `Component::getExecutionContext()` is protected, so a harness that
-         * constructs components independently cannot reach the stream each one owns -- and
-         * because they are independent, each stage IS on a different stream. A device-wide
-         * synchronize is the only barrier available here and costs nothing at this cadence.
+         * Blunt on purpose. The components here are constructed independently, so each stage
+         * is on a different stream; a device-wide synchronize is one barrier for all of them and
+         * costs nothing at this cadence.
          */
         void synchronizeDevice()
         {

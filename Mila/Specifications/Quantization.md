@@ -694,6 +694,47 @@ when it lands.
    `BACKLOG.md` entry that admits the work); Gemma's global layers. `Deployment.md` §2's "not a knob" row and
    `QuantizationDispatch.ixx`'s refusal change in the same work.
 
+### Where compression buys speed and where it buys capacity (2026-09-29)
+
+A decode step reads every weight once and every live cache row once, so the two byte counts decide whether a
+smaller cache makes it faster. The KV traffic of one step overtakes the weight traffic at
+
+```
+s* = weight bytes per step / ( 2 * attention layers * KV heads * head dim * bytes per KV value * batch )
+```
+
+(the factor 2 is K and V; a layer whose K is its V counts once). Below `s*` a step is weight-bound and compressing
+the cache buys little speed; above it, a cache `c` times smaller approaches `c` times faster. The model and the
+crossover are from "The KV Cache Is the New Memory Wall" (Singh, arXiv 2609.30854), a survey whose own figures are
+derived for batched serving; its quality numbers are other papers' and are not relied on here.
+
+At batch 1, on the published Q4_0 and FP4 packages:
+
+| Model | Weight bytes a step | KV bytes a position (BF16) | `s*` BF16 / FP8 KV | Rate at 32K over depth 0: predicted / Mila / llama.cpp |
+|---|---|---|---|---|
+| Llama 3.1 8B Q4_0 | 4.97 GB (body + BF16 head) | 128 KiB (32 layers x 8 heads x 128) | ~38K / ~76K | 0.54 / 0.50 / 0.50 |
+| Gemma 4 12B Q4_0 | 7.1 GB (body + tied FP8 head) | 8 KiB global (8 layers x 1 head x 512, K = V); sliding layers a constant 335 MB past 1024 | ~870K / beyond the context | 0.92 / 0.85 / 0.89 |
+| Qwen 3.8 27B FP4 | 13.7-16 GB (embedding storage not separated) | 64 KiB (16 attention layers x 4 heads x 256) | ~210-250K / beyond the context | not measured |
+
+Measured on the RTX 5060 Ti (`ModelFamilyParity.md` 8.4 L5; Mila after the RMSNorm change and, for Llama, L5). The
+model predicts Llama in both engines to within the few percent both engines' decode attention reads below bandwidth,
+which is what licenses using it to size the levers. So:
+
+- **For Llama, FP8 KV is a speed lever at depth.** Halving 4.3 GB of cache reads at 32K predicts ~1.3x faster decode
+  there (about 38 -> 49 tokens a second) and ~1.1x at 8K -- the cells where Llama trails llama.cpp. Decision 7's
+  order already puts Llama first.
+- **For Gemma and Qwen, FP8 KV is a capacity lever.** Gemma's global cache at 32K is 0.27 GB against 7.1 GB of
+  weights: FP8 saves about 0.6 ms a token there. What it buys is a longer planned context, which is the reason the
+  Qwen entry gives.
+- **Gemma's depth loss is kernel efficiency, not bytes.** The bytes predict 0.92 at 32K; Mila measures 0.85, so
+  ~7% of Gemma's 32K decode is the head-size-512 global decode attention reading below bandwidth. Bounded, and
+  owned by `DecodeGraph.md` section 8's "what remains", not by this Part.
+- **The decode recording and cache compression cover opposite ends.** The recording saves a fixed ~1 ms a step at
+  every depth, which matters most below `s*`; compression grows with depth above it.
+- **A cache compression gated only on the book bands is gated on an aggregate.** The survey's warning that
+  aggregate scores hide failures of position-sensitive recall (from the eviction literature) is decision 6's
+  behavioral arm; a format change passes that arm too.
+
 **How the kernels read it (the mechanics of decision 2).** Every E4M3 value is exact in BF16, so a tile's FP8 codes
 widen into the BF16 stage the packed flash kernel already feeds to its BF16 MMA, unscaled and without rounding. The
 per-token scales apply in FP32 where they factor out of the sums: the K scale of each key multiplies that key's score

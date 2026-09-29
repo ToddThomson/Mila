@@ -64,7 +64,12 @@ namespace Mila::Tests::Common
                 params.sampling.temperature = 0.0f;
 
                 const auto start = std::chrono::steady_clock::now();
-                model->generate( prompt, []( std::int32_t ) {}, params, std::stop_token{} );
+                const Mila::Dnn::GenerateStatus status =
+                    model->generate( prompt, []( std::int32_t ) {}, params, std::stop_token{} );
+
+                // One new token either way, so the prompt was prefilled whether or not that token stopped the run.
+                EXPECT_TRUE( status == Mila::Dnn::GenerateStatus::MaxNewTokensReached
+                    || status == Mila::Dnn::GenerateStatus::Success );
 
                 return std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - start ).count();
