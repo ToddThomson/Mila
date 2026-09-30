@@ -1,4 +1,4 @@
-# HuggingFace expert-bank reference for Gemma 4 26B-A4B (Specifications/Gemma4MoE.md, Phase 6).
+# HuggingFace expert-bank reference for Gemma 4 26B-A4B (Specifications/Notebooks/Gemma4MoE.md, Phase 6).
 #
 # Runs transformers' Gemma4TextExperts on seeded synthetic stacked weights and writes the inputs and
 # output Mila's MixtureOfExperts is gated against. The arithmetic under test -- the gate-first chunk

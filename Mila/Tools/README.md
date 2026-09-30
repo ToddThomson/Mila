@@ -30,7 +30,7 @@ level project and not when it is a subproject.
 step — `Quantization/` for the sub-4-bit formats, `ExportArtifact` for FP8 and FP4. Requires PyTorch
 and Transformers — see `Converters/README.md` for the interpreter constraint.
 `Gemma/gemma_4_26b_moe/hf_gemma_router_reference.py` captures the HuggingFace router reference that
-`Specifications/Gemma4MoE.md` Phase 5 gates against; it reads the router tensors by byte range and
+`Specifications/Notebooks/Gemma4MoE.md` Phase 5 gates against; it reads the router tensors by byte range and
 needs no checkpoint download. Beside it, `hf_gemma_experts_reference.py` captures the Phase 6
 expert-bank reference from `Gemma4TextExperts` on seeded synthetic weights, offline, and
 `hf_gemma_moe_model_reference.py` captures the Phase 8 wiring reference: a tiny random Gemma 4 MoE

@@ -3,7 +3,7 @@
  * @brief Configuration for a mixture-of-experts bank: expert geometry, count, and experts per token.
  *
  * Gemma 4 26B-A4B: 128 experts of intermediate width 704 over a 2816-wide stream, 8 per token.
- * See Specifications/Gemma4MoE.md Phase 6.
+ * See Specifications/Notebooks/Gemma4MoE.md Phase 6.
  */
 
 module;

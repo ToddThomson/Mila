@@ -2,7 +2,7 @@
  * @file Router.Config.ixx
  * @brief Configuration for mixture-of-experts routing: how many experts, and how many run per token.
  *
- * Gemma 4 26B-A4B routes each 2816-wide token to 8 of 128 experts. See Specifications/Gemma4MoE.md Phase 5.
+ * Gemma 4 26B-A4B routes each 2816-wide token to 8 of 128 experts. See Specifications/Notebooks/Gemma4MoE.md Phase 5.
  */
 
 module;

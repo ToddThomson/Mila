@@ -2,7 +2,7 @@
  * @file MixtureOfExperts.Cpu.cpp
  * @brief Concrete-component tests for MixtureOfExperts<DeviceType::Cpu, FP32, Gelu>.
  *
- * The Phase 6 gate (Specifications/Gemma4MoE.md), through the component: a hand-built bank against
+ * The Phase 6 gate (Specifications/Notebooks/Gemma4MoE.md), through the component: a hand-built bank against
  * its definition, and HuggingFace's eager Gemma4TextExperts on synthetic weights. The HuggingFace gate
  * skips without the capture from
  * Mila/Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_experts_reference.py.

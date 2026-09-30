@@ -244,42 +244,38 @@ input [..., in] -> fc_gate_up Linear(in -> 2H, fused) -> Swiglu(split . gate_fn 
   holds the switch is naming: a nested `GatedMLP` renames every published FFN
   tensor (`tf_layer_i.fc_gate_up` becomes `tf_layer_i.mlp.fc_gate_up`), so it
   lands after the 0.20.0 tag with a single republish of the affected families. Gemma's
-  delegated wiring is already built and tested behind `GemmaBlock`'s `kDelegatedFeedForward`
-  flag, off by default (`Gemma4MoE.md` Phase 2).
+  delegated wiring is built and tested behind `GemmaBlock`'s `kDelegatedFeedForward`
+  flag (`Gemma4MoE.md` Phase 2a); the routed 26B-A4B sets it, so its dense branch is a
+  `GatedMLP` today, and the dense 12B does not. Each family now switches on its own
+  pass and republishes once (`ModelFamilyParity.md` 8.1): Gemma's in §8.2 G4, where the
+  flags become a feed-forward sublayer type, Llama's in §8.4.
 
 ---
 
 ## 8. Mixture-of-Experts: Execution Model (Decision B)
 
+**The MoE design of record is `MixtureOfExperts.md`**, which took over this
+section's detail on 2026-09-29 and corrects three statements it first made (its
+Section 3). What stays here is the decision and the constraint it puts on the FFN
+family.
+
 The expert is a `GatedMLP`. The performant execution path is **decision B: a
-grouped GEMM over stacked expert weights**, not a loop over N component instances.
+grouped GEMM over stacked expert weights**, not a loop over N component instances:
+`MixtureOfExperts` orchestrates, `MoeOp` owns the kernel over stacked *data*, and
+`GatedMLP` remains the single-expert reference the grouped op is validated against
+— the same component-orchestrates / operation-holds-the-kernel division `Linear`
+established. Landed for Gemma 4 26B-A4B (`0.20.0-rc.1+5`, `+6`).
 
-- **`MixtureOfExperts` component** orchestrates routing and combination: a `Router`
-  (Linear `hidden -> num_experts` + top-K + softmax over selected experts), token
-  gather/dispatch, and the weighted combine of selected experts' outputs. It may
-  also host always-on shared experts (DeepSeek style).
-- **`MoeOp`**, resolved via `OperationTraits` like every other operation, owns the
-  **grouped/segmented GEMM over stacked expert weights** `[E, in, 2H]` and
-  `[E, H, in]`. This maps directly onto CUTLASS's grouped-GEMM kernels, which join the build with
-  the first grouped kernel (`MixtureOfExperts.md` §7.3).
-  The hot path operates on stacked *data*, not N `GatedMLP` instances.
-- `GatedMLP` remains the **single-expert reference and CPU semantics** — the
-  correctness oracle the grouped op is validated against, and the small-`E` / CPU
-  fallback. This is the same component-orchestrates / operation-holds-the-kernel
-  division `Linear` established (prefill-GEMM vs. decode-matvec).
-
-This decision constrains `GatedMLP`'s weight layout **now**: per-expert gate/up and
-down weights must be packable into the grouped tensors, the same way `fc_gate_up`
-already fuses gate+up. The converter / `WeightsReader` fuses E experts into the
-stacked tensors at load time.
+This decision constrains `GatedMLP`'s weight layout: an expert row must be laid out
+as a `GatedMLP`'s fused `fc_gate_up` row, gate first, so that per-expert weights
+stack into the grouped tensors (`MixtureOfExperts.md` §2).
 
 ---
 
 ## 9. MoE-Readiness Seams (required from day one)
 
-These constraints apply to `MLP`, `GatedMLP`, and their child `Linear`s
-immediately, even though the MoE layer is deferred. Getting them wrong forces a
-rewrite when MoE lands.
+These constraints apply to `MLP`, `GatedMLP`, and their child `Linear`s. They were
+set before the MoE layer existed, and they still bind every family that adds one.
 
 1. **Shared, injected execution context — no per-expert owned context.** A
    `GatedMLP` constructed with a `DeviceId` currently *owns* an `ExecutionContext`
@@ -293,9 +289,13 @@ rewrite when MoE lands.
    The components already are; do not regress this.
 3. **Stackable weight layout.** Per-expert weights laid out so the converter can
    pack `E` experts into the grouped `[E, ...]` tensors (decision B).
-4. **Quantization on the expert Linears.** Experts are the bulk of MoE parameters,
-   so FP8/FP4 matters most here; the grouped `MoeOp` must carry the same W4A16
-   dequant-in-GEMM the `Linear` path already has (see `Quantization.md`).
+4. **Quantization on the experts.** Experts are the bulk of MoE parameters, so
+   weight quantization matters most here. The bank carries `Linear`'s weight
+   policies with `Linear`'s row layout and arithmetic, so a stacked tensor is
+   `E x rows` output channels of the existing quantizer (`Quantization.md`). It
+   carries `PerGroupFp4` today; Q4_0 (`PerGroupInt4<32>`) is `Gemma4MoE.md`
+   Phase 9. The W4A16 dequant-in-GEMM this item first named was deleted with the
+   old `PerGroupInt4` (`Quantization.md`, Q4_0 decision 1).
 
 ---
 
@@ -305,7 +305,8 @@ rewrite when MoE lands.
 |---|---|---|
 | `ElementwiseActivationOp` | `Activation` | host switch selects function-specialized kernel; CPU + CUDA |
 | `SwigluOp` (gate) | `Swiglu` | split + gate_fn + multiply; reuses the elementwise functor library; needs a CPU specialization (currently CUDA-only) |
-| `MoeOp` | `MixtureOfExperts` | grouped GEMM over stacked expert weights; CUTLASS grouped kernels; quantization-aware |
+| `RouterOp` | `Router` | selection from router logits to expert indices and combine weights; CPU + CUDA |
+| `MoeOp` | `MixtureOfExperts` | stacked expert bank and combine; CPU + CUDA; quantization-aware; grouped GEMM per weight format (`MixtureOfExperts.md` §7) |
 
 A missing specialization remains a hard compile error by design. The CPU `SwigluOp`
 gap is the one to file in BACKLOG; until it lands, `Swiglu<Cpu>` / `GatedMLP<Cpu>`
@@ -345,8 +346,10 @@ in-flight Bard test revival without waiting on the full redesign.
    component has landed; the block delegation has not (section 7).
 3. **Activation unification:** collapse the eight elementwise activations into
    `Activation` + `ElementwiseActivationOp`; add the CPU `SwigluOp`. `Gelu` folds in.
-4. **MoE (deferred):** `Router`, `MixtureOfExperts`, `MoeOp` grouped GEMM, combine,
-   load-balance auxiliary loss; shared + routed experts.
+4. **MoE:** `Router`, `MixtureOfExperts`, `MoeOp`, combine, shared + routed
+   experts — landed for Gemma 4 26B-A4B (`Gemma4MoE.md` Phases 1-8). The grouped
+   GEMM is not built; the remaining work is `ModelFamilyParity.md` §8.2, G4 to G6.
+   Load-balancing auxiliary loss is out of scope: Mila does not train an MoE model.
 
 ---
 
@@ -356,9 +359,9 @@ in-flight Bard test revival without waiting on the full redesign.
   `Swiglu` expresses GeGLU/ReGLU too, so the name (which implies SiLU) is a future
   rename candidate (`Glu` / `GatedActivation`). Retained as `Swiglu` for now per the
   flat-name component convention; revisit when a non-SiLU gate first ships.
-- **Shared-expert modeling** (DeepSeek): whether shared experts are `GatedMLP`
-  instances composed beside the router or a distinct always-on path. Decide when MoE
-  is scheduled.
+- ~~**Shared-expert modeling** (DeepSeek): whether shared experts are `GatedMLP`
+  instances composed beside the router or a distinct always-on path.~~ **Decided**
+  (`MixtureOfExperts.md` §3(c)): a `GatedMLP` composed beside the router.
 - **Expert parallelism across devices** is out of scope: at batch 1 over PCIe without
   peer access it costs two crossings per MoE layer. Running a model across devices splits
   it between blocks instead (`LayerSplit.md`). The layout must not preclude expert

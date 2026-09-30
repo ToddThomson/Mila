@@ -2,7 +2,7 @@
  * @file Router.ixx
  * @brief Mixture-of-experts router: which experts each token runs, and with what combine weights.
  *
- * Gemma 4's routing chain (Specifications/Gemma4MoE.md Phase 1):
+ * Gemma 4's routing chain (Specifications/Notebooks/Gemma4MoE.md Phase 1):
  *   logits           = proj( rms_norm_without_scale( x ) * scale * hidden_size^-0.5 )
  *   weights, indices = top_k( softmax( logits ) ), renormalized, times per_expert_scale[ index ]
  */

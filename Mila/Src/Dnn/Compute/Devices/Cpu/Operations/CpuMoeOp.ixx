@@ -3,7 +3,7 @@
  * @brief CPU mixture-of-experts bank (FP32): each token through its selected experts, weighted and summed.
  *
  * The reference implementation the CUDA grouped path is gated against, through MixtureOfExperts.
- * See Specifications/Gemma4MoE.md Phase 6.
+ * See Specifications/Notebooks/Gemma4MoE.md Phase 6.
  */
 
 module;

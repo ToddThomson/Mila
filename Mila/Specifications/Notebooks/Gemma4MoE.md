@@ -1,26 +1,46 @@
-# Mila Gemma 4 26B-A4B Implementation Record
+# Gemma 4 26B-A4B — Notebook
 
 ## Overview
 
-This is the implementation record for `google/gemma-4-26B-A4B-it`: the phases, the gate each must
-pass, and what each phase actually found. **It is not the design.** The design of record is
-`MixtureOfExperts.md` — configuration, weight inventory, component decomposition, execution
-model, footprint and sequencing all live there, and this document points at its sections rather
-than restating them. Where a phase finds that the design is wrong, the design is corrected in the
-same change and the evidence is recorded here.
+The notebook for `google/gemma-4-26B-A4B-it`: the phases, the gate each must pass, written before its
+run, and what each phase actually found. **It is not the design.** The model's design of record is
+`Gemma.md` §10 — configuration, weight inventory, topology, format, memory, the bar and sequencing —
+and the MoE path it runs on is `MixtureOfExperts.md`. This notebook points at their sections rather
+than restating them. Where a phase finds that a design is wrong, the design is corrected in the same
+change and the evidence is recorded here.
 
-Post-v0.20; nothing here is committed to a release.
+Committed to v0.21.0 under `ROADMAP.md`'s *Gemma 4 Complete*, with the bar `Gemma.md` §10.7 states:
+parity with every other published Mila model. The stages that remain are `ModelFamilyParity.md` §8.2,
+G4 to G6, and this notebook gains a phase as each is designed.
 
-**The record ends at `PerGroupFp4<128>`.** NVFP4 is `MixtureOfExperts.md` §11 step 9 and does not
-belong to this model: its activation quantizer lands on a dense model whose token parity is
-already known, so that a fault in the router, the expert dispatch and FP4 activations is never
-debugged all at once with no working arm to bisect against.
+**Phases 1-8 ran on Mila's own FP4, and the model publishes in Q4_0.** Phase 8 decided
+`PerGroupFp4<64>`; Phase 9 moves the expert bank to the Q4_0 Google trained the model for
+(`Gemma.md` §10.4). NVFP4 does not belong to this model (`MixtureOfExperts.md` §7): its activation
+quantizer lands on a dense model whose token parity is already known, so that a fault in the router,
+the expert dispatch and FP4 activations is never debugged all at once with no working arm to bisect
+against.
+
+**Section numbers before 2026-09-29.** Phases 1-8 cite `MixtureOfExperts.md` as it stood when each
+ran, when it was the design of both the MoE path and this model. It was split that day. Sections 3, 5,
+6 and 7.1-7.5 kept their numbers there; the rest moved or were renumbered:
+
+| Cited here as `MixtureOfExperts.md` | Now |
+|---|---|
+| §1 configuration, §2 weight inventory | `Gemma.md` §10.1, §10.2 |
+| §4 block topology | `Gemma.md` §10.3 (routing in general: `MixtureOfExperts.md` §4) |
+| §7.6 the Q4_0 format | `Gemma.md` §10.4 |
+| §8 memory footprint | `Gemma.md` §10.5 |
+| §8.1 expert residency | `MixtureOfExperts.md` §8 |
+| §9 chassis deltas | `Gemma.md` §10.6 |
+| §10 validation | `MixtureOfExperts.md` §10; the model's bar `Gemma.md` §10.7 |
+| §11 sequencing | `Gemma.md` §10.8 |
+| §12 open decisions | `Gemma.md` §10.9; the path's own `MixtureOfExperts.md` §11 |
 
 ---
 
 ## Phasing
 
-Phases map one-to-one onto `MixtureOfExperts.md` §11. Each is independently buildable, and
+Phases map one-to-one onto the steps of `Gemma.md` §10.8. Each is independently buildable, and
 nothing is scheduled.
 
 **Phase 1 — resolve the block topology** (step 1). No code, no card. *Exit:* every tensor in one
@@ -46,7 +66,10 @@ ships after 0.20.0:
 - **2b — the switch, after the 0.20.0 tag.** Flip the default, delete the inline branch and the
   flag together, and move Llama in the same pass so both families republish once. *Exit:* Gemma 4
   12B token parity unchanged under `GemmaModel.Parity.Cuda.cpp`, footprint drift gates unchanged,
-  packages re-exported and republished, full suite green.
+  packages re-exported and republished, full suite green. **Not started. Moved 2026-09-26 into
+  `ModelFamilyParity.md` §8.2 G4**, as the first step of making the feed-forward sublayer a type,
+  with G4's gate replacing this one; Llama's half moves to Llama's pass (§9 item 8 there), since
+  each family now republishes once on its own pass.
 
 **Phase 3 — bounded-KV `TKvCachePolicy` sibling** (step 3). *Exit:* `SlidingWindowKvCache.md`'s own
 gates. **Already landed** before this record began: `GemmaModel` routes `SlidingWindowKvCache` to
@@ -79,6 +102,12 @@ measured VRAM inside the `MixtureOfExperts.md` §8 row it was built for, and coh
 The BF16 model is ~47 GiB and fits neither card, so both the HF reference and the Mila side run
 layer-streamed — `Qwen3.8.md` §8 is the method. The FP4 load needs an FP4 expert bank, which this
 phase builds, and group 64 rather than 128, which this phase decides (see Phase 8 below).
+**Done 2026-09-13 except the fit**: correct at BF16 and FP4, 83.8 MiB short of the card at context
+8192 once RoPE's tables were sized to the built context. The fit is `ModelFamilyParity.md` G5.
+
+**Phase 9 — Q4_0 expert bank** (`MixtureOfExperts.md` §7.7). The expert bank, and with it the whole
+model, in the format Google trained it for. *Exit:* written before the phase's first run; see Phase 9
+below for what is known.
 
 ---
 
@@ -934,3 +963,41 @@ checkpoint is stored. Converting an FP32 checkpoint to BF16, the two differ only
 `layer_scalar` tensors: the old converter loaded the whole model at bfloat16, so each scalar was rounded
 to bfloat16 before being written as FP32 (0.9458286 became 0.9453125); the streaming converter keeps the
 checkpoint's value.
+
+---
+
+## Phase 9 — Q4_0 expert bank
+
+### Why (2026-09-29)
+
+Where a producer publishes quantization-aware weights, Mila runs them in the format they were trained for
+(`ModelFamilyParity.md` §9 item 14, decided 2026-09-27 for the 12B), and the 26B-A4B is held to the 12B in
+every respect (Todd, 2026-09-29). Google publishes the 26B-A4B quantization-aware at Q4_0. Phase 8's
+`PerGroupFp4<64>` stays as Mila's fallback format for this model; it is not what publishes.
+
+### What is known before any design
+
+- **Google's GGUF stores the experts, the dense branch and all of attention as Q4_0**; the router, its two
+  scales, the norms and `layer_scalar` as F32; the tied table as Q6_K. Read 2026-09-29 from
+  `google/gemma-4-26B-A4B-it-qat-q4_0-gguf` by range request, each type confirmed by gguf-py's enum and by
+  the tensor's exact span in the file. The table is `Gemma.md` §10.4.
+- **Only the instruct model is quantization-aware**, and the source is
+  `google/gemma-4-26B-A4B-it-qat-q4_0-unquantized` (51.6 GB, two shards), as the 12B's is its own
+  unquantized checkpoint. The converter reads tensor by tensor (Phase 8, decision 3), so the source's size
+  is not a host-memory problem.
+- **Stored as Q4_0 is proven; trained under it is inferred.** The card does not say per tensor.
+- **The bank is the same bytes as Phase 8's**: 428,212,224 per layer, because an FP16 scale per 32 weights
+  and an FP32 scale per 64 both cost half a bit per weight. Group 32 divides every width, 704 included.
+- **What refuses it today:** `kRoutedHasQ4_0 = false` (`GemmaModel.ixx:542`) and `CudaMoeOp`'s
+  construction check (`CudaMoeOp.ixx:76`).
+
+### The 12B's gate is the model for this one
+
+`Quantization.md`'s Q4_0 gate, applied to the bank: the codec and the CUDA quantizer agree; the bank's
+decode against a host reference of exact weights, and its prefill against a host reference of the INT8
+block arithmetic; a bank on Q4_0-representable weights bit-identical to the BF16 bank, as the FP4 bank was
+gated; every Q4_0 tensor of the exported model equal in code and scale bits to Google's GGUF — the dense
+branch's fused projection split by rows against the GGUF's separate `ffn_gate` and `ffn_up`, as for the
+12B, while the expert `gate_up` is fused in both; a forced failure for each. The quality measurement across context
+lengths is open (`Gemma.md` §10.9). The gate itself is written, with its tolerances, before the
+phase's first run.

@@ -266,6 +266,6 @@ this workflow.
 
 ## Key Specifications
 
-`ls Mila/Specifications/` for the list. A spec is the **design of record** for its area: where one exists, it decides, and a decision that contradicts it is either wrong or a spec edit — not a silent divergence. `OperationDispatch.md`, `Quantization.md` and `ModelDistribution.md` are the three that most often settle an argument.
+`Mila/Specifications/README.md` is the index: each document's role (design, notebook, plan, direction) and the area it decides. A decision made in a notebook or a plan is carried to the design that owns the area in the same change. A spec is the **design of record** for its area: where one exists, it decides, and a decision that contradicts it is either wrong or a spec edit — not a silent divergence. `OperationDispatch.md`, `Quantization.md` and `ModelDistribution.md` are the three that most often settle an argument.
 
 Work is tracked across `ROADMAP.md` / `BACKLOG.md` — see **Work-Tracking Docs** above.

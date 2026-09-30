@@ -3,7 +3,7 @@
  * @brief Concrete-component tests for Router<DeviceType::Cpu, FP32>.
  *
  * The HuggingFace reference gate runs here, through the component, so it runs in CI whenever the
- * capture is present: Specifications/Gemma4MoE.md Phase 5 fixes its tolerances, written before the
+ * capture is present: Specifications/Notebooks/Gemma4MoE.md Phase 5 fixes its tolerances, written before the
  * first run. The capture is produced by
  * Mila/Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_router_reference.py and the gate skips
  * without it.

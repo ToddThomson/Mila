@@ -7,7 +7,7 @@ new `Components/Transformers/Gemma` family modeled on the validated Llama work,
 not a modification of it. Gemma 4 is Mila's entry into 2026-era transformer
 architecture and the deliberate stepping stone to Mixture-of-Experts: the 12B
 dense model and the 26B-A4B MoE model share one chassis, differing only in the
-FFN block (see `FfnAndMoE.md`). Proving the chassis on the dense model first
+FFN block (the 26B-A4B is Section 10). Proving the chassis on the dense model first
 isolates the attention/RoPE/normalization subsystems from the router/grouped-GEMM
 risk.
 
@@ -302,10 +302,396 @@ reversible increment on the now-clean compact-NKV GQA op (alpha.6+69):
 
 ---
 
-## 10. Relationship to MoE
+## 10. Gemma 4 26B-A4B
 
-The 26B-A4B MoE model reuses this exact chassis, swapping the per-layer
-`GatedMLP` for a `MixtureOfExperts` (Router + grouped `MoeOp` over stacked expert
-weights + shared expert), validated against the dense `GatedMLP` oracle. The MoE
-machinery is specified in `FfnAndMoE.md` (decision B, §8/§9) and remains a
-Future Direction; landing the dense Gemma chassis first is what de-risks it.
+`google/gemma-4-26B-A4B-it` reuses this chassis. Each layer runs its dense FFN
+as a `GatedMLP` beside a `Router` and a `MixtureOfExperts` over stacked expert
+weights, the two branches summed ahead of the post-FFN norm. It landed during
+v0.20's `rc.1`, gated against HuggingFace at BF16 and FP4.
+
+**Committed to v0.21.0** under `ROADMAP.md`'s *Gemma 4 Complete*, and **held to
+parity**: the 26B-A4B is finished when it matches Gemma 4 12B, Llama 3.1 and 3.2
+and Qwen 3.8 in every respect `ModelFamilyParity.md` §3 records (Todd,
+2026-09-29). It publishes in Q4_0, the format Google trained it for (10.4).
+
+This section is the model's design of record. The MoE path it runs on is
+`MixtureOfExperts.md`; how it was built and gated is the notebook
+`Notebooks/Gemma4MoE.md`; the stages that remain are `ModelFamilyParity.md`
+§8.2, G4 to G6. Moved here from `MixtureOfExperts.md` on 2026-09-29, where
+10.1-10.9 were its Sections 1, 2, 4, 7.6, 8, 9, 10, 11 and 12.
+
+Configuration and weight inventory (10.1, 10.2) were read on **2026-09-12** from
+`config.json` and `model.safetensors.index.json`, not from a summary of them;
+the topology (10.3) the same day from `modeling_gemma4.py` and the shard
+headers. Parameter arithmetic in 10.5 is derived from those shapes and is **not
+measured** except where it says so; what a load allocates is priced by the
+deployment planner (`Deployment.md`), whose prediction the footprint gates hold
+equal to what is built.
+
+### 10.1 Configuration
+
+| Property | Value |
+|---|---|
+| Layers | 30 |
+| `hidden_size` | 2816 |
+| Query heads | 16 |
+| KV heads (sliding) | 8 |
+| KV heads (global) | 2 |
+| `head_dim` (sliding) | 256 |
+| `global_head_dim` | 512 |
+| `attention_k_eq_v` | true |
+| `intermediate_size` (dense branch) | 2112 |
+| `moe_intermediate_size` (per expert) | 704 |
+| `num_experts` | 128 |
+| `top_k_experts` | 8 |
+| `layer_types` | 5 sliding : 1 full, repeating |
+| `sliding_window` | 1024 |
+| RoPE (sliding) | theta 10000, default |
+| RoPE (full) | theta 1e6, proportional, `partial_rotary_factor` 0.25 |
+| `vocab_size` | 262144 |
+| `max_position_embeddings` | 262144 |
+| `final_logit_softcapping` | 30.0 |
+| `rms_norm_eps` | 1e-6 |
+| `hidden_activation` | `gelu_pytorch_tanh` |
+
+Every row above except the MoE block, `intermediate_size`, and the global KV
+geometry is **already expressible in `GemmaConfig`**. The 26B differs from the
+12B on two existing fields: 30 layers rather than 48, and
+`num_global_key_value_heads` **2** rather than 1. `GemmaConfig` defaults to 1;
+the 26B sets 2 through the existing `withNumGlobalKVHeads`. No new axis.
+
+`intermediate_size` 2112 is exactly `3 x 704`. The dense branch is three
+experts wide.
+
+### 10.2 Weight Inventory
+
+Read from the safetensors index, decoder layer 0 (a **sliding** layer):
+
+```
+self_attn.q_proj.weight          self_attn.q_norm.weight
+self_attn.k_proj.weight          self_attn.k_norm.weight
+self_attn.v_proj.weight
+self_attn.o_proj.weight
+
+input_layernorm.weight
+post_attention_layernorm.weight
+
+mlp.gate_proj.weight             <- dense branch, width 2112
+mlp.up_proj.weight
+mlp.down_proj.weight
+
+experts.gate_up_proj             <- STACKED [128, 1408, 2816]  [gate | up]
+experts.down_proj                <- STACKED [128, 2816, 704]
+
+router.proj.weight
+router.scale
+router.per_expert_scale
+
+pre_feedforward_layernorm.weight
+pre_feedforward_layernorm_2.weight
+post_feedforward_layernorm.weight
+post_feedforward_layernorm_1.weight
+post_feedforward_layernorm_2.weight
+
+layer_scalar
+```
+
+Three facts this establishes, none of which were assumed:
+
+1. **The experts ship pre-stacked.** `experts.gate_up_proj` and
+   `experts.down_proj` are single tensors with a leading expert dimension. There
+   is no per-expert tensor to fuse.
+2. **There is no tensor named `shared`**, but there is an always-on dense
+   `mlp.*` branch beside the routed experts. The always-on path exists; it is
+   spelled as an ordinary MLP.
+3. **The router is not a bare `Linear`.** It carries two additional learned
+   tensors, `scale` and `per_expert_scale`, beyond `proj.weight`.
+
+### 10.3 Block Topology and Wiring
+
+Resolved 2026-09-12 from `Gemma4TextDecoderLayer`, `Gemma4TextRouter` and
+`Gemma4TextExperts` in transformers 5.12.1, and from the layer 5 (global) and
+layer 6 (sliding) shard headers. The evidence is `Gemma4MoE.md` Phase 1.
+
+```
+residual = h                                     post-attention residual stream
+d = post_feedforward_layernorm_1( mlp( pre_feedforward_layernorm( residual ) ) )
+e = post_feedforward_layernorm_2( experts( pre_feedforward_layernorm_2( residual ), router( residual ) ) )
+h = ( residual + post_feedforward_layernorm( d + e ) ) * layer_scalar
+```
+
+- The dense and routed branches run **in parallel** from the same residual,
+  each with its own pre- and post-norm. Their sum passes through the unsuffixed
+  `post_feedforward_layernorm` — the norm the dense block already applies at
+  that position — before the residual add.
+- The router is `RMSNorm(no scale) -> x router.scale -> x hidden_size^-0.5 ->
+  proj -> softmax over all 128 -> top-8 -> renormalize -> x
+  per_expert_scale[index]`. `per_expert_scale` acts after selection: it changes
+  combine magnitudes, never which experts run, and the combine weights do not
+  sum to 1.
+- `layer_scalar` multiplies the whole layer output, exactly as in the dense
+  chassis (`Gemma.Block.ixx:241`). It is not a delta.
+- Global layers carry **no `v_proj`**: `V = v_norm(k_proj(x))`,
+  `K = RoPE(k_norm(k_proj(x)))`, as the dense chassis already does. K and V
+  differ after their norms, so both are cached.
+- Every norm multiplies by its raw weight; there is no `1 +` offset.
+
+`GemmaBlock<TDeviceType, TPrecision, kGlobal, TWeightQuantization,
+TKvCachePolicy>` behind `ITransformerBlock` already solves heterogeneous
+layers, and **every** layer of the 26B is an MoE layer — there is no dense/MoE
+interleave to model. The sliding/global split is the existing
+`if constexpr (kGlobal)` selector and is untouched.
+
+```
+GemmaBlock (unchanged attention half)
+  |
+  +-- pre_feedforward_layernorm   -> GatedMLP<..., Gelu> (2112) -> post_feedforward_layernorm_1 -+
+  |                                                                                              |
+  |                                                  sum -> post_feedforward_layernorm -> residual
+  |                                                                                              |
+  +-- pre_feedforward_layernorm_2 -> MixtureOfExperts    (704)  -> post_feedforward_layernorm_2 -+
+  |                                    +-- MoeOp  (stacked [128, ...])
+  |                                    ^ weights, indices
+  +-- Router (reads the residual itself; scale, top-k, per-expert scale)
+```
+
+**Prerequisite, half done:** the routed block delegates its dense branch to a
+`GatedMLP` child named `mlp` (`Gemma4MoE.md` Phase 2a). The dense 12B still
+inlines its FFN, and the choice is carried by two positional flags,
+`kDelegatedFeedForward` and `kMixtureOfExperts` (`Gemma.Block.ixx:105`), which
+the model always sets equal. `ModelFamilyParity.md` §8.2 G4 replaces both with a
+feed-forward sublayer type, `GemmaFeedForward { Dense, Routed }`, and deletes
+the inline path; it renames every FFN tensor, so it lands before any Gemma
+package is published.
+
+### 10.4 Weight Format: Q4_0
+
+**The 26B-A4B runs Q4_0.** A producer's quantization-aware weights run in the
+format they were trained for (`ModelFamilyParity.md` §9 item 14), Google
+publishes the 26B-A4B quantization-aware at Q4_0, and parity with the 12B, which
+already runs Q4_0, requires the same.
+
+Read 2026-09-29 from the tensor table of Google's
+`google/gemma-4-26B-A4B-it-qat-q4_0-gguf` (`gemma-4-26B_q4_0-it.gguf`,
+14,439,363,584 bytes), by HTTP range request. Each type was confirmed twice:
+gguf-py's `GGMLQuantizationType` names it, and the tensor's span in the file is
+exactly the size that format gives its shape.
+
+| Tensors, every layer | Type |
+|---|---|
+| Expert bank, `ffn_gate_up_exps` `[128, 1408, 2816]` and `ffn_down_exps` `[128, 2816, 704]` | **Q4_0** |
+| Dense branch (`ffn_gate`, `ffn_up`, `ffn_down`) and every attention projection | Q4_0 |
+| Router projection, `router.scale`, `per_expert_scale`, every norm, `layer_scalar` | F32 |
+| `token_embd`, tied (the file has no `output.weight`) | Q6_K |
+
+- **Only the instruction-tuned model is quantization-aware.** Google publishes
+  `-it-qat-q4_0-gguf`, `-it-qat-q4_0-unquantized` (51.6 GB, the full-precision
+  weights out of the QAT pipeline) and a QAT drafter. The pretrained
+  `google/gemma-4-26B-A4B` is BF16 only, and there is no compressed-tensors build
+  of the 26B-A4B (there is for E2B, E4B, 12B and 31B).
+- **Stored as Q4_0 is proven; trained under Q4_0 is inferred.** Google's card
+  says the QAT checkpoints hold near-BF16 quality at Q4_0 and does not say tensor
+  by tensor what was trained under it. The 12B's check settles it: Q4_0 built
+  from the unquantized checkpoint by the reference rounding equals the GGUF in
+  every code and scale bit (`Quantization.md`, Q4_0, *Rounding*), and G2 measures
+  the cost over BF16.
+- **The Q6_K table is the GGUF's conversion, not the trained format**; the
+  unquantized checkpoint carries it at full precision. The 12B's Q4_0 build
+  holds its tied table at per-row FP8 (`Quantization.md` Part III), and the 26B
+  follows the 12B. The llama.cpp comparison states the head's difference or
+  removes it.
+- **The router stays unquantized** at compute precision, as it does today
+  (`MixtureOfExperts.md` §4); the GGUF keeps it F32.
+- **The policy is `PerGroupInt4<32>`** in Mila's two-plane layout
+  (`Quantization.md`, Q4_0 decision 2). Group 32 divides every width — 2816,
+  2112 (66 groups), 704 (22), 4096 and 8192 — so the group question FP4 raised
+  (`Gemma4MoE.md` Phase 8) does not arise. Per layer the bank is 285,474,816
+  bytes of `gate_up_proj` (253,755,392 of codes, 31,719,424 of FP16 scales) and
+  142,737,408 of `down_proj`: **428,212,224 bytes, the same as the
+  `PerGroupFp4<64>` bank**, whose FP32 scale per 64 weights costs the same half
+  bit per weight as an FP16 scale per 32. The fit analysis of 10.5 carries over.
+
+**Today the routed model cannot run Q4_0.** `GemmaModel` refuses `q4_0` for a
+routed checkpoint (`kRoutedHasQ4_0 = false`, `GemmaModel.ixx:542`), and the bank
+refuses any policy but FP4 (`MixtureOfExperts.md` §7.6). The `PerGroupFp4<64>`
+build (`Gemma4MoE.md` Phase 8) is Mila's fallback format for this model, not what
+it publishes. The work is `MixtureOfExperts.md` §7.7, as `Gemma4MoE.md` Phase 9.
+Under the parity bar the grouped prefill and the tuned decode are part of the
+model, not optional speed-ups: the 12B's prefill and generation rates are in the
+llama.cpp comparison, so the 26B's are too.
+
+### 10.5 Memory
+
+Derived from the 10.1-10.2 shapes. **Not measured** except where stated.
+
+Per sliding layer: attention 34.6M + dense branch 17.8M + experts 761.3M +
+router 0.4M = **814.1M**, of which **761.3M (93.5%) is the expert bank**. A
+global layer's attention is 49.0M (no `v_proj`, but `global_head_dim` 512), for
+828.5M.
+
+| | Parameters |
+|---|---|
+| Expert banks (30 layers) | 22.84B |
+| Everything else (attention, dense branches, router, embedding) | 2.40B |
+| **Total** | **25.23B** |
+| Active per token | ~3.1B + head |
+
+Weight residency, 5060 Ti (16 GiB, roughly 15.0-15.5 GiB usable after display
+and driver):
+
+| Experts | Rest | Total |
+|---|---|---|
+| NVFP4 (11.97 GiB) | BF16 (4.46 GiB) | **16.43 GiB — does not fit** |
+| `PerGroupFp4<128>` (11.30 GiB) | BF16 (4.46 GiB) | **15.76 GiB — does not fit** |
+| NVFP4 (11.97 GiB) | FP8 (2.23 GiB) | 14.20 GiB — fits, ~1 GiB headroom |
+| `PerGroupFp4<128>` (11.30 GiB) | FP8 (2.23 GiB) | 13.53 GiB — fits |
+| `PerGroupFp4<64>` (11.96 GiB) | `PerGroupFp4<64>` Linears 0.86 + FP8 table 0.69 + BF16 router 0.02 (1.57 GiB) | **13.54 GiB — what `WeightQuantization::FP4` builds** |
+| **Q4_0 (11.96 GiB)** | Q4_0 Linears 0.86 + FP8 table 0.69 + BF16 router 0.02 (1.57 GiB) | **13.54 GiB — the build this model publishes; not built** |
+
+The `PerGroupFp4<64>` row is the build that exists (`Gemma4MoE.md` Phase 8). Every width is a multiple of 64, not of 128, so
+the group is 64; `WeightQuantization::FP4` quantizes every `Linear` rather than only the experts, the tied
+table takes Gemma's per-row FP8, and the router projection stays unquantized. The expert term is exact from the
+packed layout — per layer, `[128, 1408, 1408]` + `[128, 1408, 44]` FP32 scales for `gate_up_proj` and
+`[128, 2816, 352]` + `[128, 2816, 11]` for `down_proj`, 428,212,224 bytes, x30 = 12,846,366,720 (11.96 GiB).
+
+The Q4_0 row is derived: the same composition as the 12B's Q4_0 build, and Q4_0 costs every quantized tensor
+exactly the bytes `PerGroupFp4<64>` does (10.4), so the two rows are equal. Google's GGUF of the same
+model is 13.45 GiB, its Q6_K table 0.56 GiB against Mila's FP8 0.69.
+
+**Measured, and short of the card** (`Gemma4MoE.md` Phase 8, after RoPE's tables were sized to the built
+context): the `PerGroupFp4<64>` build at context 8192 predicts 15,982,200,832 bytes — 13.54 GiB of weights and
+1.35 GiB of state — exactly what it reports, against 15,894,315,008 bytes free in the process: **83.8 MiB over**.
+What stands between is the routed buffers, allocated per layer rather than pooled — each layer's
+`MixtureOfExperts` output and FP32 gated scratch, about 0.49 GiB at chunk 512. Pooling them is
+`ModelFamilyParity.md` §8.2 G5, and it holds for Q4_0 unchanged, since the weights are the same bytes.
+
+**The "experts quantized, everything else BF16" recipe does not fit this card.**
+The non-expert mass is under 10% of the parameters but 4.46 GiB at BF16, and the
+embedding alone is 1.38 GiB of that. A 26B-A4B build for the 5060 Ti must
+quantize the non-expert mass too. This contradicts the upstream
+`nvfp4_experts_only` recipe, which targets cards with room to spare.
+
+KV cache, by contrast, is the easy half — the bounded ring cache does the work:
+
+- 25 sliding layers, capped at 1024 entries: **~0.20 GiB, independent of
+  context length.**
+- 5 global layers at 32K context: ~0.63 GiB. `k_eq_v` does not halve it — K
+  and V leave their norms different and are both cached (10.3).
+
+Only the 5 global layers scale with context, which is why the bounded-KV
+`TKvCachePolicy` sibling in `SlidingWindowKvCache.md` landed before this model.
+
+**NVFP4 KV does not help this model, and the reason is worth stating so it is
+not tried.** An NVFP4 KV cache halves KV against FP8 at under 1% accuracy loss,
+which is a real result — but Gemma 4's 5:1 sliding-window pattern has already
+made KV the cheap half here. Halving 0.83 GiB saves ~0.4 GiB against a weight
+problem measured in whole gigabytes. It is also not free: values are
+dequantized from NVFP4 to FP8 *before* attention, so it adds a pass of exactly
+the kind `MixtureOfExperts.md` §7.1a removes elsewhere. Where it would matter is
+a family with unbounded KV — Llama 3.1 8B at 49152 context holds ~3.1 GiB of FP8
+KV, and halving that is worth having. File it against Llama, not against this
+model.
+
+Whether a partial expert residency could help at all is `MixtureOfExperts.md`
+§8; it is a decode-only technique and cannot solve the fit.
+
+### 10.6 Chassis Deltas
+
+Beyond the dense Gemma 4 chassis, which is otherwise reused unchanged:
+
+1. `GemmaBlock` FFN slot delegated to a component (10.3, prerequisite).
+2. `Router` + `RouterOp`, including the `scale` / `per_expert_scale` semantics
+   from 10.3.
+3. `MixtureOfExperts` + `MoeOp`, both paths of `MixtureOfExperts.md` §6.
+4. Parallel dual-FFN wiring: three new norms (`pre_feedforward_layernorm_2`,
+   `post_feedforward_layernorm_1`, `post_feedforward_layernorm_2`) and a sum
+   ahead of the existing post-FFN norm.
+5. `GemmaConfig`: expert count, top-k, `moe_intermediate_size`, and the
+   dense-branch width as a field distinct from the expert width.
+6. Converter: direct stacked upload, the three router tensors, and the three
+   new norms written raw like every other Gemma norm.
+7. Footprint: a sparse-layer term (`MixtureOfExperts.md` §8).
+8. A Q4_0 expert bank, with its grouped INT8 prefill and gather decode
+   (`MixtureOfExperts.md` §7.7).
+
+Items 1 to 7 are built (`Gemma4MoE.md` Phases 1-8); item 1 is half done, the
+dense 12B still inlining its FFN until G4. Item 8 is not built. Items 2, 3, 7
+and 8 serve every future MoE family (`MixtureOfExperts.md` §9). Items 4, 5 and 6
+are Gemma-specific. `layer_scalar`, K=V global attention and `v_norm` are
+already in the dense chassis and are not deltas.
+
+### 10.7 The Bar
+
+The oracle discipline is `MixtureOfExperts.md` §10's. **The model is finished
+when it holds every row of `ModelFamilyParity.md` §3 that the 12B holds.**
+Beyond the oracle, that is:
+
+- the published build (Q4_0) against HuggingFace in the suite, and its Q4_0
+  tensors equal in code and scale bits to Google's GGUF;
+- a publish gate shown to fail on a routing edit: on this model a router fed the
+  wrong input still generated HuggingFace's eight greedy tokens at FP4, and only
+  the layer-streamed BF16 hidden-state gate failed (`Gemma4MoE.md` Phase 8);
+- quality measured across every context length the planner can choose. The
+  12B's measure is cost over BF16 to 32K and the model against itself beyond.
+  The 26B's BF16 fits neither card, so the first half has no whole-model
+  reference; the method is open (`ModelFamilyParity.md` §9 item 18);
+- the planner's prediction equal to what is built, and the fit at the context
+  it chooses on the 16 GB card;
+- decode replay equal to the called path, on a routed network;
+- prefill and decode rates in the rates harness and the llama.cpp comparison;
+- active parameter bytes shown to the user (`MixtureOfExperts.md` §8);
+- the model reached through Chat, the inference server and the Python binding,
+  tool calls included.
+
+### 10.8 Sequencing
+
+Steps 1-8 are the path that made the model run; what remains is sequenced in
+`ModelFamilyParity.md` §8.2, G4 to G6, and not here.
+
+1. **Resolve the block topology.** Done 2026-09-12 — `Gemma4MoE.md` Phase 1.
+2. **Delegate `GemmaBlock`'s FFN to `GatedMLP`.** Phase 2a done 2026-09-12. The
+   switch (Phase 2b) is the first step of `ModelFamilyParity.md` G4, where the
+   flags become a sublayer type; Llama's half moves to Llama's pass.
+3. **Bounded-KV `TKvCachePolicy` sibling.** Landed before this work began
+   (`Gemma4MoE.md` Phase 3).
+4. **Footprint sparse-layer term.** Done 2026-09-12 — `Gemma4MoE.md` Phase 4.
+5. **`Router` + `RouterOp`**, validated against HF routing in isolation. Done
+   2026-09-12 — `Gemma4MoE.md` Phase 5.
+6. **`MixtureOfExperts` + `MoeOp` prefill path**, validated against the
+   `GatedMLP` oracle on CPU. Done 2026-09-12, against HF's eager experts and a
+   definition instead — `Gemma4MoE.md` Phase 6.
+7. **`MoeOp` decode gather-matvec**, validated against step 6 at `M == 1`. Done
+   2026-09-12 — `Gemma4MoE.md` Phase 7.
+8. **Converter + `loadImpl`.** Done 2026-09-13, on `PerGroupFp4<64>` rather
+   than `<128>` — `Gemma4MoE.md` Phase 8. **The model runs here**, correct at
+   BF16 and FP4, and 83.8 MiB short of the 16 GB card at context 8192.
+
+Then, by stage (`ModelFamilyParity.md` §8.2):
+
+- **G4** — the feed-forward sublayer becomes a type (step 2's switch with it).
+- **G5** — the routed buffers pooled, so the model fits; the Q4_0 expert bank
+  (`Gemma4MoE.md` Phase 9, `MixtureOfExperts.md` §7.7).
+- **G5b** — its kernels at parity: grouped INT8 prefill, gather decode and the
+  router, measured in the rates harness and the llama.cpp comparison.
+- **G6** — the rest of 10.7's bar, and the publish.
+
+**NVFP4 is not a step of this model** (`MixtureOfExperts.md` §7). No remaining
+step depends on NVFP4 or on CUTLASS.
+
+### 10.9 Open Decisions
+
+Open:
+
+- **How quality is measured across the planner's range** when the BF16 model
+  fits no card (10.7). `ModelFamilyParity.md` §9 item 18 carries it.
+
+Decided:
+
+- `per_expert_scale` **stays in `RouterOp`** (`Gemma4MoE.md` Phase 8, decision
+  4): folded into `down_proj`, the exported weights would no longer equal the
+  checkpoint the oracles compare against.
+- The non-expert mass is **Q4_0 where Google's GGUF has Q4_0** (10.4), with the
+  tied table at the 12B's per-row FP8 and the router unquantized. It was open
+  between FP8 and FP4; the trained format settles it.
+- `RouterOp` **has a CPU specialization**, reached through `Router<Cpu>`, which
+  exists because a CPU `RmsNormOp` does (`Gemma4MoE.md` Phase 5, option (c)).

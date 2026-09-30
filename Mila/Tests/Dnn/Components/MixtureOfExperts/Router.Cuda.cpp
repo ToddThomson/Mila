@@ -2,7 +2,7 @@
  * @file Router.Cuda.cpp
  * @brief Concrete-component tests for Router<DeviceType::Cuda, {FP32, BF16}>.
  *
- * The CUDA half of the Phase 5 gate (Specifications/Gemma4MoE.md), through the component. FP32 is
+ * The CUDA half of the Phase 5 gate (Specifications/Notebooks/Gemma4MoE.md), through the component. FP32 is
  * held to the same tolerance as the CPU router; BF16 is held against the FP32 reference with the
  * bfloat16-resolution allowance the record fixes, because a BF16 projection rounds before anything
  * is ranked. The reference gates skip without the capture from

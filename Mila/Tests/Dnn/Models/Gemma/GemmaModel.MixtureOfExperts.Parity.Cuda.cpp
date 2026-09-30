@@ -1,6 +1,6 @@
 /**
  * @file GemmaModel.MixtureOfExperts.Parity.Cuda.cpp
- * @brief Layer-streamed HuggingFace parity for the Gemma 4 26B-A4B stack (Specifications/Gemma4MoE.md Phase 8).
+ * @brief Layer-streamed HuggingFace parity for the Gemma 4 26B-A4B stack (Specifications/Notebooks/Gemma4MoE.md Phase 8).
  *
  * The BF16 weights are 47 GiB against a 16 GiB card, so one decoder block is resident at a time, against the
  * references `Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_layer_stream.py` writes. Requires the weights and

@@ -2,7 +2,7 @@
  * @file CpuRouterOp.ixx
  * @brief CPU mixture-of-experts selection (FP32): router logits to top-k experts and combine weights.
  *
- * The reference implementation the CUDA op is gated against. See Specifications/Gemma4MoE.md Phase 5.
+ * The reference implementation the CUDA op is gated against. See Specifications/Notebooks/Gemma4MoE.md Phase 5.
  */
 
 module;

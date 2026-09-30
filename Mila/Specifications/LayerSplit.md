@@ -22,7 +22,7 @@ wants next:
 
 | Model | Weights at the build Mila would ship | One 16 GiB card | Both cards (~26 GiB) |
 |---|---|---|---|
-| Gemma 4 26B-A4B, experts FP4, rest BF16 | 15.76 GiB (`MixtureOfExperts.md` §8) | does not fit | fits, with context |
+| Gemma 4 26B-A4B, experts FP4, rest BF16 | 15.76 GiB (`Gemma.md` §10.5) | does not fit | fits, with context |
 | Gemma 4 26B-A4B, `PerGroupFp4<64>` throughout | 13.54 GiB | fits at context 8192 only at chunk 256, 12 MiB spare | fits, at long context |
 | Muse Glimmer 30B (dense, text and vision), FP4 | ~16 GiB before KV | does not fit | fits |
 | Qwen 3.8 27B, `PerGroupFp4` | 12.71 GiB resident | fits at context 8192 | fits, at long context |
@@ -46,7 +46,7 @@ Prefill could overlap the stages; whether that pays is open (3.6).
 
 ### 2.1 The machine
 
-Measured 2026-08-24 and 2026-09-12 (`nvidia-smi`, and `MixtureOfExperts.md` §8.1 for the links):
+Measured 2026-08-24 and 2026-09-12 (`nvidia-smi`, and `MixtureOfExperts.md` §8 for the links):
 
 | | RTX 5060 Ti | RTX 4070 |
 |---|---|---|
@@ -204,7 +204,7 @@ Gemma (all sizes), Llama 3.2 3B and GPT-2 tie the embedding table to the head
 one table is needed in two places. Two options:
 
 1. **A copy on each end.** Costs one table on stage 0: ~0.69 GiB of FP8 on the 26B build
-   (`MixtureOfExperts.md` §8). No new code path.
+   (`Gemma.md` §10.5). No new code path.
 2. **A host-resident gather for the embedding**, as Qwen does for its untied table
    (`EmbeddingTableResidency::Host`, `Qwen.ixx:150`), keeping the device copy with the head. Costs a
    host copy of the table and a ~10 KiB per-token gather over the first stage's link.
@@ -686,9 +686,9 @@ through a `Stage` composite (section 4).
 - `Deployment.md` — the planner that decides devices, placement, context and chunk. This spec supplies
   its device dimension.
 - `MemoryFootprint.md` — the footprint contract that prices each stage.
-- `MixtureOfExperts.md` §8 — the 26B residency table and the expert-streaming axis (§8.1). Streaming is
+- `Gemma.md` §10.5 — the 26B residency table; `MixtureOfExperts.md` §8 — the expert-streaming axis. Streaming is
   a decode-only way to run a model that does not fit; a split also covers prefill.
-- `Gemma4MoE.md` — the 26B implementation record; Phase 6 here follows its Phase 8.
+- `Notebooks/Gemma4MoE.md` — the 26B notebook; Phase 6 here follows its Phase 8.
 - `Qwen3.8.md` §8 — the cross-architecture finding and the scoring corpus.
 - `WeightTying.md` — the tied table (3.5).
 - `Workspaces.md` — the shared workspaces that become per stage.

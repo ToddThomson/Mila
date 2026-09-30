@@ -2,7 +2,7 @@
  * @file MixtureOfExperts.Cuda.cpp
  * @brief Concrete-component tests for MixtureOfExperts<DeviceType::Cuda, {FP32, BF16}, Gelu>.
  *
- * The CUDA half of the Phase 6 gate and the Phase 7 decode gate (Specifications/Gemma4MoE.md), through
+ * The CUDA half of the Phase 6 gate and the Phase 7 decode gate (Specifications/Notebooks/Gemma4MoE.md), through
  * the component, with the tolerances the record fixed before the first run. The HuggingFace gates skip
  * without the capture from Mila/Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_experts_reference.py.
  *

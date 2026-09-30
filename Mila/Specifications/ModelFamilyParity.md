@@ -12,7 +12,9 @@ are Todd's (2026-09-25). **This is a pass over the existing families, not a ROAD
 gone. A cell here changes in the commit that closes it.
 
 Section 8, the implementation plan, was added 2026-09-26 at `0.21.0-dev+8`, from a review of the Gemma chassis
-and its mixture-of-experts path; its code anchors were checked at that commit.
+and its mixture-of-experts path; its code anchors were checked at that commit. The 26B-A4B's cells (3.6, section 4),
+its stages (8.2, G5 to G6) and section 9 items 6, 9, 18 and 19 were revised 2026-09-29 at `0.21.0-dev+20`, when the
+model's bar was set at parity with every other published model and its format at Q4_0.
 
 ---
 
@@ -105,13 +107,20 @@ Not a model property -- streaming is the display's (`ModelHandle.md` 3.2) -- but
 ### 3.6 Gemma 4 26B-A4B Against The 12B
 
 The two share `GemmaTransformer` and `GemmaModel`, so every row above that the transformer decides holds for
-both, and scoring (3.2) lands in both at once. The cells where the 26B-A4B differs:
+both, and scoring (3.2) lands in both at once. The 26B-A4B is held to the 12B in every respect (Todd,
+2026-09-29); the cells where it differs:
 
 | Capability | 12B | 26B-A4B | Anchor |
 |---|---|---|---|
-| Fits the 16 GB card at context 8192 | Y | -- | predicted 14.88 GiB against 14.80 GiB free, 83.8 MiB over (`Gemma4MoE.md` Phase 8). The remaining cause is the routed buffers, allocated per layer rather than pooled: each layer's `MixtureOfExperts` output (`MixtureOfExperts.ixx:388`) and FP32 gated scratch (`CudaMoeOp.ixx:126`), about 0.49 GiB at chunk 512 |
-| Throughput measured | Y | -- | no rate for the 26B is recorded anywhere; its CUDA kernels are the Phase 6 correctness baseline and were never tuned |
-| Token-for-token agreement with HuggingFace, in the suite | Y | partial | eight greedy tokens at FP4 (`GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp`) and a layer-streamed BF16 hidden-state gate; the BF16 model fits neither card, so no whole-model BF16 run exists |
+| Runs its producer's quantization-aware weights in the trained format | Y | -- | Q4_0 for both (`Gemma.md` §10.4, from Google's GGUF). The routed model refuses `q4_0` (`kRoutedHasQ4_0`, `GemmaModel.ixx:542`) and the expert bank refuses any policy but FP4 (`CudaMoeOp.ixx:76`) |
+| Fits the 16 GB card at context 8192 | Y | -- | predicted 14.88 GiB against 14.80 GiB free, 83.8 MiB over (`Gemma4MoE.md` Phase 8), at `PerGroupFp4<64>`; Q4_0 is the same bytes. The remaining cause is the routed buffers, allocated per layer rather than pooled: each layer's `MixtureOfExperts` output (`MixtureOfExperts.ixx:387`) and FP32 gated scratch (`CudaMoeOp.ixx:126`), about 0.49 GiB at chunk 512 |
+| Prefill as a GEMM | Y | -- | the routed bank's prefill is the Phase 6 two-pass kernel, one thread per output value; the grouped INT8 prefill is not built (`MixtureOfExperts.md` §7.7) |
+| Throughput measured, and in the llama.cpp comparison | Y | -- | no rate for the 26B is recorded anywhere; its CUDA kernels are the Phase 6 correctness baseline and were never tuned; the comparison takes the 26B "if it ships" (`BACKLOG.md`) |
+| Token-for-token agreement with HuggingFace, in the suite | Y | partial | eight greedy tokens at FP4 (`GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp`), which a routing error does not change, and a layer-streamed BF16 hidden-state gate, which it does; the BF16 model fits neither card, so no whole-model BF16 run exists |
+| Quality measured across the planner's range | see 3.4 | -- | never measured; the 12B's cost over BF16 has no whole-model reference here (section 9, item 18) |
+| Decode replay gated equal to the called path | Y | -- | replay is on for every `GemmaModel` load, the 26B included; `DecodeReplay.Cuda.cpp` covers a dense Gemma and no routed network (`MixtureOfExperts.md` §6) |
+| Active parameter bytes shown to the user | n/a | -- | `MemoryStats` carries them and `GemmaModel`'s footprint reports them; neither the plan nor Chat's display does (`MixtureOfExperts.md` §8) |
+| Reached through Chat, the inference server and the Python binding | Y | -- | no package, and no recorded run through any application |
 
 ---
 
@@ -125,8 +134,9 @@ each row is in scope unless it cannot fit 16 GB; the last column says whether th
 | Gemma 4 12B | Image and audio input, encoder-free: patches and waveforms projected into the decoder, no vision tower | -- the converter skips `embed_vision` and `embed_audio` | not priced; the embedders are small beside the decoder | BACKLOG, Gemma 4 Complete (two entries) |
 | Gemma 4 12B | Multi-token prediction: a dedicated draft model for speculative decoding | -- | not priced | BACKLOG (measurement only); `SpeculativeDecoding.md` draft; loop in `Vnext.md` |
 | Gemma 4 12B | 262144-token context | planner allows it; Chat caps 131072; quality unmeasured above 131072 | yes, at FP4 | `ModelHandle.md` 10.3 |
-| Gemma 4 12B | Quantization-aware 4-bit checkpoint (int4, group 32) | -- | yes | BACKLOG (measurement only) |
-| Gemma 4 26B-A4B | Mixture of experts | Y, in `Mila/Src`, unpublished | at FP4, once the routed buffers are pooled (3.6) | BACKLOG, "Announce the Gemma 4 26B-A4B mixture of experts" |
+| Gemma 4 12B | Quantization-aware 4-bit checkpoint (int4, group 32) | Y, `PerGroupInt4<32>` since `0.21.0-dev+12`; its package rides G4's republish | yes | `Quantization.md`, Q4_0 |
+| Gemma 4 26B-A4B | Mixture of experts | Y, in `Mila/Src`, unpublished | once the routed buffers are pooled (3.6) | BACKLOG, "Announce the Gemma 4 26B-A4B mixture of experts" |
+| Gemma 4 26B-A4B | Quantization-aware 4-bit checkpoint (Q4_0, instruct only) | -- the routed bank has no Q4_0 path | yes, the same bytes as `PerGroupFp4<64>` | `Gemma4MoE.md` Phase 9; 8.2, G5 |
 | Qwen 3.8 27B | Vision tower (27 layers, width 1152) and multimodal positions (mrope) | -- out of scope for the first chassis (`Qwen3.8.md` §1) | not priced; tight beside the FP4 build (13.2 GB of weights on device) | nowhere |
 | Qwen 3.8 27B | Multi-token prediction head, one layer (~0.45 B) | -- both converters skip `mtp.*` | not priced | nowhere |
 | Qwen 3.8 27B | 262144-token context, 1M by YaRN | the planner allows 262144; quality measured to 16K | only with KV-cache compression, and not at FP4 | BACKLOG, "Qwen's perplexity gate has only been run to 16K"; KV compression entry |
@@ -168,7 +178,8 @@ A proposed n/a is argued here before the matrix may say it.
   built-in tools, and until this document the 16 GB rule itself.
 - **The 26B-A4B is recorded as needing only a package, and it needs more** (3.6). Its BACKLOG entry says
   "a published package and a capability row, not more implementation", while the model does not fit the
-  reference card at context 8192 and its speed has never been measured.
+  reference card at context 8192, does not run its trained format, prefills without a GEMM, and its speed
+  and long-context quality have never been measured.
 
 ---
 
@@ -221,8 +232,8 @@ be exported is often the better fix than a new file.
 
 ### 8.2 Gemma 4
 
-Seven stages. G1 to G3 need no architecture change and can start at once; G4 is the one structural change;
-G5 and G6 finish the 26B-A4B; G7 is modality, sized by its own two open questions.
+Eight stages. G1 to G3 need no architecture change and can start at once; G4 is the one structural change;
+G5, G5b and G6 finish the 26B-A4B; G7 is modality, sized by its own two open questions.
 
 **G1 -- Sequence log-likelihood, in the quality harness.** *Closes:* "Gemma cannot score a text, so its
 quality cannot be measured". With it go "The Gemma parity script compares two different precisions" and "A
@@ -588,23 +599,39 @@ through `dispatchChassis`. A routed FP8 request instantiates a whole routed FP8 
   new type; the 26B layer-streamed BF16 gate and FP4 greedy tokens `818 5279 529 7001 563 5213 50429 84750`;
   full suite. `Gemma4MoE.md` Phase 8 decision 4 and `Gemma.md` §7 are amended in the same change.
 
-**G5 -- The 26B-A4B on the reference card.** *Closes:* the 3.6 fit cell. *Needs:* G4.
+**G5 -- The 26B-A4B on the reference card, in its trained format.** *Closes:* the 3.6 fit and trained-format
+cells. *Needs:* G4.
 
 - Pool the routed buffers inside `GemmaRoutedFeedForward`: one gated scratch and pooled outputs across layers,
   as every other activation slot is pooled through the block workspace. The scratch stays FP32. The
   unpooled special case in `GemmaBlock::getRequiredMemory` (`Gemma.Block.ixx:495`) becomes local to the
   sublayer, then goes.
-- Then measure: the 26B-A4B joins the rate harness (`GemmaModel.Rates.Cuda.cpp`), prefill and decode, on the
-  5060 Ti. The expert floor is about 1.6 ms per token (0.71 GB of active expert bytes at 448 GB/s,
-  `MixtureOfExperts.md` 8.1). The decode kernels are the untuned baseline -- one thread per output value,
-  6 to 11 blocks at decode on a 36-SM card, byte-wide uncoalesced weight reads, a one-thread-per-row router --
-  so a large gap to the floor is expected. The number, not the expectation, decides whether rewriting them is
-  admitted (section 9).
-- *Gate:* the FP4 fit test at context 8192 passes; Gate A exact; greedy tokens unchanged.
+- The Q4_0 expert bank (`Gemma4MoE.md` Phase 9, `MixtureOfExperts.md` §7.7): `PerGroupInt4<32>` in the bank,
+  the routed dispatch admitting `q4_0`, and the model exported from Google's unquantized QAT checkpoint. The
+  kernels here are for correctness; their speed is G5b.
+- *Gate:* the fit test at context 8192 passes at Q4_0 and `PerGroupFp4<64>`; Gate A exact; greedy tokens
+  unchanged; Phase 9's gate, including every Q4_0 tensor equal in code and scale bits to Google's GGUF.
 
-**G6 -- Publish.** *Closes:* "Announce the Gemma 4 26B-A4B mixture of experts". *Needs:* G4, G5, and G1's
+**G5b -- The 26B-A4B's kernels at parity.** *Closes:* the 3.6 prefill and throughput cells. *Needs:* G5.
+
+- Measure first: the 26B-A4B joins the rate harness (`GemmaModel.Rates.Cuda.cpp`) and the llama.cpp comparison
+  on Google's GGUF, prefill and decode, on the 5060 Ti. The expert floor is about 1.6 ms per token (0.71 GB of
+  active expert bytes at 448 GB/s, `MixtureOfExperts.md` §8). The decode kernels are the untuned baseline --
+  one thread per output value, 6 to 11 blocks at decode on a 36-SM card, byte-wide uncoalesced weight reads, a
+  one-thread-per-row router -- and prefill is not a GEMM, so a large gap is expected.
+- Then the kernels, all Mila's own (`MixtureOfExperts.md` §7.7): the grouped INT8 prefill, the Q4_0 gather
+  decode, the router. Admitted by the parity bar, not by the measurement (section 9, item 9).
+- *Gate:* grouped prefill equal to the Phase 6 kernel within the INT8 path's own tolerance, decode bit-identical
+  between prefill-built and one-token banks as Phase 7 gated; token parity unchanged; the comparison row
+  reproduced by the one script. Rates are reported, not gated: the comparison is a quality signal, not a race.
+
+**G6 -- Publish.** *Closes:* "Announce the Gemma 4 26B-A4B mixture of experts". *Needs:* G4, G5, G5b, and G1's
 harness for the card's quality line.
 
+- The rest of `Gemma.md` §10.7's bar: quality across the planner's range by the method section 9
+  item 18 settles; decode replay equal to the called path on a routed network; active parameter bytes in the plan
+  and Chat's display; the model run through Chat, the inference server and the Python binding, tool calls
+  included; then the package, its card and the capability row.
 - The 26B-A4B is a first publish, so it is not held for the 12B. The 12B's republish -- G4's rename, plus the
   image and audio embedders if G7 stays in the release -- happens once, when both are known.
 
@@ -618,14 +645,16 @@ harness for the card's quality line.
 **Independent of the order:** the drafter measurement ("Nobody knows whether Google's drafter would make Gemma
 4 12B decode faster") needs only today's prefill path and can run whenever a card is free.
 
-**Recommended order:** G1, then the G7 questions, then G2 with the QAT measurement, G3, G4, G5, G6, and the G7
-build last. G1 is already next; the G7 questions are cheap and decide the republish; G2 is correctness and
+**Recommended order:** G1, then the G7 questions, then G2 with the QAT measurement, G3, G4, G5, G5b, G6, and the G7
+build last. G5b's first step, the baseline measurement, needs no code and can run before G4. G1 is already next; the G7 questions are cheap and decide the republish; G2 is correctness and
 is only machine time once the corpus is chosen. G3 can move anywhere, since nothing depends on it.
 
-**Deferred, and why.** The grouped W4A16 prefill for the expert bank, CUTLASS's SM120 grouped GEMM and the
-`120f` architecture target are performance work with no parity cell. The CUTLASS path also needs NVFP4
-activations, which `Gemma4MoE.md` keeps off this model. Codebook weights and KV-cache compression stay as
-section 9 item 1 records.
+**Deferred, and why.** CUTLASS's SM120 grouped GEMM and the `120f` architecture target serve block-scaled FP4,
+which this model does not run: its experts are Q4_0 and its grouped prefill is Mila's own INT8 kernel (G5b). The
+CUTLASS path also needs NVFP4 activations, which `Gemma4MoE.md` keeps off this model. The grouped prefill itself
+is no longer deferred: it was, as performance work with no parity cell, until the 26B-A4B was held to the 12B in
+every respect (2026-09-29), and the 12B's prefill rate is a cell. Codebook weights and KV-cache compression stay
+as section 9 item 1 records.
 
 ### 8.3 Qwen 3.8
 
@@ -1015,11 +1044,13 @@ streaming in Chat.
    implementation first would commit to something the number may reject. **QAT resolved 2026-09-27:** its
    measurement answered in QAT's favour and the implementation is admitted (item 14). **Drafter decided
    2026-09-27 (Todd): measurement only in 0.21**, on the QAT drafter against the Q4_0 12B.
-6. **Admit G4 and G5 (8.2).** Neither has an entry. G4 is tracked only as `Gemma4MoE.md`'s Phase 2b and Phase 8
+6. **Admit G4, G5 and G5b (8.2).** None has an entry. G4 is tracked only as `Gemma4MoE.md`'s Phase 2b and Phase 8
    decision 4, which no work-tracking file names. G5 is what makes "the 26B-A4B is fetchable" true on the
-   reference card. Both earn admission under Gemma 4 Complete's existing criterion, and the 26B entry's claim
-   that it needs "not more implementation" is corrected in the same edit. Recommend admitting both, paired
-   with no removal: this is scope the survey found, not scope invented.
+   reference card, in its trained format; G5b is what puts it in the comparison. The 26B entry's claim that it
+   needs "not more implementation" is corrected in the same edit. Gemma 4 Complete's criterion says only that the
+   26B-A4B is "fetchable and named in a capability row", which the parity bar (item 9) outgrows, so the criterion
+   is rewritten before the entries are admitted. Recommend admitting all three, paired with no removal: this is
+   scope the survey and the bar found, not scope invented.
 7. **G4's four design choices.** (a) Enum and traits, recommended, against a template template parameter for
    the sublayer type. (b) The sublayer's child name, which becomes part of every FFN tensor name: `ffn`
    proposed. (c) Regenerate the tiny routed checkpoint and its HuggingFace capture under the new names,
@@ -1028,8 +1059,12 @@ streaming in Chat.
 8. **Llama's half of Phase 2b moves to Llama's pass** (8.4). `Gemma4MoE.md` pairs the two families so they
    republish once together. That pairing predates the one-republish-per-family rule (8.1), under which each
    family's rename rides its own pass.
-9. **Whether the 26B's decode kernels are admitted** -- decided on G5's measured rate against the expert
-   floor, the way the drafter and QAT questions are decided on theirs.
+9. ~~**Whether the 26B's decode kernels are admitted** -- decided on G5's measured rate against the expert
+   floor, the way the drafter and QAT questions are decided on theirs.~~ **Decided 2026-09-29 (Todd):** the
+   26B-A4B is production ready when it is equivalent to Llama 3.1 and 3.2, Gemma 4 12B and Qwen 3.8 in every
+   respect -- parity with the 12B and every other Mila model. Its prefill and generation rates are parity cells,
+   so the grouped prefill and the decode kernels are admitted (G5b); the measurement locates the work rather
+   than deciding whether it happens.
 10. ~~**The long-document corpus for G2**: which one, and its licence verified at the source.~~ **Decided
     2026-09-26 (Todd): the PG-19 test split** (DeepMind, `github.com/google-deepmind/pg19`): 100 Project
     Gutenberg books published before 1919, the dataset Apache 2.0 and the texts public domain, read at the
@@ -1098,6 +1133,15 @@ streaming in Chat.
     gain no smaller than BF16's less a margin -- which reaches only 32K. Recommend (b), for G2 as well: it keeps the
     question test 1 was written to ask (does quantization damage long context) and keeps a model's own limit on one
     kind of text from being read as its limit on all of them.
+18. **How the 26B-A4B's quality is measured across the planner's range (3.6).** The 12B's G2 bounds the cost over
+    BF16 to 32K and tests the model against itself beyond. The 26B's BF16 is 47 GiB and fits neither card, so a
+    whole-model BF16 reference exists for no length; the only BF16 run is layer-streamed, one block resident,
+    and has been used on 18 tokens. Options, none measured: (a) layer-streamed BF16 log-likelihood to some
+    length, pricing its time first; (b) the self-test beyond, with llama.cpp on Google's GGUF as the cross-check,
+    as G2 already does past 32K; (c) BF16 on a card that holds 47 GiB, which Mila does not have.
+19. ~~**The 26B-A4B's format.**~~ **Follows item 14, verified 2026-09-29:** Google publishes the 26B-A4B
+    quantization-aware at Q4_0 (instruct only), and its GGUF stores the experts, the dense branch and attention as
+    Q4_0 (`Gemma.md` §10.4). The model publishes in Q4_0; `PerGroupFp4<64>` is its fallback.
 
 ---
 
@@ -1106,8 +1150,11 @@ streaming in Chat.
 - `ModelHandle.md` -- its capability sources (3.2) and protocol (3.4) are this matrix's grammar and
   capability rows; its Phase 2 closes section 3.3.
 - `Deployment.md` -- the planner whose range section 1's third rule and row 3.4 hold quality to.
-- `Qwen3.8.md`, `Gemma.md`, `Gemma4MoE.md` -- each family's design of record; section 4 points into them.
-- `MixtureOfExperts.md` -- the expert bank's design of record; G5's floor and the deferred grouped prefill.
+- `Qwen3.8.md`, `Gemma.md` -- each family's design of record; section 4 points into them. `Gemma.md` §10 is the
+  26B-A4B's: its format, memory and bar (G5, G5b, G6).
+- `MixtureOfExperts.md` -- the MoE path's design of record: the router, the expert bank, its kernels per format, and
+  G5b's floor.
+- `Notebooks/Gemma4MoE.md` -- the 26B-A4B's notebook, one phase per stage.
 - `SpeculativeDecoding.md` -- the draft design behind the MTP rows.
 - `PromptCaching.md` -- the prefix-reuse row.
 - `TokenSampling.md` -- the device sampler Llama does not use.

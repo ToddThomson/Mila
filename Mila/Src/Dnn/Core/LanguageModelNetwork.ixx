@@ -64,7 +64,7 @@ namespace Mila::Dnn
     // fix is subtraction, not a capability parameter: a template argument for trainability
     // would propagate into LanguageModel and destroy the type erasure this class exists for,
     // and "inference-only" is a status rather than a property (nobody wrote Gemma's backward;
-    // the architecture does not forbid one). Specifications/TransformerApiReadiness.md items
+    // the architecture does not forbid one). Specifications/Notebooks/TransformerApiReadiness.md items
     // 7 and 8.
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>

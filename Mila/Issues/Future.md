@@ -95,8 +95,8 @@ this is the re-run.
 The presumptive post-v0.20 tentpole: one router chassis unlocks Gemma 26B-A4B, Qwen3-30B-A3B and
 gpt-oss-20b. [[project_moe_tentpole_direction]]
 
-Design of record: `Specifications/MixtureOfExperts.md`. Gemma 26B-A4B implementation record, with its
-block topology resolved: `Specifications/Gemma4MoE.md`.
+Design of record: `Specifications/MixtureOfExperts.md` (the MoE path) and `Specifications/Gemma.md` §10 (the Gemma 26B-A4B). Its notebook, with its
+block topology resolved: `Specifications/Notebooks/Gemma4MoE.md`.
 
 The expert bank borrows Linear's quantizer by reaching into its kernel header:
 `CudaMoeOp::quantize` includes `../Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh` and

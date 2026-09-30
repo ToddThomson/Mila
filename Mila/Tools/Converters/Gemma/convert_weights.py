@@ -16,7 +16,7 @@ THIS CONVERTER STREAMS. The 26B checkpoint is 48 GiB against 31.8 GB of host RAM
 shards are read through safetensors one tensor at a time and written through
 MilaStreamingWeightWriter, whose index is declared from the shard headers before any
 data moves. On a dense model its output is byte-identical to the from_pretrained
-converter it replaced (Specifications/Gemma4MoE.md Phase 8).
+converter it replaced (Specifications/Notebooks/Gemma4MoE.md Phase 8).
 
 Gemma-specific transforms handled in this converter:
 

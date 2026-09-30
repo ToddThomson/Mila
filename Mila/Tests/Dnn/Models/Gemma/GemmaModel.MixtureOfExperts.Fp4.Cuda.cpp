@@ -1,6 +1,6 @@
 /**
  * @file GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp
- * @brief Gemma 4 26B-A4B loaded at FP4: its footprint against the driver and Specifications/MixtureOfExperts.md s8, and its greedy tokens against HuggingFace.
+ * @brief Gemma 4 26B-A4B loaded at FP4: its footprint against the driver and Specifications/Gemma.md s10.5, and its greedy tokens against HuggingFace.
  *
  * Quantizes the 47 GiB BF16 weights on load, so it needs the weights and a 16 GiB card and never runs in CI. The
  * HuggingFace tokens come from `Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_layer_stream.py --generate`.
@@ -52,7 +52,7 @@ namespace Mila::Tests::Dnn::Models
         constexpr std::size_t kLayerBankBytes = 432'013'312;
         constexpr std::size_t kLayerInactiveBytes = kLayerBankBytes / 128 * 120;
 
-        // MixtureOfExperts.md s8, the PerGroupFp4<64> row: bank 11.96 + Linears 0.86 + FP8 table 0.69 + router 0.02.
+        // Gemma.md s10.5, the PerGroupFp4<64> row: bank 11.96 + Linears 0.86 + FP8 table 0.69 + router 0.02.
         constexpr double kSection8WeightsGiB = 13.54;
 
         // Below this much free after the load, cudaMemGetInfo has stopped measuring: WDDM places the rest in host

@@ -1,4 +1,4 @@
-# HuggingFace router reference for Gemma 4 26B-A4B (Specifications/Gemma4MoE.md, Phase 5).
+# HuggingFace router reference for Gemma 4 26B-A4B (Specifications/Notebooks/Gemma4MoE.md, Phase 5).
 #
 # Runs transformers' Gemma4TextRouter on its own, on one decoder layer's real router tensors, and
 # writes the inputs and outputs Mila's Router and RouterOp are gated against. The three router

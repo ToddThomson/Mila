@@ -621,7 +621,8 @@ Gemma 4 QAT for Q4_0. Five decisions, each with the alternative it closed:
    4,370 and 3,675 on bit-identical weights. The 12B's prefill scratch is 18 MiB, and a 262144
    context plans a 1024-token chunk again.
 5. **Gemma dense and Llama first.** Gemma's routed 26B refuses `q4_0` until its expert bank has
-   an int4 path (`Untriaged.md`), and Qwen's own dispatcher refuses it. Llama reaches it through the
+   an int4 path (`Gemma4MoE.md` Phase 9; Google ships the 26B-A4B's experts as Q4_0,
+   `Gemma.md` §10.4), and Qwen's own dispatcher refuses it. Llama reaches it through the
    shared dispatcher, by quantize-on-load from BF16 weights.
 
 **Rounding.** One rule, Q4_0's reference rounding, in three places that must agree bit for bit: the

@@ -288,6 +288,9 @@ and the 26B MoE, in Q4_0 (GGUF for llama.cpp, compressed-tensors for vLLM) and a
 drafter; the 12B has one too). Under §9 item 14 -- trained format where the producer ships one -- the 26B-A4B would
 run Q4_0 as well, which puts the Q4_0 policy into the routed expert bank as well as `Linear`, and changes the bytes
 G5's 16 GB fit is decided on. The announcement gives no benchmark numbers and says nothing about long context.
+**Verified 2026-09-29 from the GGUF's tensor table:** experts, dense branch and attention Q4_0; router, scales and
+norms F32; tied table Q6_K; instruct only. The bank is the same bytes as `PerGroupFp4<64>`, so the fit is unchanged.
+Taken into the specs the same day (`Gemma.md` §10.4, `Gemma4MoE.md` Phase 9, `ModelFamilyParity.md` G5).
 
 ## Mila has no desktop app with a window
 
@@ -470,14 +473,24 @@ gain may be smaller.
 
 ## CUTLASS's fix for SM120 block-scaled MMA was closed unmerged
 
-`Mila/Specifications/MixtureOfExperts.md` section 3(c) @ `0.21.0-dev+20`
+`Mila/Specifications/MixtureOfExperts.md` section 7.2(c) @ `0.21.0-dev+20`
 
 Checked 2026-09-29 for the Gemma 4 26B-A4B grouped expert GEMM on Blackwell: CUTLASS 4.8.0 is the latest release
 (2026-09-22); its notes list grouped and grouped block-scaled GEMM improvements (B collector reuse, SMEM-staged TMA
 descriptor updates, less prologue) and NVFP4 with a UE5M3 scale type, under Blackwell headings whose reach to the
-GeForce SM120 path was not confirmed. PR #3082 (`is_family_of()` for the SM12x guard in `MmaSM120BlockScaledOp`),
-which `MixtureOfExperts.md` names as the in-flight correction, is closed and not merged, so the `120a` failure mode
-that section records is not known to be fixed upstream. CUTLASS's block-scaled grouped GEMM serves NVFP4 and MXFP4,
+GeForce SM120 path was not confirmed. PR #3082 (`is_family_of()` for the SM12x guard in `MmaSM120BlockScaledOp`) is
+closed and not merged. The spec does not name it (corrected 2026-09-29: this entry first said it did); whether
+section 7.2(c)'s `120f` route builds on 4.8.0 without it is untried in Mila, and is now recorded in section 7.3. CUTLASS's block-scaled grouped GEMM serves NVFP4 and MXFP4,
 not Q4_0, which bears on the expert-format question in the 26B-A4B QAT entry above: Q4_0 experts would take Mila's
 own INT8 GEMM made grouped, NVFP4 experts CUTLASS. Todd, 2026-09-29: Gemma 4 MoE on Blackwell with current CUTLASS
 may be a better use of time than more decode-attention work.
+
+## A published post promises a tool-calling design that was never built
+
+`Web/content/blog/mis-with-claude-code-and-codex.md` "What's Coming: Tool Calling" @ `0.21.0-dev+20`
+
+The post (2026-05-14) announces a pybind11 `ToolCallParser` and a `MILA_TOOL_CALLING_ENABLED` flag, and points at
+`specifications/toolcalling.md`. Neither was built: the server parses Llama's calls in `tool_bridge.py` and Gemma's and
+Qwen's through the library's grammar bindings, and `ToolCalling.md` was archived in the spec index 2026-09-29 as
+superseded. Dated and forward-looking, so accurate about the plan it announced; a reader following it today finds
+neither the flag nor the design, and not the tool calling that shipped.

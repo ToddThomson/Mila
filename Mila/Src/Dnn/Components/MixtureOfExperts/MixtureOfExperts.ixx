@@ -3,7 +3,7 @@
  * @brief Mixture-of-experts bank: the stacked experts and the weighted combine, routed from outside.
  *
  * Routing is an input, not a child. Gemma 4 routes on the raw residual while its experts read
- * pre_feedforward_layernorm_2 of it (Specifications/Gemma4MoE.md Phase 1), so a bank that owned its
+ * pre_feedforward_layernorm_2 of it (Specifications/Notebooks/Gemma4MoE.md Phase 1), so a bank that owned its
  * router would need a family-specific two-input signature. The block wires Router beside it.
  */
 
