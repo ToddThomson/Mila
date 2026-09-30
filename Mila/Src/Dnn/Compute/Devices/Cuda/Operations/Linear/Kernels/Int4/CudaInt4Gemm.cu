@@ -80,26 +80,37 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         constexpr int kTileM = 128;
         constexpr int kTileN = 128;
-        // Measured 2026-09-28 at Gemma 4 12B and Llama 3.1 8B shapes, 1024 rows: a 64-deep tile with 3 stages ran
-        // 67-86 TFLOPS on the RTX 4070, 128 deep 91-108; a third stage at 128 changed nothing on either card.
-        constexpr int kTileK = kInt4GemmInFeaturesMultiple;
-        constexpr int kBlocksPerTileK = kTileK / kInt4GemmBlockSize;
         constexpr int kStages = 2;
         constexpr int kThreads = 256;
 
-        // Row strides padded so that the fragment loads below are free of bank conflicts: a 64-bit load at
-        // 8 * t in rows g = 0..3 and a 32-bit load at 4 * t in rows g = 0..7.
-        constexpr int kActivationRowBytes = kTileK + 32;
-        constexpr int kWeightRowBytes = kTileK / 2 + 16;
+        // Measured 2026-09-28 at Gemma 4 12B and Llama 3.1 8B shapes, 1024 rows: a 64-deep tile with 3 stages ran
+        // 67-86 TFLOPS on the RTX 4070, 128 deep 91-108; a third stage at 128 changed nothing on either card. So
+        // 128 wherever it divides the width, and 64 for a width it does not (the Gemma 4 26B-A4B's dense
+        // feed-forward, 2112).
+        constexpr int kDeepTileK = 128;
+        constexpr int kShallowTileK = kInt4GemmInFeaturesMultiple;
 
-        constexpr int kActivationTileBytes = kTileM * kActivationRowBytes;
-        constexpr int kWeightTileBytes = kTileN * kWeightRowBytes;
-        constexpr int kActivationScaleBytes = kTileM * kBlocksPerTileK * static_cast<int>( sizeof( float ) );
-        constexpr int kWeightScaleBytes = kTileN * kBlocksPerTileK * static_cast<int>( sizeof( __half ) );
-        constexpr int kStageBytes = kActivationTileBytes + kWeightTileBytes + kActivationScaleBytes + kWeightScaleBytes;
-        constexpr int kSharedBytes = kStages * kStageBytes;
+        template <int kTileK>
+        struct TileGeometry
+        {
+            static constexpr int kBlocksPerTileK = kTileK / kInt4GemmBlockSize;
 
-        static_assert( kStageBytes % 16 == 0 );
+            // Row strides padded so that, at the 128-deep tile, the fragment loads below are free of bank
+            // conflicts: a 64-bit load at 8 * t in rows g = 0..3 and a 32-bit load at 4 * t in rows g = 0..7.
+            static constexpr int kActivationRowBytes = kTileK + 32;
+            static constexpr int kWeightRowBytes = kTileK / 2 + 16;
+
+            static constexpr int kActivationTileBytes = kTileM * kActivationRowBytes;
+            static constexpr int kWeightTileBytes = kTileN * kWeightRowBytes;
+            static constexpr int kActivationScaleBytes = kTileM * kBlocksPerTileK * static_cast<int>( sizeof( float ) );
+            static constexpr int kWeightScaleBytes = kTileN * kBlocksPerTileK * static_cast<int>( sizeof( __half ) );
+            static constexpr int kStageBytes = kActivationTileBytes + kWeightTileBytes + kActivationScaleBytes + kWeightScaleBytes;
+            static constexpr int kSharedBytes = kStages * kStageBytes;
+
+            static_assert( kStageBytes % 16 == 0 );
+            static_assert( kTileM * ( kTileK / 16 ) % kThreads == 0 && kTileN * ( kTileK / 32 ) % kThreads == 0,
+                "every thread copies the same number of 16-byte chunks" );
+        };
 
         // Warps tile the block 2 (rows) x 4 (columns); each warp owns 64 x 32 outputs as 4 x 4 m16n8 tiles.
         constexpr int kWarpTilesM = 4;
@@ -168,6 +179,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 result[ i ] = __int_as_float( raw[ i ] );
         }
 
+        template <int kTileK>
         __global__ void __launch_bounds__( kThreads )
         int4_int8_gemm_kernel(
             __nv_bfloat16* __restrict__        output,
@@ -180,6 +192,16 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             int                                in_features,
             int                                out_features )
         {
+            using Geometry = TileGeometry<kTileK>;
+
+            constexpr int kBlocksPerTileK = Geometry::kBlocksPerTileK;
+            constexpr int kActivationRowBytes = Geometry::kActivationRowBytes;
+            constexpr int kWeightRowBytes = Geometry::kWeightRowBytes;
+            constexpr int kActivationTileBytes = Geometry::kActivationTileBytes;
+            constexpr int kWeightTileBytes = Geometry::kWeightTileBytes;
+            constexpr int kActivationScaleBytes = Geometry::kActivationScaleBytes;
+            constexpr int kStageBytes = Geometry::kStageBytes;
+
             extern __shared__ __align__( 16 ) unsigned char shared[];
 
             const int thread = static_cast<int>( threadIdx.x );
@@ -413,6 +435,37 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         quantize_bf16_to_int8_per_block_kernel<<<grid, kBlockThreads, 0, stream>>>( codes, scales, input, thread_count );
     }
 
+    namespace
+    {
+        template <int kTileK>
+        void launchInt4Int8Gemm(
+            __nv_bfloat16* output, const int8_t* activation_codes, const float* activation_scales,
+            const uint8_t* weight_codes, const __half* weight_scales, const __nv_bfloat16* bias,
+            int rows, int in_features, int out_features, cudaStream_t stream )
+        {
+            constexpr int kSharedBytes = TileGeometry<kTileK>::kSharedBytes;
+
+            // The opt-in above 48 KiB of dynamic shared memory is per device, and a process may drive several.
+            const cudaError_t attribute_status = cudaFuncSetAttribute(
+                int4_int8_gemm_kernel<kTileK>, cudaFuncAttributeMaxDynamicSharedMemorySize, kSharedBytes );
+
+            if ( attribute_status != cudaSuccess )
+            {
+                throw std::runtime_error( std::format(
+                    "cuda_int4_int8_gemm: cannot reserve {} bytes of shared memory: {}",
+                    kSharedBytes, cudaGetErrorString( attribute_status ) ) );
+            }
+
+            const dim3 grid(
+                static_cast<unsigned>( ( rows + kTileM - 1 ) / kTileM ),
+                static_cast<unsigned>( ( out_features + kTileN - 1 ) / kTileN ) );
+
+            int4_int8_gemm_kernel<kTileK><<<grid, kThreads, kSharedBytes, stream>>>(
+                output, activation_codes, activation_scales, weight_codes, weight_scales, bias,
+                rows, in_features, out_features );
+        }
+    }
+
     void cuda_int4_int8_gemm(
         __nv_bfloat16*       output,
         const int8_t*        activation_codes,
@@ -425,34 +478,26 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int                  out_features,
         cudaStream_t         stream )
     {
-        if ( in_features % kTileK != 0 || out_features % 2 != 0 )
+        if ( in_features % kShallowTileK != 0 || out_features % 2 != 0 )
         {
             throw std::invalid_argument( std::format(
                 "cuda_int4_int8_gemm: in_features {} must be a multiple of {} and out_features {} even",
-                in_features, kTileK, out_features ) );
+                in_features, kShallowTileK, out_features ) );
         }
 
         if ( rows == 0 || out_features == 0 )
             return;
 
-        // The opt-in above 48 KiB of dynamic shared memory is per device, and a process may drive several.
-        const cudaError_t attribute_status = cudaFuncSetAttribute(
-            int4_int8_gemm_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kSharedBytes );
-
-        if ( attribute_status != cudaSuccess )
+        if ( in_features % kDeepTileK == 0 )
         {
-            throw std::runtime_error( std::format(
-                "cuda_int4_int8_gemm: cannot reserve {} bytes of shared memory: {}",
-                kSharedBytes, cudaGetErrorString( attribute_status ) ) );
+            launchInt4Int8Gemm<kDeepTileK>( output, activation_codes, activation_scales, weight_codes, weight_scales,
+                bias, rows, in_features, out_features, stream );
         }
-
-        const dim3 grid(
-            static_cast<unsigned>( ( rows + kTileM - 1 ) / kTileM ),
-            static_cast<unsigned>( ( out_features + kTileN - 1 ) / kTileN ) );
-
-        int4_int8_gemm_kernel<<<grid, kThreads, kSharedBytes, stream>>>(
-            output, activation_codes, activation_scales, weight_codes, weight_scales, bias,
-            rows, in_features, out_features );
+        else
+        {
+            launchInt4Int8Gemm<kShallowTileK>( output, activation_codes, activation_scales, weight_codes, weight_scales,
+                bias, rows, in_features, out_features, stream );
+        }
     }
 
 } // namespace Mila::Dnn::Compute::Cuda::Linear

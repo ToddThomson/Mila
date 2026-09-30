@@ -16,6 +16,7 @@ module;
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 export module Dnn.Components.Router;
@@ -137,6 +138,36 @@ namespace Mila::Dnn
             return { *weights_view_, *indices_view_ };
         }
 
+        /**
+         * @brief Install shared slots for every tensor the router writes (pooling); before build().
+         *
+         * onBuilding() then allocates none of them, after checking each covers the build shape. The slots are owned
+         * and counted by the installer.
+         *
+         * @param normed  [..., hidden_size], the norm's output.
+         * @param logits  [..., num_experts], the projection's output.
+         * @param weights [..., top_k] combine weights.
+         * @param indices [..., top_k] expert indices.
+         */
+        void installSharedOutputs( std::shared_ptr<TensorType> normed, std::shared_ptr<TensorType> logits,
+            std::shared_ptr<TensorType> weights, std::shared_ptr<IndexTensorType> indices )
+        {
+            if ( this->isBuilt() )
+            {
+                throw std::logic_error( std::format(
+                    "Router '{}': installSharedOutputs must be called before build()", this->getName() ) );
+            }
+
+            const std::string n = this->getName();
+
+            this->template getComponentAs<RmsNormType>( n + ".norm" )->installSharedOutput( std::move( normed ) );
+            this->template getComponentAs<LinearType>( n + ".proj" )->installSharedOutput( std::move( logits ) );
+
+            weights_ = std::move( weights );
+            indices_ = std::move( indices );
+            outputs_installed_ = true;
+        }
+
         std::vector<std::string> getParameterNames() const override
         {
             return { "scale", "per_expert_scale" };
@@ -225,14 +256,18 @@ namespace Mila::Dnn
                 }
             }
 
-            if ( weights_ )
+            // Installed slots are owned and counted by the installer.
+            if ( !outputs_installed_ )
             {
-                stats.device_state_bytes += occupiedTensorBytes( *weights_ );
-            }
+                if ( weights_ )
+                {
+                    stats.device_state_bytes += occupiedTensorBytes( *weights_ );
+                }
 
-            if ( indices_ )
-            {
-                stats.device_state_bytes += occupiedTensorBytes( *indices_ );
+                if ( indices_ )
+                {
+                    stats.device_state_bytes += occupiedTensorBytes( *indices_ );
+                }
             }
 
             return stats;
@@ -266,11 +301,15 @@ namespace Mila::Dnn
                     + occupiedDeviceBytes( storageBytes<TPrecision>( config_.getNumExperts() ), granularity );
             }
 
-            const dim_t routing_elements = elementCount( input_shape ) / config_.getHiddenSize() * config_.getTopK();
+            // Installed slots are owned and counted by the installer; the children read the same declaration.
+            if ( !outputs_installed_ && !context.hasInstalledOutput() )
+            {
+                const dim_t routing_elements = routingElements( input_shape );
 
-            stats.device_state_bytes += occupiedDeviceBytes( storageBytes<TPrecision>( routing_elements ), granularity );
-            stats.device_state_bytes +=
-                occupiedDeviceBytes( storageBytes<TensorDataType::INT32>( routing_elements ), granularity );
+                stats.device_state_bytes += occupiedDeviceBytes( storageBytes<TPrecision>( routing_elements ), granularity );
+                stats.device_state_bytes +=
+                    occupiedDeviceBytes( storageBytes<TensorDataType::INT32>( routing_elements ), granularity );
+            }
 
             return stats;
         }
@@ -332,8 +371,21 @@ namespace Mila::Dnn
             shape_t routing_shape = input_shape;
             routing_shape.back() = config_.getTopK();
 
-            weights_ = std::make_shared<TensorType>( device, routing_shape, n + ".weights" );
-            indices_ = std::make_shared<IndexTensorType>( device, routing_shape, n + ".indices" );
+            if ( outputs_installed_ )
+            {
+                const dim_t routing_elements = routingElements( input_shape );
+
+                if ( !weights_ || weights_->size() < routing_elements || !indices_ || indices_->size() < routing_elements )
+                {
+                    throw std::invalid_argument( std::format(
+                        "Router '{}': an installed slot is smaller than the build shape requires", n ) );
+                }
+            }
+            else
+            {
+                weights_ = std::make_shared<TensorType>( device, routing_shape, n + ".weights" );
+                indices_ = std::make_shared<IndexTensorType>( device, routing_shape, n + ".indices" );
+            }
 
             weights_view_.emplace( weights_->view( routing_shape ) );
             indices_view_.emplace( indices_->view( routing_shape ) );
@@ -389,8 +441,10 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> scale_{ nullptr };
         std::shared_ptr<TensorType> per_expert_scale_{ nullptr };
 
+        // Self-allocated at build, or installed slots (installSharedOutputs) this router views a prefix of.
         std::shared_ptr<TensorType> weights_{ nullptr };
         std::shared_ptr<IndexTensorType> indices_{ nullptr };
+        bool outputs_installed_{ false };
         std::optional<TensorType> weights_view_;
         std::optional<IndexTensorType> indices_view_;
 
@@ -421,6 +475,11 @@ namespace Mila::Dnn
 
             copy( *scale_, *weight, this->getExecutionContext() );
             scale( *weight, root_size, *weight, this->getExecutionContext() );
+        }
+
+        dim_t routingElements( const shape_t& input_shape ) const
+        {
+            return elementCount( input_shape ) / config_.getHiddenSize() * config_.getTopK();
         }
 
         void validateInputShape( const shape_t& input_shape ) const

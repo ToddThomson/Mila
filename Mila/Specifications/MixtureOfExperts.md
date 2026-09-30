@@ -461,21 +461,24 @@ model to land.
 ### 7.6 The bank's formats today
 
 `MixtureOfExperts` and `MoeOp` take `TWeightQuantization`, and the bank runs
-unquantized or at `PerGroupFp4<g>` (`Gemma4MoE.md` Phase 8). Under FP4 each pass
-of the Phase 6 kernel decodes the selected expert's nibbles against their group
-scales inline; nothing is dequantized ahead of the matvec. `CudaMoeOp` refuses
-every other policy at construction (`CudaMoeOp.ixx:76`), FP8 included, and an
-expert width that is not a multiple of the group at build.
+unquantized, at `PerGroupFp4<g>` (`Gemma4MoE.md` Phase 8) or at
+`PerGroupInt4<32>`, Q4_0 (Phase 9). Under either packed policy each pass of the
+Phase 6 kernel decodes the selected expert's codes against their group scales
+inline, one kernel pair templated on the code format; nothing is dequantized
+ahead of the matvec. Which format a policy is comes from two concepts beside the
+policies, `HasFp4E2M1Codes` and `HasInt4Codes`, which the bank, `CudaMoeOp` and
+`CudaLinearOp` all ask. `CudaMoeOp` refuses every other policy at construction,
+FP8 included, and an expert width that is not a multiple of the group at build.
 
 ### 7.7 Q4_0 on the bank
 
-Not built; for Gemma 4 26B-A4B it is `Gemma4MoE.md` Phase 9. Every kernel in it
-is Mila's own:
+The bank is built (`Gemma4MoE.md` Phase 9, `0.21.0-dev+24`); its kernels are
+still the Phase 6 correctness pair. What remains is their speed, G5b. Every
+kernel in it is Mila's own:
 
-- **The bank gains `PerGroupInt4<32>`**, laid out and rounded as `Linear`'s Q4_0
-  (Section 7's lead, `Quantization.md`, Q4_0). The bank's FP4 test is written
-  three times today (`Untriaged.md`, "The expert bank works out for itself
-  whether its policy is FP4"); a second policy is where it is stated once.
+- **The bank has `PerGroupInt4<32>`**, laid out and rounded as `Linear`'s Q4_0
+  (Section 7's lead, `Quantization.md`, Q4_0), quantized on load by `Linear`'s
+  INT4 quantizer over the stack's `E x rows` output channels.
 - **Prefill** is `Linear`'s Q4_0 INT8 path — activations to INT8 per 32-element
   block, a k32 MMA against the packed codes — made grouped over the expert
   segments of Section 6.

@@ -16,8 +16,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
     /// Elements that share one activation scale, and one weight scale: one Q4_0 block.
     inline constexpr int kInt4GemmBlockSize = 32;
 
-    /// The GEMM's K tile: in_features must be a whole number of them.
-    inline constexpr int kInt4GemmInFeaturesMultiple = 128;
+    /// The GEMM's shallower K tile: in_features must be a whole number of them. A width 128 divides runs 128 deep.
+    inline constexpr int kInt4GemmInFeaturesMultiple = 64;
 
     /// Offset of the FP32 block scales in the prefill's scratch, after the INT8 codes rounded up to 16 bytes.
     constexpr std::size_t int4GemmScaleOffset( std::size_t rows, std::size_t in_features ) noexcept

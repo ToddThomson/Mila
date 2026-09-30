@@ -12,7 +12,6 @@ module;
 #include <format>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 export module Compute.CpuMoeOp;
 
@@ -78,9 +77,11 @@ namespace Mila::Dnn::Compute
          * @param input    FP32 [..., H].
          * @param weights  FP32 [..., top_k] combine weights.
          * @param indices  INT32 [..., top_k] expert indices.
+         * @param gated    FP32 scratch of at least tokens x top_k x I elements, overwritten; row (t, k) is hidden.
          * @param output   FP32 [..., H], overwritten.
          */
-        void forward( const ITensor& input, const ITensor& weights, const ITensor& indices, ITensor& output ) const
+        void forward( const ITensor& input, const ITensor& weights, const ITensor& indices, ITensor& gated,
+            ITensor& output ) const
         {
             const dim_t hidden = config_.getHiddenSize();
             const dim_t intermediate = config_.getExpertIntermediateSize();
@@ -113,14 +114,20 @@ namespace Mila::Dnn::Compute
                     tokens, input.size(), tokens * top_k, output.size(), weights.size(), indices.size() ) );
             }
 
+            if ( gated.getDataType() != TensorDataType::FP32 || gated.size() < tokens * top_k * intermediate )
+            {
+                throw std::invalid_argument( std::format(
+                    "CpuMoeOp::forward: {} tokens need {} FP32 gated elements; got {}", tokens, tokens * top_k * intermediate,
+                    gated.size() ) );
+            }
+
             const auto* x = static_cast<const float*>( input.rawData() );
             const auto* combine = static_cast<const float*>( weights.rawData() );
             const auto* selected = static_cast<const std::int32_t*>( indices.rawData() );
             const auto* gate_up = static_cast<const float*>( gate_up_projection_->rawData() );
             const auto* down = static_cast<const float*>( down_projection_->rawData() );
+            auto* gated_data = static_cast<float*>( gated.rawData() );
             auto* y = static_cast<float*>( output.rawData() );
-
-            gated_.resize( static_cast<std::size_t>( intermediate ) );
 
             for ( dim_t token = 0; token < tokens; ++token )
             {
@@ -144,6 +151,7 @@ namespace Mila::Dnn::Compute
 
                     const float* expert_gate_up = gate_up + expert * 2 * intermediate * hidden;
                     const float* expert_down = down + expert * hidden * intermediate;
+                    float* hidden_row = gated_data + ( token * top_k + slot ) * intermediate;
 
                     for ( dim_t i = 0; i < intermediate; ++i )
                     {
@@ -159,7 +167,7 @@ namespace Mila::Dnn::Compute
                             up_value += up_row[ c ] * token_input[ c ];
                         }
 
-                        gated_[ static_cast<std::size_t>( i ) ] = functor_.fwd( gate_value ) * up_value;
+                        hidden_row[ i ] = functor_.fwd( gate_value ) * up_value;
                     }
 
                     const float weight = combine[ token * top_k + slot ];
@@ -171,7 +179,7 @@ namespace Mila::Dnn::Compute
 
                         for ( dim_t i = 0; i < intermediate; ++i )
                         {
-                            projected += down_row[ i ] * gated_[ static_cast<std::size_t>( i ) ];
+                            projected += down_row[ i ] * hidden_row[ i ];
                         }
 
                         token_output[ j ] += weight * projected;
@@ -197,8 +205,5 @@ namespace Mila::Dnn::Compute
 
         ITensor* gate_up_projection_{ nullptr };
         ITensor* down_projection_{ nullptr };
-
-        // One expert's gated activations, reused across calls; the op holds no other state.
-        mutable std::vector<float> gated_;
     };
 }

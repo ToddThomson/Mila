@@ -119,15 +119,6 @@ modules or a library workspace are candidates; not measured). A fresh process al
 any caller that loads twice in one process: Chat's `/model` switching and a Python program. Not measured how many
 bytes, or which.
 
-## The expert bank works out for itself whether its policy is FP4, and so does its operation
-
-`Mila/Src/Dnn/Components/MixtureOfExperts/MixtureOfExperts.ixx:82` @ `0.21.0-dev+8`
-
-`MixtureOfExperts::kIsFp4`, `CudaMoeOp::kIsFp4` (`CudaMoeOp.ixx:58`, the same lambda verbatim) and
-`CudaLinearOp::kIsFp4Weight` (`CudaLinearOp.ixx:178`) each probe `TWeightQuantization::kIsFp4E2M1` for
-themselves. A trait on the policy (`Quantization/Weight/PerGroupFp4.ixx`) would state it once. Found reviewing the MoE
-path for the Gemma parity pass.
-
 ## The 26B-A4B normalizes the same residual twice in every layer
 
 `Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx` (routed branch) @ `0.21.0-dev+8`
@@ -504,3 +495,19 @@ The post (2026-05-14) announces a pybind11 `ToolCallParser` and a `MILA_TOOL_CAL
 Qwen's through the library's grammar bindings, and `ToolCalling.md` was archived in the spec index 2026-09-29 as
 superseded. Dated and forward-looking, so accurate about the plan it announced; a reader following it today finds
 neither the flag nor the design, and not the tool calling that shipped.
+
+## Llama and Qwen rebuild the library's gated feed-forward inside their blocks
+
+`Mila/Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx:27`, `Qwen/Qwen.AttentionBlock.ixx:244` @ `0.21.0-dev+24`
+
+Raised by Todd 2026-09-30 ("we've broken our symmetry"). `Components/FFN/GatedMLP` is a fused `fc_gate_up`, a gate
+activation and `fc_down`, with any gate, any weight policy, backward, and one `installSharedOutputs` for pooling.
+Gemma uses it inside its two feed-forward sublayers (`GemmaDenseFeedForward`, `GemmaRoutedFeedForward`). Llama and Qwen
+compose the same three children inline -- `Llama.Block.ixx:27` says "no MLP composite" -- each with its own slot
+installation and footprint code, so it exists three times. Moving them onto `GatedMLP<Silu>` as a child `mlp` renames
+their flat tensors (`fc_gate_up` to `mlp.fc_gate_up`), so every Llama and Qwen weights file and published package would
+be reconverted, as Gemma's were at G4. Two smaller asymmetries found the same day: `Router` and `MixtureOfExperts` are
+feed-forward functions but sit in `Components/MixtureOfExperts/` beside `FFN/` rather than in it; and the Gemma sublayers
+report their child's `ComponentType` (`GatedMlp` for the dense one, `MixtureOfExperts` for the routed one, the same as
+its bank). The distinction discussed, not decided: `FFN/` holds feed-forward functions, a family directory holds the
+sublayer -- the norms around the function, which differ per family.

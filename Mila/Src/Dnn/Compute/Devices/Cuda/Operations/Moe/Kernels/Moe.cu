@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
+#include <cuda_fp16.h>
 #include "device_launch_parameters.h"
 #include "CudaUtils.h"
 #include "Moe.cuh"
@@ -108,11 +109,33 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             store( output + cell, sum );
         }
 
-        template<typename TFunctor>
-        __global__ void moe_gated_fp4_kernel(
-            const __nv_bfloat16* input, const uint8_t* gate_up, const float* gate_up_scales, const int32_t* indices,
-            float* gated, int tokens, int hidden, int intermediate, int experts, int top_k, int group_size,
-            TFunctor functor )
+        // A packed code format: two nibbles per byte, low nibble the even column, one scale per group. The weight
+        // is formed in FP32 before it multiplies, so a weight the format represents exactly gives the BF16 bank's bits.
+        struct Fp4E2M1Codes
+        {
+            using Scale = float;
+
+            __device__ static float weight( unsigned nibble, Scale scale )
+            {
+                return fp4_e2m1_decode( nibble ) * scale;
+            }
+        };
+
+        struct Int4Codes
+        {
+            using Scale = __half;
+
+            __device__ static float weight( unsigned nibble, Scale scale )
+            {
+                return static_cast<float>( static_cast<int>( nibble ) - 8 ) * __half2float( scale );
+            }
+        };
+
+        template<typename TCodes, typename TFunctor>
+        __global__ void moe_gated_packed_kernel(
+            const __nv_bfloat16* input, const uint8_t* gate_up, const typename TCodes::Scale* gate_up_scales,
+            const int32_t* indices, float* gated, int tokens, int hidden, int intermediate, int experts, int top_k,
+            int group_size, TFunctor functor )
         {
             const int64_t cell = static_cast<int64_t>( blockIdx.x ) * blockDim.x + threadIdx.x;
             const int64_t per_token = static_cast<int64_t>( top_k ) * intermediate;
@@ -138,8 +161,8 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             const int64_t groups = hidden / group_size;
             const uint8_t* gate_row = gate_up + ( expert_base + unit ) * packed_columns;
             const uint8_t* up_row = gate_up + ( expert_base + intermediate + unit ) * packed_columns;
-            const float* gate_scales = gate_up_scales + ( expert_base + unit ) * groups;
-            const float* up_scales = gate_up_scales + ( expert_base + intermediate + unit ) * groups;
+            const auto* gate_scales = gate_up_scales + ( expert_base + unit ) * groups;
+            const auto* up_scales = gate_up_scales + ( expert_base + intermediate + unit ) * groups;
             const int64_t input_offset = token * hidden;
 
             float gate = 0.0f;
@@ -150,9 +173,9 @@ namespace Mila::Dnn::Compute::Cuda::Moe
                 const float x = __bfloat162float( input[ input_offset + column ] );
                 const int shift = ( column & 1 ) * 4;
                 const float gate_weight =
-                    fp4_e2m1_decode( ( gate_row[ column / 2 ] >> shift ) & 0xFu ) * gate_scales[ column / group_size ];
+                    TCodes::weight( ( gate_row[ column / 2 ] >> shift ) & 0xFu, gate_scales[ column / group_size ] );
                 const float up_weight =
-                    fp4_e2m1_decode( ( up_row[ column / 2 ] >> shift ) & 0xFu ) * up_scales[ column / group_size ];
+                    TCodes::weight( ( up_row[ column / 2 ] >> shift ) & 0xFu, up_scales[ column / group_size ] );
 
                 gate += gate_weight * x;
                 up += up_weight * x;
@@ -161,9 +184,10 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             gated[ cell ] = functor.fwd( gate ) * up;
         }
 
-        __global__ void moe_combine_fp4_kernel(
-            const float* gated, const uint8_t* down, const float* down_scales, const __nv_bfloat16* weights,
-            const int32_t* indices, __nv_bfloat16* output,
+        template<typename TCodes>
+        __global__ void moe_combine_packed_kernel(
+            const float* gated, const uint8_t* down, const typename TCodes::Scale* down_scales,
+            const __nv_bfloat16* weights, const int32_t* indices, __nv_bfloat16* output,
             int tokens, int hidden, int intermediate, int experts, int top_k, int group_size )
         {
             const int64_t cell = static_cast<int64_t>( blockIdx.x ) * blockDim.x + threadIdx.x;
@@ -193,7 +217,7 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
                 const int64_t row = static_cast<int64_t>( expert ) * hidden + column;
                 const uint8_t* down_row = down + row * packed_units;
-                const float* row_scales = down_scales + row * groups;
+                const auto* row_scales = down_scales + row * groups;
                 const int64_t slot_offset = gated_base + static_cast<int64_t>( slot ) * intermediate;
 
                 float projected = 0.0f;
@@ -201,8 +225,7 @@ namespace Mila::Dnn::Compute::Cuda::Moe
                 for ( int unit = 0; unit < intermediate; ++unit )
                 {
                     const int shift = ( unit & 1 ) * 4;
-                    const float weight =
-                        fp4_e2m1_decode( ( down_row[ unit / 2 ] >> shift ) & 0xFu ) * row_scales[ unit / group_size ];
+                    const float weight = TCodes::weight( ( down_row[ unit / 2 ] >> shift ) & 0xFu, row_scales[ unit / group_size ] );
 
                     projected += weight * gated[ slot_offset + unit ];
                 }
@@ -258,27 +281,63 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         cudaCheck( cudaGetLastError() );
     }
 
+    namespace
+    {
+        template<typename TCodes, typename TFunctor>
+        void launchGatedPacked(
+            const __nv_bfloat16* input, const uint8_t* gate_up, const typename TCodes::Scale* gate_up_scales,
+            const int32_t* indices, float* gated, int tokens, int hidden, int intermediate, int experts, int top_k,
+            int group_size, TFunctor functor, cudaStream_t stream )
+        {
+            const int64_t cells = static_cast<int64_t>( tokens ) * top_k * intermediate;
+
+            if ( cells == 0 )
+            {
+                return;
+            }
+
+            constexpr int block_size = 512;
+            const int grid_size = static_cast<int>( ( cells + block_size - 1 ) / block_size );
+
+            moe_gated_packed_kernel<TCodes, TFunctor><<<grid_size, block_size, 0, stream>>>(
+                input, gate_up, gate_up_scales, indices, gated, tokens, hidden, intermediate, experts, top_k,
+                group_size, functor );
+
+            cudaCheck( cudaGetLastError() );
+        }
+
+        template<typename TCodes>
+        void launchCombinePacked(
+            const float* gated, const uint8_t* down, const typename TCodes::Scale* down_scales,
+            const __nv_bfloat16* weights, const int32_t* indices, __nv_bfloat16* output,
+            int tokens, int hidden, int intermediate, int experts, int top_k, int group_size, cudaStream_t stream )
+        {
+            const int64_t cells = static_cast<int64_t>( tokens ) * hidden;
+
+            if ( cells == 0 )
+            {
+                return;
+            }
+
+            constexpr int block_size = 512;
+            const int grid_size = static_cast<int>( ( cells + block_size - 1 ) / block_size );
+
+            moe_combine_packed_kernel<TCodes><<<grid_size, block_size, 0, stream>>>(
+                gated, down, down_scales, weights, indices, output, tokens, hidden, intermediate, experts, top_k,
+                group_size );
+
+            cudaCheck( cudaGetLastError() );
+        }
+    }
+
     template<typename TFunctor>
     void launch_moe_gated_forward_fp4(
         const __nv_bfloat16* input, const uint8_t* gate_up, const float* gate_up_scales, const int32_t* indices,
         float* gated, int tokens, int hidden, int intermediate, int experts, int top_k, int group_size,
         TFunctor functor, cudaStream_t stream )
     {
-        const int64_t cells = static_cast<int64_t>( tokens ) * top_k * intermediate;
-
-        if ( cells == 0 )
-        {
-            return;
-        }
-
-        constexpr int block_size = 512;
-        const int grid_size = static_cast<int>( ( cells + block_size - 1 ) / block_size );
-
-        moe_gated_fp4_kernel<TFunctor><<<grid_size, block_size, 0, stream>>>(
-            input, gate_up, gate_up_scales, indices, gated, tokens, hidden, intermediate, experts, top_k,
-            group_size, functor );
-
-        cudaCheck( cudaGetLastError() );
+        launchGatedPacked<Fp4E2M1Codes>( input, gate_up, gate_up_scales, indices, gated, tokens, hidden, intermediate,
+            experts, top_k, group_size, functor, stream );
     }
 
     void launch_moe_combine_forward_fp4(
@@ -287,29 +346,41 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         int tokens, int hidden, int intermediate, int experts, int top_k, int group_size,
         cudaStream_t stream )
     {
-        const int64_t cells = static_cast<int64_t>( tokens ) * hidden;
-
-        if ( cells == 0 )
-        {
-            return;
-        }
-
-        constexpr int block_size = 512;
-        const int grid_size = static_cast<int>( ( cells + block_size - 1 ) / block_size );
-
-        moe_combine_fp4_kernel<<<grid_size, block_size, 0, stream>>>(
-            gated, down, down_scales, weights, indices, output, tokens, hidden, intermediate, experts, top_k,
-            group_size );
-
-        cudaCheck( cudaGetLastError() );
+        launchCombinePacked<Fp4E2M1Codes>( gated, down, down_scales, weights, indices, output, tokens, hidden,
+            intermediate, experts, top_k, group_size, stream );
     }
 
-    template void launch_moe_gated_forward_fp4<Mila::Dnn::Activations::GeluTanh>(
-        const __nv_bfloat16*, const uint8_t*, const float*, const int32_t*, float*, int, int, int, int, int, int,
-        Mila::Dnn::Activations::GeluTanh, cudaStream_t );
-    template void launch_moe_gated_forward_fp4<Mila::Dnn::Activations::Silu>(
-        const __nv_bfloat16*, const uint8_t*, const float*, const int32_t*, float*, int, int, int, int, int, int,
-        Mila::Dnn::Activations::Silu, cudaStream_t );
+    template<typename TFunctor>
+    void launch_moe_gated_forward_int4(
+        const __nv_bfloat16* input, const uint8_t* gate_up, const __half* gate_up_scales, const int32_t* indices,
+        float* gated, int tokens, int hidden, int intermediate, int experts, int top_k, int group_size,
+        TFunctor functor, cudaStream_t stream )
+    {
+        launchGatedPacked<Int4Codes>( input, gate_up, gate_up_scales, indices, gated, tokens, hidden, intermediate,
+            experts, top_k, group_size, functor, stream );
+    }
+
+    void launch_moe_combine_forward_int4(
+        const float* gated, const uint8_t* down, const __half* down_scales, const __nv_bfloat16* weights,
+        const int32_t* indices, __nv_bfloat16* output,
+        int tokens, int hidden, int intermediate, int experts, int top_k, int group_size,
+        cudaStream_t stream )
+    {
+        launchCombinePacked<Int4Codes>( gated, down, down_scales, weights, indices, output, tokens, hidden,
+            intermediate, experts, top_k, group_size, stream );
+    }
+
+#define MILA_INSTANTIATE_MOE_GATED_PACKED( SUFFIX, SCALE, FUNCTOR ) \
+    template void launch_moe_gated_forward_##SUFFIX<FUNCTOR>( \
+        const __nv_bfloat16*, const uint8_t*, const SCALE*, const int32_t*, float*, int, int, int, int, int, int, \
+        FUNCTOR, cudaStream_t );
+
+    MILA_INSTANTIATE_MOE_GATED_PACKED( fp4, float, Mila::Dnn::Activations::GeluTanh )
+    MILA_INSTANTIATE_MOE_GATED_PACKED( fp4, float, Mila::Dnn::Activations::Silu )
+    MILA_INSTANTIATE_MOE_GATED_PACKED( int4, __half, Mila::Dnn::Activations::GeluTanh )
+    MILA_INSTANTIATE_MOE_GATED_PACKED( int4, __half, Mila::Dnn::Activations::Silu )
+
+#undef MILA_INSTANTIATE_MOE_GATED_PACKED
 
 #define MILA_INSTANTIATE_MOE_GATED( NATIVE, FUNCTOR ) \
     template void launch_moe_gated_forward<NATIVE, FUNCTOR>( \

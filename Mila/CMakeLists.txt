@@ -532,6 +532,8 @@ PUBLIC
         "Src/Dnn/Quantization/Weight/PerGroupCodebook3.ixx"
         "Src/Dnn/Quantization/Weight/HasCodebookTable.ixx"
         "Src/Dnn/Quantization/Weight/HasHighBitPlane.ixx"
+        "Src/Dnn/Quantization/Weight/HasFp4E2M1Codes.ixx"
+        "Src/Dnn/Quantization/Weight/HasInt4Codes.ixx"
         "Src/Dnn/Quantization/Weight/Policies.ixx"
         "Src/Dnn/Quantization/Weight/PrecisionPlan.ixx"
         "Src/Dnn/Quantization/KvCache/Policy.ixx"

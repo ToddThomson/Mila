@@ -12,6 +12,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <cuda_runtime.h>
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -21,11 +22,14 @@
 #include <format>
 #include <iostream>
 #include <memory>
+#include <random>
+#include <stdexcept>
 #include <string>
 #include <system_error>
 #include <vector>
 
 import Mila;
+import Dnn.Quantization.Weight.Int4Packing;
 
 namespace Mila::Tests::Dnn::Components::MixtureOfExperts
 {
@@ -124,17 +128,18 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
     namespace
     {
         using Fp4Group64 = Mila::Dnn::Quant::Weight::PerGroupFp4<64>;
+        using Q4_0 = Mila::Dnn::Quant::Weight::PerGroupInt4<32>;
         using Fp8PerChannel = Mila::Dnn::Quant::Weight::PerChannelFp8<>;
 
         template<TensorDataType TPrecision, typename TWeightQuantization = Mila::Dnn::Quant::Weight::NoWeightQuant>
         using CudaExperts = Mila::Dnn::MixtureOfExperts<DeviceType::Cuda, TPrecision, ActivationType::Gelu, TWeightQuantization>;
 
         constexpr int64_t kFp4Group = 64;
-        constexpr int64_t kFp4Hidden = 128;
-        constexpr int64_t kFp4Intermediate = 64;
-        constexpr int64_t kFp4Experts = 16;
-        constexpr int64_t kFp4TopK = 4;
-        constexpr int64_t kFp4Tokens = 48;
+        constexpr int64_t kPackedHidden = 128;
+        constexpr int64_t kPackedIntermediate = 64;
+        constexpr int64_t kPackedExperts = 16;
+        constexpr int64_t kPackedTopK = 4;
+        constexpr int64_t kPackedTokens = 48;
 
         // Weights the per-group FP4 quantizer reproduces exactly: E2M1 grid values times a power-of-two
         // group scale, with each group's largest magnitude 6 * 2^k so absmax recovers that scale.
@@ -174,6 +179,46 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
             return values;
         }
 
+        // Weights the Q4_0 quantizer reproduces exactly (Gemma4MoE.md Phase 9, gate 2): ( code - 8 ) * d with d a
+        // power of two, and one element of each group at -8 d, so the group's extreme is -8 d and its scale d.
+        // Every value has at most four significant bits, so it is exact in BF16 too.
+        std::vector<float> q4ExactWeights( int64_t rows, int64_t columns, std::uint32_t seed )
+        {
+            constexpr int64_t kGroup = 32;
+
+            std::vector<float> values( static_cast<std::size_t>( rows * columns ) );
+            std::uint32_t state = seed;
+
+            auto next = [&state]()
+            {
+                state = state * 1664525u + 1013904223u;
+
+                return state >> 8;
+            };
+
+            for ( int64_t row = 0; row < rows; ++row )
+            {
+                for ( int64_t start = 0; start < columns; start += kGroup )
+                {
+                    const float scale = std::ldexp( 1.0f, -static_cast<int>( 2 + next() % 5 ) );
+
+                    // Codes 1 to 15 here, so the one -8 d below is the group's only largest magnitude.
+                    for ( int64_t column = start; column < start + kGroup; ++column )
+                    {
+                        const int code = 1 + static_cast<int>( next() % 15 );
+
+                        values[ static_cast<std::size_t>( row * columns + column ) ] = static_cast<float>( code - 8 ) * scale;
+                    }
+
+                    const int64_t extreme = start + static_cast<int64_t>( next() % kGroup );
+
+                    values[ static_cast<std::size_t>( row * columns + extreme ) ] = -8.0f * scale;
+                }
+            }
+
+            return values;
+        }
+
         int64_t countBitMismatches( const std::vector<float>& actual, const std::vector<float>& expected )
         {
             if ( actual.size() != expected.size() )
@@ -197,7 +242,7 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
         void constructFp8Bank()
         {
             CudaExperts<TensorDataType::BF16, Fp8PerChannel> experts(
-                "experts", MixtureOfExpertsConfig( kFp4Hidden, kFp4Intermediate, kFp4Experts, kFp4TopK ), Device::Cuda( 0 ) );
+                "experts", MixtureOfExpertsConfig( kPackedHidden, kPackedIntermediate, kPackedExperts, kPackedTopK ), Device::Cuda( 0 ) );
         }
     }
 
@@ -482,7 +527,7 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
                 build_for_single_token ? "built for one token" : "built for prefill", mismatches, tokens * hidden );
         }
 
-        struct Fp4Case
+        struct PackedCase
         {
             std::vector<float> gate_up;
             std::vector<float> down;
@@ -491,48 +536,76 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
             std::vector<std::int32_t> selections;
         };
 
-        static Fp4Case fp4Case()
+        static PackedCase fp4Case()
         {
-            Fp4Case result;
-            result.gate_up = fp4ExactWeights( kFp4Experts * 2 * kFp4Intermediate, kFp4Hidden, kFp4Group, 11 );
-            result.down = fp4ExactWeights( kFp4Experts * kFp4Hidden, kFp4Intermediate, kFp4Group, 12 );
-            result.input = synthetic( kFp4Tokens * kFp4Hidden, 13, 1.0f );
-            result.combine = synthetic( kFp4Tokens * kFp4TopK, 14, 0.5f );
-            result.selections.resize( static_cast<std::size_t>( kFp4Tokens * kFp4TopK ) );
+            PackedCase result;
+            result.gate_up = fp4ExactWeights( kPackedExperts * 2 * kPackedIntermediate, kPackedHidden, kFp4Group, 11 );
+            result.down = fp4ExactWeights( kPackedExperts * kPackedHidden, kPackedIntermediate, kFp4Group, 12 );
+            result.input = synthetic( kPackedTokens * kPackedHidden, 13, 1.0f );
+            result.combine = synthetic( kPackedTokens * kPackedTopK, 14, 0.5f );
+            result.selections.resize( static_cast<std::size_t>( kPackedTokens * kPackedTopK ) );
 
-            for ( int64_t token = 0; token < kFp4Tokens; ++token )
+            for ( int64_t token = 0; token < kPackedTokens; ++token )
             {
-                for ( int64_t slot = 0; slot < kFp4TopK; ++slot )
+                for ( int64_t slot = 0; slot < kPackedTopK; ++slot )
                 {
-                    result.selections[ static_cast<std::size_t>( token * kFp4TopK + slot ) ] =
-                        static_cast<std::int32_t>( ( token * 7 + slot * 5 ) % kFp4Experts );
+                    result.selections[ static_cast<std::size_t>( token * kPackedTopK + slot ) ] =
+                        static_cast<std::int32_t>( ( token * 7 + slot * 5 ) % kPackedExperts );
                 }
             }
 
             return result;
         }
 
-        // Both banks load the same BF16 bits; the FP4 one quantizes them on load.
+        static PackedCase q4Case()
+        {
+            PackedCase result = fp4Case();
+            result.gate_up = q4ExactWeights( kPackedExperts * 2 * kPackedIntermediate, kPackedHidden, 21 );
+            result.down = q4ExactWeights( kPackedExperts * kPackedHidden, kPackedIntermediate, 22 );
+
+            return result;
+        }
+
+        // Both banks load the same BF16 bits; the packed one quantizes them on load.
         template<typename TExperts>
-        static std::unique_ptr<TExperts> makeFp4CaseBank( const Fp4Case& weights_case )
+        static std::unique_ptr<TExperts> makePackedCaseBank( const PackedCase& weights_case, int64_t build_tokens = kPackedTokens )
         {
             auto experts = std::make_unique<TExperts>(
-                "experts", MixtureOfExpertsConfig( kFp4Hidden, kFp4Intermediate, kFp4Experts, kFp4TopK ), Device::Cuda( 0 ) );
-            experts->build( BuildContext( shape_t{ kFp4Tokens, kFp4Hidden }, RuntimeMode::Inference, false ) );
+                "experts", MixtureOfExpertsConfig( kPackedHidden, kPackedIntermediate, kPackedExperts, kPackedTopK ), Device::Cuda( 0 ) );
+            experts->build( BuildContext( shape_t{ build_tokens, kPackedHidden }, RuntimeMode::Inference, false ) );
 
             loadValues( *experts, "gate_up_proj", TensorDataType::BF16, weights_case.gate_up.data(), weights_case.gate_up.size(),
-                shape_t{ kFp4Experts, 2 * kFp4Intermediate, kFp4Hidden } );
+                shape_t{ kPackedExperts, 2 * kPackedIntermediate, kPackedHidden } );
             loadValues( *experts, "down_proj", TensorDataType::BF16, weights_case.down.data(), weights_case.down.size(),
-                shape_t{ kFp4Experts, kFp4Hidden, kFp4Intermediate } );
+                shape_t{ kPackedExperts, kPackedHidden, kPackedIntermediate } );
 
             return experts;
         }
 
         template<typename TExperts>
-        std::vector<float> runFp4Case( TExperts& experts, const Fp4Case& weights_case )
+        std::vector<float> runPackedCase( TExperts& experts, const PackedCase& weights_case )
         {
             return run( experts, weights_case.input.data(), weights_case.combine.data(), weights_case.selections.data(),
-                shape_t{ kFp4Tokens, kFp4Hidden }, shape_t{ kFp4Tokens, kFp4TopK } );
+                shape_t{ kPackedTokens, kPackedHidden }, shape_t{ kPackedTokens, kPackedTopK } );
+        }
+
+        template<typename TExperts>
+        std::vector<float> runPackedCaseOneTokenAtATime( TExperts& experts, const PackedCase& weights_case )
+        {
+            std::vector<float> decoded;
+
+            for ( int64_t token = 0; token < kPackedTokens; ++token )
+            {
+                const std::vector<float> row = run( experts,
+                    weights_case.input.data() + token * kPackedHidden,
+                    weights_case.combine.data() + token * kPackedTopK,
+                    weights_case.selections.data() + token * kPackedTopK,
+                    shape_t{ 1, 1, kPackedHidden }, shape_t{ 1, 1, kPackedTopK } );
+
+                decoded.insert( decoded.end(), row.begin(), row.end() );
+            }
+
+            return decoded;
         }
 
         std::unique_ptr<IExecutionContext> context_;
@@ -616,7 +689,7 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
     }
 
     // ====================================================================
-    // G. Footprint -- includes the op's gated scratch
+    // G. Footprint -- includes the bank's gated scratch
     // ====================================================================
 
     TEST_F( MixtureOfExpertsCudaTests, Bf16_GetRequiredMemory_MatchesBuiltFootprint )
@@ -647,32 +720,68 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
         EXPECT_GE( actual.device_state_bytes, static_cast<std::size_t>( 3 * kTopK * kIntermediate ) * sizeof( float ) );
     }
 
+    // Installed slots belong to the installer, in the prediction and the build alike, and must cover the build.
+    TEST_F( MixtureOfExpertsCudaTests, Bf16_InstalledSlots_UncountedAndCheckedAgainstTheBuild )
+    {
+        using Experts = Mila::Dnn::MixtureOfExperts<DeviceType::Cuda, TensorDataType::BF16, ActivationType::Gelu>;
+        using OutputTensor = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+        using GatedTensor = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>;
+
+        const shape_t input_shape{ 3, kHidden };
+        const dim_t gated_elements = 3 * kTopK * kIntermediate;
+        const BuildContext context = BuildContext( input_shape, RuntimeMode::Inference, false )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
+        const MixtureOfExpertsConfig config( kHidden, kIntermediate, kExperts, kTopK );
+
+        {
+            Experts experts( "experts", config, Device::Cuda( 0 ) );
+            experts.installSharedOutputs(
+                std::make_shared<OutputTensor>( Device::Cuda( 0 ), input_shape ),
+                std::make_shared<GatedTensor>( Device::Cuda( 0 ), shape_t{ gated_elements } ) );
+
+            EXPECT_EQ( experts.getRequiredMemory( context ).device_state_bytes, std::size_t{ 0 } ) << "predicted";
+
+            experts.build( context );
+
+            EXPECT_EQ( experts.getMemoryStats().device_state_bytes, std::size_t{ 0 } ) << "built";
+        }
+
+        {
+            Experts experts( "experts", config, Device::Cuda( 0 ) );
+            experts.installSharedOutputs(
+                std::make_shared<OutputTensor>( Device::Cuda( 0 ), input_shape ),
+                std::make_shared<GatedTensor>( Device::Cuda( 0 ), shape_t{ gated_elements - 1 } ) );
+
+            EXPECT_THROW( experts.build( context ), std::invalid_argument ) << "a gated slot one element short";
+        }
+    }
+
     // ====================================================================
     // FP4 expert bank (Gemma4MoE.md Phase 8, "FP4 expert bank -- gate")
     // ====================================================================
 
     TEST_F( MixtureOfExpertsCudaTests, Fp4_ExactWeightsBitIdenticalToBf16Bank )
     {
-        const Fp4Case weights_case = fp4Case();
+        const PackedCase weights_case = fp4Case();
 
         std::vector<float> expected;
         {
-            auto reference = makeFp4CaseBank<CudaExperts<TensorDataType::BF16>>( weights_case );
-            expected = runFp4Case( *reference, weights_case );
+            auto reference = makePackedCaseBank<CudaExperts<TensorDataType::BF16>>( weights_case );
+            expected = runPackedCase( *reference, weights_case );
         }
 
-        auto quantized = makeFp4CaseBank<CudaExperts<TensorDataType::BF16, Fp4Group64>>( weights_case );
-        const std::vector<float> prefill = runFp4Case( *quantized, weights_case );
+        auto quantized = makePackedCaseBank<CudaExperts<TensorDataType::BF16, Fp4Group64>>( weights_case );
+        const std::vector<float> prefill = runPackedCase( *quantized, weights_case );
 
         std::vector<float> decoded;
 
-        for ( int64_t token = 0; token < kFp4Tokens; ++token )
+        for ( int64_t token = 0; token < kPackedTokens; ++token )
         {
             const std::vector<float> row = run( *quantized,
-                weights_case.input.data() + token * kFp4Hidden,
-                weights_case.combine.data() + token * kFp4TopK,
-                weights_case.selections.data() + token * kFp4TopK,
-                shape_t{ 1, 1, kFp4Hidden }, shape_t{ 1, 1, kFp4TopK } );
+                weights_case.input.data() + token * kPackedHidden,
+                weights_case.combine.data() + token * kPackedTopK,
+                weights_case.selections.data() + token * kPackedTopK,
+                shape_t{ 1, 1, kPackedHidden }, shape_t{ 1, 1, kPackedTopK } );
 
             decoded.insert( decoded.end(), row.begin(), row.end() );
         }
@@ -689,13 +798,13 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
 
     TEST_F( MixtureOfExpertsCudaTests, Fp4_SavedBankReloadsBitIdentical )
     {
-        const Fp4Case weights_case = fp4Case();
+        const PackedCase weights_case = fp4Case();
         const fs::path saved = fs::temp_directory_path() / "mila_moe_fp4_round_trip.safetensors";
 
         std::vector<float> original;
         {
-            auto bank = makeFp4CaseBank<CudaExperts<TensorDataType::BF16, Fp4Group64>>( weights_case );
-            original = runFp4Case( *bank, weights_case );
+            auto bank = makePackedCaseBank<CudaExperts<TensorDataType::BF16, Fp4Group64>>( weights_case );
+            original = runPackedCase( *bank, weights_case );
 
             Serialization::SafeTensorsWriter writer( saved );
             bank->saveFlatTensors( writer, "experts", Serialization::TensorSavePass::Declare );
@@ -705,8 +814,8 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
         }
 
         CudaExperts<TensorDataType::BF16, Fp4Group64> reloaded(
-            "experts", MixtureOfExpertsConfig( kFp4Hidden, kFp4Intermediate, kFp4Experts, kFp4TopK ), Device::Cuda( 0 ) );
-        reloaded.build( BuildContext( shape_t{ kFp4Tokens, kFp4Hidden }, RuntimeMode::Inference, false ) );
+            "experts", MixtureOfExpertsConfig( kPackedHidden, kPackedIntermediate, kPackedExperts, kPackedTopK ), Device::Cuda( 0 ) );
+        reloaded.build( BuildContext( shape_t{ kPackedTokens, kPackedHidden }, RuntimeMode::Inference, false ) );
 
         std::vector<std::string> names;
         {
@@ -729,14 +838,14 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
 
         EXPECT_EQ( names, ( std::vector<std::string>{
             "experts.down_proj", "experts.down_proj_scale", "experts.gate_up_proj", "experts.gate_up_proj_scale" } ) );
-        EXPECT_EQ( countBitMismatches( runFp4Case( reloaded, weights_case ), original ), 0 );
+        EXPECT_EQ( countBitMismatches( runPackedCase( reloaded, weights_case ), original ), 0 );
     }
 
     TEST_F( MixtureOfExpertsCudaTests, Fp4_GetRequiredMemory_MatchesBuiltFootprint )
     {
-        const BuildContext context = BuildContext( shape_t{ 3, kFp4Hidden }, RuntimeMode::Inference, false )
+        const BuildContext context = BuildContext( shape_t{ 3, kPackedHidden }, RuntimeMode::Inference, false )
             .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
-        const MixtureOfExpertsConfig config( kFp4Hidden, kFp4Intermediate, kFp4Experts, kFp4TopK );
+        const MixtureOfExpertsConfig config( kPackedHidden, kPackedIntermediate, kPackedExperts, kPackedTopK );
 
         CudaExperts<TensorDataType::BF16, Fp4Group64> predictor( "experts", config, Device::Cuda( 0 ) );
         const MemoryStats predicted = predictor.getRequiredMemory( context );
@@ -758,9 +867,9 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
     TEST_F( MixtureOfExpertsCudaTests, Fp4_ExpertWidthNotAMultipleOfTheGroupIsRefused )
     {
         CudaExperts<TensorDataType::BF16, Fp4Group64> experts(
-            "experts", MixtureOfExpertsConfig( kFp4Hidden, 96, kFp4Experts, kFp4TopK ), Device::Cuda( 0 ) );
+            "experts", MixtureOfExpertsConfig( kPackedHidden, 96, kPackedExperts, kPackedTopK ), Device::Cuda( 0 ) );
 
-        EXPECT_THROW( experts.build( BuildContext( shape_t{ 4, kFp4Hidden }, RuntimeMode::Inference, false ) ), std::invalid_argument );
+        EXPECT_THROW( experts.build( BuildContext( shape_t{ 4, kPackedHidden }, RuntimeMode::Inference, false ) ), std::invalid_argument );
     }
 
     // The op refuses at construction; Component::setExecutionContext rethrows that as runtime_error.
@@ -775,5 +884,235 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
         {
             EXPECT_NE( std::string( error.what() ).find( "per-group FP4" ), std::string::npos ) << error.what();
         }
+    }
+
+    // ====================================================================
+    // Q4_0 expert bank (Gemma4MoE.md Phase 9, "Gate, written before any run", G5 items 1-5)
+    // ====================================================================
+
+    static_assert( expertBankImplements<Q4_0> );
+    static_assert( !expertBankImplements<Mila::Dnn::Quant::Weight::PerGroupInt4<64>> );
+    static_assert( !expertBankImplements<Fp8PerChannel> );
+
+    // Item 1: a stack quantized on load is E x rows output channels of Linear's quantizer, at the 26B's shapes.
+    TEST_F( MixtureOfExpertsCudaTests, Q4_0_QuantizerEqualsTheCodecAtTheRealShapes )
+    {
+        constexpr int64_t kHidden = 2816;
+        constexpr int64_t kIntermediate = 704;
+        constexpr int64_t kExperts = 128;
+        constexpr int64_t kGroup = 32;
+
+        CudaExperts<TensorDataType::BF16, Q4_0> bank(
+            "experts", MixtureOfExpertsConfig( kHidden, kIntermediate, kExperts, 8 ), Device::Cuda( 0 ) );
+        bank.build( BuildContext( shape_t{ 1, kHidden }, RuntimeMode::Inference, false ) );
+
+        // gate_up_proj, its scales, down_proj, its scales.
+        const std::vector<ITensor*> stored = bank.getParameters();
+        ASSERT_EQ( stored.size(), 4u );
+
+        struct Projection
+        {
+            const char* name;
+            int64_t rows_per_expert;
+            int64_t columns;
+            const ITensor* packed;
+            const ITensor* scales;
+        };
+
+        const Projection projections[] = {
+            { "gate_up_proj", 2 * kIntermediate, kHidden, stored[ 0 ], stored[ 1 ] },
+            { "down_proj", kHidden, kIntermediate, stored[ 2 ], stored[ 3 ] },
+        };
+
+        std::uint32_t seed = 20260930u;
+
+        for ( const Projection& projection : projections )
+        {
+            const int64_t rows = kExperts * projection.rows_per_expert;
+            const int64_t columns = projection.columns;
+
+            std::mt19937 generator( seed++ );
+            std::normal_distribution<float> distribution( 0.0f, 0.02f );
+            std::vector<std::uint16_t> weights( static_cast<std::size_t>( rows * columns ) );
+
+            for ( auto& weight : weights )
+            {
+                weight = static_cast<std::uint16_t>( std::bit_cast<std::uint32_t>( distribution( generator ) ) >> 16 );
+            }
+
+            const std::size_t bytes = weights.size() * sizeof( std::uint16_t );
+            Serialization::TensorMetadata meta{ TensorDataType::BF16, shape_t{ kExperts, projection.rows_per_expert, columns }, bytes };
+            Serialization::TensorBlobView blob( meta, weights.data(), bytes );
+
+            bank.loadParameter( projection.name, blob );
+            bank.synchronize();
+
+            std::vector<std::uint8_t> expected_codes( static_cast<std::size_t>( rows * columns / 2 ) );
+            std::vector<std::uint16_t> expected_scales( static_cast<std::size_t>( rows * columns / kGroup ) );
+            std::vector<float> row_values( static_cast<std::size_t>( columns ) );
+
+            for ( int64_t row = 0; row < rows; ++row )
+            {
+                for ( int64_t column = 0; column < columns; ++column )
+                {
+                    row_values[ static_cast<std::size_t>( column ) ] = std::bit_cast<float>(
+                        static_cast<std::uint32_t>( weights[ static_cast<std::size_t>( row * columns + column ) ] ) << 16 );
+                }
+
+                Mila::Dnn::Quant::Weight::quantizeInt4( row_values.data(), 1, columns, kGroup,
+                    expected_codes.data() + row * columns / 2, expected_scales.data() + row * columns / kGroup );
+            }
+
+            weights = {};
+
+            std::vector<std::uint8_t> device_codes( expected_codes.size() );
+            std::vector<std::uint16_t> device_scales( expected_scales.size() );
+
+            ASSERT_EQ( projection.packed->getStorageSize(), device_codes.size() ) << projection.name;
+            ASSERT_EQ( projection.scales->getStorageSize(), device_scales.size() * sizeof( std::uint16_t ) ) << projection.name;
+            ASSERT_EQ( cudaMemcpy( device_codes.data(), projection.packed->rawData(), device_codes.size(),
+                cudaMemcpyDeviceToHost ), cudaSuccess );
+            ASSERT_EQ( cudaMemcpy( device_scales.data(), projection.scales->rawData(),
+                device_scales.size() * sizeof( std::uint16_t ), cudaMemcpyDeviceToHost ), cudaSuccess );
+
+            std::size_t differing_codes = 0;
+            std::size_t differing_scales = 0;
+
+            for ( std::size_t index = 0; index < expected_codes.size(); ++index )
+            {
+                differing_codes += device_codes[ index ] != expected_codes[ index ];
+            }
+
+            for ( std::size_t index = 0; index < expected_scales.size(); ++index )
+            {
+                differing_scales += device_scales[ index ] != expected_scales[ index ];
+            }
+
+            EXPECT_EQ( differing_codes, 0u ) << projection.name;
+            EXPECT_EQ( differing_scales, 0u ) << projection.name;
+
+            std::cout << std::format( "[ q4_0 ] {} [{}, {}, {}]: {} of {} code bytes and {} of {} scales differ from the codec\n",
+                projection.name, kExperts, projection.rows_per_expert, columns,
+                differing_codes, expected_codes.size(), differing_scales, expected_scales.size() );
+        }
+    }
+
+    // Item 2: on weights Q4_0 represents exactly, the bank is the BF16 bank bit for bit, built for prefill and for
+    // one token (Phase 7's two cases).
+    TEST_F( MixtureOfExpertsCudaTests, Q4_0_ExactWeightsBitIdenticalToBf16Bank )
+    {
+        const PackedCase weights_case = q4Case();
+
+        std::vector<float> expected;
+        {
+            auto reference = makePackedCaseBank<CudaExperts<TensorDataType::BF16>>( weights_case );
+            expected = runPackedCase( *reference, weights_case );
+        }
+
+        auto quantized = makePackedCaseBank<CudaExperts<TensorDataType::BF16, Q4_0>>( weights_case );
+        const std::vector<float> prefill = runPackedCase( *quantized, weights_case );
+        const std::vector<float> decoded = runPackedCaseOneTokenAtATime( *quantized, weights_case );
+
+        auto single_token = makePackedCaseBank<CudaExperts<TensorDataType::BF16, Q4_0>>( weights_case, 1 );
+        const std::vector<float> single_token_decoded = runPackedCaseOneTokenAtATime( *single_token, weights_case );
+
+        const auto nonzero = std::count_if( expected.begin(), expected.end(), []( float value ) { return value != 0.0f; } );
+
+        EXPECT_GT( nonzero, 0 ) << "the BF16 bank produced all zeros; the comparison proves nothing";
+        EXPECT_EQ( countBitMismatches( prefill, expected ), 0 ) << "prefill, of " << expected.size();
+        EXPECT_EQ( countBitMismatches( decoded, expected ), 0 ) << "one token at a time, built for prefill, of " << expected.size();
+        EXPECT_EQ( countBitMismatches( single_token_decoded, expected ), 0 )
+            << "one token at a time, built for one token, of " << expected.size();
+
+        std::cout << std::format(
+            "[ q4_0 ] {} of {} prefill, {} one-token (built for prefill) and {} one-token (built for one token) elements "
+            "differ from the BF16 bank\n",
+            countBitMismatches( prefill, expected ), expected.size(), countBitMismatches( decoded, expected ),
+            countBitMismatches( single_token_decoded, expected ) );
+    }
+
+    // Item 3.
+    TEST_F( MixtureOfExpertsCudaTests, Q4_0_SavedBankReloadsBitIdentical )
+    {
+        const PackedCase weights_case = q4Case();
+        const fs::path saved = fs::temp_directory_path() / "mila_moe_q4_0_round_trip.safetensors";
+
+        std::vector<float> original;
+        {
+            auto bank = makePackedCaseBank<CudaExperts<TensorDataType::BF16, Q4_0>>( weights_case );
+            original = runPackedCase( *bank, weights_case );
+
+            Serialization::SafeTensorsWriter writer( saved );
+            bank->saveFlatTensors( writer, "experts", Serialization::TensorSavePass::Declare );
+            writer.beginData();
+            bank->saveFlatTensors( writer, "experts", Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        CudaExperts<TensorDataType::BF16, Q4_0> reloaded(
+            "experts", MixtureOfExpertsConfig( kPackedHidden, kPackedIntermediate, kPackedExperts, kPackedTopK ), Device::Cuda( 0 ) );
+        reloaded.build( BuildContext( shape_t{ kPackedTokens, kPackedHidden }, RuntimeMode::Inference, false ) );
+
+        std::vector<std::string> names;
+        {
+            Serialization::WeightsReader reader( saved );
+            names = reader.getTensorNames();
+
+            for ( const auto& name : names )
+            {
+                auto blob = reader.readTensorBlob<CpuMemoryResource>( name );
+
+                reloaded.loadParameter( name.substr( name.rfind( '.' ) + 1 ), blob );
+                reloaded.synchronize();
+            }
+        }
+
+        std::error_code ignored;
+        fs::remove( saved, ignored );
+
+        std::sort( names.begin(), names.end() );
+
+        EXPECT_EQ( names, ( std::vector<std::string>{
+            "experts.down_proj", "experts.down_proj_scale", "experts.gate_up_proj", "experts.gate_up_proj_scale" } ) );
+        EXPECT_EQ( countBitMismatches( runPackedCase( reloaded, weights_case ), original ), 0 );
+    }
+
+    // Item 4.
+    TEST_F( MixtureOfExpertsCudaTests, Q4_0_GetRequiredMemory_MatchesBuiltFootprint )
+    {
+        const BuildContext context = BuildContext( shape_t{ 3, kPackedHidden }, RuntimeMode::Inference, false )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
+        const MixtureOfExpertsConfig config( kPackedHidden, kPackedIntermediate, kPackedExperts, kPackedTopK );
+
+        CudaExperts<TensorDataType::BF16, Q4_0> predictor( "experts", config, Device::Cuda( 0 ) );
+        const MemoryStats predicted = predictor.getRequiredMemory( context );
+
+        CudaExperts<TensorDataType::BF16, Q4_0> built( "experts", config, Device::Cuda( 0 ) );
+        built.build( context );
+        const MemoryStats actual = built.getMemoryStats();
+
+        EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes ) << "parameters";
+        EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes ) << "state";
+        EXPECT_EQ( predicted.device_inactive_parameter_bytes, actual.device_inactive_parameter_bytes ) << "inactive parameters";
+
+        // Packed gate_up 16x128x64 and its FP16 scales 16x128x4 x2; packed down 16x128x32 and its scales 16x128x2 x2.
+        EXPECT_EQ( actual.device_parameter_bytes, std::size_t{ 131072 + 16384 + 65536 + 8192 } );
+        EXPECT_EQ( actual.device_inactive_parameter_bytes, std::size_t{ 221184 } / 16 * 12 );
+
+        // The 26B's bank, computed rather than built, unrounded: Gemma.md s10.4, the same bytes as PerGroupFp4<64>.
+        CudaExperts<TensorDataType::BF16, Q4_0> real( "experts", MixtureOfExpertsConfig( 2816, 704, 128, 8 ), Device::Cuda( 0 ) );
+        const MemoryStats real_predicted = real.getRequiredMemory(
+            BuildContext( shape_t{ 1, 2816 }, RuntimeMode::Inference, false ).withAllocationGranularity( 0 ) );
+
+        EXPECT_EQ( real_predicted.device_parameter_bytes, std::size_t{ 428'212'224 } );
+    }
+
+    // Item 5.
+    TEST_F( MixtureOfExpertsCudaTests, Q4_0_ExpertWidthNotAMultipleOfTheGroupIsRefused )
+    {
+        CudaExperts<TensorDataType::BF16, Q4_0> experts(
+            "experts", MixtureOfExpertsConfig( kPackedHidden, 48, kPackedExperts, kPackedTopK ), Device::Cuda( 0 ) );
+
+        EXPECT_THROW( experts.build( BuildContext( shape_t{ 4, kPackedHidden }, RuntimeMode::Inference, false ) ), std::invalid_argument );
     }
 }

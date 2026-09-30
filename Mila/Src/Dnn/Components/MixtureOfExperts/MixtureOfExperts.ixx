@@ -16,6 +16,7 @@ module;
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 #include "../Activations/Activation/Kernels/ElementwiseActivation.h"
 
@@ -56,24 +57,33 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::Weight;
 
     /**
-     * @brief Whether the expert bank implements a weight policy: unquantized, or per-group FP4.
+     * @brief Whether the expert bank implements a weight policy: unquantized, per-group FP4, or Q4_0.
      *
      * Answered at compile time, so a model can refuse a policy before it instantiates a network whose bank would
      * refuse it at construction.
      */
     export template<WeightQuantPolicy TWeightQuantization>
-    constexpr bool expertBankImplements =
-        !TWeightQuantization::kIsQuantized || requires { requires TWeightQuantization::kIsFp4E2M1; };
+    constexpr bool expertBankImplements = []() constexpr
+    {
+        if constexpr ( HasInt4Codes<TWeightQuantization> )
+        {
+            return TWeightQuantization::kQuantizationGroupSize == 32;
+        }
+        else
+        {
+            return !TWeightQuantization::kIsQuantized || HasFp4E2M1Codes<TWeightQuantization>;
+        }
+    }();
 
     /**
      * @brief Stacked experts: gate_up_proj [E, 2I, H] and down_proj [E, H, I], checkpoint-named.
      *
-     * An expert is a row of these tensors, never an object. Inference-only. Under a per-group FP4
-     * policy each row is stored as a Linear FP4 weight row is -- packed nibbles plus per-group FP32
-     * scales, saved as gate_up_proj_scale and down_proj_scale -- and a BF16 source is quantized on load.
+     * An expert is a row of these tensors, never an object. Inference-only. Under a per-group policy each row is
+     * stored as a Linear weight row of that policy is -- packed codes plus per-group scales, saved as
+     * gate_up_proj_scale and down_proj_scale -- and a BF16 source is quantized on load.
      *
      * @tparam TGate Gate activation: Silu (SwiGLU experts) or Gelu (GeGLU experts, Gemma).
-     * @tparam TWeightQuantization NoWeightQuant or PerGroupFp4<g>; the operation refuses any other.
+     * @tparam TWeightQuantization NoWeightQuant, PerGroupFp4<g> or PerGroupInt4<32>; the operation refuses any other.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision, ActivationType TGate = ActivationType::Silu,
         WeightQuantPolicy TWeightQuantization = NoWeightQuant>
@@ -89,20 +99,12 @@ namespace Mila::Dnn
         static constexpr bool kIsQuantized = TWeightQuantization::kIsQuantized;
         static constexpr TensorDataType kWeightDtype = kIsQuantized ? TWeightQuantization::kStorageDtype : TPrecision;
 
-        static constexpr bool kIsFp4 = []() constexpr
-        {
-            if constexpr ( requires { TWeightQuantization::kIsFp4E2M1; } )
-            {
-                return TWeightQuantization::kIsQuantized && TWeightQuantization::kIsFp4E2M1;
-            }
-            else
-            {
-                return false;
-            }
-        }();
+        // Two codes a byte with one scale per group: the formats whose rows are Linear per-group rows.
+        static constexpr bool kIsPacked = HasFp4E2M1Codes<TWeightQuantization> || HasInt4Codes<TWeightQuantization>;
 
         using WeightTensorType = Tensor<kWeightDtype, MR>;
-        using ScaleTensorType = Tensor<TensorDataType::FP32, MR>;
+        using ScaleTensorType = Tensor<TWeightQuantization::kScaleDtype, MR>;
+        using ScratchTensorType = Tensor<TensorDataType::FP32, MR>;
 
         explicit MixtureOfExperts( const std::string& name, const MixtureOfExpertsConfig& config,
             std::optional<DeviceId> device_id = std::nullopt )
@@ -144,11 +146,33 @@ namespace Mila::Dnn
                 output_view_.emplace( output_->view( input.shape() ) );
             }
 
-            operation_->forward( input, weights, indices, *output_view_ );
+            operation_->forward( input, weights, indices, *gated_, *output_view_ );
 
             this->publish( ComputePass::Forward, "output", *output_view_ );
 
             return *output_view_;
+        }
+
+        /**
+         * @brief Install shared slots for the output and the FP32 gated activations (pooling); before build().
+         *
+         * onBuilding() then allocates neither, after checking each covers the build shape. The slots are owned and
+         * counted by the installer.
+         *
+         * @param output [..., hidden_size] at least as wide as the build input.
+         * @param gated  FP32, at least tokens x top_k x expert_intermediate_size elements.
+         */
+        void installSharedOutputs( std::shared_ptr<TensorType> output, std::shared_ptr<ScratchTensorType> gated )
+        {
+            if ( this->isBuilt() )
+            {
+                throw std::logic_error( std::format(
+                    "MixtureOfExperts '{}': installSharedOutputs must be called before build()", this->getName() ) );
+            }
+
+            output_ = std::move( output );
+            gated_ = std::move( gated );
+            outputs_installed_ = true;
         }
 
         std::vector<std::string> getParameterNames() const override
@@ -288,9 +312,16 @@ namespace Mila::Dnn
 
             stats.device_inactive_parameter_bytes = inactiveBytes( stats.device_parameter_bytes );
 
-            if ( output_ )
+            // Installed slots are owned and counted by the installer.
+            if ( !outputs_installed_ )
             {
-                stats.device_state_bytes += occupiedTensorBytes( *output_ );
+                for ( const ITensor* tensor : { static_cast<const ITensor*>( output_.get() ), static_cast<const ITensor*>( gated_.get() ) } )
+                {
+                    if ( tensor )
+                    {
+                        stats.device_state_bytes += occupiedTensorBytes( *tensor );
+                    }
+                }
             }
 
             if ( operation_ )
@@ -321,8 +352,14 @@ namespace Mila::Dnn
                 stats.device_inactive_parameter_bytes = inactiveBytes( stats.device_parameter_bytes );
             }
 
-            stats.device_state_bytes +=
-                occupiedDeviceBytes( storageBytes<TPrecision>( elementCount( input_shape ) ), granularity );
+            // Installed slots are owned and counted by the installer.
+            if ( !outputs_installed_ && !context.hasInstalledOutput() )
+            {
+                stats.device_state_bytes +=
+                    occupiedDeviceBytes( storageBytes<TPrecision>( elementCount( input_shape ) ), granularity );
+                stats.device_state_bytes +=
+                    occupiedDeviceBytes( storageBytes<TensorDataType::FP32>( gatedElements( input_shape ) ), granularity );
+            }
 
             if ( operation_ )
             {
@@ -367,7 +404,7 @@ namespace Mila::Dnn
                 down_proj_ = std::make_shared<WeightTensorType>(
                     device, shape_t{ experts, hidden, storedColumns( intermediate ) }, this->getName() + ".down_proj" );
 
-                if constexpr ( kIsFp4 )
+                if constexpr ( kIsPacked )
                 {
                     gate_up_scale_ = std::make_shared<ScaleTensorType>(
                         device, shape_t{ experts, 2 * intermediate, groupsPerRow( hidden ) }, this->getName() + ".gate_up_proj_scale" );
@@ -388,14 +425,29 @@ namespace Mila::Dnn
 
             operation_->setParameters( gate_up_proj_.get(), down_proj_.get() );
 
-            if constexpr ( kIsFp4 )
+            if constexpr ( kIsPacked )
             {
                 operation_->setWeightScales( gate_up_scale_.get(), down_scale_.get() );
             }
 
             operation_->build( context );
 
-            output_ = std::make_shared<TensorType>( device, input_shape, this->getName() + ".output" );
+            if ( outputs_installed_ )
+            {
+                if ( !output_ || output_->size() < elementCount( input_shape )
+                     || !gated_ || gated_->size() < gatedElements( input_shape ) )
+                {
+                    throw std::invalid_argument( std::format(
+                        "MixtureOfExperts '{}': an installed slot is smaller than the build shape requires", this->getName() ) );
+                }
+            }
+            else
+            {
+                output_ = std::make_shared<TensorType>( device, input_shape, this->getName() + ".output" );
+                gated_ = std::make_shared<ScratchTensorType>(
+                    device, shape_t{ gatedElements( input_shape ) }, this->getName() + ".gated" );
+            }
+
             output_view_.emplace( output_->view( input_shape ) );
         }
 
@@ -413,18 +465,21 @@ namespace Mila::Dnn
 
         std::shared_ptr<WeightTensorType> gate_up_proj_{ nullptr };
         std::shared_ptr<WeightTensorType> down_proj_{ nullptr };
-        // Per-group FP4 only.
+        // Per-group policies only, of the policy's scale type.
         std::shared_ptr<ScaleTensorType> gate_up_scale_{ nullptr };
         std::shared_ptr<ScaleTensorType> down_scale_{ nullptr };
 
+        // Self-allocated at build, or installed slots (installSharedOutputs) this bank views a prefix of.
         std::shared_ptr<TensorType> output_{ nullptr };
+        std::shared_ptr<ScratchTensorType> gated_{ nullptr };
+        bool outputs_installed_{ false };
         std::optional<TensorType> output_view_;
 
-        // A packed blob loads as stored; under FP4 a BF16 blob is quantized into the packed storage.
+        // A packed blob loads as stored; under a per-group policy a BF16 blob is quantized into the packed storage.
         void loadProjection( const std::string& name, const ITensorBlob& blob, WeightTensorType& target,
             ScaleTensorType* scales, dim_t rows, dim_t columns )
         {
-            if constexpr ( kIsFp4 )
+            if constexpr ( kIsPacked )
             {
                 if ( blob.getMetadata().dtype != kWeightDtype )
                 {
@@ -460,7 +515,7 @@ namespace Mila::Dnn
 
         static dim_t groupsPerRow( dim_t columns ) noexcept
         {
-            if constexpr ( kIsFp4 )
+            if constexpr ( kIsPacked )
             {
                 return columns / TWeightQuantization::kQuantizationGroupSize;
             }
@@ -477,7 +532,13 @@ namespace Mila::Dnn
 
             return occupiedDeviceBytes( storageBytes<kWeightDtype>( experts * rows * storedColumns( columns ) ), granularity )
                 + occupiedDeviceBytes(
-                    storageBytes<TensorDataType::FP32>( experts * rows * groupsPerRow( columns ) ), granularity );
+                    storageBytes<TWeightQuantization::kScaleDtype>( experts * rows * groupsPerRow( columns ) ), granularity );
+        }
+
+        // One gated row per token and selected expert, as wide as an expert's intermediate.
+        dim_t gatedElements( const shape_t& input_shape ) const
+        {
+            return elementCount( input_shape ) / config_.getHiddenSize() * config_.getTopK() * config_.getExpertIntermediateSize();
         }
 
         // A token reads top_k of the experts' equal rows; the rest are resident and untouched.

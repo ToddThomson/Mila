@@ -112,11 +112,11 @@ both, and scoring (3.2) lands in both at once. The 26B-A4B is held to the 12B in
 
 | Capability | 12B | 26B-A4B | Anchor |
 |---|---|---|---|
-| Runs its producer's quantization-aware weights in the trained format | Y | -- | Q4_0 for both (`Gemma.md` §10.4, from Google's GGUF). The routed model refuses `q4_0` (`expertBankImplements`, asked by `GemmaModel::dispatchChassis`) and the expert bank refuses any policy but FP4 (`CudaMoeOp.ixx:76`) |
-| Fits the 16 GB card at context 8192, at the 12B's prefill chunk | Y | -- | fits only at chunk 256, 120 MiB free after load (measured 2026-09-29, `PerGroupFp4<64>`; Q4_0 is the same bytes); at a fixed 512 it was 83.8 MiB over (`Gemma4MoE.md` Phase 8), and 32768 is refused. The cause is the routed buffers, allocated per layer rather than pooled: each layer's `MixtureOfExperts` output (`MixtureOfExperts.ixx:387`) and FP32 gated scratch (`CudaMoeOp.ixx:126`), about 0.49 GiB at chunk 512 |
+| Runs its producer's quantization-aware weights in the trained format | Y | Y | Q4_0 for both (`Gemma.md` §10.4, from Google's GGUF). The 26B's expert bank runs `PerGroupInt4<32>` since `+24` (8.2 G5): at context 8192 on the RTX 5060 Ti, quantized on load from the QAT checkpoint, it plans 1024 rows, footprint exact, and its greedy tokens match HuggingFace |
+| Fits the 16 GB card at context 8192, at the 12B's prefill chunk | Y | Y | plans 1024 rows at 8192 once the routed buffers are pooled (8.2 G5, `+24`; measured 2026-09-30, `PerGroupFp4<64>`, footprint exact; Q4_0 is the same bytes). Before it, 256 rows |
 | Prefill as a GEMM | Y | -- | the routed bank's prefill is the Phase 6 two-pass kernel, one thread per output value; the grouped INT8 prefill is not built (`MixtureOfExperts.md` §7.7) |
 | Throughput measured, and in the llama.cpp comparison | Y | -- | measured 2026-09-29 (`Gemma4MoE.md`, Rates Baseline): prefill 23 tokens a second against llama.cpp's 3,600, generation 11 against 127; its CUDA kernels are the Phase 6 correctness baseline and were never tuned |
-| Token-for-token agreement with HuggingFace, in the suite | Y | partial | eight greedy tokens at FP4 (`GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp`), which a routing error does not change, and a layer-streamed BF16 hidden-state gate, which it does -- both on Google's quantization-aware checkpoint since 2026-09-30, the non-quantization-aware one retired; the BF16 model fits neither card, so no whole-model BF16 run exists |
+| Token-for-token agreement with HuggingFace, in the suite | Y | partial | eight greedy tokens at FP4 (`GemmaModel.MixtureOfExperts.Load.Cuda.cpp`), which a routing error does not change, and a layer-streamed BF16 hidden-state gate, which it does -- both on Google's quantization-aware checkpoint since 2026-09-30, the non-quantization-aware one retired; the BF16 model fits neither card, so no whole-model BF16 run exists |
 | Quality measured across the planner's range | see 3.4 | -- | never measured; the 12B's cost over BF16 has no whole-model reference here (section 9, item 18) |
 | Decode replay gated equal to the called path | Y | -- | replay is on for every `GemmaModel` load, the 26B included; `DecodeReplay.Cuda.cpp` covers a dense Gemma and no routed network (`MixtureOfExperts.md` §6) |
 | Active parameter bytes shown to the user | n/a | -- | `MemoryStats` carries them and `GemmaModel`'s footprint reports them; neither the plan nor Chat's display does (`MixtureOfExperts.md` §8) |
@@ -135,7 +135,7 @@ each row is in scope unless it cannot fit 16 GB; the last column says whether th
 | Gemma 4 12B | Multi-token prediction: a dedicated draft model for speculative decoding | -- | not priced | BACKLOG (measurement only); `SpeculativeDecoding.md` draft; loop in `Vnext.md` |
 | Gemma 4 12B | 262144-token context | planner allows it; Chat caps 131072; quality unmeasured above 131072 | yes, at FP4 | `ModelHandle.md` 10.3 |
 | Gemma 4 12B | Quantization-aware 4-bit checkpoint (int4, group 32) | Y, `PerGroupInt4<32>` since `0.21.0-dev+12`; its package rides G4's republish | yes | `Quantization.md`, Q4_0 |
-| Gemma 4 26B-A4B | Mixture of experts | Y, in `Mila/Src`, unpublished | once the routed buffers are pooled (3.6) | BACKLOG, "Announce the Gemma 4 26B-A4B mixture of experts" |
+| Gemma 4 26B-A4B | Mixture of experts | Y, in `Mila/Src`, unpublished | yes, at 8192 and the 12B's chunk, since the routed buffers were pooled (3.6) | BACKLOG, "Announce the Gemma 4 26B-A4B mixture of experts" |
 | Gemma 4 26B-A4B | Quantization-aware 4-bit checkpoint (Q4_0, instruct only) | -- the routed bank has no Q4_0 path | yes, the same bytes as `PerGroupFp4<64>` | `Gemma4MoE.md` Phase 9; 8.2, G5 |
 | Qwen 3.8 27B | Vision tower (27 layers, width 1152) and multimodal positions (mrope) | -- out of scope for the first chassis (`Qwen3.8.md` §1) | not priced; tight beside the FP4 build (13.2 GB of weights on device) | nowhere |
 | Qwen 3.8 27B | Multi-token prediction head, one layer (~0.45 B) | -- both converters skip `mtp.*` | not priced | nowhere |
@@ -611,6 +611,19 @@ the 3.6 fit and trained-format cells. *Needs:* G4.
   as every other activation slot is pooled through the block workspace. The scratch stays FP32. The
   unpooled special case in `GemmaBlock::getRequiredMemory` (`Gemma.Block.ixx:495`) becomes local to the
   sublayer, then goes.
+  *Result, 2026-09-30 (`+24`):* six routed-only slots join `GemmaBlockWorkspace::slots()` -- the router's norm
+  output, logits, combine weights and INT32 indices, the bank's output and its FP32 gated scratch -- so the
+  table now holds three tensor types, each slot bound to its member by `slot<>()`. The gated scratch moved from
+  `CudaMoeOp` into `MixtureOfExperts`, which passes it to either operation's `forward`; `Router` and
+  `MixtureOfExperts` take their slots through `installSharedOutputs`, as `GatedMLP` does; the unpooled special
+  case is gone. At context 8192 on the RTX 5060 Ti, `PerGroupFp4<64>` plans 1024 rows (was 256), footprint
+  exact, greedy tokens `818 5279 529 7001 563 5213 50429 84750` unchanged. A new test holds that no routed
+  sublayer owns activation bytes after build, which predicted-equals-built cannot see.
+  *Result, Q4_0 bank, 2026-09-30 (`+24`):* every item of `Gemma4MoE.md` Phase 9's gate passes, its forced failures
+  included: the bank equals the codec and the BF16 bank bit for bit; the export from Google's unquantized QAT
+  checkpoint equals `gemma-4-26B_q4_0-it.gguf` in all 265 Q4_0 tensors; at 8192 the Q4_0 model plans 1024 rows,
+  footprint exact, and its greedy tokens are HuggingFace's. It needed one change outside the bank: `Linear`'s Q4_0
+  prefill takes a 64-deep K tile for the dense branch's 2112-wide `fc_down`.
 - The Q4_0 expert bank (`Gemma4MoE.md` Phase 9, `MixtureOfExperts.md` §7.7): `PerGroupInt4<32>` in the bank,
   the routed dispatch admitting `q4_0`, and the model exported from Google's unquantized QAT checkpoint. The
   kernels here are for correctness; their speed is G5b.

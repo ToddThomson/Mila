@@ -25,6 +25,7 @@ namespace Mila::Dnn::Quant::Weight
         static constexpr bool kPerChannel = false;
         static constexpr int kQuantizationGroupSize = kGroupSize;
         static constexpr bool kIsFp4E2M1 = false;
+        static constexpr bool kIsInt4 = true;
         static constexpr int kStorageBitsPerElement = 4;
     };
 

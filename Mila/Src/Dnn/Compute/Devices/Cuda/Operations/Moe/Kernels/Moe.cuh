@@ -2,6 +2,7 @@
 
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
+#include <cuda_fp16.h>
 #include <cstdint>
 
 namespace Mila::Dnn::Compute::Cuda::Moe
@@ -54,6 +55,27 @@ namespace Mila::Dnn::Compute::Cuda::Moe
      */
     void launch_moe_combine_forward_fp4(
         const float* gated, const uint8_t* down, const float* down_scales, const __nv_bfloat16* weights,
+        const int32_t* indices, __nv_bfloat16* output,
+        int tokens, int hidden, int intermediate, int experts, int top_k, int group_size,
+        cudaStream_t stream );
+
+    /**
+     * @brief Pass 1 over a per-group INT4 (Q4_0) bank, BF16 activations.
+     *
+     * The FP4 pass's layout with codes in place of nibbles and FP16 scales: each weight is ( code - 8 ) times its
+     * group scale, in FP32, accumulated in launch_moe_gated_forward's order.
+     */
+    template<typename TFunctor>
+    void launch_moe_gated_forward_int4(
+        const __nv_bfloat16* input, const uint8_t* gate_up, const __half* gate_up_scales, const int32_t* indices,
+        float* gated, int tokens, int hidden, int intermediate, int experts, int top_k, int group_size,
+        TFunctor functor, cudaStream_t stream );
+
+    /**
+     * @brief Pass 2 over a per-group INT4 (Q4_0) bank, accumulated in launch_moe_combine_forward's order.
+     */
+    void launch_moe_combine_forward_int4(
+        const float* gated, const uint8_t* down, const __half* down_scales, const __nv_bfloat16* weights,
         const int32_t* indices, __nv_bfloat16* output,
         int tokens, int hidden, int intermediate, int experts, int top_k, int group_size,
         cudaStream_t stream );

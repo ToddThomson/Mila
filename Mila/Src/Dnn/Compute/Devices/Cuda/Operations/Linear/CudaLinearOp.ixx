@@ -129,7 +129,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         // Detection is STRUCTURAL: the concepts ask the policy what it declares, so a
         // format defined outside the tree resolves here without this file naming it.
         static constexpr bool kIsCodebookWeight = HasCodebookTable<TWeightQuant>;
-        static constexpr bool kHasHighBitPlane  = HasHighBitPlane<TWeightQuant>;
+        static constexpr bool kHasHighBitPlane = HasHighBitPlane<TWeightQuant>;
+        static constexpr bool kIsFp4Weight = HasFp4E2M1Codes<TWeightQuant>;
+        static constexpr bool kIsInt4Weight = HasInt4Codes<TWeightQuant>;
 
         // Toggle between the fused W8A16 GEMM and the baseline 2-phase path for A/B testing.
         //   true  -- cuda_w8a16_gemm: reads FP8 once, dequantizes inline, no staging buffer.
@@ -173,19 +175,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         static constexpr TensorDataType kWeightDtype = kIsQuantized
             ? TWeightQuant::kStorageDtype : TComputePrecision;
-
-        // True only for the FP4 E2M1 weight policy -- guards TWeightQuant::kIsFp4E2M1,
-        // which is not a member of NoWeightQuant / the FP8 per-channel policy.
-        static constexpr bool kIsFp4Weight = []
-        {
-            if constexpr ( kIsPerGroupQuantized )
-                return TWeightQuant::kIsFp4E2M1;
-            else
-                return false;
-        }();
-
-        /// True only for PerGroupInt4: the per-group format that is neither FP4 nor a codebook.
-        static constexpr bool kIsInt4Weight = kIsPerGroupQuantized && !kIsFp4Weight && !kIsCodebookWeight;
 
         // Compile-time predicate for the active W4A8-FP8 prefill path: FP4 weights AND the
         // toggle on. Gates the FP8 plan cache member type and every FP8-specific branch.
@@ -449,7 +438,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 Detail::quantize_fp8_per_channel( blob, weight_out, scales_out, expected_shape,
                                                   staging, staging_bytes, stream );
             }
-            else if constexpr ( kIsPerGroupQuantized && TWeightQuant::kIsFp4E2M1 )
+            else if constexpr ( kIsFp4Weight )
             {
                 // FP4 E2M1 per-group: scale[n,g] = max(|W[n,g*gs..(g+1)*gs)|) / 6.0f
                 void* staging = context_->getLoadStagingBuffer( staging_bytes );
@@ -654,15 +643,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             cached_cublaslt_handle_ = context_->getCublasLtHandle();
             use_cublaslt_ = (cached_cublaslt_handle_ != nullptr) && supportsCuBLASLt();
 
-            if constexpr ( kIsPerGroupQuantized )
+            if constexpr ( kIsFp4Weight )
             {
-                if constexpr ( TWeightQuant::kIsFp4E2M1 )
-                {
-                    int device = 0, major = 0;
-                    cudaGetDevice( &device );
-                    cudaDeviceGetAttribute( &major, cudaDevAttrComputeCapabilityMajor, device );
-                    use_wmma_fp4_gemm_ = ( major >= 8 ); // BF16 tensor-core WMMA requires SM 8.0+
-                }
+                int device = 0, major = 0;
+                cudaGetDevice( &device );
+                cudaDeviceGetAttribute( &major, cudaDevAttrComputeCapabilityMajor, device );
+                use_wmma_fp4_gemm_ = ( major >= 8 ); // BF16 tensor-core WMMA requires SM 8.0+
             }
 
             if ( use_cublaslt_ )

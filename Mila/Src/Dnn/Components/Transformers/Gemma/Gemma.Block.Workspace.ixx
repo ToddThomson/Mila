@@ -12,10 +12,13 @@ module;
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 export module Dnn.Components.GemmaBlockWorkspace;
 
 import Dnn.Tensor;
+import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
@@ -30,6 +33,16 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
 
+    // The element type of a slot's tensor, which prices it. Only a Tensor has one.
+    template<typename TTensor>
+    struct SlotDataType;
+
+    template<TensorDataType TDataType, typename TMemoryResource>
+    struct SlotDataType<Tensor<TDataType, TMemoryResource>>
+    {
+        static constexpr TensorDataType value = TDataType;
+    };
+
     /**
      * @brief The geometry a slot is as wide as, taken at the wider of the two layer kinds.
      */
@@ -40,7 +53,10 @@ namespace Mila::Dnn
         GateUp,
         Query,
         KeyValue,
-        PackedQkv
+        PackedQkv,
+        Experts,
+        TopKExperts,
+        ExpertGated
     };
 
     dim_t gemmaSlotWidth( GemmaSlotWidth width, const GemmaConfig& config )
@@ -49,6 +65,16 @@ namespace Mila::Dnn
 
         switch ( width )
         {
+            case GemmaSlotWidth::Experts:
+                return config.getNumExperts();
+
+            case GemmaSlotWidth::TopKExperts:
+                return config.getTopKExperts();
+
+            // Each selected expert's gated activations, FP32.
+            case GemmaSlotWidth::ExpertGated:
+                return config.getTopKExperts() * config.getExpertHiddenDimension();
+
             case GemmaSlotWidth::Hidden:
                 return config.getHiddenDimension();
 
@@ -99,6 +125,8 @@ namespace Mila::Dnn
     {
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TPrecision, MR>;
+        using IndexTensorType = Tensor<TensorDataType::INT32, MR>;
+        using ScratchTensorType = Tensor<TensorDataType::FP32, MR>;
 
         // Block-owned split scratch (written by split, read by the QK/V norms,
         // RoPE, and -- on global K=V layers -- v_norm reading the raw k projection).
@@ -125,44 +153,64 @@ namespace Mila::Dnn
 
         // Routed feed-forward only; null on a dense model.
         std::shared_ptr<TensorType> ffn_dense_normed;  // ffn.dense_post_norm out    [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_router_normed; // ffn.router.norm out        [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_router_logits; // ffn.router.proj out        [B, chunk, experts]
+        std::shared_ptr<TensorType> ffn_routing_weights;      // ffn.router weights  [B, chunk, top_k]
+        std::shared_ptr<IndexTensorType> ffn_routing_indices; // ffn.router indices  [B, chunk, top_k]
         std::shared_ptr<TensorType> ffn_expert_in;     // ffn.experts_pre_norm out   [B, chunk, model_dim]
+        std::shared_ptr<ScratchTensorType> ffn_expert_gated;  // ffn.experts gated   [B, chunk, top_k * expert_hidden]
+        std::shared_ptr<TensorType> ffn_experts;       // ffn.experts out            [B, chunk, model_dim]
         std::shared_ptr<TensorType> ffn_expert_normed; // ffn.experts_post_norm out  [B, chunk, model_dim]
         std::shared_ptr<TensorType> ffn_sum;           // ffn.sum out                [B, chunk, model_dim]
 
+        /**
+         * @brief One slot: its geometry, and the member it fills, bound by slot<>().
+         *
+         * The member is reached through functions rather than held as a pointer to member, because the slots
+         * are not all one tensor type and a member pointer's type names the tensor's.
+         */
         struct Slot
         {
-            std::shared_ptr<TensorType> GemmaBlockWorkspace::* member;
             GemmaSlotWidth width;
             const char* name;
             bool routed_only;
+            void ( *allocate )( GemmaBlockWorkspace&, DeviceId, const shape_t&, const std::string& );
+            const ITensor* ( *tensor )( const GemmaBlockWorkspace& );
+            std::size_t ( *occupiedBytes )( dim_t elements, std::size_t granularity );
         };
 
         // Allocation order.
-        static constexpr std::array<Slot, 22> slots()
+        static constexpr std::array<Slot, 28> slots()
         {
             return { {
-                { &GemmaBlockWorkspace::q, GemmaSlotWidth::Query, "q", false },
-                { &GemmaBlockWorkspace::k, GemmaSlotWidth::KeyValue, "k", false },
-                { &GemmaBlockWorkspace::v, GemmaSlotWidth::KeyValue, "v", false },
-                { &GemmaBlockWorkspace::normed, GemmaSlotWidth::Model, "normed", false },
-                { &GemmaBlockWorkspace::qkv, GemmaSlotWidth::PackedQkv, "qkv", false },
-                { &GemmaBlockWorkspace::q_normed, GemmaSlotWidth::Query, "q_normed", false },
-                { &GemmaBlockWorkspace::k_normed, GemmaSlotWidth::KeyValue, "k_normed", false },
-                { &GemmaBlockWorkspace::v_normed, GemmaSlotWidth::KeyValue, "v_normed", false },
-                { &GemmaBlockWorkspace::attn, GemmaSlotWidth::Query, "attn", false },
-                { &GemmaBlockWorkspace::o, GemmaSlotWidth::Model, "o", false },
-                { &GemmaBlockWorkspace::o_normed, GemmaSlotWidth::Model, "o_normed", false },
-                { &GemmaBlockWorkspace::res1, GemmaSlotWidth::Model, "res1", false },
-                { &GemmaBlockWorkspace::ffn_in, GemmaSlotWidth::Model, "ffn_in", false },
-                { &GemmaBlockWorkspace::gate_up, GemmaSlotWidth::GateUp, "gate_up", false },
-                { &GemmaBlockWorkspace::ffn_act, GemmaSlotWidth::Hidden, "ffn_act", false },
-                { &GemmaBlockWorkspace::ffn_down, GemmaSlotWidth::Model, "ffn_down", false },
-                { &GemmaBlockWorkspace::ffn_normed, GemmaSlotWidth::Model, "ffn_normed", false },
-                { &GemmaBlockWorkspace::stream, GemmaSlotWidth::Model, "stream", false },
-                { &GemmaBlockWorkspace::ffn_dense_normed, GemmaSlotWidth::Model, "ffn_dense_normed", true },
-                { &GemmaBlockWorkspace::ffn_expert_in, GemmaSlotWidth::Model, "ffn_expert_in", true },
-                { &GemmaBlockWorkspace::ffn_expert_normed, GemmaSlotWidth::Model, "ffn_expert_normed", true },
-                { &GemmaBlockWorkspace::ffn_sum, GemmaSlotWidth::Model, "ffn_sum", true },
+                slot<&GemmaBlockWorkspace::q>( GemmaSlotWidth::Query, "q" ),
+                slot<&GemmaBlockWorkspace::k>( GemmaSlotWidth::KeyValue, "k" ),
+                slot<&GemmaBlockWorkspace::v>( GemmaSlotWidth::KeyValue, "v" ),
+                slot<&GemmaBlockWorkspace::normed>( GemmaSlotWidth::Model, "normed" ),
+                slot<&GemmaBlockWorkspace::qkv>( GemmaSlotWidth::PackedQkv, "qkv" ),
+                slot<&GemmaBlockWorkspace::q_normed>( GemmaSlotWidth::Query, "q_normed" ),
+                slot<&GemmaBlockWorkspace::k_normed>( GemmaSlotWidth::KeyValue, "k_normed" ),
+                slot<&GemmaBlockWorkspace::v_normed>( GemmaSlotWidth::KeyValue, "v_normed" ),
+                slot<&GemmaBlockWorkspace::attn>( GemmaSlotWidth::Query, "attn" ),
+                slot<&GemmaBlockWorkspace::o>( GemmaSlotWidth::Model, "o" ),
+                slot<&GemmaBlockWorkspace::o_normed>( GemmaSlotWidth::Model, "o_normed" ),
+                slot<&GemmaBlockWorkspace::res1>( GemmaSlotWidth::Model, "res1" ),
+                slot<&GemmaBlockWorkspace::ffn_in>( GemmaSlotWidth::Model, "ffn_in" ),
+                slot<&GemmaBlockWorkspace::gate_up>( GemmaSlotWidth::GateUp, "gate_up" ),
+                slot<&GemmaBlockWorkspace::ffn_act>( GemmaSlotWidth::Hidden, "ffn_act" ),
+                slot<&GemmaBlockWorkspace::ffn_down>( GemmaSlotWidth::Model, "ffn_down" ),
+                slot<&GemmaBlockWorkspace::ffn_normed>( GemmaSlotWidth::Model, "ffn_normed" ),
+                slot<&GemmaBlockWorkspace::stream>( GemmaSlotWidth::Model, "stream" ),
+                slot<&GemmaBlockWorkspace::ffn_dense_normed>( GemmaSlotWidth::Model, "ffn_dense_normed", true ),
+                slot<&GemmaBlockWorkspace::ffn_router_normed>( GemmaSlotWidth::Model, "ffn_router_normed", true ),
+                slot<&GemmaBlockWorkspace::ffn_router_logits>( GemmaSlotWidth::Experts, "ffn_router_logits", true ),
+                slot<&GemmaBlockWorkspace::ffn_routing_weights>( GemmaSlotWidth::TopKExperts, "ffn_routing_weights", true ),
+                slot<&GemmaBlockWorkspace::ffn_routing_indices>( GemmaSlotWidth::TopKExperts, "ffn_routing_indices", true ),
+                slot<&GemmaBlockWorkspace::ffn_expert_in>( GemmaSlotWidth::Model, "ffn_expert_in", true ),
+                slot<&GemmaBlockWorkspace::ffn_expert_gated>( GemmaSlotWidth::ExpertGated, "ffn_expert_gated", true ),
+                slot<&GemmaBlockWorkspace::ffn_experts>( GemmaSlotWidth::Model, "ffn_experts", true ),
+                slot<&GemmaBlockWorkspace::ffn_expert_normed>( GemmaSlotWidth::Model, "ffn_expert_normed", true ),
+                slot<&GemmaBlockWorkspace::ffn_sum>( GemmaSlotWidth::Model, "ffn_sum", true ),
             } };
         }
 
@@ -182,9 +230,7 @@ namespace Mila::Dnn
             {
                 if ( allocates( slot, config ) )
                 {
-                    const dim_t elements = B * prefill_chunk * gemmaSlotWidth( slot.width, config );
-
-                    bytes += occupiedDeviceBytes( storageBytes<TPrecision>( elements ), granularity );
+                    bytes += slot.occupiedBytes( B * prefill_chunk * gemmaSlotWidth( slot.width, config ), granularity );
                 }
             }
 
@@ -197,11 +243,35 @@ namespace Mila::Dnn
 
             for ( const Slot& slot : slots() )
             {
-                if ( const auto& tensor = this->*slot.member )
+                if ( const ITensor* tensor = slot.tensor( *this ) )
                     total += occupiedTensorBytes( *tensor );
             }
 
             return total;
+        }
+
+    private:
+
+        template<auto TMember>
+        static constexpr Slot slot( GemmaSlotWidth width, const char* name, bool routed_only = false )
+        {
+            using SlotTensorType =
+                typename std::remove_cvref_t<decltype( std::declval<GemmaBlockWorkspace&>().*TMember )>::element_type;
+
+            return {
+                width, name, routed_only,
+                []( GemmaBlockWorkspace& workspace, DeviceId device, const shape_t& shape, const std::string& tensor_name )
+                {
+                    workspace.*TMember = std::make_shared<SlotTensorType>( device, shape, tensor_name );
+                },
+                []( const GemmaBlockWorkspace& workspace ) -> const ITensor*
+                {
+                    return ( workspace.*TMember ).get();
+                },
+                []( dim_t elements, std::size_t granularity )
+                {
+                    return occupiedDeviceBytes( storageBytes<SlotDataType<SlotTensorType>::value>( elements ), granularity );
+                } };
         }
     };
 
@@ -217,7 +287,6 @@ namespace Mila::Dnn
         const GemmaConfig& config, DeviceId device, dim_t B, dim_t prefill_chunk, const std::string& name_prefix )
     {
         using Workspace = GemmaBlockWorkspace<TDeviceType, TPrecision>;
-        using TensorType = typename Workspace::TensorType;
 
         Workspace workspace;
 
@@ -225,8 +294,8 @@ namespace Mila::Dnn
         {
             if ( Workspace::allocates( slot, config ) )
             {
-                workspace.*slot.member = std::make_shared<TensorType>(
-                    device, shape_t{ B, prefill_chunk, gemmaSlotWidth( slot.width, config ) }, name_prefix + slot.name );
+                slot.allocate(
+                    workspace, device, shape_t{ B, prefill_chunk, gemmaSlotWidth( slot.width, config ) }, name_prefix + slot.name );
             }
         }
 

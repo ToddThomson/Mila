@@ -85,8 +85,6 @@ namespace Mila::Dnn
 
         /**
          * @brief Route the block workspace's feed-forward slots into the children; before build().
-         *
-         * The router and the expert bank allocate their own outputs.
          */
         void installSharedWorkspace( const WorkspaceType& workspace )
         {
@@ -96,7 +94,10 @@ namespace Mila::Dnn
             norm( "pre_norm" )->installSharedOutput( workspace.ffn_in );
             mlp()->installSharedOutputs( workspace.gate_up, workspace.ffn_act, workspace.ffn_down );
             norm( "dense_post_norm" )->installSharedOutput( workspace.ffn_dense_normed );
+            router()->installSharedOutputs( workspace.ffn_router_normed, workspace.ffn_router_logits,
+                workspace.ffn_routing_weights, workspace.ffn_routing_indices );
             norm( "experts_pre_norm" )->installSharedOutput( workspace.ffn_expert_in );
+            experts()->installSharedOutputs( workspace.ffn_experts, workspace.ffn_expert_gated );
             norm( "experts_post_norm" )->installSharedOutput( workspace.ffn_expert_normed );
             sum()->installSharedOutput( workspace.ffn_sum );
             norm( "post_norm" )->installSharedOutput( workspace.ffn_normed );
@@ -119,22 +120,17 @@ namespace Mila::Dnn
 
         /**
          * @brief What onBuilding() would allocate for this stream-width context, without allocating.
-         *
-         * The router and the expert bank always allocate their own outputs, so they are asked without the pooled
-         * declaration that the norms, the mlp and the sum honour.
          */
         MemoryStats getRequiredMemory( const BuildContext& context ) const override
         {
-            const BuildContext unpooled = context.withInstalledOutput( false );
-
             MemoryStats stats;
 
             stats += norm( "pre_norm" )->getRequiredMemory( context );
             stats += mlp()->getRequiredMemory( context );
             stats += norm( "dense_post_norm" )->getRequiredMemory( context );
-            stats += router()->getRequiredMemory( unpooled );
+            stats += router()->getRequiredMemory( context );
             stats += norm( "experts_pre_norm" )->getRequiredMemory( context );
-            stats += experts()->getRequiredMemory( unpooled );
+            stats += experts()->getRequiredMemory( context );
             stats += norm( "experts_post_norm" )->getRequiredMemory( context );
             stats += sum()->getRequiredMemory( context );
             stats += norm( "post_norm" )->getRequiredMemory( context );

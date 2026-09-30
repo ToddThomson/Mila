@@ -564,6 +564,30 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     }
 
     /**
+     * @brief Every buffer a routed feed-forward writes -- router, bank output, FP32 gated scratch -- is a pooled slot.
+     *
+     * The sublayer then owns no activation bytes, so the model's activations do not grow with its layer count. The
+     * predicted-equals-built gate above cannot see this: a per-layer buffer priced per layer is still exact.
+     */
+    TEST_F( GemmaMixtureOfExpertsCudaTests, Bf16_RoutedFeedForward_OwnsNoActivationState )
+    {
+        const BuildContext context = BuildContext( shape_t{ kBatch, kContext }, RuntimeMode::Inference )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) )
+            .withPrefillSize( kContext );
+
+        RoutedNetwork<TensorDataType::BF16> network( "gemma", routedConfig(), Device::Cuda( 0 ) );
+        network.build( context );
+
+        for ( int64_t layer = 0; layer < kLayers; ++layer )
+        {
+            const auto feed_forward = network.findComponent( std::format( "gemma.tf_layer_{}.ffn", layer ) );
+
+            ASSERT_NE( feed_forward, nullptr ) << "layer " << layer;
+            EXPECT_EQ( feed_forward->getMemoryStats().device_state_bytes, std::size_t{ 0 } ) << "layer " << layer;
+        }
+    }
+
+    /**
      * @brief A log-likelihood window is priced exactly as it is built, and costs more than the one-row default.
      *
      * Build and footprint resolve the window through one function, so a measurement build cannot allocate a
@@ -675,34 +699,48 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         EXPECT_EQ( model->weightQuantizationScheme(), "per_group_fp4_64" );
     }
 
-    // The model refuses a policy the expert bank does not implement, naming the bank, before a routed network of
-    // that policy is instantiated; the bank's own construction check is never reached.
-    TEST_F( GemmaMixtureOfExpertsCudaTests, Fp8AndQ4_0_RefusedByTheModelBeforeTheBank )
+    // The routed chassis loads Q4_0 (Gemma4MoE.md Phase 9, gate 5): the dispatch admits it and the scheme agrees.
+    TEST_F( GemmaMixtureOfExpertsCudaTests, Q4_0Load_UsesTheRoutedBank )
     {
         if ( !captureExists() )
         {
             GTEST_SKIP() << "tiny MoE capture not present at: " << captureDirectory().string();
         }
 
-        for ( WeightQuantization quantization : { WeightQuantization::FP8, WeightQuantization::Q4_0 } )
+        GemmaModelConfig config( kContext );
+        config.withWeightQuantization( WeightQuantization::Q4_0 );
+
+        const auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::load(
+            weightsPath( TensorDataType::BF16 ), config, Device::Cuda( 0 ) );
+
+        EXPECT_EQ( model->weightQuantizationScheme(), "q4_0" );
+    }
+
+    // The model refuses a policy the expert bank does not implement, naming the bank, before a routed network of
+    // that policy is instantiated; the bank's own construction check is never reached.
+    TEST_F( GemmaMixtureOfExpertsCudaTests, Fp8_RefusedByTheModelBeforeTheBank )
+    {
+        if ( !captureExists() )
         {
-            GemmaModelConfig config( kContext );
-            config.withWeightQuantization( quantization );
+            GTEST_SKIP() << "tiny MoE capture not present at: " << captureDirectory().string();
+        }
 
-            try
-            {
-                GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getDeploymentFootprint(
-                    weightsPath( TensorDataType::BF16 ), config, Device::Cuda( 0 ) );
+        GemmaModelConfig config( kContext );
+        config.withWeightQuantization( WeightQuantization::FP8 );
 
-                ADD_FAILURE() << weightQuantizationName( quantization ) << " was not refused";
-            }
-            catch ( const std::runtime_error& error )
-            {
-                // The bank's own refusal also names the expert bank, so the test asks for the model's words.
-                EXPECT_NE( std::string( error.what() ).find(
-                    "GemmaModel::getDeploymentFootprint: a mixture-of-experts Gemma cannot run" ), std::string::npos )
-                    << weightQuantizationName( quantization ) << ": " << error.what();
-            }
+        try
+        {
+            GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getDeploymentFootprint(
+                weightsPath( TensorDataType::BF16 ), config, Device::Cuda( 0 ) );
+
+            ADD_FAILURE() << "FP8 was not refused";
+        }
+        catch ( const std::runtime_error& error )
+        {
+            // The bank's own refusal also names the expert bank, so the test asks for the model's words.
+            EXPECT_NE( std::string( error.what() ).find(
+                "GemmaModel::getDeploymentFootprint: a mixture-of-experts Gemma cannot run" ), std::string::npos )
+                << error.what();
         }
     }
 

@@ -407,28 +407,6 @@ protocols, converter keeps the embedders, manifest declares modality, footprint 
 Image input reaches applications through `Mila::AI`, not around it. Gate: embedder parity against
 HuggingFace, then token-for-token on an image prompt.
 
-#### The Gemma 4 26B-A4B reaches 8192 tokens on a 16 GB card only by prefilling 256 at a time, and cannot load the Q4_0 weights Google trained
-
-`open` · `gemma` · `quantization` · `mila-src`
-
-At context 8192 on the RTX 5060 Ti the planner narrows the prefill chunk to 256 rows to fit, with 120 MiB free
-after load, where the 12B plans 1024; at a fixed 512 it was 83.8 MiB over (`Gemma4MoE.md` Phase 8), and 32768
-is refused. The cause is the routed buffers: each layer allocates its own expert output
-(`MixtureOfExperts.ixx:387`) and FP32 gated scratch (`CudaMoeOp.ixx:126`), about 0.49 GiB at chunk 512, where
-every other activation is pooled through the block workspace. A narrow chunk caps prefill once the kernels
-are fast. And the model refuses
-`q4_0` (`GemmaModel.ixx:542`) because the expert bank implements FP4 only (`CudaMoeOp.ixx:76`), while
-Google publishes this model quantization-aware in Q4_0 (`Gemma.md` §10.4).
-
-Work: pool the routed buffers inside the routed sublayer; a `PerGroupInt4<32>` expert bank, the routed
-dispatch admitting `q4_0`, and the model exported from Google's unquantized QAT checkpoint. The kernels
-here are for correctness; their speed is the entry below.
-
-Gate: at 8192 the plan's chunk matches the 12B's, at Q4_0 and `PerGroupFp4<64>`; footprint exact; greedy
-tokens unchanged; every Q4_0 tensor equal in code and scale bits to Google's GGUF.
-
-`Mila/Specifications/ModelFamilyParity.md` §8.2, G5 · `Mila/Specifications/MixtureOfExperts.md` §7.7
-
 #### The Gemma 4 26B-A4B prefills 150 times and generates 11 times slower than llama.cpp on the same card
 
 `open` · `gemma` · `perf` · `mila-src` · `measured`
@@ -456,12 +434,12 @@ reproduced by the one script. Rates are reported, not gated.
 `open` · `gemma` · `distribution`
 
 Landed in `Mila/Src` during rc.1 — the router and expert bank on CPU and CUDA, wired into
-`GemmaModel` with an FP4 expert bank and a streaming converter, gated against HuggingFace at BF16
-and FP4. It appears in no README capability row, no CLAUDE.md target and no release note, because
+`GemmaModel` with FP4 and Q4_0 expert banks and a streaming converter, gated against HuggingFace at BF16,
+FP4 and Q4_0. It appears in no README capability row, no CLAUDE.md target and no release note, because
 no published package uses it, so a user cannot run it.
 
 Held out of v0.20.0 (Todd, 2026-09-21). A package alone would publish it below every other model Mila
-ships, so it waits on the three entries above, and then on the rest of `Gemma.md` §10.7's bar: quality
+ships, so it waits on the entry above, and then on the rest of `Gemma.md` §10.7's bar: quality
 across the planner's range, by the method `ModelFamilyParity.md` §9 item 18 settles; decode replay gated
 equal to the called path on a routed network; active parameter bytes in the plan and in Chat's display;
 the model run through Chat, the inference server and the Python binding, tool calls included. Then the

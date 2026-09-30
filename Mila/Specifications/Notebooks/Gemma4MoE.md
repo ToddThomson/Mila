@@ -758,7 +758,7 @@ After the revert every target builds and the harness reproduces the passing run 
 
 ### FP4 load gate, written before any run
 
-`Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp`, RTX 5060 Ti pinned by UUID:
+`Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp` (since `+24`, `.Load.Cuda.cpp`), RTX 5060 Ti pinned by UUID:
 `GemmaModel::load` on the BF16 weights with `WeightQuantization::FP4` at context 8192 — the routed
 dispatch at `PerGroupFp4<64>`, quantized on load. The row it was built for is `MixtureOfExperts.md` §8's
 `PerGroupFp4<64>` row, 13.54 GiB of weights.
@@ -1007,7 +1007,7 @@ branch's fused projection split by rows against the GGUF's separate `ffn_gate` a
 lengths is open (`Gemma.md` §10.9). The gate itself is written, with its tolerances, before the
 phase's first run.
 
-### Gate, written before any run (2026-09-29, for review)
+### Gate, written before any run (2026-09-29, for review; run as written 2026-09-30)
 
 **The first Q4_0 kernel is the Phase 6 two-pass kernel with the codes decoded inline**, as the FP4 bank is:
 `weight = ( code - 8 ) * d` in FP32, then `weight * x` in the order the BF16 bank multiplies. That is G5's
@@ -1053,8 +1053,33 @@ G5b, against G5's kernel -- the tolerance forms of the 12B's `CudaLinearOp.Int4.
   printed, not gated, as the 12B's test does.
 - Decode bit-identical between banks built for prefill and for one token, as Phase 7.
 
-**Needs a download.** Item 6 and item 7 read `google/gemma-4-26B-A4B-it-qat-q4_0-unquantized`, 51.6 GB, not
-on this machine.
+### G5 result (2026-09-30, `0.21.0-dev+24`, RTX 5060 Ti pinned by UUID)
+
+| Item | Result |
+|---|---|
+| 1. Quantizer equals codec | `gate_up [128, 1408, 2816]`: 0 of 253,755,392 code bytes and 0 of 15,859,712 scales differ; `down [128, 2816, 704]`: 0 of 126,877,696 and 0 of 7,929,856 |
+| 2. Exact bank | 0 of 6144 elements differ from the BF16 bank, prefill, one token at a time built for prefill, and built for one token |
+| 3. Round trip | the four saved names; reload bit-identical |
+| 4. Footprint | predicted equals built on the tiny bank; the 26B's bank computed at 428,212,224 bytes a layer |
+| 5. Refusals and admission | width 48 refused at build; `expertBankImplements<PerGroupInt4<32>>`; the tiny routed model loads `q4_0`; FP8 still refused by the model |
+| 6. Export equals Google's GGUF | `ExportArtifact --quantization q4_0` on `gemma4_26b_a4b_it_qat_bf16.bin`: 13.54 GiB in 56 s; all 265 GGUF Q4_0 tensors equal in every code and scale bit |
+| 7. The model | quantized on load at context 8192: 1024-row chunk, 15,822,825,472 bytes predicted and reported, greedy tokens `818 5279 529 7001 563 5213 50429 84750`, HuggingFace's |
+
+**The gate can fail.** The quantizer's nibble order swapped: item 1 finds 232,989,426 and 116,495,739 code bytes
+differing, item 2 6141 of 6144 elements in all three modes, and item 3 stays green, as for FP4. The written failure
+for item 6 -- a rounding of the non-quantization-aware checkpoint -- could not run, since that checkpoint is retired;
+in its place the Mila expert codes' nibble order was swapped in memory, and the comparison failed on every
+`_exps` tensor and on no other.
+
+**What the model needed beyond the bank.** `Linear`'s Q4_0 prefill GEMM ran a 128-deep K tile only, so it refused
+the dense branch's `fc_down`, whose input is 2112 wide (16.5 tiles). The GEMM now takes a 64-deep tile for a width 128
+does not divide -- the depth measured slower on 2026-09-28, which is why 128 stays wherever it divides -- gated
+against the host's INT8 block arithmetic at 2112 (`CudaLinearOp.Int4.Cuda.cpp`), with a width of 2080 refused at
+build.
+
+**Stated once.** Which code format a policy is now comes from `HasFp4E2M1Codes` and `HasInt4Codes`, beside
+`HasCodebookTable`, where the bank, `CudaMoeOp` and `CudaLinearOp` each probed for FP4 themselves. The FP4 and Q4_0
+passes are one kernel pair templated on the code format.
 
 ---
 

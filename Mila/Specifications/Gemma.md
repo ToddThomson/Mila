@@ -557,8 +557,9 @@ table takes Gemma's per-row FP8, and the router projection stays unquantized. Th
 packed layout — per layer, `[128, 1408, 1408]` + `[128, 1408, 44]` FP32 scales for `gate_up_proj` and
 `[128, 2816, 352]` + `[128, 2816, 11]` for `down_proj`, 428,212,224 bytes, x30 = 12,846,366,720 (11.96 GiB).
 
-The Q4_0 row is derived: the same composition as the 12B's Q4_0 build, and Q4_0 costs every quantized tensor
-exactly the bytes `PerGroupFp4<64>` does (10.4), so the two rows are equal. Google's GGUF of the same
+The Q4_0 row is the same composition as the 12B's Q4_0 build, and Q4_0 costs every quantized tensor exactly the
+bytes `PerGroupFp4<64>` does (10.4), so the two rows are equal; the exported Q4_0 weights measure 13.54 GiB
+(`0.21.0-dev+24`), and a Q4_0 load reports the same parameter bytes as an FP4 one. Google's GGUF of the same
 model is 13.45 GiB, its Q6_K table 0.56 GiB against Mila's FP8 0.69.
 
 **Measured, and short of the card** (`Gemma4MoE.md` Phase 8, after RoPE's tables were sized to the built
@@ -566,9 +567,13 @@ context): the `PerGroupFp4<64>` build at context 8192 predicts 15,982,200,832 by
 1.35 GiB of state — exactly what it reports, against 15,894,315,008 bytes free in the process: **83.8 MiB over**
 at a fixed chunk of 512. The planner fits it by narrowing the chunk: at 8192 it plans 256 rows, 15,024 MiB,
 with 120 MiB free after load, and it refuses 32768 (measured 2026-09-29, `Gemma4MoE.md` Rates Baseline).
-The 12B plans 1024 at 8192. What stands between is the routed buffers, allocated per layer rather than
-pooled — each layer's `MixtureOfExperts` output and FP32 gated scratch, about 0.49 GiB at chunk 512. Pooling
-them is `ModelFamilyParity.md` §8.2 G5, and it holds for Q4_0 unchanged, since the weights are the same bytes.
+The 12B plans 1024 at 8192. What stood between was the routed buffers, allocated per layer rather than
+pooled — each layer's router outputs, `MixtureOfExperts` output and FP32 gated scratch, about 0.49 GiB at chunk
+512. **Pooled at `0.21.0-dev+24`** (`ModelFamilyParity.md` §8.2 G5): they are block-workspace slots, one set for
+every layer. At 8192 the plan is now 1024 rows, as the 12B's: 15,845,894,144 bytes predicted and reported
+(state 0.97 GiB, where the unpooled build held 1.35 at chunk 512), against 14.82 GiB free before load (measured
+2026-09-30, RTX 5060 Ti). At Q4_0 it plans the same 1024 rows: 15,822,825,472 bytes, the same weights and
+state as the FP4 build and 22 MiB less prefill scratch.
 
 **The "experts quantized, everything else BF16" recipe does not fit this card.**
 The non-expert mass is under 10% of the parameters but 4.46 GiB at BF16, and the

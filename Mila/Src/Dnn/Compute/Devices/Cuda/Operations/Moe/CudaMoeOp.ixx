@@ -3,7 +3,7 @@
  * @brief CUDA mixture-of-experts bank: the two-pass kernel over the stacked expert tensors.
  *
  * Same contract as CpuMoeOp, gated against HuggingFace through MixtureOfExperts (Gemma4MoE.md Phase 6).
- * Under a per-group FP4 policy the passes read packed nibbles and their group scales in place.
+ * Under a per-group FP4 or Q4_0 policy the passes read packed codes and their group scales in place.
  */
 
 module;
@@ -11,18 +11,18 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <format>
-#include <memory>
 #include <stdexcept>
 #include <string>
 #include <cuda_runtime_api.h>
 #include <cuda_bf16.h>
+#include <cuda_fp16.h>
 #include "Kernels/Moe.cuh"
 #include "../Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh"
+#include "../Linear/Kernels/Quantization/CudaInt4WeightQuantization.cuh"
 
 export module Compute.CudaMoeOp;
 
 import Dnn.Components.MixtureOfExpertsConfig;
-import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
@@ -30,11 +30,9 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.Component;
 import Dnn.Quantization.Weight.Policies;
 import Compute.OperationBase;
-import Compute.DeviceAllocation;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.OperationType;
-import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Serialization.Tensor;
 
@@ -43,7 +41,8 @@ namespace Mila::Dnn::Compute::Cuda::Moe
     /**
      * @tparam TPrecision          Activation and weight precision (FP32 or BF16).
      * @tparam TFunctor            POD gate functor from Mila::Dnn::Activations exposing fwd(x).
-     * @tparam TWeightQuantization NoWeightQuant, or PerGroupFp4<g> at BF16; anything else is refused.
+     * @tparam TWeightQuantization NoWeightQuant, or PerGroupFp4<g> or PerGroupInt4<32> at BF16; anything else is
+     *                             refused.
      */
     export template<TensorDataType TPrecision, typename TFunctor,
         typename TWeightQuantization = Mila::Dnn::Quant::Weight::NoWeightQuant>
@@ -53,13 +52,15 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         using OperationBaseType = Operation<DeviceType::Cuda, TPrecision>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
-        using ScratchTensorType = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>;
 
-        static constexpr bool kIsFp4 = []() constexpr
+        static constexpr bool kIsFp4 = Mila::Dnn::Quant::Weight::HasFp4E2M1Codes<TWeightQuantization>;
+
+        // Q4_0 only: the INT4 quantizer takes a group of 32.
+        static constexpr bool kIsInt4 = []() constexpr
         {
-            if constexpr ( requires { TWeightQuantization::kIsFp4E2M1; } )
+            if constexpr ( Mila::Dnn::Quant::Weight::HasInt4Codes<TWeightQuantization> )
             {
-                return TWeightQuantization::kIsQuantized && TWeightQuantization::kIsFp4E2M1;
+                return TWeightQuantization::kQuantizationGroupSize == 32;
             }
             else
             {
@@ -67,26 +68,29 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             }
         }();
 
+        static constexpr bool kIsPacked = kIsFp4 || kIsInt4;
+
         CudaMoeOp( IExecutionContext* context, const MixtureOfExpertsConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaMoeOp" ) ),
               config_( config )
         {
             config_.validate();
 
-            if ( TWeightQuantization::kIsQuantized && !kIsFp4 )
+            if ( TWeightQuantization::kIsQuantized && !kIsPacked )
             {
                 throw std::invalid_argument(
-                    "CudaMoeOp: an expert bank stores unquantized or per-group FP4 weights; this policy is not implemented" );
+                    "CudaMoeOp: an expert bank stores unquantized, per-group FP4 or Q4_0 weights; this policy is not implemented" );
             }
 
-            if ( kIsFp4 && TPrecision != TensorDataType::BF16 )
+            if ( kIsPacked && TPrecision != TensorDataType::BF16 )
             {
-                throw std::invalid_argument( "CudaMoeOp: FP4 expert weights require BF16 compute precision" );
+                throw std::invalid_argument( "CudaMoeOp: packed expert weights require BF16 compute precision" );
             }
         }
 
         /**
-         * @brief Bind the stacked expert projections: gate_up [E, 2I, H] and down [E, H, I], packed under FP4.
+         * @brief Bind the stacked expert projections: gate_up [E, 2I, H] and down [E, H, I], packed two codes a byte
+         *        under a per-group policy.
          */
         void setParameters( ITensor* gate_up_projection, ITensor* down_projection ) override
         {
@@ -95,7 +99,7 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         }
 
         /**
-         * @brief Bind the per-group FP32 scales: gate_up [E, 2I, H/g] and down [E, H, I/g].
+         * @brief Bind the per-group scales, of the policy's scale type: gate_up [E, 2I, H/g] and down [E, H, I/g].
          */
         void setWeightScales( ITensor* gate_up_scales, ITensor* down_scales )
         {
@@ -104,11 +108,11 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         }
 
         /**
-         * @brief Size the FP32 gated scratch for the widest input this build admits.
+         * @brief Check the expert widths against the quantization group; the op allocates nothing.
          */
         void build( const BuildContext& build_context ) override
         {
-            if constexpr ( kIsFp4 )
+            if constexpr ( kIsPacked )
             {
                 const dim_t group = TWeightQuantization::kQuantizationGroupSize;
 
@@ -123,34 +127,20 @@ namespace Mila::Dnn::Compute::Cuda::Moe
                 }
             }
 
-            gated_ = std::make_shared<ScratchTensorType>(
-                context_->getDeviceId(), shape_t{ gatedElements( build_context ) }, "moe.gated" );
-
             OperationBaseType::build( build_context );
         }
 
-        std::size_t getStateMemorySize() const override
-        {
-            return gated_ ? occupiedTensorBytes( *gated_ ) : 0;
-        }
-
-        std::size_t getRequiredStateMemorySize( const BuildContext& build_context ) const override
-        {
-            return occupiedDeviceBytes( storageBytes<TensorDataType::FP32>( gatedElements( build_context ) ),
-                build_context.getAllocationGranularity() );
-        }
-
         /**
-         * @brief Quantize a BF16 stacked projection into packed FP4 and its per-group scales.
+         * @brief Quantize a BF16 stacked projection into packed codes and their per-group scales.
          *
-         * Every expert row is a Linear FP4 weight row, so the stack is `rows` output channels of the
-         * shared per-group quantizer.
+         * Every expert row is a Linear weight row of the same policy, so the stack is `rows` output channels of
+         * Linear's per-group quantizer for that policy.
          *
          * @param rows    Rows across the whole stack: experts x rows per expert.
          * @param columns Input width of every row.
          */
         void quantize( const Serialization::ITensorBlob& blob, ITensor& packed_out, ITensor& scales_out,
-            dim_t rows, dim_t columns ) requires kIsFp4
+            dim_t rows, dim_t columns ) requires kIsPacked
         {
             const auto& metadata = blob.getMetadata();
             const std::size_t source_bytes = static_cast<std::size_t>( rows * columns ) * sizeof( __nv_bfloat16 );
@@ -165,10 +155,20 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             const std::size_t staging_bytes = std::min( source_bytes, context_->getLoadStagingLimitBytes() );
             void* staging = context_->getLoadStagingBuffer( staging_bytes );
 
-            Linear::cuda_quantize_fp4_per_group(
-                blob.data(), packed_out.rawData(), static_cast<float*>( scales_out.rawData() ),
-                static_cast<int64_t>( rows ), static_cast<int64_t>( columns ),
-                TWeightQuantization::kQuantizationGroupSize, staging, staging_bytes, context_->getStream() );
+            if constexpr ( kIsFp4 )
+            {
+                Linear::cuda_quantize_fp4_per_group(
+                    blob.data(), packed_out.rawData(), static_cast<float*>( scales_out.rawData() ),
+                    static_cast<int64_t>( rows ), static_cast<int64_t>( columns ),
+                    TWeightQuantization::kQuantizationGroupSize, staging, staging_bytes, context_->getStream() );
+            }
+            else
+            {
+                Linear::cuda_quantize_int4_per_group(
+                    blob.data(), packed_out.rawData(), scales_out.rawData(),
+                    static_cast<int64_t>( rows ), static_cast<int64_t>( columns ),
+                    TWeightQuantization::kQuantizationGroupSize, staging, staging_bytes, context_->getStream() );
+            }
         }
 
         /**
@@ -177,25 +177,29 @@ namespace Mila::Dnn::Compute::Cuda::Moe
          * @param input    [..., H] at the op's precision.
          * @param weights  [..., top_k] combine weights at the op's precision.
          * @param indices  INT32 [..., top_k] expert indices. An out-of-range index yields NaN.
+         * @param gated    FP32 scratch of at least tokens x top_k x intermediate elements, overwritten.
          * @param output   [..., H] at the op's precision, overwritten.
          */
-        void forward( const ITensor& input, const ITensor& weights, const ITensor& indices, ITensor& output ) const
+        void forward( const ITensor& input, const ITensor& weights, const ITensor& indices, ITensor& gated,
+            ITensor& output ) const
         {
             const dim_t hidden = config_.getHiddenSize();
             const dim_t intermediate = config_.getExpertIntermediateSize();
             const dim_t experts = config_.getNumExperts();
             const dim_t top_k = config_.getTopK();
 
-            if ( gate_up_projection_ == nullptr || down_projection_ == nullptr || !gated_ )
+            if ( gate_up_projection_ == nullptr || down_projection_ == nullptr )
             {
-                throw std::logic_error( "CudaMoeOp::forward: expert projections were never bound or the op was never built" );
+                throw std::logic_error( "CudaMoeOp::forward: expert projections were never bound" );
             }
 
-            if constexpr ( kIsFp4 )
+            if constexpr ( kIsPacked )
             {
                 const dim_t group = TWeightQuantization::kQuantizationGroupSize;
 
                 if ( gate_up_scales_ == nullptr || down_scales_ == nullptr
+                     || gate_up_scales_->getDataType() != TWeightQuantization::kScaleDtype
+                     || down_scales_->getDataType() != TWeightQuantization::kScaleDtype
                      || gate_up_projection_->size() != experts * 2 * intermediate * ( hidden / 2 )
                      || down_projection_->size() != experts * hidden * ( intermediate / 2 )
                      || gate_up_scales_->size() != experts * 2 * intermediate * ( hidden / group )
@@ -228,13 +232,15 @@ namespace Mila::Dnn::Compute::Cuda::Moe
                     tokens, input.size(), tokens * top_k, output.size(), weights.size(), indices.size() ) );
             }
 
-            if ( tokens * top_k * intermediate > gated_->size() )
+            if ( gated.getDataType() != TensorDataType::FP32 || gated.size() < tokens * top_k * intermediate )
             {
-                throw std::runtime_error( "CudaMoeOp::forward: more tokens than build() sized the gated scratch for" );
+                throw std::invalid_argument( std::format(
+                    "CudaMoeOp::forward: {} tokens need {} FP32 gated elements; got {} of {}",
+                    tokens, tokens * top_k * intermediate, gated.size(), tensorDataTypeToString( gated.getDataType() ) ) );
             }
 
             const cudaStream_t stream = context_->getStream();
-            auto* gated = static_cast<float*>( gated_->rawData() );
+            auto* gated_data = static_cast<float*>( gated.rawData() );
             const auto* index_data = static_cast<const int32_t*>( indices.rawData() );
 
             if constexpr ( kIsFp4 )
@@ -245,15 +251,39 @@ namespace Mila::Dnn::Compute::Cuda::Moe
                     static_cast<const __nv_bfloat16*>( input.rawData() ),
                     static_cast<const uint8_t*>( gate_up_projection_->rawData() ),
                     static_cast<const float*>( gate_up_scales_->rawData() ),
-                    index_data, gated,
+                    index_data, gated_data,
                     narrowToKernelIndex( tokens ), narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
                     narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ), group,
                     functor_, stream );
 
                 launch_moe_combine_forward_fp4(
-                    gated,
+                    gated_data,
                     static_cast<const uint8_t*>( down_projection_->rawData() ),
                     static_cast<const float*>( down_scales_->rawData() ),
+                    static_cast<const __nv_bfloat16*>( weights.rawData() ),
+                    index_data,
+                    static_cast<__nv_bfloat16*>( output.rawData() ),
+                    narrowToKernelIndex( tokens ), narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
+                    narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ), group,
+                    stream );
+            }
+            else if constexpr ( kIsInt4 )
+            {
+                const int group = TWeightQuantization::kQuantizationGroupSize;
+
+                launch_moe_gated_forward_int4<TFunctor>(
+                    static_cast<const __nv_bfloat16*>( input.rawData() ),
+                    static_cast<const uint8_t*>( gate_up_projection_->rawData() ),
+                    static_cast<const __half*>( gate_up_scales_->rawData() ),
+                    index_data, gated_data,
+                    narrowToKernelIndex( tokens ), narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
+                    narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ), group,
+                    functor_, stream );
+
+                launch_moe_combine_forward_int4(
+                    gated_data,
+                    static_cast<const uint8_t*>( down_projection_->rawData() ),
+                    static_cast<const __half*>( down_scales_->rawData() ),
                     static_cast<const __nv_bfloat16*>( weights.rawData() ),
                     index_data,
                     static_cast<__nv_bfloat16*>( output.rawData() ),
@@ -266,13 +296,13 @@ namespace Mila::Dnn::Compute::Cuda::Moe
                 launch_moe_gated_forward<NativeType, TFunctor>(
                     static_cast<const NativeType*>( input.rawData() ),
                     static_cast<const NativeType*>( gate_up_projection_->rawData() ),
-                    index_data, gated,
+                    index_data, gated_data,
                     narrowToKernelIndex( tokens ), narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
                     narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ),
                     functor_, stream );
 
                 launch_moe_combine_forward<NativeType>(
-                    gated,
+                    gated_data,
                     static_cast<const NativeType*>( down_projection_->rawData() ),
                     static_cast<const NativeType*>( weights.rawData() ),
                     index_data,
@@ -302,13 +332,5 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         ITensor* down_projection_{ nullptr };
         ITensor* gate_up_scales_{ nullptr };
         ITensor* down_scales_{ nullptr };
-
-        std::shared_ptr<ScratchTensorType> gated_{ nullptr };
-
-        dim_t gatedElements( const BuildContext& build_context ) const
-        {
-            return elementCount( build_context.inputShape() ) / config_.getHiddenSize()
-                * config_.getTopK() * config_.getExpertIntermediateSize();
-        }
     };
 }

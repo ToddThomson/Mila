@@ -594,7 +594,7 @@ namespace Mila::Dnn
                         {
                             throw std::runtime_error( std::format(
                                 "{}: a mixture-of-experts Gemma cannot run {} weights; its expert bank implements "
-                                "unquantized and per-group FP4 weights only", caller,
+                                "unquantized, per-group FP4 and Q4_0 weights only", caller,
                                 weightQuantizationName( weight_quantization, kRoutedFp4GroupSize ) ) );
                         }
                     } );

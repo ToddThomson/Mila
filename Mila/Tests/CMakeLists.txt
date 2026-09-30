@@ -261,7 +261,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Parity.Cuda.cpp"
         # The same model quantized to FP4 on load: footprint against the driver and the spec, greedy tokens
         # against HuggingFace. Needs the BF16 weights and a 16 GiB card.
-        "Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp"
+        "Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Load.Cuda.cpp"
         # Gate B: the reported footprint against cudaMemGetInfo. Both skip without a real
         # checkpoint, so neither runs in CI -- see Specifications/MemoryFootprint.md 7.
         "Dnn/Models/Gemma/GemmaModel.Footprint.Cuda.cpp"

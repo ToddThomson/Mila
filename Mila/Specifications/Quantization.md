@@ -604,7 +604,9 @@ Gemma 4 QAT for Q4_0. Five decisions, each with the alternative it closed:
    once, in FP32. The per-token FP8 activations of the FP4 prefill are not used: one scale per row and
    three mantissa bits, against one per 32 elements and seven. Per element the rounding is at most
    `a / 254`, near BF16's own for the block's large values. Decode has its own matvec: code times BF16 activation summed in FP32 per
-   block, then times `d`, exact.
+   block, then times `d`, exact. The GEMM's K tile is 128 deep wherever 128 divides the input width and 64
+   deep otherwise, so a width must be a multiple of 64 (since `0.21.0-dev+24`, for the Gemma 4 26B-A4B's
+   2112-wide dense `fc_down`; the 64-deep tile measured slower on 2026-09-28).
    *Why not BF16* (decided 2026-09-28, replacing "prefill stages BF16 first"): the staged BF16 path
    -- codes expanded to BF16, then a cuBLASLt BF16 GEMM -- already ran its GEMMs at the BF16
    tensor-core ceiling (about 62 TFLOPS on the RTX 4070 against a measured `mma.sync` peak of 58.9),

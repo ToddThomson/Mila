@@ -4,12 +4,14 @@ Gate for a Mila Q4_0 Gemma 4 build: every Q4_0 tensor in Google's GGUF must equa
 and every FP16 scale bit.
 
 Mila fuses q|k|v into qkv_proj and gate|up into fc_gate_up; the GGUF keeps them separate, so each GGUF tensor is
-compared against its row range of the fused Mila tensor. The global layers carry no attn_v (K=V). The layouts
-differ -- Mila stores codes [N, K/2] with the even column in the low nibble and scales in their own plane, the GGUF
-interleaves 18-byte blocks -- so both are decoded to per-element codes and scale bits before comparing.
+compared against its row range of the fused Mila tensor. The global layers carry no attn_v (K=V). A mixture-of-experts
+build (the 26B-A4B) adds the expert bank, fused gate|up in both files and stacked [experts, rows, columns], compared
+as experts x rows. The layouts differ -- Mila stores codes [N, K/2] with the even column in the low nibble and scales
+in their own plane, the GGUF interleaves 18-byte blocks -- so both are decoded to per-element codes and scale bits
+before comparing.
 
 Usage:
-    python q4_0_package_gate.py --gguf <gemma-4-12b-it-qat-q4_0.gguf> --weights <mila q4_0 .safetensors>
+    python q4_0_package_gate.py --gguf <gemma-4 Q4_0 .gguf> --weights <mila q4_0 .safetensors>
 """
 
 import argparse
@@ -25,12 +27,15 @@ GGUF_TYPE_Q4_0 = 2
 SCALARS = { 0: '<B', 1: '<b', 2: '<H', 3: '<h', 4: '<I', 5: '<i', 6: '<f', 7: '<?', 10: '<Q', 11: '<q', 12: '<d' }
 STRING, ARRAY = 8, 9
 
-# GGUF projection -> ( Mila tensor, position in its fused row order ).
+# GGUF projection -> ( Mila codes tensor, position in its fused row order ). The scales are the codes tensor's
+# name with `_scale` appended.
 PROJECTIONS = {
-    'attn_q': ( 'qkv_proj', 0 ), 'attn_k': ( 'qkv_proj', 1 ), 'attn_v': ( 'qkv_proj', 2 ),
-    'attn_output': ( 'o_proj', 0 ),
-    'ffn_gate': ( 'ffn.mlp.fc_gate_up', 0 ), 'ffn_up': ( 'ffn.mlp.fc_gate_up', 1 ),
-    'ffn_down': ( 'ffn.mlp.fc_down', 0 ),
+    'attn_q': ( 'qkv_proj.weight', 0 ), 'attn_k': ( 'qkv_proj.weight', 1 ), 'attn_v': ( 'qkv_proj.weight', 2 ),
+    'attn_output': ( 'o_proj.weight', 0 ),
+    'ffn_gate': ( 'ffn.mlp.fc_gate_up.weight', 0 ), 'ffn_up': ( 'ffn.mlp.fc_gate_up.weight', 1 ),
+    'ffn_down': ( 'ffn.mlp.fc_down.weight', 0 ),
+    'ffn_gate_up_exps': ( 'ffn.experts.gate_up_proj', 0 ),
+    'ffn_down_exps': ( 'ffn.experts.down_proj', 0 ),
 }
 
 
@@ -86,8 +91,8 @@ def gguf_index( path ):
 
 
 def gguf_q4_0( f, data_start, dims, offset ):
-    """Codes [N, K] (0..15) and scale bits [N, K/32] of a Q4_0 tensor."""
-    columns, rows = dims[ 0 ], dims[ 1 ]
+    """Codes [N, K] (0..15) and scale bits [N, K/32] of a Q4_0 tensor; a stacked tensor's N is experts x rows."""
+    columns, rows = dims[ 0 ], int( np.prod( dims[ 1: ] ) )
     f.seek( data_start + offset )
     blocks = np.frombuffer( f.read( rows * columns // 32 * 18 ), dtype=np.uint8 ).reshape( -1, 18 )
     scale_bits = blocks[ :, :2 ].copy().view( np.uint16 ).reshape( rows, columns // 32 )
@@ -119,24 +124,24 @@ class MilaWeights:
             return entry, f.read( end - begin )
 
     def q4_0( self, name ):
-        """Codes [N, K] and scale bits [N, K/32] of a Mila PerGroupInt4<32> tensor."""
-        entry, data = self.raw( f'{name}.weight' )
-        rows, half_columns = entry[ 'shape' ]
+        """Codes [N, K] and scale bits [N, K/32] of a Mila PerGroupInt4<32> tensor; a stacked one's N is experts x rows."""
+        entry, data = self.raw( name )
+        half_columns = entry[ 'shape' ][ -1 ]
 
         if entry[ 'dtype' ] != 'U8':
-            raise ValueError( f'{name}.weight is {entry[ "dtype" ]}, not packed U8' )
+            raise ValueError( f'{name} is {entry[ "dtype" ]}, not packed U8' )
 
-        packed = np.frombuffer( data, dtype=np.uint8 ).reshape( rows, half_columns )
-        codes = np.empty( ( rows, half_columns * 2 ), dtype=np.uint8 )
+        packed = np.frombuffer( data, dtype=np.uint8 ).reshape( -1, half_columns )
+        codes = np.empty( ( packed.shape[ 0 ], half_columns * 2 ), dtype=np.uint8 )
         codes[ :, 0::2 ] = packed & 0x0F
         codes[ :, 1::2 ] = packed >> 4
 
-        scale_entry, scale_data = self.raw( f'{name}.weight_scale' )
+        scale_entry, scale_data = self.raw( f'{name}_scale' )
 
         if scale_entry[ 'dtype' ] != 'F16':
-            raise ValueError( f'{name}.weight_scale is {scale_entry[ "dtype" ]}, not F16' )
+            raise ValueError( f'{name}_scale is {scale_entry[ "dtype" ]}, not F16' )
 
-        scale_bits = np.frombuffer( scale_data, dtype=np.uint16 ).reshape( scale_entry[ 'shape' ] )
+        scale_bits = np.frombuffer( scale_data, dtype=np.uint16 ).reshape( -1, scale_entry[ 'shape' ][ -1 ] )
 
         return codes, scale_bits
 
@@ -196,6 +201,9 @@ def main():
 
             if row != codes.shape[ 0 ]:
                 failures.append( f'tf_layer_{layer}.{mila}: {codes.shape[ 0 ]} rows, GGUF accounts for {row}' )
+
+            # A stacked bank decodes to gigabytes; let it go before the next.
+            del codes, scale_bits
 
     print( f'{compared} of {len( q4_0 )} GGUF Q4_0 tensors compared' )
     print( f'codes differing: {differing_codes}   scale bits differing: {differing_scales}' )

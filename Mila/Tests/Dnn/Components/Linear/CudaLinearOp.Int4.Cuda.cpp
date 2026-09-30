@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <memory>
 #include <random>
+#include <stdexcept>
 #include <vector>
 
 import Mila;
@@ -409,5 +410,31 @@ namespace Mila::Tests::Dnn::Quantization
     TEST( CudaLinearOpInt4, PrefillMatchesInt8BlockArithmeticAcrossRowTiles )
     {
         runPrefill( 300, 128, 15360, 15u );
+    }
+
+    // The Gemma 4 26B-A4B's dense feed-forward width, 2112: a multiple of 64 but not of 128, so the 64-deep tile.
+    TEST( CudaLinearOpInt4, PrefillMatchesInt8BlockArithmeticOnTheShallowTile )
+    {
+        runPrefill( 37, 200, 2112, 16u );
+    }
+
+    TEST( CudaLinearOpInt4, DecodeMatchesExactWeightsAtAWidthTheDeepTileDoesNotDivide )
+    {
+        runDecode( 200, 2112, 17u );
+    }
+
+    // 2080 is whole Q4_0 blocks but no whole 64-deep tile, and the layer refuses it at build rather than at its first
+    // prefill.
+    TEST( CudaLinearOpInt4, AWidthNoTileDividesIsRefusedAtBuild )
+    {
+        if ( !makeContextOrSkip() )
+            GTEST_SKIP() << "no CUDA device";
+
+        LinearConfig config( 2080, 64 );
+        config.withBias( false );
+
+        Int4Linear linear( "int4", config, Device::Cuda( 0 ) );
+
+        EXPECT_THROW( linear.build( BuildContext( shape_t{ 4, 2080 }, RuntimeMode::Inference, false ) ), std::invalid_argument );
     }
 }

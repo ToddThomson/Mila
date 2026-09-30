@@ -236,6 +236,8 @@ export import Dnn.Quantization.Weight.PerGroupCodebook2;
 export import Dnn.Quantization.Weight.PerGroupCodebook3;
 export import Dnn.Quantization.Weight.HasCodebookTable;
 export import Dnn.Quantization.Weight.HasHighBitPlane;
+export import Dnn.Quantization.Weight.HasFp4E2M1Codes;
+export import Dnn.Quantization.Weight.HasInt4Codes;
 export import Dnn.Quantization.KvCache.Policy;
 export import Dnn.Quantization.KvCache.QuantPolicy;
 export import Dnn.Quantization.KvCache.PerTokenKvFp8;
