@@ -407,26 +407,6 @@ protocols, converter keeps the embedders, manifest declares modality, footprint 
 Image input reaches applications through `Mila::AI`, not around it. Gate: embedder parity against
 HuggingFace, then token-for-token on an image prompt.
 
-#### Gemma's feed-forward is wired inline in its block, and its tensor names change the day it becomes a component
-
-`in progress` · `gemma` · `architecture` · `mila-src` · `breaking`
-
-The dense 12B's feed-forward is three inline children of `GemmaBlock`, and the routed 26B-A4B's is six
-members null on a dense block beside a delegated `mlp`. Moving each into a sublayer component adds a scope to
-every feed-forward tensor name, so it must land before any Gemma package is published or republished -- the
-26B-A4B's first publish and the 12B's Q4_0 republish both wait on it.
-
-In two changes (`ModelFamilyParity.md` §9 item 7). The first renames nothing: the two flags become
-`GemmaFeedForward { Dense, Routed }`, the footprint goes through `dispatchChassis`, which refuses a routed FP8
-or Q4_0 build before instantiating it, and the block workspace lists its slots once. The second makes each
-value a sublayer under `ffn` with the decided names, deletes the inline FFN (`Gemma4MoE.md` Phase 2b), and
-reconverts every Gemma weights file and fixture once.
-
-Gate: 12B token parity; footprint drift gates unchanged; the tiny routed wiring gate and its
-forced-failure negative; the 26B layer-streamed BF16 gate and its FP4 greedy tokens; full suite.
-
-`Mila/Specifications/ModelFamilyParity.md` §8.2, G4
-
 #### The Gemma 4 26B-A4B reaches 8192 tokens on a 16 GB card only by prefilling 256 at a time, and cannot load the Q4_0 weights Google trained
 
 `open` · `gemma` · `quantization` · `mila-src`

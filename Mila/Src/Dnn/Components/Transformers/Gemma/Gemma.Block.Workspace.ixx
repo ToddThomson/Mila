@@ -1,8 +1,9 @@
 /**
  * @file Gemma.Block.Workspace.ixx
- * @brief Transformer-owned shared activation slots for GemmaBlock (pooling), and their factory.
+ * @brief Transformer-owned shared activation slots for GemmaBlock and its feed-forward sublayer (pooling).
  *
- * One slot set serves every layer; the transformer owns it and accounts for it.
+ * One slot set serves every layer; the transformer owns it and accounts for it. A module of its own rather than
+ * a partition of the block's, because the feed-forward sublayers take their slots from it too.
  */
 
 module;
@@ -12,7 +13,7 @@ module;
 #include <memory>
 #include <string>
 
-export module Dnn.Components.GemmaBlock:Workspace;
+export module Dnn.Components.GemmaBlockWorkspace;
 
 import Dnn.Tensor;
 import Dnn.TensorTypes;
@@ -115,18 +116,18 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> o;           // o_proj out           [B, chunk, model_dim]
         std::shared_ptr<TensorType> o_normed;    // post_attn_norm out   [B, chunk, model_dim]
         std::shared_ptr<TensorType> res1;        // res_1 out            [B, chunk, model_dim]
-        std::shared_ptr<TensorType> ffn_in;      // pre_ffn_norm out     [B, chunk, model_dim]
-        std::shared_ptr<TensorType> gate_up;     // fc_gate_up out       [B, chunk, 2 * hidden_dim]
-        std::shared_ptr<TensorType> ffn_act;     // geglu out            [B, chunk, hidden_dim]
-        std::shared_ptr<TensorType> ffn_down;    // fc_down out          [B, chunk, model_dim]
-        std::shared_ptr<TensorType> ffn_normed;  // post_ffn_norm out    [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_in;      // ffn.pre_norm out     [B, chunk, model_dim]
+        std::shared_ptr<TensorType> gate_up;     // ffn.mlp.fc_gate_up   [B, chunk, 2 * hidden_dim]
+        std::shared_ptr<TensorType> ffn_act;     // ffn.mlp.gate out     [B, chunk, hidden_dim]
+        std::shared_ptr<TensorType> ffn_down;    // ffn.mlp.fc_down out  [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_normed;  // ffn.post_norm out    [B, chunk, model_dim]
         std::shared_ptr<TensorType> stream;      // res_2 out            [B, chunk, model_dim]
 
         // Routed feed-forward only; null on a dense model.
-        std::shared_ptr<TensorType> ffn_dense_normed;  // post_ffn_norm_1 out  [B, chunk, model_dim]
-        std::shared_ptr<TensorType> ffn_expert_in;     // pre_ffn_norm_2 out   [B, chunk, model_dim]
-        std::shared_ptr<TensorType> ffn_expert_normed; // post_ffn_norm_2 out  [B, chunk, model_dim]
-        std::shared_ptr<TensorType> ffn_sum;           // ffn_sum out          [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_dense_normed;  // ffn.dense_post_norm out    [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_expert_in;     // ffn.experts_pre_norm out   [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_expert_normed; // ffn.experts_post_norm out  [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_sum;           // ffn.sum out                [B, chunk, model_dim]
 
         struct Slot
         {

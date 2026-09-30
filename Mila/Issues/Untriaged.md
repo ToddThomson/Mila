@@ -10,6 +10,16 @@ pointer to its GitHub issue rather than a copy. Triage flow, categories and the 
 
 ---
 
+## A package's manifest claims the Mila version of its first publish, not the version its weights need
+
+`Mila/Tools/ExportArtifact` (`--package`), `minimum_mila_version` @ `0.21.0-dev+23`
+
+Repackaging the Gemma 4 12B FP4 build after the `ffn` rename (`ModelFamilyParity.md` 8.2, G4) wrote
+`minimum_mila_version: 0.20.0`, but those weights load only on `0.21.0-dev+23` or later -- every feed-forward
+tensor moved under `ffn`. A 0.20 install that fetches the republished package would fail to load it rather than
+refuse it by version. Installed locally 2026-09-30 so `mila-chat` loads the 12B on this tree; the republish must
+carry the right minimum.
+
 ## A fix to the published site sits in the repo until someone dispatches the workflow
 
 `.github/workflows/publish-site.yml` (`on: workflow_dispatch:`) @ `c60c100a`

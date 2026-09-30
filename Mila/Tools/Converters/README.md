@@ -132,10 +132,8 @@ python Gemma/convert_tokenizer.py --model google/gemma-4-12b-it --output <weight
 # Gemma 4 12B
 python Gemma/convert_weights.py --model google/gemma-4-12b-it --output <weights-dir>/gemma/gemma4_12b_it_bf16.bin
 
-# Gemma 4 26B-A4B
-python Gemma/convert_weights.py --model google/gemma-4-26B-A4B-it --output <weights-dir>/gemma/gemma4_26b_a4b_it_bf16.bin
-
-# Quantization-aware sources: convert, then ExportArtifact --quantization q4_0 (Specifications/Quantization.md, Q4_0)
+# Quantization-aware sources: convert, then ExportArtifact --quantization q4_0 (Specifications/Quantization.md, Q4_0).
+# The 26B-A4B is used only in its quantization-aware form.
 python Gemma/convert_weights.py --model google/gemma-4-12B-it-qat-q4_0-unquantized --output <weights-dir>/gemma/gemma4_12b_it_qat_bf16.bin
 python Gemma/convert_weights.py --model google/gemma-4-26B-A4B-it-qat-q4_0-unquantized --output <weights-dir>/gemma/gemma4_26b_a4b_it_qat_bf16.bin
 ```

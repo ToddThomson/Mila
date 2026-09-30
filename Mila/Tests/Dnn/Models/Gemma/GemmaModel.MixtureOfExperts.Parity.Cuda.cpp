@@ -2,9 +2,10 @@
  * @file GemmaModel.MixtureOfExperts.Parity.Cuda.cpp
  * @brief Layer-streamed HuggingFace parity for the Gemma 4 26B-A4B stack (Specifications/Notebooks/Gemma4MoE.md Phase 8).
  *
- * The BF16 weights are 47 GiB against a 16 GiB card, so one decoder block is resident at a time, against the
- * references `Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_layer_stream.py` writes. Requires the weights and
- * both references and skips without them, so it never runs in CI.
+ * The model is Google's quantization-aware checkpoint, the one Mila publishes, converted to BF16. Its 47 GiB are
+ * against a 16 GiB card, so one decoder block is resident at a time, against the references
+ * `Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_layer_stream.py` writes from the same checkpoint. Requires the
+ * weights and both references and skips without them, so it never runs in CI.
  */
 
 #include <gtest/gtest.h>
@@ -182,9 +183,9 @@ namespace Mila::Tests::Dnn::Models
             if ( getDeviceCount( DeviceType::Cuda ) == 0 )
                 GTEST_SKIP() << "No CUDA device available";
 
-            weights_ = modelDirectory() / "gemma4_26b_a4b_it_bf16.bin";
-            reference_ = modelDirectory() / "gemma4_26b_a4b_ref.bin";
-            truth_ = modelDirectory() / "gemma4_26b_a4b_ref_fp32.bin";
+            weights_ = modelDirectory() / "gemma4_26b_a4b_it_qat_bf16.bin";
+            reference_ = modelDirectory() / "gemma4_26b_a4b_qat_ref.bin";
+            truth_ = modelDirectory() / "gemma4_26b_a4b_qat_ref_fp32.bin";
 
             for ( const auto& path : { weights_, reference_, truth_ } )
             {

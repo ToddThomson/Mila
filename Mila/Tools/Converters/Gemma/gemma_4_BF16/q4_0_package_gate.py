@@ -29,8 +29,8 @@ STRING, ARRAY = 8, 9
 PROJECTIONS = {
     'attn_q': ( 'qkv_proj', 0 ), 'attn_k': ( 'qkv_proj', 1 ), 'attn_v': ( 'qkv_proj', 2 ),
     'attn_output': ( 'o_proj', 0 ),
-    'ffn_gate': ( 'fc_gate_up', 0 ), 'ffn_up': ( 'fc_gate_up', 1 ),
-    'ffn_down': ( 'fc_down', 0 ),
+    'ffn_gate': ( 'ffn.mlp.fc_gate_up', 0 ), 'ffn_up': ( 'ffn.mlp.fc_gate_up', 1 ),
+    'ffn_down': ( 'ffn.mlp.fc_down', 0 ),
 }
 
 

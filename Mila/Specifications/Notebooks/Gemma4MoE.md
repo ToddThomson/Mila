@@ -581,7 +581,11 @@ All four were decided before any code:
    `MixtureOfExperts` and the three extra norms of Phase 1's topology. `WeightsMetadata` gains the
    expert count, top-k and expert width. **`per_expert_scale` stays in `RouterOp`**: folding it into
    `down_proj` would make the exported weights differ from the checkpoint the Phase 5 and 6 oracles
-   compare against.
+   compare against. *Superseded by `ModelFamilyParity.md` §8.2 G4:* the two flags became
+   `GemmaFeedForward { Dense, Routed }`, and the feed-forward is one sublayer, `ffn`
+   (`GemmaRoutedFeedForward` here), whose norms are named by role -- `ffn.dense_post_norm`,
+   `ffn.experts_pre_norm`, `ffn.experts_post_norm` for this decision's `post_ffn_norm_1`, `pre_ffn_norm_2`,
+   `post_ffn_norm_2`.
 
 ### Wiring gate, written before any run
 
@@ -1031,8 +1035,10 @@ G5, all exact:
    against `attn_q`, `attn_k`, `attn_v` (none on global layers) and `attn_output`. The tied table (FP8 here,
    Q6_K there) and the F32 router are outside the comparison.
 7. **The model.** At Q4_0 the 26B fits the RTX 5060 Ti at 8192 (with G5's pooling), and its greedy tokens
-   match HuggingFace on the same unquantized QAT checkpoint -- a new capture, since today's is of the
-   non-QAT model.
+   match HuggingFace on the same unquantized QAT checkpoint. That capture exists (2026-09-30): the QAT
+   checkpoint gives the same eight tokens as the non-QAT one, at a narrowest margin of 12.1 logits against
+   4.25, and the suite's 26B gates -- layer-streamed BF16, FP4 greedy tokens, the router reference -- now
+   read the QAT checkpoint. The non-QAT 26B is retired.
 
 Forced failures: the nibble order swapped (items 1 and 2 must fail, item 3 must not, as Phase 8 showed for
 FP4); the export compared against a rounding of the non-QAT checkpoint (item 6 must fail).
@@ -1057,7 +1063,8 @@ on this machine.
 ### Result (2026-09-29, RTX 5060 Ti)
 
 `0.21.0-dev+21`, `x64-profile` build, pinned by UUID, nothing else on the card. `PerGroupFp4<64>` quantized on
-load from `gemma4_26b_a4b_it_bf16.bin`, FP8 KV, context 1024 -- the only build that exists, and the context
+load from `gemma4_26b_a4b_it_bf16.bin` (the non-quantization-aware checkpoint, since retired; the kernels'
+rates do not depend on which weights they read), FP8 KV, context 1024 -- the only build that exists, and the context
 at which it fits (the plan: footprint 15,097 MiB against 15,168 free, 48 MiB free after load).
 
 **Resident, not paged.** Sampled every 3 s through a decode run: 15,238 MiB dedicated and 80 MiB shared.

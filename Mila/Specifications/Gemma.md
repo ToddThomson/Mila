@@ -231,15 +231,14 @@ These are two separable concerns that are easy to conflate:
 ## 7. GeGLU FFN
 
 Gemma's FFN is gated with `gelu_pytorch_tanh`, i.e. **GeGLU, not SwiGLU**, with
-`intermediate_size 15360`. `GemmaBlock` wires it **inline** — `fc_gate_up ->
-Swiglu<..., ActivationType::Gelu> -> fc_down` (`Gemma.Block.ixx:231`) — and does not
-use `GatedMLP`.
-
-Moving it into a composite renames every published FFN tensor, so it lands together
-with a republish: `ModelFamilyParity.md` §8.2 G4's second change, where the dense
-sublayer becomes `ffn` (`tf_layer_i.fc_gate_up` becomes `tf_layer_i.ffn.mlp.fc_gate_up`).
-Until then only the routed block (`GemmaFeedForward::Routed`) delegates its dense
-branch, to a `GatedMLP` child named `mlp`; `Gemma4MoE.md` Phase 2 records the gate.
+`intermediate_size 15360`. Every block's feed-forward is one sublayer component
+named `ffn`, chosen by `GemmaFeedForward` through `GemmaFeedForwardTraits`: on the
+12B, `GemmaDenseFeedForward` — `pre_norm`, a `GatedMLP<..., ActivationType::Gelu>`
+named `mlp`, `post_norm` — and on the 26B-A4B `GemmaRoutedFeedForward` (10.3). The
+tensor names follow: `tf_layer_i.ffn.pre_norm`, `tf_layer_i.ffn.mlp.fc_gate_up`,
+`tf_layer_i.ffn.mlp.fc_down`, `tf_layer_i.ffn.post_norm`. Until
+`ModelFamilyParity.md` §8.2 G4 the dense FFN was three inline children of the block
+(`tf_layer_i.fc_gate_up`), so weights converted before it do not load.
 
 ---
 
@@ -436,7 +435,7 @@ h = ( residual + post_feedforward_layernorm( d + e ) ) * layer_scalar
 - Every norm multiplies by its raw weight; there is no `1 +` offset.
 
 `GemmaBlock<TDeviceType, TPrecision, kGlobal, TWeightQuantization,
-TKvCachePolicy>` behind `ITransformerBlock` already solves heterogeneous
+TKvCachePolicy, GemmaFeedForward::Routed>` behind `ITransformerBlock` already solves heterogeneous
 layers, and **every** layer of the 26B is an MoE layer — there is no dense/MoE
 interleave to model. The sliding/global split is the existing
 `if constexpr (kGlobal)` selector and is untouched.
@@ -444,25 +443,27 @@ interleave to model. The sliding/global split is the existing
 ```
 GemmaBlock (unchanged attention half)
   |
-  +-- pre_feedforward_layernorm   -> GatedMLP<..., Gelu> (2112) -> post_feedforward_layernorm_1 -+
-  |                                                                                              |
-  |                                                  sum -> post_feedforward_layernorm -> residual
-  |                                                                                              |
-  +-- pre_feedforward_layernorm_2 -> MixtureOfExperts    (704)  -> post_feedforward_layernorm_2 -+
-  |                                    +-- MoeOp  (stacked [128, ...])
-  |                                    ^ weights, indices
-  +-- Router (reads the residual itself; scale, top-k, per-expert scale)
+  +-- ffn: GemmaRoutedFeedForward
+        |
+        +-- pre_norm         -> mlp: GatedMLP<..., Gelu> (2112) -> dense_post_norm   -+
+        |                                                                             |
+        |                                             sum -> post_norm -> residual    |
+        |                                                                             |
+        +-- experts_pre_norm -> experts: MixtureOfExperts (704) -> experts_post_norm -+
+        |                        +-- MoeOp  (stacked [128, ...])
+        |                        ^ weights, indices
+        +-- router (reads the residual itself; scale, top-k, per-expert scale)
 ```
 
-**Prerequisite, half done:** the routed block delegates its dense branch to a
-`GatedMLP` child named `mlp` (`Gemma4MoE.md` Phase 2a). The choice is one
-template argument, `GemmaFeedForward { Dense, Routed }` (`Gemma.FeedForward.ixx`),
-read from the checkpoint in `GemmaModel::dispatchChassis`, which also refuses a
-routed network a policy its expert bank does not implement before instantiating
-it (`expertBankImplements`, `MixtureOfExperts.ixx`). The dense 12B still inlines
-its FFN. `ModelFamilyParity.md` §8.2 G4's second change makes each value a
-sublayer type under `ffn` and deletes the inline path; it renames every FFN
-tensor, so it lands before any Gemma package is published.
+HuggingFace's `pre_feedforward_layernorm`, `post_feedforward_layernorm_1`,
+`pre_feedforward_layernorm_2`, `post_feedforward_layernorm_2` and
+`post_feedforward_layernorm` are `ffn.pre_norm`, `ffn.dense_post_norm`,
+`ffn.experts_pre_norm`, `ffn.experts_post_norm` and `ffn.post_norm`
+(`ModelFamilyParity.md` §9 item 7). The sublayer is chosen by one template
+argument, `GemmaFeedForward { Dense, Routed }`, read from the checkpoint in
+`GemmaModel::dispatchChassis`, which refuses a routed network a policy its
+expert bank does not implement before instantiating it (`expertBankImplements`,
+`MixtureOfExperts.ixx`); `GemmaRoutedFeedForward` carries the same constraint.
 
 ### 10.4 Weight Format: Q4_0
 
@@ -653,9 +654,9 @@ Steps 1-8 are the path that made the model run; what remains is sequenced in
 `ModelFamilyParity.md` §8.2, G4 to G6, and not here.
 
 1. **Resolve the block topology.** Done 2026-09-12 — `Gemma4MoE.md` Phase 1.
-2. **Delegate `GemmaBlock`'s FFN to `GatedMLP`.** Phase 2a done 2026-09-12. The
-   switch (Phase 2b) is the first step of `ModelFamilyParity.md` G4, where the
-   flags become a sublayer type; Llama's half moves to Llama's pass.
+2. **Delegate `GemmaBlock`'s FFN to `GatedMLP`.** Phase 2a done 2026-09-12; the
+   switch (Phase 2b) landed with `ModelFamilyParity.md` G4, where the feed-forward
+   became the `ffn` sublayer on every Gemma block. Llama's half moves to Llama's pass.
 3. **Bounded-KV `TKvCachePolicy` sibling.** Landed before this work began
    (`Gemma4MoE.md` Phase 3).
 4. **Footprint sparse-layer term.** Done 2026-09-12 — `Gemma4MoE.md` Phase 4.
@@ -673,7 +674,7 @@ Steps 1-8 are the path that made the model run; what remains is sequenced in
 
 Then, by stage (`ModelFamilyParity.md` §8.2):
 
-- **G4** — the feed-forward sublayer becomes a type (step 2's switch with it).
+- **G4** — the feed-forward sublayer becomes a type (step 2's switch with it); done.
 - **G5** — the routed buffers pooled, so the model fits; the Q4_0 expert bank
   (`Gemma4MoE.md` Phase 9, `MixtureOfExperts.md` §7.7).
 - **G5b** — its kernels at parity: grouped INT8 prefill, gather decode and the

@@ -116,7 +116,7 @@ both, and scoring (3.2) lands in both at once. The 26B-A4B is held to the 12B in
 | Fits the 16 GB card at context 8192, at the 12B's prefill chunk | Y | -- | fits only at chunk 256, 120 MiB free after load (measured 2026-09-29, `PerGroupFp4<64>`; Q4_0 is the same bytes); at a fixed 512 it was 83.8 MiB over (`Gemma4MoE.md` Phase 8), and 32768 is refused. The cause is the routed buffers, allocated per layer rather than pooled: each layer's `MixtureOfExperts` output (`MixtureOfExperts.ixx:387`) and FP32 gated scratch (`CudaMoeOp.ixx:126`), about 0.49 GiB at chunk 512 |
 | Prefill as a GEMM | Y | -- | the routed bank's prefill is the Phase 6 two-pass kernel, one thread per output value; the grouped INT8 prefill is not built (`MixtureOfExperts.md` §7.7) |
 | Throughput measured, and in the llama.cpp comparison | Y | -- | measured 2026-09-29 (`Gemma4MoE.md`, Rates Baseline): prefill 23 tokens a second against llama.cpp's 3,600, generation 11 against 127; its CUDA kernels are the Phase 6 correctness baseline and were never tuned |
-| Token-for-token agreement with HuggingFace, in the suite | Y | partial | eight greedy tokens at FP4 (`GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp`), which a routing error does not change, and a layer-streamed BF16 hidden-state gate, which it does; the BF16 model fits neither card, so no whole-model BF16 run exists |
+| Token-for-token agreement with HuggingFace, in the suite | Y | partial | eight greedy tokens at FP4 (`GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp`), which a routing error does not change, and a layer-streamed BF16 hidden-state gate, which it does -- both on Google's quantization-aware checkpoint since 2026-09-30, the non-quantization-aware one retired; the BF16 model fits neither card, so no whole-model BF16 run exists |
 | Quality measured across the planner's range | see 3.4 | -- | never measured; the 12B's cost over BF16 has no whole-model reference here (section 9, item 18) |
 | Decode replay gated equal to the called path | Y | -- | replay is on for every `GemmaModel` load, the 26B included; `DecodeReplay.Cuda.cpp` covers a dense Gemma and no routed network (`MixtureOfExperts.md` §6) |
 | Active parameter bytes shown to the user | n/a | -- | `MemoryStats` carries them and `GemmaModel`'s footprint reports them; neither the plan nor Chat's display does (`MixtureOfExperts.md` §8) |
@@ -563,9 +563,10 @@ is dead". Independent of every other stage.
 - *Gate:* the Gemma protocol suite, MIS's suite, and the live Chat tool-call recipe
   (`--system-prompt tools-weather`).
 
-**G4 -- The feed-forward sublayer becomes a type.** *Closes:* "Gemma's feed-forward is wired inline in its
-block, and its tensor names change the day it becomes a component". *Needs:* nothing;
-it must land before G5 and before any Gemma package is published or republished, since it renames tensors.
+**G4 -- The feed-forward sublayer becomes a type.** *Closed:* "Gemma's feed-forward is wired inline in its
+block, and its tensor names change the day it becomes a component" -- **done 2026-09-30**, first change at
+`0.21.0-dev+22`, second at `+23`. *Needed:* nothing; it had to land before G5 and before any Gemma package is
+published or republished, since it renames tensors.
 
 Before G4, `GemmaBlock` and `GemmaTransformer` carried two positional flags, `kDelegatedFeedForward` and
 `kMixtureOfExperts`, where one without the other existed only to be rejected by a `static_assert` and the model
@@ -582,11 +583,17 @@ before the next (section 9, item 7):
   `GemmaBlockWorkspace::slots()`, which the allocation, the stored bytes and `requiredBytes( config, B, chunk,
   granularity )` all walk, so `GemmaBlockWorkspaceWidths` is gone and the file exports one type. The
   delegated-dense equivalence test is retired with the combination it compared.
-- **Second change, the rename.** Each `GemmaFeedForward` value maps through a traits struct to
+- **Second change, the rename.** Each `GemmaFeedForward` value maps through `GemmaFeedForwardTraits` to
   `GemmaDenseFeedForward` or `GemmaRoutedFeedForward`, each a `CompositeComponent` named `ffn` owning its norms,
-  children, build, footprint and workspace slots; the inline FFN goes (`Gemma4MoE.md` Phase 2b), with the names
-  of section 9 item 7. Every Gemma weights file and fixture is reconverted once. The traits and the two sublayer
-  types are three files; the routed slots move out of the block workspace table into the routed sublayer.
+  children, build and footprint; the inline FFN goes (`Gemma4MoE.md` Phase 2b), with the names of section 9
+  item 7. The traits and the two sublayer types are three files. The feed-forward slots stay in the block
+  workspace's one table and each sublayer takes them through `installSharedWorkspace`, so the workspace became
+  its own module (`Dnn.Components.GemmaBlockWorkspace`) rather than a partition of the block's. Every Gemma
+  weights file and fixture was reconverted once: the 12B's BF16, QAT BF16, FP4 and Q4_0 files, the 26B's BF16
+  and six-layer files, and the tiny routed fixture from its saved HuggingFace checkpoint.
+  *Result, 2026-09-30:* the 12B's Q4_0 export still equals Google's GGUF in all 328 tensors, every code and
+  scale bit; 12B token parity, the 26B layer-streamed BF16 gate and its FP4 greedy tokens unchanged; full suite
+  2082 pass on the RTX 5060 Ti and 2078 on the RTX 4070, none failing.
 - Separate transformer types for the routed model were considered and rejected: attention and the whole
   transformer are identical between the two, so every fix would land twice. Qwen splits its block types
   because its two token mixers coexist in one model; Gemma's dense and routed layers share the mixer.

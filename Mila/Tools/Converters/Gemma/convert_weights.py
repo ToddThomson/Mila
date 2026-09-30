@@ -37,11 +37,13 @@ Gemma-specific transforms handled in this converter:
      have no v_proj. Their fused QKV blob is [Q | K] only; the sliding layers are
      the usual [Q | K | V]. Mila's GemmaBlock<kGlobal=true> derives V from K.
 
-  4. Mixture of experts (enable_moe_block): the always-on dense branch is written
-     under `mlp`, where a routed GemmaBlock delegates it. The expert bank
-     ships stacked and is written as-is, gate first in gate_up_proj. The router's
-     three tensors and the three extra norms are written raw, and per_expert_scale is
-     NOT folded into down_proj.
+  4. The feed-forward sublayer is one component, `ffn`, on every layer: its norms,
+     the GeGLU `mlp`, and on a mixture-of-experts layer (enable_moe_block) the router,
+     the expert bank and their norms beside the dense branch. The expert bank ships
+     stacked and is written as-is, gate first in gate_up_proj. The router's three
+     tensors and the three extra norms are written raw, and per_expert_scale is NOT
+     folded into down_proj. The norms inside `ffn` are named by role
+     (ModelFamilyParity.md section 9, item 7).
 
 Mila tensor names (must match GemmaTransformer / GemmaBlock component paths):
 
@@ -57,20 +59,20 @@ Mila tensor names (must match GemmaTransformer / GemmaBlock component paths):
         (none; unit weight written)                      -> tf_layer_{i}.v_norm.weight
         self_attn.o_proj.weight                          -> tf_layer_{i}.o_proj.weight
         post_attention_layernorm.weight                  -> tf_layer_{i}.post_attn_norm.weight
-        pre_feedforward_layernorm.weight                 -> tf_layer_{i}.pre_ffn_norm.weight
-        mlp.gate_proj | mlp.up_proj                      -> tf_layer_{i}[.mlp].fc_gate_up.weight
-        mlp.down_proj.weight                             -> tf_layer_{i}[.mlp].fc_down.weight
+        pre_feedforward_layernorm.weight                 -> tf_layer_{i}.ffn.pre_norm.weight
+        mlp.gate_proj | mlp.up_proj                      -> tf_layer_{i}.ffn.mlp.fc_gate_up.weight
+        mlp.down_proj.weight                             -> tf_layer_{i}.ffn.mlp.fc_down.weight
       mixture of experts only:
-        post_feedforward_layernorm_1.weight              -> tf_layer_{i}.post_ffn_norm_1.weight
-        pre_feedforward_layernorm_2.weight               -> tf_layer_{i}.pre_ffn_norm_2.weight
-        router.proj.weight                               -> tf_layer_{i}.router.proj.weight
-        router.scale                                     -> tf_layer_{i}.router.scale
-        router.per_expert_scale                          -> tf_layer_{i}.router.per_expert_scale
-        experts.gate_up_proj                             -> tf_layer_{i}.experts.gate_up_proj
-        experts.down_proj                                -> tf_layer_{i}.experts.down_proj
-        post_feedforward_layernorm_2.weight              -> tf_layer_{i}.post_ffn_norm_2.weight
+        post_feedforward_layernorm_1.weight              -> tf_layer_{i}.ffn.dense_post_norm.weight
+        router.proj.weight                               -> tf_layer_{i}.ffn.router.proj.weight
+        router.scale                                     -> tf_layer_{i}.ffn.router.scale
+        router.per_expert_scale                          -> tf_layer_{i}.ffn.router.per_expert_scale
+        pre_feedforward_layernorm_2.weight               -> tf_layer_{i}.ffn.experts_pre_norm.weight
+        experts.gate_up_proj                             -> tf_layer_{i}.ffn.experts.gate_up_proj
+        experts.down_proj                                -> tf_layer_{i}.ffn.experts.down_proj
+        post_feedforward_layernorm_2.weight              -> tf_layer_{i}.ffn.experts_post_norm.weight
       every layer:
-        post_feedforward_layernorm.weight                -> tf_layer_{i}.post_ffn_norm.weight
+        post_feedforward_layernorm.weight                -> tf_layer_{i}.ffn.post_norm.weight
         layer_scalar                                     -> tf_layer_{i}.layer_scalar (FP32)
 
     Final RMSNorm:
@@ -81,8 +83,8 @@ Mila tensor names (must match GemmaTransformer / GemmaBlock component paths):
         lm_head.weight (untied case only)                -> lm_head.weight
 
 Usage:
-    python Gemma/convert_weights.py --model google/gemma-4-26B-A4B-it \
-        --output <weights-dir>/gemma/gemma4_26b_a4b_it_bf16.bin
+    python Gemma/convert_weights.py --model google/gemma-4-26B-A4B-it-qat-q4_0-unquantized \
+        --output <weights-dir>/gemma/gemma4_26b_a4b_it_qat_bf16.bin
 
     # A local checkpoint directory converts with no hub access
     python Gemma/convert_weights.py --model <checkpoint-dir> --output <file>
@@ -334,8 +336,7 @@ def expand_gemma_tensor_map( geometry: dict, prefix: str ):
         if not key_equals_value:
             qkv_sources += ( f'{hf}.self_attn.v_proj.weight', )
 
-        # Dense layers keep the inline FFN names; a routed block delegates its dense branch to `mlp`.
-        feed_forward = f'{mila}.mlp' if routed else mila
+        feed_forward = f'{mila}.ffn'
 
         tensors += [
             GemmaTensor( f'{mila}.input_norm.weight', ( f'{hf}.input_layernorm.weight', ), 'norm' ),
@@ -348,26 +349,29 @@ def expand_gemma_tensor_map( geometry: dict, prefix: str ):
                 geometry[ 'global_head_dim' ] if is_global else geometry[ 'head_dim' ] ),
             GemmaTensor( f'{mila}.o_proj.weight', ( f'{hf}.self_attn.o_proj.weight', ) ),
             GemmaTensor( f'{mila}.post_attn_norm.weight', ( f'{hf}.post_attention_layernorm.weight', ), 'norm' ),
-            GemmaTensor( f'{mila}.pre_ffn_norm.weight', ( f'{hf}.pre_feedforward_layernorm.weight', ), 'norm' ),
-            GemmaTensor( f'{feed_forward}.fc_gate_up.weight',
+            GemmaTensor( f'{feed_forward}.pre_norm.weight', ( f'{hf}.pre_feedforward_layernorm.weight', ), 'norm' ),
+            GemmaTensor( f'{feed_forward}.mlp.fc_gate_up.weight',
                 ( f'{hf}.mlp.gate_proj.weight', f'{hf}.mlp.up_proj.weight' ) ),
-            GemmaTensor( f'{feed_forward}.fc_down.weight', ( f'{hf}.mlp.down_proj.weight', ) ),
+            GemmaTensor( f'{feed_forward}.mlp.fc_down.weight', ( f'{hf}.mlp.down_proj.weight', ) ),
         ]
 
         if routed:
             tensors += [
-                GemmaTensor( f'{mila}.post_ffn_norm_1.weight', ( f'{hf}.post_feedforward_layernorm_1.weight', ), 'norm' ),
-                GemmaTensor( f'{mila}.pre_ffn_norm_2.weight', ( f'{hf}.pre_feedforward_layernorm_2.weight', ), 'norm' ),
-                GemmaTensor( f'{mila}.router.proj.weight', ( f'{hf}.router.proj.weight', ) ),
-                GemmaTensor( f'{mila}.router.scale', ( f'{hf}.router.scale', ) ),
-                GemmaTensor( f'{mila}.router.per_expert_scale', ( f'{hf}.router.per_expert_scale', ) ),
-                GemmaTensor( f'{mila}.experts.gate_up_proj', ( f'{hf}.experts.gate_up_proj', ) ),
-                GemmaTensor( f'{mila}.experts.down_proj', ( f'{hf}.experts.down_proj', ) ),
-                GemmaTensor( f'{mila}.post_ffn_norm_2.weight', ( f'{hf}.post_feedforward_layernorm_2.weight', ), 'norm' ),
+                GemmaTensor( f'{feed_forward}.dense_post_norm.weight',
+                    ( f'{hf}.post_feedforward_layernorm_1.weight', ), 'norm' ),
+                GemmaTensor( f'{feed_forward}.router.proj.weight', ( f'{hf}.router.proj.weight', ) ),
+                GemmaTensor( f'{feed_forward}.router.scale', ( f'{hf}.router.scale', ) ),
+                GemmaTensor( f'{feed_forward}.router.per_expert_scale', ( f'{hf}.router.per_expert_scale', ) ),
+                GemmaTensor( f'{feed_forward}.experts_pre_norm.weight',
+                    ( f'{hf}.pre_feedforward_layernorm_2.weight', ), 'norm' ),
+                GemmaTensor( f'{feed_forward}.experts.gate_up_proj', ( f'{hf}.experts.gate_up_proj', ) ),
+                GemmaTensor( f'{feed_forward}.experts.down_proj', ( f'{hf}.experts.down_proj', ) ),
+                GemmaTensor( f'{feed_forward}.experts_post_norm.weight',
+                    ( f'{hf}.post_feedforward_layernorm_2.weight', ), 'norm' ),
             ]
 
         tensors += [
-            GemmaTensor( f'{mila}.post_ffn_norm.weight', ( f'{hf}.post_feedforward_layernorm.weight', ), 'norm' ),
+            GemmaTensor( f'{feed_forward}.post_norm.weight', ( f'{hf}.post_feedforward_layernorm.weight', ), 'norm' ),
             # A learned [1] per-layer output scale, written FP32 at every dtype.
             GemmaTensor( f'{mila}.layer_scalar', ( f'{hf}.layer_scalar', ), 'scalar' ),
         ]
@@ -439,7 +443,7 @@ def _verify_geometry( entries, geometry: dict ):
                      'lm_head.weight': ( geometry[ 'vocab_size' ], hidden ) }.get( name )
         else:
             layer = int( match.group( 1 ) )
-            stem = match.group( 2 ).removeprefix( 'mlp.' )
+            stem = match.group( 2 ).removeprefix( 'ffn.' ).removeprefix( 'mlp.' )
             is_global = ((layer + 1) % pattern) == 0
             head_dim = geometry[ 'global_head_dim' ] if is_global else geometry[ 'head_dim' ]
             kv_heads = geometry[ 'num_global_key_value_heads' ] if is_global else geometry[ 'num_key_value_heads' ]

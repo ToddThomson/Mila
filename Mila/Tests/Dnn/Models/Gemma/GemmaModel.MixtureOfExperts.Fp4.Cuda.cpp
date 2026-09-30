@@ -2,8 +2,9 @@
  * @file GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp
  * @brief Gemma 4 26B-A4B loaded at FP4: its footprint against the driver and Specifications/Gemma.md s10.5, and its greedy tokens against HuggingFace.
  *
- * Quantizes the 47 GiB BF16 weights on load, so it needs the weights and a 16 GiB card and never runs in CI. The
- * HuggingFace tokens come from `Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_layer_stream.py --generate`.
+ * Quantizes the 47 GiB BF16 conversion of Google's quantization-aware checkpoint on load, so it needs the weights and
+ * a 16 GiB card and never runs in CI. The HuggingFace tokens come from
+ * `Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_layer_stream.py --generate` on the same checkpoint.
  */
 
 #include <gtest/gtest.h>
@@ -38,8 +39,9 @@ namespace Mila::Tests::Dnn::Models
         // "The capital of France is" in the instruct chat turn, thinking off -- the prompt of the BF16 parity gate.
         const std::vector<int32_t> kPromptIds = { 2, 105, 2364, 107, 818, 5279, 529, 7001, 563, 106, 107, 105, 4368, 107, 100, 45518, 107, 101 };
 
-        // Pasted from `hf_gemma_layer_stream.py --generate 8` (BF16, RTX 4070): "The capital of France is **Paris**.".
-        // The narrowest top-1 margin is 4.25 logits, at the first token.
+        // Pasted from `hf_gemma_layer_stream.py --generate 8` on the quantization-aware checkpoint (BF16, RTX 5060 Ti,
+        // 2026-09-30): "The capital of France is **Paris**.". The narrowest top-1 margin is 12.1 logits, at the first
+        // token; the non-quantization-aware checkpoint gave the same tokens at a narrowest margin of 4.25.
         const std::vector<int32_t> kExpectedGen = { 818, 5279, 529, 7001, 563, 5213, 50429, 84750 };
 
         constexpr dim_t kContextLength = 8192;
@@ -61,7 +63,7 @@ namespace Mila::Tests::Dnn::Models
 
         fs::path weightsPath()
         {
-            return fs::path( TEST_DATA_DIR ) / "models" / "gemma" / "gemma4_26b_a4b_it_bf16.bin";
+            return fs::path( TEST_DATA_DIR ) / "models" / "gemma" / "gemma4_26b_a4b_it_qat_bf16.bin";
         }
 
         std::size_t freeDeviceBytes()

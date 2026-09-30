@@ -27,7 +27,8 @@ from safetensors.torch import save_file
 from transformers.models.gemma4.configuration_gemma4 import Gemma4TextConfig
 from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRouter
 
-MODEL_ID = "google/gemma-4-26B-A4B-it"
+# Google's quantization-aware checkpoint, the one Mila publishes; its router tensors are unquantized.
+MODEL_ID = "google/gemma-4-26B-A4B-it-qat-q4_0-unquantized"
 
 SAFETENSORS_DTYPES = {
     "F32": torch.float32,

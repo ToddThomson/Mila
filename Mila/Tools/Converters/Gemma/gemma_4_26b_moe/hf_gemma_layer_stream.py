@@ -35,8 +35,9 @@ Usage:
     python Gemma/gemma_4_26b_moe/hf_gemma_layer_stream.py --self-test
 
     python Gemma/gemma_4_26b_moe/hf_gemma_layer_stream.py \\
-        --model <weights-dir>/gemma/gemma-4-26B-A4B-it \\
-        --output <weights-dir>/gemma/gemma4_26b_a4b_ref.bin
+        --model <snapshot of google/gemma-4-26B-A4B-it-qat-q4_0-unquantized> \\
+        --output <weights-dir>/gemma/gemma4_26b_a4b_qat_ref.bin [--dtype float32 for the _fp32 truth]
+    python Gemma/gemma_4_26b_moe/hf_gemma_layer_stream.py --model <same snapshot> --generate 8
 """
 
 import sys

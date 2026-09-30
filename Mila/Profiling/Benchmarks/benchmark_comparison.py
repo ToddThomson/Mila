@@ -46,12 +46,13 @@ ROWS = [
         "head_to_head": True,
     },
     {
-        # Quantized on load from BF16 until the model's Q4_0 expert bank lands; then q4_0, head to head.
+        # Google's quantization-aware weights quantized on load to FP4 until the model's Q4_0 expert bank
+        # lands; then q4_0, head to head.
         "key": "gemma-4-26b-a4b-fp4",
         "model": "Gemma 4 26B-A4B Instruct",
         "family": "gemma",
         "mila_quantization": "fp4",
-        "mila_weights": "Gemma/gemma4_26b_a4b_it_bf16.bin",
+        "mila_weights": "Gemma/gemma4_26b_a4b_it_qat_bf16.bin",
         "mila_format": "FP4",
         "gguf": ("google/gemma-4-26B-A4B-it-qat-q4_0-gguf", "gemma-4-26B_q4_0-it.gguf"),
         "llama_cpp_format": "Q4_0 (QAT)",

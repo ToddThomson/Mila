@@ -1013,10 +1013,19 @@ namespace Mila::Tests::Dnn::Models
 
         auto network = buildMeasuredGemma( 64, kContextLength );
 
-        // Each projection's input is the output of the component published just before it.
-        const std::string_view components[] = {
-            ".tf_layer_0.input_norm", ".tf_layer_0.qkv_proj", ".tf_layer_0.gqa", ".tf_layer_0.o_proj",
-            ".tf_layer_0.pre_ffn_norm", ".tf_layer_0.fc_gate_up", ".tf_layer_0.geglu", ".tf_layer_0.fc_down" };
+        // Each projection's input is the output of the component published just before it. The file stems predate
+        // the feed-forward sublayer and are what hf_fp8_layer_comparison.py reads.
+        struct DumpedComponent
+        {
+            std::string_view suffix;
+            std::string_view file_stem;
+        };
+
+        const DumpedComponent components[] = {
+            { ".tf_layer_0.input_norm", "input_norm" }, { ".tf_layer_0.qkv_proj", "qkv_proj" },
+            { ".tf_layer_0.gqa", "gqa" }, { ".tf_layer_0.o_proj", "o_proj" },
+            { ".tf_layer_0.ffn.pre_norm", "pre_ffn_norm" }, { ".tf_layer_0.ffn.mlp.fc_gate_up", "fc_gate_up" },
+            { ".tf_layer_0.ffn.mlp.gate", "geglu" }, { ".tf_layer_0.ffn.mlp.fc_down", "fc_down" } };
 
         const fs::path directory = fs::temp_directory_path();
         int written = 0;
@@ -1027,18 +1036,18 @@ namespace Mila::Tests::Dnn::Models
                 if ( stage != "output" )
                     return;
 
-                for ( const std::string_view suffix : components )
+                for ( const DumpedComponent& dumped : components )
                 {
                     const auto* typed = dynamic_cast<const Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>*>( &value );
 
-                    if ( !component.ends_with( suffix ) || typed == nullptr )
+                    if ( !component.ends_with( dumped.suffix ) || typed == nullptr )
                         continue;
 
                     network->synchronize();
 
                     auto host = toHost<TensorDataType::FP32>( *typed );
 
-                    writeFloats( directory / std::format( "gemma_projection_{}.f32", std::string( suffix.substr( 12 ) ) ),
+                    writeFloats( directory / std::format( "gemma_projection_{}.f32", std::string( dumped.file_stem ) ),
                         std::vector<float>( host.data(), host.data() + host.size() ) );
                     ++written;
                 }

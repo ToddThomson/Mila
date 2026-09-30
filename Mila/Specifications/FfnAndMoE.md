@@ -236,19 +236,15 @@ input [..., in] -> fc_gate_up Linear(in -> 2H, fused) -> Swiglu(split . gate_fn 
   SwiGLU (SiLU), GeGLU (GELU), ReGLU (ReLU), etc. by `TGate`.
 - `GatedMLPConfig`: `input_features`, `hidden_size`, `has_bias` (gated FFNs are
   typically bias-free), `gate_activation` (elementwise enum, serialized metadata).
-- **Planned, not landed:** `LlamaBlock` and `GemmaBlock` delegate their FFN to
-  `GatedMLP`, deleting their inline `fc_gate_up -> swiglu -> fc_down` wiring.
-  Today every gated block — Llama, Gemma and both Qwen blocks — still wires it
-  inline. The component is ready: it carries the blocks' weight quantization,
+- **Gemma delegates; Llama and Qwen do not yet.** Every Gemma block's feed-forward
+  is a sublayer named `ffn` whose dense branch is a `GatedMLP` named `mlp`
+  (`ModelFamilyParity.md` §8.2 G4), so its tensors are `tf_layer_i.ffn.mlp.fc_gate_up`.
+  Llama and both Qwen blocks still wire `fc_gate_up -> swiglu -> fc_down` inline.
+  The component is ready for them: it carries the blocks' weight quantization,
   accepts their pooled activation slots, and predicts its own footprint. What
   holds the switch is naming: a nested `GatedMLP` renames every published FFN
-  tensor (`tf_layer_i.fc_gate_up` becomes `tf_layer_i.mlp.fc_gate_up`), so it
-  lands after the 0.20.0 tag with a single republish of the affected families. Gemma's
-  routed block (`GemmaFeedForward::Routed`) already delegates, so the 26B-A4B's dense
-  branch is a `GatedMLP` today, and the dense 12B does not (`Gemma4MoE.md` Phase 2a).
-  Each family now switches on its own pass and republishes once
-  (`ModelFamilyParity.md` 8.1): Gemma's in §8.2 G4, where each `GemmaFeedForward` value
-  becomes a sublayer type, Llama's in §8.4.
+  tensor, so each family switches on its own pass and republishes once
+  (`ModelFamilyParity.md` 8.1): Llama's in §8.4.
 
 ---
 

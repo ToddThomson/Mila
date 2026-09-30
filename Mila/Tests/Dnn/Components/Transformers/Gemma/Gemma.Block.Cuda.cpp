@@ -250,9 +250,9 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     {
         LocalBlock block( "gemma_local", smallConfig(), Device::Cuda( 0 ) );
 
-        // 7 norms (input/q/k/v/post_attn/pre_ffn/post_ffn) + qkv_proj + rope + gqa +
-        // o_proj + res_1 + fc_gate_up + geglu + fc_down + res_2.
-        EXPECT_EQ( block.getComponents().size(), 16u );
+        // 5 norms (input/q/k/v/post_attn) + qkv_proj + rope + gqa + o_proj + res_1 + ffn + res_2;
+        // the feed-forward sublayer holds its own norms and projections.
+        EXPECT_EQ( block.getComponents().size(), 12u );
     }
 
     TEST_F( GemmaBlockCudaTests, GlobalBlock_HasSameGraphShape )
@@ -260,7 +260,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         GlobalBlock block( "gemma_global", smallConfig(), Device::Cuda( 0 ) );
 
         // The global block has the same component graph; only widths differ.
-        EXPECT_EQ( block.getComponents().size(), 16u );
+        EXPECT_EQ( block.getComponents().size(), 12u );
     }
 
     TEST_F( GemmaBlockCudaTests, GetType_IsTransformer )
