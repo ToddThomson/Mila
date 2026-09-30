@@ -622,7 +622,10 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Cache.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Cache.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Decode.Fp32.cu"
-            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Decode.Bf16.cu"
+            # Gqa.Decode.Bf16.cu (the CUDA-core decode kernel) is retired from the build and kept in-tree
+            # for reference: it profiled issue-bound, not bandwidth-bound (GqaDecodeAttention.md). Both
+            # define cuda_gqa_decode_attention_bf16, so exactly one is compiled.
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Decode.Mma.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Bf16.cu"
             # Gqa.Flash.Bf16.cu (scalar Iteration 2) and Gqa.Flash.Wmma.cu (Stage 2d) are retired

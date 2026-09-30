@@ -330,7 +330,8 @@ RTX 5060 Ti from the measurements before it, against llama.cpp on the same GGUF 
 
 So the recording brings Llama ahead with no context and level at 32K, and Gemma level with no context. What
 remains is attention at depth -- Llama's decode attention reads an 8K cache at about 70% of bandwidth, and
-Gemma's head-size-512 global layers fall away with depth. That is the next item, and it is not this change. One
+Gemma's head-size-512 global layers fall away with depth. That is the next item, and it is not this change (done at
+`+20`: `GqaDecodeAttention.md`). One
 condition of the Gemma row: the compared weights differ in the output head, FP8 in Mila's package (1.0 GB read a
 token) and Q6_K in the GGUF (0.83 GB).
 

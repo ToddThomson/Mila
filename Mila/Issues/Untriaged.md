@@ -36,6 +36,14 @@ generation at 64 MiB, measured on the current CUDA device -- ordinal 0, the RTX 
 the display, shared with 18 desktop processes. Same binary, three runs on 2026-09-23: 2.0, 1.9 and
 116.6 MiB; a full-suite run earlier the same day read 375.3 MiB. Scratch predicted and reported were
 identical in every run. The file's own note (`:40`) records noise reaching 47.6 MiB.
+2026-09-29, `+19` tree, the 4070 pinned alone by UUID: the reading is bimodal, 262.6 or 10.0 MiB, and never between.
+Under `CUDA_MODULE_LOADING=LAZY` (the default) six fresh processes read 262.6 five times; under `EAGER` every run reads
+10.0, with about 450 MiB less free before generation. So the ~253 MiB step is the driver loading kernels lazily inside
+the measured window, not a Mila allocation; it reproduced with either decode attention kernel. History: the test
+measured on the display-free 5060 Ti from `rc.1+15` and on the current device (the 4070 when both cards are visible)
+from `rc.1+28`, when NVML left the tests. Not measured: the suite with both cards visible, Todd's validation
+condition; why identical runs land in different modes; why the 5060 Ti never shows the step. The ~256 MiB
+driver block is inferred from the readings, not found in NVIDIA's documentation.
 
 ## A skipped test sends the reader to a backlog entry that no longer exists
 
@@ -448,3 +456,28 @@ the fused FP4 GEMMs (`cuda_fp4a16_gemm`, `cuda_fp4a16_gemm_wmma`) and `use_wmma_
 Found 2026-09-29 while splitting `forward()` into one method per path, which kept them (`runCublasLtPrefill`,
 `runFusedFp4Prefill`) so that change stayed a restructure. Retiring the toggles means deciding whether the fused
 kernels keep a measured purpose.
+
+## The FP8 prefill issues its next tile's load only after widening the current one
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Packed.cu:376-388` @ `0.21.0-dev+20`
+
+In the packed flash prefill over the FP8 cache, each iteration waits for its tile, widens it into the single BF16
+stage, and only then issues the next tile's `cp.async`, so no load is in flight while the tile widens. The next
+tile's code stage is free before the widening (its last reader was the previous widening). The same ordering in the
+decode kernel was moved and measured: with the widening vectorized as well, Llama's FP8-cache decode at 32K went from
+217 to 175 us (`GqaDecodeAttention.md` 2 and 5). The prefill is not measured; it is heavier in compute, so the
+gain may be smaller.
+
+## CUTLASS's fix for SM120 block-scaled MMA was closed unmerged
+
+`Mila/Specifications/MixtureOfExperts.md` section 3(c) @ `0.21.0-dev+20`
+
+Checked 2026-09-29 for the Gemma 4 26B-A4B grouped expert GEMM on Blackwell: CUTLASS 4.8.0 is the latest release
+(2026-09-22); its notes list grouped and grouped block-scaled GEMM improvements (B collector reuse, SMEM-staged TMA
+descriptor updates, less prologue) and NVFP4 with a UE5M3 scale type, under Blackwell headings whose reach to the
+GeForce SM120 path was not confirmed. PR #3082 (`is_family_of()` for the SM12x guard in `MmaSM120BlockScaledOp`),
+which `MixtureOfExperts.md` names as the in-flight correction, is closed and not merged, so the `120a` failure mode
+that section records is not known to be fixed upstream. CUTLASS's block-scaled grouped GEMM serves NVFP4 and MXFP4,
+not Q4_0, which bears on the expert-format question in the 26B-A4B QAT entry above: Q4_0 experts would take Mila's
+own INT8 GEMM made grouped, NVFP4 experts CUTLASS. Todd, 2026-09-29: Gemma 4 MoE on Blackwell with current CUTLASS
+may be a better use of time than more decode-attention work.

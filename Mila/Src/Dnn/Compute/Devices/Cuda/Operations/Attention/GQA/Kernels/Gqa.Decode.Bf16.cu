@@ -1,3 +1,7 @@
+// RETIRED: out of the build, kept for reference. Superseded by Gqa.Decode.Mma.cu, which runs QK and PV on the
+// tensor cores; this kernel was bound by instruction issue on the CUDA cores, not by bandwidth
+// (GqaDecodeAttention.md).
+
 /**
  * @file Gqa.Decode.Bf16.cu
  * @brief Fused single-token decode attention over the compact BF16 KV cache.

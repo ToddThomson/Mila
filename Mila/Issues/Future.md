@@ -11,6 +11,18 @@ flow and categories are in [README.md](README.md); the tag set is [Tags.md](Tags
 
 ---
 
+## Gemma generates about 1% more slowly than llama.cpp at short and mid context
+
+`perf` · `gemma` · `mila-src` · `measured`
+
+Out of `BACKLOG.md` at `+20` (Todd, 2026-09-29: being faster than llama.cpp is the aim, not a release criterion,
+and more decode-attention work was not promising enough to continue). RTX 5060 Ti, same Q4_0 weights: Gemma 4 12B
+generates 53.7 / 50.4 / 48.1 tokens a second at depth 0 / 8K / 32K against llama.cpp's 54 / 51 / 48 (from the
+`+19` comparison run); Llama 3.1 8B is ahead at every depth. Each of Gemma's 48 attention calls a token pays about
+3 us in two small launches, the split merge and the cache write; fusing both into the attention kernel is
+`GqaDecodeAttention.md` section 6, and the merge needs a persistent counter in the op's state. The depth-0 cell also
+carries the output-head difference (FP8 in Mila's package, Q6_K in the GGUF).
+
 ## Qwen 3 — the dense members
 
 `models` · `quantization` · `mila-src`

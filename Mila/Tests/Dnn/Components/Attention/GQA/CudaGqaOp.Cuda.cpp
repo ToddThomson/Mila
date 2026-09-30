@@ -21,11 +21,14 @@
  */
 
 #include <gtest/gtest.h>
+#include <cuda_runtime.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <initializer_list>
 #include <memory>
 #include <random>
 #include <string>
@@ -35,6 +38,7 @@ import Mila;
 // CudaGqaOp is not on the public umbrella; this suite tests the operation directly.
 import Compute.CudaGqaOp;
 import Compute.GqaState;
+import Compute.CudaExecutionContext;
 
 namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
 {
@@ -1278,5 +1282,194 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
         EXPECT_LT( max_diff, kDecodeParityAtol )
             << "fused decode diverged from cuBLASLt at the Llama config "
                "(HS=128, GS=4, window=0), max_diff=" << max_diff;
+    }
+
+    // ====================================================================
+    // Fused decode-attention rate at depth, per family geometry
+    //
+    // One decode call (cache write, attention, split merge) at a fixed position after a prefill to that depth,
+    // replayed as one CUDA graph as a network's decode step is. In a network each layer's cache is read once a token
+    // with every other layer's weights streamed between, so it is never L2-resident; here enough ops are decoded in
+    // turn that their live bands together exceed L2 several times over. Disabled because it is a measurement, not a
+    // gate; run with --gtest_also_run_disabled_tests and pin the card with CUDA_VISIBLE_DEVICES.
+    // ====================================================================
+
+    class CudaGqaDecodeRate : public CudaGqaFlashPrefillParity
+    {
+    protected:
+        static constexpr int kChunk = 512;
+        static constexpr std::size_t kResidentBytes = std::size_t( 256 ) << 20;
+        static constexpr int kReplays = 20;
+
+        using Fp8Op = Compute::Cuda::Gqa::CudaGqaOp<TensorDataType::BF16, false, true>;
+
+        /// Live-band bytes one decode call reads: K and V rows, plus one scale per row of each for FP8.
+        static std::size_t bandBytes( const FlashGeometry& geometry, int depth, int window, bool fp8 )
+        {
+            const std::size_t band = static_cast<std::size_t>( window > 0 ? std::min( depth + 1, window ) : depth + 1 );
+            const std::size_t rows = band * geometry.kv_heads;
+
+            return fp8 ? rows * 2 * ( geometry.head_dim + sizeof( float ) ) : rows * 2 * geometry.head_dim * 2;
+        }
+
+        /// Mean microseconds of one decode call at `depth`, DRAM-resident.
+        template<typename TOp>
+        double decodeMicroseconds( const FlashGeometry& geometry, int depth, int window, bool fp8 )
+        {
+            const int context = depth + kChunk;
+            const std::size_t bytes = bandBytes( geometry, depth, window, fp8 );
+            const int op_count = static_cast<int>( std::max<std::size_t>( 1, ( kResidentBytes + bytes - 1 ) / bytes ) );
+
+            std::mt19937 rng( 5u );
+            DeviceBf16 q = toDevice( randomHost( shape_t{ kGBatch, kChunk, geometry.heads * geometry.head_dim }, rng ) );
+            DeviceBf16 k = toDevice( randomHost( shape_t{ kGBatch, kChunk, geometry.kv_heads * geometry.head_dim }, rng ) );
+            DeviceBf16 v = toDevice( randomHost( shape_t{ kGBatch, kChunk, geometry.kv_heads * geometry.head_dim }, rng ) );
+            DeviceBf16 out( Device::Cuda( 0 ), shape_t{ kGBatch, kChunk, geometry.modelDim() } );
+
+            DeviceBf16 q_step = toDevice( randomHost( shape_t{ kGBatch, 1, geometry.heads * geometry.head_dim }, rng ) );
+            DeviceBf16 k_step = toDevice( randomHost( shape_t{ kGBatch, 1, geometry.kv_heads * geometry.head_dim }, rng ) );
+            DeviceBf16 v_step = toDevice( randomHost( shape_t{ kGBatch, 1, geometry.kv_heads * geometry.head_dim }, rng ) );
+            DeviceBf16 out_step( Device::Cuda( 0 ), shape_t{ kGBatch, 1, geometry.modelDim() } );
+
+            // Consumed only by the cuBLASLt paths, which neither flash leg takes.
+            DeviceBf16 q_permute( Device::Cuda( 0 ), shape_t{ kGBatch, geometry.heads, kChunk, geometry.head_dim } );
+            DeviceBf16 scores( Device::Cuda( 0 ), shape_t{ kGBatch, geometry.heads, kChunk, 1 } );
+            DeviceBf16 v_out( Device::Cuda( 0 ), shape_t{ kGBatch, geometry.heads, kChunk, geometry.head_dim } );
+
+            GqaState state;
+            state.q_permute = &q_permute;
+            state.preatt = &scores;
+            state.att = &scores;
+            state.v_out = &v_out;
+            state.preatt_decode = &scores;
+            state.att_decode = &scores;
+            state.v_out_decode = &v_out;
+
+            std::vector<std::unique_ptr<TOp>> ops;
+
+            for ( int i = 0; i < op_count; ++i )
+            {
+                auto op = std::make_unique<TOp>( cuda_context_.get(),
+                    GqaConfig( geometry.modelDim(), geometry.heads, geometry.kv_heads ).withWindow( window ) );
+                op->build( BuildContext( shape_t{ kGBatch, context, geometry.packedQkv() },
+                    RuntimeMode::Inference, false ).withPrefillSize( kChunk ) );
+                op->initializeKvCache( kGBatch, context );
+                op->setUseFlashPrefill( true );
+                op->setUseFlashDecode( true );
+                op->setState( state );
+
+                for ( int offset = 0; offset < depth; offset += kChunk )
+                {
+                    op->prefill( q, k, v, out, offset );
+                }
+
+                ops.push_back( std::move( op ) );
+            }
+
+            cuda_context_->setDecodePosition( depth );
+
+            // Grows the split scratch before the capture, so the recording holds its final pointer.
+            for ( auto& op : ops )
+            {
+                op->decode( q_step, k_step, v_step, out_step, depth );
+            }
+
+            cuda_context_->synchronize();
+
+            auto* cuda_context = dynamic_cast<CudaExecutionContext*>( cuda_context_.get() );
+            EXPECT_NE( cuda_context, nullptr );
+            const cudaStream_t stream = cuda_context->getStream();
+
+            cudaGraph_t graph = nullptr;
+            cudaGraphExec_t graph_exec = nullptr;
+            EXPECT_EQ( cudaStreamBeginCapture( stream, cudaStreamCaptureModeThreadLocal ), cudaSuccess );
+
+            for ( auto& op : ops )
+            {
+                op->decode( q_step, k_step, v_step, out_step, depth );
+            }
+
+            EXPECT_EQ( cudaStreamEndCapture( stream, &graph ), cudaSuccess );
+            EXPECT_EQ( cudaGraphInstantiate( &graph_exec, graph, 0 ), cudaSuccess );
+
+            cudaGraphLaunch( graph_exec, stream );
+            cudaStreamSynchronize( stream );
+
+            cudaEvent_t start = nullptr;
+            cudaEvent_t stop = nullptr;
+            cudaEventCreate( &start );
+            cudaEventCreate( &stop );
+            cudaEventRecord( start, stream );
+
+            for ( int replay = 0; replay < kReplays; ++replay )
+            {
+                cudaGraphLaunch( graph_exec, stream );
+            }
+
+            cudaEventRecord( stop, stream );
+            cudaEventSynchronize( stop );
+
+            float milliseconds = 0.0f;
+            cudaEventElapsedTime( &milliseconds, start, stop );
+
+            cudaEventDestroy( start );
+            cudaEventDestroy( stop );
+            cudaGraphExecDestroy( graph_exec );
+            cudaGraphDestroy( graph );
+
+            return 1000.0 * milliseconds / ( static_cast<double>( kReplays ) * op_count );
+        }
+
+        template<typename TOp>
+        void printRates( const char* family, const FlashGeometry& geometry, int window, bool fp8,
+            std::initializer_list<int> depths )
+        {
+            std::printf( "%s (heads %d, KV heads %d, head_dim %d, window %d, %s cache)\n",
+                family, geometry.heads, geometry.kv_heads, geometry.head_dim, window, fp8 ? "FP8" : "BF16" );
+            std::printf( "  %8s %10s %10s %10s\n", "depth", "band MB", "us", "GB/s" );
+
+            for ( int depth : depths )
+            {
+                const double bytes = static_cast<double>( bandBytes( geometry, depth, window, fp8 ) );
+                const double microseconds = decodeMicroseconds<TOp>( geometry, depth, window, fp8 );
+
+                std::printf( "  %8d %10.2f %10.2f %10.1f\n", depth, bytes / 1.0e6, microseconds,
+                    bytes / ( microseconds * 1.0e3 ) );
+            }
+
+            std::fflush( stdout );
+        }
+    };
+
+    // One test per geometry, so a profiler can be pointed at one of them.
+    TEST_F( CudaGqaDecodeRate, DISABLED_Llama8B )
+    {
+        printRates<UnboundedBf16Op>( "Llama 3.1 8B", kLlama8B, 0, false, { 1024, 4096, 8192, 16384, 32768 } );
+    }
+
+    TEST_F( CudaGqaDecodeRate, DISABLED_Llama8BFp8 )
+    {
+        printRates<Fp8Op>( "Llama 3.1 8B", kLlama8B, 0, true, { 1024, 4096, 8192, 16384, 32768 } );
+    }
+
+    TEST_F( CudaGqaDecodeRate, DISABLED_Llama3B )
+    {
+        printRates<UnboundedBf16Op>( "Llama 3.2 3B", kLlama3B, 0, false, { 1024, 4096, 8192, 16384, 32768 } );
+    }
+
+    TEST_F( CudaGqaDecodeRate, DISABLED_QwenFullAttention )
+    {
+        printRates<UnboundedBf16Op>( "Qwen 3.8 full attention", kQwenFullAttention, 0, false,
+            { 1024, 4096, 8192, 16384, 32768 } );
+    }
+
+    TEST_F( CudaGqaDecodeRate, DISABLED_GemmaGlobal )
+    {
+        printRates<UnboundedBf16Op>( "Gemma 4 12B global", kGemmaGlobal, 0, false, { 1024, 4096, 8192, 16384, 32768 } );
+    }
+
+    TEST_F( CudaGqaDecodeRate, DISABLED_GemmaSliding )
+    {
+        printRates<BoundedBf16Op>( "Gemma 4 12B sliding", kGemmaSliding, kGemmaSlidingWindow, false, { 8192 } );
     }
 }

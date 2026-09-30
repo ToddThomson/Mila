@@ -178,18 +178,19 @@ Mila by the trait — a library for developers to harness intelligence — once 
 it true is tagged. Whether a C ABI is needed at the `AI` boundary is decided during this release
 against the QuickStart experience; one would ship no earlier than the next.
 
-**Part of that message is speed: Mila runs the best local models faster than llama.cpp.** It is one
-part of the whole the release completes, not the lead. "Fast and comparable" is where it stands today;
-the release moves it to "faster", on the models people actually run
-locally -- Gemma 4, Qwen 3.8, Llama -- on a 16 GB consumer card, for prompt processing and for generation.
-The claim is only as strong as its weakest cell, so it rests on a measurement anyone can rerun, and a cell
-where Mila is behind is work before the release, not a row left off the page.
+**Part of that message is how Mila performs next to llama.cpp**, on the models people actually run
+locally -- Gemma 4, Qwen 3.8, Llama -- on a 16 GB consumer card, for prompt processing and for
+generation. It is there as evidence of quality: performance as good as the engine most local users
+already run, measured the same way, shows that Mila is professional work. It is one part of the whole
+the release completes, not the lead, and not a race: being faster is welcome, not the condition. What
+the release commits to is a comparison anyone can rerun, with every cell shown as measured.
 
 **Success criteria:** both QuickStarts run from a clean machine with only the documented
 prerequisites, and each keeps a component-built path; no public surface describes Mila as a
-reference implementation first, or uses "adaptor"; and the website shows Mila ahead of llama.cpp on
-every published model, prefill from 512 to 32K tokens and generation with an empty and a filled
-context, from one script in the repository that reproduces every number.
+reference implementation first, or uses "adaptor"; and the website shows, in tables and graphs, Mila
+against llama.cpp on every published model, prefill from 512 tokens to the longest context both fit
+on the card and generation from an empty context to that same length, from one script in the
+repository that reproduces every number.
 
 ### Qwen 3.8 Complete
 

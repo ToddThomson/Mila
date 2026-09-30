@@ -229,26 +229,39 @@ late in the cycle, on the numbers the tag ships. Gate: no public surface describ
 implementation first, or uses "adaptor", and every landing-page claim links to a page that states exactly what
 backs it.
 
-#### The website cannot show that Mila runs the best local models faster than llama.cpp
+#### The website cannot show how Mila performs next to llama.cpp on the models people run
 
 `in progress` · `perf` · `models` · `docs`
 
-The site's Fast claim is a 4070 measurement against llama.cpp under LM Studio at Q4_K_M, from before this
-release's kernels. The measurements that would let it say "faster" come from the comparison script
+The page is evidence of quality: performance as good as llama.cpp's, measured the same way, is what shows Mila is
+professional work. The site's Fast claim is a 4070 measurement against llama.cpp under LM Studio at Q4_K_M, from
+before this release's kernels. The measurements that replace it come from the comparison script
 (`Mila/Profiling/Benchmarks/benchmark_comparison.py`), which runs Llama 3.1 8B and Gemma 4 12B today; the
 Llama 3.2 3B row needs its Q4_0 GGUF and the Qwen 3.8 rows a GGUF of their own (llama.cpp knows the
 architecture).
 
-One script in the repository drives both engines and writes the table the site shows: every published model,
-prefill at 512, 2K, 8K and 32K, and generation (128 tokens) with an empty context and at 8K and 32K, averaged over
-at least three runs on the 16 GB reference card (RTX 5060 Ti). llama.cpp runs `llama-bench` with flash attention,
-every layer on the GPU and an FP16 KV cache. Where both run the same weights in the same format (Gemma 4 12B and
-Llama 3.1 8B in Q4_0) the cell is a head-to-head; otherwise each engine runs the format a user would pick for
-that model on that card, named in the table. Whether llama.cpp runs Qwen 3.8's architecture is checked before its
-row is promised. A cell where Mila is behind becomes its own entry here, fixed before the release -- it is not
-dropped from the table. The table is the page the landing page's Fast claim links to, with the card, the method
-and the command that reruns it; its public copy is written in the website's voice once the numbers exist, measured
-once on the CUDA toolkit the tag ships.
+One script in the repository drives both engines and writes the data the site shows. The target, fixed 2026-09-29:
+
+- **Rows:** every model published at the tag -- Llama 3.2 3B, Llama 3.1 8B, Gemma 4 12B, Qwen 3.8 27B in each of
+  its builds, and the Gemma 4 26B-A4B if it ships.
+- **Prefill:** 512, 2K, 8K and 32K tokens, and the longest context both engines fit.
+- **Generation:** 128 tokens (llama-bench's `tg128`) with an empty context, at 8K and 32K, and at the longest.
+- **The longest cell** is the largest multiple of 8K that both engines load on the card with that cell's KV
+  format: Mila's figure from its own planner, llama.cpp's from whether it loads. It is not the model's own maximum,
+  which no 16 GB card holds for most of these models.
+- **The page:** per model, a table of every cell and two graphs, prefill tokens a second against prompt length and
+  generation tokens a second against context depth, both engines on each. The site renders them from the data file
+  the script writes, so a rerun is the page's update and no number is copied by hand.
+
+Each cell is averaged over at least three runs on the 16 GB reference card (RTX 5060 Ti). llama.cpp runs
+`llama-bench` with flash attention, every layer on the GPU and an FP16 KV cache. Where both run the same weights
+in the same format (Gemma 4 12B and Llama 3.1 8B in Q4_0) the cell is a head-to-head; otherwise each engine runs
+the format a user would pick for that model on that card, named in the table. Whether llama.cpp runs Qwen 3.8's
+architecture is checked before its row is promised. Every cell is shown as measured, ahead or behind; a cell where
+Mila is behind is never dropped from the page, and closing it is not a condition of the release (Todd,
+2026-09-29: faster is the aim, not the criterion). The page is what the landing page's performance claim links to,
+with the card, the method and the command that reruns it; its public copy is written in the website's voice once
+the numbers exist, says only what the cells show, and is measured once on the CUDA toolkit the tag ships.
 
 The comparison is as fair as the script can make it, because a win that comes from the setup is not a win. Every
 cell holds these, and the page states them:
@@ -264,22 +277,9 @@ cell holds these, and the page states them:
   Mila's generation includes on-device sampling and the token's readback -- it is measured and either removed or
   shown.
 
-Gate: the script reruns the whole table unattended and enforces the rules above, every cell shows Mila ahead, and
-the Fast claim links to the table.
-
-#### Mila generates text more slowly than llama.cpp on the same weights
-
-`in progress` · `perf` · `llama` · `mila-src` · `measured`
-
-The same Q4_0 weights in both engines, on the RTX 5060 Ti, at context depth 0, 8K and 32K: Llama 3.1 8B generates
-80, 63 and 39 tokens a second in Mila against 79, 65 and 39 in llama.cpp; Gemma 4 12B 54, 49 and 45 against 54, 51
-and 48. Level with no context, behind at depth. Prefill is 1.16-1.29x ahead, so the gap is in the per-token loop.
-What remains is attention over a long cache: Llama's decode attention reads an 8K cache well below the card's
-bandwidth, and Gemma's head-size-512 global layers fall away with depth. One condition of the Gemma row: the compared
-weights differ in the output head, FP8 in Mila's package (1.0 GB read a token) and Q6_K in the GGUF (0.83 GB).
-`Mila/Specifications/DecodeGraph.md` section 8.
-Gate: every generation cell of the comparison table (`Mila/Profiling/Benchmarks/benchmark_comparison.py`) shows
-Mila ahead.
+Gate: the script reruns every cell unattended and enforces the rules above, the site's tables and graphs render
+every cell from the script's data, and the landing page's performance claim links to that page and claims nothing
+the cells do not show.
 
 ### Qwen 3.8 Complete
 
