@@ -41,8 +41,6 @@ namespace Mila::Dnn
      * @tparam TResult         What the action returns -- a model, or a MemoryStats.
      * @tparam kFp4GroupSize   The FP4 group the caller's geometry requires. A compile-time value so
      *                         a family instantiates only the group it can build.
-     * @tparam kHasQ4_0        False for a chassis with no Q4_0 path; the request is then refused
-     *                         without instantiating one.
      *
      * @param weight_quantization Runtime weight-quantization setting to resolve to a policy type.
      * @param kv_cache_compression Runtime KV-cache setting accompanying it.
@@ -56,7 +54,6 @@ namespace Mila::Dnn
         KvCachePolicy TKvCachePolicy,
         typename TResult,
         int kFp4GroupSize = 128,
-        bool kHasQ4_0 = true,
         typename TAction>
     TResult dispatchWeightQuantization(
         WeightQuantization weight_quantization,
@@ -89,12 +86,7 @@ namespace Mila::Dnn
                 }
 
             case WeightQuantization::Q4_0:
-                if constexpr ( !kHasQ4_0 )
-                {
-                    throw std::runtime_error( std::format(
-                        "{}: Q4_0 is not available for this model", caller ) );
-                }
-                else if constexpr ( TPrecision == TensorDataType::BF16 )
+                if constexpr ( TPrecision == TensorDataType::BF16 )
                 {
                     return action.template operator()<PerGroupInt4<32>, TKvCachePolicy>();
                 }

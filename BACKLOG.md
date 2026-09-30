@@ -38,6 +38,10 @@ once at the start of the cycle. Whatever has not landed by then goes back to
 accommodate the list. Gemma 4 image input is the first item to drain. A backlog that grows while the
 date holds is the signal to drain it early.
 
+Scope grew a second time on 2026-09-29: the Gemma 4 26B-A4B's bar rose from a published package to parity
+with every other model Mila publishes, admitting three entries under Gemma 4 Complete with no removal. It
+is scope the parity survey found rather than scope invented, and it is held to the same date.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -243,7 +247,7 @@ architecture).
 One script in the repository drives both engines and writes the data the site shows. The target, fixed 2026-09-29:
 
 - **Rows:** every model published at the tag -- Llama 3.2 3B, Llama 3.1 8B, Gemma 4 12B, Qwen 3.8 27B in each of
-  its builds, and the Gemma 4 26B-A4B if it ships.
+  its builds, and the Gemma 4 26B-A4B.
 - **Prefill:** 512, 2K, 8K and 32K tokens, and the longest context both engines fit.
 - **Generation:** 128 tokens (llama-bench's `tg128`) with an empty context, at 8K and 32K, and at the longest.
 - **The longest cell** is the largest multiple of 8K that both engines load on the card with that cell's KV
@@ -403,6 +407,70 @@ protocols, converter keeps the embedders, manifest declares modality, footprint 
 Image input reaches applications through `Mila::AI`, not around it. Gate: embedder parity against
 HuggingFace, then token-for-token on an image prompt.
 
+#### Gemma's feed-forward is wired inline in its block, and its tensor names change the day it becomes a component
+
+`in progress` · `gemma` · `architecture` · `mila-src` · `breaking`
+
+The dense 12B's feed-forward is three inline children of `GemmaBlock`, and the routed 26B-A4B's is six
+members null on a dense block beside a delegated `mlp`. Moving each into a sublayer component adds a scope to
+every feed-forward tensor name, so it must land before any Gemma package is published or republished -- the
+26B-A4B's first publish and the 12B's Q4_0 republish both wait on it.
+
+In two changes (`ModelFamilyParity.md` §9 item 7). The first renames nothing: the two flags become
+`GemmaFeedForward { Dense, Routed }`, the footprint goes through `dispatchChassis`, which refuses a routed FP8
+or Q4_0 build before instantiating it, and the block workspace lists its slots once. The second makes each
+value a sublayer under `ffn` with the decided names, deletes the inline FFN (`Gemma4MoE.md` Phase 2b), and
+reconverts every Gemma weights file and fixture once.
+
+Gate: 12B token parity; footprint drift gates unchanged; the tiny routed wiring gate and its
+forced-failure negative; the 26B layer-streamed BF16 gate and its FP4 greedy tokens; full suite.
+
+`Mila/Specifications/ModelFamilyParity.md` §8.2, G4
+
+#### The Gemma 4 26B-A4B reaches 8192 tokens on a 16 GB card only by prefilling 256 at a time, and cannot load the Q4_0 weights Google trained
+
+`open` · `gemma` · `quantization` · `mila-src`
+
+At context 8192 on the RTX 5060 Ti the planner narrows the prefill chunk to 256 rows to fit, with 120 MiB free
+after load, where the 12B plans 1024; at a fixed 512 it was 83.8 MiB over (`Gemma4MoE.md` Phase 8), and 32768
+is refused. The cause is the routed buffers: each layer allocates its own expert output
+(`MixtureOfExperts.ixx:387`) and FP32 gated scratch (`CudaMoeOp.ixx:126`), about 0.49 GiB at chunk 512, where
+every other activation is pooled through the block workspace. A narrow chunk caps prefill once the kernels
+are fast. And the model refuses
+`q4_0` (`GemmaModel.ixx:542`) because the expert bank implements FP4 only (`CudaMoeOp.ixx:76`), while
+Google publishes this model quantization-aware in Q4_0 (`Gemma.md` §10.4).
+
+Work: pool the routed buffers inside the routed sublayer; a `PerGroupInt4<32>` expert bank, the routed
+dispatch admitting `q4_0`, and the model exported from Google's unquantized QAT checkpoint. The kernels
+here are for correctness; their speed is the entry below.
+
+Gate: at 8192 the plan's chunk matches the 12B's, at Q4_0 and `PerGroupFp4<64>`; footprint exact; greedy
+tokens unchanged; every Q4_0 tensor equal in code and scale bits to Google's GGUF.
+
+`Mila/Specifications/ModelFamilyParity.md` §8.2, G5 · `Mila/Specifications/MixtureOfExperts.md` §7.7
+
+#### The Gemma 4 26B-A4B prefills 150 times and generates 11 times slower than llama.cpp on the same card
+
+`open` · `gemma` · `perf` · `mila-src` · `measured`
+
+On the RTX 5060 Ti, Mila prefills 23 tokens a second and generates 11; llama.cpp on Google's GGUF prefills
+about 3,600 and generates 127. Its CUDA path is the correctness baseline it was validated with: prefill is one
+thread per output value rather than a GEMM, decode launches 6 to 11 blocks on a 36-SM card with uncoalesced
+weight reads, and the router is one block. The two expert kernels are 91% of a decode step and all of a
+prefill, and the same kernels run alone on an empty card take the same time, so this is not paging. Outside
+the bank Mila's step is 7.8 ms against llama.cpp's whole 7.9, so the bank alone does not close it. Figures,
+profile and method: `Gemma4MoE.md`, "Rates Baseline".
+
+Work: Mila's own kernels -- the grouped INT8 prefill, the Q4_0 gather decode, the router, and the dense and
+attention decode path measured against llama.cpp's. Admitted by the parity bar, not by the measurement: the
+measurement locates the work (`ModelFamilyParity.md` §9 item 9).
+
+Gate: grouped prefill equal to the correctness kernel within the INT8 path's tolerance; decode
+bit-identical between prefill-built and one-token banks; token parity unchanged; the comparison row
+reproduced by the one script. Rates are reported, not gated.
+
+`Mila/Specifications/ModelFamilyParity.md` §8.2, G5b
+
 #### Announce the Gemma 4 26B-A4B mixture of experts
 
 `open` · `gemma` · `distribution`
@@ -412,9 +480,14 @@ Landed in `Mila/Src` during rc.1 — the router and expert bank on CPU and CUDA,
 and FP4. It appears in no README capability row, no CLAUDE.md target and no release note, because
 no published package uses it, so a user cannot run it.
 
-Held out of v0.20.0 deliberately (Todd, 2026-09-21) on the same rule as the entry above. What it
-needs to become announceable is a published package and a capability row, not more implementation.
-Expect this to be rediscovered by anyone grepping the tree for MoE and wondering why it is silent.
+Held out of v0.20.0 (Todd, 2026-09-21). A package alone would publish it below every other model Mila
+ships, so it waits on the three entries above, and then on the rest of `Gemma.md` §10.7's bar: quality
+across the planner's range, by the method `ModelFamilyParity.md` §9 item 18 settles; decode replay gated
+equal to the called path on a routed network; active parameter bytes in the plan and in Chat's display;
+the model run through Chat, the inference server and the Python binding, tool calls included. Then the
+package, its card and the capability row. A first publish, so it is not held for the 12B's republish.
+
+`Mila/Specifications/ModelFamilyParity.md` §8.2, G6
 
 #### Gemma loses its own reasoning between tool calls in a turn
 

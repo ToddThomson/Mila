@@ -56,6 +56,16 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::Weight;
 
     /**
+     * @brief Whether the expert bank implements a weight policy: unquantized, or per-group FP4.
+     *
+     * Answered at compile time, so a model can refuse a policy before it instantiates a network whose bank would
+     * refuse it at construction.
+     */
+    export template<WeightQuantPolicy TWeightQuantization>
+    constexpr bool expertBankImplements =
+        !TWeightQuantization::kIsQuantized || requires { requires TWeightQuantization::kIsFp4E2M1; };
+
+    /**
      * @brief Stacked experts: gate_up_proj [E, 2I, H] and down_proj [E, H, I], checkpoint-named.
      *
      * An expert is a row of these tensors, never an object. Inference-only. Under a per-group FP4

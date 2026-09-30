@@ -241,7 +241,9 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Transformers/Llama/Llama.HuggingFaceReference.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Block.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp"
-        "Dnn/Components/Transformers/Gemma/Gemma.DelegatedFeedForward.Cuda.cpp"
+        # -- RETIRED (ModelFamilyParity.md 8.2, G4): a dense network with a delegated feed-forward, the
+        #    pair it compared, is no longer a type. Kept on disk as the recipe for G4's second change.
+        #"Dnn/Components/Transformers/Gemma/Gemma.DelegatedFeedForward.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.MixtureOfExperts.Cuda.cpp"
         "Dnn/Components/Transformers/Qwen/Qwen.Block.Cuda.cpp"
         "Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.Cuda.cpp"

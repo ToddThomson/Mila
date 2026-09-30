@@ -157,6 +157,17 @@ namespace Mila::Profiling
     class VramHighWaterSampler
     {
     public:
+        VramHighWaterSampler() = default;
+        VramHighWaterSampler( const VramHighWaterSampler& ) = delete;
+        VramHighWaterSampler& operator=( const VramHighWaterSampler& ) = delete;
+
+        // A load that throws -- a refused deployment -- unwinds past stopAndReport(), and destroying a
+        // joinable std::thread calls std::terminate, which lost the refusal's message.
+        ~VramHighWaterSampler()
+        {
+            stop();
+        }
+
         void start()
         {
             stop_.store( false, std::memory_order_relaxed );
@@ -200,10 +211,7 @@ namespace Mila::Profiling
 
         void stopAndReport( const char* label )
         {
-            stop_.store( true, std::memory_order_relaxed );
-
-            if ( worker_.joinable() )
-                worker_.join();
+            stop();
 
             constexpr double mib = 1024.0 * 1024.0;
             const size_t peak_used = ( total_bytes_ > min_free_bytes_ )
@@ -216,6 +224,14 @@ namespace Mila::Profiling
         }
 
     private:
+        void stop()
+        {
+            stop_.store( true, std::memory_order_relaxed );
+
+            if ( worker_.joinable() )
+                worker_.join();
+        }
+
         std::thread worker_;
         std::atomic<bool> stop_{ false };
         // Written only by the worker thread; read after join() -- no data race.

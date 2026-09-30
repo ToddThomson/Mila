@@ -49,6 +49,7 @@ module;
 export module Dnn.Components.GemmaTransformer;
 
 import Dnn.Components.GemmaConfig;
+import Dnn.Components.GemmaFeedForward;
 import Dnn.Components.GemmaBlock;
 import Dnn.Components.ITransformerBlock;
 
@@ -103,11 +104,11 @@ namespace Mila::Dnn
      * Graph: TokenEmbedding -> GemmaBlock x N (heterogeneous local/global) ->
      * RmsNorm -> Linear (lm_head). The embedding sqrt(d) scale and the final logit
      * softcap are handled by the converter and the sampler respectively (see the
-     * file header). kDelegatedFeedForward and kMixtureOfExperts are forwarded to every block (GemmaBlock).
+     * file header). kFeedForward is every block's feed-forward sublayer (GemmaBlock).
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision,
         WeightQuantPolicy TWeightQuantization = NoWeightQuant, KvCachePolicy TKvCachePolicy = NoKvCompression,
-        bool kDelegatedFeedForward = false, bool kMixtureOfExperts = false>
+        GemmaFeedForward kFeedForward = GemmaFeedForward::Dense>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class GemmaTransformer : public LanguageModelNetwork<TDeviceType, TPrecision>
     {
@@ -130,8 +131,8 @@ namespace Mila::Dnn
         // bounded window, so their KV cache can be a ring (SlidingWindowKvCache.md D4).
         // GLOBAL (full-attention) layers attend the entire context and therefore always
         // use the full-context cache (NoKvCompression), regardless of the sliding policy.
-        using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ false, TWeightQuantization, TKvCachePolicy, kDelegatedFeedForward, kMixtureOfExperts>;
-        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ true, TWeightQuantization, NoKvCompression, kDelegatedFeedForward, kMixtureOfExperts>;
+        using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ false, TWeightQuantization, TKvCachePolicy, kFeedForward>;
+        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ true, TWeightQuantization, NoKvCompression, kFeedForward>;
         using TransformerBlockType = ITransformerBlock<TDeviceType, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
@@ -513,7 +514,8 @@ namespace Mila::Dnn
 
             if ( context.isInferenceMode() )
             {
-                stats.device_state_bytes += blockWorkspaceBytes( B, prefill_chunk, granularity );
+                stats.device_state_bytes +=
+                    GemmaBlockWorkspace<TDeviceType, TPrecision>::requiredBytes( config_, B, prefill_chunk, granularity );
                 stats.device_state_bytes += gqaWorkspaceBytes( B, T, prefill_chunk, granularity );
             }
 
@@ -914,25 +916,6 @@ namespace Mila::Dnn
         {
             return TPrecision == TensorDataType::BF16
                 && LocalBlockType::AttentionType::supportsFlashPrefill( config_.getHeadDim() );
-        }
-
-        /**
-         * @brief Bytes the pooled per-block activation workspace would take.
-         *
-         * Mirrors makeGemmaBlockWorkspace(): eighteen slots, twenty-two with the routed feed-forward,
-         * each [B, chunk, width] and each its own allocation, at the gemmaBlockWorkspaceWidths() it
-         * allocates at.
-         */
-        std::size_t blockWorkspaceBytes( dim_t B, int64_t prefill_chunk, std::size_t granularity ) const
-        {
-            std::size_t bytes = 0;
-
-            for ( dim_t width : gemmaBlockWorkspaceWidths( config_ ).slotWidths() )
-            {
-                bytes += occupiedDeviceBytes( storageBytes<TPrecision>( B * prefill_chunk * width ), granularity );
-            }
-
-            return bytes;
         }
 
         /**

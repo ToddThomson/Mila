@@ -1,6 +1,6 @@
 /**
  * @file Gemma.MixtureOfExperts.Cuda.cpp
- * @brief GemmaTransformer with kMixtureOfExperts against a tiny HuggingFace Gemma 4 MoE model.
+ * @brief GemmaTransformer with a routed feed-forward against a tiny HuggingFace Gemma 4 MoE model.
  *
  * The converted weights and the reference logits come from
  * Mila/Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_moe_model_reference.py, which converts its own
@@ -46,7 +46,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         using DeviceTokens = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>;
 
         template<TensorDataType TPrecision>
-        using RoutedNetwork = GemmaTransformer<DeviceType::Cuda, TPrecision, NoWeightQuant, NoKvCompression, true, true>;
+        using RoutedNetwork = GemmaTransformer<DeviceType::Cuda, TPrecision, NoWeightQuant, NoKvCompression, GemmaFeedForward::Routed>;
 
         template<TensorDataType TPrecision>
         using DenseNetwork = GemmaTransformer<DeviceType::Cuda, TPrecision>;
@@ -673,6 +673,37 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
             weightsPath( TensorDataType::BF16 ), config, Device::Cuda( 0 ) );
 
         EXPECT_EQ( model->weightQuantizationScheme(), "per_group_fp4_64" );
+    }
+
+    // The model refuses a policy the expert bank does not implement, naming the bank, before a routed network of
+    // that policy is instantiated; the bank's own construction check is never reached.
+    TEST_F( GemmaMixtureOfExpertsCudaTests, Fp8AndQ4_0_RefusedByTheModelBeforeTheBank )
+    {
+        if ( !captureExists() )
+        {
+            GTEST_SKIP() << "tiny MoE capture not present at: " << captureDirectory().string();
+        }
+
+        for ( WeightQuantization quantization : { WeightQuantization::FP8, WeightQuantization::Q4_0 } )
+        {
+            GemmaModelConfig config( kContext );
+            config.withWeightQuantization( quantization );
+
+            try
+            {
+                GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getDeploymentFootprint(
+                    weightsPath( TensorDataType::BF16 ), config, Device::Cuda( 0 ) );
+
+                ADD_FAILURE() << weightQuantizationName( quantization ) << " was not refused";
+            }
+            catch ( const std::runtime_error& error )
+            {
+                // The bank's own refusal also names the expert bank, so the test asks for the model's words.
+                EXPECT_NE( std::string( error.what() ).find(
+                    "GemmaModel::getDeploymentFootprint: a mixture-of-experts Gemma cannot run" ), std::string::npos )
+                    << weightQuantizationName( quantization ) << ": " << error.what();
+            }
+        }
     }
 
     // ====================================================================

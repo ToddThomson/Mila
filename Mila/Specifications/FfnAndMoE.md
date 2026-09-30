@@ -244,11 +244,11 @@ input [..., in] -> fc_gate_up Linear(in -> 2H, fused) -> Swiglu(split . gate_fn 
   holds the switch is naming: a nested `GatedMLP` renames every published FFN
   tensor (`tf_layer_i.fc_gate_up` becomes `tf_layer_i.mlp.fc_gate_up`), so it
   lands after the 0.20.0 tag with a single republish of the affected families. Gemma's
-  delegated wiring is built and tested behind `GemmaBlock`'s `kDelegatedFeedForward`
-  flag (`Gemma4MoE.md` Phase 2a); the routed 26B-A4B sets it, so its dense branch is a
-  `GatedMLP` today, and the dense 12B does not. Each family now switches on its own
-  pass and republishes once (`ModelFamilyParity.md` 8.1): Gemma's in §8.2 G4, where the
-  flags become a feed-forward sublayer type, Llama's in §8.4.
+  routed block (`GemmaFeedForward::Routed`) already delegates, so the 26B-A4B's dense
+  branch is a `GatedMLP` today, and the dense 12B does not (`Gemma4MoE.md` Phase 2a).
+  Each family now switches on its own pass and republishes once
+  (`ModelFamilyParity.md` 8.1): Gemma's in §8.2 G4, where each `GemmaFeedForward` value
+  becomes a sublayer type, Llama's in §8.4.
 
 ---
 

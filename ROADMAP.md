@@ -227,9 +227,12 @@ channels.
 currently discards.*
 
 Gemma 4 is the family with the most Mila behind it and the most left on the table. The 26B-A4B
-mixture of experts **already works** — router, expert bank, FP4 expert bank and streaming converter,
-gated against HuggingFace at BF16 and FP4 — and appears in no capability row because no published
-package uses it. Two protocol defects survive into multi-step tool use: a model working through a
+mixture of experts **runs** — router, expert bank, FP4 expert bank and streaming converter, gated
+against HuggingFace at BF16 and FP4 — but as a correctness baseline: it reaches 8192 tokens on the 16 GB
+card only by prefilling 256 tokens at a time, cannot load the Q4_0 weights Google trained it for, and
+prefills and generates at a small fraction of llama.cpp's rates on the same card. **It ships level with every other model Mila publishes, or not at all** —
+the trained format, the reference card, rates beside llama.cpp's, quality across the planner's range,
+and every application. Two protocol defects survive into multi-step tool use: a model working through a
 sequence loses the reasoning that led to each step, and a malformed call parses as a call with no
 arguments rather than as prose, which a client that executes `{}` would act on.
 
@@ -268,8 +271,11 @@ template the library already has, so the two can drift.
 
 **Success criteria:** Gemma 4 12B accepts an image and answers about it, with the embedder gated
 against HuggingFace and then token-for-token on a mixed prompt; modality is declared in the manifest
-and read by the handle rather than by a family test; the 26B-A4B is fetchable and named in a
-capability row; reasoning survives across tool calls within a turn and a malformed call is refused
+and read by the handle rather than by a family test; the 26B-A4B is published in Google's
+quantization-aware Q4_0 and holds every parity row the 12B holds (`ModelFamilyParity.md` §3.6) — it
+runs 8192 tokens on the 16 GB card with the prefill chunk the 12B plans there, its prefill and generation rates stand beside llama.cpp's on
+Google's GGUF, its quality is measured across the planner's range, and Chat, the inference server and
+the Python binding run it with tool calls; reasoning survives across tool calls within a turn and a malformed call is refused
 rather than executed as empty; Gemma 4 12B runs Google's quantization-aware weights in Q4_0, and its
 cost over BF16 is measured at every context length the planner can choose for it; the drafter
 question has a recorded result, including the result "not worth doing"; Gemma's quality is measured at every context length the planner can

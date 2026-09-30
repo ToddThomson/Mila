@@ -177,7 +177,7 @@ more than the arithmetic they organize. The decode path indexes the selected
 expert rows directly out of the `[E, ...]` tensor and runs a fused
 gather-matvec, never materializing gathered weights. It is memory-bound on the
 selected rows, so its floor is the active expert bytes over the card's
-bandwidth — about 1.6 ms per token for Gemma 4 26B-A4B on the RTX 5060 Ti
+bandwidth — about 1.8 ms per token for Gemma 4 26B-A4B on the RTX 5060 Ti
 (Section 8).
 
 This is the decode case Mila actually ships. The prefill path is the one that
@@ -495,14 +495,17 @@ set is far smaller than the resident set**: in Gemma 4 26B-A4B, top-8 of 128
 means a token touches 6.25% of each layer's experts.
 
 The arithmetic bounds it before any design work. Per decode token, 8 experts x
-5,947,392 parameters x 30 layers = **1.43B parameters**, or **~0.71 GB at 4
-bits**. The 5060 Ti negotiates **PCIe Gen5 x8 (~31.5 GB/s)** — measured, and
-better than the 4070's Gen4 x4 (~7.9 GB/s), which corrects a note that had the
-slots the other way round. That puts a hard ceiling of ~22.7 ms per token, so
-**~44 tokens/s if every active expert is streamed every token** — against a
-resident bank's floor of about 1.6 ms for the same 0.71 GB at the card's 448
-GB/s. Streaming everything is therefore not a free lunch; it is about fourteen
-times the resident floor, before any compute.
+5,947,392 parameters x 30 layers = **1.43B parameters**, or **~0.80 GB at 4.5
+bits** -- four bits of code and half a bit of scale per weight, which both
+`PerGroupFp4<64>` and Q4_0 carry; the 26.8 MB a layer's eight experts read was
+measured (`Gemma4MoE.md`, Rates Baseline). The 5060 Ti negotiates **PCIe Gen5 x8
+(~31.5 GB/s)** — measured, and better than the 4070's Gen4 x4 (~7.9 GB/s), which
+corrects a note that had the slots the other way round. That puts a hard ceiling
+of ~25 ms per token, so **~39 tokens/s if every active expert is streamed every
+token** — against a resident bank's floor of about 1.8 ms for the same 0.80 GB at
+the card's 448 GB/s. Streaming everything is therefore not a free lunch; it is
+about fourteen times the resident floor, before any compute. (Until 2026-09-29
+this paragraph counted the codes alone, 0.71 GB and 1.6 ms.)
 
 Three things decide whether a partial-residency design beats that ceiling, and
 none is answered here:

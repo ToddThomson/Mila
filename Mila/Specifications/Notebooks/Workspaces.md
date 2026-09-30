@@ -168,10 +168,12 @@ read intermittent once.
 ### 3.6 A private type is duplicated per family
 
 `WorkspaceWidths` was defined privately in both `Gemma.ixx` and `Qwen.ixx`, each with its
-own `computeWorkspaceWidths`. Gemma's is now the exported `GemmaBlockWorkspaceWidths` beside
-`GemmaBlockWorkspace`, because a harness needs the same widths; Qwen's stays private. The two
-count different slot sets, one per block kind, so they are two concepts sharing a name rather
-than one concept twice.
+own `computeWorkspaceWidths`. Gemma's became the exported `GemmaBlockWorkspaceWidths` beside
+`GemmaBlockWorkspace`, because a harness needs the same widths, and then (`ModelFamilyParity.md`
+8.2, G4) a single table of slots inside `GemmaBlockWorkspace` that the allocation, the stored
+bytes and `requiredBytes` all walk, so the widths type went and a slot cannot be allocated
+unpriced. Qwen's stays private. The two count different slot sets, one per block kind, so they
+are two concepts sharing a name rather than one concept twice.
 
 ### 3.7 Mechanism 2's install path runs through an interface that cannot express it
 

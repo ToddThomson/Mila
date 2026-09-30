@@ -7,10 +7,10 @@
 
 module;
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <memory>
 #include <string>
-#include <vector>
 
 export module Dnn.Components.GemmaBlock:Workspace;
 
@@ -18,6 +18,7 @@ import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Dnn.Component;
 import Dnn.Components.GemmaConfig;
 import Compute.DeviceAllocation;
 import Compute.DeviceId;
@@ -29,6 +30,55 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Compute;
 
     /**
+     * @brief The geometry a slot is as wide as, taken at the wider of the two layer kinds.
+     */
+    enum class GemmaSlotWidth
+    {
+        Model,
+        Hidden,
+        GateUp,
+        Query,
+        KeyValue,
+        PackedQkv
+    };
+
+    dim_t gemmaSlotWidth( GemmaSlotWidth width, const GemmaConfig& config )
+    {
+        const dim_t NH = config.getNumHeads();
+
+        switch ( width )
+        {
+            case GemmaSlotWidth::Hidden:
+                return config.getHiddenDimension();
+
+            case GemmaSlotWidth::GateUp:
+                return 2 * config.getHiddenDimension();
+
+            case GemmaSlotWidth::Query:
+                return NH * std::max( config.getHeadDim(), config.getGlobalHeadDim() );
+
+            case GemmaSlotWidth::KeyValue:
+                return std::max(
+                    config.getNumKVHeads() * config.getHeadDim(),
+                    config.getNumGlobalKVHeads() * config.getGlobalHeadDim() );
+
+            case GemmaSlotWidth::PackedQkv:
+            {
+                // Global K=V layers drop the V section.
+                const dim_t packed_local = ( NH + 2 * config.getNumKVHeads() ) * config.getHeadDim();
+                const dim_t packed_global =
+                    ( NH + ( config.keyEqualsValue() ? 1 : 2 ) * config.getNumGlobalKVHeads() ) * config.getGlobalHeadDim();
+
+                return std::max( packed_local, packed_global );
+            }
+
+            case GemmaSlotWidth::Model:
+            default:
+                return config.getModelDim();
+        }
+    }
+
+    /**
      * @brief Transformer-owned shared activation workspace for GemmaBlock (pooling).
      *
      * One slot per block-graph position, shared by every layer: the inference path
@@ -38,6 +88,9 @@ namespace Mila::Dnn
      * workspace max-geometry convention). The single stream slot is alias-safe:
      * a block's input is last read at res_1 (mid-block) and only overwritten by
      * its own res_2 at block end.
+     *
+     * slots() is the one list of slots. The allocation, the bytes a built workspace holds and the bytes one
+     * would take are all read from it, so a slot cannot be allocated without being priced.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -69,24 +122,82 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> ffn_normed;  // post_ffn_norm out    [B, chunk, model_dim]
         std::shared_ptr<TensorType> stream;      // res_2 out            [B, chunk, model_dim]
 
-        // Routed feed-forward only (kMixtureOfExperts); null on a dense model.
+        // Routed feed-forward only; null on a dense model.
         std::shared_ptr<TensorType> ffn_dense_normed;  // post_ffn_norm_1 out  [B, chunk, model_dim]
         std::shared_ptr<TensorType> ffn_expert_in;     // pre_ffn_norm_2 out   [B, chunk, model_dim]
         std::shared_ptr<TensorType> ffn_expert_normed; // post_ffn_norm_2 out  [B, chunk, model_dim]
         std::shared_ptr<TensorType> ffn_sum;           // ffn_sum out          [B, chunk, model_dim]
 
+        struct Slot
+        {
+            std::shared_ptr<TensorType> GemmaBlockWorkspace::* member;
+            GemmaSlotWidth width;
+            const char* name;
+            bool routed_only;
+        };
+
+        // Allocation order.
+        static constexpr std::array<Slot, 22> slots()
+        {
+            return { {
+                { &GemmaBlockWorkspace::q, GemmaSlotWidth::Query, "q", false },
+                { &GemmaBlockWorkspace::k, GemmaSlotWidth::KeyValue, "k", false },
+                { &GemmaBlockWorkspace::v, GemmaSlotWidth::KeyValue, "v", false },
+                { &GemmaBlockWorkspace::normed, GemmaSlotWidth::Model, "normed", false },
+                { &GemmaBlockWorkspace::qkv, GemmaSlotWidth::PackedQkv, "qkv", false },
+                { &GemmaBlockWorkspace::q_normed, GemmaSlotWidth::Query, "q_normed", false },
+                { &GemmaBlockWorkspace::k_normed, GemmaSlotWidth::KeyValue, "k_normed", false },
+                { &GemmaBlockWorkspace::v_normed, GemmaSlotWidth::KeyValue, "v_normed", false },
+                { &GemmaBlockWorkspace::attn, GemmaSlotWidth::Query, "attn", false },
+                { &GemmaBlockWorkspace::o, GemmaSlotWidth::Model, "o", false },
+                { &GemmaBlockWorkspace::o_normed, GemmaSlotWidth::Model, "o_normed", false },
+                { &GemmaBlockWorkspace::res1, GemmaSlotWidth::Model, "res1", false },
+                { &GemmaBlockWorkspace::ffn_in, GemmaSlotWidth::Model, "ffn_in", false },
+                { &GemmaBlockWorkspace::gate_up, GemmaSlotWidth::GateUp, "gate_up", false },
+                { &GemmaBlockWorkspace::ffn_act, GemmaSlotWidth::Hidden, "ffn_act", false },
+                { &GemmaBlockWorkspace::ffn_down, GemmaSlotWidth::Model, "ffn_down", false },
+                { &GemmaBlockWorkspace::ffn_normed, GemmaSlotWidth::Model, "ffn_normed", false },
+                { &GemmaBlockWorkspace::stream, GemmaSlotWidth::Model, "stream", false },
+                { &GemmaBlockWorkspace::ffn_dense_normed, GemmaSlotWidth::Model, "ffn_dense_normed", true },
+                { &GemmaBlockWorkspace::ffn_expert_in, GemmaSlotWidth::Model, "ffn_expert_in", true },
+                { &GemmaBlockWorkspace::ffn_expert_normed, GemmaSlotWidth::Model, "ffn_expert_normed", true },
+                { &GemmaBlockWorkspace::ffn_sum, GemmaSlotWidth::Model, "ffn_sum", true },
+            } };
+        }
+
+        static bool allocates( const Slot& slot, const GemmaConfig& config ) noexcept
+        {
+            return !slot.routed_only || config.hasMixtureOfExperts();
+        }
+
+        /**
+         * @brief Bytes the workspace for this config would occupy, allocating nothing.
+         */
+        static std::size_t requiredBytes( const GemmaConfig& config, dim_t B, dim_t prefill_chunk, std::size_t granularity )
+        {
+            std::size_t bytes = 0;
+
+            for ( const Slot& slot : slots() )
+            {
+                if ( allocates( slot, config ) )
+                {
+                    const dim_t elements = B * prefill_chunk * gemmaSlotWidth( slot.width, config );
+
+                    bytes += occupiedDeviceBytes( storageBytes<TPrecision>( elements ), granularity );
+                }
+            }
+
+            return bytes;
+        }
+
         std::size_t deviceStorageBytes() const
         {
             std::size_t total = 0;
 
-            for ( const auto* t : { q.get(), k.get(), v.get(), normed.get(), qkv.get(), q_normed.get(),
-                                    k_normed.get(), v_normed.get(), attn.get(), o.get(), o_normed.get(),
-                                    res1.get(), ffn_in.get(), gate_up.get(), ffn_act.get(), ffn_down.get(),
-                                    ffn_normed.get(), stream.get(), ffn_dense_normed.get(), ffn_expert_in.get(),
-                                    ffn_expert_normed.get(), ffn_sum.get() } )
+            for ( const Slot& slot : slots() )
             {
-                if ( t )
-                    total += occupiedTensorBytes( *t );
+                if ( const auto& tensor = this->*slot.member )
+                    total += occupiedTensorBytes( *tensor );
             }
 
             return total;
@@ -94,56 +205,7 @@ namespace Mila::Dnn
     };
 
     /**
-     * @brief Max-geometry slot widths, shared by the allocation and the transformer's footprint.
-     */
-    export struct GemmaBlockWorkspaceWidths
-    {
-        dim_t model_dim{ 0 };
-        dim_t hidden_dim{ 0 };
-        dim_t q_width{ 0 };
-        dim_t kv_width{ 0 };
-        dim_t qkv_width{ 0 };
-
-        // Stream-wide slots the routed feed-forward adds; zero on a dense model.
-        dim_t routed_stream_slots{ 0 };
-
-        // One entry per slot makeGemmaBlockWorkspace allocates, each a separate allocation.
-        std::vector<dim_t> slotWidths() const
-        {
-            std::vector<dim_t> widths = { q_width, kv_width, kv_width, model_dim, qkv_width, q_width, kv_width,
-                kv_width, q_width, model_dim, model_dim, model_dim, model_dim, 2 * hidden_dim, hidden_dim, model_dim,
-                model_dim, model_dim };
-
-            widths.insert( widths.end(), static_cast<std::size_t>( routed_stream_slots ), model_dim );
-
-            return widths;
-        }
-    };
-
-    export GemmaBlockWorkspaceWidths gemmaBlockWorkspaceWidths( const GemmaConfig& config )
-    {
-        const dim_t NH = config.getNumHeads();
-
-        GemmaBlockWorkspaceWidths widths;
-        widths.model_dim = config.getModelDim();
-        widths.hidden_dim = config.getHiddenDimension();
-        widths.q_width = NH * std::max( config.getHeadDim(), config.getGlobalHeadDim() );
-        widths.kv_width = std::max(
-            config.getNumKVHeads() * config.getHeadDim(),
-            config.getNumGlobalKVHeads() * config.getGlobalHeadDim() );
-
-        // Packed QKV width per layer kind: global K=V layers drop the V section.
-        const dim_t packed_local = ( NH + 2 * config.getNumKVHeads() ) * config.getHeadDim();
-        const dim_t packed_global =
-            ( NH + ( config.keyEqualsValue() ? 1 : 2 ) * config.getNumGlobalKVHeads() ) * config.getGlobalHeadDim();
-        widths.qkv_width = std::max( packed_local, packed_global );
-        widths.routed_stream_slots = config.hasMixtureOfExperts() ? 4 : 0;
-
-        return widths;
-    }
-
-    /**
-     * @brief Allocate the shared block workspace at the widths gemmaBlockWorkspaceWidths() reports.
+     * @brief Allocate the shared block workspace, one tensor per slot the config needs.
      *
      * Lives beside the struct because the transformer is not the only caller: a layer-streamed parity
      * harness holds one block at a time and must measure the geometry the model builds, not a copy of it.
@@ -153,42 +215,18 @@ namespace Mila::Dnn
     GemmaBlockWorkspace<TDeviceType, TPrecision> makeGemmaBlockWorkspace(
         const GemmaConfig& config, DeviceId device, dim_t B, dim_t prefill_chunk, const std::string& name_prefix )
     {
-        using TensorType = typename GemmaBlockWorkspace<TDeviceType, TPrecision>::TensorType;
+        using Workspace = GemmaBlockWorkspace<TDeviceType, TPrecision>;
+        using TensorType = typename Workspace::TensorType;
 
-        const GemmaBlockWorkspaceWidths widths = gemmaBlockWorkspaceWidths( config );
+        Workspace workspace;
 
-        auto slot = [&]( dim_t width, const char* name )
+        for ( const auto& slot : Workspace::slots() )
         {
-            return std::make_shared<TensorType>( device, shape_t{ B, prefill_chunk, width }, name_prefix + name );
-        };
-
-        GemmaBlockWorkspace<TDeviceType, TPrecision> workspace;
-
-        workspace.q = slot( widths.q_width, "q" );
-        workspace.k = slot( widths.kv_width, "k" );
-        workspace.v = slot( widths.kv_width, "v" );
-        workspace.normed = slot( widths.model_dim, "normed" );
-        workspace.qkv = slot( widths.qkv_width, "qkv" );
-        workspace.q_normed = slot( widths.q_width, "q_normed" );
-        workspace.k_normed = slot( widths.kv_width, "k_normed" );
-        workspace.v_normed = slot( widths.kv_width, "v_normed" );
-        workspace.attn = slot( widths.q_width, "attn" );
-        workspace.o = slot( widths.model_dim, "o" );
-        workspace.o_normed = slot( widths.model_dim, "o_normed" );
-        workspace.res1 = slot( widths.model_dim, "res1" );
-        workspace.ffn_in = slot( widths.model_dim, "ffn_in" );
-        workspace.gate_up = slot( 2 * widths.hidden_dim, "gate_up" );
-        workspace.ffn_act = slot( widths.hidden_dim, "ffn_act" );
-        workspace.ffn_down = slot( widths.model_dim, "ffn_down" );
-        workspace.ffn_normed = slot( widths.model_dim, "ffn_normed" );
-        workspace.stream = slot( widths.model_dim, "stream" );
-
-        if ( widths.routed_stream_slots > 0 )
-        {
-            workspace.ffn_dense_normed = slot( widths.model_dim, "ffn_dense_normed" );
-            workspace.ffn_expert_in = slot( widths.model_dim, "ffn_expert_in" );
-            workspace.ffn_expert_normed = slot( widths.model_dim, "ffn_expert_normed" );
-            workspace.ffn_sum = slot( widths.model_dim, "ffn_sum" );
+            if ( Workspace::allocates( slot, config ) )
+            {
+                workspace.*slot.member = std::make_shared<TensorType>(
+                    device, shape_t{ B, prefill_chunk, gemmaSlotWidth( slot.width, config ) }, name_prefix + slot.name );
+            }
         }
 
         return workspace;

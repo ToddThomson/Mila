@@ -988,8 +988,9 @@ every respect (Todd, 2026-09-29). Google publishes the 26B-A4B quantization-awar
 - **Stored as Q4_0 is proven; trained under it is inferred.** The card does not say per tensor.
 - **The bank is the same bytes as Phase 8's**: 428,212,224 per layer, because an FP16 scale per 32 weights
   and an FP32 scale per 64 both cost half a bit per weight. Group 32 divides every width, 704 included.
-- **What refuses it today:** `kRoutedHasQ4_0 = false` (`GemmaModel.ixx:542`) and `CudaMoeOp`'s
-  construction check (`CudaMoeOp.ixx:76`).
+- **What refuses it today:** `expertBankImplements` (`MixtureOfExperts.ixx`), which
+  `GemmaModel::dispatchChassis` asks before instantiating a routed network, and `CudaMoeOp`'s
+  construction check (`CudaMoeOp.ixx:76`). Until G4 the first was `kRoutedHasQ4_0 = false`.
 
 ### The 12B's gate is the model for this one
 
@@ -1001,3 +1002,113 @@ branch's fused projection split by rows against the GGUF's separate `ffn_gate` a
 12B, while the expert `gate_up` is fused in both; a forced failure for each. The quality measurement across context
 lengths is open (`Gemma.md` §10.9). The gate itself is written, with its tolerances, before the
 phase's first run.
+
+### Gate, written before any run (2026-09-29, for review)
+
+**The first Q4_0 kernel is the Phase 6 two-pass kernel with the codes decoded inline**, as the FP4 bank is:
+`weight = ( code - 8 ) * d` in FP32, then `weight * x` in the order the BF16 bank multiplies. That is G5's
+correctness kernel. It makes the exact gate below possible, and G5b's fast kernels are then gated against it.
+
+G5, all exact:
+
+1. **Quantizer equals codec.** A stacked bank quantized on load by the CUDA quantizer -- `E x rows` output
+   channels, as `Linear`'s -- equals the `Int4Packing` codec in every code and scale bit, at the real shapes
+   (`gate_up [128, 1408, 2816]`, `down [128, 2816, 704]`) on seeded normal weights. Zero differing.
+2. **Exact bank.** Weights built as `code x d` with `d` a power of two and each group holding one element at
+   `-8 d`, so the reference rounding recovers every code and `d` exactly and every product is exact in BF16.
+   The Q4_0 bank, quantized on load, against the BF16 bank on the same values: zero differing output elements,
+   prefill and one token at a time, built for prefill and for one token (Phase 7's two cases).
+3. **Round trip.** Saved names are `gate_up_proj`, `down_proj` and their `_scale` companions; a reload is
+   bit-identical.
+4. **Footprint.** Predicted equals built on the tiny bank; at the real shape the bank's bytes are
+   428,212,224 a layer (`Gemma.md` §10.4), computed rather than built.
+5. **Refusals and admission.** An expert width not a multiple of 32 is refused at build;
+   `expertBankImplements<PerGroupInt4<32>>` is true; the model admits `q4_0` for a routed checkpoint and still
+   refuses FP8 (`Fp8AndQ4_0_RefusedByTheModelBeforeTheBank` splits into its two halves).
+6. **Export equals Google's GGUF.** Every Q4_0 tensor of the 26B exported from
+   `google/gemma-4-26B-A4B-it-qat-q4_0-unquantized` equal in code and scale bits to `gemma-4-26B_q4_0-it.gguf`:
+   expert `gate_up` fused in both, the dense branch split by rows against `ffn_gate` and `ffn_up`, attention
+   against `attn_q`, `attn_k`, `attn_v` (none on global layers) and `attn_output`. The tied table (FP8 here,
+   Q6_K there) and the F32 router are outside the comparison.
+7. **The model.** At Q4_0 the 26B fits the RTX 5060 Ti at 8192 (with G5's pooling), and its greedy tokens
+   match HuggingFace on the same unquantized QAT checkpoint -- a new capture, since today's is of the
+   non-QAT model.
+
+Forced failures: the nibble order swapped (items 1 and 2 must fail, item 3 must not, as Phase 8 showed for
+FP4); the export compared against a rounding of the non-QAT checkpoint (item 6 must fail).
+
+G5b, against G5's kernel -- the tolerance forms of the 12B's `CudaLinearOp.Int4.Cuda.cpp`:
+
+- **Decode**, the gather matvec: each pass against a host reference of the exact weights, within
+  `|ref| x 2^-8 + sum|x w| x 1e-5 + 1e-7` -- the BF16 output store plus FP32 accumulation in any order. The
+  gated pass writes FP32 scratch, so it drops the `2^-8` term.
+- **Prefill**, the grouped INT8 GEMM: against a host reference of the INT8 block arithmetic (activations per
+  32-element block, `a / 127`), same form; and the INT8 activations' own effect against BF16 activations
+  printed, not gated, as the 12B's test does.
+- Decode bit-identical between banks built for prefill and for one token, as Phase 7.
+
+**Needs a download.** Item 6 and item 7 read `google/gemma-4-26B-A4B-it-qat-q4_0-unquantized`, 51.6 GB, not
+on this machine.
+
+---
+
+## Rates Baseline (`ModelFamilyParity.md` G5b, measured before G4 and G5)
+
+### Result (2026-09-29, RTX 5060 Ti)
+
+`0.21.0-dev+21`, `x64-profile` build, pinned by UUID, nothing else on the card. `PerGroupFp4<64>` quantized on
+load from `gemma4_26b_a4b_it_bf16.bin`, FP8 KV, context 1024 -- the only build that exists, and the context
+at which it fits (the plan: footprint 15,097 MiB against 15,168 free, 48 MiB free after load).
+
+**Resident, not paged.** Sampled every 3 s through a decode run: 15,238 MiB dedicated and 80 MiB shared.
+80 MiB crossing PCIe every token would cost about 3 ms, not the 88 measured, and every kernel's median and
+maximum below agree within 2%. **The control that settles it:** the two kernels copied verbatim into a
+standalone program, one layer's FP4 bank at the real shapes (128 experts, 2816 by 704, top-8, random
+routing), 14,760 MiB free, compiled for `sm_120f`: gated 608.0 ms and combine 112.1 ms at 512 tokens, 2.14 ms
+and 0.57 ms at one -- the in-model figures below within 1%. The slowness is the kernels.
+
+| Phase | Rate | Runs |
+|---|---|---|
+| Prefill, 512 tokens | 21.76 s, **23.5 tokens/s** | 21,742 / 21,775 / 21,768 ms |
+| Generation, 128 tokens from a 1-token prompt | **11.38 tokens/s**, 88 ms a token | 11.40 / 11.40 / 11.34 |
+
+nsys, one decode step (the called step; the replayed ones need `--cuda-graph-trace=node`) and one 512-token
+prefill:
+
+| Kernel | Decode, per step | Prefill, 512 tokens |
+|---|---|---|
+| `moe_gated_fp4_kernel`, 30 calls | 63.6 ms (72%), 2.12 ms a layer on 11 blocks | 18,374 ms (84.2%), 612 ms a layer |
+| `moe_combine_fp4_kernel`, 30 calls | 16.9 ms (19%), 0.56 ms a layer on 6 blocks | 3,424 ms (15.7%), 114 ms a layer |
+| Everything else | 7.8 ms: tied head 1.73, dense and attention matvecs 2.6, `router_select_kernel` 1.6 (53 us, one block), argmax 0.9 | 36 ms |
+
+At decode a layer's eight experts are 17.8 MB of `gate_up` and 8.9 MB of `down` with their scales, so the
+gated pass reads at 8.4 GB/s and the combine at 15.9 GB/s, against 448 GB/s. At prefill the gated pass is
+53 GFLOP/s and the combine 142 GFLOP/s. A 512-token prefill costs 42.5 ms a token, half a decode step: the
+two-pass kernel barely amortizes the weights across tokens.
+
+**Against llama.cpp** (`benchmark_comparison.py`, row `gemma-4-26b-a4b-fp4`; llama.cpp build 11216 on Google's
+`gemma-4-26B_q4_0-it.gguf`, flash attention, every layer on the GPU, FP16 KV; mean of 3 runs, tokens a second):
+
+| | 512 | 2K | 8K | 32K |
+|---|---|---|---|---|
+| Prefill, Mila | 23.5 | 23.4 | 23.4 | refused |
+| Prefill, llama.cpp | 3,640 | 3,623 | 3,474 | 2,890 |
+
+| Generation, 128 tokens, at depth | 0 | 8K | 32K |
+|---|---|---|---|
+| Mila | 11.4 | 11.3 | refused |
+| llama.cpp | 127 | 109 | 99 |
+
+Mila's rate is flat with length, as the two kernels set it. At 8192 the planner fits by narrowing the prefill
+chunk to 256 rows (15,024 MiB, 120 MiB free after load; the 12B plans 1024 there), and at 32768 it refuses: the
+deployment needs 16,178,589,696 bytes against 15,904,800,768 free. Those two cells first died with
+`0xC0000409` and no output -- ProfileModel's VRAM sampler destroyed a joinable thread while the refusal unwound,
+which calls `std::terminate`; fixed in the sampler, and the cells re-recorded with the refusal's message. Not
+like for like, and the gap is too wide for any of it to matter here: Mila runs `PerGroupFp4<64>` against Google's Q4_0, an FP8 KV
+cache against FP16, and llama.cpp's batch sizes were not swept. The published row needs all three settled.
+
+**What it locates.** The expert bank is 91% of a decode step and all of a prefill, so G5b is those two
+kernels first. It is not only those: llama.cpp's whole decode step is 7.9 ms, and Mila spends 7.8 ms outside
+the bank. Of that, the router's one-block kernel is 1.6 ms and the tied head 1.73 ms (at its bandwidth floor
+in FP8; Google's head is Q6_K). A bank at its floor leaves Mila's step near 9.5 ms against llama.cpp's 7.9,
+so the router and the dense and attention matvecs are in G5b's scope too.

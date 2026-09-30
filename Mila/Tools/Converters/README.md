@@ -120,8 +120,10 @@ hardcoding it. The vision tower is skipped at the checkpoint index.
 |---|---|
 | `google/gemma-4-12b` | 12B base |
 | `google/gemma-4-12b-it` | 12B instruct |
+| `google/gemma-4-12B-it-qat-q4_0-unquantized` | 12B instruct, quantization-aware for Q4_0 -- the source of the Q4_0 build |
 | `google/gemma-4-26B-A4B` | 25.2B base, 8 of 128 experts per token (48.1 GiB checkpoint) |
 | `google/gemma-4-26B-A4B-it` | 25.2B instruct, 8 of 128 experts per token (48.1 GiB checkpoint) |
+| `google/gemma-4-26B-A4B-it-qat-q4_0-unquantized` | 25.2B instruct, quantization-aware for Q4_0 -- the source of the Q4_0 build (51.6 GB) |
 
 ```powershell
 # Tokenizer (shared across Gemma 4 variants)
@@ -132,6 +134,10 @@ python Gemma/convert_weights.py --model google/gemma-4-12b-it --output <weights-
 
 # Gemma 4 26B-A4B
 python Gemma/convert_weights.py --model google/gemma-4-26B-A4B-it --output <weights-dir>/gemma/gemma4_26b_a4b_it_bf16.bin
+
+# Quantization-aware sources: convert, then ExportArtifact --quantization q4_0 (Specifications/Quantization.md, Q4_0)
+python Gemma/convert_weights.py --model google/gemma-4-12B-it-qat-q4_0-unquantized --output <weights-dir>/gemma/gemma4_12b_it_qat_bf16.bin
+python Gemma/convert_weights.py --model google/gemma-4-26B-A4B-it-qat-q4_0-unquantized --output <weights-dir>/gemma/gemma4_26b_a4b_it_qat_bf16.bin
 ```
 
 | Option | Values | Default |

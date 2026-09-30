@@ -420,6 +420,7 @@ PUBLIC
 
 
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Config.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.FeedForward.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.Workspace.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.ixx"

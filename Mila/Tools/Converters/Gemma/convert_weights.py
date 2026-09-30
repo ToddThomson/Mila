@@ -38,7 +38,7 @@ Gemma-specific transforms handled in this converter:
      the usual [Q | K | V]. Mila's GemmaBlock<kGlobal=true> derives V from K.
 
   4. Mixture of experts (enable_moe_block): the always-on dense branch is written
-     under `mlp`, where GemmaBlock<kMixtureOfExperts> delegates it. The expert bank
+     under `mlp`, where a routed GemmaBlock delegates it. The expert bank
      ships stacked and is written as-is, gate first in gate_up_proj. The router's
      three tensors and the three extra norms are written raw, and per_expert_scale is
      NOT folded into down_proj.
@@ -109,6 +109,7 @@ SUPPORTED_MODELS = [
     'google/gemma-4-12B-it-qat-q4_0-unquantized',
     'google/gemma-4-26B-A4B',
     'google/gemma-4-26B-A4B-it',
+    'google/gemma-4-26B-A4B-it-qat-q4_0-unquantized',
 ]
 
 # Checkpoint tensors the text chassis does not model. Named as prefixes rather than

@@ -40,8 +40,8 @@ namespace Mila::Tests::Dnn::Models
 
         using GemmaBf16 = GemmaModel<DeviceType::Cuda, kPrecision>;
         // The routed chassis a load of these weights builds: the dense branch delegated to `mlp`.
-        using LocalBlock = GemmaBlock<DeviceType::Cuda, kPrecision, false, NoWeightQuant, NoKvCompression, true, true>;
-        using GlobalBlock = GemmaBlock<DeviceType::Cuda, kPrecision, true, NoWeightQuant, NoKvCompression, true, true>;
+        using LocalBlock = GemmaBlock<DeviceType::Cuda, kPrecision, false, NoWeightQuant, NoKvCompression, GemmaFeedForward::Routed>;
+        using GlobalBlock = GemmaBlock<DeviceType::Cuda, kPrecision, true, NoWeightQuant, NoKvCompression, GemmaFeedForward::Routed>;
         using EmbeddingType = TokenEmbedding<DeviceType::Cuda, TensorDataType::INT32, kPrecision, NoWeightQuant>;
         using RmsNormType = RmsNorm<DeviceType::Cuda, kPrecision>;
         using HeadType = Linear<DeviceType::Cuda, kPrecision>;

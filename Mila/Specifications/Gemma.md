@@ -235,12 +235,11 @@ Gemma's FFN is gated with `gelu_pytorch_tanh`, i.e. **GeGLU, not SwiGLU**, with
 Swiglu<..., ActivationType::Gelu> -> fc_down` (`Gemma.Block.ixx:231`) — and does not
 use `GatedMLP`.
 
-Delegating it to `GatedMLP<..., ActivationType::Gelu, TWeightQuantization>` is
-planned and deferred to after the 0.20.0 tag: the nested component renames every
-published FFN tensor (`tf_layer_i.fc_gate_up` becomes `tf_layer_i.mlp.fc_gate_up`),
-so it lands together with a republish. The delegated wiring already exists behind
-`GemmaBlock`'s trailing `kDelegatedFeedForward` template flag, off by default and never set by
-`GemmaModel`; `Gemma4MoE.md` Phase 2 records the gate.
+Moving it into a composite renames every published FFN tensor, so it lands together
+with a republish: `ModelFamilyParity.md` §8.2 G4's second change, where the dense
+sublayer becomes `ffn` (`tf_layer_i.fc_gate_up` becomes `tf_layer_i.ffn.mlp.fc_gate_up`).
+Until then only the routed block (`GemmaFeedForward::Routed`) delegates its dense
+branch, to a `GatedMLP` child named `mlp`; `Gemma4MoE.md` Phase 2 records the gate.
 
 ---
 
@@ -456,13 +455,14 @@ GemmaBlock (unchanged attention half)
 ```
 
 **Prerequisite, half done:** the routed block delegates its dense branch to a
-`GatedMLP` child named `mlp` (`Gemma4MoE.md` Phase 2a). The dense 12B still
-inlines its FFN, and the choice is carried by two positional flags,
-`kDelegatedFeedForward` and `kMixtureOfExperts` (`Gemma.Block.ixx:105`), which
-the model always sets equal. `ModelFamilyParity.md` §8.2 G4 replaces both with a
-feed-forward sublayer type, `GemmaFeedForward { Dense, Routed }`, and deletes
-the inline path; it renames every FFN tensor, so it lands before any Gemma
-package is published.
+`GatedMLP` child named `mlp` (`Gemma4MoE.md` Phase 2a). The choice is one
+template argument, `GemmaFeedForward { Dense, Routed }` (`Gemma.FeedForward.ixx`),
+read from the checkpoint in `GemmaModel::dispatchChassis`, which also refuses a
+routed network a policy its expert bank does not implement before instantiating
+it (`expertBankImplements`, `MixtureOfExperts.ixx`). The dense 12B still inlines
+its FFN. `ModelFamilyParity.md` §8.2 G4's second change makes each value a
+sublayer type under `ffn` and deletes the inline path; it renames every FFN
+tensor, so it lands before any Gemma package is published.
 
 ### 10.4 Weight Format: Q4_0
 
@@ -511,9 +511,11 @@ exactly the size that format gives its shape.
   `PerGroupFp4<64>` bank**, whose FP32 scale per 64 weights costs the same half
   bit per weight as an FP16 scale per 32. The fit analysis of 10.5 carries over.
 
-**Today the routed model cannot run Q4_0.** `GemmaModel` refuses `q4_0` for a
-routed checkpoint (`kRoutedHasQ4_0 = false`, `GemmaModel.ixx:542`), and the bank
-refuses any policy but FP4 (`MixtureOfExperts.md` §7.6). The `PerGroupFp4<64>`
+**Today the routed model cannot run Q4_0.** `GemmaModel::dispatchChassis` refuses
+`q4_0` and FP8 for a routed checkpoint because `expertBankImplements` says the bank
+has no path for them, and the bank itself refuses any policy but FP4
+(`MixtureOfExperts.md` §7.6). Admitting Q4_0 is a change to that one predicate
+and the bank's kernels. The `PerGroupFp4<64>`
 build (`Gemma4MoE.md` Phase 8) is Mila's fallback format for this model, not what
 it publishes. The work is `MixtureOfExperts.md` §7.7, as `Gemma4MoE.md` Phase 9.
 Under the parity bar the grouped prefill and the tuned decode are part of the
@@ -560,10 +562,12 @@ model is 13.45 GiB, its Q6_K table 0.56 GiB against Mila's FP8 0.69.
 
 **Measured, and short of the card** (`Gemma4MoE.md` Phase 8, after RoPE's tables were sized to the built
 context): the `PerGroupFp4<64>` build at context 8192 predicts 15,982,200,832 bytes — 13.54 GiB of weights and
-1.35 GiB of state — exactly what it reports, against 15,894,315,008 bytes free in the process: **83.8 MiB over**.
-What stands between is the routed buffers, allocated per layer rather than pooled — each layer's
-`MixtureOfExperts` output and FP32 gated scratch, about 0.49 GiB at chunk 512. Pooling them is
-`ModelFamilyParity.md` §8.2 G5, and it holds for Q4_0 unchanged, since the weights are the same bytes.
+1.35 GiB of state — exactly what it reports, against 15,894,315,008 bytes free in the process: **83.8 MiB over**
+at a fixed chunk of 512. The planner fits it by narrowing the chunk: at 8192 it plans 256 rows, 15,024 MiB,
+with 120 MiB free after load, and it refuses 32768 (measured 2026-09-29, `Gemma4MoE.md` Rates Baseline).
+The 12B plans 1024 at 8192. What stands between is the routed buffers, allocated per layer rather than
+pooled — each layer's `MixtureOfExperts` output and FP32 gated scratch, about 0.49 GiB at chunk 512. Pooling
+them is `ModelFamilyParity.md` §8.2 G5, and it holds for Q4_0 unchanged, since the weights are the same bytes.
 
 **The "experts quantized, everything else BF16" recipe does not fit this card.**
 The non-expert mass is under 10% of the parameters but 4.46 GiB at BF16, and the
@@ -664,7 +668,8 @@ Steps 1-8 are the path that made the model run; what remains is sequenced in
    2026-09-12 — `Gemma4MoE.md` Phase 7.
 8. **Converter + `loadImpl`.** Done 2026-09-13, on `PerGroupFp4<64>` rather
    than `<128>` — `Gemma4MoE.md` Phase 8. **The model runs here**, correct at
-   BF16 and FP4, and 83.8 MiB short of the 16 GB card at context 8192.
+   BF16 and FP4, and 83.8 MiB short of the 16 GB card at context 8192 at a fixed 512-row
+   chunk; the planner later fits 8192 at 256 rows.
 
 Then, by stage (`ModelFamilyParity.md` §8.2):
 

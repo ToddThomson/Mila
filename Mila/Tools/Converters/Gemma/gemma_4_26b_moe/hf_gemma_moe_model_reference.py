@@ -1,4 +1,4 @@
-# HuggingFace reference for GemmaTransformer with kMixtureOfExperts (Specifications/Notebooks/Gemma4MoE.md, Phase 8).
+# HuggingFace reference for a routed GemmaTransformer (Specifications/Notebooks/Gemma4MoE.md, Phase 8).
 #
 # Builds a tiny Gemma4ForCausalLM with the MoE block enabled and draws every weight at random -- every
 # norm, router scale and layer_scalar away from 1, so a misplaced norm or scale cannot hide behind an

@@ -13,12 +13,11 @@
  *    layers normalize the separate V projection; global K=V layers derive V from the RAW key
  *    projection -- V = v_norm(k_proj), distinct from K = RoPE(k_norm(k_proj)).
  *  - Attention scale 1.0 (QK-norm controls magnitude; GqaConfig::withAttentionScale).
- *  - kDelegatedFeedForward selects the FFN wiring: false (the default, and what every published
- *    model loads) keeps the inline fc_gate_up -> geglu -> fc_down children; true delegates to a
- *    GatedMLP child named `mlp`, which renames the FFN tensors. See Gemma4MoE.md Phase 2.
- *  - kMixtureOfExperts (requires kDelegatedFeedForward) adds the routed branch beside `mlp`: Router and
- *    MixtureOfExperts read the post-attention residual, and the two branches' post-norms sum ahead of
- *    post_ffn_norm. See Gemma4MoE.md Phase 1.
+ *  - kFeedForward selects the feed-forward sublayer. Dense (the 12B) keeps the inline
+ *    fc_gate_up -> geglu -> fc_down children. Routed (the 26B-A4B) puts the dense branch in a GatedMLP
+ *    child named `mlp` and adds the routed branch beside it: Router and MixtureOfExperts read the
+ *    post-attention residual, and the two branches' post-norms sum ahead of post_ffn_norm. See
+ *    Gemma4MoE.md Phases 1 and 2.
  *
  * Inference-only (Gemma is an inference target): implements ITransformerBlock's prefill/decode;
  * no training forward/backward. Gemma 4 RMSNorm is x_norm * weight (HF Gemma4RMSNorm), not
@@ -49,6 +48,7 @@ export module Dnn.Components.GemmaBlock;
 export import :Workspace;
 
 export import Dnn.Components.GemmaConfig;
+export import Dnn.Components.GemmaFeedForward;
 export import Dnn.Components.ITransformerBlock;
 
 import Dnn.ITensor;
@@ -102,8 +102,8 @@ namespace Mila::Dnn
      * @brief One Gemma 4 decoder block; kGlobal selects the global (full-attention) geometry.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision, bool kGlobal,
-        WeightQuantPolicy TWeightQuant = NoWeightQuant, KvCachePolicy TKvPolicy = NoKvCompression,
-        bool kDelegatedFeedForward = false, bool kMixtureOfExperts = false>
+        WeightQuantPolicy TWeightQuantization = NoWeightQuant, KvCachePolicy TKvCachePolicy = NoKvCompression,
+        GemmaFeedForward kFeedForward = GemmaFeedForward::Dense>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class GemmaBlock : public CompositeComponent<TDeviceType, TPrecision>, public ITransformerBlock<TDeviceType, TPrecision>
     {
@@ -113,27 +113,26 @@ namespace Mila::Dnn
         using TensorType = Tensor<TPrecision, MR>;
         using RmsNormType = RmsNorm<TDeviceType, TPrecision>;
         using RopeType = Rope<TDeviceType, TPrecision>;
-        using AttentionType = GroupedQueryAttention<TDeviceType, TPrecision, TKvPolicy>;
+        using AttentionType = GroupedQueryAttention<TDeviceType, TPrecision, TKvCachePolicy>;
         using ResidualType = Residual<TDeviceType, TPrecision>;
-        using LinearType = Linear<TDeviceType, TPrecision, TWeightQuant>;
+        using LinearType = Linear<TDeviceType, TPrecision, TWeightQuantization>;
         using GeGLUType = Swiglu<TDeviceType, TPrecision, ActivationType::Gelu>;
-        using FeedForwardType = GatedMLP<TDeviceType, TPrecision, ActivationType::Gelu, TWeightQuant>;
+        using FeedForwardType = GatedMLP<TDeviceType, TPrecision, ActivationType::Gelu, TWeightQuantization>;
         using RouterType = Router<TDeviceType, TPrecision>;
-        using ExpertsType = MixtureOfExperts<TDeviceType, TPrecision, ActivationType::Gelu, TWeightQuant>;
+        using ExpertsType = MixtureOfExperts<TDeviceType, TPrecision, ActivationType::Gelu, TWeightQuantization>;
 
-        static_assert( !kMixtureOfExperts || kDelegatedFeedForward,
-            "GemmaBlock: kMixtureOfExperts requires kDelegatedFeedForward -- the dense branch is the mlp child" );
+        static constexpr bool kRouted = kFeedForward == GemmaFeedForward::Routed;
 
         explicit GemmaBlock( const std::string& name, const GemmaConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : CompositeComponentBase( name ), config_( config )
         {
             config_.validate();
 
-            if ( config_.hasMixtureOfExperts() != kMixtureOfExperts )
+            if ( config_.hasMixtureOfExperts() != kRouted )
             {
                 throw std::invalid_argument( std::format(
-                    "GemmaBlock '{}': the config {} experts, but the block was instantiated {} kMixtureOfExperts",
-                    name, config_.hasMixtureOfExperts() ? "has" : "has no", kMixtureOfExperts ? "with" : "without" ) );
+                    "GemmaBlock '{}': the config {} experts, but the block was instantiated with a {} feed-forward",
+                    name, config_.hasMixtureOfExperts() ? "has" : "has no", kRouted ? "routed" : "dense" ) );
             }
 
             createGraph();
@@ -477,7 +476,7 @@ namespace Mila::Dnn
             stats += required( this->template getComponentAs<RmsNormType>( n + ".post_attn_norm" ), contexts.stream );
             stats += required( this->template getComponentAs<ResidualType>( n + ".res_1" ), contexts.stream );
             stats += required( this->template getComponentAs<RmsNormType>( n + ".pre_ffn_norm" ), contexts.stream );
-            if constexpr ( kDelegatedFeedForward )
+            if constexpr ( kRouted )
             {
                 stats += required( this->template getComponentAs<FeedForwardType>( n + ".mlp" ), contexts.stream );
             }
@@ -488,7 +487,7 @@ namespace Mila::Dnn
                 stats += required( this->template getComponentAs<LinearType>( n + ".fc_down" ), contexts.hidden );
             }
 
-            if constexpr ( kMixtureOfExperts )
+            if constexpr ( kRouted )
             {
                 // Router and MixtureOfExperts always allocate their own outputs, so they are asked
                 // without the pooled declaration that the norms and the branch sum honour.
@@ -769,7 +768,7 @@ namespace Mila::Dnn
             install( pre_ffn_norm_, workspace_.ffn_in );
             pre_ffn_norm_->build( stream_ctx );
 
-            if constexpr ( kDelegatedFeedForward )
+            if constexpr ( kRouted )
             {
                 // The same three slots the inline children take, routed through the composite;
                 // GatedMLP derives the 2H and H child contexts from the stream context itself.
@@ -795,7 +794,7 @@ namespace Mila::Dnn
                 fc_down_->build( hidden_ctx );
             }
 
-            if constexpr ( kMixtureOfExperts )
+            if constexpr ( kRouted )
             {
                 post_ffn_norm_1_ = this->template getComponentAs<RmsNormType>( n + ".post_ffn_norm_1" );
                 install( post_ffn_norm_1_, workspace_.ffn_dense_normed );
@@ -889,9 +888,9 @@ namespace Mila::Dnn
         std::shared_ptr<LinearType> fc_gate_up_{ nullptr };
         std::shared_ptr<GeGLUType> geglu_{ nullptr };
         std::shared_ptr<LinearType> fc_down_{ nullptr };
-        // Set only when kDelegatedFeedForward; the three inline members above stay null then.
+        // Set only on a routed block, where the three inline members above stay null.
         std::shared_ptr<FeedForwardType> mlp_{ nullptr };
-        // Set only when kMixtureOfExperts: the routed branch beside mlp_, and the sum of the two.
+        // Set only on a routed block: the routed branch beside mlp_, and the sum of the two.
         std::shared_ptr<RmsNormType> post_ffn_norm_1_{ nullptr };
         std::shared_ptr<RouterType> router_{ nullptr };
         std::shared_ptr<RmsNormType> pre_ffn_norm_2_{ nullptr };
@@ -919,7 +918,7 @@ namespace Mila::Dnn
 
         TensorType& feedForward( const TensorType& input )
         {
-            if constexpr ( kDelegatedFeedForward )
+            if constexpr ( kRouted )
             {
                 // decode() is GatedMLP's capture-free inference path, so it serves prefill too.
                 return mlp_->decode( input );
@@ -940,7 +939,7 @@ namespace Mila::Dnn
             auto& ffn_in = pre_ffn_norm_->forward( residual );
             auto& dense = feedForward( ffn_in );
 
-            if constexpr ( kMixtureOfExperts )
+            if constexpr ( kRouted )
             {
                 auto& dense_normed = post_ffn_norm_1_->forward( dense );
                 auto routing = router_->forward( residual );
@@ -1013,7 +1012,7 @@ namespace Mila::Dnn
             this->addComponent( std::make_shared<ResidualType>( n + ".res_1", ResidualConfig{} ) );
 
             // GeGLU FFN: fused gate+up -> Swiglu<Gelu> -> down.
-            if constexpr ( kDelegatedFeedForward )
+            if constexpr ( kRouted )
             {
                 this->addComponent( std::make_shared<FeedForwardType>(
                     n + ".mlp",
@@ -1028,7 +1027,7 @@ namespace Mila::Dnn
                     n + ".fc_down", LinearConfig( hidden_dim, model_dim ).withBias( false ) ) );
             }
 
-            if constexpr ( kMixtureOfExperts )
+            if constexpr ( kRouted )
             {
                 this->addComponent( std::make_shared<RmsNormType>( n + ".post_ffn_norm_1", rms( shape_t{ model_dim } ) ) );
                 this->addComponent( std::make_shared<RouterType>( n + ".router",

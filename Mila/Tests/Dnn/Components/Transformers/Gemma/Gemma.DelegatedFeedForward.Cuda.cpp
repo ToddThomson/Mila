@@ -2,6 +2,11 @@
  * @file Gemma.DelegatedFeedForward.Cuda.cpp
  * @brief GemmaTransformer with kDelegatedFeedForward against the inline FFN, on identical weights.
  *
+ * RETIRED, out of the build (ModelFamilyParity.md 8.2, G4): GemmaFeedForward replaced the two flags, and a
+ * dense network with a delegated feed-forward is no longer a type. Kept as the recipe for G4's second change,
+ * where the dense feed-forward moves into a composite: save one source network, load it under both namings,
+ * require bit-identical logits.
+ *
  * The flag moves every block's FFN into a GatedMLP child. That must rename the FFN tensors and
  * change nothing else, so one FP32 source network is initialized and saved, both arms load that
  * file -- the delegated arm under the renamed paths -- and their prefill and decode logits must be
