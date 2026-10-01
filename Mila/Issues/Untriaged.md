@@ -10,6 +10,31 @@ pointer to its GitHub issue rather than a copy. Triage flow, categories and the 
 
 ---
 
+## A multi-line paste into mila-chat becomes one turn per line
+
+`Mila/Adaptors/Chat/Src/Chat.ixx:242` @ `0.21.0-dev+28`
+
+Raised by Todd 2026-10-01. The chat loop reads input with `std::getline`, so a pasted block arrives as one turn per
+line: the model answers each line before the next is read, empty lines are skipped, and a pasted line that starts
+with `/` runs as a command. A paste needs to arrive as one message -- and how a user writes a multi-line message by
+hand is the same question.
+
+## The FP8 cache's prefill widens every key to BF16 because no tensor-core instruction mixes BF16 and FP8
+
+`Mila/Specifications/Quantization.md` Part III, "The FP8 prefill penalty" @ `0.21.0-dev+28`
+
+Asked by Todd 2026-10-01: why is there an FP8 penalty at all. The attention MMAs are BF16 x BF16 and an MMA's operands
+share one format, so every K and V tile widens from E4M3 in shared memory first; prefill is compute-bound, so the
+halved read saves little and the widening is added work, repeated by every block sharing a KV head. Part III computes
+in BF16 so that storage is the only thing FP8 changes (lossless codes match the BF16 cache bit for bit), and decision
+6's evidence was measured that way. The way past it is FP8 attention compute -- Q quantized per row and P to E4M3,
+FP8 x FP8 MMAs, which Ada and Blackwell have -- as FlashAttention-3's FP8 mode does ("FlashAttention-3: Fast and
+Accurate Attention with Asynchrony and Low-precision", arXiv 2407.08608); SageAttention quantizes Q and K to INT8 for
+QK instead ("SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration", arXiv 2410.02367).
+Two new roundings with three mantissa bits each, so a change to the accuracy contract that would need its own
+decision-6 arm. FP8 MMA throughput on the 4070 and the 5060 Ti is unmeasured:
+`Profiling/Microbenchmarks/MmaInstructionPeak.cu` covers INT8 and BF16 only, and is the first measurement.
+
 ## The small kernels between Gemma's large ones are 4 to 7% of its time, and fusing them is the only way to recover it
 
 `Mila/Src/Dnn/Components/Transformers/Gemma/` (RMSNorm, residual, GeGLU, activation quantize, split, RoPE) @ `0.21.0-dev+27`
@@ -574,17 +599,6 @@ the fused FP4 GEMMs (`cuda_fp4a16_gemm`, `cuda_fp4a16_gemm_wmma`) and `use_wmma_
 Found 2026-09-29 while splitting `forward()` into one method per path, which kept them (`runCublasLtPrefill`,
 `runFusedFp4Prefill`) so that change stayed a restructure. Retiring the toggles means deciding whether the fused
 kernels keep a measured purpose.
-
-## The FP8 prefill issues its next tile's load only after widening the current one
-
-`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Packed.cu:376-388` @ `0.21.0-dev+20`
-
-In the packed flash prefill over the FP8 cache, each iteration waits for its tile, widens it into the single BF16
-stage, and only then issues the next tile's `cp.async`, so no load is in flight while the tile widens. The next
-tile's code stage is free before the widening (its last reader was the previous widening). The same ordering in the
-decode kernel was moved and measured: with the widening vectorized as well, Llama's FP8-cache decode at 32K went from
-217 to 175 us (`GqaDecodeAttention.md` 2 and 5). The prefill is not measured; it is heavier in compute, so the
-gain may be smaller.
 
 ## CUTLASS's fix for SM120 block-scaled MMA was closed unmerged
 

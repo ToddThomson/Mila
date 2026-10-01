@@ -33,6 +33,7 @@
 #include <cuda_pipeline.h>
 #include "CudaUtils.h"
 #include "CudaGqa.cuh"
+#include "Gqa.Fp8Widen.cuh"
 
 namespace Mila::Dnn::Compute::Cuda::Gqa
 {
@@ -200,27 +201,21 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             }
         }
 
-        // Widen a staged tile of E4M3 codes into the padded BF16 stage the MMA reads, unscaled: every E4M3 value is
-        // exact in BF16.
+        // Widen a staged tile of E4M3 codes into the padded BF16 stage the MMA reads, sixteen codes a thread a step.
         template<int kHeadSize, int kKeys>
         __device__ __forceinline__ void widen_kv_tile(
             __nv_bfloat16* k_stage, __nv_bfloat16* v_stage, const uint8_t* k_codes, const uint8_t* v_codes, int tid )
         {
-            constexpr int kPairsPerRow = kHeadSize / 2;
+            constexpr int kChunksPerRow = kHeadSize / 16;
             constexpr int kPad = kHeadSize + kSkew;
 
-            for ( int pair = tid; pair < kKeys * kPairsPerRow; pair += kWarps * 32 )
+            for ( int chunk = tid; chunk < kKeys * kChunksPerRow; chunk += kWarps * 32 )
             {
-                const int key = pair / kPairsPerRow;
-                const int column = ( pair % kPairsPerRow ) * 2;
+                const int key = chunk / kChunksPerRow;
+                const int column = ( chunk % kChunksPerRow ) * 16;
 
-                const __nv_fp8x2_storage_t k_pair = *reinterpret_cast<const __nv_fp8x2_storage_t*>( k_codes + key * kHeadSize + column );
-                const __nv_fp8x2_storage_t v_pair = *reinterpret_cast<const __nv_fp8x2_storage_t*>( v_codes + key * kHeadSize + column );
-
-                *reinterpret_cast<__nv_bfloat162*>( k_stage + key * kPad + column ) =
-                    __float22bfloat162_rn( __half22float2( __half2( __nv_cvt_fp8x2_to_halfraw2( k_pair, __NV_E4M3 ) ) ) );
-                *reinterpret_cast<__nv_bfloat162*>( v_stage + key * kPad + column ) =
-                    __float22bfloat162_rn( __half22float2( __half2( __nv_cvt_fp8x2_to_halfraw2( v_pair, __NV_E4M3 ) ) ) );
+                widen_sixteen_codes( *reinterpret_cast<const uint4*>( k_codes + key * kHeadSize + column ), k_stage + key * kPad + column );
+                widen_sixteen_codes( *reinterpret_cast<const uint4*>( v_codes + key * kHeadSize + column ), v_stage + key * kPad + column );
             }
         }
 #endif
@@ -373,16 +368,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             __pipeline_wait_prior( 0 );
 
             // This tile visible to every warp; and, every thread having finished the previous
-            // tile, the stage the next prefetch writes and the exchange buffer are free.
+            // tile, the stage the next prefetch writes and the exchange buffer are free. For FP8 that
+            // stage's scales were read until here, and its codes widened in the previous iteration, so
+            // the prefetch goes here and stays in flight through this tile's widening.
             __syncthreads();
-
-            if constexpr ( kFp8 )
-            {
-                // The single BF16 stage is free: every thread finished the previous tile above.
-                widen_kv_tile<kHeadSize, Geometry::kKeys>( bf16Stage( s_k, tile ), bf16Stage( s_v, tile ),
-                    s_k_codes + ( tile & 1 ) * Geometry::kCodeStageBytes,
-                    s_v_codes + ( tile & 1 ) * Geometry::kCodeStageBytes, tid );
-            }
 
             if ( tile + 1 < tile_count )
             {
@@ -392,6 +381,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             if constexpr ( kFp8 )
             {
+                // The single BF16 stage is free: every thread finished the previous tile above.
+                widen_kv_tile<kHeadSize, Geometry::kKeys>( bf16Stage( s_k, tile ), bf16Stage( s_v, tile ),
+                    s_k_codes + ( tile & 1 ) * Geometry::kCodeStageBytes,
+                    s_v_codes + ( tile & 1 ) * Geometry::kCodeStageBytes, tid );
+
                 // The widened tile visible to every warp before the MMAs read it.
                 __syncthreads();
             }

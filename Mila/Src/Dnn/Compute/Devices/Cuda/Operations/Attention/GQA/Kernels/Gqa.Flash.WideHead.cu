@@ -28,6 +28,7 @@
 #include <cuda_pipeline.h>
 #include "CudaUtils.h"
 #include "CudaGqa.cuh"
+#include "Gqa.Fp8Widen.cuh"
 
 namespace Mila::Dnn::Compute::Cuda::Gqa
 {
@@ -162,20 +163,19 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 __pipeline_memcpy_async( scales + tid, source_scales + scale_base + cache_row( tile_start + tid, cache_capacity ), 4 );
         }
 
-        // Widen a code stage into the padded BF16 stage, unscaled: every E4M3 value is exact in BF16.
+        // Widen a code stage into the padded BF16 stage, sixteen codes a thread a step.
         __device__ __forceinline__ void widen_tile( __nv_bfloat16* stage, const uint8_t* codes, int tid )
         {
-            constexpr int kPairsPerRow = kHeadSize / 2;
+            constexpr int kChunksPerRow = kHeadSize / 16;
 
-#pragma unroll 4
-            for ( int pair = tid; pair < kKeys * kPairsPerRow; pair += kWarps * 32 )
+#pragma unroll
+            for ( int i = 0; i < kKeys * kChunksPerRow / ( kWarps * 32 ); ++i )
             {
-                const int key = pair / kPairsPerRow;
-                const int column = ( pair % kPairsPerRow ) * 2;
-                const __nv_fp8x2_storage_t code_pair = *reinterpret_cast<const __nv_fp8x2_storage_t*>( codes + key * kHeadSize + column );
+                const int chunk = tid + i * kWarps * 32;
+                const int key = chunk / kChunksPerRow;
+                const int column = ( chunk % kChunksPerRow ) * 16;
 
-                *reinterpret_cast<__nv_bfloat162*>( stage + key * kPad + column ) =
-                    __float22bfloat162_rn( __half22float2( __half2( __nv_cvt_fp8x2_to_halfraw2( code_pair, __NV_E4M3 ) ) ) );
+                widen_sixteen_codes( *reinterpret_cast<const uint4*>( codes + key * kHeadSize + column ), stage + key * kPad + column );
             }
         }
 #endif
@@ -331,20 +331,18 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             __pipeline_wait_prior( 0 );
 
-            // K(tile) visible to every warp; and, every warp having finished PV(tile - 1), the V stage is free.
+            // K(tile) visible to every warp; and, every warp having finished PV(tile - 1), the V stage is free. For FP8
+            // the V codes and scales are free too, so V's load is in flight through K's widening.
             __syncthreads();
-
-            if constexpr ( kFp8 )
-            {
-                // The BF16 K stage is free too: every warp finished QK(tile - 1) before the previous PV barrier.
-                widen_tile( s_k, s_k_codes, tid );
-            }
 
             loadV( tile_start );
             __pipeline_commit();
 
             if constexpr ( kFp8 )
             {
+                // The BF16 K stage is free too: every warp finished QK(tile - 1) before the previous PV barrier.
+                widen_tile( s_k, s_k_codes, tid );
+
                 // The widened K visible before the MMAs read it.
                 __syncthreads();
             }
@@ -468,8 +466,16 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             __pipeline_wait_prior( 0 );
 
-            // V(tile) visible to every warp; and, every warp having finished QK(tile), the K stage is free.
+            // V(tile) visible to every warp; and, every warp having finished QK(tile), the K stage is free. For FP8
+            // the K codes were widened before QK and its scales read in the softmax, so the next K's load is in flight
+            // through V's widening.
             __syncthreads();
+
+            if ( tile + 1 < tile_count )
+            {
+                loadK( tile_start + kKeys );
+                __pipeline_commit();
+            }
 
             // P^T as B fragments, V-scaled for FP8 once V's scales have landed.
             uint32_t p[ kKeyTiles ][ 2 ];
@@ -492,16 +498,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             {
                 // The BF16 V stage is free: every warp finished PV(tile - 1) before this tile's first barrier.
                 widen_tile( s_v, s_v_codes, tid );
-            }
 
-            if ( tile + 1 < tile_count )
-            {
-                loadK( tile_start + kKeys );
-                __pipeline_commit();
-            }
-
-            if constexpr ( kFp8 )
-            {
                 // The widened V visible before the MMAs read it.
                 __syncthreads();
             }

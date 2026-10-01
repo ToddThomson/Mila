@@ -19,6 +19,7 @@
 #include <numeric>
 #include "CudaUtils.h"
 #include "CudaGqa.cuh"
+#include "Gqa.Fp8Widen.cuh"
 
 namespace Mila::Dnn::Compute::Cuda::Gqa
 {
@@ -404,35 +405,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     const uint8_t* k_codes = s_k_codes + ( tile & 1 ) * Geometry::kCodeStageBytes;
                     const uint8_t* v_codes = s_v_codes + ( tile & 1 ) * Geometry::kCodeStageBytes;
 
-                    const auto widen = []( const uint4 codes, __nv_bfloat16* destination )
-                    {
-                        const uint32_t words[ 4 ] = { codes.x, codes.y, codes.z, codes.w };
-                        uint32_t widened[ 8 ];
-
-#pragma unroll
-                        for ( int word = 0; word < 4; ++word )
-                        {
-#pragma unroll
-                            for ( int half = 0; half < 2; ++half )
-                            {
-                                const __nv_fp8x2_storage_t pair = static_cast<__nv_fp8x2_storage_t>( words[ word ] >> ( 16 * half ) );
-                                const __nv_bfloat162 value = __float22bfloat162_rn(
-                                    __half22float2( __half2( __nv_cvt_fp8x2_to_halfraw2( pair, __NV_E4M3 ) ) ) );
-                                widened[ 2 * word + half ] = *reinterpret_cast<const uint32_t*>( &value );
-                            }
-                        }
-
-                        reinterpret_cast<uint4*>( destination )[ 0 ] = make_uint4( widened[ 0 ], widened[ 1 ], widened[ 2 ], widened[ 3 ] );
-                        reinterpret_cast<uint4*>( destination )[ 1 ] = make_uint4( widened[ 4 ], widened[ 5 ], widened[ 6 ], widened[ 7 ] );
-                    };
-
                     for ( int chunk = tid; chunk < Geometry::kTileKeys * kChunksPerRow; chunk += Geometry::kThreads )
                     {
                         const int key = chunk / kChunksPerRow;
                         const int column = ( chunk % kChunksPerRow ) * 16;
 
-                        widen( *reinterpret_cast<const uint4*>( k_codes + key * kHeadSize + column ), s_k + key * Geometry::kPad + column );
-                        widen( *reinterpret_cast<const uint4*>( v_codes + key * kHeadSize + column ), s_v + key * Geometry::kPad + column );
+                        widen_sixteen_codes( *reinterpret_cast<const uint4*>( k_codes + key * kHeadSize + column ), s_k + key * Geometry::kPad + column );
+                        widen_sixteen_codes( *reinterpret_cast<const uint4*>( v_codes + key * kHeadSize + column ), s_v + key * Geometry::kPad + column );
                     }
 
                     // The widened tile visible to every warp before the MMAs read it.

@@ -721,6 +721,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/CudaGqa.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Fp8Widen.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Linear.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W8A16Gemm/CudaW8A16Gemm.cuh"

@@ -849,9 +849,26 @@ planner's chunk). Tokens a second, BF16 cache / FP8 cache, and the 32,512-token 
 Both predictions above hold: on Llama the FP8 cache is a speed lever at depth (1.3x predicted), on Gemma 12B a saving of
 0.58 ms a token (about 0.6 predicted). On the 26B-A4B it is both at once on the 16 GB card: 0.74 ms a token in decode,
 and its freed memory lets the planner take a 1024-row chunk where the BF16 caches leave room for 256, which makes the
-prefill 1.41x faster. At equal chunk the FP8 cache's prefill is **7 to 10% slower** (Llama, Gemma 12B) -- unpredicted;
-the packed kernel issuing the next tile's load only after widening the current one (`Untriaged.md`) is a candidate,
-not measured.
+prefill 1.41x faster. At equal chunk the FP8 cache's prefill was **7 to 10% slower** (Llama, Gemma 12B) -- unpredicted.
+
+**The FP8 prefill penalty, 2026-10-01.** Prefill attention is compute-bound, so halving the bytes it reads saves
+little, while every block that shares a KV head widens the same codes again; the penalty is all in the attention
+kernel (Nsight Systems, RTX 5060 Ti, Q4_0, the 32,512-token prefill at the planner's chunk; every other kernel within
+noise). Both prefill kernels issued each load only after
+widening the tile before it, and widened two codes a thread at a time. With each load issued first and sixteen codes a
+thread a step (`Gqa.Fp8Widen.cuh`, decode's own widen, now shared), measured old against new binaries in one sitting:
+
+| FP8 attention over BF16, same chunk | Before | After | Whole prefill, after |
+|---|---|---|---|
+| Gemma 4 12B, head size 512 (global layers) | +1,141 ms, +28.6% | +238 ms, +6.0% | +0.7% |
+| Llama 3.1 8B, packed kernel, head size 128 | +1,390 ms, +17.7% | +1,004 ms, +12.8% | +7.0% |
+
+Two other suspects were measured and are not the cause: shared-memory bank conflicts (an eight-code widen cut them
+from 36.7M to 11.8M a launch and moved nothing, and cost decode 0.3-0.5%, so it was not kept) and register spills
+(the head-size-128 FP8 instantiation spills 16 bytes, stored before the key loop and reloaded after it). What remains
+on Llama is the packed kernel's single BF16 stage: each tile waits, barriers, widens with all eight warps, and barriers
+again before its MMAs, where the BF16 cache has one barrier, and at one block a multiprocessor nothing hides the
+widening (tensor pipe 70% busy against BF16's 80%, issue slots 23% busy in both).
 
 **Wired, 2026-10-01.** A request's `KvCacheCompression::FP8` reaches `PerTokenKvFp8<>` on every Llama layer and
 on Gemma's global layers through one dispatcher, `dispatchKvCacheCompression` (`QuantizationDispatch.ixx`), which the
