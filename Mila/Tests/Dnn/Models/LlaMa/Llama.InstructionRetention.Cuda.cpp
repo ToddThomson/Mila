@@ -46,7 +46,11 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
         constexpr std::int32_t kBeginOfText = 128000;
         constexpr std::int32_t kEndOfTurn = 128009;
         constexpr std::int32_t kEndOfText = 128001;
-        constexpr int kReplyTokens = 32;
+
+        // A reply that reaches this without a stop token is reported as cut where the instruction is judged at its
+        // end: at 32, Gemma's every reply to "end with OVER" was cut mid-sentence, so that row measured the budget
+        // rather than the model.
+        constexpr int kReplyTokens = 256;
 
         fs::path weightsPath()
         {
@@ -90,6 +94,7 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
             std::string_view name;
             std::string_view text;
             bool ( *holds )( const std::string& reply );
+            bool judged_at_end{ false };
         };
 
         const Instruction kInstructions[] = {
@@ -116,7 +121,7 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
                     const auto words = wordsOf( reply );
 
                     return !words.empty() && words.back() == "OVER";
-                } },
+                }, true },
         };
 
         constexpr std::string_view kQuestion = "Who is the main character of this book, and what do they want?";
@@ -153,6 +158,12 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
         {
             std::string text;
             bool holds;
+            bool cut;
+
+            std::string_view verdict() const
+            {
+                return cut ? "cut" : holds ? "holds" : "lost";
+            }
         };
 
         template<typename TNetwork>
@@ -178,7 +189,10 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
                             { kEndOfTurn, kEndOfText }, context );
                         const std::string text = tokenizer->decode( generated.tokens );
 
-                        results.push_back( { text, instruction.holds( text ) } );
+                        const bool cut = instruction.judged_at_end
+                            && generated.tokens.size() >= static_cast<std::size_t>( kReplyTokens );
+
+                        results.push_back( { text, !cut && instruction.holds( text ), cut } );
                     }
                 }
             }
@@ -190,7 +204,8 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
         {
             std::replace( text.begin(), text.end(), '\n', ' ' );
 
-            return text.size() > 60 ? text.substr( 0, 57 ) + "..." : text;
+            // Both ends: an instruction can govern either.
+            return text.size() > 60 ? text.substr( 0, 28 ) + "..." + text.substr( text.size() - 29 ) : text;
         }
     }
 
@@ -215,7 +230,7 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
         const std::vector<Reply> fp8 = replies<Fp8CacheNetwork>( 131072, fp8_lengths, books );
 
         std::size_t index = 0;
-        std::size_t bf16_holds = 0, fp8_holds = 0;
+        std::size_t bf16_holds = 0, fp8_holds = 0, cut = 0;
 
         std::cout << std::format( "  {:>7} {:>6} {:<20} {:<5} {:<5}  replies (BF16 | FP8)\n", "length", "book", "instruction",
             "BF16", "FP8" );
@@ -230,18 +245,19 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
                     const Reply& fp8_reply = fp8[ index ];
 
                     std::cout << std::format( "  {:>7} {:>6} {:<20} {:<5} {:<5}  {} | {}\n", length, book.stem().string(),
-                        instruction.name, shared_length ? ( bf16[ index ].holds ? "holds" : "lost" ) : "--",
-                        fp8_reply.holds ? "holds" : "lost", shared_length ? oneLine( bf16[ index ].text ) : "",
+                        instruction.name, shared_length ? bf16[ index ].verdict() : "--",
+                        fp8_reply.verdict(), shared_length ? oneLine( bf16[ index ].text ) : "",
                         oneLine( fp8_reply.text ) ) << std::flush;
 
                     bf16_holds += shared_length && bf16[ index ].holds ? 1 : 0;
                     fp8_holds += shared_length && fp8_reply.holds ? 1 : 0;
+                    cut += ( shared_length && bf16[ index ].cut ? 1 : 0 ) + ( fp8_reply.cut ? 1 : 0 );
                     ++index;
                 }
             }
         }
 
-        std::cout << std::format( "  at the lengths both reach: BF16 cache holds {} of {}, FP8 cache {} of {}\n",
-            bf16_holds, bf16.size(), fp8_holds, bf16.size() );
+        std::cout << std::format( "  at the lengths both reach: BF16 cache holds {} of {}, FP8 cache {} of {}; "
+            "{} replies cut at {} tokens in all\n", bf16_holds, bf16.size(), fp8_holds, bf16.size(), cut, kReplyTokens );
     }
 }

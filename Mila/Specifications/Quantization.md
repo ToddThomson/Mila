@@ -821,13 +821,73 @@ less BF16, nats per token, largest of any book and band / pooled per band:
 clears the 12B by 0.0002. The 26B's arms were first run at the chunks the planner gave each (64, 512, 1024) and differed
 by up to 0.0145; held to one chunk they read as above.
 
+**Past the BF16 caches' reach, 2026-10-01** (`..._KvCache_26B_Q4_0_Fp8Global_PastBf16Reach`, RTX 5060 Ti, working tree
+on `0.21.0-dev+27`). On the 16 GB card the 26B-A4B's BF16 caches stop at 32768 and its FP8 global cache reaches 65536,
+so there the arm is gate 1 alone: whole book against the 1024 book tokens before each block, five PG-19 books.
+**Every band of every book passes.** No prefill chunk fit: the 64-row scoring window adds 230 MiB of head scratch, and
+even the 64-row chunk was predicted 148 MiB over the 15,172 MiB free (at the default one-row window the same build fits
+a 256-row chunk with 58 MiB spare). The harness built at 64 rows anyway; the scores do not depend on the fit, but the
+timing below may include a spill to host memory. Pooled, nats per token, whole book / window only:
+
+| Band | 0-8K | 8K-16K | 16K-32K | 32K-64K |
+|---|---|---|---|---|
+| Pooled, 5 books | 3.6224 / 3.7331 | 3.4225 / 3.6107 | 3.4491 / 3.6569 | 3.4573 / 3.6025 |
+
+The band past the BF16 reach gains 0.145 nats per token from the whole book, about as much as the bands below it; the
+narrowest margin of the twenty is 0.0315 (book 10762, 32K-64K). About 330 s a book.
+
+**Decode at 32K, 2026-10-01** (ProfileModel `--phase decode --seq-len 32512 --tokens 256 --ignore-eos --context-length
+32768 --kv-cache bf16|fp8`, Q4_0, RTX 5060 Ti, one warm-up and three measured runs, which agree within 0.1%; the
+planner's chunk). Tokens a second, BF16 cache / FP8 cache, and the 32,512-token prefill each run starts with:
+
+| Model | Decode | Prefill (chunk) |
+|---|---|---|
+| Llama 3.1 8B | 44.31 / 56.28, **1.27x** | 13.53 s / 14.92 s (the largest rung both) |
+| Gemma 4 12B | 48.14 / 49.52, 1.03x | 14.05 s / 15.05 s (1024 both) |
+| Gemma 4 26B-A4B | 101.07 / 109.26, 1.08x | 11.84 s (256) / 8.37 s (1024) |
+
+Both predictions above hold: on Llama the FP8 cache is a speed lever at depth (1.3x predicted), on Gemma 12B a saving of
+0.58 ms a token (about 0.6 predicted). On the 26B-A4B it is both at once on the 16 GB card: 0.74 ms a token in decode,
+and its freed memory lets the planner take a 1024-row chunk where the BF16 caches leave room for 256, which makes the
+prefill 1.41x faster. At equal chunk the FP8 cache's prefill is **7 to 10% slower** (Llama, Gemma 12B) -- unpredicted;
+the packed kernel issuing the next tile's load only after widening the current one (`Untriaged.md`) is a candidate,
+not measured.
+
 **Wired, 2026-10-01.** A request's `KvCacheCompression::FP8` reaches `PerTokenKvFp8<>` on every Llama layer and
 on Gemma's global layers through one dispatcher, `dispatchKvCacheCompression` (`QuantizationDispatch.ixx`), which the
 plan, the load and the footprint all use. Gemma's ring stays BF16 whatever the request says. A build without the FP8
 kernels (CPU, FP32) refuses it at planning, as does a head size they do not serve: `CudaGqaOp` refuses that when the
 cache is priced as well as at build. The weight presets stopped setting FP8 KV in the same change, so the cache is
-FP8 only when a caller asks. No behavioral arm result (decision 6) is recorded for either family yet; Llama's
-harness exists (`Llama.InstructionRetention.Cuda.cpp`), Gemma's does not.
+FP8 only when a caller asks.
+
+**Decision 6's behavioral arm, 2026-10-01** (`GemmaInstructionRetentionCudaTests.DISABLED_*`,
+`LlamaInstructionRetentionCudaTests.DISABLED_Bf16AgainstFp8Cache_Q4_0`, Q4_0 weights, RTX 5060 Ti, working tree on
+`0.21.0-dev+27`). A system instruction at position 0, a PG-19 book (30312, 3608) in the user turn to a total length, a
+question about the book, and a greedy reply of up to 256 tokens. Three instructions: reply in exactly three capital
+words, begin with BANANA, end with OVER. A reply to the last that reaches 256 tokens is cut, not judged. Instructions
+holding, BF16 cache / FP8 cache, over the lengths both reach (six prompts per instruction):
+
+| Model, lengths | Three capital words | Begins BANANA | Ends OVER (holds, cut) | All |
+|---|---|---|---|---|
+| Gemma 4 26B-A4B, 2048, 16384, 31744 | 4 / 4 | 6 / 6 | 3, 3 / 3, 3 | 13 / 13 |
+| Gemma 4 12B, 2048, 16384, 64512 | 4 / 5 | 6 / 6 | 2, 4 / 2, 4 | 12 / 13 |
+| Llama 3.1 8B, 2048, 16384, 65536 | 1 / 2 | 4 / 4 | 2, 3 / 3, 1 | 7 / 9 |
+
+**No instruction is lost with the FP8 cache that the BF16 cache keeps, beyond single cells in both directions.** On
+the 26B-A4B every one of the 18 verdicts matches; on the 12B three differ, two of them FP8's way; on Llama the cells
+differ both ways and FP8 holds two more. A first run with a 32-token budget cut every "ends OVER" reply mid-sentence;
+the counts above are from the 256-token harness, where only an end-judged reply can be cut.
+
+- **Past the BF16 cache's reach.** The 26B-A4B with the FP8 global cache at 64512 holds BANANA on both books and
+  three words on 30312; on 3608 it answers in four words, as both caches do at 16384 and 31744. Llama with the FP8
+  cache at 130048 holds nothing, and neither did the BF16 cache at 65536.
+- **Llama loses the instruction by 64K with either cache.** At 65536 no reply in either arm begins with BANANA or is
+  three words long; all twelve open "The main character of this book". The loss is not the cache's. Whether it is the
+  model's or Mila's at length is unmeasured (`Untriaged.md`). Both Gemma models keep BANANA at every length measured.
+- **What it cannot see.** Two books and one greedy reply per cell; both families answer at length, so "ends OVER" is
+  cut in 1 to 4 of its 6 cells per arm. It reports and does not gate, as decision 6 says, until its noise is known.
+  The arms' replies to the same prompt usually diverge in wording within a sentence, and a verdict can flip with
+  them, which is the size of the differences above.
 
 ### Policy Structs
 

@@ -1847,4 +1847,50 @@ namespace Mila::Tests::Dnn::Models
     {
         scoreAcrossContextLengths<MeasuredRoutedQ4_0Fp8>( routedWeightsPath(), 24576, 5, false, "26b-fp8", kRoutedArmChunk );
     }
+
+    // Decision 6 past the BF16 caches' reach: the 26B-A4B's BF16 caches stop at 32768 on the 16 GB card, its FP8 global
+    // cache reaches 65536, and there the whole book must still predict no worse than 1024 tokens of it, in every band.
+    TEST( GemmaLogLikelihoodCudaTests, DISABLED_KvCache_26B_Q4_0_Fp8Global_PastBf16Reach )
+    {
+        scoreAcrossContextLengths<MeasuredRoutedQ4_0Fp8Global>( routedWeightsPath(), 65536, 5, true, "26b-fp8-global-64k" );
+    }
+
+    // Why that build's planner chose its prefill chunk: the predicted footprint at every rung, at the default window of
+    // one scored row and at the 64 the measurement scores, against one reading of free memory. Nothing is allocated
+    // but the CUDA context.
+    TEST( GemmaLogLikelihoodCudaTests, DISABLED_KvCache_26B_Q4_0_Fp8Global_ChunkPricing )
+    {
+        if ( getDeviceCount( DeviceType::Cuda ) == 0 || !fs::exists( routedWeightsPath() ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device and " << routedWeightsPath().string();
+        }
+
+        constexpr dim_t kContextLength = 65536;
+        constexpr double kMiB = 1024.0 * 1024.0;
+
+        const DeviceId device{ DeviceType::Cuda, 0 };
+        const Mila::Deployment::DeviceReading reading = Mila::Deployment::DeviceReading::take( device );
+        const BuildContext context = BuildContext( shape_t{ 1, kContextLength }, RuntimeMode::Inference, false )
+            .withAllocationGranularity( reading.allocation_granularity );
+
+        std::cout << std::format( "  free at reading {:.0f} MiB, context {}\n", reading.free_bytes / kMiB, kContextLength );
+
+        for ( const dim_t window : { dim_t{ 1 }, dim_t{ 64 } } )
+        {
+            Serialization::WeightsReader reader( routedWeightsPath() );
+            const MeasuredRoutedQ4_0Fp8Global network( reader.getWeightsMetadata().model_name,
+                measuredConfigOf( routedWeightsPath(), window ), device );
+
+            for ( const dim_t rung : MeasuredRoutedQ4_0Fp8Global::kPrefillChunkRungs )
+            {
+                const MemoryStats stats = network.getRequiredMemory( context.withPrefillSize( rung ) );
+
+                std::cout << std::format( "  window {:>2} chunk {:>4}: total {:>8.1f} MiB (parameters {:.1f}, state {:.1f}, "
+                    "scratch {:.1f}), {:>+8.1f} MiB against free\n", window, rung, stats.totalDeviceBytes() / kMiB,
+                    stats.device_parameter_bytes / kMiB, stats.device_state_bytes / kMiB, stats.device_scratch_bytes / kMiB,
+                    ( static_cast<double>( reading.free_bytes ) - static_cast<double>( stats.totalDeviceBytes() ) ) / kMiB )
+                    << std::flush;
+            }
+        }
+    }
 }

@@ -82,6 +82,7 @@ namespace Mila::Profiling
         int measured_runs{ 5 };
         bool ignore_eos{ false };
         std::size_t context_length{ 4096 };
+        KvCacheCompression kv_cache_compression{ KvCacheCompression::None };
     };
 
     const char* phaseName( Phase phase )
@@ -261,7 +262,9 @@ namespace Mila::Profiling
             << "  --temperature     0 = greedy (repeatable); > 0 profiles the stochastic sampler. Default: 0.\n"
             << "  --warmup          Unmeasured priming runs before the measured runs. Default: 1.\n"
             << "  --runs            Measured runs. Default: 5.\n"
-            << "  --context-length  Max sequence length allocated at load. Default: 4096.\n";
+            << "  --context-length  Max sequence length allocated at load. Default: 4096.\n"
+            << "  --kv-cache        bf16 | fp8. fp8 = every Llama layer, Gemma's global layers; Qwen refuses it.\n"
+            << "                                                  Default: bf16.\n";
     }
 
     [[noreturn]] void argError( const std::string& message )
@@ -412,6 +415,17 @@ namespace Mila::Profiling
 
                 if ( options.context_length == 0 )
                     argError( "--context-length must be greater than zero" );
+            }
+            else if ( arg == "--kv-cache" )
+            {
+                std::string_view value = nextValue( "--kv-cache" );
+
+                if ( value == "bf16" )
+                    options.kv_cache_compression = KvCacheCompression::None;
+                else if ( value == "fp8" )
+                    options.kv_cache_compression = KvCacheCompression::FP8;
+                else
+                    argError( std::format( "Unknown --kv-cache '{}'. Expected bf16 or fp8.", value ) );
             }
             else if ( arg == "--help" || arg == "-h" )
             {
@@ -710,6 +724,8 @@ namespace Mila::Profiling
         else if ( options.quantization == Quantization::Q4_0 )
             model_config.withQ4_0Quantization();
 
+        model_config.withKvCacheCompression( options.kv_cache_compression );
+
         const DeviceId device{ DeviceType::Cuda, 0 };
 
         std::cout << "Loading model: " << options.model_path << "\n";
@@ -757,6 +773,8 @@ namespace Mila::Profiling
             model_config.withFP4Quantization();
         else if ( options.quantization == Quantization::Q4_0 )
             model_config.withQ4_0Quantization();
+
+        model_config.withKvCacheCompression( options.kv_cache_compression );
 
         const DeviceId device{ DeviceType::Cuda, 0 };
 
@@ -819,6 +837,8 @@ namespace Mila::Profiling
             model_config.withFP4Quantization();
         else if ( options.quantization == Quantization::Plan )
             model_config.withPrecisionPlan();
+
+        model_config.withKvCacheCompression( options.kv_cache_compression );
 
         const DeviceId device{ DeviceType::Cuda, 0 };
 

@@ -86,6 +86,7 @@ means a status line or target is out of date and the rest has not been re-read.
 | [GqaMemory.md](GqaMemory.md) | Design | Reducing GQA's buffers (Llama 3.2 3B era) | Read before relying: Phase 1 recorded complete, Phases 2-3 not recorded either way |
 | [SlidingWindowKvCache.md](SlidingWindowKvCache.md) | Design | The bounded KV ring for sliding-window layers | |
 | [PromptCaching.md](PromptCaching.md) | Design | KV prefix reuse across calls | |
+| [RopeInAttention.md](RopeInAttention.md) | Design | RoPE fused into attention, and what the cache would store | Draft; no code. Two measurements (its section 5) decide whether it becomes a design |
 
 ### Memory, deployment and devices
 

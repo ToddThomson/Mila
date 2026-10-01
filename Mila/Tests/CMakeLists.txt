@@ -272,6 +272,9 @@ if(MILA_ENABLE_CUDA)
         # Sequence log-likelihood on the published FP4 weights, DISABLED: window 1 against window 64 and
         # argmax against greedy -- ModelFamilyParity.md 8.2, G1. Common/LogLikelihoodHarness.h builds the network.
         "Dnn/Models/Gemma/Gemma.LogLikelihood.Cuda.cpp"
+        # Decision 6's behavioral arm on Gemma, DISABLED: an instruction at position 0 after a book, BF16 against
+        # the FP8 global cache.
+        "Dnn/Models/Gemma/Gemma.InstructionRetention.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Footprint.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Generation.Cuda.cpp"
         # The most fewer launches can buy a decode step -- ModelFamilyParity.md 8.4, L5.

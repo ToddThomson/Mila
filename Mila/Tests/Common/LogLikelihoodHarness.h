@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <cstdio>
+#include <format>
 #include <memory>
 #include <unordered_set>
 #include <vector>
@@ -45,6 +47,15 @@ namespace Mila::Tests::Common
             .withAllocationGranularity( reading.allocation_granularity );
 
         const PrefillChunking chunking = Mila::Deployment::choosePrefillChunk( *network, context, reading.free_bytes );
+
+        // A model's load refuses here; a measurement builds anyway, since its scores do not depend on the fit, but a
+        // build past free memory may spill on WDDM and its timings then mean nothing.
+        if ( !chunking.fits_available_memory )
+        {
+            std::fputs( std::format( "  WARNING: at context {} not even a {}-row prefill chunk fits the {} bytes free; "
+                "built anyway, so timings may include a spill to host memory\n", context_length, chunking.chunk_rows,
+                reading.free_bytes ).c_str(), stderr );
+        }
 
         if ( chosen != nullptr )
         {

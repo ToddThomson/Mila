@@ -10,6 +10,55 @@ pointer to its GitHub issue rather than a copy. Triage flow, categories and the 
 
 ---
 
+## The small kernels between Gemma's large ones are 4 to 7% of its time, and fusing them is the only way to recover it
+
+`Mila/Src/Dnn/Components/Transformers/Gemma/` (RMSNorm, residual, GeGLU, activation quantize, split, RoPE) @ `0.21.0-dev+27`
+
+Raised by Todd 2026-10-01: if RoPE is fused into attention, fuse more -- the norms and the rest. Measured the same
+day (nsys, kernel time, Q4_0, RTX 5060 Ti, a 32,512-token prompt then 256 tokens at that depth; 26B-A4B with the FP8
+global cache at chunk 1024, 12B with BF16 caches at chunk 1024). Every kernel that is neither a weight GEMM nor
+attention's main kernel, summed -- the ceiling on what fusing them could save, since fused work still runs:
+
+| | 26B-A4B | 12B |
+|---|---|---|
+| Prefill | 422 ms of 8.28 s, 5.1% | 995 ms of 14.14 s, 7.0% |
+| Decode | 0.64 ms of 9.0 ms a token, 7.1% | 0.75 ms of 20.5 ms a token, 3.7% |
+
+The largest parts: in decode, RMSNorm, launched about 330 times a token at about 1.4 us each (5.0% of the 26B-A4B's
+decode, 2.2% of the 12B's), a cost that is mostly fixed per launch; in prefill, the 12B's GeGLU (2.7%), whose BF16
+output the down projection's INT8 quantize (1.1%) reads straight back, so GeGLU -> quantize and RMSNorm -> quantize
+are the natural pairs. RoPE is 0.3 to 0.7% everywhere (`RopeInAttention.md` 4.5). Larger levers the same captures
+show, none of them fusion: the HS-512 global prefill attention kernel (38.5% of the 26B-A4B's prefill, 28.2% of the
+12B's), the tied FP8 vocabulary head in decode (1.73 ms a token, 19% of the 26B-A4B's), and the 26B-A4B's expert
+gathers (25% of its decode). Method: ProfileModel under `nsys profile --cuda-graph-trace=node`, decode read as the
+kernels after the last prefill kernel.
+
+## A user cannot measure Mila's rates on their own card
+
+`Mila/Profiling/ProfileModel/` @ `0.21.0-dev+27`
+
+Raised by Todd 2026-10-01: promote ProfileModel to `mila-bench`. ProfileModel is developer tooling and does not ship:
+it takes weight paths (by default a BF16 checkpoint quantized on load, `MODELS_DIR` compiled in), and carries nsys
+capture ranges, NVTX, a VRAM high-water sampler and load-throughput reporting. Discussed the same day, no decision:
+a separate shipped binary beside `mila-chat`, not a rename -- `mila-bench <model>` naming a store model, planned
+through `planDeployment`, prefill and generation rates at a depth, `--kv-cache`, a machine-readable output -- with
+ProfileModel kept as the profiler and the timing core (salted prefill, decode timed first token to last) shared. A
+binary rather than a `mila` verb by the August rule (`mila` keeps install/models/serve; a verb earns its place by the
+impedance it hides). It would let a reader reproduce the published comparison rows. A user surface: end-user prose,
+the wheel and the image, tests.
+
+## Llama 3.1 8B forgets a system instruction once a book fills 64K of the context
+
+`Mila/Tests/Dnn/Models/LlaMa/Llama.InstructionRetention.Cuda.cpp` @ `0.21.0-dev+27`
+
+Found 2026-10-01 running decision 6's behavioral arm (`Quantization.md`, Part III), Q4_0 weights, RTX 5060 Ti. With
+"Begin every reply with the word BANANA" or "reply in exactly three words, all in capital letters" as the system turn
+and a PG-19 book in the user turn, the instruction holds at 2048 and 16384 and is gone at 65536 with the BF16 cache
+as with the FP8 one: all twelve replies on two books open "The main character of this book". At 130048, FP8 cache, the
+same. Both Gemma 4 models keep BANANA to 64K on the same prompts. Whether Llama 3.1 does this upstream or only in
+Mila is unmeasured; a HuggingFace run of one prompt at 65536 would say. L3 scores the whole book better than 1024
+tokens of it out to 131072, so the model does read far context; what is lost is the instruction at position 0.
+
 ## RoPE is a separate pass, so a Gemma global layer caches its rotated keys and its values as two tensors
 
 `CudaRopeOp` (`Rope.Rotation.cuh`), `GemmaBlock` global layers (K = V checkpoints) @ `0.21.0-dev+26`
@@ -20,7 +69,7 @@ cache holds two tensors where the checkpoint has one projection. Rotating keys i
 kernels -- from the same angle function, `Rope.Angle.cuh` -- would leave the cache unrotated keys, the precondition for
 storing that tensor once. Estimated from the 26B-A4B footprint (not measured): about 96K on a 16 GB card with the FP8
 global cache, against 64K today. Whether k_norm and v_norm differ only by weights, so one stored tensor serves both, is
-not checked.
+not checked. The case for and against, and the two measurements that decide it: `Specifications/RopeInAttention.md`.
 
 ## A masked key's zero probability still multiplies whatever an unwritten cache row holds
 
