@@ -102,9 +102,10 @@ namespace Mila::Dnn
          *
          * Bounded sliding-window ring (SlidingWindowKvCache.md Phase 3): their cache is sized
          * to the window working set instead of the full context. Strictly a memory
-         * optimization -- tokens are identical to the full cache. GLOBAL (full-attention)
-         * layers are always NoKvCompression, hardwired in GemmaTransformer. Flip this alias to
-         * NoKvCompression to A/B the footprint against the full-context sliding cache.
+         * optimization -- tokens are identical to the full cache. It stays BF16 under an FP8
+         * request: the GLOBAL (full-attention) layers' cache is the one the request decides.
+         * Flip this alias to NoKvCompression to A/B the footprint against the full-context
+         * sliding cache.
          *
          * Class scope rather than per-function so the load and footprint paths cannot be
          * pointed at different policies -- that would make a model report a figure for a
@@ -142,9 +143,9 @@ namespace Mila::Dnn
 
             return dispatchChassis<std::expected<DeploymentPlans, DeploymentRefusal>>(
                 path, request.getWeightQuantization(), request.getKvCacheCompression(), "GemmaModel::planDeployment",
-                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, GemmaFeedForward kFeedForward>()
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>()
                 {
-                    return planImpl<TWeightQuantization, TKvCachePolicy, kFeedForward>( path, request, device );
+                    return planImpl<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>( path, request, device );
                 } );
         }
 
@@ -166,9 +167,9 @@ namespace Mila::Dnn
             // per-vocab-row FP8 (D4 Design B -- see GemmaTransformer::TableQuantizationPolicy).
             return dispatchChassis<std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>>(
                 path, plan.weightQuantization(), plan.kvCacheCompression(), "GemmaModel::load",
-                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, GemmaFeedForward kFeedForward>()
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>()
                 {
-                    return loadImpl<TWeightQuantization, TKvCachePolicy, kFeedForward>( path, plan );
+                    return loadImpl<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>( path, plan );
                 } );
         }
 
@@ -287,9 +288,9 @@ namespace Mila::Dnn
             return dispatchChassis<DeploymentFootprint>(
                 path, model_config.getWeightQuantization(), model_config.getKvCacheCompression(),
                 "GemmaModel::getDeploymentFootprint",
-                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, GemmaFeedForward kFeedForward>()
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>()
                 {
-                    return deploymentFootprintImpl<TWeightQuantization, TKvCachePolicy, kFeedForward>(
+                    return deploymentFootprintImpl<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>(
                         path, model_config, device_id );
                 } );
         }
@@ -579,40 +580,50 @@ namespace Mila::Dnn
             const std::filesystem::path& path, WeightQuantization weight_quantization,
             KvCacheCompression kv_cache_compression, std::string_view caller, TAction&& action )
         {
-            if ( isRoutedCheckpoint( path ) )
-            {
-                return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, TResult,
-                    fp4GroupSize( GemmaFeedForward::Routed )>(
-                    weight_quantization, kv_cache_compression, caller,
-                    [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>() -> TResult
-                    {
-                        if constexpr ( expertBankImplements<TWeightQuantization> )
-                        {
-                            return action.template operator()<TWeightQuantization, TKvCachePolicy, GemmaFeedForward::Routed>();
-                        }
-                        else
-                        {
-                            throw std::runtime_error( std::format(
-                                "{}: a mixture-of-experts Gemma cannot run {} weights; its expert bank implements "
-                                "unquantized, per-group FP4 and Q4_0 weights only", caller,
-                                weightQuantizationName( weight_quantization, kRoutedFp4GroupSize ) ) );
-                        }
-                    } );
-            }
+            const bool routed = isRoutedCheckpoint( path );
 
-            return dispatchWeightQuantization<TPrecision, GemmaSlidingKvPolicy, TResult,
-                fp4GroupSize( GemmaFeedForward::Dense )>(
-                weight_quantization, kv_cache_compression, caller,
-                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+            // The request's KV setting reaches the global layers only; the sliding ring is BF16 whatever it asks,
+            // because an FP8 ring failed the 26B-A4B's long-context gate (Quantization.md, KV decision 6).
+            return dispatchKvCacheCompression<TDeviceType, TPrecision, TResult>( kv_cache_compression, caller,
+                [&]<KvCachePolicy TGlobalKvCachePolicy>() -> TResult
                 {
-                    return action.template operator()<TWeightQuantization, TKvCachePolicy, GemmaFeedForward::Dense>();
+                    if ( routed )
+                    {
+                        // Unconstrained: MSVC loses the concept's name in a constrained lambda nested in another.
+                        return dispatchWeightQuantization<TPrecision, TResult, fp4GroupSize( GemmaFeedForward::Routed )>(
+                            weight_quantization, caller,
+                            [&]<typename TWeightQuantization>() -> TResult
+                            {
+                                if constexpr ( expertBankImplements<TWeightQuantization> )
+                                {
+                                    return action.template operator()<
+                                        TWeightQuantization, TGlobalKvCachePolicy, GemmaFeedForward::Routed>();
+                                }
+                                else
+                                {
+                                    throw std::runtime_error( std::format(
+                                        "{}: a mixture-of-experts Gemma cannot run {} weights; its expert bank "
+                                        "implements unquantized, per-group FP4 and Q4_0 weights only", caller,
+                                        weightQuantizationName( weight_quantization, kRoutedFp4GroupSize ) ) );
+                                }
+                            } );
+                    }
+
+                    return dispatchWeightQuantization<TPrecision, TResult, fp4GroupSize( GemmaFeedForward::Dense )>(
+                        weight_quantization, caller,
+                        [&]<typename TWeightQuantization>() -> TResult
+                        {
+                            return action.template operator()<
+                                TWeightQuantization, TGlobalKvCachePolicy, GemmaFeedForward::Dense>();
+                        } );
                 } );
         }
 
-        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, GemmaFeedForward kFeedForward>
-        using ChassisTransformer = GemmaTransformer<TDeviceType, TPrecision, TWeightQuantization, TKvCachePolicy, kFeedForward>;
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>
+        using ChassisTransformer = GemmaTransformer<
+            TDeviceType, TPrecision, TWeightQuantization, GemmaSlidingKvPolicy, kFeedForward, TGlobalKvCachePolicy>;
 
-        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, GemmaFeedForward kFeedForward>
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>
         static std::expected<DeploymentPlans, DeploymentRefusal> planImpl(
             const std::filesystem::path& path,
             const DeploymentRequest& request,
@@ -629,14 +640,14 @@ namespace Mila::Dnn
 
             // Construction commits no device memory, but it creates the execution context, which holds some;
             // the reading is taken after it, as the load's build will find the device (Deployment.md 9).
-            const ChassisTransformer<TWeightQuantization, TKvCachePolicy, kFeedForward> network(
+            const ChassisTransformer<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward> network(
                 metadata.model_name, network_config, device_id );
 
             return planOnDevice( network, request, DeviceReading::take( device_id ),
                 network_config.getMaxSequenceLength(), metadata, reader.getWeightQuantization() );
         }
 
-        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, GemmaFeedForward kFeedForward>
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>
         static std::unique_ptr<GemmaModel<TDeviceType, TPrecision>> loadImpl(
             const std::filesystem::path& path,
             const DeploymentPlan& plan )
@@ -653,7 +664,7 @@ namespace Mila::Dnn
 
             const GemmaConfig network_config = configFromMetadata( metadata );
 
-            auto network = std::make_unique<ChassisTransformer<TWeightQuantization, TKvCachePolicy, kFeedForward>>(
+            auto network = std::make_unique<ChassisTransformer<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>>(
                 metadata.model_name, network_config, plan.device() );
 
             network->build( plan.buildContext() );
@@ -675,7 +686,7 @@ namespace Mila::Dnn
          * artifact check, the geometry, and the context-length validation must be the ones a
          * real load would apply, or the reported figure describes a model that would not load.
          */
-        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy, GemmaFeedForward kFeedForward>
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>
         static DeploymentFootprint deploymentFootprintImpl(
             const std::filesystem::path& path,
             const GemmaModelConfig& model_config,
@@ -703,7 +714,7 @@ namespace Mila::Dnn
 
             // Construction commits no device memory -- that is the whole premise. The graph
             // exists, correctly shaped, and is then asked rather than built.
-            auto network = std::make_unique<ChassisTransformer<TWeightQuantization, TKvCachePolicy, kFeedForward>>(
+            auto network = std::make_unique<ChassisTransformer<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>>(
                 metadata.model_name, network_config, device_id );
 
             // The one reading of the device this prediction takes, and the graph is priced at the

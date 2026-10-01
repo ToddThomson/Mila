@@ -274,16 +274,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             if constexpr ( kFp8Cache )
             {
-                // Only the FP8 write, the fused flash prefill and the fused decode read this cache; there is no
-                // cuBLASLt path to fall back to.
-                if ( !Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv_fp8_supported( HS_ )
-                    || !Detail::cuda_gqa_kernels<NativeType>::flash_prefill_fp8_supported( HS_ )
-                    || !Detail::cuda_gqa_kernels<NativeType>::decode_attention_supported( HS_, GS_ ) )
-                {
-                    throw std::invalid_argument( std::format(
-                        "CudaGqaOp: an FP8 KV cache needs the fused kernels, which do not serve head size {} with "
-                        "{} query heads per KV head", HS_, GS_ ) );
-                }
+                requireFp8CacheServed( HS_, GS_ );
             }
 
             initializeState_optimized( context );
@@ -399,6 +390,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             if constexpr ( kFp8Cache )
             {
+                // Refused when priced as well as at build, so a plan never prices a cache its load cannot build.
+                requireFp8CacheServed( static_cast<int>( head_dim ),
+                    static_cast<int>( config_.getNumHeads() / kv_heads ) );
+
                 // K and V codes, and one FP32 scale per row of each.
                 return 2 * occupiedDeviceBytes( storageBytes<TensorDataType::FP8_E4M3>( batch * kv_heads * capacity * head_dim ),
                         context.getAllocationGranularity() )
@@ -498,6 +493,20 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
     private:
+
+        /// Only the FP8 write, the fused flash prefill and the fused decode read an FP8 cache; there is no cuBLASLt
+        /// path to fall back to.
+        static void requireFp8CacheServed( int head_size, int group_size )
+        {
+            if ( !Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv_fp8_supported( head_size )
+                || !Detail::cuda_gqa_kernels<NativeType>::flash_prefill_fp8_supported( head_size )
+                || !Detail::cuda_gqa_kernels<NativeType>::decode_attention_supported( head_size, group_size ) )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaGqaOp: an FP8 KV cache needs the fused kernels, which do not serve head size {} with "
+                    "{} query heads per KV head", head_size, group_size ) );
+            }
+        }
 
         /// The split-K partials the fused decode kernel requests from the context scratch:
         /// BF16 only, and only for a geometry the kernel supports, exactly as decode() routes.

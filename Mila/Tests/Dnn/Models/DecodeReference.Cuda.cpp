@@ -54,7 +54,7 @@ namespace Mila::Tests::Dnn::Models
         using TinyQwenBf16 = Counted<QwenTransformer<DeviceType::Cuda, TensorDataType::BF16>>;
 
         using LlamaQ4_0 = Counted<LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
-            Quant::Weight::PerGroupInt4<32>, LlamaBf16::LlamaKvPolicy>>;
+            Quant::Weight::PerGroupInt4<32>, Quant::KvCache::NoKvCompression>>;
         using LlamaQ4_0Fp8Kv = Counted<LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
             Quant::Weight::PerGroupInt4<32>, Quant::KvCache::PerTokenKvFp8<>>>;
         using GemmaQ4_0 = Counted<GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16,

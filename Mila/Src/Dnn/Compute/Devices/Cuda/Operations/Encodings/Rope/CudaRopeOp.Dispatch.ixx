@@ -14,15 +14,22 @@ export module Compute.CudaRopeOp:Dispatch;
 
 namespace Mila::Dnn::Compute::Cuda::Rope::Detail
 {
+    /// The angle parameters, named inside the module so the op can hold them.
+    using AngleParameters = Mila::Dnn::Compute::Cuda::Rope::RopeAngleParameters;
+
+    inline AngleParameters angle_parameters(
+        int head_dim, int rotary_dim, int rotary_layout, float base,
+        float scaling_factor, float scaling_low_frequency_factor, float scaling_high_frequency_factor,
+        int scaling_original_context_length )
+    {
+        return makeRopeAngleParameters( head_dim, rotary_dim, rotary_layout, base,
+            scaling_factor, scaling_low_frequency_factor, scaling_high_frequency_factor, scaling_original_context_length );
+    }
+
     /**
-     * @brief CUDA kernel dispatcher for RoPE forward, backward, cache build,
-     *        and positional decode.
+     * @brief CUDA kernel dispatcher for RoPE forward, backward and positional decode.
      *
-     * Primary template constrained to float and half. Only the float
-     * specialization is fully implemented; the half specialization follows
-     * the same pattern with TODOs for FP16 kernel stubs.
-     *
-     * @tparam TNative CUDA native type: float (FP32) or half (FP16).
+     * @tparam TNative CUDA native type: float (FP32) or __nv_bfloat16 (BF16).
      */
     template <typename TNative>
         requires std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>
@@ -36,30 +43,6 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
     struct cuda_rope_impl<float>
     {
         /**
-         * @brief Build the cos/sin frequency cache on the device (called once in build()).
-         */
-        static void build_cache(
-            float* cos_cache,
-            float* sin_cache,
-            int    max_seq_len,
-            int    head_dim,
-            float  base,
-            int    rotary_dim,
-            int    rotary_layout,
-            float  scaling_factor,
-            float  scaling_low_frequency_factor,
-            float  scaling_high_frequency_factor,
-            int    scaling_original_context_length,
-            cudaStream_t stream )
-        {
-            cuda_rope_build_cache_fp32(
-                cos_cache, sin_cache,
-                max_seq_len, head_dim, base, rotary_dim, rotary_layout,
-                scaling_factor, scaling_low_frequency_factor, scaling_high_frequency_factor,
-                scaling_original_context_length, stream );
-        }
-
-        /**
          * @brief Full-sequence forward: apply RoPE to Q and K with position offset.
          *
          * @param position_offset Absolute position of first token in this chunk.
@@ -68,7 +51,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
         static void forward(
             float* Q_out, float* K_out,
             const float* Q_in, const float* K_in,
-            const float* cos_cache, const float* sin_cache,
+            const RopeAngleParameters& angles,
             int B, int T,
             int n_heads, int n_kv_heads, int head_dim,
             int rotary_dim, int rotary_layout,
@@ -76,8 +59,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             cudaStream_t stream )
         {
             cuda_rope_forward_fp32(
-                Q_out, K_out, Q_in, K_in,
-                cos_cache, sin_cache,
+                Q_out, K_out, Q_in, K_in, angles,
                 B, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, position_offset, stream );
         }
 
@@ -87,15 +69,14 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
         static void backward(
             float* dQ_in, float* dK_in,
             const float* dQ_out, const float* dK_out,
-            const float* cos_cache, const float* sin_cache,
+            const RopeAngleParameters& angles,
             int B, int T,
             int n_heads, int n_kv_heads, int head_dim,
             int rotary_dim, int rotary_layout,
             cudaStream_t stream )
         {
             cuda_rope_backward_fp32(
-                dQ_in, dK_in, dQ_out, dK_out,
-                cos_cache, sin_cache,
+                dQ_in, dK_in, dQ_out, dK_out, angles,
                 B, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
         }
 
@@ -105,15 +86,14 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
         static void decode(
             float* Q_out, float* K_out,
             const float* Q_in, const float* K_in,
-            const float* cos_cache, const float* sin_cache,
+            const RopeAngleParameters& angles,
             int B, const int* position,
             int n_heads, int n_kv_heads, int head_dim,
             int rotary_dim, int rotary_layout,
             cudaStream_t stream )
         {
             cuda_rope_decode_fp32(
-                Q_out, K_out, Q_in, K_in,
-                cos_cache, sin_cache,
+                Q_out, K_out, Q_in, K_in, angles,
                 B, position, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
         }
     };
@@ -125,33 +105,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
     template <>
     struct cuda_rope_impl<__nv_bfloat16>
     {
-        // Cache is always FP32 -- delegate directly to the FP32 launcher.
-        static void build_cache(
-            float* cos_cache,
-            float* sin_cache,
-            int   max_seq_len,
-            int   head_dim,
-            float base,
-            int   rotary_dim,
-            int   rotary_layout,
-            float scaling_factor,
-            float scaling_low_frequency_factor,
-            float scaling_high_frequency_factor,
-            int   scaling_original_context_length,
-            cudaStream_t stream )
-        {
-            // REVIEW: Why is cache building going through the dispatcher. Call directly.
-            cuda_rope_build_cache_fp32(
-                cos_cache, sin_cache,
-                max_seq_len, head_dim, base, rotary_dim, rotary_layout,
-                scaling_factor, scaling_low_frequency_factor, scaling_high_frequency_factor,
-                scaling_original_context_length, stream );
-        }
-
         static void forward(
             __nv_bfloat16* Q_out, __nv_bfloat16* K_out,
             const __nv_bfloat16* Q_in, const __nv_bfloat16* K_in,
-            const float* cos_cache, const float* sin_cache,
+            const RopeAngleParameters& angles,
             int B, int T,
             int n_heads, int n_kv_heads, int head_dim,
             int rotary_dim, int rotary_layout,
@@ -159,38 +116,35 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             cudaStream_t stream )
         {
             cuda_rope_forward_bf16(
-                Q_out, K_out, Q_in, K_in,
-                cos_cache, sin_cache,
+                Q_out, K_out, Q_in, K_in, angles,
                 B, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, position_offset, stream );
         }
 
         static void backward(
             __nv_bfloat16* dQ_in, __nv_bfloat16* dK_in,
             const __nv_bfloat16* dQ_out, const __nv_bfloat16* dK_out,
-            const float* cos_cache, const float* sin_cache,
+            const RopeAngleParameters& angles,
             int B, int T,
             int n_heads, int n_kv_heads, int head_dim,
             int rotary_dim, int rotary_layout,
             cudaStream_t stream )
         {
             cuda_rope_backward_bf16(
-                dQ_in, dK_in, dQ_out, dK_out,
-                cos_cache, sin_cache,
+                dQ_in, dK_in, dQ_out, dK_out, angles,
                 B, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
         }
 
         static void decode(
             __nv_bfloat16* Q_out, __nv_bfloat16* K_out,
             const __nv_bfloat16* Q_in, const __nv_bfloat16* K_in,
-            const float* cos_cache, const float* sin_cache,
+            const RopeAngleParameters& angles,
             int B, const int* position,
             int n_heads, int n_kv_heads, int head_dim,
             int rotary_dim, int rotary_layout,
             cudaStream_t stream )
         {
             cuda_rope_decode_bf16(
-                Q_out, K_out, Q_in, K_in,
-                cos_cache, sin_cache,
+                Q_out, K_out, Q_in, K_in, angles,
                 B, position, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
         }
     };

@@ -1,427 +1,24 @@
-#define _USE_MATH_DEFINES
-#include <math.h>
-#include <cassert>
 #include <cuda_runtime.h>
-#include <cuda_fp16.h>
-#include "device_launch_parameters.h"
 #include "CudaUtils.h"
 #include "Rope.cuh"
+#include "Rope.Rotation.cuh"
 
 namespace Mila::Dnn::Compute::Cuda::Rope
 {
-    // ========================================================================
-    // Cache construction kernel
-    // ========================================================================
-
-    /**
-     * @brief Builds the cos/sin frequency cache.
-     *
-     * Each thread handles one (position, freq_pair) cell.
-     * Grid: [max_seq_len, head_dim/2] threads via 2D launch.
-     *
-     * @param cos_out  [max_seq_len, head_dim/2]
-     * @param sin_out  [max_seq_len, head_dim/2]
-     * @param half_dim head_dim / 2
-     * @param base     Frequency base (10000.0f standard)
-     */
-    /**
-     * @brief Llama 3's rescaling of one inverse frequency by its wavelength (RopeFrequencyScaling).
-     *
-     * Mirrors HuggingFace's `_compute_llama3_parameters`: long wavelengths are divided by the factor, short ones
-     * kept, and the band between interpolated. An original context of 0 returns the frequency unchanged.
-     */
-    __device__ __forceinline__ float scale_inverse_frequency(
-        float inverse_frequency,
-        float factor,
-        float low_frequency_factor,
-        float high_frequency_factor,
-        int original_context_length )
-    {
-        if ( original_context_length <= 0 )
-            return inverse_frequency;
-
-        const float original = static_cast<float>( original_context_length );
-        const float wavelength = 2.0f * static_cast<float>( M_PI ) / inverse_frequency;
-
-        if ( wavelength > original / low_frequency_factor )
-            return inverse_frequency / factor;
-
-        if ( wavelength < original / high_frequency_factor )
-            return inverse_frequency;
-
-        const float smooth = ( original / wavelength - low_frequency_factor ) / ( high_frequency_factor - low_frequency_factor );
-
-        return ( 1.0f - smooth ) * inverse_frequency / factor + smooth * inverse_frequency;
-    }
-
-    __global__ void rope_build_cache_kernel(
-        float* __restrict__ cos_out,
-        float* __restrict__ sin_out,
-        int half_dim,
-        int max_seq_len,
-        float base,
-        int rope_pairs,
-        int freq_denominator,
-        float scaling_factor,
-        float scaling_low_frequency_factor,
-        float scaling_high_frequency_factor,
-        int scaling_original_context_length )
-    {
-        int pos = blockIdx.x * blockDim.x + threadIdx.x;
-        int i = blockIdx.y * blockDim.y + threadIdx.y;
-
-        if ( pos >= max_seq_len || i >= half_dim ) return;
-
-        int idx = pos * half_dim + i;
-
-        if ( i < rope_pairs )
-        {
-            float theta = scale_inverse_frequency(
-                __powf( base, -2.0f * static_cast<float>(i) / static_cast<float>(freq_denominator) ),
-                scaling_factor, scaling_low_frequency_factor, scaling_high_frequency_factor,
-                scaling_original_context_length );
-            float angle = static_cast<float>(pos) * theta;
-
-            cos_out[ idx ] = cosf( angle );
-            sin_out[ idx ] = sinf( angle );
-        }
-        else
-        {
-            // Proportional partial-rotary (Gemma global layers): the upper
-            // (head_dim - rotary_dim) dimensions carry zero frequency, so cos=1,
-            // sin=0 makes the rotation the identity (pass-through). With
-            // rope_pairs == half_dim (rotary_dim 0 / full) this branch never runs.
-            cos_out[ idx ] = 1.0f;
-            sin_out[ idx ] = 0.0f;
-        }
-    }
-
-    // ========================================================================
-    // Core rotation helper — used by forward, backward, and decode kernels
-    // ========================================================================
-
-    /**
-     * @brief Rotate a single float2 pair by (cos_val, sin_val).
-     *
-     * Forward:  x' = (x0*c - x1*s,  x0*s + x1*c)
-     * Backward: x' = (x0*c + x1*s, -x0*s + x1*c)  (negate_sin = true)
-     *
-     * @tparam negate_sin Set true for the backward (inverse) rotation.
-     */
-    template <bool negate_sin = false>
-    __device__ __forceinline__ float2 rotate_pair( float2 x, float cos_val, float sin_val )
-    {
-        if constexpr ( negate_sin )
-        {
-            return make_float2(
-                x.x * cos_val + x.y * sin_val,
-                -x.x * sin_val + x.y * cos_val );
-        }
-        else
-        {
-            return make_float2(
-                x.x * cos_val - x.y * sin_val,
-                x.x * sin_val + x.y * cos_val );
-        }
-    }
-
-    // ========================================================================
-    // Forward / backward kernel  (shared template, backward = negate_sin)
-    // ========================================================================
-
-    /**
-     * @brief Full-sequence RoPE rotation kernel with position offset.
-     *
-     * One thread per (b, t, h, i) where i is a frequency-pair index in [0, head_dim/2).
-     * Grid flattens (B * T * n_heads) onto blockIdx.x for Q, and a separate
-     * launch handles K with n_kv_heads.
-     *
-     * The position_offset shifts the cos/sin cache lookup so that chunk-local
-     * position t maps to absolute position (t + position_offset). This enables
-     * chunked prefill where chunk 0 uses offset 0, chunk 1 uses offset chunk_size, etc.
-     *
-     * @tparam negate_sin  false -> forward rotation, true -> backward (inverse) rotation.
-     *
-     * @param out             Output tensor (same shape as in).
-     * @param in              Input tensor.
-     * @param cos_cache       [max_seq_len, head_dim/2].
-     * @param sin_cache       [max_seq_len, head_dim/2].
-     * @param total_heads     B * T * n_heads  (or B * T * n_kv_heads for K).
-     * @param half_dim        head_dim / 2.
-     * @param T               Sequence length (needed to recover t from linear index).
-     * @param n_heads         Number of heads for this tensor (Q or K).
-     * @param position_offset Absolute position of the first token in this chunk.
-     */
-    template <bool negate_sin>
-    __global__ void rope_rotate_kernel(
-        float* __restrict__       out,
-        const float* __restrict__ in,
-        const float* __restrict__ cos_cache,
-        const float* __restrict__ sin_cache,
-        int total_heads,
-        int pair_half,
-        int cache_stride,
-        int head_stride,
-        int T,
-        int n_heads,
-        int position_offset )
-    {
-        // Lanes along the pair index: a warp touches contiguous elements of one head.
-        int bth = blockIdx.x * blockDim.y + threadIdx.y;
-        int i = blockIdx.y * blockDim.x + threadIdx.x;
-
-        if ( bth >= total_heads || i >= pair_half ) return;
-
-        int t = (bth / n_heads) % T;
-        int abs_pos = t + position_offset;
-
-        float c = cos_cache[ abs_pos * cache_stride + i ];
-        float s = sin_cache[ abs_pos * cache_stride + i ];
-
-        int base_idx = bth * head_stride;
-
-        const float2 r = rotate_pair<negate_sin>(
-            make_float2( in[ base_idx + i ], in[ base_idx + i + pair_half ] ), c, s );
-
-        out[ base_idx + i ] = r.x;
-        out[ base_idx + i + pair_half ] = r.y;
-    }
-
-    template <bool negate_sin>
-    __global__ void rope_decode_kernel(
-        float* __restrict__       out,
-        const float* __restrict__ in,
-        const float* __restrict__ cos_cache,
-        const float* __restrict__ sin_cache,
-        int total_heads,
-        int pair_half,
-        int cache_stride,
-        int head_stride,
-        const int* __restrict__ position,
-        int n_heads )
-    {
-        int bh = blockIdx.x * blockDim.y + threadIdx.y;
-        int i = blockIdx.y * blockDim.x + threadIdx.x;
-
-        if ( bh >= total_heads || i >= pair_half ) return;
-
-        const int row = *position;
-
-        float c = cos_cache[ row * cache_stride + i ];
-        float s = sin_cache[ row * cache_stride + i ];
-
-        int base_idx = bh * head_stride;
-
-        const float2 r = rotate_pair<negate_sin>(
-            make_float2( in[ base_idx + i ], in[ base_idx + i + pair_half ] ), c, s );
-
-        out[ base_idx + i ] = r.x;
-        out[ base_idx + i + pair_half ] = r.y;
-    }
-
-    // ========================================================================
-    // Launch helpers
-    // ========================================================================
-
-    /**
-     * @brief Shared kernel launcher for both Q and K with (potentially) different
-     *        head counts. Used by forward, backward, and prefill host functions.
-     *
-     * @tparam negate_sin  Forward or backward rotation.
-     * @param position_offset  Absolute position of first token in the chunk.
-     *                         Pass 0 for training and standard forward passes.
-     */
-    template <bool negate_sin>
-    static void launch_rotate_full(
-        float* out_Q,
-        float* out_K,
-        const float* in_Q,
-        const float* in_K,
-        const float* cos_cache,
-        const float* sin_cache,
-        int B, int T,
-        int n_heads, int n_kv_heads, int head_dim,
-        int rotary_dim, int rotary_layout,
-        int position_offset,
-        cudaStream_t stream )
-    {
-        assert( head_dim % 2 == 0 );
-
-        // Which channel pairs actually rotate. WholeHead spans the head and lets the cache
-        // carry identity beyond rotary_dim (Gemma); RotaryPrefix confines the rotation to the
-        // leading rotary_dim and pairs inside it (Qwen). The cache layout is head_dim/2 wide
-        // in both cases, so only the pairing offset and the bound change.
-        const int cache_stride = head_dim / 2;
-        const int head_stride = head_dim;
-        const int pair_half = ( rotary_layout == 1 && rotary_dim > 0 && rotary_dim < head_dim )
-            ? ( rotary_dim / 2 )
-            : cache_stride;
-
-        // TX lanes along the pair index, TY heads per block.
-        constexpr int TX = 64;
-        constexpr int TY = 4;
-
-        // --- Q ---
-        {
-            int total = B * T * n_heads;
-            dim3 block( TX, TY );
-            dim3 grid(
-                (total + TY - 1) / TY,
-                (pair_half + TX - 1) / TX );
-
-            rope_rotate_kernel<negate_sin> << <grid, block, 0, stream >> > (
-                out_Q, in_Q, cos_cache, sin_cache,
-                total, pair_half, cache_stride, head_stride, T, n_heads, position_offset);
-        }
-
-        // --- K ---
-        {
-            int total = B * T * n_kv_heads;
-            dim3 block( TX, TY );
-            dim3 grid(
-                (total + TY - 1) / TY,
-                (pair_half + TX - 1) / TX );
-
-            rope_rotate_kernel<negate_sin> << <grid, block, 0, stream >> > (
-                out_K, in_K, cos_cache, sin_cache,
-                total, pair_half, cache_stride, head_stride, T, n_kv_heads, position_offset);
-        }
-
-        cudaCheck( cudaGetLastError() );
-    }
-
-    template <bool negate_sin>
-    static void launch_rotate_decode(
-        float* out_Q,
-        float* out_K,
-        const float* in_Q,
-        const float* in_K,
-        const float* cos_cache,
-        const float* sin_cache,
-        int B, const int* position,
-        int n_heads, int n_kv_heads, int head_dim,
-        int rotary_dim, int rotary_layout,
-        cudaStream_t stream )
-    {
-        assert( head_dim % 2 == 0 );
-
-        // Which channel pairs actually rotate. WholeHead spans the head and lets the cache
-        // carry identity beyond rotary_dim (Gemma); RotaryPrefix confines the rotation to the
-        // leading rotary_dim and pairs inside it (Qwen). The cache layout is head_dim/2 wide
-        // in both cases, so only the pairing offset and the bound change.
-        const int cache_stride = head_dim / 2;
-        const int head_stride = head_dim;
-        const int pair_half = ( rotary_layout == 1 && rotary_dim > 0 && rotary_dim < head_dim )
-            ? ( rotary_dim / 2 )
-            : cache_stride;
-
-        // TX lanes along the pair index, TY heads per block.
-        constexpr int TX = 64;
-        constexpr int TY = 4;
-
-        // --- Q ---
-        {
-            int total = B * n_heads;
-            dim3 block( TX, TY );
-            dim3 grid(
-                (total + TY - 1) / TY,
-                (pair_half + TX - 1) / TX );
-
-            rope_decode_kernel<negate_sin> << <grid, block, 0, stream >> > (
-                out_Q, in_Q, cos_cache, sin_cache,
-                total, pair_half, cache_stride, head_stride, position, n_heads);
-        }
-
-        // --- K ---
-        {
-            int total = B * n_kv_heads;
-            dim3 block( TX, TY );
-            dim3 grid(
-                (total + TY - 1) / TY,
-                (pair_half + TX - 1) / TX );
-
-            rope_decode_kernel<negate_sin> << <grid, block, 0, stream >> > (
-                out_K, in_K, cos_cache, sin_cache,
-                total, pair_half, cache_stride, head_stride, position, n_kv_heads);
-        }
-
-        cudaCheck( cudaGetLastError() );
-    }
-
-    // ========================================================================
-    // Public host launchers
-    // ========================================================================
-
-    void cuda_rope_build_cache_fp32(
-        float* cos_cache,
-        float* sin_cache,
-        int    max_seq_len,
-        int    head_dim,
-        float  base,
-        int    rotary_dim,
-        int    rotary_layout,
-        float  scaling_factor,
-        float  scaling_low_frequency_factor,
-        float  scaling_high_frequency_factor,
-        int    scaling_original_context_length,
-        cudaStream_t stream )
-    {
-        assert( head_dim % 2 == 0 );
-        const int half_dim = head_dim / 2;
-
-        // Number of rotated frequency pairs. rotary_dim 0 (or >= head_dim) means
-        // full rotation (every pair real) — the Llama/Qwen default and byte-identical
-        // to the prior behavior. A positive rotary_dim < head_dim (Gemma global
-        // layers) rotates only the first rotary_dim/2 pairs; the rest get zero
-        // frequency (identity) via the kernel's else-branch.
-        const int rope_pairs = ( rotary_dim > 0 && rotary_dim < head_dim )
-            ? (rotary_dim / 2)
-            : half_dim;
-
-        // The spectrum the rotated pairs span, and the second half of the family split that
-        // RotaryLayout selects. WholeHead spreads the frequencies across the whole head and
-        // then keeps only the first rope_pairs of them -- the proportional form. RotaryPrefix
-        // compresses the SAME spectrum into rotary_dim, which is what
-        // `compute_default_rope_parameters` does for Qwen (dim = head_dim * partial_rotary_factor).
-        // At rotary_dim 64 of head_dim 256 the two differ by ~29000x at the last rotated pair,
-        // so getting this wrong is not a rounding matter.
-        const int freq_denominator =
-            ( rotary_layout == 1 && rotary_dim > 0 && rotary_dim < head_dim )
-            ? rotary_dim
-            : head_dim;
-
-        constexpr int TX = 32;
-        constexpr int TY = 16;
-
-        dim3 block( TX, TY );
-        dim3 grid(
-            (max_seq_len + TX - 1) / TX,
-            (half_dim + TY - 1) / TY );
-
-        rope_build_cache_kernel << <grid, block, 0, stream >> > (
-            cos_cache, sin_cache, half_dim, max_seq_len, base, rope_pairs, freq_denominator,
-            scaling_factor, scaling_low_frequency_factor, scaling_high_frequency_factor, scaling_original_context_length );
-
-        cudaCheck( cudaGetLastError() );
-    }
-
     void cuda_rope_forward_fp32(
         float* Q_out,
         float* K_out,
         const float* Q_in,
         const float* K_in,
-        const float* cos_cache,
-        const float* sin_cache,
+        const RopeAngleParameters& angles,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
         int position_offset,
         cudaStream_t stream )
     {
-        launch_rotate_full<false>(
-            Q_out, K_out, Q_in, K_in,
-            cos_cache, sin_cache,
-            B, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, position_offset, stream );
+        launch_rope_rotation<false>( Q_out, K_out, Q_in, K_in, angles,
+            B * T, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, position_offset, nullptr, stream );
     }
 
     void cuda_rope_backward_fp32(
@@ -429,17 +26,14 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         float* dK_in,
         const float* dQ_out,
         const float* dK_out,
-        const float* cos_cache,
-        const float* sin_cache,
+        const RopeAngleParameters& angles,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
         cudaStream_t stream )
     {
-        launch_rotate_full<true>(
-            dQ_in, dK_in, dQ_out, dK_out,
-            cos_cache, sin_cache,
-            B, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, 0, stream );
+        launch_rope_rotation<true>( dQ_in, dK_in, dQ_out, dK_out, angles,
+            B * T, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, 0, nullptr, stream );
     }
 
     void cuda_rope_decode_fp32(
@@ -447,16 +41,13 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         float* K_out,
         const float* Q_in,
         const float* K_in,
-        const float* cos_cache,
-        const float* sin_cache,
+        const RopeAngleParameters& angles,
         int B, const int* position,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
         cudaStream_t stream )
     {
-        launch_rotate_decode<false>(
-            Q_out, K_out, Q_in, K_in,
-            cos_cache, sin_cache,
-            B, position, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
+        launch_rope_rotation<false>( Q_out, K_out, Q_in, K_in, angles,
+            B, 1, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, 0, position, stream );
     }
 }

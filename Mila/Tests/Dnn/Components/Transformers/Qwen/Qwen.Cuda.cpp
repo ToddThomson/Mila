@@ -106,12 +106,6 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
 
         /**
          * @brief Footprint of a network built alone, then destroyed.
-         *
-         * Comparing two footprints requires this: the RoPE cos/sin cache is process-wide and
-         * refcounted by RopeCacheRegistry, so a second network built while the first is still
-         * alive finds the cache present and reports a smaller total than the same network
-         * built by itself. Holding both and subtracting compares a first build against a
-         * second one.
          */
         MemoryStats builtFootprint( const QwenConfig& config, const BuildContext& context )
         {
@@ -604,23 +598,6 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes ) << "parameters";
         EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes ) << "state";
         EXPECT_EQ( predicted.device_gradient_bytes, actual.device_gradient_bytes ) << "gradients";
-    }
-
-    // Eight layers rather than four: with only one RoPE cache allocated per key, seven of
-    // the eight per-layer reports must be subtracted. A short stack cannot tell a correct
-    // deduplication from an off-by-one.
-    TEST_F( QwenTransformerCudaTests, GetRequiredMemory_PinsRopeCacheDeduplication )
-    {
-        const BuildContext context = pricedOnDevice( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference ) );
-
-        QwenCuda predictor( "qwen", allAttentionConfig( 8 ), Device::Cuda( 0 ) );
-        const MemoryStats predicted = predictor.getRequiredMemory( context );
-
-        QwenCuda built( "qwen", allAttentionConfig( 8 ), Device::Cuda( 0 ) );
-        built.build( context );
-        const MemoryStats actual = built.getMemoryStats();
-
-        EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes );
     }
 
     /**

@@ -1,47 +1,55 @@
 #pragma once
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#include <cuda_bf16.h>
 
 namespace Mila::Dnn::Compute::Cuda::Rope
 {
     // ========================================================================
-    // Cache construction
+    // Angles
     // ========================================================================
 
     /**
-     * @brief Build the cos/sin frequency cache on the device.
+     * @brief Everything the angle of (position, pair) depends on besides those two.
      *
-     * Fills cos_cache[pos, i] = cos(pos * theta_i) and
-     *       sin_cache[pos, i] = sin(pos * theta_i)
-     * for pos in [0, max_seq_len) and i in [0, head_dim/2).
-     *
-     * @param cos_cache  Device buffer [max_seq_len, head_dim/2].
-     * @param sin_cache  Device buffer [max_seq_len, head_dim/2].
-     * @param max_seq_len Rows to fill: the sequence length the owning op was built for.
-     * @param head_dim   Per-head embedding dimension (must be even).
-     * @param base       Frequency base (default 10000.0f).
-     * @param rotary_dim Number of dimensions to rotate; 0 (or >= head_dim) = full
-     *                   rotation (default). A positive value < head_dim rotates only
-     *                   the first rotary_dim dims (proportional partial-rotary); the
-     *                   remainder get zero frequency (identity / pass-through).
-     * @param scaling_factor, scaling_low_frequency_factor, scaling_high_frequency_factor,
-     *        scaling_original_context_length  Llama 3's wavelength-banded frequency scaling
-     *                   (RopeFrequencyScaling); an original context of 0 applies none.
-     * @param stream     CUDA stream.
+     * Every rotation calculates its cos and sin from these through one device function (Rope.Angle.cuh).
      */
-    void cuda_rope_build_cache_fp32(
-        float* cos_cache,
-        float* sin_cache,
-        int    max_seq_len,
-        int    head_dim,
-        float  base,
-        int    rotary_dim,
-        int    rotary_layout,
-        float  scaling_factor,
-        float  scaling_low_frequency_factor,
-        float  scaling_high_frequency_factor,
-        int    scaling_original_context_length,
-        cudaStream_t stream );
+    struct RopeAngleParameters
+    {
+        float base;
+        int rope_pairs;             ///< pairs that rotate; the rest carry zero frequency (identity)
+        int frequency_denominator;  ///< the width the frequency spectrum spans: head_dim, or rotary_dim for RotaryPrefix
+        float scaling_factor;
+        float scaling_low_frequency_factor;
+        float scaling_high_frequency_factor;
+        int scaling_original_context_length;  ///< 0 = no frequency scaling
+    };
+
+    /**
+     * @brief The angle parameters of one RoPE configuration.
+     *
+     * rotary_dim 0 (or >= head_dim) rotates every pair. A positive rotary_dim < head_dim rotates the first
+     * rotary_dim/2 pairs. WholeHead (layout 0) spreads the spectrum across the whole head and keeps its first
+     * rope_pairs frequencies -- the proportional form, Gemma's global layers. RotaryPrefix (layout 1) compresses
+     * the same spectrum into rotary_dim, as `compute_default_rope_parameters` does for Qwen; at rotary_dim 64 of
+     * head_dim 256 the two differ by ~29000x at the last rotated pair, so the choice is not a rounding matter.
+     */
+    inline RopeAngleParameters makeRopeAngleParameters(
+        int head_dim, int rotary_dim, int rotary_layout, float base,
+        float scaling_factor, float scaling_low_frequency_factor, float scaling_high_frequency_factor,
+        int scaling_original_context_length )
+    {
+        const bool partial = rotary_dim > 0 && rotary_dim < head_dim;
+
+        return RopeAngleParameters{
+            base,
+            partial ? rotary_dim / 2 : head_dim / 2,
+            ( rotary_layout == 1 && partial ) ? rotary_dim : head_dim,
+            scaling_factor,
+            scaling_low_frequency_factor,
+            scaling_high_frequency_factor,
+            scaling_original_context_length };
+    }
 
     // ========================================================================
     // Forward — full sequence with position offset
@@ -50,18 +58,14 @@ namespace Mila::Dnn::Compute::Cuda::Rope
     /**
      * @brief Apply RoPE to Q and K for a (possibly offset) sequence chunk.
      *
-     * Each token at chunk-local position t is rotated using the cache row
-     * at absolute position (t + position_offset). This enables chunked prefill
-     * where successive chunks use increasing offsets.
-     *
-     * For standard training/forward passes, pass position_offset = 0.
+     * Each token at chunk-local position t is rotated at absolute position t + position_offset, so successive
+     * prefill chunks pass increasing offsets. For standard training/forward passes, pass position_offset = 0.
      *
      * @param Q_out           Output Q [B, T, n_heads,    head_dim].
      * @param K_out           Output K [B, T, n_kv_heads, head_dim].
      * @param Q_in            Input  Q [B, T, n_heads,    head_dim].
      * @param K_in            Input  K [B, T, n_kv_heads, head_dim].
-     * @param cos_cache       Precomputed cosines [max_seq_len, head_dim/2].
-     * @param sin_cache       Precomputed sines   [max_seq_len, head_dim/2].
+     * @param angles          The configuration's angle parameters (makeRopeAngleParameters).
      * @param B               Batch size.
      * @param T               Sequence length of this chunk.
      * @param n_heads         Number of query heads.
@@ -75,8 +79,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         float* K_out,
         const float* Q_in,
         const float* K_in,
-        const float* cos_cache,
-        const float* sin_cache,
+        const RopeAngleParameters& angles,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
@@ -98,8 +101,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      * @param dK_in      Output gradient w.r.t. K input  [B, T, n_kv_heads, head_dim].
      * @param dQ_out     Upstream gradient for Q output  [B, T, n_heads,    head_dim].
      * @param dK_out     Upstream gradient for K output  [B, T, n_kv_heads, head_dim].
-     * @param cos_cache  Precomputed cosines [max_seq_len, head_dim/2].
-     * @param sin_cache  Precomputed sines   [max_seq_len, head_dim/2].
+     * @param angles     The configuration's angle parameters.
      * @param B          Batch size.
      * @param T          Sequence length.
      * @param n_heads    Number of query heads.
@@ -112,8 +114,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         float* dK_in,
         const float* dQ_out,
         const float* dK_out,
-        const float* cos_cache,
-        const float* sin_cache,
+        const RopeAngleParameters& angles,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
@@ -126,17 +127,15 @@ namespace Mila::Dnn::Compute::Cuda::Rope
     /**
      * @brief Apply RoPE for a single decode step at an explicit sequence position.
      *
-     * Reads only the single cache row at `position`. Intended for KV-cache
-     * autoregressive generation where T=1.
+     * The position is read on the device, so a recorded decode step replays at every position.
      *
      * @param Q_out      Output Q [B, 1, n_heads,    head_dim].
      * @param K_out      Output K [B, 1, n_kv_heads, head_dim].
      * @param Q_in       Input  Q [B, 1, n_heads,    head_dim].
      * @param K_in       Input  K [B, 1, n_kv_heads, head_dim].
-     * @param cos_cache  Precomputed cosines [max_seq_len, head_dim/2].
-     * @param sin_cache  Precomputed sines   [max_seq_len, head_dim/2].
+     * @param angles     The configuration's angle parameters.
      * @param B          Batch size.
-     * @param position   Device int holding the absolute sequence position (selects cache row).
+     * @param position   Device int holding the absolute sequence position.
      * @param n_heads    Number of query heads.
      * @param n_kv_heads Number of key/value heads.
      * @param head_dim   Per-head dimension (must be divisible by 2).
@@ -147,8 +146,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         float* K_out,
         const float* Q_in,
         const float* K_in,
-        const float* cos_cache,
-        const float* sin_cache,
+        const RopeAngleParameters& angles,
         int B, const int* position,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
@@ -163,8 +161,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         __nv_bfloat16* K_out,
         const __nv_bfloat16* Q_in,
         const __nv_bfloat16* K_in,
-        const float* cos_cache,
-        const float* sin_cache,
+        const RopeAngleParameters& angles,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
@@ -176,8 +173,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         __nv_bfloat16* dK_in,
         const __nv_bfloat16* dQ_out,
         const __nv_bfloat16* dK_out,
-        const float* cos_cache,
-        const float* sin_cache,
+        const RopeAngleParameters& angles,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
@@ -188,8 +184,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         __nv_bfloat16* K_out,
         const __nv_bfloat16* Q_in,
         const __nv_bfloat16* K_in,
-        const float* cos_cache,
-        const float* sin_cache,
+        const RopeAngleParameters& angles,
         int B, const int* position,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,

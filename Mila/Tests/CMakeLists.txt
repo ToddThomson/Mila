@@ -226,6 +226,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Embeddings/TokenEmbedding.Cuda.cpp"
         "Dnn/Components/Encodings/Lpe/Lpe.Cuda.cpp"
         "Dnn/Components/Encodings/Rope/Rope.Cuda.cpp"
+        # CudaRopeOp.Calculated.Cuda.cpp retired 2026-10-01 with the table it compared against.
         "Dnn/Components/FFN/GatedMLP/GatedMLP.Cuda.cpp"
         "Dnn/Components/MixtureOfExperts/MixtureOfExperts.Cuda.cpp"
         "Dnn/Components/MixtureOfExperts/Router.Cuda.cpp"

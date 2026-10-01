@@ -716,6 +716,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Angle.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Rotation.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/CudaGqa.cuh"
@@ -811,7 +813,7 @@ if(MILA_HAS_CUDA)
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.Dispatch.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.Cache.ixx"
+                # CudaRopeOp.Cache.ixx retired 2026-10-01: RoPE angles are calculated, so there is no table to share.
 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CodebookGemv.ixx"

@@ -188,7 +188,7 @@ namespace Mila::Tests::Deployment
         config.withWeightQuantization( WeightQuantization::FP4 );
 
         using Network = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
-            Quant::Weight::PerGroupFp4<128>, LlamaCudaModel::LlamaKvPolicy>;
+            Quant::Weight::PerGroupFp4<128>, Quant::KvCache::NoKvCompression>;
 
         expectPlanEqualsBuildOnThisDevice<LlamaCudaModel, Network>(
             "llama 3.1 8b fp4", weights, config, networkConfigOf<LlamaCudaModel>( weights ) );

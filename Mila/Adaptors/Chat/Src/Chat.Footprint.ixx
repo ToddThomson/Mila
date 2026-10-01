@@ -88,13 +88,10 @@ namespace Mila::ChatApp
     }
 
     /**
-     * @brief Set Qwen's weight quantization, and NOT its KV cache compression.
+     * @brief Set Qwen's weight quantization, its codebook build included.
      *
-     * The convenience setters the other families use pair each weight format with FP8 KV --
-     * `withFP4Quantization()` sets both -- and Qwen has no FP8 KV type yet, so that pairing makes
-     * every FP4 load throw "FP8 KV cache compression is not yet supported" before it reads a byte.
-     * Its baseline is a BF16 cache, which fits at 16K uncompressed, so leaving the axis alone is
-     * the deployment rather than a workaround. Same shape the FP4 oracle test builds.
+     * Qwen has a weight mode no other family has -- the codebook precision plan -- so it does not share
+     * the other families' preset mapping. Same shape the FP4 oracle test builds.
      *
      * Shared by the /model list pricing and the load's deployment request, so both configure one
      * model one way. Splitting them is how a prediction comes to describe a deployment that never

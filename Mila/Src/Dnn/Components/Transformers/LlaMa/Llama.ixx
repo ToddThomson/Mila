@@ -539,12 +539,6 @@ namespace Mila::Dnn
                     gqaWorkspaceDeviceBytes<TPrecision>( granularity, B, NH, HS, T, prefill_chunk, prefillScoreWidth( T ) );
             }
 
-            // RoPE cos/sin caches are process-wide, deduplicated by RopeCacheRegistry on
-            // (theta, context length, head_dim). Every layer above reported one, but Llama's
-            // layers are homogeneous, so exactly one cache exists for the whole model.
-            stats.device_state_bytes -=
-                std::max<dim_t>( config_.getNumLayers() - 1, 0 ) * ropeCacheBytes( HS, T, granularity );
-
             return stats;
         }
 
@@ -618,22 +612,6 @@ namespace Mila::Dnn
         }
 
     protected:
-
-        /**
-         * @brief Bytes one RoPE cos/sin cache occupies for a given head width and context length.
-         *
-         * MUST match CudaRopeOp::getRequiredStateMemorySize -- FP32 regardless of the model
-         * precision, one row per context position, half the head dimension, two caches.
-         * Duplicated here because the deduplication is the transformer's to apply and it
-         * needs the per-key size; the model-level comparison against getMemoryStats is what
-         * holds the two together.
-         */
-        std::size_t ropeCacheBytes( dim_t head_dim, dim_t T_ctx, std::size_t granularity ) const noexcept
-        {
-            const dim_t cache_elements = T_ctx * ( head_dim / 2 );
-
-            return 2 * occupiedDeviceBytes( static_cast<std::size_t>( cache_elements ) * sizeof( float ), granularity );
-        }
 
         void onBuilding( const BuildContext& context ) override
         {

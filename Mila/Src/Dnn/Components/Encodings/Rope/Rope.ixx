@@ -209,7 +209,7 @@ namespace Mila::Dnn
         void save_( ModelArchive&, SerializationMode ) const override
         {
             // Deliberately empty: parameterCount() is 0, so there is nothing to serialize.
-            // The RoPE frequency tables are derived from config at build time, not trained.
+            // The rotation angles are derived from config, not trained.
         }
 
         std::vector<ITensor*> getParameters() const override
@@ -346,8 +346,8 @@ namespace Mila::Dnn
 
         void onTrainingModeChanging( TrainingMode /*training_mode*/ ) override
         {
-            // RoPE has no mode-dependent state: the cos/sin tables and the gradient
-            // buffers allocated in onBuilding() are valid in both Training and Eval.
+            // RoPE has no mode-dependent state: the gradient buffers allocated in
+            // onBuilding() are valid in both Training and Eval.
         }
 
     private:

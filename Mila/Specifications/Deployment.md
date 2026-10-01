@@ -48,11 +48,11 @@ The values that decide how a model runs, and which of them a caller can choose t
 | Context length | yes, `withContextLength` | caller, or Chat's `"auto"` |
 | Prefill chunk | no | the transformer, at build |
 | Weight format | only for a BF16 package, by quantize-on-load to FP8 or FP4; a pre-quantized package fixes it (`requireStoredQuantizationMatches`) | caller |
-| KV-cache compression | **no**: FP8 is refused on the unquantized path and ignored on the quantized ones (`QuantizationDispatch.ixx:103`) | not a knob |
+| KV-cache compression | yes, `withKvCacheCompression( FP8 )`: every Llama layer and Gemma's global layers, CUDA BF16 builds only; Qwen refuses it (`dispatchKvCacheCompression`) | caller; priced, never chosen (`Quantization.md` KV decision 5) |
 | Batch | fixed at 1 | not a knob |
 
-The planner decides the first four. Weight format stays the caller's (section 12). KV-cache
-compression becomes a planner input only when it is a real choice. Batch is part of the request,
+The planner decides the first four. Weight format and KV-cache compression stay the caller's
+(section 12); the planner prices the cache the caller asks for. Batch is part of the request,
 never decided.
 
 **The head width left the request at `0.21.0-dev+9`.** It existed only so a quality harness could

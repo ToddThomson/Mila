@@ -37,7 +37,7 @@ namespace Mila::Tests::Dnn::Models
         using GemmaBf16 = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
 
         using LlamaQ4_0 = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
-            Quant::Weight::PerGroupInt4<32>, LlamaBf16::LlamaKvPolicy>;
+            Quant::Weight::PerGroupInt4<32>, Quant::KvCache::NoKvCompression>;
         using GemmaQ4_0 = GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16,
             Quant::Weight::PerGroupInt4<32>, GemmaBf16::GemmaSlidingKvPolicy>;
 

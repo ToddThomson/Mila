@@ -482,9 +482,6 @@ namespace Mila::Dnn
             stats += this->template getComponentAs<TokenEmbeddingType>( n + ".temb" )
                 ->getRequiredMemory( embeddingContext( context, prefill_chunk ) );
 
-            dim_t local_layers = 0;
-            dim_t global_layers = 0;
-
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 const std::string block_name = n + ".tf_layer_" + std::to_string( i );
@@ -493,13 +490,11 @@ namespace Mila::Dnn
                 {
                     stats += this->template getComponentAs<GlobalBlockType>( block_name )
                         ->getRequiredMemory( block_context );
-                    ++global_layers;
                 }
                 else
                 {
                     stats += this->template getComponentAs<LocalBlockType>( block_name )
                         ->getRequiredMemory( block_context );
-                    ++local_layers;
                 }
             }
 
@@ -521,22 +516,12 @@ namespace Mila::Dnn
                 stats.device_state_bytes += gqaWorkspaceBytes( B, T, prefill_chunk, granularity );
             }
 
-            // Correction 1 -- weight tying. The head reports the shared table (Linear reports
-            // an installed weight rather than hiding it), so subtract it once. Matches
-            // getMemoryStats above.
+            // Weight tying. The head reports the shared table (Linear reports an installed weight
+            // rather than hiding it), so subtract it once. Matches getMemoryStats above.
             if ( config_.getTieWordEmbeddings() && context.isInferenceMode() )
             {
                 stats.device_parameter_bytes -= head_stats.device_parameter_bytes;
             }
-
-            // Correction 2 -- RoPE cos/sin caches are process-wide, deduplicated by
-            // RopeCacheRegistry on (theta, context length, head_dim). Every block above reported
-            // one cache, but only one per distinct key is ever allocated: Gemma has two, the
-            // local and global theta. Without this the sum invents (layers - 2) phantom caches.
-            stats.device_state_bytes -=
-                std::max<dim_t>( local_layers - 1, 0 ) * ropeCacheBytes( config_.getHeadDim(), T, granularity );
-            stats.device_state_bytes -=
-                std::max<dim_t>( global_layers - 1, 0 ) * ropeCacheBytes( config_.getGlobalHeadDim(), T, granularity );
 
             return stats;
         }
@@ -934,22 +919,6 @@ namespace Mila::Dnn
 
             return gqaWorkspaceDeviceBytes<TPrecision>( granularity, B, config_.getNumHeads(), HS_max, T_ctx,
                 prefill_chunk, prefillScoreWidth( T_ctx, prefill_chunk ) );
-        }
-
-        /**
-         * @brief Bytes one RoPE cos/sin cache occupies for a given head width and context length.
-         *
-         * MUST match CudaRopeOp::getRequiredStateMemorySize -- FP32 regardless of the
-         * model precision, one row per context position, half the head dimension, two
-         * caches. Duplicated here because the deduplication is the transformer's to apply
-         * and it needs the per-key size; the model-level Gate A comparison is what holds
-         * the two together.
-         */
-        std::size_t ropeCacheBytes( dim_t head_dim, dim_t T_ctx, std::size_t granularity ) const noexcept
-        {
-            const dim_t cache_elements = T_ctx * ( head_dim / 2 );
-
-            return 2 * occupiedDeviceBytes( static_cast<std::size_t>( cache_elements ) * sizeof( float ), granularity );
         }
 
         /**

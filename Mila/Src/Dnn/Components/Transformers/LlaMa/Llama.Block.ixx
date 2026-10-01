@@ -661,7 +661,7 @@ namespace Mila::Dnn
             contexts.qkv = context.withShape( shape_t{ B, context_length,
                 ( contexts.num_heads + 2 * contexts.num_kv_heads ) * contexts.head_dim } );
 
-            // RoPE too: its tables hold one row per position it may rotate, and decode reaches
+            // RoPE too: its built length bounds every position it may rotate, and decode reaches
             // every position of the context, not only the first chunk.
             contexts.rope = context.withShape( shape_t{ B, context_length, contexts.model_dim } );
 

@@ -181,9 +181,6 @@ change it without restoring:
 
 - `CudaDeviceMemoryResource::do_allocate` binds its device and leaves it bound
   (`CudaDeviceMemoryResource.ixx:88`), so building stage 1 leaves stage 1's device current.
-- `RopeCacheRegistry::acquire` allocates with `cudaMalloc` and no bind (`CudaRopeOp.Cache.ixx:115`),
-  so a table keyed to one device can land on another. The key already carries `device_id`
-  (`:43`); the allocation does not use it.
 - `CudaExecutionContext`'s scratch, staging and reservation buffers allocate without binding
   (`Mila/Issues/Vnext.md`, "`CudaExecutionContext` allocates its buffers without selecting its
   device").

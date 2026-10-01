@@ -619,18 +619,12 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         // Component-owned GQA decode output per layer: [B, 1, NH * head_dim] FP32.
         const size_t decode_output_bytes = kBatch * kHeads * kHeadDim * sizeof( float );
 
-        // The RoPE cos/sin table is a process-wide shared cache; only the op that
-        // CREATES a geometry's table reports it (owns_cache_). Whichever net builds
-        // first carries this constant and the other reports zero, so the term enters
-        // the slope with order-dependent sign -- subtract it from the floor.
-        const size_t rope_cache_bytes = 2ull * kSeq * ( kHeadDim / 2 ) * sizeof( float );
-
         // Above the floor, allow only fixed chunk-independent slack. Pre-pooling,
         // the per-layer activation buffers alone were several times this allowance
         // even at this tiny geometry.
         const size_t fixed_allowance = 64 * 1024;
 
-        EXPECT_GE( per_layer, kv_bytes + decode_output_bytes - rope_cache_bytes / 2 );
+        EXPECT_GE( per_layer, kv_bytes + decode_output_bytes );
         EXPECT_LE( per_layer, kv_bytes + fixed_allowance )
             << "per-layer State slope " << per_layer
             << " exceeds KV + fixed allowance: chunk-scaled activation buffers have leaked back";

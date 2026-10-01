@@ -1,7 +1,7 @@
 /**
  * @file DeploymentPlanner.Load.Cuda.cpp
- * @brief Plan, then execute, through the public entry points: a load builds what its plan priced, keeps the
- *        plan, refuses a package it was not priced for, and throws a refusal it has no plan for.
+ * @brief Plan, then execute, through the public entry points: a load builds what its plan priced, FP8 KV cache
+ *        included, keeps the plan, refuses a package it was not priced for, and throws a refusal it has no plan for.
  *
  * Specifications/Deployment.md sections 3.6 and 7, and negative N4. Needs exported weights, so it never runs
  * in CI.
@@ -17,6 +17,7 @@
 #include <format>
 #include <iostream>
 #include <string>
+#include <string_view>
 
 #include "Common/CudaDeviceScope.h"
 
@@ -43,6 +44,50 @@ namespace Mila::Tests::Deployment
         fs::path llamaWeights()
         {
             return fs::path( TEST_DATA_DIR ) / "models" / "llama" / "llama31_8b_instruct_fp4.safetensors";
+        }
+
+        /**
+         * An FP8 KV request is planned, loaded and built as one: the plan and the model report FP8, and the
+         * build allocates what the plan priced. Against the BF16 plan at the same chunk, the state is smaller --
+         * the cache that was asked for is the one that was built.
+         */
+        template<typename TModel>
+        void expectFp8KvCacheBuiltAsPriced( const fs::path& weights, DeviceId device, std::string_view label )
+        {
+            const DeploymentRequest bf16_request =
+                DeploymentRequest{}.withFP4Quantization().withContextLength( 8192 ).withDevice( device );
+            const DeploymentRequest fp8_request =
+                DeploymentRequest( bf16_request ).withKvCacheCompression( KvCacheCompression::FP8 );
+
+            const auto bf16_planned = TModel::planDeployment( weights, bf16_request );
+            const auto fp8_planned = TModel::planDeployment( weights, fp8_request );
+
+            if ( !bf16_planned || !fp8_planned )
+                GTEST_SKIP() << label << " at 8192 does not fit this device";
+
+            const DeploymentPlan& plan = fp8_planned->best();
+
+            EXPECT_EQ( plan.kvCacheCompression(), KvCacheCompression::FP8 );
+
+            const auto model = TModel::load( weights, plan );
+            const MemoryStats built = model->getMemoryStats();
+
+            EXPECT_EQ( model->getDeploymentPlan().kvCacheCompression(), KvCacheCompression::FP8 );
+            EXPECT_EQ( built.device_parameter_bytes, plan.footprint().device_parameter_bytes );
+            EXPECT_EQ( built.device_state_bytes, plan.footprint().device_state_bytes );
+            EXPECT_EQ( built.device_scratch_bytes, plan.footprint().device_scratch_bytes );
+
+            const DeploymentPlan& bf16_plan = bf16_planned->best();
+
+            std::cout << std::format( "[load] {} 8192 state: BF16 KV {} (chunk {}), FP8 KV {} (chunk {})\n", label,
+                bf16_plan.footprint().device_state_bytes, bf16_plan.prefillChunkRows(),
+                plan.footprint().device_state_bytes, plan.prefillChunkRows() );
+
+            // A different chunk sizes a different sliding ring, so the states compare only at one chunk.
+            if ( bf16_plan.prefillChunkRows() == plan.prefillChunkRows() )
+            {
+                EXPECT_LT( plan.footprint().device_state_bytes, bf16_plan.footprint().device_state_bytes );
+            }
         }
     }
 
@@ -93,6 +138,28 @@ namespace Mila::Tests::Deployment
         EXPECT_EQ( model->getDeploymentPlan().contextLength(), plan.contextLength() );
         EXPECT_EQ( model->getDeploymentPlan().prefillChunkRows(), plan.prefillChunkRows() );
         EXPECT_EQ( model->contextLength(), plan.contextLength() );
+    }
+
+    // Quantization.md KV decision 5: the request chooses an FP8 cache, and the planner prices exactly what the load
+    // builds. Gemma's global layers take it; its sliding ring stays BF16.
+    TEST_F( DeploymentLoadCudaTests, AnFp8KvCacheRequestIsBuiltAsPriced_Gemma )
+    {
+        if ( !fs::exists( gemmaWeights() ) )
+            GTEST_SKIP() << "Not present: " << gemmaWeights().string();
+
+        const Common::ScopedCurrentCudaDevice current( ordinal_ );
+
+        expectFp8KvCacheBuiltAsPriced<GemmaCudaModel>( gemmaWeights(), device_, "gemma 4 12b fp4" );
+    }
+
+    TEST_F( DeploymentLoadCudaTests, AnFp8KvCacheRequestIsBuiltAsPriced_Llama )
+    {
+        if ( !fs::exists( llamaWeights() ) )
+            GTEST_SKIP() << "Not present: " << llamaWeights().string();
+
+        const Common::ScopedCurrentCudaDevice current( ordinal_ );
+
+        expectFp8KvCacheBuiltAsPriced<LlamaCudaModel>( llamaWeights(), device_, "llama 3.1 8b fp4" );
     }
 
     // N4: a plan priced for one package is refused against another, naming both, before anything is built.

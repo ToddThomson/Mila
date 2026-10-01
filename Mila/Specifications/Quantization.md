@@ -152,7 +152,9 @@ struct ModelConfig
         return static_cast<TDerived&>( *this );
     }
 
-    // Convenience presets
+    // Convenience presets. The weight presets set the weight format only; the KV cache is
+    // the caller's separate choice (decided 2026-10-01: a preset that also set FP8 KV made
+    // FP8 every quantized load's default without anyone asking for it).
     TDerived& withFullPrecision()
     {
         weight_quantization  = WeightQuantization::None;
@@ -163,14 +165,12 @@ struct ModelConfig
     TDerived& withFP8Quantization()
     {
         weight_quantization  = WeightQuantization::FP8;
-        kv_cache_compression = KvCacheCompression::FP8;
         return static_cast<TDerived&>( *this );
     }
 
     TDerived& withFP4Quantization()
     {
         weight_quantization  = WeightQuantization::FP4;
-        kv_cache_compression = KvCacheCompression::FP8;
         return static_cast<TDerived&>( *this );
     }
 };
@@ -228,14 +228,14 @@ export struct GemmaModelConfig : ModelConfig<GemmaModelConfig>
 // Standard BF16 inference — no quantization
 LlamaModelConfig config = LlamaModelConfig( context_length );
 
-// FP8 weights + FP8 KV cache — convenience preset
+// FP8 weights, BF16 KV cache — convenience preset
 LlamaModelConfig config = LlamaModelConfig( context_length )
     .withFP8Quantization();
 
-// FP4 weights, no KV compression — fine-grained control
+// FP4 weights, FP8 KV cache — the cache asked for separately
 LlamaModelConfig config = LlamaModelConfig( context_length )
-    .withWeightQuantization( WeightQuantization::FP4 )
-    .withKvCacheCompression( KvCacheCompression::None );
+    .withFP4Quantization()
+    .withKvCacheCompression( KvCacheCompression::FP8 );
 
 // Qwen3 with thinking mode and FP8
 QwenModelConfig config = QwenModelConfig( context_length )
@@ -256,12 +256,16 @@ See implementation notes.
 
 ### Deployment Configurations
 
-| Preset | `WeightQuantization` | `KvCacheCompression` | `TWeightQuant` | `TKvPolicy` |
-|---|---|---|---|---|
-| Full precision | `None` | `None` | `NoWeightQuant` | `NoKvCompression` |
-| FP8 | `FP8` | `FP8` | `PerChannelFp8<>` | `PerChannelKvFp8<>` |
-| FP4 | `FP4` | `FP8` | `PerGroupFp4<>` (future) | `PerChannelKvFp8<>` |
-| FP32 reference | `None` | `None` | `NoWeightQuant` | `NoKvCompression` |
+| Preset | `WeightQuantization` | `TWeightQuant` |
+|---|---|---|
+| Full precision | `None` (and KV `None`) | `NoWeightQuant` |
+| FP8 | `FP8` | `PerChannelFp8<>` |
+| FP4 | `FP4` | `PerGroupFp4<>` |
+| Q4_0 | `Q4_0` | `PerGroupInt4<32>` |
+
+`KvCacheCompression` is set only by `withKvCacheCompression`: `None` is `NoKvCompression`; `FP8` is
+`PerTokenKvFp8<>` on every Llama layer and Gemma's global layers (`dispatchKvCacheCompression`), on CUDA BF16
+builds only, and Qwen refuses it.
 
 ---
 
@@ -815,7 +819,15 @@ less BF16, nats per token, largest of any book and band / pooled per band:
 
 **The FP8 global cache passes on both; the FP8 ring fails on the 26B-A4B** (0.0230 and 0.0192, of both signs) and
 clears the 12B by 0.0002. The 26B's arms were first run at the chunks the planner gave each (64, 512, 1024) and differed
-by up to 0.0145; held to one chunk they read as above. Not yet wired into `GemmaModel`.
+by up to 0.0145; held to one chunk they read as above.
+
+**Wired, 2026-10-01.** A request's `KvCacheCompression::FP8` reaches `PerTokenKvFp8<>` on every Llama layer and
+on Gemma's global layers through one dispatcher, `dispatchKvCacheCompression` (`QuantizationDispatch.ixx`), which the
+plan, the load and the footprint all use. Gemma's ring stays BF16 whatever the request says. A build without the FP8
+kernels (CPU, FP32) refuses it at planning, as does a head size they do not serve: `CudaGqaOp` refuses that when the
+cache is priced as well as at build. The weight presets stopped setting FP8 KV in the same change, so the cache is
+FP8 only when a caller asks. No behavioral arm result (decision 6) is recorded for either family yet; Llama's
+harness exists (`Llama.InstructionRetention.Cuda.cpp`), Gemma's does not.
 
 ### Policy Structs
 

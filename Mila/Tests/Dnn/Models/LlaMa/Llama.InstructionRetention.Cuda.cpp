@@ -38,7 +38,7 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
         using LlamaBf16 = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
 
         using Bf16CacheNetwork = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
-            Quant::Weight::PerGroupInt4<32>, LlamaBf16::LlamaKvPolicy>;
+            Quant::Weight::PerGroupInt4<32>, Quant::KvCache::NoKvCompression>;
 
         using Fp8CacheNetwork = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
             Quant::Weight::PerGroupInt4<32>, Quant::KvCache::PerTokenKvFp8<>>;

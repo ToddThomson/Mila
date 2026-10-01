@@ -479,13 +479,14 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
         EXPECT_GE( required, std::size_t( 2 ) * 2 * 512 * 128 + std::size_t( 2 ) * 2 * 512 * 4 );
     }
 
-    // Nothing but the fused kernels reads an FP8 cache.
-    TEST_F( CudaGqaFp8CacheTests, UnsupportedHeadSize_IsRefusedAtBuild )
+    // Nothing but the fused kernels reads an FP8 cache. Pricing refuses it too, so a plan is refused before a load.
+    TEST_F( CudaGqaFp8CacheTests, UnsupportedHeadSize_IsRefusedWhenPricedAndAtBuild )
     {
         Fp8Op op( context_.get(), GqaConfig( 8 * 64, 8, 2 ) );
+        const auto build = BuildContext( shape_t{ 1, 128, 12 * 64 }, RuntimeMode::Inference, false ).withPrefillSize( 64 );
 
-        EXPECT_THROW( op.build( BuildContext( shape_t{ 1, 128, 12 * 64 }, RuntimeMode::Inference, false ).withPrefillSize( 64 ) ),
-            std::invalid_argument );
+        EXPECT_THROW( op.getRequiredStateMemorySize( build ), std::invalid_argument );
+        EXPECT_THROW( op.build( build ), std::invalid_argument );
     }
 
     TEST_F( CudaGqaFp8CacheTests, PrefillWithFlashOff_IsRefused )

@@ -371,28 +371,26 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
     }
 
     // ====================================================================
-    // G. Table length -- the built sequence length bounds every position
+    // G. Built length -- it bounds every position, and costs no memory
     // ====================================================================
 
-    TYPED_TEST( RopeCudaTests, Memory_TablesCoverOnlyTheBuiltLength )
+    // The angles are calculated where they are used, so the context length costs nothing here.
+    TYPED_TEST( RopeCudaTests, Memory_HoldsNoStateAtAnyLength )
     {
-        const int64_t T = 7;
-        const std::size_t expected = static_cast<std::size_t>( T * ( kHeadDim / 2 ) ) * sizeof( float ) * 2;
-
         typename TestFixture::RopeType rope( "rope", this->config(), Device::Cuda( 0 ) );
-        const BuildContext context = BuildContext( shape_t{ 1, T }, RuntimeMode::Inference, false )
+        const BuildContext context = BuildContext( shape_t{ 1, kMaxSeq }, RuntimeMode::Inference, false )
             .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
 
-        EXPECT_EQ( rope.getRequiredMemory( context ).device_state_bytes, expected );
+        EXPECT_EQ( rope.getRequiredMemory( context ).device_state_bytes, 0u );
 
         rope.build( context );
 
-        EXPECT_EQ( rope.getMemoryStats().device_state_bytes, expected );
+        EXPECT_EQ( rope.getMemoryStats().device_state_bytes, 0u );
     }
 
-    // The rows a short table holds must be the rows the trained-maximum table holds, or sizing
-    // by the context would change every model's output.
-    TYPED_TEST( RopeCudaTests, LastBuiltRow_IsBitIdenticalToTheTrainedMaximumTable )
+    // A rotation must not depend on the length the op was built for, or sizing by the context
+    // would change every model's output.
+    TYPED_TEST( RopeCudaTests, LastBuiltRow_IsBitIdenticalToTheTrainedMaximumBuild )
     {
         const int64_t B = 2;
         const int64_t T = 6;

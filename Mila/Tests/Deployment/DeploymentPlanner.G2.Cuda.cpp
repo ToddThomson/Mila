@@ -179,7 +179,7 @@ namespace Mila::Tests::Deployment
             GTEST_SKIP() << "Not present: " << weights.string();
 
         using Network = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
-            Quant::Weight::PerGroupFp4<128>, LlamaCudaModel::LlamaKvPolicy>;
+            Quant::Weight::PerGroupFp4<128>, Quant::KvCache::NoKvCompression>;
 
         // Chat recorded 13312 and 33792. Flash prefill (ModelFamilyParity.md 8.4, L4) removed Llama's full-context
         // score buffers from the footprint (19456 and 50176 at chunk 512), and one activation slot set shared by
@@ -223,10 +223,11 @@ namespace Mila::Tests::Deployment
             QwenPrecisionPlan, QwenCudaModel::QwenKvPolicy>;
 
         // Chat recorded 3072 on the RTX 4070, for the reason Qwen38_27B_Fp4 gives. The RTX 5060 Ti's row was above
-        // 16384 already, where flash ran then too. Both rose with the token embedding's output a chunk wide.
+        // 16384 already, where flash ran then too. Both rose with the token embedding's output a chunk wide, and the
+        // RTX 5060 Ti's by one step more (73728) when RoPE stopped holding a table (MemoryFootprint.md 8.4).
         expectRecordedChoices<Network>( "qwen3.8-27b-cb2-3", weights, networkConfigOf<QwenCudaModel>( weights ),
             DeploymentRequest{}.withPrecisionPlan().withAutomaticContextLength( 1024, kQwenCeiling ),
             Recorded{ kRtx4070FreeBytes, 10240, 1024, true },
-            Recorded{ kRtx5060TiFreeBytes, 73728, 1024, true } );
+            Recorded{ kRtx5060TiFreeBytes, 74752, 1024, true } );
     }
 }

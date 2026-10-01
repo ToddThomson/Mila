@@ -67,7 +67,7 @@ Applied to Gemma's eight deltas:
 | Delta | Verdict | Mechanism |
 |---|---|---|
 | Decoupled `head_dim` | runtime field | `GqaConfig` / `RopeConfig` (Section 3) |
-| RoPE default vs proportional+partial | runtime cache-build | `rotary_dim` zeroes upper freqs in the existing `Rope` cache (Section 4) |
+| RoPE default vs proportional+partial | runtime field | `rotary_dim` gives the upper pairs zero frequency in the shared angle function (Section 4) |
 | Local vs global geometry | runtime config + block wiring | existing GQA op at `NKV=1, HS=512` + `GemmaBlock` instantiation (Section 5) |
 | Window size (masking) | runtime field | attention op parameter (Section 6) |
 | Bounded KV ring buffer | **template** | `TKvPolicy` sibling (Section 6) |
@@ -132,7 +132,7 @@ RoPE is a separate `Rope` component applied to Q/K before attention. Gemma needs
 two per-layer variants:
 
 - **Sliding layers** — full rotation, theta 10000. Already works today via
-  `RopeConfig::withBase` (the cos/sin cache is keyed on `base`).
+  `RopeConfig::withBase`.
 - **Global layers** — theta 1e6 (already works via `withBase`) plus
   **proportional partial-rotary**: `partial_rotary_factor 0.25`.
 
@@ -151,6 +151,10 @@ change at all**. The work is entirely in the cache build:
 1. `build_cache` zeroes the frequency pairs at index `>= rotary_dim/2`.
 2. `rotary_dim` is added to the `RopeCacheRegistry` cache key (so the global
    layer's truncated table is a distinct entry).
+
+Since 2026-10-01 there is no cache: the angle function every rotation calls
+(`Rope.Angle.cuh`) gives pairs at index `>= rotary_dim/2` zero frequency, with the
+same identity result (`MemoryFootprint.md` 8.4).
 
 `rotary_dim` already exists on `RopeConfig` (`withRotaryDim`, default 0 = full) —
 the op/kernel simply ignore it today. This completes that field's intent. **No

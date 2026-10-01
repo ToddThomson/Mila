@@ -46,7 +46,7 @@ namespace Mila::Tests::Dnn::Models
 
         // What LlamaModel builds for the published FP4 weights.
         using MeasuredLlama = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
-            Quant::Weight::PerGroupFp4<128>, LlamaBf16::LlamaKvPolicy>;
+            Quant::Weight::PerGroupFp4<128>, Quant::KvCache::NoKvCompression>;
 
         // ModelFamilyParity.md section 9, items 11 and 13: G1's bound, taken for Llama unchanged.
         constexpr double kWindowRelativePerplexityTolerance = 2e-3;
@@ -782,7 +782,7 @@ namespace Mila::Tests::Dnn::Models
     namespace
     {
         using MeasuredLlamaQ4_0 = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
-            Quant::Weight::PerGroupInt4<32>, LlamaBf16::LlamaKvPolicy>;
+            Quant::Weight::PerGroupInt4<32>, Quant::KvCache::NoKvCompression>;
 
         // The same build with the FP8 KV cache (Quantization.md, Part III).
         using MeasuredLlamaQ4_0Fp8Cache = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,

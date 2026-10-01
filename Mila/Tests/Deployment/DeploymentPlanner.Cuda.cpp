@@ -437,13 +437,26 @@ namespace Mila::Tests::Deployment
     TEST( DeploymentTypesTests, AModelConfigBecomesAFixedRequestWithItsFormats )
     {
         GemmaModelConfig config( 8192 );
-        config.withFP4Quantization();
+        config.withFP4Quantization().withKvCacheCompression( KvCacheCompression::FP8 );
 
         const DeploymentRequest request = DeploymentRequest::fromModelConfig( config );
 
         EXPECT_FALSE( request.isContextLengthAutomatic() );
         EXPECT_EQ( request.getContextLength(), 8192 );
         EXPECT_EQ( request.getWeightQuantization(), WeightQuantization::FP4 );
+        EXPECT_EQ( request.getKvCacheCompression(), KvCacheCompression::FP8 );
+    }
+
+    // The KV cache format is a deployment choice of its own: a weight preset neither sets it nor clears it.
+    TEST( DeploymentTypesTests, AWeightPresetLeavesTheKvCacheFormatAlone )
+    {
+        EXPECT_EQ( DeploymentRequest{}.withQ4_0Quantization().getKvCacheCompression(), KvCacheCompression::None );
+        EXPECT_EQ( DeploymentRequest{}.withFP4Quantization().getKvCacheCompression(), KvCacheCompression::None );
+        EXPECT_EQ( DeploymentRequest{}.withFP8Quantization().getKvCacheCompression(), KvCacheCompression::None );
+
+        DeploymentRequest request;
+        request.withKvCacheCompression( KvCacheCompression::FP8 ).withQ4_0Quantization();
+
         EXPECT_EQ( request.getKvCacheCompression(), KvCacheCompression::FP8 );
     }
 }

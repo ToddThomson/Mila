@@ -1,9 +1,9 @@
 /**
  * @file CudaRopeOp.Cache.ixx
- * @brief Process-wide shared cos/sin cache registry for CudaRopeOp.
+ * @brief RETIRED 2026-10-01, out of the build, kept for reference.
  *
- * Provides RopeCacheRegistry, an implementation detail of Compute.CudaRopeOp.
- * Not exported to consumers of the module.
+ * Superseded by calculated angles (Kernels/Rope.Rotation.cuh): CudaRopeOp holds no cos/sin table, so there is
+ * nothing to share across layers. MemoryFootprint.md records the measurement that retired it.
  */
 
 module;

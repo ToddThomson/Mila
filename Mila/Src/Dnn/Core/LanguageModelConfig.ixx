@@ -42,18 +42,18 @@
  *
  * ## Quantization Presets vs Fine-Grained Control
  *
- * Convenience preset methods express common deployment decisions in user
- * vocabulary. Fine-grained setters are available for atypical configurations:
+ * The weight presets set the weight format only. KV cache compression is asked for
+ * separately, and only by the caller:
  *
  * @code
- * // Preset -- FP8 weights + FP8 KV cache
+ * // Q4_0 weights, BF16 KV cache
  * LlamaModelConfig config = LlamaModelConfig( context_length )
- *     .withFP8Quantization();
+ *     .withQ4_0Quantization();
  *
- * // Fine-grained -- FP4 weights, no KV compression
+ * // Q4_0 weights, FP8 KV cache
  * LlamaModelConfig config = LlamaModelConfig( context_length )
- *     .withWeightQuantization( WeightQuantization::FP4 )
- *     .withKvCacheCompression( KvCacheCompression::None );
+ *     .withQ4_0Quantization()
+ *     .withKvCacheCompression( KvCacheCompression::FP8 );
  * @endcode
  */
 
@@ -134,11 +134,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Set the weight quantization mode independently.
-         *
-         * Use when the desired weight quantization does not pair with the
-         * default KV cache compression of a preset, or when a preset does
-         * not exist for the desired combination.
+         * @brief Set the weight quantization mode; the presets below are the same call by name.
          *
          * @param wq  Weight quantization mode to apply.
          */
@@ -149,11 +145,10 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Set the KV cache compression mode independently.
+         * @brief Set the KV cache format. Nothing else sets it: the default is a BF16 cache.
          *
-         * Use when the desired KV cache compression does not pair with the
-         * default weight quantization of a preset, or when a preset does
-         * not exist for the desired combination.
+         * FP8 needs a CUDA device and BF16 compute, and covers every Llama layer and Gemma's global
+         * layers -- Gemma's sliding-window layers keep a BF16 cache. Qwen refuses it.
          *
          * @param kv  KV cache compression mode to apply.
          */
@@ -182,37 +177,31 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief FP8 quantization -- FP8 weights, FP8 KV cache.
+         * @brief FP8 weights, per output channel. Leaves the KV cache setting as it is.
          *
-         * Maps to PerChannelFp8<> on Linear and PerTokenKvFp8<> on
-         * GroupedQueryAttention. Good quality/compression tradeoff for
-         * standard inference on Ada Lovelace and later.
+         * Maps to PerChannelFp8<> on Linear.
          */
         TDerived& withFP8Quantization()
         {
             weight_quantization_ = WeightQuantization::FP8;
-            kv_cache_compression_ = KvCacheCompression::FP8;
-            
+
             return static_cast<TDerived&>(*this);
         }
 
         /**
-         * @brief FP4 quantization -- FP4 weights, FP8 KV cache.
+         * @brief FP4 E2M1 weights with per-group scales. Leaves the KV cache setting as it is.
          *
-         * Maps to PerGroupFp4<> on Linear (future) and PerTokenKvFp8<> on
-         * GroupedQueryAttention. Aggressive compression; some quality loss
-         * relative to FP8. FP4 KV cache is not a Mila target.
+         * Maps to PerGroupFp4<> on Linear.
          */
         TDerived& withFP4Quantization()
         {
             weight_quantization_ = WeightQuantization::FP4;
-            kv_cache_compression_ = KvCacheCompression::FP8;
 
             return static_cast<TDerived&>(*this);
         }
 
         /**
-         * @brief Q4_0 quantization -- Q4_0 weights, FP8 KV cache.
+         * @brief Q4_0 weights. Leaves the KV cache setting as it is.
          *
          * Maps to PerGroupInt4<32> on Linear. The format of quantization-aware checkpoints
          * trained for Q4_0, such as Gemma 4's.
@@ -220,7 +209,6 @@ namespace Mila::Dnn
         TDerived& withQ4_0Quantization()
         {
             weight_quantization_ = WeightQuantization::Q4_0;
-            kv_cache_compression_ = KvCacheCompression::FP8;
 
             return static_cast<TDerived&>(*this);
         }
@@ -228,10 +216,7 @@ namespace Mila::Dnn
         /**
          * @brief The family's designed per-role allocation, from a pre-quantized artifact.
          *
-         * Unlike the two above, this sets no KV compression: a plan allocates WEIGHT bits,
-         * and Qwen 3.8's baseline pairs its 2.90-bit body with a BF16 KV cache, which fits
-         * at 16K without compression (Qwen3.8.md section 5). A deployment that wants FP8 KV
-         * on top asks for it separately.
+         * Like the uniform presets, this sets no KV compression: a plan allocates weight bits.
          *
          * There is no quantize-on-load path here and there cannot be one: a codebook is
          * fitted offline against calibration data, so the artifact must already carry the

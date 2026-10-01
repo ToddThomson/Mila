@@ -307,17 +307,16 @@ from the repo, so no reader can work around its absence.
 
 `in progress` · `qwen` · `quantization` · `mila-src`
 
-`PerTokenKvFp8<>` is built in the shared attention operation and gated on Llama, but no family's load
-path reaches it and Qwen's layers do not use it; `QuantizationDispatch.ixx:103` records that KV-cache
-compression is not a live knob. On a 27B at FP4 the weights take the card, so the KV cache is what
+`PerTokenKvFp8<>` is built in the shared attention operation, gated on Llama and Gemma, and reached by
+their loads on request (`dispatchKvCacheCompression`); Qwen refuses it (`QwenModel::validateDeployment`)
+and its layers do not use it. On a 27B at FP4 the weights take the card, so the KV cache is what
 buys context back, and halving it is the difference between the context length that fits and the one
 the model is sold at.
 
 The freed margin is then a decision rather than a windfall — more context, or more bits where the
 quality gate says they are worth most. v0.20 deliberately did not pre-empt that, so it is part of
 this work rather than a consequence of it. The compressed cache has to be priced exactly by
-`getRequiredMemory`, since the planner reads that price, and `Deployment.md` §2's "KV-cache
-compression: not a knob" row changes with it.
+`getRequiredMemory`, since the planner reads that price.
 
 #### Qwen answers in one block after a long silence
 

@@ -298,10 +298,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         // mis-derived a projection width.
         EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes );
 
-        // State is one-directional. A prediction must never undershoot, but it may exceed
-        // what this block allocated: the RoPE cos/sin cache is process-wide and deduplicated
-        // by RopeCacheRegistry, so a block built after another with the same
-        // (theta, max_seq_len, head_dim) allocates none of its own.
-        EXPECT_GE( predicted.device_state_bytes, actual.device_state_bytes );
+        // State is exact too: nothing a block holds is shared with another block.
+        EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes );
     }
 }

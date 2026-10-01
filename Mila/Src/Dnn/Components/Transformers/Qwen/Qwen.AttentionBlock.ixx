@@ -567,8 +567,8 @@ namespace Mila::Dnn
             contexts.qkv = context.withShape(
                 shape_t{ B, input_shape[ 1 ], config_.getAttentionPackedQKVWidth() } );
 
-            // RoPE is sized by the context length as well: its tables hold one row per position
-            // it may rotate, and decode reaches every position of the context.
+            // RoPE is built at the context length as well: that length bounds every position it
+            // may rotate, and decode reaches every position of the context.
             contexts.rope = context.withShape( shape_t{ B, input_shape[ 1 ], qProjWidth() } );
 
             return contexts;

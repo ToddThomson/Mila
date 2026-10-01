@@ -59,7 +59,7 @@ DeltaNet and convolution layers):
 | Split count chosen on the host from the band length | `launchDecodeAttention` (`Gqa.Decode.Bf16.cu`) | changes the grid, and whether the fix-up runs, until the band saturates |
 | `cached_seq_len_` advanced on the host | `CudaGqaOp` decode | not advanced by a replay; read by `rewindKvCache` (Gemma's prompt-prefix reuse) |
 
-Not dependent, checked: the RoPE table is built for the whole context at build; network scratch is reserved
+Not dependent, checked: RoPE calculates its angles from the device position and holds no table; network scratch is reserved
 at build and a larger request throws rather than moving it (`CudaExecutionContext::getDeviceScratchBuffer`);
 the one lazy allocation (`CudaLinearOp`'s FP8 unit scale) happens on the first called step; DeltaNet and
 convolution state update in place with no pointer swap; host flags set during decode are set-once

@@ -571,6 +571,39 @@ every context gains 166 MiB; 32768 fits at a 128-row chunk, where it was 183 MiB
 recorded choices rose on every family (`DeploymentPlanner.G2.Cuda.cpp`): Gemma 4 12B on the RTX 4070 from 121856 to
 its trained maximum, Llama 3.1 8B from 38912 / 69632 to 40960 / 73728.
 
+### 8.4 RoPE's angles are calculated, not stored (2026-10-01)
+
+RoPE held an FP32 cos/sin table, one row per context position, `head_dim x 4` bytes a token for each distinct
+geometry, shared across layers by a process-wide registry that each transformer had to correct for in its
+prediction: 3 KiB a token on Gemma 4 (local 256 and global 512), 0.5 KiB on Llama 3.1 8B, 1 KiB on Qwen 3.8. Every
+rotation now calculates its cos and sin where it is used, through one device function (`Rope.Angle.cuh`); the op holds
+no state, the registry is retired (`CudaRopeOp.Cache.ixx`, out of the build), and the transformers' deduplication
+went with it.
+
+- **Gate, before the table retired:** the calculated rotation equal to the table's bit for bit, BF16 and FP32, prefill
+  and decode, at Llama 3.1 8B's (to 131072), Gemma 4's local and global, and Qwen 3.8's geometries (to 262144),
+  decode positions either side of 105615 where `cosf` changes argument reduction. Passed on the final kernel; the
+  test retired with the table (`CudaRopeOp.Calculated.Cuda.cpp`).
+- **Cost, kernel time per op call** (nsys, RTX 5060 Ti, BF16, median of 200). The first calculated kernel, one angle
+  per head as the table was read, cost +7 to +56 us a 1024-row prefill chunk and +0.5 to +1.5 us a decode step, a
+  layer. The angle depends on the position and the pair, never the head, so the kernel calculates each once per
+  (token, pair) into shared memory and rotates every Q and K head of the token with it, in one launch for both:
+
+  | Geometry | Prefill 1024 rows, table / calculated | Decode, table / calculated |
+  |---|---|---|
+  | Llama 3.1 8B | 27.1 / 17.8 to 18.9 us | 1.38 / 1.82 to 2.05 us |
+  | Gemma 4 local | 32.2 / 21.7 to 22.8 us | 1.4 / 1.31 to 1.54 us |
+  | Gemma 4 global | 45.8 / 35.3 to 36.3 us | 1.38 / 1.31 to 1.54 us |
+  | Qwen 3.8 | 14.1 / 7.3 to 8.5 us | 1.38 / 1.47 to 1.70 us |
+
+  Prefill is faster everywhere; decode is flat on Gemma and Qwen and +0.45 to +0.67 us a layer on Llama (two
+  blocks for its 64 pairs), about 20 us a token over 32 layers. The ranges are position 0 to the trained maximum.
+- **What it buys, on the Gemma 4 26B-A4B in Q4_0** against the RTX 5060 Ti's free memory (15,904,800,768 bytes;
+  `DISABLED_Q4_0_PredictedFootprintByContextAndChunk`): with a BF16 cache, 32768 at a 128-row chunk fits with
+  100 MiB spare, where it had 4; with the FP8 global cache (`Quantization.md` KV decisions, "Wired"), 65536 at a
+  128-row chunk fits with 93 MiB spare, where it was 99 MiB over. One deployment-planner choice moved a step
+  (`DeploymentPlanner.G2.Cuda.cpp`): Qwen 3.8 cb2-3 on the RTX 5060 Ti from 73728 to 74752.
+
 ---
 
 ## 9. Phasing

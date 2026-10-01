@@ -18,7 +18,6 @@ module;
 
 export module Compute.CudaRopeOp;
 import :Dispatch;
-import :Cache;
 
 import Dnn.Component;
 import Dnn.Components.RopeConfig;
@@ -57,14 +56,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      * implicitly through the inner product.
      *
      * Design:
-     * - No learned parameters. The cos/sin cache holds one row per position the build
-     *   context's sequence length covers, and is shared across all ops with identical
-     *   parameters via RopeCacheRegistry. A row depends only on its position, so a shorter
-     *   table holds exactly the leading rows of a longer one. build_cache() is called
-     *   exactly once per unique key.
-     * - Two-phase initialization: build() acquires the shared cache and validates
-     *   shapes; forward(), backward(), prefill(), and decode() are pure hot-path
-     *   dispatch.
+     * - No learned parameters and no state. Each cos and sin is calculated where it is used,
+     *   once per (token, pair) and shared across the token's Q and K heads (Rope.Rotation.cuh),
+     *   in one launch for Q and K together.
+     * - build() records the shape: the built sequence length bounds every position prefill and
+     *   decode may rotate.
      * - GQA-aware: Q and K may have different head counts (n_heads vs n_kv_heads).
      * - Backward is exact: RoPE is an orthogonal rotation, so the gradient is the
      *   inverse rotation (negate sin terms). No extra buffers needed.
@@ -78,7 +74,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      *   Q:  [B, 1, n_heads,    head_dim]
      *   K:  [B, 1, n_kv_heads, head_dim]
      *
-     * @tparam TPrecision Precision of Q/K tensors (FP32 or FP16).
+     * @tparam TComputePrecision Precision of Q/K tensors (FP32 or BF16).
      */
     export template<TensorDataType TComputePrecision>
         requires PrecisionSupportedOnDevice<TComputePrecision, DeviceType::Cuda>
@@ -91,70 +87,28 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         using ComputeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TComputePrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
         using ConfigType = RopeConfig;
-        using CacheKey = RopeCacheRegistry::CacheKey;
 
         CudaRopeOp( IExecutionContext* context, const RopeConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaRopeOp" ) ), config_( config )
         {
             config_.validate();
-        }
 
-        ~CudaRopeOp()
-        {
-            releaseCache();
-        }
+            const RopeFrequencyScaling& scaling = config_.getFrequencyScaling();
 
-        CudaRopeOp( const CudaRopeOp& ) = delete;
-        CudaRopeOp& operator=( const CudaRopeOp& ) = delete;
-
-        CudaRopeOp( CudaRopeOp&& other ) noexcept
-            : context_( other.context_ )
-            , config_( std::move( other.config_ ) )
-            , cos_cache_( other.cos_cache_ )
-            , owns_cache_( other.owns_cache_ )
-            , sin_cache_( other.sin_cache_ )
-            , cache_key_( other.cache_key_ )
-            , batch_size_( other.batch_size_ )
-            , seq_length_( other.seq_length_ )
-        {
-            this->is_built_ = other.is_built_;
-            other.cos_cache_ = nullptr;
-            other.sin_cache_ = nullptr;
-            other.owns_cache_ = false;
-            other.is_built_ = false;
-        }
-
-        CudaRopeOp& operator=( CudaRopeOp&& other ) noexcept
-        {
-            if ( this != &other )
-            {
-                releaseCache();
-                context_ = other.context_;
-                config_ = std::move( other.config_ );
-                owns_cache_ = other.owns_cache_;
-                cos_cache_ = other.cos_cache_;
-                sin_cache_ = other.sin_cache_;
-                cache_key_ = other.cache_key_;
-                batch_size_ = other.batch_size_;
-                seq_length_ = other.seq_length_;
-                this->is_built_ = other.is_built_;
-
-                other.cos_cache_ = nullptr;
-                other.sin_cache_ = nullptr;
-                other.owns_cache_ = false;
-                other.is_built_ = false;
-            }
-
-            return *this;
+            angles_ = Detail::angle_parameters(
+                static_cast<int>( config_.getHeadDim() ), static_cast<int>( config_.getRotaryDim() ),
+                rotaryLayoutCode(), config_.getBase(),
+                scaling.factor, scaling.low_frequency_factor, scaling.high_frequency_factor,
+                narrowToKernelIndex( scaling.original_context_length ) );
         }
 
         /**
          * @brief Prepare the operation for a concrete input shape (cold path).
          *
          * The sequence length T of the build context is the number of positions this op
-         * can ever rotate: the tables hold T rows, and prefill and decode refuse any
-         * position at or past T. A caller that decodes must therefore build at the full
-         * context length, not at a prefill chunk.
+         * can ever rotate: prefill and decode refuse any position at or past T. A caller
+         * that decodes must therefore build at the full context length, not at a prefill
+         * chunk.
          *
          * @param build_context  Build context carrying the Q/K input shape [B, T, ...].
          * @throws std::invalid_argument if T exceeds the trained maximum sequence length.
@@ -162,56 +116,15 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         void build( const BuildContext& build_context ) override
         {
             const auto& shape = build_context.inputShape();
-            const dim_t table_rows = shape[ 1 ];
+            const dim_t sequence_length = shape[ 1 ];
 
-            if ( table_rows > config_.getMaxSequenceLength() )
+            if ( sequence_length > config_.getMaxSequenceLength() )
                 throw std::invalid_argument( std::format(
                     "CudaRopeOp::build: sequence length {} exceeds the trained maximum {}",
-                    table_rows, config_.getMaxSequenceLength() ) );
+                    sequence_length, config_.getMaxSequenceLength() ) );
 
             batch_size_ = static_cast<int>(shape[ 0 ]);
-            seq_length_ = static_cast<int>(table_rows);
-
-            const CacheKey cache_key = makeCacheKey( table_rows );
-
-            if ( this->is_built_ && cache_key == cache_key_ )
-                return;
-
-            releaseCache();
-
-            // NOTE: Cache data type is always float32 regardless of input precision to
-            // preserve accuracy of the trigonometric computations.
-
-            cache_key_ = cache_key;
-
-            auto [cos_ptr, sin_ptr, is_new] =
-                RopeCacheRegistry::instance().acquire( cache_key_, tableBytes( table_rows ) );
-
-            owns_cache_ = is_new;
-
-            cos_cache_ = static_cast<float*>(cos_ptr);
-            sin_cache_ = static_cast<float*>(sin_ptr);
-
-            if ( is_new )
-            {
-                const RopeFrequencyScaling& scaling = config_.getFrequencyScaling();
-
-                Detail::cuda_rope_impl<ComputeType>::build_cache(
-                    cos_cache_, sin_cache_,
-                    static_cast<int>(table_rows),
-                    static_cast<int>(config_.getHeadDim()),
-                    config_.getBase(),
-                    static_cast<int>(config_.getRotaryDim()),
-                    rotaryLayoutCode(),
-                    scaling.factor,
-                    scaling.low_frequency_factor,
-                    scaling.high_frequency_factor,
-                    narrowToKernelIndex( scaling.original_context_length ),
-                    context_->getStream() );
-
-                // Ensure cache is ready before any op can use it.
-                context_->synchronize(); 
-            }
+            seq_length_ = static_cast<int>(sequence_length);
 
             this->is_built_ = true;
         }
@@ -265,7 +178,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 static_cast<ComputeType*>(dK_in.rawData()),
                 static_cast<const ComputeType*>(dQ_out.rawData()),
                 static_cast<const ComputeType*>(dK_out.rawData()),
-                cos_cache_, sin_cache_,
+                angles_,
                 B, T,
                 static_cast<int>(config_.getNumHeads()),
                 static_cast<int>(config_.getNumKVHeads()),
@@ -282,8 +195,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         /**
          * @brief Chunked prefill with explicit position offset.
          *
-         * Applies RoPE to Q and K using absolute positions
-         * [position_offset .. position_offset + T - 1] for the cos/sin cache lookup.
+         * Applies RoPE to Q and K at absolute positions
+         * [position_offset .. position_offset + T - 1].
          *
          * @param Q_in            Input Q  [B, T, n_heads,    head_dim].
          * @param K_in            Input K  [B, T, n_kv_heads, head_dim].
@@ -316,9 +229,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         /**
          * @brief Single-token decode with explicit position.
          *
-         * Reads only the cache row at the context's decode position, which the kernel reads on the device;
-         * `position` is the same value, checked here on the host (DecodeGraph.md section 4.1). Used for
-         * KV-cache autoregressive generation where T=1.
+         * Rotates at the context's decode position, which the kernel reads on the device;
+         * `position` is the same value, checked here on the host (DecodeGraph.md section 4.1).
+         * Used for KV-cache autoregressive generation where T=1.
          *
          * @param Q_in   Input Q  [B, 1, n_heads,    head_dim].
          * @param K_in   Input K  [B, 1, n_kv_heads, head_dim].
@@ -345,7 +258,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 static_cast<ComputeType*>( K_out.rawData() ),
                 static_cast<const ComputeType*>( Q_in.rawData() ),
                 static_cast<const ComputeType*>( K_in.rawData() ),
-                cos_cache_, sin_cache_,
+                angles_,
                 B, context_->getDecodePosition(),
                 static_cast<int>(config_.getNumHeads()),
                 static_cast<int>(config_.getNumKVHeads()),
@@ -353,7 +266,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 static_cast<int>(config_.getRotaryDim()),
                 rotaryLayoutCode(),
                 context_->getStream() );
-            
+
             // DEBUG: context_->synchronize();
         }
 
@@ -371,47 +284,12 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             return "Cuda::RopeOp";
         }
 
-        /**
-         * @brief Cos/sin cache bytes needed for this configuration.
-         *
-         * CAUTION -- this is NOT per-instance cost. The caches live in the process-wide
-         * RopeCacheRegistry keyed on (theta, built sequence length, head_dim), so across a
-         * 48-layer model only the first op to acquire a given key allocates; the rest alias
-         * it and report zero from getStateMemorySize(). This returns what making the cache
-         * exist costs, once, for the sequence length the context carries.
-         *
-         * The consequence is that a caller summing this over every layer overcounts by
-         * (layers - 1) caches. Deduplication belongs to the transformer, which knows the
-         * distinct key set from its config -- the same shape as the tied-weight correction.
-         * Registry state cannot be consulted here instead: before any build, nothing is
-         * cached, so every layer would answer "I own it".
-         */
-        std::size_t getRequiredStateMemorySize( const BuildContext& build_context ) const override
-        {
-            // cos and sin caches, two allocations
-            return 2 * occupiedDeviceBytes(
-                tableBytes( build_context.inputShape()[ 1 ] ), build_context.getAllocationGranularity() );
-        }
-
-        std::size_t getStateMemorySize() const override
-        {
-            if ( !owns_cache_ )
-                return 0;
-
-            return 2 * occupiedDeviceBytes( tableBytes( seq_length_ ), allocationGranularity( context_->getDeviceId() ) );
-        }
-
     private:
-        
-        RopeConfig config_;
+
         CudaExecutionContext* context_;
+        RopeConfig config_;
 
-        bool owns_cache_{ false };
-
-        float* cos_cache_{ nullptr };
-        float* sin_cache_{ nullptr };
-
-        CacheKey cache_key_{};
+        Detail::AngleParameters angles_{};
         int batch_size_{ 0 };
         int seq_length_{ 0 };
 
@@ -425,7 +303,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 static_cast<ComputeType*>(K_out.rawData()),
                 static_cast<const ComputeType*>(Q_in.rawData()),
                 static_cast<const ComputeType*>(K_in.rawData()),
-                cos_cache_, sin_cache_,
+                angles_,
                 B, T,
                 static_cast<int>(config_.getNumHeads()),
                 static_cast<int>(config_.getNumKVHeads()),
@@ -462,46 +340,6 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                     "{} of {} channels and does not copy the remainder, so it requires an "
                     "in-place call; got distinct input and output buffers.",
                     caller, config_.getRotaryDim(), config_.getHeadDim() ) );
-            }
-        }
-
-        /// Bytes of ONE of the cos or sin tables at the given row count.
-        std::size_t tableBytes( dim_t table_rows ) const noexcept
-        {
-            return static_cast<std::size_t>( table_rows * (config_.getHeadDim() / 2) ) * sizeof( float );
-        }
-
-        CacheKey makeCacheKey( dim_t table_rows ) const noexcept
-        {
-            // Precision is FP32 regardless of TPrecision: the cache is always
-            // float. This allows BF16 and FP32 ops with identical configs to
-            // share one registry entry.
-            const RopeFrequencyScaling& scaling = config_.getFrequencyScaling();
-
-            return {
-                context_->getDeviceId().index,
-                table_rows,
-                config_.getHeadDim(),
-                config_.getRotaryDim(),
-                rotaryLayoutCode(),
-                config_.getBase(),
-                scaling.factor,
-                scaling.low_frequency_factor,
-                scaling.high_frequency_factor,
-                scaling.original_context_length,
-                TensorDataType::FP32
-            };
-        }
-
-        void releaseCache() noexcept
-        {
-            if ( this->is_built_ )
-            {
-                RopeCacheRegistry::instance().release( cache_key_ );
-                cos_cache_ = nullptr;
-                sin_cache_ = nullptr;
-                
-                this->is_built_ = false;
             }
         }
 

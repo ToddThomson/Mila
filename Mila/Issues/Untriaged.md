@@ -10,6 +10,18 @@ pointer to its GitHub issue rather than a copy. Triage flow, categories and the 
 
 ---
 
+## RoPE is a separate pass, so a Gemma global layer caches its rotated keys and its values as two tensors
+
+`CudaRopeOp` (`Rope.Rotation.cuh`), `GemmaBlock` global layers (K = V checkpoints) @ `0.21.0-dev+26`
+
+Todd's RoPE policy had three forms: table, calculated, fused into the attention kernels. Calculated replaced the table
+(`MemoryFootprint.md` 8.4); fused is not built. On Gemma's global layers K = RoPE(k_norm(x)) and V = v_norm(x), so the
+cache holds two tensors where the checkpoint has one projection. Rotating keys inside the flash and decode attention
+kernels -- from the same angle function, `Rope.Angle.cuh` -- would leave the cache unrotated keys, the precondition for
+storing that tensor once. Estimated from the 26B-A4B footprint (not measured): about 96K on a 16 GB card with the FP8
+global cache, against 64K today. Whether k_norm and v_norm differ only by weights, so one stored tensor serves both, is
+not checked.
+
 ## A masked key's zero probability still multiplies whatever an unwritten cache row holds
 
 `Gqa.Flash.Packed.cu` (`p * v_scale` before PV; the PV MMA), the clamped and ring rows of every GQA cache @ `0.21.0-dev+24`
@@ -58,9 +70,10 @@ boundary on most of them.
 
 Measured on the prediction the same day, and two terms removed (`MemoryFootprint.md` 8.3, working tree): state grew
 29.2 KB a token, 5.6 KB of it the token embedding's output sized to the whole context; that and Gemma's unused
-prefill score buffers are gone, and 32768 fits at a 128-row chunk. The FP8 global cache (`PerTokenKvFp8` on the global
-layers) and an FP8 ring (`SlidingWindowKvFp8`, new) are built and gated at the operation; their quality arms
-(`Quantization.md` decision 6) are running.
+prefill score buffers are gone, and 32768 fits at a 128-row chunk. The FP8 global cache passed its quality arm and a
+caller can ask for it (`withKvCacheCompression( FP8 )`); the FP8 ring failed on the 26B-A4B and is not offered
+(`Quantization.md` decision 6). RoPE no longer holds tables (`MemoryFootprint.md` 8.4): with the FP8 global cache,
+65536 fits at a 128-row chunk with 93 MiB spare.
 
 ## A package's manifest claims the Mila version of its first publish, not the version its weights need
 

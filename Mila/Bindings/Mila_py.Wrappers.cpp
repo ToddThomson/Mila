@@ -332,12 +332,8 @@ namespace Mila::Bindings
         /**
          * @brief Settle a Qwen config's quantization axes from a variant name.
          *
-         * Qwen does not share applyQuantizationVariant, for two reasons that mapping cannot
-         * serve. The presets pair every weight format with FP8 KV compression -- and Qwen has
-         * no FP8 KV type, so withFP4Quantization() makes every FP4 load throw "FP8 KV cache
-         * compression is not yet supported" before it reads a byte. Its baseline is a BF16
-         * cache, which fits at 16K uncompressed, so leaving that axis alone is the deployment
-         * rather than a workaround. And the codebook build is a variant no other family has.
+         * Qwen does not share applyQuantizationVariant: the codebook build is a variant no other
+         * family has.
          *
          * Same shape as the chat harness's applyQwenQuantization, deliberately: two adaptors
          * loading one set of weights differently is two models wearing one name.

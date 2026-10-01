@@ -93,16 +93,6 @@ namespace Mila::Dnn
     class LlamaModel : public LanguageModel<TDeviceType, TPrecision>
     {
     public:
-        /**
-         * @brief KV policy for the Llama chassis.
-         *
-         * Every Llama layer is full-attention, so there is no sliding window to bound a ring
-         * against and the cache spans the whole context. Class scope rather than per-function
-         * so the load and footprint paths cannot be pointed at different policies -- that
-         * would make a model report a figure for a cache it does not build.
-         */
-        using LlamaKvPolicy = Quant::KvCache::NoKvCompression;
-
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
@@ -131,7 +121,7 @@ namespace Mila::Dnn
             const DeviceId device = requireDevice( "LlamaModel::planDeployment",
                 request.getDevice().value_or( DeviceId{ TDeviceType, 0 } ) );
 
-            return dispatchWeightQuantization<TPrecision, LlamaKvPolicy, std::expected<DeploymentPlans, DeploymentRefusal>>(
+            return dispatchChassis<std::expected<DeploymentPlans, DeploymentRefusal>>(
                 request.getWeightQuantization(), request.getKvCacheCompression(), "LlamaModel::planDeployment",
                 [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
                 {
@@ -152,11 +142,7 @@ namespace Mila::Dnn
         {
             requireDevice( "LlamaModel::load", plan.device() );
 
-            // Runtime -> compile-time bridge. PerGroupFp4<128> quantizes BF16 weights on load
-            // to packed FP4 E2M1 nibbles with per-group float32 scales, consumed by the W4A16
-            // kernel with E2M1 decode inline. Llama's chassis has no sliding-window layers, so
-            // its KV policy is NoKvCompression throughout.
-            return dispatchWeightQuantization<TPrecision, LlamaKvPolicy, std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>>(
+            return dispatchChassis<std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>>(
                 plan.weightQuantization(), plan.kvCacheCompression(), "LlamaModel::load",
                 [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
                 {
@@ -272,8 +258,7 @@ namespace Mila::Dnn
             // Same dispatcher as load, and deliberately so: the footprint path and
             // the load path must reach the identical template instantiation or a model reports
             // a figure it does not allocate.
-            return dispatchWeightQuantization<
-                    TPrecision, LlamaKvPolicy, DeploymentFootprint>(
+            return dispatchChassis<DeploymentFootprint>(
                 model_config.getWeightQuantization(),
                 model_config.getKvCacheCompression(),
                 "LlamaModel::getDeploymentFootprint",
@@ -544,6 +529,30 @@ namespace Mila::Dnn
             }
 
             return device_id;
+        }
+
+        /**
+         * @brief The one runtime-to-compile-time bridge for planning, loading and the footprint.
+         *
+         * Every Llama layer attends the full context, so the request's KV setting is every layer's cache. Every
+         * entry point reaches the identical instantiation through here, or a plan would price a network the load
+         * does not build.
+         */
+        template<typename TResult, typename TAction>
+        static TResult dispatchChassis(
+            WeightQuantization weight_quantization, KvCacheCompression kv_cache_compression,
+            std::string_view caller, TAction&& action )
+        {
+            return dispatchKvCacheCompression<TDeviceType, TPrecision, TResult>( kv_cache_compression, caller,
+                [&]<KvCachePolicy TKvCachePolicy>() -> TResult
+                {
+                    // Unconstrained: MSVC loses the concept's name in a constrained lambda nested in another.
+                    return dispatchWeightQuantization<TPrecision, TResult>( weight_quantization, caller,
+                        [&]<typename TWeightQuantization>() -> TResult
+                        {
+                            return action.template operator()<TWeightQuantization, TKvCachePolicy>();
+                        } );
+                } );
         }
 
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
