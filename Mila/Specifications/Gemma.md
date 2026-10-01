@@ -681,9 +681,11 @@ Then, by stage (`ModelFamilyParity.md` §8.2):
 
 - **G4** — the feed-forward sublayer becomes a type (step 2's switch with it); done.
 - **G5** — the routed buffers pooled, so the model fits; the Q4_0 expert bank
-  (`Gemma4MoE.md` Phase 9, `MixtureOfExperts.md` §7.7).
+  (`Gemma4MoE.md` Phase 9, `MixtureOfExperts.md` §7.7); done.
 - **G5b** — its kernels at parity: grouped INT8 prefill, gather decode and the
-  router, measured in the rates harness and the llama.cpp comparison.
+  router, measured in the rates harness and the llama.cpp comparison. Done:
+  generation level with llama.cpp, prefill 1.35 to 1.5 times its rate; the
+  32K cells do not fit the 16 GB card.
 - **G6** — the rest of 10.7's bar, and the publish.
 
 **NVFP4 is not a step of this model** (`MixtureOfExperts.md` §7). No remaining

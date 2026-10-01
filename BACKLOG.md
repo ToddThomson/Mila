@@ -407,28 +407,6 @@ protocols, converter keeps the embedders, manifest declares modality, footprint 
 Image input reaches applications through `Mila::AI`, not around it. Gate: embedder parity against
 HuggingFace, then token-for-token on an image prompt.
 
-#### The Gemma 4 26B-A4B prefills 150 times and generates 11 times slower than llama.cpp on the same card
-
-`open` · `gemma` · `perf` · `mila-src` · `measured`
-
-On the RTX 5060 Ti, Mila prefills 23 tokens a second and generates 11; llama.cpp on Google's GGUF prefills
-about 3,600 and generates 127. Its CUDA path is the correctness baseline it was validated with: prefill is one
-thread per output value rather than a GEMM, decode launches 6 to 11 blocks on a 36-SM card with uncoalesced
-weight reads, and the router is one block. The two expert kernels are 91% of a decode step and all of a
-prefill, and the same kernels run alone on an empty card take the same time, so this is not paging. Outside
-the bank Mila's step is 7.8 ms against llama.cpp's whole 7.9, so the bank alone does not close it. Figures,
-profile and method: `Gemma4MoE.md`, "Rates Baseline".
-
-Work: Mila's own kernels -- the grouped INT8 prefill, the Q4_0 gather decode, the router, and the dense and
-attention decode path measured against llama.cpp's. Admitted by the parity bar, not by the measurement: the
-measurement locates the work (`ModelFamilyParity.md` §9 item 9).
-
-Gate: grouped prefill equal to the correctness kernel within the INT8 path's tolerance; decode
-bit-identical between prefill-built and one-token banks; token parity unchanged; the comparison row
-reproduced by the one script. Rates are reported, not gated.
-
-`Mila/Specifications/ModelFamilyParity.md` §8.2, G5b
-
 #### Announce the Gemma 4 26B-A4B mixture of experts
 
 `open` · `gemma` · `distribution`
@@ -438,8 +416,9 @@ Landed in `Mila/Src` during rc.1 — the router and expert bank on CPU and CUDA,
 FP4 and Q4_0. It appears in no README capability row, no CLAUDE.md target and no release note, because
 no published package uses it, so a user cannot run it.
 
-Held out of v0.20.0 (Todd, 2026-09-21). A package alone would publish it below every other model Mila
-ships, so it waits on the entry above, and then on the rest of `Gemma.md` §10.7's bar: quality
+Held out of v0.20.0 (Todd, 2026-09-21). A package alone would have published it below every other model Mila
+ships; its kernels now run at llama.cpp's rates or above (`ModelFamilyParity.md` §8.2, G5b), and it waits on the
+rest of `Gemma.md` §10.7's bar: quality
 across the planner's range, by the method `ModelFamilyParity.md` §9 item 18 settles; decode replay gated
 equal to the called path on a routed network; active parameter bytes in the plan and in Chat's display;
 the model run through Chat, the inference server and the Python binding, tool calls included. Then the

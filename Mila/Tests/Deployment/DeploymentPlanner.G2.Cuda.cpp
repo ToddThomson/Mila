@@ -162,9 +162,12 @@ namespace Mila::Tests::Deployment
         using Network = GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16,
             Quant::Weight::PerGroupFp4<128>, GemmaCudaModel::GemmaSlidingKvPolicy>;
 
+        // Chat recorded 121856, held back for a full chunk, on the RTX 4070. The token embedding's output was then
+        // sized to the context though inference embeds one chunk at a time; a chunk wide, the same reading reaches
+        // the trained maximum. The rule that chooses is unchanged.
         expectRecordedChoices<Network>( "gemma-4-12b-it-fp4", weights, networkConfigOf<GemmaCudaModel>( weights ),
             DeploymentRequest{}.withFP4Quantization().withAutomaticContextLength( 1024, kGemmaAndLlamaCeiling ),
-            Recorded{ kRtx4070FreeBytes, 121856, 1024, true },
+            Recorded{ kRtx4070FreeBytes, 131072, 1024, false },
             Recorded{ kRtx5060TiFreeBytes, 131072, 1024, false } );
     }
 
@@ -180,12 +183,12 @@ namespace Mila::Tests::Deployment
 
         // Chat recorded 13312 and 33792. Flash prefill (ModelFamilyParity.md 8.4, L4) removed Llama's full-context
         // score buffers from the footprint (19456 and 50176 at chunk 512), and one activation slot set shared by
-        // every block replaced 32 per-block sets, which let the top rung rise to 1024; the rule that chooses is
-        // unchanged.
+        // every block replaced 32 per-block sets, which let the top rung rise to 1024; the token embedding's output
+        // sized to one chunk rather than the context took them to these. The rule that chooses is unchanged.
         expectRecordedChoices<Network>( "llama-3.1-8b-instruct-fp4", weights, networkConfigOf<LlamaCudaModel>( weights ),
             DeploymentRequest{}.withFP4Quantization().withAutomaticContextLength( 1024, kGemmaAndLlamaCeiling ),
-            Recorded{ kRtx4070FreeBytes, 38912, 1024, true },
-            Recorded{ kRtx5060TiFreeBytes, 69632, 1024, true } );
+            Recorded{ kRtx4070FreeBytes, 40960, 1024, true },
+            Recorded{ kRtx5060TiFreeBytes, 73728, 1024, true } );
     }
 
     // Chat found no context for this one on the RTX 4070 and tried the load anyway (exit 5); the planner refuses.
@@ -201,11 +204,12 @@ namespace Mila::Tests::Deployment
 
         // Chat recorded 4096 on the RTX 5060 Ti. Below 16384 the full-attention layers then ran cuBLASLt with a
         // full-context score buffer; flash at every length (ModelFamilyParity.md 8.4, L4) removed it from the
-        // footprint, and the same reading buys this. The rule that chooses is unchanged.
+        // footprint, and the same reading buys this, with the token embedding's output a chunk wide rather than the
+        // context. The rule that chooses is unchanged.
         expectRecordedChoices<Network>( "qwen3.8-27b-fp4", weights, networkConfigOf<QwenCudaModel>( weights ),
             DeploymentRequest{}.withWeightQuantization( WeightQuantization::FP4 ).withAutomaticContextLength( 1024, kQwenCeiling ),
             Recorded{ kRtx4070FreeBytes, std::nullopt },
-            Recorded{ kRtx5060TiFreeBytes, 10240, 1024, true } );
+            Recorded{ kRtx5060TiFreeBytes, 11264, 1024, true } );
     }
 
     TEST_F( DeploymentPlannerG2CudaTests, Qwen38_27B_Codebook )
@@ -219,10 +223,10 @@ namespace Mila::Tests::Deployment
             QwenPrecisionPlan, QwenCudaModel::QwenKvPolicy>;
 
         // Chat recorded 3072 on the RTX 4070, for the reason Qwen38_27B_Fp4 gives. The RTX 5060 Ti's row was above
-        // 16384 already, where flash ran then too.
+        // 16384 already, where flash ran then too. Both rose with the token embedding's output a chunk wide.
         expectRecordedChoices<Network>( "qwen3.8-27b-cb2-3", weights, networkConfigOf<QwenCudaModel>( weights ),
             DeploymentRequest{}.withPrecisionPlan().withAutomaticContextLength( 1024, kQwenCeiling ),
-            Recorded{ kRtx4070FreeBytes, 8192, 1024, true },
-            Recorded{ kRtx5060TiFreeBytes, 64512, 1024, true } );
+            Recorded{ kRtx4070FreeBytes, 10240, 1024, true },
+            Recorded{ kRtx5060TiFreeBytes, 73728, 1024, true } );
     }
 }

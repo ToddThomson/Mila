@@ -1144,3 +1144,179 @@ kernels first. It is not only those: llama.cpp's whole decode step is 7.9 ms, an
 the bank. Of that, the router's one-block kernel is 1.6 ms and the tied head 1.73 ms (at its bandwidth floor
 in FP8; Google's head is Q6_K). A bank at its floor leaves Mila's step near 9.5 ms against llama.cpp's 7.9,
 so the router and the dense and attention matvecs are in G5b's scope too.
+
+### Re-baseline at Q4_0 (2026-09-30, `0.21.0-dev+24`, RTX 5060 Ti pinned by UUID)
+
+The first step of G5b: the same measurement with Mila's bank in Google's format. `x64-profile` build,
+`q4_0` quantized on load from `gemma4_26b_a4b_it_qat_bf16.bin` (every Q4_0 tensor equal to the GGUF's, G5 item 6),
+context 1024; llama.cpp build 11216 on `gemma-4-26B_q4_0-it.gguf`, the build the first baseline used.
+
+**Correction, same day: Gemma's KV cache is BF16, not FP8.** The Q4_0 and FP4 presets set
+`kv_cache_compression` FP8 and ProfileModel prints it, but `GemmaModel` builds its sliding layers on
+`SlidingWindowKvCache`, an uncompressed ring, and its global layers on `NoKvCompression`
+(`GemmaModel.ixx`, `GemmaSlidingKvPolicy`; `Policy.ixx`). No Gemma layer reads the setting. So wherever this
+notebook says Mila ran an FP8 cache against llama.cpp's FP16, both ran a 16-bit cache: like for like.
+
+| Phase | Mila Q4_0 | Mila FP4 (above) | llama.cpp |
+|---|---|---|---|
+| Prefill, 512 tokens | **31.0 tokens/s** (16,484 / 16,511 / 16,515 ms) | 23.5 | 3,702 |
+| Generation, 128 tokens at depth 0 | **12.55 tokens/s**, 79.7 ms a token | 11.4 | 126 |
+
+nsys, per decode step (two called steps averaged) and one 512-token prefill:
+
+| Kernel | Decode, per step | Prefill, 512 tokens |
+|---|---|---|
+| `moe_gated_packed_kernel`, 30 calls | 60.0 ms (75%), 2.0 ms a layer on 11 blocks | 13,813 ms (83.6%), 460 ms a layer |
+| `moe_combine_packed_kernel`, 30 calls | 12.7 ms (16%), 0.42 ms a layer on 6 blocks | 2,662 ms (16.1%), 89 ms a layer |
+| Everything else | 7.8 ms: tied head (FP8) 1.74, dense and attention Q4_0 matvecs 2.45, router 1.59 (53 us, one block), norms 0.47, argmax 0.23 | 37 ms, of which the dense branch's INT8 GEMM 22 |
+
+Q4_0's FP16 scale per 32 codes decodes a little faster than FP4's table lookup, and nothing else moved: the bank
+is still 91% of a decode step and 99.7% of a prefill, and the step outside it is unchanged at 7.8 ms.
+
+**The other two gaps of the first baseline, measured on llama.cpp's side:**
+
+- **Batch size.** `-ub` swept at `-b 2048`, prefill tokens a second, mean of 3:
+
+  | `-ub` | 512 | 2K | 8K |
+  |---|---|---|---|
+  | 256 | 2,620 | 2,613 | 2,561 |
+  | 512 (default) | 3,702 | 3,719 | 3,511 |
+  | 1024 | 3,693 | **4,347** | **4,117** |
+  | 2048 | 3,668 | 1,071 | 1,070 |
+
+  Its best is 1024, 17% above the default at 2K and 8K; at 2048 it falls to a quarter. The comparison script runs
+  the default.
+- **KV format.** Generation at depth 0 / 8K: FP16 126.1 / 111.6, q8_0 keys and values 120.5 / 106.1. An 8-bit
+  cache costs llama.cpp 4 to 5%, so FP16 is its faster setting -- and, per the correction above, the like-for-like
+  one: Mila's Gemma cache is BF16.
+
+### G5b decode result (2026-09-30, RTX 5060 Ti pinned by UUID)
+
+Two kernels replaced, both Mila's own, the rest of the step untouched:
+
+- **The Q4_0 gather decode** (`MoeGather.cu`), which `CudaMoeOp` runs for a one-token forward. The gated pass is one
+  warp per (slot, unit), each lane a whole 32-code group of the gate and up rows at a time -- 16-byte code loads,
+  the group summed as `x * ( code - 8 )` in FP32 and scaled once -- on 704 blocks where the Phase 6 kernel ran 11.
+  The combine is one warp per output column over all eight slots' groups, the token's gated values staged in
+  shared memory at a 36-float stride so a quarter-warp's reads land in distinct banks. Two tokens or more still
+  run the Phase 6 pair.
+- **The router, one warp per row** (`Router.cu`): top-k by k rounds of a warp argmax, ties to the lower index as
+  before, and only the selected experts' exponentials, since the softmax denominator cancels in the
+  renormalization. The old kernel took 128 double-precision exponentials on one thread, at FP64's 1/64 rate.
+
+**Gate** (Phase 9, "G5b, against G5's kernel", as written):
+
+| Item | Result |
+|---|---|
+| Decode against the exact weights, the 26B's shapes, random codes and FP16 scales, top-8 | gated pass 0 of 5632 outside tolerance, worst at 0.001 of it; combine 0 of 2816, worst 0.94 (the BF16 store's half ulp) |
+| Forced failure: the reference reads the nibbles swapped | 5629 of 5632 and 2811 of 2816 outside |
+| Decode bit-identical between banks built for prefill and for one token | 0 of 6144 differ |
+| Prefill unchanged | 0 of 6144 differ from the BF16 bank on exact weights |
+| Router | FP32 against HuggingFace layer 5: worst weight error 1.19e-7 (was 1.49e-7), no row with a different set; BF16: 6 rows with a different set, none unexplained, worst 2.09e-3, as before |
+| Token parity | 26B Q4_0 and FP4 greedy tokens equal HuggingFace's at context 8192; layer-streamed BF16 parity unchanged, argmax 818 |
+
+For the gated pass the written form's `sum|x w|` is carried through the activation:
+`( 1.13 x S_gate x |up| + |gelu( gate )| x S_up ) x 1e-5 + 1e-7`, 1.13 bounding the slope of tanh GELU.
+
+**Rates**, `x64-claude-verify` Release build, context 1024, generation of 128 tokens at depth 0, 3 runs:
+
+| | Tokens a second | ms a token |
+|---|---|---|
+| Q4_0 baseline (above) | 12.55 | 79.7 |
+| Gather decode | 109.2 | 9.15 |
+| Gather decode and warp router | **128.8** (128.92 / 128.82 / 128.78) | 7.76 |
+| llama.cpp b11216, FP16 KV | 126.1 | 7.93 |
+
+nsys with graph nodes traced, the last 48 replayed steps, per step (7.75 ms span, 0.18 idle):
+
+| Kernel | Before | Now |
+|---|---|---|
+| Expert bank, gated and combine | 72.7 ms | 2.27 ms: gated 1.40 (47 us a layer, 381 GB/s), combine 0.87 (29 us, 307 GB/s) |
+| Dense and attention Q4_0 matvecs, 120 calls | 2.45 | 2.45 |
+| Tied head, FP8 | 1.74 | 1.74 |
+| Norms, 331 calls | 0.47 | 0.44 |
+| Router | 1.59 | 0.21 |
+
+The step's floor is about 5.6 ms: the bank's 0.80 GB, the 738 MB head, and about 0.96 GB of dense and attention
+weights -- inferred as the 13.54 GiB export less 30 banks and the head, not measured -- at 448 GB/s. Mila's step and llama.cpp's are level at depth 0; theirs reads a Q6_K head, 20% fewer bytes
+than the FP8 one. What remains of G5b is the prefill, still the Phase 6 kernel at 31 tokens a second.
+
+### G5b prefill result (2026-09-30, RTX 5060 Ti pinned by UUID)
+
+**The grouped INT8 prefill** (`MoeGrouped.cu`, `MixtureOfExperts.md` section 6): routing into expert segments,
+token-ascending within each; M tiles of 64 over them; the gated GEMM with gate and up rows interleaved in the B tile,
+so the activation runs on registers; the gated values quantized to INT8; the combine GEMM and a slot-ordered
+reduction, run over the gated buffer once it is dead, as many tokens at a time as it holds. The main loop, tile copies
+and MMA are `Linear`'s Q4_0 GEMM's, now shared through `Int4Int8Mma.cuh`. The Phase 6 Q4_0 launchers had no caller
+left and are gone; FP4 keeps its pair.
+
+**Gate** (Phase 9, "G5b, against G5's kernel", as written):
+
+| Item | Result |
+|---|---|
+| Prefill against the host INT8 block arithmetic | hidden 256 (128-deep tile), intermediate 320 (64-deep), 16 experts, top-4, 160 tokens, expert 0 a three-tile segment: gated pass 0 of 40,960 outside tolerance (worst 0.003 of it), combine 0 of 8,192 (worst 0.957), on the 32 tokens whose gated values the combine's one pass leaves in the slot |
+| Forced failure: the reference reads the nibbles swapped | 40,955 and 8,175 outside |
+| INT8 activations against BF16, printed | at the 26B's shapes, 160 tokens against one token at a time: relative L2 1.09e-2 |
+| Decode bit-identical between banks built for prefill and for one token | 0 of 6,144 differ |
+| Token parity | 26B Q4_0 and FP4 greedy tokens equal HuggingFace's at 8192; layer-streamed BF16 parity unchanged |
+| The row reproduced by the one script | below |
+
+Beyond the written gate: prefill is bit-identical however tokens are batched (160 tokens against calls of 60 and
+100 at the 26B's shapes, 450,560 of 450,560 equal), since every output depends on its own row alone; an
+out-of-range index poisons only its token; predicted scratch equals built. At context 8192 the Q4_0 plan still
+takes 1024 rows, 15,822,825,472 bytes predicted and reported, as at G5: the prefill's 6.5 MB of scratch sits
+under the 10 MiB the network already reserves.
+
+**Found on the way: a race in the routing kernel.** Past 1024 rows (tokens x top_k) it loops, and the loop cleared
+the per-warp counts for the next chunk while the last sums over them were still being read. Every unit test had
+640 rows or fewer; a 512-token prefill of the model (4,096 rows) died with an illegal memory access. One barrier;
+the batching test now runs 1,280 rows.
+
+**Long text**, a diagnostic (`DISABLED_Q4_0_ChunkedPrefillAgainstOneRowAtATime_Wikitext`): four 2,048-token
+wikitext segments through the planner's chunk, 7.35800 mean nats, and through a chunk of one row, where every
+projection takes the BF16-activation matvec and the bank its gather decode, 7.32938. The difference, +0.39%, is
+INT8 activations' size of effect, which raw wikitext cannot grade (`ModelFamilyParity.md` 8.2, G1); a broken
+prefill it would show.
+
+**The prompt a rate harness feeds a mixture of experts.** ProfileModel's `--seq-len` filled the prompt with token
+0, salted only at the first position. Dense models barely notice; a mixture of experts routes nearly every row
+to the same few experts and reads a fraction of its bank. It showed as a combine pass that finished faster than
+reading every expert's down weights once can take (182 us against 283). llama-bench draws every token as
+`std::rand() % n_vocab` (read in its source); ProfileModel now draws uniformly from the vocabulary with a fixed
+seed, for prefill and for generation depth. At 512 tokens the rate fell from 7,410 to 5,611 tokens a second. The
+dense rows published before were measured on the old prompt and are not re-measured here.
+
+**Rates**, `benchmark_comparison.py` (row `gemma-4-26b-a4b-q4_0`, head to head), `x64-claude-verify` Release build;
+llama.cpp build 11216, FP16 KV, each cell at its faster micro-batch of 512 and 1024 (1024 won every prefill past
+512); mean of 3, tokens a second:
+
+| Prefill | 512 | 2K | 8K | 32K |
+|---|---|---|---|---|
+| Mila Q4_0 | 5,604 | 6,080 | 5,550 | refused |
+| llama.cpp | 3,685 | 4,334 | 4,124 | 3,321 |
+
+| Generation, 128 tokens, at depth | 0 | 8K | 32K |
+|---|---|---|---|
+| Mila Q4_0 | 129 | 115 | refused |
+| llama.cpp | 128 | 113 | 99 |
+
+At 32768 the deployment needs 16,075,330,560 bytes against 15,904,800,768 free, as the FP4 build did; captured in
+`Mila/Issues/Untriaged.md`.
+
+nsys, one 2,048-token prefill (two 1024-row chunks, random tokens), 336 ms busy:
+
+| Kernel | ms | Share |
+|---|---|---|
+| Grouped GEMM, gated: 60 calls | 84.0 (1.40 a layer-chunk) | 25% |
+| Grouped GEMM, combine: 240 calls, four passes a layer-chunk | 91.2 (0.38 a pass) | 27% |
+| `Linear`'s INT8 GEMM, attention and dense projections | 79.4 | 24% |
+| Attention | 36.5 | 11% |
+| Reduction, quantizers, routing, tiles | 17 | 5% |
+
+**The combine's memory, measured and decided.** A pass reads nearly every expert's down weights, 127 MB, in
+380 us, so the four passes cost what reading them four times costs. One pass would take about 0.75 ms at the gated
+pass's arithmetic rate for half its work, so the sub-chunking costs about 0.75 ms a layer-chunk, about 45 ms or
+13% of a 2K prefill. Materializing every row instead would narrow the plan's chunk at 8192, which halves the rows
+an expert's segment amortizes its weights over in both GEMMs and undoes G5's chunk. **Kept.** What would recover
+the 13% without the memory, if prefill becomes the priority: the combine's rows in the other pooled slots the
+routed sublayer leaves idle, or a combine that accumulates each token's slots in one pass.

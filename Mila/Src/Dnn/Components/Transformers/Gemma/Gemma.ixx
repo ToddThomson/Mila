@@ -69,6 +69,7 @@ import Dnn.Components.Linear;
 import Dnn.Components.RmsNorm;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
+import Dnn.Quantization.KvCache.SlidingWindowKvFp8;
 import Compute.Device;
 import Compute.DeviceAllocation;
 import Compute.DeviceType;
@@ -104,11 +105,12 @@ namespace Mila::Dnn
      * Graph: TokenEmbedding -> GemmaBlock x N (heterogeneous local/global) ->
      * RmsNorm -> Linear (lm_head). The embedding sqrt(d) scale and the final logit
      * softcap are handled by the converter and the sampler respectively (see the
-     * file header). kFeedForward is every block's feed-forward sublayer (GemmaBlock).
+     * file header). kFeedForward is every block's feed-forward sublayer (GemmaBlock). TKvCachePolicy is the local
+     * (sliding) layers' cache, TGlobalKvCachePolicy the global layers': uncompressed, or PerTokenKvFp8.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision,
         WeightQuantPolicy TWeightQuantization = NoWeightQuant, KvCachePolicy TKvCachePolicy = NoKvCompression,
-        GemmaFeedForward kFeedForward = GemmaFeedForward::Dense>
+        GemmaFeedForward kFeedForward = GemmaFeedForward::Dense, KvCachePolicy TGlobalKvCachePolicy = NoKvCompression>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class GemmaTransformer : public LanguageModelNetwork<TDeviceType, TPrecision>
     {
@@ -129,10 +131,10 @@ namespace Mila::Dnn
         using RmsNormType = RmsNorm<TDeviceType, TPrecision>;
         // TKvCachePolicy applies to the LOCAL (sliding) layers only -- they attend a
         // bounded window, so their KV cache can be a ring (SlidingWindowKvCache.md D4).
-        // GLOBAL (full-attention) layers attend the entire context and therefore always
-        // use the full-context cache (NoKvCompression), regardless of the sliding policy.
+        // GLOBAL (full-attention) layers attend the entire context, so their cache holds
+        // every position, uncompressed or in FP8 (TGlobalKvCachePolicy), never a ring.
         using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ false, TWeightQuantization, TKvCachePolicy, kFeedForward>;
-        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ true, TWeightQuantization, NoKvCompression, kFeedForward>;
+        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ true, TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>;
         using TransformerBlockType = ITransformerBlock<TDeviceType, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
@@ -478,7 +480,7 @@ namespace Mila::Dnn
             MemoryStats stats;
 
             stats += this->template getComponentAs<TokenEmbeddingType>( n + ".temb" )
-                ->getRequiredMemory( context );
+                ->getRequiredMemory( embeddingContext( context, prefill_chunk ) );
 
             dim_t local_layers = 0;
             dim_t global_layers = 0;
@@ -663,7 +665,7 @@ namespace Mila::Dnn
             BuildContext final_context( final_shape, context.getRuntimeMode(), context.shouldInitializeParameters() );
 
             token_embedding_ = this->template getComponentAs<TokenEmbeddingType>( this->getName() + ".temb" );
-            token_embedding_->build( context );
+            token_embedding_->build( embeddingContext( context, prefill_chunk_size_ ) );
 
             // Shared per-block activation workspace (pooling): one slot set serves all
             // layers because the inference path runs exactly one block at a time.
@@ -709,9 +711,9 @@ namespace Mila::Dnn
 
                     block->build( block_context );
 
-                    // Local (sliding) layers flash through the bounded-ring kernel variant. They stop reading
-                    // the shared preatt/att buffer when flashed; prefillScoreWidth() still sizes it for them so
-                    // the cuBLASLt fallback stays valid.
+                    // Local (sliding) layers flash through the bounded-ring kernel variant, and read no shared
+                    // preatt/att buffer when they do. MUST agree with prefillScoreWidth(), which allocates none
+                    // once every layer flashes.
                     if ( context.isInferenceMode() )
                     {
                         block->setUseFlashPrefill( usesFlashPrefillOnLocalLayers() );
@@ -923,7 +925,8 @@ namespace Mila::Dnn
          *
          * Mirrors allocateAndWireGqaWorkspace(). The score buffers are the term that made
          * flash prefill worth ~1 GB at 64K -- score_width collapses to the ring capacity
-         * once the global layers flash, so this must use the same prefillScoreWidth().
+         * once the global layers flash, and to nothing once every layer does, so this must
+         * use the same prefillScoreWidth().
          */
         std::size_t gqaWorkspaceBytes( dim_t B, int64_t T_ctx, int64_t prefill_chunk, std::size_t granularity ) const
         {
@@ -949,6 +952,20 @@ namespace Mila::Dnn
             return 2 * occupiedDeviceBytes( static_cast<std::size_t>( cache_elements ) * sizeof( float ), granularity );
         }
 
+        /**
+         * @brief The context the token embedding is built and priced at: in inference, one prefill chunk wide,
+         *        since every inference pass embeds at most a chunk at a time.
+         */
+        static BuildContext embeddingContext( const BuildContext& context, int64_t prefill_chunk )
+        {
+            if ( !context.isInferenceMode() )
+                return context;
+
+            const auto& input_shape = context.inputShape();
+
+            return context.forChild( shape_t{ input_shape[ 0 ], std::min<int64_t>( input_shape[ 1 ], prefill_chunk ) } );
+        }
+
         int64_t prefillScoreWidth( int64_t T_ctx ) const
         {
             return prefillScoreWidth( T_ctx, prefill_chunk_size_ );
@@ -960,12 +977,12 @@ namespace Mila::Dnn
          * A layer on the cuBLASLt path reads it across every cached column: the whole context for a global layer, or
          * for a sliding layer built without the ring cache, and the ring capacity (CudaGqaOp's cache_capacity_ for
          * kBounded) for a ring one. So it is the whole context when any layer of the first two kinds misses flash,
-         * and otherwise the ring capacity -- kept even when every layer flashes, so a standalone op's cuBLASLt
-         * fallback stays valid.
+         * the ring capacity when only ring layers miss it, and zero -- no buffer -- when every layer flashes.
          */
         int64_t prefillScoreWidth( int64_t T_ctx, int64_t prefill_chunk ) const
         {
-            constexpr bool kLocalLayersRing = std::is_same_v<TKvCachePolicy, SlidingWindowKvCache>;
+            constexpr bool kLocalLayersRing =
+                std::is_same_v<TKvCachePolicy, SlidingWindowKvCache> || std::is_same_v<TKvCachePolicy, SlidingWindowKvFp8>;
 
             const bool needs_whole_context = !usesFlashPrefillOnGlobalLayers()
                 || ( !kLocalLayersRing && !usesFlashPrefillOnLocalLayers() );
@@ -973,7 +990,10 @@ namespace Mila::Dnn
             if ( needs_whole_context )
                 return T_ctx;
 
-            return std::min<int64_t>( T_ctx, config_.getWindow() + prefill_chunk - 1 );
+            if ( !usesFlashPrefillOnLocalLayers() )
+                return std::min<int64_t>( T_ctx, config_.getWindow() + prefill_chunk - 1 );
+
+            return 0;
         }
 
         void allocateBlockWorkspace( int64_t B )

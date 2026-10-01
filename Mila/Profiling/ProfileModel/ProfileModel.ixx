@@ -45,6 +45,7 @@ module;
 #include <atomic>
 #include <algorithm>
 #include <limits>
+#include <random>
 #include <cuda_runtime.h>
 #include <cuda_profiler_api.h>
 
@@ -254,7 +255,7 @@ namespace Mila::Profiling
             << "  --tokenizer       Tokenizer file. Default: per --model family.\n"
             << "  --prompt          Prompt text (decode/generate, and prefill unless --seq-len).\n"
             << "  --tokens          Max new tokens for decode/generate. Default: 256.\n"
-            << "  --seq-len         Use this many dummy tokens instead of the prompt; for decode/generate\n"
+            << "  --seq-len         Use this many random tokens instead of the prompt; for decode/generate\n"
             << "                    it is the context depth the tokens are generated at.\n"
             << "  --ignore-eos      Generate --tokens tokens even past an end-of-sequence token.\n"
             << "  --temperature     0 = greedy (repeatable); > 0 profiles the stochastic sampler. Default: 0.\n"
@@ -464,21 +465,35 @@ namespace Mila::Profiling
         return options;
     }
 
+    // `length` tokens drawn uniformly from the vocabulary, as llama-bench draws its own. One token
+    // repeated would route every row of a mixture of experts to the same few experts and time a
+    // fraction of the bank. The seed is fixed, so every run does the same work.
+    std::vector<int32_t> syntheticTokens( std::size_t vocabulary_size, std::size_t length )
+    {
+        std::mt19937 generator( 20260930u );
+        std::uniform_int_distribution<int32_t> vocabulary( 0, static_cast<int32_t>( vocabulary_size ) - 1 );
+        std::vector<int32_t> tokens( length );
+
+        for ( int32_t& token : tokens )
+            token = vocabulary( generator );
+
+        return tokens;
+    }
+
     // Shared phase driver. Model families differ only in construction; every phase
     // is measured through generate(), the public entry a consumer calls, so the
     // phases are family-agnostic and no family needs a profiling-only accessor.
     template<typename TModel>
-    void runPhases( TModel& model, const Options& options, const std::vector<int32_t>& prompt_tokens )
+    void runPhases( TModel& model, const Options& options, const std::vector<int32_t>& prompt_tokens,
+        std::size_t vocabulary_size )
     {
         if ( options.phase == Phase::Prefill )
         {
-            // --seq-len overrides the prompt with that many dummy tokens so prefill
-            // cost can be measured at a fixed sequence length independent of the
-            // tokenizer output.
-            std::vector<int32_t> prefill_tokens = prompt_tokens;
-
-            if ( options.prefill_seq_len > 0 )
-                prefill_tokens.assign( options.prefill_seq_len, 0 );
+            // --seq-len overrides the prompt, so prefill cost is measured at a fixed length
+            // independent of the tokenizer.
+            const std::vector<int32_t> prefill_tokens = options.prefill_seq_len > 0
+                ? syntheticTokens( vocabulary_size, options.prefill_seq_len )
+                : prompt_tokens;
 
             // Measured through generate(), the entry a consumer actually has: the first
             // token cannot be produced until the prompt forward pass has completed, so
@@ -588,7 +603,7 @@ namespace Mila::Profiling
 
             if ( options.prefill_seq_len > 0 )
             {
-                tokens.assign( options.prefill_seq_len, 0 );
+                tokens = syntheticTokens( vocabulary_size, options.prefill_seq_len );
                 tokens[ 0 ] = ++salt;
             }
 
@@ -724,7 +739,7 @@ namespace Mila::Profiling
         const auto encoded = tokenizer->encode( options.prompt );
         const std::vector<int32_t> prompt_tokens( encoded.begin(), encoded.end() );
 
-        runPhases( *model, options, prompt_tokens );
+        runPhases( *model, options, prompt_tokens, tokenizer->getVocabSize() );
 
         printGpuMemory( "after run (includes cuBLASLt workspace growth)" );
     }
@@ -786,7 +801,7 @@ namespace Mila::Profiling
         const auto encoded = tokenizer->encode( options.prompt );
         const std::vector<int32_t> prompt_tokens( encoded.begin(), encoded.end() );
 
-        runPhases( *model, options, prompt_tokens );
+        runPhases( *model, options, prompt_tokens, tokenizer->getVocabSize() );
 
         printGpuMemory( "after run (includes cuBLASLt workspace growth)" );
     }
@@ -834,7 +849,7 @@ namespace Mila::Profiling
         const auto encoded = tokenizer->encode( options.prompt );
         const std::vector<int32_t> prompt_tokens( encoded.begin(), encoded.end() );
 
-        runPhases( *model, options, prompt_tokens );
+        runPhases( *model, options, prompt_tokens, tokenizer->getVocabSize() );
 
         printGpuMemory( "after run (includes cuBLASLt workspace growth)" );
     }

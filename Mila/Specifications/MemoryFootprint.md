@@ -549,6 +549,28 @@ Note the correction to the BACKLOG arithmetic: Gemma's `TableQuantizationPolicy`
 `PerChannelFp8<>` even when the body is FP4, so a quantized table costs ~0.53 GB
 against 1.05 GB BF16 -- about 0.52 GB saved per table, not the 0.79 GB recorded.
 
+### 8.3 Inference held activations no pass reads
+
+Found 2026-09-30 pricing the Gemma 4 26B-A4B's context ceiling (`Mila/Issues/Untriaged.md`), both priced
+exactly -- the prediction reported what the build allocated -- so neither showed as a footprint error:
+
+- **The token embedding's output was a whole context wide.** Every transformer built `TokenEmbedding` with the
+  network's own context, `[B, T, model_dim]`, though every inference pass -- each prefill chunk, decode, the
+  log-likelihood windows -- embeds at most one chunk. `model_dim x 2` bytes a token: 5.5 KiB on the 26B-A4B,
+  7.5 KiB on the 12B, 10 KiB on Qwen 3.8 27B. All three families now build and price it at
+  `[B, min(T, prefill_chunk)]` in inference (`embeddingContext` in each transformer); training keeps T.
+- **Gemma kept its prefill score buffers when every layer flashed.** `preatt` and `att`,
+  `chunk x heads x (window + chunk)` BF16, serve only the cuBLASLt prefill; Gemma sized them to the ring for "a
+  standalone op's fallback" after Llama and Qwen had shrunk theirs to one row. A score width of zero now means no
+  buffers (`makeGqaWorkspace`), all three families pass it when every layer flashes, and a cuBLASLt prefill without
+  them refuses rather than reading a null pointer. 134 MB on the 26B-A4B at a 1024-row chunk.
+
+Measured on the 26B-A4B's predicted footprint against the RTX 5060 Ti's free memory (diagnostic
+`DISABLED_Q4_0_PredictedFootprintByContextAndChunk`): state grows 23.6 KB a token, was 29.2; at a 1024-row chunk
+every context gains 166 MiB; 32768 fits at a 128-row chunk, where it was 183 MiB over. The deployment planner's
+recorded choices rose on every family (`DeploymentPlanner.G2.Cuda.cpp`): Gemma 4 12B on the RTX 4070 from 121856 to
+its trained maximum, Llama 3.1 8B from 38912 / 69632 to 40960 / 73728.
+
 ---
 
 ## 9. Phasing

@@ -30,6 +30,10 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
     {
         using Fp8Op = Compute::Cuda::Gqa::CudaGqaOp<TensorDataType::BF16, false, true>;
         using Bf16Op = Compute::Cuda::Gqa::CudaGqaOp<TensorDataType::BF16, false>;
+
+        // The bounded sliding-window ring, of FP8 codes (SlidingWindowKvFp8) and of BF16 (SlidingWindowKvCache).
+        using Fp8RingOp = Compute::Cuda::Gqa::CudaGqaOp<TensorDataType::BF16, true, true>;
+        using Bf16RingOp = Compute::Cuda::Gqa::CudaGqaOp<TensorDataType::BF16, true>;
         using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
         using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
 
@@ -89,6 +93,9 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
             int chunk;
             int prefill_tokens;
             int decode_steps;
+
+            /// Sliding window; 0 attends the whole context.
+            int window{ 0 };
         };
 
         struct Sequence
@@ -167,7 +174,7 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
                 const int kv_width = g.kv_heads * g.head_size;
                 const int packed = ( g.heads + 2 * g.kv_heads ) * g.head_size;
 
-                TOp op( context_.get(), GqaConfig( model_dim, g.heads, g.kv_heads ) );
+                TOp op( context_.get(), GqaConfig( model_dim, g.heads, g.kv_heads ).withWindow( g.window ) );
                 op.build( BuildContext( shape_t{ g.batch, g.context, packed }, RuntimeMode::Inference, false )
                     .withPrefillSize( g.chunk ) );
                 op.initializeKvCache( g.batch, g.context );
@@ -229,7 +236,8 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
                 return outputs;
             }
 
-            /// Causal attention in double over K and V rounded as the FP8 cache rounds them.
+            /// Causal attention in double, within the window when there is one, over K and V rounded as the FP8 cache
+            /// rounds them.
             static std::vector<double> reference( const Geometry& g, const Sequence& s, bool quantized )
             {
                 const int model_dim = g.heads * g.head_size;
@@ -262,10 +270,11 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
                             const int kv = h / group;
                             const float* q = s.q.data() + ( static_cast<std::size_t>( b ) * s.tokens + t ) * model_dim + h * g.head_size;
 
-                            std::vector<double> scores( static_cast<std::size_t>( t + 1 ) );
+                            std::vector<double> scores( static_cast<std::size_t>( t + 1 ), 0.0 );
                             double peak = -1e300;
+                            const int first_key = g.window > 0 ? std::max( 0, t - g.window + 1 ) : 0;
 
-                            for ( int j = 0; j <= t; ++j )
+                            for ( int j = first_key; j <= t; ++j )
                             {
                                 const std::vector<double>& key = keys[ static_cast<std::size_t>( j ) * g.kv_heads + kv ];
                                 double dot = 0.0;
@@ -281,15 +290,16 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
 
                             double total = 0.0;
 
-                            for ( double& score : scores )
+                            for ( int j = first_key; j <= t; ++j )
                             {
+                                double& score = scores[ static_cast<std::size_t>( j ) ];
                                 score = std::exp( score - peak );
                                 total += score;
                             }
 
                             double* out = outputs.data() + ( static_cast<std::size_t>( b ) * s.tokens + t ) * model_dim + h * g.head_size;
 
-                            for ( int j = 0; j <= t; ++j )
+                            for ( int j = first_key; j <= t; ++j )
                             {
                                 const std::vector<double>& value = values[ static_cast<std::size_t>( j ) * g.kv_heads + kv ];
                                 const double weight = scores[ static_cast<std::size_t>( j ) ] / total;
@@ -306,11 +316,12 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
                 return outputs;
             }
 
+            template<typename TFp8Op = Fp8Op, typename TBf16Op = Bf16Op>
             void expectAsExactAsBf16( const Geometry& g, unsigned seed )
             {
                 const Sequence s = randomSequence( g, seed );
-                const std::vector<float> fp8 = run<Fp8Op>( g, s );
-                const std::vector<float> bf16 = run<Bf16Op>( g, s );
+                const std::vector<float> fp8 = run<TFp8Op>( g, s );
+                const std::vector<float> bf16 = run<TBf16Op>( g, s );
                 const std::vector<double> exact_fp8 = reference( g, s, true );
                 const std::vector<double> exact_bf16 = reference( g, s, false );
 
@@ -366,11 +377,12 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
                 return s;
             }
 
+            template<typename TFp8Op = Fp8Op, typename TBf16Op = Bf16Op>
             void expectLosslessMatchesBf16( const Geometry& g, unsigned seed )
             {
                 const Sequence s = losslessSequence( g, seed );
-                const std::vector<float> fp8 = run<Fp8Op>( g, s );
-                const std::vector<float> bf16 = run<Bf16Op>( g, s );
+                const std::vector<float> fp8 = run<TFp8Op>( g, s );
+                const std::vector<float> bf16 = run<TBf16Op>( g, s );
                 const std::vector<double> exact = reference( g, s, false );
 
                 double fp8_error = 0.0, bf16_error = 0.0, between = 0.0;
@@ -417,6 +429,37 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
     TEST_F( CudaGqaFp8CacheTests, QwenGeometry_AsExactAsTheBf16Cache )
     {
         expectAsExactAsBf16( Geometry{ 1, 12, 2, 256, 192, 64, 128, 40 }, 13u );
+    }
+
+    // ====================================================================
+    // The bounded ring of FP8 codes (SlidingWindowKvFp8). Window 64 with 32-row chunks gives a 95-row ring, which a
+    // 160-token prefill and 64 decode steps wrap more than twice.
+    // ====================================================================
+
+    // Gemma 4's sliding layers: head size 256, group 2.
+    TEST_F( CudaGqaFp8CacheTests, Ring_LosslessValues_MatchTheBf16RingBitForBit )
+    {
+        expectLosslessMatchesBf16<Fp8RingOp, Bf16RingOp>( Geometry{ 1, 16, 8, 256, 224, 32, 160, 64, 64 }, 17u );
+        expectLosslessMatchesBf16<Fp8RingOp, Bf16RingOp>( Geometry{ 2, 8, 2, 128, 224, 32, 160, 64, 64 }, 19u );
+    }
+
+    TEST_F( CudaGqaFp8CacheTests, Ring_GemmaSlidingGeometry_AsExactAsTheBf16Ring )
+    {
+        expectAsExactAsBf16<Fp8RingOp, Bf16RingOp>( Geometry{ 1, 16, 8, 256, 224, 32, 160, 64, 64 }, 17u );
+    }
+
+    TEST_F( CudaGqaFp8CacheTests, Ring_RequiredStateMemory_EqualsTheBuild )
+    {
+        Fp8RingOp op( context_.get(), GqaConfig( 16 * 256, 16, 8 ).withWindow( 64 ) );
+        const auto build = BuildContext( shape_t{ 1, 512, 32 * 256 }, RuntimeMode::Inference, false )
+            .withPrefillSize( 32 )
+            .withAllocationGranularity( allocationGranularity( Device::Cuda( 0 ) ) );
+
+        const std::size_t required = op.getRequiredStateMemorySize( build );
+        op.build( build );
+
+        EXPECT_EQ( op.getStateMemorySize(), required );
+        EXPECT_EQ( op.getCacheCapacity(), 64 + 32 - 1 );
     }
 
     // The footprint the planner reads is the build's: codes plus one scale per row.

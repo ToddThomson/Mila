@@ -121,16 +121,6 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             }
         };
 
-        struct Int4Codes
-        {
-            using Scale = __half;
-
-            __device__ static float weight( unsigned nibble, Scale scale )
-            {
-                return static_cast<float>( static_cast<int>( nibble ) - 8 ) * __half2float( scale );
-            }
-        };
-
         template<typename TCodes, typename TFunctor>
         __global__ void moe_gated_packed_kernel(
             const __nv_bfloat16* input, const uint8_t* gate_up, const typename TCodes::Scale* gate_up_scales,
@@ -350,26 +340,6 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             intermediate, experts, top_k, group_size, stream );
     }
 
-    template<typename TFunctor>
-    void launch_moe_gated_forward_int4(
-        const __nv_bfloat16* input, const uint8_t* gate_up, const __half* gate_up_scales, const int32_t* indices,
-        float* gated, int tokens, int hidden, int intermediate, int experts, int top_k, int group_size,
-        TFunctor functor, cudaStream_t stream )
-    {
-        launchGatedPacked<Int4Codes>( input, gate_up, gate_up_scales, indices, gated, tokens, hidden, intermediate,
-            experts, top_k, group_size, functor, stream );
-    }
-
-    void launch_moe_combine_forward_int4(
-        const float* gated, const uint8_t* down, const __half* down_scales, const __nv_bfloat16* weights,
-        const int32_t* indices, __nv_bfloat16* output,
-        int tokens, int hidden, int intermediate, int experts, int top_k, int group_size,
-        cudaStream_t stream )
-    {
-        launchCombinePacked<Int4Codes>( gated, down, down_scales, weights, indices, output, tokens, hidden,
-            intermediate, experts, top_k, group_size, stream );
-    }
-
 #define MILA_INSTANTIATE_MOE_GATED_PACKED( SUFFIX, SCALE, FUNCTOR ) \
     template void launch_moe_gated_forward_##SUFFIX<FUNCTOR>( \
         const __nv_bfloat16*, const uint8_t*, const SCALE*, const int32_t*, float*, int, int, int, int, int, int, \
@@ -377,8 +347,6 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
     MILA_INSTANTIATE_MOE_GATED_PACKED( fp4, float, Mila::Dnn::Activations::GeluTanh )
     MILA_INSTANTIATE_MOE_GATED_PACKED( fp4, float, Mila::Dnn::Activations::Silu )
-    MILA_INSTANTIATE_MOE_GATED_PACKED( int4, __half, Mila::Dnn::Activations::GeluTanh )
-    MILA_INSTANTIATE_MOE_GATED_PACKED( int4, __half, Mila::Dnn::Activations::Silu )
 
 #undef MILA_INSTANTIATE_MOE_GATED_PACKED
 

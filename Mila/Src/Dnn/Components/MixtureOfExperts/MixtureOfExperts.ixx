@@ -327,6 +327,8 @@ namespace Mila::Dnn
             if ( operation_ )
             {
                 stats.device_state_bytes += operation_->getStateMemorySize();
+                stats.device_scratch_bytes = occupiedDeviceBytes(
+                    operation_->getScratchBytes(), allocationGranularity( this->getDeviceId() ) );
             }
 
             return stats;
@@ -364,6 +366,7 @@ namespace Mila::Dnn
             if ( operation_ )
             {
                 stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+                stats.device_scratch_bytes = occupiedDeviceBytes( operation_->getRequiredScratchBytes( context ), granularity );
             }
 
             return stats;

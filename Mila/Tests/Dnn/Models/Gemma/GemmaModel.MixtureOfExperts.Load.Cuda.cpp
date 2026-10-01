@@ -10,8 +10,12 @@
 
 #include <gtest/gtest.h>
 #include <cuda_runtime.h>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+// C stdio rather than <fstream>: an input-stream header in a TU that does `import Mila;` leaves
+// std::basic_istream::sentry incomplete.
+#include <cstdio>
 #include <filesystem>
 #include <format>
 #include <iostream>
@@ -23,6 +27,8 @@
 #include "Common/CudaDeviceScope.h"
 
 import Mila;
+
+#include "Common/LogLikelihoodHarness.h"
 
 namespace Mila::Tests::Dnn::Models
 {
@@ -240,5 +246,173 @@ namespace Mila::Tests::Dnn::Models
     TEST_F( GemmaMixtureOfExpertsLoadCudaTests, Q4_0Load_FitsSection8AndMatchesHuggingFaceGreedy )
     {
         loadFitAndGenerate<Mila::Dnn::Quant::Weight::PerGroupInt4<32>>( WeightQuantization::Q4_0, "q4_0" );
+    }
+
+    // Diagnostic: the network's predicted footprint over context lengths and prefill chunks, allocating nothing,
+    // against the free memory the RTX 5060 Ti reported after a 26B load's context was created (15,904,800,768 bytes,
+    // the refusals of 2026-09-30). Differences along a row are the per-token terms; down a column, the per-chunk ones.
+    TEST_F( GemmaMixtureOfExpertsLoadCudaTests, DISABLED_Q4_0_PredictedFootprintByContextAndChunk )
+    {
+        using RoutedQ4_0 = GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupInt4<32>,
+            GemmaCudaBf16::GemmaSlidingKvPolicy, GemmaFeedForward::Routed>;
+        using RoutedQ4_0Fp8Global = GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupInt4<32>,
+            GemmaCudaBf16::GemmaSlidingKvPolicy, GemmaFeedForward::Routed, Mila::Dnn::Quant::KvCache::PerTokenKvFp8<>>;
+        using RoutedQ4_0Fp8 = GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupInt4<32>,
+            Mila::Dnn::Quant::KvCache::SlidingWindowKvFp8, GemmaFeedForward::Routed, Mila::Dnn::Quant::KvCache::PerTokenKvFp8<>>;
+
+        constexpr std::size_t kFreeBytes = 15'904'800'768;
+        constexpr double kMiB = 1024.0 * 1024.0;
+
+        Serialization::WeightsReader reader( weights_ );
+        GemmaConfig config = GemmaCudaBf16::configFromMetadata( reader.getWeightsMetadata() );
+        const DeviceId device{ DeviceType::Cuda, 0 };
+        const RoutedQ4_0 network( reader.getWeightsMetadata().model_name, config, device );
+
+        const auto print = [&]( const auto& priced, const char* caches )
+        {
+            for ( const dim_t chunk : { dim_t{ 1024 }, dim_t{ 128 } } )
+            {
+                for ( const dim_t context : { dim_t{ 8192 }, dim_t{ 16384 }, dim_t{ 32768 }, dim_t{ 65536 }, dim_t{ 98304 } } )
+                {
+                    const MemoryStats stats = priced.getRequiredMemory(
+                        BuildContext( shape_t{ 1, context }, RuntimeMode::Inference, false )
+                            .withAllocationGranularity( allocationGranularity( device ) )
+                            .withPrefillSize( chunk ) );
+                    const std::size_t total = stats.totalDeviceBytes();
+
+                    std::cout << std::format(
+                        "[footprint] {:<10} chunk {:>4} context {:>6}: parameters {:>8.1f} MiB  state {:>7.1f} MiB  "
+                        "scratch {:>5.1f} MiB  total {:>8.1f} MiB  {}\n",
+                        caches, chunk, context, stats.device_parameter_bytes / kMiB, stats.device_state_bytes / kMiB,
+                        stats.device_scratch_bytes / kMiB, total / kMiB,
+                        total <= kFreeBytes ? std::format( "fits, {:.0f} MiB spare", ( kFreeBytes - total ) / kMiB )
+                                            : std::format( "over by {:.0f} MiB", ( total - kFreeBytes ) / kMiB ) ) << std::flush;
+                }
+            }
+        };
+
+        print( network, "bf16" );
+        print( RoutedQ4_0Fp8Global( reader.getWeightsMetadata().model_name, config, device ), "fp8-global" );
+        print( RoutedQ4_0Fp8( reader.getWeightsMetadata().model_name, config, device ), "fp8" );
+
+        // Per child, with the context GemmaTransformer::requiredMemoryAtChunk gives a block, at a 1024-row chunk:
+        // what each costs at 8K and what 8K more tokens add.
+        const auto blockContext = [&]( dim_t context )
+        {
+            return BuildContext( shape_t{ 1, context }, RuntimeMode::Inference, false )
+                .withAllocationGranularity( allocationGranularity( device ) )
+                .forChild( shape_t{ 1, context, config.getModelDim() } )
+                .withPrefillSize( 1024 )
+                .withInstalledOutput( true )
+                .withFusedDecode( true );
+        };
+
+        std::size_t global_growth = 0;
+        std::size_t local_growth = 0;
+        std::size_t global_first = 0;
+        std::size_t local_first = 0;
+        int layer = 0;
+
+        for ( const auto& child : network.getComponents() )
+        {
+            if ( child->getName().find( ".tf_layer_" ) == std::string::npos )
+                continue;
+
+            const std::size_t at8k = child->getRequiredMemory( blockContext( 8192 ) ).device_state_bytes;
+            const std::size_t at16k = child->getRequiredMemory( blockContext( 16384 ) ).device_state_bytes;
+            const bool global = config.isGlobalLayer( static_cast<dim_t>( layer++ ) );
+
+            ( global ? global_growth : local_growth ) += at16k - at8k;
+            ( global ? global_first : local_first ) = ( global ? global_first : local_first ) == 0 ? at8k : ( global ? global_first : local_first );
+        }
+
+        std::cout << std::format(
+            "[footprint] one global block at 8K: state {:.1f} MiB; the global blocks add {:.0f} bytes a token\n"
+            "[footprint] one local block at 8K: state {:.1f} MiB; the local blocks add {:.0f} bytes a token\n",
+            global_first / kMiB, static_cast<double>( global_growth ) / 8192.0,
+            local_first / kMiB, static_cast<double>( local_growth ) / 8192.0 ) << std::flush;
+    }
+
+    // Diagnostic, G5b: the same wikitext segments scored through the planner's prefill chunk -- the grouped INT8
+    // prefill and Linear's INT8 GEMM -- and one row at a time, where every projection takes the BF16-activation
+    // matvec and the bank its gather decode. The two differ by what INT8 activations do, which raw wikitext cannot
+    // grade (ModelFamilyParity.md 8.2, G1); a broken prefill it does show. Printed, not gated.
+    TEST_F( GemmaMixtureOfExpertsLoadCudaTests, DISABLED_Q4_0_ChunkedPrefillAgainstOneRowAtATime_Wikitext )
+    {
+        using RoutedQ4_0 = GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupInt4<32>,
+            GemmaCudaBf16::GemmaSlidingKvPolicy, GemmaFeedForward::Routed>;
+
+        constexpr dim_t kSegmentLength = 2048;
+        constexpr int kSegments = 4;
+        constexpr std::int32_t kBos = 2;
+
+        const fs::path tokenizer = fs::path( TEST_DATA_DIR ) / "models" / "gemma" / "gemma_tokenizer.bin";
+        const fs::path corpus = fs::path( TEST_DATA_DIR ).parent_path() / "Mila" / "Tools" / "Quantization" / "corpus" / "wiki.test.raw";
+
+        if ( !fs::exists( tokenizer ) || !fs::exists( corpus ) )
+            GTEST_SKIP() << "Needs " << tokenizer.string() << " and " << corpus.string();
+
+        std::vector<std::int32_t> text;
+        {
+            std::FILE* file = std::fopen( corpus.string().c_str(), "rb" );
+            ASSERT_NE( file, nullptr );
+
+            // Raw wikitext runs past four characters a token; six over-reads.
+            std::string raw( static_cast<std::size_t>( kSegments * kSegmentLength ) * 6, '\0' );
+            raw.resize( std::fread( raw.data(), 1, raw.size(), file ) );
+            std::fclose( file );
+
+            text = Mila::Data::BpeTokenizer::loadGemma( tokenizer )->encode( raw );
+        }
+
+        ASSERT_GE( text.size(), static_cast<std::size_t>( kSegments * ( kSegmentLength - 1 ) ) );
+
+        GemmaConfig config = GemmaCudaBf16::configFromMetadata( Serialization::WeightsReader( weights_ ).getWeightsMetadata() );
+        config.withLogLikelihoodWindow( 1 );
+
+        const DeviceId device{ DeviceType::Cuda, 0 };
+
+        // Each segment is <bos> and 2047 text tokens from a cold cache, as G1 scores.
+        auto score = [&]( std::optional<dim_t> chunk_rows, const char* label )
+        {
+            Serialization::WeightsReader reader( weights_ );
+            auto network = std::make_unique<RoutedQ4_0>( reader.getWeightsMetadata().model_name, config, device );
+
+            const Mila::Deployment::DeviceReading reading = Mila::Deployment::DeviceReading::take( device );
+            const BuildContext context = BuildContext( shape_t{ 1, kSegmentLength }, RuntimeMode::Inference, false )
+                .withAllocationGranularity( reading.allocation_granularity );
+            const dim_t rows = chunk_rows.value_or(
+                Mila::Deployment::choosePrefillChunk( *network, context, reading.free_bytes ).chunk_rows );
+
+            network->build( context.withPrefillSize( rows ) );
+            network->loadParameters( reader );
+
+            double total = 0.0;
+            dim_t positions = 0;
+
+            for ( int segment = 0; segment < kSegments; ++segment )
+            {
+                std::vector<std::int32_t> tokens{ kBos };
+                const auto first = text.begin() + static_cast<std::ptrdiff_t>( segment ) * ( kSegmentLength - 1 );
+                tokens.insert( tokens.end(), first, first + ( kSegmentLength - 1 ) );
+
+                const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( *network, tokens );
+                total += scored.total_log_probability;
+                positions += scored.scored_positions;
+            }
+
+            const double mean_nats = -total / static_cast<double>( positions );
+
+            std::cout << std::format( "[q4_0 {}] prefill chunk {}: {} positions, mean {:.5f} nats, perplexity {:.3f}\n",
+                label, rows, positions, mean_nats, std::exp( mean_nats ) ) << std::flush;
+
+            return mean_nats;
+        };
+
+        const double chunked = score( std::nullopt, "chunked" );
+        const double one_row = score( dim_t{ 1 }, "one row" );
+
+        std::cout << std::format( "[q4_0] chunked against one row at a time: {:+.5f} nats ({:+.3f}%)\n",
+            chunked - one_row, 100.0 * ( chunked - one_row ) / one_row ) << std::flush;
     }
 }

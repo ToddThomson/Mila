@@ -9,7 +9,7 @@
  *
  * Migration status:
  *   LinearOp                 complete
- *   GroupedQueryAttentionOp  complete (NoKvCompression, SlidingWindowKvCache, PerTokenKvFp8)
+ *   GroupedQueryAttentionOp  complete (NoKvCompression, SlidingWindowKvCache, PerTokenKvFp8, SlidingWindowKvFp8)
  *   SamplingOp               pending
  *   policy-free ops          complete
  */
@@ -40,6 +40,7 @@ import Compute.CudaMoeOp;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Quantization.KvCache.PerTokenKvFp8;
+import Dnn.Quantization.KvCache.SlidingWindowKvFp8;
 
 namespace Mila::Dnn::Compute
 {
@@ -135,6 +136,7 @@ namespace Mila::Dnn::Compute
     // TPolicy = SlidingWindowKvCache: uncompressed bounded ring cache for sliding
     //                                 layers (CudaGqaOp kBounded axis, SlidingWindowKvCache.md).
     // TPolicy = PerTokenKvFp8<>:      FP8 cache, BF16 full-context layers only (CudaGqaOp kFp8Cache axis).
+    // TPolicy = SlidingWindowKvFp8:   both axes -- the bounded ring of FP8 codes, BF16 sliding layers.
     // -------------------------------------------------------------------------
 
     /// Unquantized FP32 path. Full-context KV cache.
@@ -170,6 +172,13 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, SlidingWindowKvCache>
     {
         using type = CudaGqaOp<TensorDataType::BF16, true>;
+    };
+
+    /// Bounded sliding-window ring of FP8 codes, one scale per KV head per token. BF16, sliding layers, fused kernels.
+    template<>
+    struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, SlidingWindowKvFp8>
+    {
+        using type = CudaGqaOp<TensorDataType::BF16, true, true>;
     };
 
     // -------------------------------------------------------------------------

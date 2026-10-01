@@ -1,8 +1,7 @@
-// Mixture-of-experts selection: router logits to top-k experts and combine weights. One thread per
-// row with nothing shared -- see Router.cuh.
+// Mixture-of-experts selection: router logits to top-k experts and combine weights. One warp per
+// row -- see Router.cuh.
 
 #include <cmath>
-#include <cfloat>
 #include <cstdint>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
@@ -14,93 +13,108 @@ namespace Mila::Dnn::Compute::Cuda::Routing
 {
     namespace
     {
+        constexpr int kWarpsPerBlock = 8;
+
         __device__ inline float to_float( float value ) { return value; }
         __device__ inline float to_float( __nv_bfloat16 value ) { return __bfloat162float( value ); }
 
         __device__ inline void store( float* destination, float value ) { *destination = value; }
         __device__ inline void store( __nv_bfloat16* destination, float value ) { *destination = __float2bfloat16( value ); }
 
+        // The greater logit, and on a tie the lower index, as the CPU op orders them. NaN never wins.
+        __device__ inline bool ranksAbove( float value, int expert, float other_value, int other_expert )
+        {
+            return value > other_value || ( value == other_value && expert < other_expert );
+        }
+
         template <typename TNative>
-        __global__ void router_select_kernel(
+        __global__ void __launch_bounds__( 32 * kWarpsPerBlock ) router_select_kernel(
             const TNative* logits, const TNative* per_expert_scale,
             TNative* weights, int32_t* indices,
             int rows, int experts, int top_k )
         {
-            const int row = blockIdx.x * blockDim.x + threadIdx.x;
+            const int row = blockIdx.x * kWarpsPerBlock + threadIdx.y;
+            const int lane = threadIdx.x;
 
             if ( row >= rows )
             {
                 return;
             }
 
-            const TNative* row_logits = logits + row * experts;
+            const TNative* row_logits = logits + static_cast<int64_t>( row ) * experts;
 
-            float max_logit = -FLT_MAX;
-
-            for ( int expert = 0; expert < experts; ++expert )
-            {
-                const float value = to_float( row_logits[ expert ] );
-
-                if ( value > max_logit )
-                {
-                    max_logit = value;
-                }
-            }
-
-            double total = 0.0;
-
-            for ( int expert = 0; expert < experts; ++expert )
-            {
-                total += exp( static_cast<double>( to_float( row_logits[ expert ] ) ) - max_logit );
-            }
-
-            // Descending by logit. Scanning experts in ascending order and displacing only on a
-            // strictly greater logit keeps the lower index ahead on a tie, as the CPU op does.
-            float selected_logit[ kMaximumTopK ];
+            // Every lane holds the whole selection; lane s keeps slot s's logit for the weights below.
             int selected_expert[ kMaximumTopK ];
-            int count = 0;
-
-            for ( int expert = 0; expert < experts; ++expert )
-            {
-                const float value = to_float( row_logits[ expert ] );
-
-                if ( count == top_k && !( value > selected_logit[ top_k - 1 ] ) )
-                {
-                    continue;
-                }
-
-                int position = count < top_k ? count : top_k - 1;
-
-                while ( position > 0 && value > selected_logit[ position - 1 ] )
-                {
-                    selected_logit[ position ] = selected_logit[ position - 1 ];
-                    selected_expert[ position ] = selected_expert[ position - 1 ];
-                    --position;
-                }
-
-                selected_logit[ position ] = value;
-                selected_expert[ position ] = expert;
-
-                if ( count < top_k )
-                {
-                    ++count;
-                }
-            }
-
-            float selected_mass = 0.0f;
+            float lane_logit = 0.0f;
 
             for ( int slot = 0; slot < top_k; ++slot )
             {
-                selected_mass += static_cast<float>( exp( static_cast<double>( selected_logit[ slot ] ) - max_logit ) / total );
+                float best_value = -INFINITY;
+                int best_expert = experts;
+
+                for ( int expert = lane; expert < experts; expert += 32 )
+                {
+                    bool taken = false;
+
+                    for ( int previous = 0; previous < slot; ++previous )
+                    {
+                        taken |= selected_expert[ previous ] == expert;
+                    }
+
+                    const float value = to_float( row_logits[ expert ] );
+
+                    if ( !taken && ranksAbove( value, expert, best_value, best_expert ) )
+                    {
+                        best_value = value;
+                        best_expert = expert;
+                    }
+                }
+
+#pragma unroll
+                for ( int offset = 16; offset > 0; offset >>= 1 )
+                {
+                    const float other_value = __shfl_xor_sync( 0xffffffff, best_value, offset );
+                    const int other_expert = __shfl_xor_sync( 0xffffffff, best_expert, offset );
+
+                    if ( ranksAbove( other_value, other_expert, best_value, best_expert ) )
+                    {
+                        best_value = other_value;
+                        best_expert = other_expert;
+                    }
+                }
+
+                selected_expert[ slot ] = best_expert;
+
+                if ( lane == slot )
+                {
+                    lane_logit = best_value;
+                }
             }
 
-            for ( int slot = 0; slot < top_k; ++slot )
-            {
-                const int expert = selected_expert[ slot ];
-                const float probability = static_cast<float>( exp( static_cast<double>( selected_logit[ slot ] ) - max_logit ) / total );
+            // Slot 0 holds the largest logit; subtracting it keeps every exponential at most one.
+            const float max_logit = __shfl_sync( 0xffffffff, lane_logit, 0 );
+            const double exponential = lane < top_k ? exp( static_cast<double>( lane_logit ) - max_logit ) : 0.0;
+            double selected_mass = exponential;
 
-                store( weights + row * top_k + slot, probability / selected_mass * to_float( per_expert_scale[ expert ] ) );
-                indices[ row * top_k + slot ] = expert;
+#pragma unroll
+            for ( int offset = 16; offset > 0; offset >>= 1 )
+            {
+                selected_mass += __shfl_xor_sync( 0xffffffff, selected_mass, offset );
+            }
+
+            if ( lane < top_k )
+            {
+                int expert = experts;
+
+                for ( int slot = 0; slot < top_k; ++slot )
+                {
+                    expert = slot == lane ? selected_expert[ slot ] : expert;
+                }
+
+                const float scale = expert < experts ? to_float( per_expert_scale[ expert ] ) : NAN;
+
+                store( weights + static_cast<int64_t>( row ) * top_k + lane, static_cast<float>( exponential / selected_mass ) * scale );
+                indices[ static_cast<int64_t>( row ) * top_k + lane ] = expert;
             }
         }
 
@@ -110,10 +124,15 @@ namespace Mila::Dnn::Compute::Cuda::Routing
             TNative* weights, int32_t* indices,
             int rows, int experts, int top_k, cudaStream_t stream )
         {
-            constexpr int block_size = 256;
-            const int grid_size = ceil_div( rows, block_size );
+            if ( rows == 0 )
+            {
+                return;
+            }
 
-            router_select_kernel<TNative><<<grid_size, block_size, 0, stream>>>(
+            const dim3 block( 32, kWarpsPerBlock );
+            const int grid_size = ceil_div( rows, kWarpsPerBlock );
+
+            router_select_kernel<TNative><<<grid_size, block, 0, stream>>>(
                 logits, per_expert_scale, weights, indices, rows, experts, top_k );
 
             cudaCheck( cudaGetLastError() );

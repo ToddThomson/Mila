@@ -16,9 +16,10 @@ namespace Mila::Dnn::Compute::Cuda::Routing
      * expert index), renormalize those to sum to one, multiply each by per_expert_scale[expert].
      * Writes top_k weights and INT32 expert indices per row, in descending-logit order.
      *
-     * PARALLELISM. One thread per row, and nothing shared: a row's 128 logits and its top_k
-     * candidates stay in registers, so the kernel has no thread sync and no control-flow
-     * uniformity to keep. Probabilities are accumulated in double, as the CPU reference does.
+     * PARALLELISM. One warp per row: each of top_k rounds takes every lane's best unselected logit
+     * and reduces them across the warp. The softmax denominator cancels in the renormalization, so
+     * only the selected experts' exponentials are taken, in double, one per lane. A row with fewer
+     * than top_k comparable logits (NaN) selects index `experts`, which the expert bank poisons.
      */
     void cuda_router_select_fp32(
         const float* logits,

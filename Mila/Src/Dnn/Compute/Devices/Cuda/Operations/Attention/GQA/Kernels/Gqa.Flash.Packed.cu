@@ -165,22 +165,26 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             }
         }
 
-        // One key tile of FP8 K and V codes and their row scales into a staging stage, unpadded. Keys past the cache
-        // clamp to its last row, as load_kv_tile does.
+        // One key tile of FP8 K and V codes and their row scales into a staging stage, unpadded. Rows are found as
+        // load_kv_tile finds them, clamped or wrapped into the ring.
         template<int kHeadSize, int kKeys>
         __device__ __forceinline__ void load_kv_tile_fp8(
             uint8_t* k_codes, uint8_t* v_codes, float* k_scale_stage, float* v_scale_stage,
             const uint8_t* K, const uint8_t* V, const float* k_scales, const float* v_scales,
-            std::size_t kv_base, std::size_t scale_base, int tile_start, int cache_capacity, int tid )
+            std::size_t kv_base, std::size_t scale_base, int tile_start, int cache_capacity, bool ring, int tid )
         {
             constexpr int kChunksPerRow = kHeadSize / 16;
+
+            const auto rowOf = [&]( int position )
+            {
+                return ring ? position % cache_capacity : ( position < cache_capacity ? position : cache_capacity - 1 );
+            };
 
             for ( int chunk = tid; chunk < kKeys * kChunksPerRow; chunk += kWarps * 32 )
             {
                 const int key = chunk / kChunksPerRow;
                 const int column = ( chunk % kChunksPerRow ) * 16;
-                const int position = tile_start + key;
-                const int row = position < cache_capacity ? position : cache_capacity - 1;
+                const int row = rowOf( tile_start + key );
                 const std::size_t source = kv_base + static_cast<std::size_t>( row ) * kHeadSize + column;
 
                 __pipeline_memcpy_async( k_codes + key * kHeadSize + column, K + source, 16 );
@@ -189,8 +193,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             for ( int key = tid; key < kKeys; key += kWarps * 32 )
             {
-                const int position = tile_start + key;
-                const int row = position < cache_capacity ? position : cache_capacity - 1;
+                const int row = rowOf( tile_start + key );
 
                 __pipeline_memcpy_async( k_scale_stage + key, k_scales + scale_base + row, 4 );
                 __pipeline_memcpy_async( v_scale_stage + key, v_scales + scale_base + row, 4 );
@@ -291,7 +294,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     s_k_scale + stage * Geometry::kKeys, s_v_scale + stage * Geometry::kKeys,
                     static_cast<const uint8_t*>( K_raw ), static_cast<const uint8_t*>( V_raw ), k_scales, v_scales,
                     kv_base, scale_base,
-                    tile * Geometry::kKeys, cache_capacity, threadIdx.x );
+                    tile * Geometry::kKeys, cache_capacity, ring, threadIdx.x );
             }
             else
             {
@@ -742,5 +745,20 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
         flashPrefill<true>( "cuda_gqa_flash_prefill_fp8", Q, K, V, k_scales, v_scales, Y,
             B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, false, stream );
+    }
+
+    void cuda_gqa_flash_prefill_ring_fp8(
+        const __nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
+        const float* k_scales, const float* v_scales,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+        int position_offset, int window, float scale,
+        cudaStream_t stream )
+    {
+        if ( window <= 0 )
+            throw std::runtime_error( "cuda_gqa_flash_prefill_ring_fp8: a bounded ring requires a positive window" );
+
+        flashPrefill<true>( "cuda_gqa_flash_prefill_ring_fp8", Q, K, V, k_scales, v_scales, Y,
+            B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, true, stream );
     }
 }

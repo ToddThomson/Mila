@@ -3,8 +3,8 @@
 Every row runs prefill at 512, 2K, 8K and 32K tokens and generation of 128 tokens at context
 depth 0, 8K and 32K, in both engines, pinned to one GPU by UUID. Mila runs through ProfileModel
 (generate(), the entry a consumer calls); llama.cpp runs llama-bench with flash attention, every
-layer on the GPU and an FP16 KV cache. Each cell is the mean of --runs measured runs after one
-warmup in both engines.
+layer on the GPU and an FP16 KV cache, at each of LLAMA_CPP_UBATCHES, keeping the fastest. Each
+cell is the mean of --runs measured runs after one warmup in both engines.
 
 Results are written to the JSON file after every cell, so --resume continues an interrupted run.
 A cell that fails (weights missing, a deployment Mila refuses, a GGUF llama.cpp cannot load) is
@@ -30,6 +30,10 @@ PREFILL_LENGTHS = [512, 2048, 8192, 32768]
 GENERATION_DEPTHS = [0, 8192, 32768]
 GENERATED_TOKENS = 128
 
+# llama-bench runs every test at each micro-batch and a cell keeps the fastest. Its default is 512; on the
+# Gemma 4 26B-A4B 1024 prefilled 17% faster at 2K and 8K, and 2048 fell to a quarter (Gemma4MoE.md).
+LLAMA_CPP_UBATCHES = [512, 1024]
+
 # One row per published model and Mila format. A GGUF is a path under Data/Models or a
 # (repository, file) pair in the Hugging Face cache; None means no llama.cpp counterpart yet.
 # head_to_head marks rows where both engines run the same weights in the same format.
@@ -46,17 +50,16 @@ ROWS = [
         "head_to_head": True,
     },
     {
-        # Google's quantization-aware weights quantized on load to FP4 until the model's Q4_0 expert bank
-        # lands; then q4_0, head to head.
-        "key": "gemma-4-26b-a4b-fp4",
+        # Quantized on load from Google's unquantized QAT checkpoint: every Q4_0 tensor equals the GGUF's.
+        "key": "gemma-4-26b-a4b-q4_0",
         "model": "Gemma 4 26B-A4B Instruct",
         "family": "gemma",
-        "mila_quantization": "fp4",
+        "mila_quantization": "q4_0",
         "mila_weights": "Gemma/gemma4_26b_a4b_it_qat_bf16.bin",
-        "mila_format": "FP4",
+        "mila_format": "Q4_0 (QAT)",
         "gguf": ("google/gemma-4-26B-A4B-it-qat-q4_0-gguf", "gemma-4-26B_q4_0-it.gguf"),
         "llama_cpp_format": "Q4_0 (QAT)",
-        "head_to_head": False,
+        "head_to_head": True,
     },
     {
         "key": "llama-3.1-8b-q4_0",
@@ -256,7 +259,7 @@ def llama_bench(arguments, gguf, test_arguments, environment):
     """llama-bench's JSON records for one invocation, or {'error': ...}."""
     command = [
         arguments.llama_bench, "-m", str(gguf), "-ngl", "99", "-fa", "on", "-ctk", "f16", "-ctv", "f16",
-        "-r", str(arguments.runs), "-o", "json", *test_arguments,
+        "-ub", ",".join(map(str, LLAMA_CPP_UBATCHES)), "-r", str(arguments.runs), "-o", "json", *test_arguments,
     ]
     stdout, error = run(command, environment, arguments.timeout)
 
@@ -285,15 +288,18 @@ def llama_cpp_cells(arguments, gguf, environment):
                 continue
 
             if kind == "prefill":
-                record = next((r for r in result["records"] if r["n_prompt"] == value and r["n_gen"] == 0), None)
+                records = [r for r in result["records"] if r["n_prompt"] == value and r["n_gen"] == 0]
             else:
-                record = next((r for r in result["records"]
-                               if r["n_prompt"] == 0 and r["n_gen"] == GENERATED_TOKENS and r["n_depth"] == value), None)
+                records = [r for r in result["records"]
+                           if r["n_prompt"] == 0 and r["n_gen"] == GENERATED_TOKENS and r["n_depth"] == value]
 
-            if record is None:
+            if not records:
                 cells[cell] = {"error": "llama-bench reported no such test", "command": result["command"]}
             else:
-                cells[cell] = {**summary(record["samples_ts"]), "command": result["command"]}
+                # The competitor at its best: the micro-batch that ran this cell fastest.
+                record = max(records, key=lambda r: statistics.fmean(r["samples_ts"]))
+                cells[cell] = {**summary(record["samples_ts"]), "n_ubatch": record["n_ubatch"],
+                               "command": result["command"]}
 
     return cells
 

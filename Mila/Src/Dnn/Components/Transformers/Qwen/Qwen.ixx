@@ -517,7 +517,7 @@ namespace Mila::Dnn
             MemoryStats stats;
 
             stats += this->template getComponentAs<TokenEmbeddingType>( n + ".temb" )
-                ->getRequiredMemory( context );
+                ->getRequiredMemory( embeddingContext( context, prefill_chunk ) );
 
             for ( dim_t i = 0; i < config_.getNumLayers(); ++i )
             {
@@ -658,7 +658,7 @@ namespace Mila::Dnn
                 final_shape, context.getRuntimeMode(), context.shouldInitializeParameters() );
 
             token_embedding_ = this->template getComponentAs<TokenEmbeddingType>( this->getName() + ".temb" );
-            token_embedding_->build( context );
+            token_embedding_->build( embeddingContext( context, prefill_chunk_size_ ) );
 
             if ( context.isInferenceMode() )
             {
@@ -856,12 +856,12 @@ namespace Mila::Dnn
          *
          * Every layer here is unbounded, so unlike Gemma there is no window-bounded residue
          * to keep the buffer alive for: with flash on, nothing reads it, and the chunk-scaled
-         * O(chunk x T_ctx) term disappears from the row cost entirely. It is kept at one row
-         * rather than zero so the allocation stays a valid tensor.
+         * O(chunk x T_ctx) term disappears from the row cost entirely: zero, no buffer
+         * (makeGqaWorkspace).
          */
         dim_t prefillScoreWidth( dim_t T_ctx ) const
         {
-            return usesFlashPrefill() ? dim_t{ 1 } : T_ctx;
+            return usesFlashPrefill() ? dim_t{ 0 } : T_ctx;
         }
 
         // Max slot widths, shared by the workspace allocation and its footprint so the two
@@ -956,6 +956,20 @@ namespace Mila::Dnn
         dim_t resolveLogLikelihoodWindow( dim_t prefill_chunk ) const
         {
             return std::min<dim_t>( config_.getLogLikelihoodWindow(), prefill_chunk );
+        }
+
+        /**
+         * @brief The context the token embedding is built and priced at: in inference, one prefill chunk wide,
+         *        since every inference pass embeds at most a chunk at a time.
+         */
+        static BuildContext embeddingContext( const BuildContext& context, int64_t prefill_chunk )
+        {
+            if ( !context.isInferenceMode() )
+                return context;
+
+            const auto& input_shape = context.inputShape();
+
+            return context.forChild( shape_t{ input_shape[ 0 ], std::min<int64_t>( input_shape[ 1 ], prefill_chunk ) } );
         }
 
         void allocateBlockWorkspace( dim_t B )

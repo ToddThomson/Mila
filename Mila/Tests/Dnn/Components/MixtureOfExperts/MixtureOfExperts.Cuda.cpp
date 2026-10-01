@@ -26,6 +26,7 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 import Mila;
@@ -997,9 +998,11 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
         }
     }
 
-    // Item 2: on weights Q4_0 represents exactly, the bank is the BF16 bank bit for bit, built for prefill and for
-    // one token (Phase 7's two cases).
-    TEST_F( MixtureOfExpertsCudaTests, Q4_0_ExactWeightsBitIdenticalToBf16Bank )
+    // Item 2, as G5b changed it: the gather decode sums in another order than the BF16 bank and the grouped prefill
+    // quantizes its activations to INT8, so both are gated against their own references below. Here one token at a
+    // time must be bit-identical between a bank built for prefill and one built for one token (Phase 7's two
+    // cases); each path's distance from the BF16 bank on exact weights is printed.
+    TEST_F( MixtureOfExpertsCudaTests, Q4_0_ExactWeights_OneTokenBitIdenticalAcrossBuilds )
     {
         const PackedCase weights_case = q4Case();
 
@@ -1019,16 +1022,22 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
         const auto nonzero = std::count_if( expected.begin(), expected.end(), []( float value ) { return value != 0.0f; } );
 
         EXPECT_GT( nonzero, 0 ) << "the BF16 bank produced all zeros; the comparison proves nothing";
-        EXPECT_EQ( countBitMismatches( prefill, expected ), 0 ) << "prefill, of " << expected.size();
-        EXPECT_EQ( countBitMismatches( decoded, expected ), 0 ) << "one token at a time, built for prefill, of " << expected.size();
-        EXPECT_EQ( countBitMismatches( single_token_decoded, expected ), 0 )
-            << "one token at a time, built for one token, of " << expected.size();
+        EXPECT_EQ( countBitMismatches( single_token_decoded, decoded ), 0 )
+            << "one token at a time, built for one token against built for prefill, of " << expected.size();
+
+        double prefill_worst = 0.0;
+
+        for ( std::size_t i = 0; i < expected.size(); ++i )
+        {
+            prefill_worst = std::max( prefill_worst,
+                std::fabs( static_cast<double>( prefill[ i ] ) - expected[ i ] ) / ( std::fabs( expected[ i ] ) + 1e-3 ) );
+        }
 
         std::cout << std::format(
-            "[ q4_0 ] {} of {} prefill, {} one-token (built for prefill) and {} one-token (built for one token) elements "
-            "differ from the BF16 bank\n",
-            countBitMismatches( prefill, expected ), expected.size(), countBitMismatches( decoded, expected ),
-            countBitMismatches( single_token_decoded, expected ) );
+            "[ q4_0 ] one token at a time: {} of {} differ between the two builds, {} from the BF16 bank; prefill "
+            "(INT8 activations): {} differ, worst relative {:.3e} (not gated)\n",
+            countBitMismatches( single_token_decoded, decoded ), expected.size(), countBitMismatches( decoded, expected ),
+            countBitMismatches( prefill, expected ), prefill_worst );
     }
 
     // Item 3.
@@ -1094,6 +1103,8 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
         EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes ) << "parameters";
         EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes ) << "state";
         EXPECT_EQ( predicted.device_inactive_parameter_bytes, actual.device_inactive_parameter_bytes ) << "inactive parameters";
+        EXPECT_EQ( predicted.device_scratch_bytes, actual.device_scratch_bytes ) << "scratch";
+        EXPECT_GT( actual.device_scratch_bytes, std::size_t{ 0 } ) << "three tokens prefill through the grouped path";
 
         // Packed gate_up 16x128x64 and its FP16 scales 16x128x4 x2; packed down 16x128x32 and its scales 16x128x2 x2.
         EXPECT_EQ( actual.device_parameter_bytes, std::size_t{ 131072 + 16384 + 65536 + 8192 } );
@@ -1114,5 +1125,627 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
             "experts", MixtureOfExpertsConfig( kPackedHidden, 48, kPackedExperts, kPackedTopK ), Device::Cuda( 0 ) );
 
         EXPECT_THROW( experts.build( BuildContext( shape_t{ 4, kPackedHidden }, RuntimeMode::Inference, false ) ), std::invalid_argument );
+    }
+
+    // ====================================================================
+    // Q4_0 gather decode (Gemma4MoE.md Phase 9, "G5b, against G5's kernel", written before the first run)
+    // ====================================================================
+
+    namespace
+    {
+        // |ref| x 2^-8 for the BF16 output store, plus FP32 accumulation in any order.
+        constexpr double kGatherOutputRelative = 1.0 / 256.0;
+        constexpr double kGatherAccumulation = 1e-5;
+        constexpr double kGatherAbsolute = 1e-7;
+
+        // The largest slope of tanh-approximated GELU, about 1.129: carries the gate's accumulation error through
+        // the activation into the gated product.
+        constexpr double kGeluSlopeBound = 1.13;
+
+        // FP16 bits of a value FP16 represents as a normal number.
+        std::uint16_t halfBits( float value )
+        {
+            const std::uint32_t bits = std::bit_cast<std::uint32_t>( value );
+            const std::uint32_t sign = ( bits >> 16 ) & 0x8000u;
+            const int exponent = static_cast<int>( ( bits >> 23 ) & 0xFFu ) - 127 + 15;
+
+            if ( exponent <= 0 || exponent >= 31 || ( bits & 0x1FFFu ) != 0 )
+            {
+                throw std::invalid_argument( "halfBits: not an FP16 normal" );
+            }
+
+            return static_cast<std::uint16_t>( sign | ( static_cast<std::uint32_t>( exponent ) << 10 ) | ( ( bits >> 13 ) & 0x3FFu ) );
+        }
+
+        float halfValue( std::uint16_t bits )
+        {
+            const std::uint32_t sign = static_cast<std::uint32_t>( bits & 0x8000u ) << 16;
+            const std::uint32_t exponent = ( ( bits >> 10 ) & 0x1Fu ) - 15 + 127;
+
+            return std::bit_cast<float>( sign | ( exponent << 23 ) | ( static_cast<std::uint32_t>( bits & 0x3FFu ) << 13 ) );
+        }
+
+        float bf16Truncated( float value )
+        {
+            return std::bit_cast<float>( std::bit_cast<std::uint32_t>( value ) & 0xFFFF0000u );
+        }
+
+        // Random codes and scales for one stacked projection, as the bank stores them.
+        struct Q4Projection
+        {
+            std::vector<std::uint8_t> codes;
+            std::vector<std::uint16_t> scales;
+            int64_t columns;
+
+            // ( code - 8 ) x d; with swapped set, the nibble order a wrong decoder would read.
+            double weight( int64_t row, int64_t column, bool swapped = false ) const
+            {
+                const std::uint8_t byte = codes[ static_cast<std::size_t>( ( row * columns + column ) / 2 ) ];
+                const bool high = ( ( column & 1 ) != 0 ) != swapped;
+                const int code = high ? ( byte >> 4 ) : ( byte & 0xF );
+
+                return static_cast<double>( code - 8 ) * halfValue( scales[ static_cast<std::size_t>( ( row * columns + column ) / 32 ) ] );
+            }
+        };
+
+        Q4Projection randomQ4Projection( int64_t rows, int64_t columns, std::uint32_t seed )
+        {
+            Q4Projection projection{ std::vector<std::uint8_t>( static_cast<std::size_t>( rows * columns / 2 ) ),
+                std::vector<std::uint16_t>( static_cast<std::size_t>( rows * columns / 32 ) ), columns };
+            std::mt19937 generator( seed );
+
+            for ( auto& byte : projection.codes )
+            {
+                byte = static_cast<std::uint8_t>( generator() & 0xFFu );
+            }
+
+            // Scales of both signs across a few binades, as absmax / -8 gives them.
+            std::uniform_int_distribution<int> mantissa( 1024, 2047 );
+            std::uniform_int_distribution<int> binade( -12, -7 );
+
+            for ( auto& scale : projection.scales )
+            {
+                const float magnitude = std::ldexp( static_cast<float>( mantissa( generator ) ), binade( generator ) - 10 );
+
+                scale = halfBits( ( generator() & 1u ) ? -magnitude : magnitude );
+            }
+
+            return projection;
+        }
+    }
+
+    // Each gather pass against a host reference of the exact weights the codes represent, at the 26B's shapes. The
+    // gated pass is read from an installed slot, so the combine is checked on the gated values it actually read.
+    TEST_F( MixtureOfExpertsCudaTests, Q4_0_GatherDecodeMatchesExactReference )
+    {
+        using Bank = CudaExperts<TensorDataType::BF16, Q4_0>;
+        using OutputTensor = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+        using GatedTensor = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>;
+
+        constexpr int64_t kHidden = 2816;
+        constexpr int64_t kIntermediate = 704;
+        constexpr int64_t kExperts = 128;
+        constexpr int64_t kTopK = 8;
+
+        const Q4Projection gate_up = randomQ4Projection( kExperts * 2 * kIntermediate, kHidden, 20261001u );
+        const Q4Projection down = randomQ4Projection( kExperts * kHidden, kIntermediate, 20261002u );
+
+        std::vector<float> input = synthetic( kHidden, 31, 1.0f );
+        std::vector<float> combine = synthetic( kTopK, 32, 0.5f );
+
+        for ( float& value : input )
+        {
+            value = bf16Truncated( value );
+        }
+
+        for ( float& value : combine )
+        {
+            value = bf16Truncated( std::fabs( value ) );
+        }
+
+        const std::int32_t selections[ kTopK ] = { 3, 17, 42, 64, 90, 101, 127, 0 };
+
+        auto gated_slot = std::make_shared<GatedTensor>( Device::Cuda( 0 ), shape_t{ kTopK * kIntermediate } );
+
+        Bank bank( "experts", MixtureOfExpertsConfig( kHidden, kIntermediate, kExperts, kTopK ), Device::Cuda( 0 ) );
+        bank.installSharedOutputs( std::make_shared<OutputTensor>( Device::Cuda( 0 ), shape_t{ 1, 1, kHidden } ), gated_slot );
+        bank.build( BuildContext( shape_t{ 1, 1, kHidden }, RuntimeMode::Inference, false ) );
+
+        const std::vector<ITensor*> stored = bank.getParameters();
+        ASSERT_EQ( stored.size(), 4u );
+
+        const std::pair<const void*, std::size_t> uploads[] = {
+            { gate_up.codes.data(), gate_up.codes.size() },
+            { gate_up.scales.data(), gate_up.scales.size() * sizeof( std::uint16_t ) },
+            { down.codes.data(), down.codes.size() },
+            { down.scales.data(), down.scales.size() * sizeof( std::uint16_t ) },
+        };
+
+        for ( std::size_t index = 0; index < 4; ++index )
+        {
+            ASSERT_EQ( stored[ index ]->getStorageSize(), uploads[ index ].second ) << "parameter " << index;
+            ASSERT_EQ( cudaMemcpy( stored[ index ]->rawData(), uploads[ index ].first, uploads[ index ].second,
+                cudaMemcpyHostToDevice ), cudaSuccess );
+        }
+
+        const std::vector<float> output = run( bank, input.data(), combine.data(), selections,
+            shape_t{ 1, 1, kHidden }, shape_t{ 1, 1, kTopK } );
+
+        auto host_gated = toHost<TensorDataType::FP32>( *gated_slot, context_.get() );
+        context_->synchronize();
+        const std::vector<float> gated( host_gated.data(), host_gated.data() + host_gated.size() );
+
+        // Out-of-tolerance counts for the decoder's nibble order and for the swapped one, which must fail.
+        auto checkGated = [&]( bool swapped, double& worst_ratio )
+        {
+            int64_t failures = 0;
+            worst_ratio = 0.0;
+
+            for ( int64_t slot = 0; slot < kTopK; ++slot )
+            {
+                for ( int64_t unit = 0; unit < kIntermediate; ++unit )
+                {
+                    const int64_t gate_row = selections[ slot ] * 2 * kIntermediate + unit;
+                    const int64_t up_row = gate_row + kIntermediate;
+
+                    double gate = 0.0;
+                    double up = 0.0;
+                    double gate_magnitude = 0.0;
+                    double up_magnitude = 0.0;
+
+                    for ( int64_t column = 0; column < kHidden; ++column )
+                    {
+                        const double x = input[ static_cast<std::size_t>( column ) ];
+                        const double gate_product = gate_up.weight( gate_row, column, swapped ) * x;
+                        const double up_product = gate_up.weight( up_row, column, swapped ) * x;
+
+                        gate += gate_product;
+                        up += up_product;
+                        gate_magnitude += std::fabs( gate_product );
+                        up_magnitude += std::fabs( up_product );
+                    }
+
+                    const double expected = geluTanh( gate ) * up;
+                    const double tolerance = ( kGeluSlopeBound * gate_magnitude * std::fabs( up )
+                        + std::fabs( geluTanh( gate ) ) * up_magnitude ) * kGatherAccumulation + kGatherAbsolute;
+                    const double error = std::fabs( gated[ static_cast<std::size_t>( slot * kIntermediate + unit ) ] - expected );
+
+                    worst_ratio = std::max( worst_ratio, error / tolerance );
+                    failures += error > tolerance;
+                }
+            }
+
+            return failures;
+        };
+
+        auto checkOutput = [&]( bool swapped, double& worst_ratio )
+        {
+            int64_t failures = 0;
+            worst_ratio = 0.0;
+
+            for ( int64_t column = 0; column < kHidden; ++column )
+            {
+                double expected = 0.0;
+                double magnitude = 0.0;
+
+                for ( int64_t slot = 0; slot < kTopK; ++slot )
+                {
+                    const int64_t row = selections[ slot ] * kHidden + column;
+
+                    for ( int64_t unit = 0; unit < kIntermediate; ++unit )
+                    {
+                        const double product = combine[ static_cast<std::size_t>( slot ) ] * down.weight( row, unit, swapped )
+                            * gated[ static_cast<std::size_t>( slot * kIntermediate + unit ) ];
+
+                        expected += product;
+                        magnitude += std::fabs( product );
+                    }
+                }
+
+                const double tolerance = std::fabs( expected ) * kGatherOutputRelative + magnitude * kGatherAccumulation + kGatherAbsolute;
+                const double error = std::fabs( output[ static_cast<std::size_t>( column ) ] - expected );
+
+                worst_ratio = std::max( worst_ratio, error / tolerance );
+                failures += error > tolerance;
+            }
+
+            return failures;
+        };
+
+        double gated_ratio = 0.0;
+        double output_ratio = 0.0;
+        double swapped_gated_ratio = 0.0;
+        double swapped_output_ratio = 0.0;
+
+        const int64_t gated_failures = checkGated( false, gated_ratio );
+        const int64_t output_failures = checkOutput( false, output_ratio );
+        const int64_t swapped_gated_failures = checkGated( true, swapped_gated_ratio );
+        const int64_t swapped_output_failures = checkOutput( true, swapped_output_ratio );
+
+        EXPECT_EQ( gated_failures, 0 ) << "gated pass, of " << kTopK * kIntermediate;
+        EXPECT_EQ( output_failures, 0 ) << "combine pass, of " << kHidden;
+        EXPECT_GT( swapped_gated_failures, kTopK * kIntermediate / 2 ) << "the gated check cannot see a swapped nibble order";
+        EXPECT_GT( swapped_output_failures, kHidden / 2 ) << "the combine check cannot see a swapped nibble order";
+
+        std::cout << std::format(
+            "[ q4_0 gather ] gated {} of {} outside tolerance (worst {:.3f} of it), combine {} of {} (worst {:.3f}); "
+            "nibbles swapped: {} and {}\n",
+            gated_failures, kTopK * kIntermediate, gated_ratio, output_failures, kHidden, output_ratio,
+            swapped_gated_failures, swapped_output_failures );
+    }
+
+    // A kernel cannot throw: an out-of-range index poisons the token it routes.
+    TEST_F( MixtureOfExpertsCudaTests, Q4_0_GatherDecodeOutOfRangeExpertPoisonsTheToken )
+    {
+        const PackedCase weights_case = q4Case();
+        auto bank = makePackedCaseBank<CudaExperts<TensorDataType::BF16, Q4_0>>( weights_case, 1 );
+
+        std::vector<std::int32_t> selections( weights_case.selections.begin(), weights_case.selections.begin() + kPackedTopK );
+        selections.back() = static_cast<std::int32_t>( kPackedExperts );
+
+        const std::vector<float> output = run( *bank, weights_case.input.data(), weights_case.combine.data(), selections.data(),
+            shape_t{ 1, 1, kPackedHidden }, shape_t{ 1, 1, kPackedTopK } );
+
+        const auto poisoned = std::count_if( output.begin(), output.end(), []( float value ) { return std::isnan( value ); } );
+
+        EXPECT_EQ( poisoned, kPackedHidden );
+    }
+
+    // ====================================================================
+    // Q4_0 grouped prefill (Gemma4MoE.md Phase 9, "G5b, against G5's kernel", written before the first run)
+    // ====================================================================
+
+    namespace
+    {
+        // Linear's per-block activation quantizer as the device runs it, in FP32: scale = largest / 127 and
+        // code = round-half-even( x * ( 127 / largest ) ).
+        void quantizeInt8PerBlock( const float* values, std::size_t count, std::vector<int>& codes, std::vector<float>& scales )
+        {
+            codes.resize( count );
+            scales.resize( count / 32 );
+
+            for ( std::size_t block = 0; block < count / 32; ++block )
+            {
+                float largest = 0.0f;
+
+                for ( std::size_t i = 0; i < 32; ++i )
+                {
+                    largest = std::max( largest, std::fabs( values[ block * 32 + i ] ) );
+                }
+
+                const float inverse = largest > 0.0f ? 127.0f / largest : 0.0f;
+
+                for ( std::size_t i = 0; i < 32; ++i )
+                {
+                    const float scaled = values[ block * 32 + i ] * inverse;
+
+                    codes[ block * 32 + i ] = static_cast<int>( std::nearbyint( scaled ) );
+                }
+
+                scales[ block ] = largest / 127.0f;
+            }
+        }
+
+        // One output of the INT8 block arithmetic: sum over blocks of a_scale x w_scale x sum code_a x ( code_w - 8 ),
+        // and the sum of the terms' magnitudes the tolerance scales.
+        struct Int8Dot
+        {
+            double value;
+            double magnitude;
+        };
+
+        Int8Dot int8Dot( const std::vector<int>& codes, const std::vector<float>& scales, std::size_t first,
+            const Q4Projection& projection, int64_t row, bool swapped )
+        {
+            Int8Dot dot{ 0.0, 0.0 };
+
+            for ( int64_t column = 0; column < projection.columns; ++column )
+            {
+                const std::size_t element = first + static_cast<std::size_t>( column );
+                const double term = static_cast<double>( codes[ element ] ) * scales[ element / 32 ]
+                    * projection.weight( row, column, swapped );
+
+                dot.value += term;
+                dot.magnitude += std::fabs( term );
+            }
+
+            return dot;
+        }
+
+        template<typename TBank>
+        void uploadQ4Bank( TBank& bank, const Q4Projection& gate_up, const Q4Projection& down )
+        {
+            const std::vector<ITensor*> stored = bank.getParameters();
+            ASSERT_EQ( stored.size(), 4u );
+
+            const std::pair<const void*, std::size_t> uploads[] = {
+                { gate_up.codes.data(), gate_up.codes.size() },
+                { gate_up.scales.data(), gate_up.scales.size() * sizeof( std::uint16_t ) },
+                { down.codes.data(), down.codes.size() },
+                { down.scales.data(), down.scales.size() * sizeof( std::uint16_t ) },
+            };
+
+            for ( std::size_t index = 0; index < 4; ++index )
+            {
+                ASSERT_EQ( stored[ index ]->getStorageSize(), uploads[ index ].second ) << "parameter " << index;
+                ASSERT_EQ( cudaMemcpy( stored[ index ]->rawData(), uploads[ index ].first, uploads[ index ].second,
+                    cudaMemcpyHostToDevice ), cudaSuccess );
+            }
+        }
+    }
+
+    // Each grouped pass against a host reference of the INT8 block arithmetic. With hidden narrower than the expert
+    // width, the combine's one pass overwrites only the first hidden / intermediate of the gated slot, so the gated
+    // values of the last tokens survive in it: the gated pass is checked on those, and the combine on the same
+    // tokens from the gated values it quantized. Hidden 256 takes the 128-deep tile, intermediate 320 the 64-deep;
+    // slot 0 routes every token to expert 0, a segment of three M tiles.
+    TEST_F( MixtureOfExpertsCudaTests, Q4_0_GroupedPrefillMatchesInt8Reference )
+    {
+        using Bank = CudaExperts<TensorDataType::BF16, Q4_0>;
+        using OutputTensor = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+        using GatedTensor = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>;
+
+        constexpr int64_t kHidden = 256;
+        constexpr int64_t kIntermediate = 320;
+        constexpr int64_t kExperts = 16;
+        constexpr int64_t kTopK = 4;
+        constexpr int64_t kTokens = 160;
+        constexpr int64_t kRows = kTokens * kTopK;
+
+        // Rows whose gated values the combine's output leaves in place.
+        constexpr int64_t kFirstSurvivingRow = ( kRows * kHidden + kIntermediate - 1 ) / kIntermediate;
+        constexpr int64_t kFirstCheckedToken = ( kFirstSurvivingRow + kTopK - 1 ) / kTopK;
+
+        const Q4Projection gate_up = randomQ4Projection( kExperts * 2 * kIntermediate, kHidden, 20261003u );
+        const Q4Projection down = randomQ4Projection( kExperts * kHidden, kIntermediate, 20261004u );
+
+        std::vector<float> input = synthetic( kTokens * kHidden, 41, 1.0f );
+        std::vector<float> combine = synthetic( kRows, 42, 0.5f );
+        std::vector<std::int32_t> selections( static_cast<std::size_t>( kRows ) );
+
+        for ( float& value : input )
+        {
+            value = bf16Truncated( value );
+        }
+
+        for ( float& value : combine )
+        {
+            value = bf16Truncated( std::fabs( value ) );
+        }
+
+        for ( int64_t token = 0; token < kTokens; ++token )
+        {
+            selections[ static_cast<std::size_t>( token * kTopK ) ] = 0;
+
+            for ( int64_t slot = 1; slot < kTopK; ++slot )
+            {
+                selections[ static_cast<std::size_t>( token * kTopK + slot ) ] =
+                    static_cast<std::int32_t>( 1 + ( token * 3 + slot * 5 ) % ( kExperts - 1 ) );
+            }
+        }
+
+        auto gated_slot = std::make_shared<GatedTensor>( Device::Cuda( 0 ), shape_t{ kRows * kIntermediate } );
+
+        Bank bank( "experts", MixtureOfExpertsConfig( kHidden, kIntermediate, kExperts, kTopK ), Device::Cuda( 0 ) );
+        bank.installSharedOutputs( std::make_shared<OutputTensor>( Device::Cuda( 0 ), shape_t{ kTokens, kHidden } ), gated_slot );
+        bank.build( BuildContext( shape_t{ kTokens, kHidden }, RuntimeMode::Inference, false ) );
+        uploadQ4Bank( bank, gate_up, down );
+
+        const std::vector<float> output = run( bank, input.data(), combine.data(), selections.data(),
+            shape_t{ kTokens, kHidden }, shape_t{ kTokens, kTopK } );
+
+        auto host_gated = toHost<TensorDataType::FP32>( *gated_slot, context_.get() );
+        context_->synchronize();
+        const std::vector<float> gated( host_gated.data(), host_gated.data() + host_gated.size() );
+
+        std::vector<int> input_codes;
+        std::vector<float> input_scales;
+        quantizeInt8PerBlock( input.data(), input.size(), input_codes, input_scales );
+
+        auto checkGated = [&]( bool swapped, double& worst_ratio )
+        {
+            int64_t failures = 0;
+            worst_ratio = 0.0;
+
+            for ( int64_t flat = kFirstCheckedToken * kTopK; flat < kRows; ++flat )
+            {
+                const int64_t token = flat / kTopK;
+                const int64_t expert = selections[ static_cast<std::size_t>( flat ) ];
+
+                for ( int64_t unit = 0; unit < kIntermediate; ++unit )
+                {
+                    const int64_t gate_row = expert * 2 * kIntermediate + unit;
+                    const std::size_t first = static_cast<std::size_t>( token * kHidden );
+                    const Int8Dot gate = int8Dot( input_codes, input_scales, first, gate_up, gate_row, swapped );
+                    const Int8Dot up = int8Dot( input_codes, input_scales, first, gate_up, gate_row + kIntermediate, swapped );
+
+                    const double expected = geluTanh( gate.value ) * up.value;
+                    const double tolerance = ( kGeluSlopeBound * gate.magnitude * std::fabs( up.value )
+                        + std::fabs( geluTanh( gate.value ) ) * up.magnitude ) * kGatherAccumulation + kGatherAbsolute;
+                    const double error = std::fabs( gated[ static_cast<std::size_t>( flat * kIntermediate + unit ) ] - expected );
+
+                    worst_ratio = std::max( worst_ratio, error / tolerance );
+                    failures += error > tolerance;
+                }
+            }
+
+            return failures;
+        };
+
+        // The combine's input is the gated values the device wrote, quantized as the device quantizes them.
+        std::vector<int> gated_codes;
+        std::vector<float> gated_scales;
+        quantizeInt8PerBlock( gated.data() + kFirstCheckedToken * kTopK * kIntermediate,
+            static_cast<std::size_t>( ( kTokens - kFirstCheckedToken ) * kTopK * kIntermediate ), gated_codes, gated_scales );
+
+        auto checkOutput = [&]( bool swapped, double& worst_ratio )
+        {
+            int64_t failures = 0;
+            worst_ratio = 0.0;
+
+            for ( int64_t token = kFirstCheckedToken; token < kTokens; ++token )
+            {
+                for ( int64_t column = 0; column < kHidden; ++column )
+                {
+                    double expected = 0.0;
+                    double magnitude = 0.0;
+
+                    for ( int64_t slot = 0; slot < kTopK; ++slot )
+                    {
+                        const int64_t flat = token * kTopK + slot;
+                        const double weight = combine[ static_cast<std::size_t>( flat ) ];
+                        const int64_t row = selections[ static_cast<std::size_t>( flat ) ] * kHidden + column;
+                        const Int8Dot dot = int8Dot( gated_codes, gated_scales,
+                            static_cast<std::size_t>( ( flat - kFirstCheckedToken * kTopK ) * kIntermediate ), down, row, swapped );
+
+                        expected += weight * dot.value;
+                        magnitude += std::fabs( weight ) * dot.magnitude;
+                    }
+
+                    const double tolerance = std::fabs( expected ) * kGatherOutputRelative + magnitude * kGatherAccumulation + kGatherAbsolute;
+                    const double error = std::fabs( output[ static_cast<std::size_t>( token * kHidden + column ) ] - expected );
+
+                    worst_ratio = std::max( worst_ratio, error / tolerance );
+                    failures += error > tolerance;
+                }
+            }
+
+            return failures;
+        };
+
+        double gated_ratio = 0.0;
+        double output_ratio = 0.0;
+        double ignored = 0.0;
+
+        const int64_t checked_gated = ( kTokens - kFirstCheckedToken ) * kTopK * kIntermediate;
+        const int64_t checked_outputs = ( kTokens - kFirstCheckedToken ) * kHidden;
+        const int64_t gated_failures = checkGated( false, gated_ratio );
+        const int64_t output_failures = checkOutput( false, output_ratio );
+        const int64_t swapped_gated_failures = checkGated( true, ignored );
+        const int64_t swapped_output_failures = checkOutput( true, ignored );
+
+        ASSERT_GT( kTokens - kFirstCheckedToken, 16 ) << "too few surviving tokens to check";
+        EXPECT_EQ( gated_failures, 0 ) << "gated pass, of " << checked_gated;
+        EXPECT_EQ( output_failures, 0 ) << "combine pass, of " << checked_outputs;
+        EXPECT_GT( swapped_gated_failures, checked_gated / 2 ) << "the gated check cannot see a swapped nibble order";
+        EXPECT_GT( swapped_output_failures, checked_outputs / 2 ) << "the combine check cannot see a swapped nibble order";
+
+        std::cout << std::format(
+            "[ q4_0 grouped ] tokens {}-{}: gated {} of {} outside tolerance (worst {:.3f} of it), combine {} of {} "
+            "(worst {:.3f}); nibbles swapped: {} and {}\n",
+            kFirstCheckedToken, kTokens - 1, gated_failures, checked_gated, gated_ratio, output_failures, checked_outputs,
+            output_ratio, swapped_gated_failures, swapped_output_failures );
+    }
+
+    // Every prefill output depends on its own row alone, so splitting the tokens across calls -- which moves the
+    // combine's sub-chunk boundaries and every M tile -- changes no bit. At the 26B's shapes, 160 tokens run four
+    // combine passes of 40; the split calls run passes of 40 and 20, and 40, 40 and 20. The 1280 rows take the
+    // routing kernel through two of its 1024-row chunks. The distance from one token at a time (BF16 activations)
+    // is the INT8 activations' own effect, printed.
+    TEST_F( MixtureOfExpertsCudaTests, Q4_0_GroupedPrefillIndependentOfBatching )
+    {
+        using Bank = CudaExperts<TensorDataType::BF16, Q4_0>;
+
+        constexpr int64_t kHidden = 2816;
+        constexpr int64_t kIntermediate = 704;
+        constexpr int64_t kExperts = 128;
+        constexpr int64_t kTopK = 8;
+        constexpr int64_t kTokens = 160;
+        constexpr int64_t kSplit = 60;
+
+        const Q4Projection gate_up = randomQ4Projection( kExperts * 2 * kIntermediate, kHidden, 20261005u );
+        const Q4Projection down = randomQ4Projection( kExperts * kHidden, kIntermediate, 20261006u );
+
+        std::vector<float> input = synthetic( kTokens * kHidden, 51, 1.0f );
+        std::vector<float> combine = synthetic( kTokens * kTopK, 52, 0.5f );
+        std::vector<std::int32_t> selections( static_cast<std::size_t>( kTokens * kTopK ) );
+        std::mt19937 generator( 53 );
+
+        for ( float& value : combine )
+        {
+            value = std::fabs( value );
+        }
+
+        for ( int64_t token = 0; token < kTokens; ++token )
+        {
+            std::vector<std::int32_t> experts( kExperts );
+
+            for ( int64_t expert = 0; expert < kExperts; ++expert )
+            {
+                experts[ static_cast<std::size_t>( expert ) ] = static_cast<std::int32_t>( expert );
+            }
+
+            std::shuffle( experts.begin(), experts.end(), generator );
+            std::copy_n( experts.begin(), kTopK, selections.begin() + token * kTopK );
+        }
+
+        Bank bank( "experts", MixtureOfExpertsConfig( kHidden, kIntermediate, kExperts, kTopK ), Device::Cuda( 0 ) );
+        bank.build( BuildContext( shape_t{ kTokens, kHidden }, RuntimeMode::Inference, false ) );
+        uploadQ4Bank( bank, gate_up, down );
+
+        auto runTokens = [&]( int64_t first, int64_t count )
+        {
+            return run( bank, input.data() + first * kHidden, combine.data() + first * kTopK,
+                selections.data() + first * kTopK, shape_t{ count, kHidden }, shape_t{ count, kTopK } );
+        };
+
+        const std::vector<float> whole = runTokens( 0, kTokens );
+
+        std::vector<float> split = runTokens( 0, kSplit );
+        const std::vector<float> rest = runTokens( kSplit, kTokens - kSplit );
+        split.insert( split.end(), rest.begin(), rest.end() );
+
+        std::vector<float> one_at_a_time;
+
+        for ( int64_t token = 0; token < kTokens; ++token )
+        {
+            const std::vector<float> row = run( bank, input.data() + token * kHidden, combine.data() + token * kTopK,
+                selections.data() + token * kTopK, shape_t{ 1, 1, kHidden }, shape_t{ 1, 1, kTopK } );
+
+            one_at_a_time.insert( one_at_a_time.end(), row.begin(), row.end() );
+        }
+
+        const auto finite = std::count_if( whole.begin(), whole.end(), []( float value ) { return std::isfinite( value ) && value != 0.0f; } );
+
+        EXPECT_EQ( finite, kTokens * kHidden ) << "every output finite and nonzero";
+        EXPECT_EQ( countBitMismatches( split, whole ), 0 ) << "split at token " << kSplit << ", of " << whole.size();
+
+        double worst = 0.0;
+        double reference_norm = 0.0;
+        double difference_norm = 0.0;
+
+        for ( std::size_t i = 0; i < whole.size(); ++i )
+        {
+            const double difference = static_cast<double>( whole[ i ] ) - one_at_a_time[ i ];
+
+            worst = std::max( worst, std::fabs( difference ) );
+            reference_norm += static_cast<double>( one_at_a_time[ i ] ) * one_at_a_time[ i ];
+            difference_norm += difference * difference;
+        }
+
+        std::cout << std::format(
+            "[ q4_0 grouped ] {} tokens: {} of {} differ when split at {}; against one token at a time (BF16 activations) "
+            "worst {:.3e}, relative L2 {:.3e} (not gated)\n",
+            kTokens, countBitMismatches( split, whole ), whole.size(), kSplit, worst,
+            std::sqrt( difference_norm / std::max( reference_norm, 1e-30 ) ) );
+    }
+
+    // A kernel cannot throw: an out-of-range index poisons its own token and no other.
+    TEST_F( MixtureOfExpertsCudaTests, Q4_0_GroupedPrefillOutOfRangeExpertPoisonsOnlyThatToken )
+    {
+        const PackedCase weights_case = q4Case();
+        auto bank = makePackedCaseBank<CudaExperts<TensorDataType::BF16, Q4_0>>( weights_case, 2 );
+
+        std::vector<std::int32_t> selections( weights_case.selections.begin(), weights_case.selections.begin() + 2 * kPackedTopK );
+        selections.back() = static_cast<std::int32_t>( kPackedExperts );
+
+        const std::vector<float> output = run( *bank, weights_case.input.data(), weights_case.combine.data(), selections.data(),
+            shape_t{ 2, kPackedHidden }, shape_t{ 2, kPackedTopK } );
+
+        for ( int64_t column = 0; column < kPackedHidden; ++column )
+        {
+            EXPECT_TRUE( std::isfinite( output[ static_cast<std::size_t>( column ) ] ) ) << "valid token, column " << column;
+            EXPECT_TRUE( std::isnan( output[ static_cast<std::size_t>( kPackedHidden + column ) ] ) ) << "poisoned token, column " << column;
+        }
     }
 }

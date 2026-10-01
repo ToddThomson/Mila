@@ -3,7 +3,8 @@
  * @brief CUDA mixture-of-experts bank: the two-pass kernel over the stacked expert tensors.
  *
  * Same contract as CpuMoeOp, gated against HuggingFace through MixtureOfExperts (Gemma4MoE.md Phase 6).
- * Under a per-group FP4 or Q4_0 policy the passes read packed codes and their group scales in place.
+ * Under per-group FP4 the passes read packed codes and their group scales in place. A Q4_0 bank has its own
+ * kernels: the gather-matvec pair for one token, the grouped INT8 GEMMs for more.
  */
 
 module;
@@ -108,7 +109,8 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         }
 
         /**
-         * @brief Check the expert widths against the quantization group; the op allocates nothing.
+         * @brief Check the expert widths against the quantization group and record the built token count, which
+         *        sizes a Q4_0 bank's prefill scratch; the op allocates nothing.
          */
         void build( const BuildContext& build_context ) override
         {
@@ -127,7 +129,33 @@ namespace Mila::Dnn::Compute::Cuda::Moe
                 }
             }
 
+            if constexpr ( kIsInt4 )
+            {
+                if ( config_.getNumExperts() > kGroupedMaximumExperts
+                     || config_.getHiddenSize() % 64 != 0 || config_.getExpertIntermediateSize() % 64 != 0 )
+                {
+                    throw std::invalid_argument( std::format(
+                        "CudaMoeOp::build - a Q4_0 bank prefills at most {} experts with widths that are multiples of 64; "
+                        "got {} experts, hidden {}, expert intermediate {}",
+                        kGroupedMaximumExperts, config_.getNumExperts(), config_.getHiddenSize(),
+                        config_.getExpertIntermediateSize() ) );
+                }
+            }
+
+            built_tokens_ = tokensIn( build_context.inputShape() );
+
             OperationBaseType::build( build_context );
+        }
+
+        /// A Q4_0 bank's grouped prefill: routing, tile table and INT8 activations for the built token count.
+        std::size_t getScratchBytes() const override
+        {
+            return scratchBytesFor( built_tokens_ );
+        }
+
+        std::size_t getRequiredScratchBytes( const BuildContext& build_context ) const override
+        {
+            return scratchBytesFor( tokensIn( build_context.inputShape() ) );
         }
 
         /**
@@ -177,7 +205,8 @@ namespace Mila::Dnn::Compute::Cuda::Moe
          * @param input    [..., H] at the op's precision.
          * @param weights  [..., top_k] combine weights at the op's precision.
          * @param indices  INT32 [..., top_k] expert indices. An out-of-range index yields NaN.
-         * @param gated    FP32 scratch of at least tokens x top_k x intermediate elements, overwritten.
+         * @param gated    FP32 scratch of at least tokens x top_k x intermediate elements, overwritten -- all of it
+         *                 by a Q4_0 prefill, whose combine rows it then holds.
          * @param output   [..., H] at the op's precision, overwritten.
          */
         void forward( const ITensor& input, const ITensor& weights, const ITensor& indices, ITensor& gated,
@@ -269,27 +298,51 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             }
             else if constexpr ( kIsInt4 )
             {
-                const int group = TWeightQuantization::kQuantizationGroupSize;
+                // One token is the decode step: a gather-matvec over the selected rows (MixtureOfExperts.md
+                // section 6). Every other count still runs the two-pass kernel.
+                if ( tokens == 1 )
+                {
+                    launch_moe_gated_gather_int4<TFunctor>(
+                        static_cast<const __nv_bfloat16*>( input.rawData() ),
+                        static_cast<const uint8_t*>( gate_up_projection_->rawData() ),
+                        static_cast<const __half*>( gate_up_scales_->rawData() ),
+                        index_data, gated_data,
+                        1, narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
+                        narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ),
+                        functor_, stream );
 
-                launch_moe_gated_forward_int4<TFunctor>(
+                    launch_moe_combine_gather_int4(
+                        gated_data,
+                        static_cast<const uint8_t*>( down_projection_->rawData() ),
+                        static_cast<const __half*>( down_scales_->rawData() ),
+                        static_cast<const __nv_bfloat16*>( weights.rawData() ),
+                        index_data,
+                        static_cast<__nv_bfloat16*>( output.rawData() ),
+                        1, narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
+                        narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ),
+                        stream );
+
+                    return;
+                }
+
+                // More than one token is a prefill: two grouped INT8 GEMMs over the expert segments. The scratch is
+                // fetched on every forward, since the context reallocates it on grow.
+                void* scratch = context_->getDeviceScratchBuffer( moe_grouped_scratch_bytes(
+                    narrowToKernelIndex( tokens ), narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
+                    narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ), static_cast<int64_t>( gated.size() ) ) );
+
+                launch_moe_grouped_prefill_int4<TFunctor>(
                     static_cast<const __nv_bfloat16*>( input.rawData() ),
                     static_cast<const uint8_t*>( gate_up_projection_->rawData() ),
                     static_cast<const __half*>( gate_up_scales_->rawData() ),
-                    index_data, gated_data,
-                    narrowToKernelIndex( tokens ), narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
-                    narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ), group,
-                    functor_, stream );
-
-                launch_moe_combine_forward_int4(
-                    gated_data,
                     static_cast<const uint8_t*>( down_projection_->rawData() ),
                     static_cast<const __half*>( down_scales_->rawData() ),
                     static_cast<const __nv_bfloat16*>( weights.rawData() ),
-                    index_data,
-                    static_cast<__nv_bfloat16*>( output.rawData() ),
+                    index_data, gated_data, static_cast<int64_t>( gated.size() ),
+                    static_cast<__nv_bfloat16*>( output.rawData() ), scratch,
                     narrowToKernelIndex( tokens ), narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
-                    narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ), group,
-                    stream );
+                    narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ),
+                    functor_, stream );
             }
             else
             {
@@ -327,6 +380,31 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         CudaExecutionContext* context_{ nullptr };
         MixtureOfExpertsConfig config_;
         TFunctor functor_{};
+        dim_t built_tokens_{ 0 };
+
+        dim_t tokensIn( const shape_t& input_shape ) const
+        {
+            return input_shape.empty() ? 0 : elementCount( input_shape ) / config_.getHiddenSize();
+        }
+
+        // Against the gated scratch the component sizes for the same tokens.
+        std::size_t scratchBytesFor( dim_t tokens ) const
+        {
+            if constexpr ( kIsInt4 )
+            {
+                if ( tokens > 1 )
+                {
+                    const dim_t intermediate = config_.getExpertIntermediateSize();
+
+                    return moe_grouped_scratch_bytes( narrowToKernelIndex( tokens ),
+                        narrowToKernelIndex( config_.getHiddenSize() ), narrowToKernelIndex( intermediate ),
+                        narrowToKernelIndex( config_.getNumExperts() ), narrowToKernelIndex( config_.getTopK() ),
+                        static_cast<int64_t>( tokens * config_.getTopK() * intermediate ) );
+                }
+            }
+
+            return 0;
+        }
 
         ITensor* gate_up_projection_{ nullptr };
         ITensor* down_projection_{ nullptr };

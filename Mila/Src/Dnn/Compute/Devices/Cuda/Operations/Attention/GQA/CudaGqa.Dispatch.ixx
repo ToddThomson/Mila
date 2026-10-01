@@ -483,6 +483,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     capacity, stream );
             }
 
+            // The FP8 flash prefill serves the same head sizes over the whole cache and over a ring.
+            static bool flash_prefill_fp8_supported( int head_size )
+            {
+                return cuda_gqa_flash_prefill_supported( head_size );
+            }
+
             static void flash_prefill_fp8(
                 const nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
                 const float* k_scales, const float* v_scales, nv_bfloat16* Y,
@@ -491,6 +497,19 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 cudaStream_t stream )
             {
                 cuda_gqa_flash_prefill_fp8(
+                    Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
+                    position_offset, window, scale, stream );
+            }
+
+            // The bounded ring of FP8 codes (SlidingWindowKvFp8).
+            static void flash_prefill_ring_fp8(
+                const nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
+                const float* k_scales, const float* v_scales, nv_bfloat16* Y,
+                int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+                int position_offset, int window, float scale,
+                cudaStream_t stream )
+            {
+                cuda_gqa_flash_prefill_ring_fp8(
                     Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
                     position_offset, window, scale, stream );
             }

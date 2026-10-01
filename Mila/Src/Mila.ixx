@@ -241,6 +241,7 @@ export import Dnn.Quantization.Weight.HasInt4Codes;
 export import Dnn.Quantization.KvCache.Policy;
 export import Dnn.Quantization.KvCache.QuantPolicy;
 export import Dnn.Quantization.KvCache.PerTokenKvFp8;
+export import Dnn.Quantization.KvCache.SlidingWindowKvFp8;
 
 // Same rule, one level up: a per-role PLAN is QwenAttentionBlock's third template argument
 // and QwenTransformer's, so the plan concepts and the uniform lift are part of a public

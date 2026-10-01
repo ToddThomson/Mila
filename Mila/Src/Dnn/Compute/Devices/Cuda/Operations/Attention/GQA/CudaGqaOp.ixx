@@ -98,12 +98,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * @tparam kFp8Cache  When true (PerTokenKvFp8 policy), the cache holds E4M3 codes and one FP32 scale per KV
      *                    head per token, written by the FP8 cache write and read only by the fused flash prefill
      *                    and fused decode kernels; a geometry those kernels do not serve is refused at build, and
-     *                    flash off is refused at prefill or decode. BF16 and the unbounded cache only
-     *                    (Quantization.md, Part III).
+     *                    flash off is refused at prefill or decode. BF16 only (Quantization.md, Part III). With
+     *                    kBounded, the ring holds the codes (SlidingWindowKvFp8 policy).
      */
     export template<TensorDataType TPrecision, bool kBounded = false, bool kFp8Cache = false>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-            && ( !kFp8Cache || ( TPrecision == TensorDataType::BF16 && !kBounded ) )
+            && ( !kFp8Cache || TPrecision == TensorDataType::BF16 )
     class CudaGqaOp : public Operation<DeviceType::Cuda, TPrecision>, public IKvInference
     {
     public:
@@ -277,7 +277,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 // Only the FP8 write, the fused flash prefill and the fused decode read this cache; there is no
                 // cuBLASLt path to fall back to.
                 if ( !Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv_fp8_supported( HS_ )
-                    || !Detail::cuda_gqa_kernels<NativeType>::flash_prefill_supported( HS_, false )
+                    || !Detail::cuda_gqa_kernels<NativeType>::flash_prefill_fp8_supported( HS_ )
                     || !Detail::cuda_gqa_kernels<NativeType>::decode_attention_supported( HS_, GS_ ) )
                 {
                     throw std::invalid_argument( std::format(
@@ -768,11 +768,22 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 static_cast<const NativeType*>( k.rawData() ), static_cast<const NativeType*>( v.rawData() ),
                 B_, chunk_len, NKV_, HS_, position_offset, nullptr, cache_capacity_, stream );
 
-            Detail::cuda_gqa_kernels<NativeType>::flash_prefill_fp8(
-                static_cast<const NativeType*>( q.rawData() ), k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
-                static_cast<NativeType*>( output.rawData() ),
-                B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
-                position_offset, window_, attention_scale_, stream );
+            if constexpr ( kBounded )
+            {
+                Detail::cuda_gqa_kernels<NativeType>::flash_prefill_ring_fp8(
+                    static_cast<const NativeType*>( q.rawData() ), k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
+                    static_cast<NativeType*>( output.rawData() ),
+                    B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
+                    position_offset, window_, attention_scale_, stream );
+            }
+            else
+            {
+                Detail::cuda_gqa_kernels<NativeType>::flash_prefill_fp8(
+                    static_cast<const NativeType*>( q.rawData() ), k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
+                    static_cast<NativeType*>( output.rawData() ),
+                    B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
+                    position_offset, window_, attention_scale_, stream );
+            }
         }
 
         void decodeFp8Cache(
@@ -916,6 +927,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
                     return;
                 }
+            }
+
+            // A stack whose every layer flashes allocates no score buffers (makeGqaWorkspace).
+            if ( preatt_opt_ == nullptr || att_opt_ == nullptr )
+            {
+                throw std::logic_error(
+                    "CudaGroupedQueryAttentionOp::prefill_optimized: the cuBLASLt prefill needs the shared score buffers, "
+                    "and this stack was built to prefill through flash on every layer without them" );
             }
 
             // Permute Q from [B, chunk, NH*HS] into compact [B, NH, chunk, HS] scratch.

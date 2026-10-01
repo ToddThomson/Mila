@@ -114,9 +114,9 @@ both, and scoring (3.2) lands in both at once. The 26B-A4B is held to the 12B in
 |---|---|---|---|
 | Runs its producer's quantization-aware weights in the trained format | Y | Y | Q4_0 for both (`Gemma.md` §10.4, from Google's GGUF). The 26B's expert bank runs `PerGroupInt4<32>` since `+24` (8.2 G5): at context 8192 on the RTX 5060 Ti, quantized on load from the QAT checkpoint, it plans 1024 rows, footprint exact, and its greedy tokens match HuggingFace |
 | Fits the 16 GB card at context 8192, at the 12B's prefill chunk | Y | Y | plans 1024 rows at 8192 once the routed buffers are pooled (8.2 G5, `+24`; measured 2026-09-30, `PerGroupFp4<64>`, footprint exact; Q4_0 is the same bytes). Before it, 256 rows |
-| Prefill as a GEMM | Y | -- | the routed bank's prefill is the Phase 6 two-pass kernel, one thread per output value; the grouped INT8 prefill is not built (`MixtureOfExperts.md` §7.7) |
-| Throughput measured, and in the llama.cpp comparison | Y | -- | measured 2026-09-29 (`Gemma4MoE.md`, Rates Baseline): prefill 23 tokens a second against llama.cpp's 3,600, generation 11 against 127; its CUDA kernels are the Phase 6 correctness baseline and were never tuned |
-| Token-for-token agreement with HuggingFace, in the suite | Y | partial | eight greedy tokens at FP4 (`GemmaModel.MixtureOfExperts.Load.Cuda.cpp`), which a routing error does not change, and a layer-streamed BF16 hidden-state gate, which it does -- both on Google's quantization-aware checkpoint since 2026-09-30, the non-quantization-aware one retired; the BF16 model fits neither card, so no whole-model BF16 run exists |
+| Prefill as a GEMM | Y | Y | at Q4_0, the grouped INT8 prefill (8.2 G5b, `MixtureOfExperts.md` §6); an FP4 bank keeps the Phase 6 kernel |
+| Throughput measured, and in the llama.cpp comparison | Y | Y | row `gemma-4-26b-a4b-q4_0`, head to head (8.2 G5b, 2026-09-30): prefill 5,604 / 6,080 / 5,550 tokens a second at 512 / 2K / 8K against llama.cpp's 3,685 / 4,334 / 4,124, generation 129 / 115 against 128 / 113; both 32K cells refused, the deployment 170 MB over the card's free memory |
+| Token-for-token agreement with HuggingFace, in the suite | Y | partial | eight greedy tokens at FP4 and at Q4_0 (`GemmaModel.MixtureOfExperts.Load.Cuda.cpp`), which a routing error does not change, and a layer-streamed BF16 hidden-state gate, which it does -- both on Google's quantization-aware checkpoint since 2026-09-30, the non-quantization-aware one retired; the BF16 model fits neither card, so no whole-model BF16 run exists |
 | Quality measured across the planner's range | see 3.4 | -- | never measured; the 12B's cost over BF16 has no whole-model reference here (section 9, item 18) |
 | Decode replay gated equal to the called path | Y | -- | replay is on for every `GemmaModel` load, the 26B included; `DecodeReplay.Cuda.cpp` covers a dense Gemma and no routed network (`MixtureOfExperts.md` §6) |
 | Active parameter bytes shown to the user | n/a | -- | `MemoryStats` carries them and `GemmaModel`'s footprint reports them; neither the plan nor Chat's display does (`MixtureOfExperts.md` §8) |
@@ -136,7 +136,7 @@ each row is in scope unless it cannot fit 16 GB; the last column says whether th
 | Gemma 4 12B | 262144-token context | planner allows it; Chat caps 131072; quality unmeasured above 131072 | yes, at FP4 | `ModelHandle.md` 10.3 |
 | Gemma 4 12B | Quantization-aware 4-bit checkpoint (int4, group 32) | Y, `PerGroupInt4<32>` since `0.21.0-dev+12`; its package rides G4's republish | yes | `Quantization.md`, Q4_0 |
 | Gemma 4 26B-A4B | Mixture of experts | Y, in `Mila/Src`, unpublished | yes, at 8192 and the 12B's chunk, since the routed buffers were pooled (3.6) | BACKLOG, "Announce the Gemma 4 26B-A4B mixture of experts" |
-| Gemma 4 26B-A4B | Quantization-aware 4-bit checkpoint (Q4_0, instruct only) | -- the routed bank has no Q4_0 path | yes, the same bytes as `PerGroupFp4<64>` | `Gemma4MoE.md` Phase 9; 8.2, G5 |
+| Gemma 4 26B-A4B | Quantization-aware 4-bit checkpoint (Q4_0, instruct only) | Y, `PerGroupInt4<32>` in the bank since `0.21.0-dev+24`; unpublished | yes, the same bytes as `PerGroupFp4<64>` | `Gemma4MoE.md` Phase 9; 8.2, G5 |
 | Qwen 3.8 27B | Vision tower (27 layers, width 1152) and multimodal positions (mrope) | -- out of scope for the first chassis (`Qwen3.8.md` §1) | not priced; tight beside the FP4 build (13.2 GB of weights on device) | nowhere |
 | Qwen 3.8 27B | Multi-token prediction head, one layer (~0.45 B) | -- both converters skip `mtp.*` | not priced | nowhere |
 | Qwen 3.8 27B | 262144-token context, 1M by YaRN | the planner allows 262144; quality measured to 16K | only with KV-cache compression, and not at FP4 | BACKLOG, "Qwen's perplexity gate has only been run to 16K"; KV compression entry |
@@ -631,8 +631,8 @@ the 3.6 fit and trained-format cells. *Needs:* G4.
   exact; greedy tokens unchanged; Phase 9's gate, including every Q4_0 tensor equal in code and scale bits to
   Google's GGUF.
 
-**G5b -- The 26B-A4B's kernels at parity.** *Closes:* "The Gemma 4 26B-A4B prefills 150 times and generates 11
-times slower than llama.cpp on the same card", the 3.6 prefill and throughput cells. *Needs:* G5.
+**G5b -- The 26B-A4B's kernels at parity.** *Closes:* "The Gemma 4 26B-A4B prefills over a hundred times slower
+than llama.cpp on the same card", the 3.6 prefill and throughput cells. *Needs:* G5.
 
 - Measured first, 2026-09-29, before G4 and G5 (`Gemma4MoE.md`, Rates Baseline): at `PerGroupFp4<64>` Mila
   prefills 23 tokens a second and generates 11, where llama.cpp on Google's GGUF prefills about 3,600 and
@@ -640,9 +640,20 @@ times slower than llama.cpp on the same card", the 3.6 prefill and throughput ce
   about 1.8 ms per token (0.80 GB of active expert bytes at 448 GB/s, `MixtureOfExperts.md` §8), but Mila's
   step outside the bank is already 7.8 ms against llama.cpp's whole 7.9, so the bank alone does not close it.
   Still to join: the rate harness (`GemmaModel.Rates.Cuda.cpp`).
+  *Re-baselined at Q4_0, 2026-09-30:* 31 tokens a second prefilling and 12.55 generating, the bank still 91% of
+  a decode step; llama.cpp's best batch is 1024, not its default, and an 8-bit cache is its slower setting.
 - Then the kernels, all Mila's own (`MixtureOfExperts.md` §7.7): the grouped INT8 prefill, the Q4_0 gather
   decode, the router, and the dense and attention decode path measured against llama.cpp's. Admitted by the
   parity bar, not by the measurement (section 9, item 9).
+  *Result, decode, 2026-09-30:* the gather decode and a warp-per-row router take generation from 12.55 to 128.8
+  tokens a second against llama.cpp's 126 at depth 0, the step 7.75 ms against a floor near 5.6; the dense and
+  attention matvecs, 2.45 ms, needed nothing. Gate items for decode pass (`Gemma4MoE.md`, "G5b decode result").
+  *Result, prefill, 2026-09-30:* the grouped INT8 prefill, with the combine run through the dead gated buffer a
+  quarter-chunk at a time rather than in 92 MB more (measured at 13% of a 2K prefill, and kept). The script's row,
+  head to head: prefill 5,604 / 6,080 / 5,550 tokens a second at 512 / 2K / 8K against llama.cpp's 3,685 / 4,334
+  / 4,124; generation 129 / 115 against 128 / 113 at depth 0 / 8K. Every gate item passes (`Gemma4MoE.md`, "G5b
+  prefill result"). Both 32K cells are refused: the deployment is 170 MB over the card's free memory there, as the
+  FP4 build was, and llama.cpp fits it -- captured, not triaged.
 - *Gate:* grouped prefill equal to the Phase 6 kernel within the INT8 path's own tolerance, decode bit-identical
   between prefill-built and one-token banks as Phase 7 gated; token parity unchanged; the comparison row
   reproduced by the one script. Rates are reported, not gated: the comparison is a quality signal, not a race.

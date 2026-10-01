@@ -10,6 +10,58 @@ pointer to its GitHub issue rather than a copy. Triage flow, categories and the 
 
 ---
 
+## A masked key's zero probability still multiplies whatever an unwritten cache row holds
+
+`Gqa.Flash.Packed.cu` (`p * v_scale` before PV; the PV MMA), the clamped and ring rows of every GQA cache @ `0.21.0-dev+24`
+
+Flash prefill loads whole key tiles. Keys past the last written position -- the clamped tail of an unbounded cache,
+the not-yet-written rows of a ring -- read rows no write has reached, and device memory is not zeroed
+(`TensorBuffer`). Their scores are masked to -inf after scaling, so their probability is exactly 0, but that 0
+then multiplies the row's V values in the PV MMA, and in the FP8 caches the row's V scale too. A row holding a NaN or
+infinity -- an E4M3 NaN code, a stale non-finite scale -- makes 0 x NaN = NaN in every output that tile touches.
+Nothing has been seen to fail; whether fresh or recycled device memory can hold such patterns is not measured.
+
+## Gemma 4 26B-A4B does not fit a 16 GB card at context 32768, and llama.cpp runs it there with an FP16 cache
+
+`GemmaModel::load` (`FixedContextDoesNotFit`), `benchmark_comparison.py` row `gemma-4-26b-a4b-q4_0` @ `0.21.0-dev+24`
+
+On the RTX 5060 Ti at Q4_0 with an FP8 cache, context 32768 needs 16,075,330,560 bytes against 15,904,800,768 free
+(weights 14,770,483,712), so both 32K cells of the comparison row are refused; at 33792 (32K depth plus the
+generated tokens) 16,113,079,296. llama.cpp on Google's GGUF prefills 32K at 3,321 tokens a second and generates at
+depth 32K at 99, with an FP16 cache. Its weights are 13.43 GiB (14.42 GB): a Q6_K tied table where Mila's is FP8,
+worth about 0.13 GB of the 0.35 GB weights difference. The FP4 build was refused the same way
+(`Gemma4MoE.md`, Rates Baseline, 16,178,589,696 bytes).
+
+Ceilings measured 2026-09-30 on the same card (llama.cpp b11216 by generation at depth, a spill into host memory
+read as the rate collapsing): llama.cpp with an FP16 cache at `-ub 512` runs at 72K (77 tokens a second at 64K, 68K
+and 72K); at `-ub 1024` it spills past 64K; with q8_0 it spills at 96K (44) and 128K (26). Mila at Q4_0 loads at
+24576 only by narrowing the prefill chunk to 128 rows (state 1,030 MiB, against 530 at 8192 and a 1024-row chunk),
+and refuses 28672 (15,955,530,752 bytes). About 26K against 72K.
+
+Read from the code, same day, arithmetic not yet measured component by component:
+
+- **No Gemma layer has an FP8 cache.** The sliding layers use `SlidingWindowKvCache`, an uncompressed ring; the
+  global layers are hardwired `NoKvCompression` (`GemmaModel.ixx`, `GemmaSlidingKvPolicy`). The preset's FP8
+  setting is ignored. "Mila at Q4_0 with an FP8 cache" above is wrong: BF16.
+- **The global layers keep K and V both**, though `attention_k_eq_v` makes them equal: 5 layers x 2 x 2 heads x 512
+  x 2 bytes = 20.5 KB a token, the term that grows with context. FP8 with K alone would be about 5 KB.
+- **The sliding ring** is window + chunk - 1 rows, BF16: 419 MB at a 1024-row chunk, 236 MB at 128, whatever the
+  context.
+- **The prefill score buffers** (`preatt`, `att`) are chunk x heads x (window + chunk) and stay allocated when every
+  layer prefills through flash and never reads them (`Gemma.ixx`, `prefillScoreWidth`): about 134 MB at a 1024-row
+  chunk if BF16.
+- Weights are 0.35 GB over llama.cpp's, 0.13 GB of it the FP8 tied table against Q6_K.
+
+Per token, about 23 KB (global K and V, the RoPE tables, decode scores). The 37.7 MB difference between the refusals
+at 32768 and 33792 overstates it: each of those tensors rounds up to the 2 MiB granularity, and a 1K step crosses a
+boundary on most of them.
+
+Measured on the prediction the same day, and two terms removed (`MemoryFootprint.md` 8.3, working tree): state grew
+29.2 KB a token, 5.6 KB of it the token embedding's output sized to the whole context; that and Gemma's unused
+prefill score buffers are gone, and 32768 fits at a 128-row chunk. The FP8 global cache (`PerTokenKvFp8` on the global
+layers) and an FP8 ring (`SlidingWindowKvFp8`, new) are built and gated at the operation; their quality arms
+(`Quantization.md` decision 6) are running.
+
 ## A package's manifest claims the Mila version of its first publish, not the version its weights need
 
 `Mila/Tools/ExportArtifact` (`--package`), `minimum_mila_version` @ `0.21.0-dev+23`

@@ -157,11 +157,11 @@ the correctness oracle the grouped path is validated against, exactly as
 Two paths, split on `M`, mirroring the prefill-GEMM / decode-matvec division
 `Linear` already carries.
 
-**What runs today is one kernel for both paths:** the Phase 6 two-pass kernel
-(`Moe.cu`), one thread per output value, reading each token's selected expert
-rows in place. It is the correctness baseline, gated against HuggingFace, and
-was never tuned or measured for speed. Its prefill is not a GEMM. The design
-below is what replaces it.
+**What runs today:** a Q4_0 bank runs both paths below -- the gather-matvec for
+one token (`MoeGather.cu`), the grouped GEMM for more (`MoeGrouped.cu`). An FP4
+or unquantized bank runs the Phase 6 two-pass kernel (`Moe.cu`) for every
+forward, one thread per output value, reading each token's selected expert rows
+in place: the correctness baseline, gated against HuggingFace, and not a GEMM.
 
 **Prefill (`M > 1`) — grouped GEMM.** Tokens are permuted into expert-major
 order, one segment per expert, and a grouped GEMM walks the segments against
@@ -169,7 +169,37 @@ order, one segment per expert, and a grouped GEMM walks the segments against
 sized from a device-side histogram of the routing result. Which kernel serves it
 follows the bank's format (Section 7): at Q4_0 it is the INT8 prefill `Linear`
 already runs (`Quantization.md`, Q4_0 decision 4) made grouped (Section 7.7).
-Not built.
+
+Built for Q4_0, in five steps on the stream, none reading back to the host:
+
+1. **Routing**, one block: rows counted per expert, then each placed at its
+   expert's offset plus the count of earlier rows routed there, so a segment
+   lists its rows in ascending (token, slot) order and the permutation does not
+   depend on thread timing.
+2. **Tile table** for a token range: each expert's rows in that range, cut into
+   M tiles of 64 -- half `Linear`'s, since a 1024-row chunk averages 64 rows an
+   expert on the 26B-A4B. The launch is sized to the bound
+   `rows / 64 + experts`; blocks past the table's count exit.
+3. **Gated GEMM**: the input quantized to INT8 per 32-element block, as
+   `Linear`'s, then each tile's gathered rows against its expert's gate and up
+   rows **interleaved** in the B tile, so a thread's two adjacent columns are
+   one unit's gate and up and the activation runs on registers. Out: FP32 gated
+   values.
+4. **Gated values to INT8**, the same quantizer, into the scratch the input's
+   codes held.
+5. **Combine GEMM and reduction.** Each (token, slot)'s down projection in FP32,
+   then each token's rows summed in slot order, weighted, to BF16. The rows are
+   written over the gated buffer, dead once quantized, **as many tokens at a
+   time as it holds** -- a quarter of a chunk on the 26B-A4B, whose hidden width
+   is four times the expert width -- so the down weights are read once per
+   pass. Materializing every row at once would take 92 MB at 1024 rows, more
+   than the about 60 MiB the plan has spare at 8192 (G5), so the planner would
+   narrow the chunk.
+
+Every output depends on its own row alone, so the result is bit-identical
+however tokens are batched. Scratch beyond the pooled slots: the routing, the
+tile table and the INT8 codes, 6.5 MB at 1024 rows on the 26B-A4B, under the
+10 MiB the network already reserves.
 
 **Decode (`M == 1`, `outer_size == 1`) — gather-matvec.** A single token visits
 `top_k` of `E` experts. Permutation, segmentation and grouped launch all cost
@@ -178,7 +208,10 @@ expert rows directly out of the `[E, ...]` tensor and runs a fused
 gather-matvec, never materializing gathered weights. It is memory-bound on the
 selected rows, so its floor is the active expert bytes over the card's
 bandwidth — about 1.8 ms per token for Gemma 4 26B-A4B on the RTX 5060 Ti
-(Section 8).
+(Section 8). Built for Q4_0: the gated pass is one warp per (slot, unit), the
+combine one warp per output column over every slot, each lane a whole 32-code
+group at a time; 2.27 ms a token on the 26B-A4B (`Gemma4MoE.md`, "G5b decode
+result").
 
 This is the decode case Mila actually ships. The prefill path is the one that
 touches enough weight mass for a GEMM to matter.
@@ -209,7 +242,7 @@ quantization-aware weights run in the format they were trained for
 
 | Format | Grouped prefill | Where |
 |---|---|---|
-| Q4_0 (`PerGroupInt4<32>`) | Mila's own INT8 grouped GEMM | Section 7.7; not built |
+| Q4_0 (`PerGroupInt4<32>`) | Mila's own INT8 grouped GEMM | Sections 6, 7.7 |
 | `PerGroupFp4<g>` | the Phase 6 two-pass kernel today | Section 7.6 |
 | NVFP4 | CUTLASS's SM120 block-scaled grouped GEMM | Sections 7.1-7.5; not a policy yet |
 
@@ -462,31 +495,34 @@ model to land.
 
 `MixtureOfExperts` and `MoeOp` take `TWeightQuantization`, and the bank runs
 unquantized, at `PerGroupFp4<g>` (`Gemma4MoE.md` Phase 8) or at
-`PerGroupInt4<32>`, Q4_0 (Phase 9). Under either packed policy each pass of the
-Phase 6 kernel decodes the selected expert's codes against their group scales
-inline, one kernel pair templated on the code format; nothing is dequantized
-ahead of the matvec. Which format a policy is comes from two concepts beside the
+`PerGroupInt4<32>`, Q4_0 (Phase 9). Under FP4 each pass of the Phase 6 kernel
+decodes the selected expert's codes against their group scales inline; nothing
+is dequantized ahead of the matvec. Q4_0 has its own kernels (Section 7.7).
+Which format a policy is comes from two concepts beside the
 policies, `HasFp4E2M1Codes` and `HasInt4Codes`, which the bank, `CudaMoeOp` and
 `CudaLinearOp` all ask. `CudaMoeOp` refuses every other policy at construction,
 FP8 included, and an expert width that is not a multiple of the group at build.
 
 ### 7.7 Q4_0 on the bank
 
-The bank is built (`Gemma4MoE.md` Phase 9, `0.21.0-dev+24`); its kernels are
-still the Phase 6 correctness pair. What remains is their speed, G5b. Every
-kernel in it is Mila's own:
+The bank is built (`Gemma4MoE.md` Phase 9, `0.21.0-dev+24`), and G5b gives it
+kernels at speed (`Gemma4MoE.md`, "G5b decode result" and "G5b prefill
+result"). Every kernel in it is Mila's own:
 
 - **The bank has `PerGroupInt4<32>`**, laid out and rounded as `Linear`'s Q4_0
   (Section 7's lead, `Quantization.md`, Q4_0), quantized on load by `Linear`'s
   INT4 quantizer over the stack's `E x rows` output channels.
 - **Prefill** is `Linear`'s Q4_0 INT8 path — activations to INT8 per 32-element
   block, a k32 MMA against the packed codes — made grouped over the expert
-  segments of Section 6.
+  segments of Section 6; the two share their tile copies, fragment unpack and
+  MMA through `Int4Int8Mma.cuh`.
 - **Decode** is the Q4_0 matvec (code times BF16 activation, summed in FP32 per
   block, times the scale) in gather form over the selected rows, measured
-  against the floor of Section 8.
-- **The router** is Phase 5's one thread per row, tuned against the same
-  measurement.
+  against the floor of Section 8: 2.27 ms a token against 1.8.
+- **The router** is one warp per row: top-k by k rounds of a warp argmax, and
+  only the selected experts' exponentials, since the softmax denominator cancels
+  in the renormalization. 7 us a layer at decode, where Phase 5's one thread per
+  row took 53.
 
 ---
 

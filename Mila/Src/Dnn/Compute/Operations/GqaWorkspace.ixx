@@ -87,7 +87,9 @@ namespace Mila::Dnn::Compute
      * @param prefill_chunk Tokens per prefill chunk; sizes the prefill buffers.
      * @param score_width The caller's flash decision made concrete: the flash path reads no score
      *     buffer, while the cuBLASLt path needs the full context and would overflow a narrow one.
-     *     Taken explicitly so a caller cannot allocate for one path and then run the other.
+     *     Taken explicitly so a caller cannot allocate for one path and then run the other. Zero for a
+     *     stack whose every layer prefills through flash: then the prefill score buffers are not
+     *     allocated at all, and a cuBLASLt prefill refuses.
      * @param name_prefix Prepended to each tensor's name.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
@@ -102,10 +104,13 @@ namespace Mila::Dnn::Compute
 
         workspace.q_permute = std::make_unique<TensorType>(
             device, shape_t{ B, num_heads, prefill_chunk, head_dim }, name_prefix + "q_perm" );
-        workspace.preatt = std::make_unique<TensorType>(
-            device, shape_t{ B, num_heads, prefill_chunk, score_width }, name_prefix + "preatt" );
-        workspace.att = std::make_unique<TensorType>(
-            device, shape_t{ B, num_heads, prefill_chunk, score_width }, name_prefix + "att" );
+        if ( score_width > 0 )
+        {
+            workspace.preatt = std::make_unique<TensorType>(
+                device, shape_t{ B, num_heads, prefill_chunk, score_width }, name_prefix + "preatt" );
+            workspace.att = std::make_unique<TensorType>(
+                device, shape_t{ B, num_heads, prefill_chunk, score_width }, name_prefix + "att" );
+        }
         workspace.v_out = std::make_unique<TensorType>(
             device, shape_t{ B, num_heads, prefill_chunk, head_dim }, name_prefix + "v_out" );
 
@@ -135,9 +140,10 @@ namespace Mila::Dnn::Compute
                 static_cast<std::size_t>( elements ) * TensorDataTypeTraits<TPrecision>::size_in_bytes, granularity );
         };
 
-        return 2 * occupied( B * num_heads * prefill_chunk * head_dim )    // q_permute, v_out
-            + 2 * occupied( B * num_heads * prefill_chunk * score_width )  // preatt, att
-            + 2 * occupied( B * num_heads * T_ctx )                        // preatt_decode, att_decode
-            + occupied( B * num_heads * head_dim );                        // v_out_decode
+        // q_permute and v_out; preatt and att, unless every layer flashes; preatt_decode and att_decode; v_out_decode.
+        return 2 * occupied( B * num_heads * prefill_chunk * head_dim )
+            + ( score_width > 0 ? 2 * occupied( B * num_heads * prefill_chunk * score_width ) : 0 )
+            + 2 * occupied( B * num_heads * T_ctx )
+            + occupied( B * num_heads * head_dim );
     }
 }

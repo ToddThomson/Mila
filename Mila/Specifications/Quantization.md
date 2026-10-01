@@ -801,6 +801,22 @@ been run on; whether they are the model's, as 10762's were (`ModelFamilyParity.m
 the BF16 cache at 69632 on 28988 and 30754 answers it. On 30312, the one book scored both ways at the same 128-token
 chunk, FP8 less BF16 is +0.0011, +0.0016, +0.0045, +0.0024 over the four bands both reach.
 
+**Gemma 4, decision 6's second arm, 2026-09-30** (`GemmaLogLikelihoodCudaTests.DISABLED_KvCache_*`, the G2 protocol
+whole-book only, five PG-19 books per model, RTX 5060 Ti; working tree on `0.21.0-dev+24`). Gemma's caches were BF16
+everywhere until then -- the FP8 setting reached no Gemma layer. Two FP8 arms: `PerTokenKvFp8` on the global layers
+(the sliding ring BF16), and that plus `SlidingWindowKvFp8`, a new policy putting the sliding ring's rows in the same
+format (operation gate: bit-identical to the BF16 ring on values FP8 holds exactly, at head sizes 256 and 128). FP8 arm
+less BF16, nats per token, largest of any book and band / pooled per band:
+
+| Arm | Gemma 4 12B Q4_0, 65536, chunk 1024 (bands 0-8K, -16K, -32K, -64K) | Gemma 4 26B-A4B Q4_0, 24576, chunk 64 (bands 0-8K, -16K, -24K) |
+|---|---|---|
+| FP8 global | 0.0064 / -0.0016, +0.0002, +0.0011, +0.0004 | 0.0079 / +0.0034, +0.0037, +0.0031 |
+| FP8 global and ring | 0.0098 / +0.0038, +0.0063, +0.0026, +0.0017 | **0.0230** / -0.0046, -0.0005, +0.0047 |
+
+**The FP8 global cache passes on both; the FP8 ring fails on the 26B-A4B** (0.0230 and 0.0192, of both signs) and
+clears the 12B by 0.0002. The 26B's arms were first run at the chunks the planner gave each (64, 512, 1024) and differed
+by up to 0.0145; held to one chunk they read as above. Not yet wired into `GemmaModel`.
+
 ### Policy Structs
 
 ```cpp

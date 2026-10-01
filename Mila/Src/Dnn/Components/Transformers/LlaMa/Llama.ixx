@@ -444,6 +444,20 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief The context the token embedding is built and priced at: in inference, one prefill chunk wide,
+         *        since every inference pass embeds at most a chunk at a time.
+         */
+        static BuildContext embeddingContext( const BuildContext& context, int64_t prefill_chunk )
+        {
+            if ( !context.isInferenceMode() )
+                return context;
+
+            const auto& input_shape = context.inputShape();
+
+            return context.forChild( shape_t{ input_shape[ 0 ], std::min<int64_t>( input_shape[ 1 ], prefill_chunk ) } );
+        }
+
+        /**
          * @brief Whether prefill attention runs the fused FlashAttention kernel: every BF16 build whose head size
          *        the kernel serves.
          *
@@ -460,12 +474,12 @@ namespace Mila::Dnn
         /**
          * @brief Width of the shared prefill score buffer.
          *
-         * Flash reads none, so it is one row -- kept a valid tensor -- and the O(chunk x context) term the cuBLASLt
-         * path needs leaves the footprint.
+         * Flash reads none, so it is zero -- no buffer (makeGqaWorkspace) -- and the O(chunk x context) term the
+         * cuBLASLt path needs leaves the footprint.
          */
         dim_t prefillScoreWidth( dim_t T_ctx ) const
         {
-            return usesFlashPrefill() ? dim_t{ 1 } : T_ctx;
+            return usesFlashPrefill() ? dim_t{ 0 } : T_ctx;
         }
 
         /**
@@ -497,7 +511,7 @@ namespace Mila::Dnn
             MemoryStats stats;
 
             stats += this->template getComponentAs<TokenEmbeddingType>( n + ".temb" )
-                ->getRequiredMemory( context );
+                ->getRequiredMemory( embeddingContext( context, prefill_chunk ) );
 
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
@@ -656,7 +670,7 @@ namespace Mila::Dnn
             transformer_blocks_.reserve( static_cast<size_t>(config_.getNumLayers()) );
 
             token_embedding_ = this->template getComponentAs<TokenEmbeddingType>( this->getName() + ".temb" );
-            token_embedding_->build( context );
+            token_embedding_->build( embeddingContext( context, prefill_chunk_size_ ) );
 
             // One activation slot set for the whole stack: the layers run one at a time. Declared on block_context
             // as installed, which is how each block's footprint knows not to count the slots.
