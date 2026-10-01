@@ -865,10 +865,20 @@ thread a step (`Gqa.Fp8Widen.cuh`, decode's own widen, now shared), measured old
 
 Two other suspects were measured and are not the cause: shared-memory bank conflicts (an eight-code widen cut them
 from 36.7M to 11.8M a launch and moved nothing, and cost decode 0.3-0.5%, so it was not kept) and register spills
-(the head-size-128 FP8 instantiation spills 16 bytes, stored before the key loop and reloaded after it). What remains
-on Llama is the packed kernel's single BF16 stage: each tile waits, barriers, widens with all eight warps, and barriers
-again before its MMAs, where the BF16 cache has one barrier, and at one block a multiprocessor nothing hides the
-widening (tensor pipe 70% busy against BF16's 80%, issue slots 23% busy in both).
+(the head-size-128 FP8 instantiation spilled 16 bytes, stored before the key loop and reloaded after it). What remained
+on Llama was the packed kernel's single BF16 stage: each tile waited, barriered, widened with all eight warps, and
+barriered again before its MMAs, where the BF16 cache has one barrier, and at one block a multiprocessor nothing hid
+the widening (tensor pipe 70% busy against BF16's 80%, issue slots 23% busy in both).
+
+**Widening ahead, `0.21.0-dev+29`.** Where two BF16 stages and one code stage fit in a block's 99 KB -- head size 128
+at 87 KB, and head size 512 through a window -- the packed kernel widens the next tile into the other BF16 stage at
+the end of this one, after its MMAs, so a tile costs one barrier as over the BF16 cache. No barrier guards the codes:
+a thread widens only the chunks its own `cp.async` wrote, so its own pipeline wait suffices. Head size 256 (101 KB)
+keeps the single stage. Llama 3.1 8B, same 32K prefill, `+28` and `+29` binaries in one sitting: FP8 attention over
+BF16 **+1,000 ms (+12.7%) -> +549 ms (+7.0%)**, the whole prefill +6.6% -> **+3.5%**; at the last chunk the kernel
+runs 13.12 ms against 13.84 and BF16's 12.22, in 202 registers without the spill, tensor pipe 74% busy. What remains
+is the widening itself, repeated by every block that shares a KV head: the price of computing in BF16 (`Untriaged.md`,
+"The FP8 cache's prefill widens every key to BF16").
 
 **Wired, 2026-10-01.** A request's `KvCacheCompression::FP8` reaches `PerTokenKvFp8<>` on every Llama layer and
 on Gemma's global layers through one dispatcher, `dispatchKvCacheCompression` (`QuantizationDispatch.ixx`), which the

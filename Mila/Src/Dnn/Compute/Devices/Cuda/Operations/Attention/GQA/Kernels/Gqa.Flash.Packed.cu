@@ -50,9 +50,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         constexpr int kSkew = 8;                               // row padding: rows 4 banks apart
         constexpr int kTileElements = 8192;                    // keys x head dims per K (or V) tile
 
-        // kFp8: the cache holds E4M3 codes and one scale per row (PerTokenKvFp8). The FP8 staging carries the double
-        // buffer and each tile widens into ONE BF16 stage, since a second BF16 stage on top would pass the 99 KB a
-        // block may hold.
+        constexpr std::size_t kBlockSharedLimit = 99 * 1024;
+
+        // kFp8: the cache holds E4M3 codes and one scale per row (PerTokenKvFp8), and K and V scales are double-buffered.
+        // Where two BF16 stages and one code stage fit (kWidenAhead), the next tile widens into the other BF16 stage at
+        // the end of this one, so a tile costs one block barrier as over the BF16 cache. Where they do not, the codes
+        // double-buffer and each tile widens into one BF16 stage between two barriers.
         template<int kHeadSize, bool kFp8 = false>
         struct PackedGeometry
         {
@@ -68,23 +71,29 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             static constexpr int kExchangeStride = kKeys + 2;  // even (float2 stores), rows off-bank
 
             static constexpr std::size_t kStageElements = static_cast<std::size_t>( kKeys ) * kPad;
-            static constexpr int kBf16Stages = kFp8 ? 1 : 2;
+            static constexpr std::size_t kStageBytes = kStageElements * sizeof( __nv_bfloat16 );
+            static constexpr std::size_t kCodeStageBytes = static_cast<std::size_t>( kTileElements );
 
             static constexpr std::size_t kExchangeBytes = kSplit > 1
                 ? static_cast<std::size_t>( kRowTiles ) * kSplit * kTileRows * kExchangeStride * sizeof( float )
                 : 0;
 
-            static constexpr std::size_t kBf16Bytes = 2 * kBf16Stages * kStageElements * sizeof( __nv_bfloat16 );
-
-            // FP8: K and V codes, two stages each, unpadded; then K and V scales, two stages each.
-            static constexpr std::size_t kCodeStageBytes = static_cast<std::size_t>( kTileElements );
-            static constexpr std::size_t kCodeBytes = kFp8 ? 4 * kCodeStageBytes : 0;
             static constexpr std::size_t kScaleBytes = kFp8 ? 4 * static_cast<std::size_t>( kKeys ) * sizeof( float ) : 0;
 
-            // Exchange floats first (a multiple of 16 bytes), then the BF16 K stages and V stages, then FP8 staging.
+            static constexpr bool kWidenAhead = kFp8
+                && kExchangeBytes + 4 * kStageBytes + 2 * kCodeStageBytes + kScaleBytes <= kBlockSharedLimit;
+
+            static constexpr int kBf16Stages = kFp8 && !kWidenAhead ? 1 : 2;
+            static constexpr int kCodeStages = kWidenAhead ? 1 : 2;
+
+            static constexpr std::size_t kBf16Bytes = 2 * kBf16Stages * kStageBytes;
+            static constexpr std::size_t kCodeBytes = kFp8 ? 2 * kCodeStages * kCodeStageBytes : 0;
+
+            // Exchange floats first (a multiple of 16 bytes), then the BF16 K stages and V stages, then the K codes,
+            // the V codes, the K scales and the V scales, codes unpadded.
             static constexpr std::size_t kSharedBytes = kExchangeBytes + kBf16Bytes + kCodeBytes + kScaleBytes;
 
-            static_assert( kSharedBytes <= 99 * 1024, "a block holds at most 99 KB of shared memory" );
+            static_assert( kSharedBytes <= kBlockSharedLimit, "a block holds at most 99 KB of shared memory" );
         };
 
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
@@ -202,6 +211,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
         // Widen a staged tile of E4M3 codes into the padded BF16 stage the MMA reads, sixteen codes a thread a step.
+        // Chunks are walked exactly as load_kv_tile_fp8 walks them, so a thread widens only codes its own cp.async
+        // wrote: its own pipeline wait makes them readable, and only the widened stage needs a block barrier.
         template<int kHeadSize, int kKeys>
         __device__ __forceinline__ void widen_kv_tile(
             __nv_bfloat16* k_stage, __nv_bfloat16* v_stage, const uint8_t* k_codes, const uint8_t* v_codes, int tid )
@@ -265,17 +276,22 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         __nv_bfloat16* s_k = reinterpret_cast<__nv_bfloat16*>( smem_raw + Geometry::kExchangeBytes );
         __nv_bfloat16* s_v = s_k + Geometry::kBf16Stages * Geometry::kStageElements;
 
-        // FP8 staging, after the BF16 stages: K codes (two stages), V codes, then K scales and V scales.
+        // FP8 staging, after the BF16 stages: K codes, V codes, then K scales and V scales (two stages each).
         uint8_t* s_k_codes = reinterpret_cast<uint8_t*>( smem_raw + Geometry::kExchangeBytes + Geometry::kBf16Bytes );
-        uint8_t* s_v_codes = s_k_codes + 2 * Geometry::kCodeStageBytes;
-        float* s_k_scale = reinterpret_cast<float*>( s_v_codes + 2 * Geometry::kCodeStageBytes );
+        uint8_t* s_v_codes = s_k_codes + Geometry::kCodeStages * Geometry::kCodeStageBytes;
+        float* s_k_scale = reinterpret_cast<float*>( s_v_codes + Geometry::kCodeStages * Geometry::kCodeStageBytes );
         float* s_v_scale = s_k_scale + 2 * Geometry::kKeys;
         const std::size_t scale_base = ( static_cast<std::size_t>( blockIdx.z ) * NKV + blockIdx.y ) * cache_capacity;
 
-        // The tile's BF16 stage: alternating for BF16, the one widened stage for FP8.
+        // The tile's BF16 stage and code stage: alternating where there are two, else the one.
         const auto bf16Stage = [&]( __nv_bfloat16* base, int tile ) -> __nv_bfloat16*
         {
-            return base + ( kFp8 ? 0 : ( tile & 1 ) ) * Geometry::kStageElements;
+            return base + ( Geometry::kBf16Stages == 2 ? ( tile & 1 ) : 0 ) * Geometry::kStageElements;
+        };
+
+        const auto codeStage = [&]( uint8_t* base, int tile ) -> uint8_t*
+        {
+            return base + ( Geometry::kCodeStages == 2 ? ( tile & 1 ) : 0 ) * Geometry::kCodeStageBytes;
         };
 
         const auto loadTile = [&]( int tile )
@@ -285,7 +301,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 const int stage = tile & 1;
 
                 load_kv_tile_fp8<kHeadSize, Geometry::kKeys>(
-                    s_k_codes + stage * Geometry::kCodeStageBytes, s_v_codes + stage * Geometry::kCodeStageBytes,
+                    codeStage( s_k_codes, tile ), codeStage( s_v_codes, tile ),
                     s_k_scale + stage * Geometry::kKeys, s_v_scale + stage * Geometry::kKeys,
                     static_cast<const uint8_t*>( K_raw ), static_cast<const uint8_t*>( V_raw ), k_scales, v_scales,
                     kv_base, scale_base,
@@ -298,6 +314,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     K, V, kv_base,
                     tile * Geometry::kKeys, cache_capacity, ring, threadIdx.x );
             }
+        };
+
+        const auto widenTile = [&]( int tile )
+        {
+            widen_kv_tile<kHeadSize, Geometry::kKeys>( bf16Stage( s_k, tile ), bf16Stage( s_v, tile ),
+                codeStage( s_k_codes, tile ), codeStage( s_v_codes, tile ), tid );
         };
 
         // This lane's two rows: g and g + 8 of its row tile.
@@ -357,6 +379,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         loadTile( first_tile );
         __pipeline_commit();
 
+        if constexpr ( Geometry::kWidenAhead )
+        {
+            __pipeline_wait_prior( 0 );
+            widenTile( first_tile );
+        }
+
         for ( int tile = first_tile; tile < tile_count; ++tile )
         {
             const int tile_start = tile * Geometry::kKeys;
@@ -365,12 +393,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const float* k_scale_tile = s_k_scale + ( tile & 1 ) * Geometry::kKeys;
             const float* v_scale_tile = s_v_scale + ( tile & 1 ) * Geometry::kKeys;
 
-            __pipeline_wait_prior( 0 );
+            // With kWidenAhead nothing is in flight here: this tile landed and widened at the end of the previous one.
+            if constexpr ( !Geometry::kWidenAhead )
+                __pipeline_wait_prior( 0 );
 
             // This tile visible to every warp; and, every thread having finished the previous
             // tile, the stage the next prefetch writes and the exchange buffer are free. For FP8 that
             // stage's scales were read until here, and its codes widened in the previous iteration, so
-            // the prefetch goes here and stays in flight through this tile's widening.
+            // the prefetch goes here and stays in flight through this tile's widening, or with
+            // kWidenAhead through this tile's MMAs.
             __syncthreads();
 
             if ( tile + 1 < tile_count )
@@ -379,12 +410,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 __pipeline_commit();
             }
 
-            if constexpr ( kFp8 )
+            if constexpr ( kFp8 && !Geometry::kWidenAhead )
             {
                 // The single BF16 stage is free: every thread finished the previous tile above.
-                widen_kv_tile<kHeadSize, Geometry::kKeys>( bf16Stage( s_k, tile ), bf16Stage( s_v, tile ),
-                    s_k_codes + ( tile & 1 ) * Geometry::kCodeStageBytes,
-                    s_v_codes + ( tile & 1 ) * Geometry::kCodeStageBytes, tid );
+                widenTile( tile );
 
                 // The widened tile visible to every warp before the MMAs read it.
                 __syncthreads();
@@ -571,6 +600,17 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                         p0, p1, p2, p3, b00, b01 );
                     mma_m16n8k16_bf16( o[ 2 * pair + 1 ][ 0 ], o[ 2 * pair + 1 ][ 1 ], o[ 2 * pair + 1 ][ 2 ], o[ 2 * pair + 1 ][ 3 ],
                         p0, p1, p2, p3, b10, b11 );
+                }
+            }
+
+            if constexpr ( Geometry::kWidenAhead )
+            {
+                // The next tile widens into the other BF16 stage, free since every thread passed this tile's barrier,
+                // while slower warps still run this tile's MMAs; the next barrier publishes it.
+                if ( tile + 1 < tile_count )
+                {
+                    __pipeline_wait_prior( 0 );
+                    widenTile( tile + 1 );
                 }
             }
         }

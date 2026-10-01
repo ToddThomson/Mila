@@ -405,12 +405,14 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
     }
 
     // With K and V the FP8 cache holds exactly, both caches hold the same values, and every scale is a power of two,
-    // which factors out of the dot products without rounding: the two ops must agree bit for bit.
+    // which factors out of the dot products without rounding: the two ops must agree bit for bit. The fourth geometry
+    // runs a block through twelve key tiles at head size 128, where the prefill widens each tile ahead of its MMAs.
     TEST_F( CudaGqaFp8CacheTests, LosslessValues_MatchTheBf16CacheBitForBit )
     {
         expectLosslessMatchesBf16( Geometry{ 1, 8, 2, 128, 256, 64, 192, 64 }, 7u );
         expectLosslessMatchesBf16( Geometry{ 2, 16, 1, 512, 160, 32, 96, 64 }, 11u );
         expectLosslessMatchesBf16( Geometry{ 1, 12, 2, 256, 192, 64, 128, 40 }, 13u );
+        expectLosslessMatchesBf16( Geometry{ 1, 8, 2, 128, 1024, 256, 768, 16 }, 23u );
     }
 
     // Llama 3.1 8B's group (4) and head size; three prefill chunks, then decode past 64 so split-K engages.
@@ -436,11 +438,13 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Fp8Cache
     // 160-token prefill and 64 decode steps wrap more than twice.
     // ====================================================================
 
-    // Gemma 4's sliding layers: head size 256, group 2.
+    // Gemma 4's sliding layers: head size 256, group 2. Head size 512 reaches the packed prefill only through a window,
+    // and there widens each tile ahead of its MMAs as head size 128 does.
     TEST_F( CudaGqaFp8CacheTests, Ring_LosslessValues_MatchTheBf16RingBitForBit )
     {
         expectLosslessMatchesBf16<Fp8RingOp, Bf16RingOp>( Geometry{ 1, 16, 8, 256, 224, 32, 160, 64, 64 }, 17u );
         expectLosslessMatchesBf16<Fp8RingOp, Bf16RingOp>( Geometry{ 2, 8, 2, 128, 224, 32, 160, 64, 64 }, 19u );
+        expectLosslessMatchesBf16<Fp8RingOp, Bf16RingOp>( Geometry{ 1, 8, 2, 512, 224, 32, 160, 64, 64 }, 29u );
     }
 
     TEST_F( CudaGqaFp8CacheTests, Ring_GemmaSlidingGeometry_AsExactAsTheBf16Ring )
