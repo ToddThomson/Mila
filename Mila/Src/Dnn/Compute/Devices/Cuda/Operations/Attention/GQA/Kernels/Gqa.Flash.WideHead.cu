@@ -10,17 +10,23 @@
 // Over the BF16 cache, Q's first 256 dims live in registers and the rest in shared memory, which leaves registers
 // to hide latency; the FP8 cache needs that shared memory for its code staging and holds all of Q in registers.
 //
+// QK is BF16 with FP32 accumulation. PV runs on FP16 V and P, each 32-key tile summed with FP16 accumulation --
+// twice the FP32-accumulate rate on GeForce -- and folded into FP32 O (GqaFlashAttention.md 5.8). A tile's sum
+// stays finite while |v| < 2047; head size 512 is Gemma's, whose weightless v_norm bounds |v| by sqrt(512).
+//
 // m16n8k16 .f32.bf16.bf16.f32 fragment layout (PTX ISA), g = lane/4, tg = lane%4:
 //   A[16x16] a0..a3 (row-major): a0={A[g][2t],A[g][2t+1]} a1={A[g+8][2t],..}
 //                                a2={A[g][2t+8],..}       a3={A[g+8][2t+8],..}
 //   B[16x8]  b0,b1  (col-major): b0={B[2t][g],B[2t+1][g]} b1={B[2t+8][g],B[2t+9][g]}
 //   C[16x8]  c0..c3 (row-major): c0=C[g][2t] c1=C[g][2t+1] c2=C[g+8][2t] c3=C[g+8][2t+1]
+// The .f16 accumulator packs the same positions in pairs: d0={C[g][2t],C[g][2t+1]}, d1={C[g+8][2t],C[g+8][2t+1]}.
 //
 // A score C tile holds keys g, g + 8 of rows 2t, 2t + 1; the PV B fragment needs keys 2t, 2t + 1 of row g, so each
 // 8-key half is the transpose of its C half -- movmatrix.trans of the packed pair.
 
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
+#include <cuda_fp16.h>
 #include <cuda_fp8.h>
 #include <math_constants.h>
 #include <cstdint>
@@ -49,7 +55,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         static_assert( kRows <= 2 * kKeys, "the output staging reuses the K and V stages" );
 
         // kFp8: the cache holds E4M3 codes and one scale per row (PerTokenKvFp8); each tile's codes stage unpadded
-        // and widen into the BF16 stage the MMAs read.
+        // and widen into the stage the MMAs read, K as BF16 and V as FP16.
         template<bool kFp8>
         struct WideHeadGeometry
         {
@@ -81,6 +87,16 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 : "r"( a0 ), "r"( a1 ), "r"( a2 ), "r"( a3 ), "r"( b0 ), "r"( b1 ) );
         }
 
+        __device__ __forceinline__ void mma_m16n8k16_f16( uint32_t* d,
+            uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t b0, uint32_t b1 )
+        {
+            asm volatile(
+                "mma.sync.aligned.m16n8k16.row.col.f16.f16.f16.f16 "
+                "{%0,%1}, {%2,%3,%4,%5}, {%6,%7}, {%0,%1};\n"
+                : "+r"( d[ 0 ] ), "+r"( d[ 1 ] )
+                : "r"( a0 ), "r"( a1 ), "r"( a2 ), "r"( a3 ), "r"( b0 ), "r"( b1 ) );
+        }
+
         __device__ __forceinline__ uint32_t shared_address( const void* pointer )
         {
             return static_cast<uint32_t>( __cvta_generic_to_shared( pointer ) );
@@ -108,9 +124,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             return transposed;
         }
 
-        __device__ __forceinline__ uint32_t pack_bf16x2( float low, float high )
+        __device__ __forceinline__ uint32_t pack_half2( float low, float high )
         {
-            const __nv_bfloat162 packed = __floats2bfloat162_rn( low, high );
+            const __half2 packed = __floats2half2_rn( low, high );
 
             return *reinterpret_cast<const uint32_t*>( &packed );
         }
@@ -163,7 +179,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 __pipeline_memcpy_async( scales + tid, source_scales + scale_base + cache_row( tile_start + tid, cache_capacity ), 4 );
         }
 
-        // Widen a code stage into the padded BF16 stage, sixteen codes a thread a step.
+        // Widen a K code stage into the padded BF16 stage, unscaled, sixteen codes a thread a step.
         __device__ __forceinline__ void widen_tile( __nv_bfloat16* stage, const uint8_t* codes, int tid )
         {
             constexpr int kChunksPerRow = kHeadSize / 16;
@@ -178,12 +194,60 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 widen_sixteen_codes( *reinterpret_cast<const uint4*>( codes + key * kHeadSize + column ), stage + key * kPad + column );
             }
         }
+
+        // Widen a V code stage into the padded stage as FP16, each key's values times its scale. Chunks are walked as
+        // load_code_tile walks them, though the scales come from other threads, so a block barrier comes first.
+        __device__ __forceinline__ void widen_value_tile( __half* stage, const uint8_t* codes, const float* scales, int tid )
+        {
+            constexpr int kChunksPerRow = kHeadSize / 16;
+
+#pragma unroll
+            for ( int i = 0; i < kKeys * kChunksPerRow / ( kWarps * 32 ); ++i )
+            {
+                const int chunk = tid + i * kWarps * 32;
+                const int key = chunk / kChunksPerRow;
+                const int column = ( chunk % kChunksPerRow ) * 16;
+
+                widen_sixteen_codes_to_half( *reinterpret_cast<const uint4*>( codes + key * kHeadSize + column ),
+                    scales[ key ], stage + key * kPad + column );
+            }
+        }
+
+        // Rewrite a BF16 V stage as FP16 in place, eight values a thread a step. Chunks are walked as load_tile walks
+        // them, so a thread rewrites only what its own cp.async wrote, and its own pipeline wait suffices.
+        __device__ __forceinline__ void narrow_value_tile_to_half( __nv_bfloat16* stage, int tid )
+        {
+            constexpr int kChunksPerRow = kHeadSize / 8;
+
+#pragma unroll
+            for ( int i = 0; i < kKeys * kChunksPerRow / ( kWarps * 32 ); ++i )
+            {
+                const int chunk = tid + i * kWarps * 32;
+                const int key = chunk / kChunksPerRow;
+                const int column = ( chunk % kChunksPerRow ) * 8;
+
+                uint4* values = reinterpret_cast<uint4*>( stage + key * kPad + column );
+                const uint4 raw = *values;
+                const uint32_t words[ 4 ] = { raw.x, raw.y, raw.z, raw.w };
+                uint32_t narrowed[ 4 ];
+
+#pragma unroll
+                for ( int word = 0; word < 4; ++word )
+                {
+                    const float2 value = __bfloat1622float2( *reinterpret_cast<const __nv_bfloat162*>( &words[ word ] ) );
+                    const __half2 converted = __floats2half2_rn( value.x, value.y );
+                    narrowed[ word ] = *reinterpret_cast<const uint32_t*>( &converted );
+                }
+
+                *values = make_uint4( narrowed[ 0 ], narrowed[ 1 ], narrowed[ 2 ], narrowed[ 3 ] );
+            }
+        }
 #endif
     }
 
-    // kFp8: each key's K scale multiplies its score and its V scale its probability as P is packed for PV, while l sums
-    // the unscaled probabilities -- as the packed kernel does, so a cache holding lossless values matches the BF16
-    // cache bit for bit (Quantization.md, Part III).
+    // kFp8: each key's K scale multiplies its score, and its V scale its values as they widen to FP16 for PV, while l sums
+    // the probabilities; so a cache holding lossless values -- every scale a power of two -- matches the BF16 cache bit
+    // for bit (Quantization.md, Part III).
     template<bool kFp8>
     __global__ void __launch_bounds__( kWarps * 32, 1 )
     gqa_flash_prefill_wide_head_kernel(
@@ -219,7 +283,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         __nv_bfloat16* s_v = s_k + kStageElements;
         __nv_bfloat16* s_q = s_v + kStageElements;
 
-        // FP8, after the BF16 stages: K codes, V codes, K scales, V scales.
+        // FP8, after the K and V stages: K codes, V codes, K scales, V scales.
         uint8_t* s_k_codes = reinterpret_cast<uint8_t*>( smem_raw + kStageBytes );
         uint8_t* s_v_codes = s_k_codes + Geometry::kCodeStageBytes;
         float* s_k_scale = reinterpret_cast<float*>( s_v_codes + Geometry::kCodeStageBytes );
@@ -466,6 +530,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             __pipeline_wait_prior( 0 );
 
+            if constexpr ( !kFp8 )
+            {
+                // This thread's own chunks of V(tile) landed; the barrier below publishes them as FP16.
+                narrow_value_tile_to_half( s_v, tid );
+            }
+
             // V(tile) visible to every warp; and, every warp having finished QK(tile), the K stage is free. For FP8
             // the K codes were widened before QK and its scales read in the softmax, so the next K's load is in flight
             // through V's widening.
@@ -477,43 +547,46 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 __pipeline_commit();
             }
 
-            // P^T as B fragments, V-scaled for FP8 once V's scales have landed.
+            // P^T as FP16 B fragments.
             uint32_t p[ kKeyTiles ][ 2 ];
 #pragma unroll
             for ( int kt = 0; kt < kKeyTiles; ++kt )
             {
-                float v_low = 1.0f, v_high = 1.0f;
-
-                if constexpr ( kFp8 )
-                {
-                    v_low = s_v_scale[ kt * 16 + g ];
-                    v_high = s_v_scale[ kt * 16 + g + 8 ];
-                }
-
-                p[ kt ][ 0 ] = movmatrix_trans( pack_bf16x2( s[ kt ][ 0 ] * v_low, s[ kt ][ 1 ] * v_low ) );
-                p[ kt ][ 1 ] = movmatrix_trans( pack_bf16x2( s[ kt ][ 2 ] * v_high, s[ kt ][ 3 ] * v_high ) );
+                p[ kt ][ 0 ] = movmatrix_trans( pack_half2( s[ kt ][ 0 ], s[ kt ][ 1 ] ) );
+                p[ kt ][ 1 ] = movmatrix_trans( pack_half2( s[ kt ][ 2 ], s[ kt ][ 3 ] ) );
             }
 
             if constexpr ( kFp8 )
             {
-                // The BF16 V stage is free: every warp finished PV(tile - 1) before this tile's first barrier.
-                widen_tile( s_v, s_v_codes, tid );
+                // The V stage is free: every warp finished PV(tile - 1) before this tile's first barrier. V's scales
+                // came from other threads, published by the barrier above.
+                widen_value_tile( reinterpret_cast<__half*>( s_v ), s_v_codes, s_v_scale, tid );
 
                 // The widened V visible before the MMAs read it.
                 __syncthreads();
             }
 
-            // --- O^T += V^T P^T ---
+            // --- O^T += V^T P^T: the tile's 32 keys summed in FP16, then added to FP32 O ---
 #pragma unroll
-            for ( int kt = 0; kt < kKeyTiles; ++kt )
+            for ( int d = 0; d < kDimTiles; ++d )
             {
+                uint32_t tile_sum[ 2 ] = { 0u, 0u };
+
 #pragma unroll
-                for ( int d = 0; d < kDimTiles; ++d )
+                for ( int kt = 0; kt < kKeyTiles; ++kt )
                 {
                     uint32_t a0, a1, a2, a3;
                     ldmatrix_x4_trans( a0, a1, a2, a3, shared_address( &s_v[ ( kt * 16 + v_key ) * kPad + d * 16 + v_dim ] ) );
-                    mma_m16n8k16_bf16( o[ d ], a0, a1, a2, a3, p[ kt ][ 0 ], p[ kt ][ 1 ] );
+                    mma_m16n8k16_f16( tile_sum, a0, a1, a2, a3, p[ kt ][ 0 ], p[ kt ][ 1 ] );
                 }
+
+                const float2 low = __half22float2( *reinterpret_cast<const __half2*>( &tile_sum[ 0 ] ) );
+                const float2 high = __half22float2( *reinterpret_cast<const __half2*>( &tile_sum[ 1 ] ) );
+
+                o[ d ][ 0 ] += low.x;
+                o[ d ][ 1 ] += low.y;
+                o[ d ][ 2 ] += high.x;
+                o[ d ][ 3 ] += high.y;
             }
         }
 

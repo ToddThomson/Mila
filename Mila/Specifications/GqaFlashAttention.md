@@ -612,8 +612,27 @@ run PV on FP16 P and V.
 An FP16 output accumulator overflows once a row's unnormalized sum passes 65504 -- 32K keys of mean 4 do it -- and
 is 3.7x less exact even when it does not. Summing each 32-key tile in FP16 and adding it to FP32 O cannot overflow
 while |v| < 2047 (Gemma's V leaves `v_norm`), gains 6% on the 4070 and 15% on the 5060 Ti, and is *more* exact
-than the shipped path, because P rounds to FP16's 11-bit significand instead of BF16's 8. Not built: V reaches
-the kernel as BF16, so the arm's cost to widen it in the kernel is unmeasured (an FP16 V cache would avoid it).
+than the shipped path, because P rounds to FP16's 11-bit significand instead of BF16's 8.
+
+**Built, `0.21.0-dev+30`.** The third arm is the kernel's PV: each 32-key tile summed by FP16-accumulate MMAs and
+added to FP32 O. Over the BF16 cache each thread narrows the V chunks its own `cp.async` wrote to FP16 before the
+barrier that publishes V; over the FP8 cache V widens to FP16 with its row scale applied, rounding once (exact for a
+power-of-two scale), so P packs unscaled for both caches and lossless codes still match the BF16 cache bit for bit.
+QK stays BF16 with FP32 accumulation. Gemma 4 12B and 26B-A4B Q4_0, 32,512-token prefill, RTX 5060 Ti, Nsight
+Systems, `+29` and `+30` binaries in one sitting:
+
+| HS-512 attention | Before | After | |
+|---|---|---|---|
+| 12B, BF16 cache | 3,958 ms | 3,825 ms | -3.4% |
+| 12B, FP8 cache | 4,208 ms | 3,884 ms | -7.7%, within 1.5% of the BF16 cache |
+| 26B-A4B, BF16 cache | 2,490 ms | 2,394 ms | -3.9% |
+
+The harness's 15% is not reached, and Nsight Compute on the last chunk (12B, BF16 cache) says why: the tensor pipe's
+busy time falls by the predicted quarter (19.0 -> 14.2 ms) while instructions rise 58% -- the fold of each tile's FP16
+sums into FP32 O (about 460M a launch), the per-tile narrowing of V (about 245M) and a few reloaded spills (the
+instantiations now sit at 255 registers) -- so the kernel is no longer bound by its MMAs. The FP8 cache skips the
+narrowing, hence its larger gain. Storing Gemma's global V as FP16 instead of BF16 -- the same bytes, three more
+significand bits, safe under `v_norm`'s bound -- would remove the narrowing for the BF16 cache too.
 
 ## 6. Correctness / parity invariant
 

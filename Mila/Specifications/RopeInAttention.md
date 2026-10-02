@@ -1,8 +1,9 @@
 # RoPE In Attention
 
-**Status:** Draft, 2026-10-01. No code. Not v0.21 scope: no `ROADMAP.md` success criterion fails without it. Two
-facts (section 5) decide whether it becomes a design; until both are measured it is a direction, recorded so the
-reasoning is not lost.
+**Status:** Draft, 2026-10-01. No code. Both facts that decide it (section 5) were measured the same day and both
+pass; Todd, the same day, takes it forward for what it does to latency: the stored-once cache buys the 26B-A4B its
+largest prefill chunk at 64K on a 16 GB card (section 3). What remains before it is a design is section 4.3's quality
+gate and the kernels' shape.
 
 **Area:** where rotary position embedding is applied, and what the KV cache stores as a result. RoPE as a
 separate operation is `CudaRopeOp`; its angles are calculated, not stored (`MemoryFootprint.md` 8.4).
@@ -43,9 +44,13 @@ The rest of this document is about **read-time fusion**.
 - **Gemma's global keys stored once.** On Gemma 4's global layers the checkpoint has one projection for keys and
   values (K = V), but the cache holds two tensors: K = RoPE(k_norm(x)) and V = v_norm(x). If keys are rotated
   inside attention, the cache need not hold rotated keys, and if k_norm(x) and v_norm(x) can be recovered from one
-  stored tensor, it holds one tensor where it holds two. Estimated, never measured: about 96K on a 16 GB card for the
-  26B-A4B with the FP8 global cache, against 65536 today (`MemoryFootprint.md` 8.4). The estimate predates the
-  RoPE table's retirement and must be re-derived from the footprint before it is quoted anywhere.
+  stored tensor, it holds one tensor where it holds two. Re-derived 2026-10-01 from the footprint the planner prices
+  (`GemmaLogLikelihoodCudaTests.DISABLED_KvCache_26B_Q4_0_Fp8Global_ChunkPricing`, Q4_0, FP8 global cache, context
+  65536, 15,172 MiB free on the RTX 5060 Ti): the global cache's two tensors are about 650 MiB, so storing once frees
+  about 325 MiB, and the planner's largest chunk, 1024 rows, goes from 216 MiB over to about 109 MiB under -- where
+  today it takes 128. At 32K, the same cache moving the chunk from 256 to 1024 made the whole prefill 1.41x faster
+  (`Quantization.md`, decode at 32K). The earlier "about 96K" estimate is withdrawn; capacity at the largest chunk is
+  the figure that matters to a user waiting on a prompt.
 - **Nothing else that Mila can use.** Unrotated keys would let a cached prefix be reused at a shifted position, but
   that changes outputs, and `PromptCaching.md`'s invariant is that reuse never does.
 
@@ -119,3 +124,23 @@ sends it to `Future.md`.
 
 If both pass, read-time fusion is a candidate for the release after v0.21: a compile-time policy on Gemma's global
 attention only, gated per section 4.3, with section 3's figure re-derived from the footprint first.
+
+**Both measured, 2026-10-01; both pass.**
+
+1. **One stored tensor serves both.** HuggingFace's Gemma 4 attention (transformers 5.12.1, `modeling_gemma4.py`) on a
+   K = V layer sets `value_states = key_states`, the raw projection; V = `v_norm( raw )` with `with_scale=False`, and
+   K = RoPE( `k_norm( raw )` ), the same RMSNorm with the same epsilon times its weight. So K = RoPE( V * w_k ),
+   rotation on the first 128 of 512 dims only. The 384 unrotated dims of K are V times w_k, and w_k folds into the
+   query once per step: the attention kernel reads them from V's own tile, and builds only 64 rotated pairs per key.
+2. **Building them costs less than the bytes saved.** `Profiling/Microbenchmarks/RotateOnRead.cu`, decode's tile loop
+   over one global layer of the 26B-A4B (2 KV heads, FP8), RTX 5060 Ti, median of 200: at 65536 positions, today's two
+   tensors 342.5 us; V alone with the 64 pairs rotated by the accurate `sincosf` 235.0 us, **0.69 of today**; an angle
+   recurrence 0.67; a table of angles 0.91, its reads costing more than the trigonometry. At 32768, 0.72. The gate was
+   parity within 5%. No MMA competes for issue in the microbenchmark, so the real kernel's margin is smaller; the
+   accurate angle function is kept, since the recurrence buys 2%.
+
+Section 4.2's cost is therefore not the obstacle it was feared to be, and section 4.5 changes: read-time fusion is now
+a speed gain at depth as well as a capacity one. Section 4.3 -- the FP8 cache quantizing unrotated values, so the
+long-context quality gate again -- stands, as does 4.4's cost in kernels. One more change rides with it: the cache's V
+could be stored FP16 rather than BF16 -- the same bytes, three more significand bits, bounded by the weightless
+`v_norm` -- which removes the per-tile narrowing the FP16 PV path pays over a BF16 cache (`GqaFlashAttention.md` 5.8).

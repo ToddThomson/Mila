@@ -107,6 +107,19 @@ Build it a second time with a multi-arch gencode list to price the fatbin. Use i
 concluding that a model "does not fit" — VRAM arithmetic is easy to get wrong from the
 outside, and a model's file size is **not** its resident size.
 
+## `RotateOnRead.cu`
+
+Whether a decode step can build Gemma's global keys from a cache that holds only V (`RopeInAttention.md` section 5,
+fact 2): decode's tile loop over one global layer, today's two tensors against V alone with 64 pairs rotated per key --
+by `sincosf`, by an angle recurrence, or from a table.
+
+```
+nvcc -gencode=arch=compute_120,code=sm_120 -O3 RotateOnRead.cu -o RotateOnRead.exe
+```
+
+No MMA competes for issue in it, so its K = V margin is an upper bound on the real kernel's. Measured 2026-10-01 on
+the RTX 5060 Ti: at 65536 positions `sincosf` runs 0.69 of today's time, the recurrence 0.67, the table 0.91.
+
 ## `kernel_shares.py`
 
 Groups an nsys kernel summary into attention / GEMM / plumbing / other, so a profile answers

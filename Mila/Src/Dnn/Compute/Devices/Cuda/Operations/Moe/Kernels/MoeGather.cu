@@ -19,6 +19,11 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         constexpr int kGroup = 32;
         constexpr int kWarpsPerBlock = 8;
 
+        // Outputs per warp. Register-limited to two blocks a multiprocessor, a warp with one row had one load in flight
+        // per lane per step; these put two and four there, and the combine's staged values serve four columns.
+        constexpr int kUnitsPerWarp = 2;
+        constexpr int kColumnsPerWarp = 2;
+
         // A group's 32 FP32 gated values stride 36 floats in shared memory: the eight lanes of a quarter-warp read
         // float4 k of eight consecutive groups, and without the pad all eight land in one bank.
         constexpr int kPaddedGroup = 36;
@@ -100,66 +105,100 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         }
 
         template<typename TFunctor>
-        __global__ void __launch_bounds__( 32 * kWarpsPerBlock ) moe_gated_gather_int4_kernel(
+        __global__ void __launch_bounds__( 32 * kWarpsPerBlock, 2 ) moe_gated_gather_int4_kernel(
             const __nv_bfloat16* __restrict__ input, const uint8_t* __restrict__ gate_up,
             const __half* __restrict__ gate_up_scales, const int32_t* __restrict__ indices, float* __restrict__ gated,
             int hidden, int intermediate, int experts, int top_k, TFunctor functor )
         {
-            const int unit = blockIdx.x * kWarpsPerBlock + threadIdx.y;
+            const int first_unit = ( blockIdx.x * kWarpsPerBlock + threadIdx.y ) * kUnitsPerWarp;
             const int slot = blockIdx.y;
             const int64_t token = blockIdx.z;
 
-            if ( unit >= intermediate )
+            if ( first_unit >= intermediate )
             {
                 return;
             }
 
-            const int64_t cell = ( token * top_k + slot ) * intermediate + unit;
+            const int64_t first_cell = ( token * top_k + slot ) * intermediate + first_unit;
             const int32_t expert = indices[ token * top_k + slot ];
 
             if ( expert < 0 || expert >= experts )
             {
                 if ( threadIdx.x == 0 )
                 {
-                    gated[ cell ] = NAN;
+                    for ( int u = 0; u < kUnitsPerWarp && first_unit + u < intermediate; ++u )
+                    {
+                        gated[ first_cell + u ] = NAN;
+                    }
                 }
 
                 return;
             }
 
             const int groups = hidden / kGroup;
-            const int64_t gate_row = static_cast<int64_t>( expert ) * 2 * intermediate + unit;
-            const int64_t up_row = gate_row + intermediate;
-            const int4* gate_codes = reinterpret_cast<const int4*>( gate_up + gate_row * ( hidden / 2 ) );
-            const int4* up_codes = reinterpret_cast<const int4*>( gate_up + up_row * ( hidden / 2 ) );
-            const __half* gate_scales = gate_up_scales + gate_row * groups;
-            const __half* up_scales = gate_up_scales + up_row * groups;
             const __nv_bfloat16* x = input + token * hidden;
 
-            float gate = 0.0f;
-            float up = 0.0f;
+            // A unit past the end reads the last one's rows and is not written.
+            const int4* gate_codes[ kUnitsPerWarp ];
+            const int4* up_codes[ kUnitsPerWarp ];
+            const __half* gate_scales[ kUnitsPerWarp ];
+            const __half* up_scales[ kUnitsPerWarp ];
+
+#pragma unroll
+            for ( int u = 0; u < kUnitsPerWarp; ++u )
+            {
+                const int unit = min( first_unit + u, intermediate - 1 );
+                const int64_t gate_row = static_cast<int64_t>( expert ) * 2 * intermediate + unit;
+                const int64_t up_row = gate_row + intermediate;
+
+                gate_codes[ u ] = reinterpret_cast<const int4*>( gate_up + gate_row * ( hidden / 2 ) );
+                up_codes[ u ] = reinterpret_cast<const int4*>( gate_up + up_row * ( hidden / 2 ) );
+                gate_scales[ u ] = gate_up_scales + gate_row * groups;
+                up_scales[ u ] = gate_up_scales + up_row * groups;
+            }
+
+            float gate[ kUnitsPerWarp ] = {};
+            float up[ kUnitsPerWarp ] = {};
 
             for ( int group = threadIdx.x; group < groups; group += 32 )
             {
-                float gate_sum;
-                float up_sum;
+                int4 gate_group[ kUnitsPerWarp ];
+                int4 up_group[ kUnitsPerWarp ];
 
-                group_dot_pair_bf16( gate_codes[ group ], up_codes[ group ], x + group * kGroup, gate_sum, up_sum );
+#pragma unroll
+                for ( int u = 0; u < kUnitsPerWarp; ++u )
+                {
+                    gate_group[ u ] = gate_codes[ u ][ group ];
+                    up_group[ u ] = up_codes[ u ][ group ];
+                }
 
-                gate = fmaf( __half2float( gate_scales[ group ] ), gate_sum, gate );
-                up = fmaf( __half2float( up_scales[ group ] ), up_sum, up );
+#pragma unroll
+                for ( int u = 0; u < kUnitsPerWarp; ++u )
+                {
+                    float gate_sum;
+                    float up_sum;
+
+                    group_dot_pair_bf16( gate_group[ u ], up_group[ u ], x + group * kGroup, gate_sum, up_sum );
+
+                    gate[ u ] = fmaf( __half2float( gate_scales[ u ][ group ] ), gate_sum, gate[ u ] );
+                    up[ u ] = fmaf( __half2float( up_scales[ u ][ group ] ), up_sum, up[ u ] );
+                }
             }
 
-            gate = warp_sum( gate );
-            up = warp_sum( up );
-
-            if ( threadIdx.x == 0 )
+#pragma unroll
+            for ( int u = 0; u < kUnitsPerWarp; ++u )
             {
-                gated[ cell ] = functor.fwd( gate ) * up;
+                const float gate_total = warp_sum( gate[ u ] );
+                const float up_total = warp_sum( up[ u ] );
+
+                if ( threadIdx.x == 0 && first_unit + u < intermediate )
+                {
+                    gated[ first_cell + u ] = functor.fwd( gate_total ) * up_total;
+                }
             }
         }
 
-        __global__ void __launch_bounds__( 32 * kWarpsPerBlock ) moe_combine_gather_int4_kernel(
+        __global__ void __launch_bounds__( 32 * kWarpsPerBlock, 2 ) moe_combine_gather_int4_kernel(
             const float* __restrict__ gated, const uint8_t* __restrict__ down, const __half* __restrict__ down_scales,
             const __nv_bfloat16* __restrict__ weights, const int32_t* __restrict__ indices,
             __nv_bfloat16* __restrict__ output, int hidden, int intermediate, int experts, int top_k )
@@ -184,14 +223,14 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
             __syncthreads();
 
-            const int column = blockIdx.x * kWarpsPerBlock + threadIdx.y;
+            const int first_column = ( blockIdx.x * kWarpsPerBlock + threadIdx.y ) * kColumnsPerWarp;
 
-            if ( column >= hidden )
+            if ( first_column >= hidden )
             {
                 return;
             }
 
-            float sum = 0.0f;
+            float sum[ kColumnsPerWarp ] = {};
 
             for ( int group = threadIdx.x; group < token_groups; group += 32 )
             {
@@ -201,23 +240,46 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
                 if ( expert < 0 || expert >= experts )
                 {
-                    sum += NAN;
+#pragma unroll
+                    for ( int c = 0; c < kColumnsPerWarp; ++c )
+                    {
+                        sum[ c ] += NAN;
+                    }
+
                     continue;
                 }
 
-                const int64_t row = static_cast<int64_t>( expert ) * hidden + column;
-                const int4 codes = reinterpret_cast<const int4*>( down + row * ( intermediate / 2 ) )[ within ];
-                const float scale = __half2float( down_scales[ row * groups_per_row + within ] );
+                // A column past the end reads the last one's row and is not written.
+                int4 codes[ kColumnsPerWarp ];
+                float scale[ kColumnsPerWarp ];
+
+#pragma unroll
+                for ( int c = 0; c < kColumnsPerWarp; ++c )
+                {
+                    const int64_t row = static_cast<int64_t>( expert ) * hidden + min( first_column + c, hidden - 1 );
+
+                    codes[ c ] = reinterpret_cast<const int4*>( down + row * ( intermediate / 2 ) )[ within ];
+                    scale[ c ] = __half2float( down_scales[ row * groups_per_row + within ] );
+                }
+
                 const float combine = __bfloat162float( weights[ token * top_k + slot ] );
 
-                sum = fmaf( combine * scale, group_dot_fp32( codes, staged + group * kPaddedGroup ), sum );
+#pragma unroll
+                for ( int c = 0; c < kColumnsPerWarp; ++c )
+                {
+                    sum[ c ] = fmaf( combine * scale[ c ], group_dot_fp32( codes[ c ], staged + group * kPaddedGroup ), sum[ c ] );
+                }
             }
 
-            sum = warp_sum( sum );
-
-            if ( threadIdx.x == 0 )
+#pragma unroll
+            for ( int c = 0; c < kColumnsPerWarp; ++c )
             {
-                output[ token * hidden + column ] = __float2bfloat16( sum );
+                const float total = warp_sum( sum[ c ] );
+
+                if ( threadIdx.x == 0 && first_column + c < hidden )
+                {
+                    output[ token * hidden + first_column + c ] = __float2bfloat16( total );
+                }
             }
         }
     }
@@ -234,7 +296,8 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         }
 
         const dim3 block( 32, kWarpsPerBlock );
-        const dim3 grid( ( intermediate + kWarpsPerBlock - 1 ) / kWarpsPerBlock, top_k, tokens );
+        const int units_per_block = kWarpsPerBlock * kUnitsPerWarp;
+        const dim3 grid( ( intermediate + units_per_block - 1 ) / units_per_block, top_k, tokens );
 
         moe_gated_gather_int4_kernel<TFunctor><<<grid, block, 0, stream>>>(
             input, gate_up, gate_up_scales, indices, gated, hidden, intermediate, experts, top_k, functor );
@@ -263,7 +326,8 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         }
 
         const dim3 block( 32, kWarpsPerBlock );
-        const dim3 grid( ( hidden + kWarpsPerBlock - 1 ) / kWarpsPerBlock, tokens );
+        const int columns_per_block = kWarpsPerBlock * kColumnsPerWarp;
+        const dim3 grid( ( hidden + columns_per_block - 1 ) / columns_per_block, tokens );
 
         moe_combine_gather_int4_kernel<<<grid, block, shared_bytes, stream>>>(
             gated, down, down_scales, weights, indices, output, hidden, intermediate, experts, top_k );

@@ -10,6 +10,16 @@ pointer to its GitHub issue rather than a copy. Triage flow, categories and the 
 
 ---
 
+## FP8 per row loses to six-bit integer blocks on Gemma's head, and Mila's FP8 weight packages use the same format
+
+`Mila/Specifications/Quantization.md` Part II, "The tied table -- six bits per 32" @ `0.21.0-dev+30`
+
+Measured 2026-10-01 for the tied head: INT6 per 32 at 6.5 bits sits 2.8x closer to BF16 by KL than FP8 per row at 8,
+and Q8_0 at 8.5 bits 8.6x closer (26B-A4B; 9.5x on the 12B). E4M3 keeps three significand bits whatever the row's
+scale. `PerChannelFp8<>` is also the body format of Mila's FP8 packages (Llama 3.2 3B and 3.1 8B FP8); whether an
+integer block format at equal or fewer bytes would serve those bodies better, as it does the head, is unmeasured. A
+random 512 x 2816 matrix, before the head run: relative RMS error FP8 per row 2.6e-2, INT6 per 32 2.1e-2, Q8_0 5.6e-3.
+
 ## A multi-line paste into mila-chat becomes one turn per line
 
 `Mila/Adaptors/Chat/Src/Chat.ixx:242` @ `0.21.0-dev+28`
@@ -80,9 +90,12 @@ Found 2026-10-01 running decision 6's behavioral arm (`Quantization.md`, Part II
 "Begin every reply with the word BANANA" or "reply in exactly three words, all in capital letters" as the system turn
 and a PG-19 book in the user turn, the instruction holds at 2048 and 16384 and is gone at 65536 with the BF16 cache
 as with the FP8 one: all twelve replies on two books open "The main character of this book". At 130048, FP8 cache, the
-same. Both Gemma 4 models keep BANANA to 64K on the same prompts. Whether Llama 3.1 does this upstream or only in
-Mila is unmeasured; a HuggingFace run of one prompt at 65536 would say. L3 scores the whole book better than 1024
-tokens of it out to 131072, so the model does read far context; what is lost is the instruction at position 0.
+same. Both Gemma 4 models keep BANANA to 64K on the same prompts. L3 scores the whole book better than 1024 tokens of
+it out to 131072, so the model does read far context; what is lost is the instruction at position 0. **It is the
+model's, measured 2026-10-01:** HuggingFace with the BF16 weights loses all six at 65536 the same way and agrees with
+Mila on 11 of 12 verdicts at 16384 (`Quantization.md` Part III, decision 6's behavioral arm;
+`Tools/Converters/Llama/hf_llama_instruction_retention.py`). So nothing in Mila to fix; what is left is what a Llama
+user is told, since the planner may give Llama 3.1 8B up to 131072 tokens.
 
 ## RoPE is a separate pass, so a Gemma global layer caches its rotated keys and its values as two tensors
 

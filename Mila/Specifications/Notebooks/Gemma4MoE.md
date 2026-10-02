@@ -1239,7 +1239,16 @@ nsys with graph nodes traced, the last 48 replayed steps, per step (7.75 ms span
 
 The step's floor is about 5.6 ms: the bank's 0.80 GB, the 738 MB head, and about 0.96 GB of dense and attention
 weights -- inferred as the 13.54 GiB export less 30 banks and the head, not measured -- at 448 GB/s. Mila's step and llama.cpp's are level at depth 0; theirs reads a Q6_K head, 20% fewer bytes
-than the FP8 one. What remains of G5b is the prefill, still the Phase 6 kernel at 31 tokens a second.
+than the FP8 one.
+
+**More rows per warp, 2026-10-01.** Nsight Compute on one layer's pair: both gathers were held to two blocks a
+multiprocessor by registers, 16 warps, stalled on memory (long scoreboard) with one row per warp -- the gated pass at
+80% of DRAM peak, the combine at 60%, its every block first staging the token's 22.5 KB of gated values. Each warp
+now carries two gate/up row pairs in the gated pass and two output columns in the combine, issuing all their weight
+loads before any arithmetic; each output keeps its lanes, order and reduction, so decode is bit-identical. Four columns
+were tried first and lost to two: 88 blocks against 72 resident slots left a second wave a fifth full. RTX 5060 Ti,
+context 2048, 1024-token prompt, 128 tokens, one sitting: 120.14 -> **121.79 tokens a second**; per step the combine
+0.872 -> 0.799 ms and the gated pass 1.410 -> 1.371 ms. The floor above leaves about 0.2 ms more in the pair. What remains of G5b is the prefill, still the Phase 6 kernel at 31 tokens a second.
 
 ### G5b prefill result (2026-09-30, RTX 5060 Ti pinned by UUID)
 

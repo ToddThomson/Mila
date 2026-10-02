@@ -645,6 +645,37 @@ host reference of exact weights, and prefill against a host reference of the INT
 `google/gemma-4-12B-it-qat-q4_0-gguf` (fused projections split by rows; the global layers have no
 `attn_v`); then G2 re-run on the Q4_0 build.
 
+### The tied table — six bits per 32 (decided 2026-10-01, not built)
+
+Gemma's tied embedding and head is one table, quantized as `PerChannelFp8<>` whenever the body is
+(`Gemma.ixx`, `TableQuantizationPolicy`). Its decode matvec already reads at the card's bandwidth -- the 26B-A4B's
+704 MiB table in 1.74 ms, 424 GB/s -- so only fewer bytes make it faster. Measured with
+`Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_head_format.py`: Google's QAT BF16 weights, the final normalized
+hidden states of two PG-19 books (2048 tokens each, 4094 scored positions, after the final softcap), every format
+applied to those same states, so only the head differs.
+
+| Table | Bits a weight | 26B-A4B MiB | KL from BF16 | Top-1 agreement | NLL above BF16 | 12B KL | 12B top-1 |
+|---|---|---|---|---|---|---|---|
+| FP8 per row (today) | 8 | 704 | 7.0e-4 | 99.10% | +0.0017 | 7.6e-4 | 99.05% |
+| Q8_0 | 8.5 | 748 | 8.1e-5 | 99.81% | +0.0002 | 8.0e-5 | 99.81% |
+| Q6_K's layout, absmax scales | 6.56 | 578 | 2.7e-4 | 99.24% | +0.0011 | 2.8e-4 | 99.27% |
+| **INT6 per 32** | **6.5** | **572** | **2.5e-4** | **99.51%** | **+0.0005** | 2.6e-4 | 99.54% |
+| Q4_0 | 4.5 | 396 | 1.8e-3 | 98.07% | +0.0049 | 1.8e-3 | 98.24% |
+
+Both six-bit layouts beat FP8 per row on every measure with 18% fewer bytes: E4M3 keeps three significand bits
+whatever the scale, where a signed integer code under a scale per 32 weights spends all six. **Decided (Todd): the
+tied table moves to INT6 per 32** -- per 32 elements of a row, `d` = the signed extreme / -32 stored FP16, codes in
+[-32, 31], Q4_0's rule widened -- about 0.33 ms a token off the 26B-A4B's decode, 4%, and 2.8x closer to BF16 by KL.
+The Q6_K arm lacked llama.cpp's search over candidate scales, so Q6_K itself may sit nearer INT6; INT6 per 32 is the
+simpler layout and measured the better. Llama's head is BF16, 1.05 GB read every token on the 8B; the same format
+would cut it to 0.43 GB, unmeasured for quality.
+
+To build: a policy type; `TokenEmbedding` and `Linear` dispatch for it; the embedding row gather, the decode matvec and
+the batched head (the log-likelihood window); the loader's refusal by declared policy; `ExportArtifact`'s writer and
+the CPU codec it shares with the CUDA quantizer, bit for bit, as Q4_0's; and the Gemma packages exported again. Gate:
+the codec's tests, each kernel against a host reference of the exact decoded table, Gemma's greedy parity, and this
+table's numbers reproduced by Mila's own head at the 2048-token G2 positions.
+
 ---
 
 ## Part III — KV Cache Compression
@@ -746,8 +777,10 @@ which is what licenses using it to size the levers. So:
 widen into the BF16 stage the packed flash kernel already feeds to its BF16 MMA, unscaled and without rounding. The
 per-token scales apply in FP32 where they factor out of the sums: the K scale of each key multiplies that key's score
 column after QK, and the V scale of each key multiplies its probability before P is packed for PV, while the softmax
-normalizer sums the unscaled probabilities. No scale is ever rounded into a stored value -- the ordering the FP8
-head's staged path lacked (`Untriaged.md`, "The FP8 head's batched path rounds every weight before it scales"). Tiles
+normalizer sums the unscaled probabilities. At head size 512 (`Gqa.Flash.WideHead.cu`), where PV runs in FP16
+(`GqaFlashAttention.md` 5.8), the V scale is applied instead as the codes widen to FP16, rounding code times scale once
+at 11 bits where P times scale rounded at BF16's 8; the widened tile is transient, the cache keeps codes and scales.
+No scale is ever rounded into a stored value -- the ordering the FP8 head's staged path lacked (`Untriaged.md`, "The FP8 head's batched path rounds every weight before it scales"). Tiles
 arrive by `cp.async` as FP8, half the bytes of BF16, into a staging area beside the existing stages, with each
 stage's key scales beside them. The write (`kvcache_write_kv`) quantizes each row -- one head, one token -- with its
 own absmax over 448, one warp per row. The fused decode kernel reads the same way. Both the flash prefill and the
@@ -909,8 +942,14 @@ the counts above are from the 256-token harness, where only an end-judged reply 
   three words on 30312; on 3608 it answers in four words, as both caches do at 16384 and 31744. Llama with the FP8
   cache at 130048 holds nothing, and neither did the BF16 cache at 65536.
 - **Llama loses the instruction by 64K with either cache.** At 65536 no reply in either arm begins with BANANA or is
-  three words long; all twelve open "The main character of this book". The loss is not the cache's. Whether it is the
-  model's or Mila's at length is unmeasured (`Untriaged.md`). Both Gemma models keep BANANA at every length measured.
+  three words long; all twelve open "The main character of this book". The loss is not the cache's, and not Mila's:
+  HuggingFace transformers 5.12.1 with the BF16 weights, the same prompts rebuilt in Python to the same lengths and
+  greedy, loses all six at 65536 the same way (every reply opens "The main character of this book" and runs to 256
+  tokens), and at 16384 agrees with Mila's BF16-cache arm on 11 of 12 verdicts, BANANA holding on both books. The one
+  difference is an end-judged cell (cut against holds). It is the model's
+  (`Tools/Converters/Llama/hf_llama_instruction_retention.py`; the 64K cache needs both cards, 57 minutes for the
+  twelve prompts). The reference's own replies change wording with the layers' split between the cards, as Mila's two
+  arms' replies do; at 2048, three splits gave the same three verdicts. Both Gemma models keep BANANA at every length measured.
 - **What it cannot see.** Two books and one greedy reply per cell; both families answer at length, so "ends OVER" is
   cut in 1 to 4 of its 6 cells per arm. It reports and does not gate, as decision 6 says, until its noise is known.
   The arms' replies to the same prompt usually diverge in wording within a sentence, and a verdict can flip with
