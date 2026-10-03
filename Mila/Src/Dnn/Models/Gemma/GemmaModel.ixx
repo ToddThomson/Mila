@@ -163,8 +163,8 @@ namespace Mila::Dnn
             requireDevice( "GemmaModel::load", plan.device() );
 
             // Gemma's Linear children (qkv/o/gate_up/down) pick up the weight-quant policy;
-            // quantized bodies additionally convert the tied embedding/lm_head table to
-            // per-vocab-row FP8 (D4 Design B -- see GemmaTransformer::TableQuantizationPolicy).
+            // quantized bodies additionally store the tied embedding/lm_head table as INT6
+            // per 32 (D4 Design B -- see GemmaTransformer::TableQuantizationPolicy).
             return dispatchChassis<std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>>(
                 path, plan.weightQuantization(), plan.kvCacheCompression(), "GemmaModel::load",
                 [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>()
@@ -568,6 +568,39 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Refuse weights whose tied token table is stored in a format this build does not read.
+         *
+         * The scheme a package declares names its body's format only, and the table's format followed from it
+         * differently before 0.21.0-dev+31: the same "q4_0" weights carried the table as FP8 per row then and as
+         * INT6 per 32 now. So the table is checked by its own stored dtype, before anything is allocated.
+         */
+        template<typename TTableQuantization>
+        static void requireStoredTableMatches( std::string_view caller, const std::filesystem::path& path,
+            const WeightsReader& reader )
+        {
+            const std::string table_name = "temb.wte";
+
+            if constexpr ( TTableQuantization::kIsQuantized )
+            {
+                if ( !reader.hasTensor( table_name ) )
+                {
+                    return;
+                }
+
+                const TensorDataType stored = reader.getTensorDataType( table_name );
+
+                if ( stored != TTableQuantization::kStorageDtype && stored != TPrecision )
+                {
+                    throw std::runtime_error( std::format(
+                        "{}: weights '{}' store the token table as {}, a format this version of Mila no longer "
+                        "reads; it stores the table as six-bit codes. Install the model again, or export these "
+                        "weights again from their full-precision source",
+                        caller, path.string(), tensorDataTypeToString( stored ) ) );
+                }
+            }
+        }
+
+        /**
          * @brief The one runtime-to-compile-time bridge for planning, loading and the footprint.
          *
          * The feed-forward sublayer and its FP4 group are both the checkpoint's, so its geometry is read before
@@ -636,6 +669,9 @@ namespace Mila::Dnn
                 "GemmaModel::planDeployment", path.string(), reader.getWeightQuantization(),
                 request.getWeightQuantization(), fp4GroupSize( kFeedForward ) );
 
+            requireStoredTableMatches<typename ChassisTransformer<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>::TableQuantizationPolicy>(
+                "GemmaModel::planDeployment", path, reader );
+
             const GemmaConfig network_config = configFromMetadata( metadata );
 
             // Construction commits no device memory, but it creates the execution context, which holds some;
@@ -661,6 +697,9 @@ namespace Mila::Dnn
             requireStoredQuantizationMatches(
                 "GemmaModel::load", path.string(), reader.getWeightQuantization(),
                 plan.weightQuantization(), fp4_group_size );
+
+            requireStoredTableMatches<typename ChassisTransformer<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>::TableQuantizationPolicy>(
+                "GemmaModel::load", path, reader );
 
             const GemmaConfig network_config = configFromMetadata( metadata );
 
@@ -699,6 +738,9 @@ namespace Mila::Dnn
                 "GemmaModel::getDeploymentFootprint", path.string(),
                 reader.getWeightQuantization(), model_config.getWeightQuantization(),
                 fp4GroupSize( kFeedForward ) );
+
+            requireStoredTableMatches<typename ChassisTransformer<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>::TableQuantizationPolicy>(
+                "GemmaModel::getDeploymentFootprint", path, reader );
 
             GemmaConfig network_config = configFromMetadata( metadata );
 

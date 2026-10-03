@@ -89,9 +89,11 @@ namespace Mila::Dnn
      * No positional information is added here.
      *
      * TTableQuantization = PerChannelFp8<> stores the table as FP8_E4M3 with one
-     * float32 absmax scale per vocabulary row, quantized at loadParameter() time
-     * (D4 Design B). The vocab-row scale axis coincides with a tied lm_head's
-     * per-output-channel scale axis, so getWeightTensorShared() plus
+     * float32 absmax scale per vocabulary row; PerGroupInt6<32> stores six-bit codes
+     * with one IEEE half scale per 32 elements of a row (Int6Packing.ixx). Either is
+     * quantized at loadParameter() time from a full-precision table, or loaded already
+     * packed (D4 Design B). A table row is a tied lm_head's output channel, and both
+     * scale layouts follow the rows, so getWeightTensorShared() plus
      * getWeightScalesTensorShared() feed Linear::installSharedWeight directly.
      * The quantized path is inference-only.
      *
@@ -125,13 +127,12 @@ namespace Mila::Dnn
         using ComponentBase = Component<TDeviceType, TPrecision>;
 
         static constexpr bool kIsQuantized = TTableQuantization::kIsQuantized;
+        static constexpr bool kIsInt6Table = HasInt6Codes<TTableQuantization>;
 
         static constexpr bool kIsHostResident = ( TTableResidency == EmbeddingTableResidency::Host );
 
-        // Per-group scales sit on the gather (input) axis and do not transfer to a
-        // row lookup -- only per-vocab-row (per-channel) quantization is meaningful.
-        static_assert( !kIsQuantized || TTableQuantization::kPerChannel,
-            "TokenEmbedding: table quantization must be per-channel (per vocabulary row)" );
+        static_assert( !kIsQuantized || TTableQuantization::kPerChannel || kIsInt6Table,
+            "TokenEmbedding: a quantized table is FP8 per vocabulary row or INT6 per 32 elements of a row" );
 
         // A CPU tensor is already host memory, so the axis has no second position there.
         static_assert( !kIsHostResident || TDeviceType == DeviceType::Cuda,
@@ -144,6 +145,24 @@ namespace Mila::Dnn
 
         static constexpr TensorDataType kTableDtype = kIsQuantized
             ? TTableQuantization::kStorageDtype : TPrecision;
+
+        /// Stored elements of one table row: bytes for packed six-bit codes, one per element otherwise.
+        static constexpr dim_t storedRowExtent( dim_t embedding_dim ) noexcept
+        {
+            if constexpr ( kIsInt6Table )
+                return embedding_dim * TTableQuantization::kStorageBitsPerElement / 8;
+            else
+                return embedding_dim;
+        }
+
+        /// Scales of one table row: one per row for FP8, one per group for INT6.
+        static constexpr dim_t scalesPerRow( dim_t embedding_dim ) noexcept
+        {
+            if constexpr ( kIsInt6Table )
+                return embedding_dim / TTableQuantization::kQuantizationGroupSize;
+            else
+                return 1;
+        }
 
         // Pinned rather than pageable, and named through DeviceTypeTraits rather than
         // directly: the CUDA resource is both host- and device-accessible, which is what
@@ -378,16 +397,16 @@ namespace Mila::Dnn
         // Shared ownership of the embedding table, for installing into a tied lm_head
         // after load (WeightTying.md D3). The returned tensor shares the same device
         // buffer; both owners keep it alive regardless of teardown order. On the
-        // quantized path the table is FP8_E4M3 and the tied head also needs
-        // getWeightScalesTensorShared().
+        // quantized path the tied head also needs getWeightScalesTensorShared().
         std::shared_ptr<TableTensorType> getWeightTensorShared() const noexcept
         {
             return wte_;
         }
 
-        // Shared ownership of the per-vocab-row FP32 dequantization scales -- the
-        // same axis as a tied lm_head's per-output-channel scales, so one tensor
-        // serves both consumers (D4 Design B).
+        // Shared ownership of the table's dequantization scales -- FP32 per row for
+        // FP8, FP16 [rows, embedding_dim / 32] for INT6. Either follows the rows, which
+        // are a tied lm_head's output channels, so one tensor serves both consumers
+        // (D4 Design B).
         std::shared_ptr<TableScaleTensorType> getWeightScalesTensorShared() const noexcept requires kIsQuantized
         {
             return wte_scales_;
@@ -399,18 +418,29 @@ namespace Mila::Dnn
             {
                 if constexpr ( kIsQuantized )
                 {
-                    // The blob's dtype says which source this is: storage dtype means a
-                    // pre-quantized artifact whose scales arrive separately, compute
+                    // The blob's dtype says which source this is: storage dtype means
+                    // pre-quantized weights whose scales arrive separately, compute
                     // precision means quantize-on-load, where the BF16 blob never lands on
-                    // device at full precision -- absmax scales and FP8 rows are produced in
-                    // one pass. Same discrimination as Linear.
-                    if ( blob.getMetadata().dtype == kTableDtype )
+                    // device at full precision -- scales and codes are produced in one pass.
+                    // Same discrimination as Linear. Anything else is a table quantized to
+                    // another format, which must never be read as either.
+                    const TensorDataType stored = blob.getMetadata().dtype;
+
+                    if ( stored == kTableDtype )
                     {
                         this->loadParameterFromBlob( "wte", blob, *wte_, wte_->shape() );
                     }
+                    else if ( stored == TPrecision )
+                    {
+                        operation_->quantize( blob, *wte_, *wte_scales_,
+                            shape_t{ config_.getVocabSize(), config_.getEmbeddingDim() } );
+                    }
                     else
                     {
-                        operation_->quantize( blob, *wte_, *wte_scales_, wte_->shape() );
+                        throw std::invalid_argument( std::format(
+                            "TokenEmbedding '{}': the stored table is {}, and this build stores it as {}; "
+                            "the weights were exported for another table format and must be exported again",
+                            this->getName(), tensorDataTypeToString( stored ), tensorDataTypeToString( kTableDtype ) ) );
                     }
                 }
                 else
@@ -584,15 +614,14 @@ namespace Mila::Dnn
             }
             else
             {
-                stats.device_parameter_bytes +=
-                    occupiedDeviceBytes( storageBytes<kTableDtype>( vocabulary_size * embedding_dim ), granularity );
+                stats.device_parameter_bytes += occupiedDeviceBytes(
+                    storageBytes<kTableDtype>( vocabulary_size * storedRowExtent( embedding_dim ) ), granularity );
             }
 
             if constexpr ( kIsQuantized )
             {
-                // One scale per vocabulary row.
-                stats.device_parameter_bytes +=
-                    occupiedDeviceBytes( storageBytes<TTableQuantization::kScaleDtype>( vocabulary_size ), granularity );
+                stats.device_parameter_bytes += occupiedDeviceBytes(
+                    storageBytes<TTableQuantization::kScaleDtype>( vocabulary_size * scalesPerRow( embedding_dim ) ), granularity );
             }
 
             stats.device_state_bytes +=
@@ -718,8 +747,8 @@ namespace Mila::Dnn
         // (WeightTying.md D3). wte_grad_ stays unique_ptr: tying is inference-only.
         std::shared_ptr<TableTensorType> wte_{ nullptr };
 
-        // Per-vocab-row FP32 absmax scales [vocab]. Non-null only when kIsQuantized.
-        // shared_ptr for the same tying reason as wte_ (D4 Design B).
+        // Dequantization scales, FP32 [vocab] or FP16 [vocab, embedding_dim / 32]. Non-null
+        // only when kIsQuantized. shared_ptr for the same tying reason as wte_ (D4 Design B).
         std::shared_ptr<TableScaleTensorType> wte_scales_{ nullptr };
 
         std::unique_ptr<EmbeddingTensorType> wte_grad_{ nullptr };
@@ -749,16 +778,21 @@ namespace Mila::Dnn
         {
             auto device_id = this->getExecutionContext()->getDeviceId();
 
-            auto wte_shape = shape_t{ config_.getVocabSize(), config_.getEmbeddingDim() };
+            auto wte_shape = shape_t{ config_.getVocabSize(), storedRowExtent( config_.getEmbeddingDim() ) };
 
             wte_ = std::make_shared<TableTensorType>( device_id, wte_shape, this->getName() + ".wte" );
 
             if constexpr ( kIsQuantized )
             {
-                // One scale per vocabulary row. Filled by operation_->quantize() at
-                // load time; the quantized path has no random-initialization mode.
+                // Filled by operation_->quantize() or by the stored scales at load time; the
+                // quantized path has no random-initialization mode. The shapes are the ones the
+                // tied lm_head allocates for the same policy, so the head can adopt the tensor.
+                const shape_t scale_shape = kIsInt6Table
+                    ? shape_t{ config_.getVocabSize(), scalesPerRow( config_.getEmbeddingDim() ) }
+                    : shape_t{ config_.getVocabSize() };
+
                 wte_scales_ = std::make_shared<TableScaleTensorType>(
-                    device_id, shape_t{ config_.getVocabSize() }, this->getName() + ".wte.scales" );
+                    device_id, scale_shape, this->getName() + ".wte.scales" );
             }
             else
             {

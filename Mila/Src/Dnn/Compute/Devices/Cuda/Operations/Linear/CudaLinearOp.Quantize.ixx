@@ -25,6 +25,7 @@ module;
 #include "Kernels/Quantization/CudaFp8WeightQuantization.cuh"
 #include "Kernels/Quantization/CudaFp4WeightQuantization.cuh"
 #include "Kernels/Quantization/CudaInt4WeightQuantization.cuh"
+#include "Kernels/Quantization/CudaInt6WeightQuantization.cuh"
 
 export module Compute.CudaLinearOp:Quantize;
 
@@ -229,6 +230,50 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
 
             cuda_quantize_int4_per_group(
+                blob.data(),
+                weight_out.rawData(),
+                scales_out.rawData(),
+                static_cast<int64_t>( expected_shape[ 0 ] ),
+                static_cast<int64_t>( expected_shape[ 1 ] ),
+                group_size,
+                dev_staging,
+                staging_bytes,
+                stream );
+        }
+
+        /**
+         * @brief Validate, quantize and upload a BF16 weight blob to packed INT6 codes with per-group IEEE half
+         *        scales, by the rule in Int6Packing.ixx.
+         *
+         * @param blob           Host BF16 weight blob [out_features, in_features].
+         * @param weight_out     Device UINT8 tensor [out_features, 3 * in_features / 4].
+         * @param scales_out     Device FP16 tensor [out_features, in_features/group_size].
+         * @param expected_shape Expected weight shape [out_features, in_features].
+         * @param group_size     Quantization group size (32).
+         * @param dev_staging    Device staging buffer; need not hold the whole tensor.
+         * @param staging_bytes  Its capacity. The tensor is quantized in row blocks that fit.
+         */
+        export void quantize_int6_per_group(
+            const Mila::Dnn::Serialization::ITensorBlob& blob,
+            Mila::Dnn::ITensor&                          weight_out,
+            Mila::Dnn::ITensor&                          scales_out,
+            const Mila::Dnn::shape_t&                    expected_shape,
+            int                                          group_size,
+            void*                                        dev_staging,
+            std::size_t                                  staging_bytes,
+            cudaStream_t                                 stream )
+        {
+            const auto& meta = blob.getMetadata();
+
+            if ( meta.shape != expected_shape )
+            {
+                throw std::invalid_argument( std::format(
+                    "quantize_int6_per_group - shape mismatch: expected [{},{}], got [{},{}]",
+                    expected_shape[ 0 ], expected_shape[ 1 ],
+                    meta.shape[ 0 ], meta.shape[ 1 ] ) );
+            }
+
+            cuda_quantize_int6_per_group(
                 blob.data(),
                 weight_out.rawData(),
                 scales_out.rawData(),

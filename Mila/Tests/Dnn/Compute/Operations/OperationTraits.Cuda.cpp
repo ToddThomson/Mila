@@ -140,12 +140,17 @@ namespace Mila::Tests::Dnn::Compute::Operations
     static_assert( OperationSupported<OperationType::TokenEmbeddingOp, DeviceType::Cuda,
         TensorDataType::BF16, NoWeightQuant> );
 
-    // PerChannelFp8 exists because the Gemma tied embedding/lm_head table is FP8;
-    // PerGroupFp4 deliberately does not. Pinned so the asymmetry is a decision.
+    // PerGroupInt6<32> exists because the Gemma tied embedding/lm_head table is six-bit
+    // codes per 32, and PerChannelFp8 because it was FP8 per row before; PerGroupFp4
+    // has no table path. Pinned so the asymmetry is a decision.
+    static_assert( OperationSupported<OperationType::TokenEmbeddingOp, DeviceType::Cuda,
+        TensorDataType::BF16, PerGroupInt6<32>> );
     static_assert( OperationSupported<OperationType::TokenEmbeddingOp, DeviceType::Cuda,
         TensorDataType::BF16, PerChannelFp8<>> );
     static_assert( !OperationSupported<OperationType::TokenEmbeddingOp, DeviceType::Cuda,
         TensorDataType::BF16, PerGroupFp4<128>> );
+    static_assert( OperationSupported<OperationType::LinearOp, DeviceType::Cuda,
+        TensorDataType::BF16, PerGroupInt6<32>> );
 
     // ====================================================================
     // D. Policy-free ops -- precision coverage as it actually stands

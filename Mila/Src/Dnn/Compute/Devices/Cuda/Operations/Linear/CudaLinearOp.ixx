@@ -34,6 +34,7 @@ module;
 #include "Kernels/Codebook/CodebookDequantize.cuh"
 #include "Kernels/Codebook/CodebookGemv.cuh"
 #include "Kernels/Int4/CudaInt4Gemm.cuh"
+#include "Kernels/Int6/CudaInt6Gemm.cuh"
 
 export module Compute.CudaLinearOp;
 import :Plans;
@@ -101,6 +102,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
      *   decode (outer_size == 1) stays on the dedicated fused matvec.
      *   PerGroupCodebook2/3 batches take the same 2-phase structure with the codebook
      *   expansion kernel, and decode goes to the codebook GEMV.
+     *   PerGroupInt4 batches multiply on the INT8 tensor cores; PerGroupInt6 batches
+     *   widen the codes to BF16 exactly inside one GEMM. Neither stages weights.
      *
      * Backward is not supported on the quantized path (inference only).
      *
@@ -132,6 +135,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         static constexpr bool kHasHighBitPlane = HasHighBitPlane<TWeightQuant>;
         static constexpr bool kIsFp4Weight = HasFp4E2M1Codes<TWeightQuant>;
         static constexpr bool kIsInt4Weight = HasInt4Codes<TWeightQuant>;
+        static constexpr bool kIsInt6Weight = HasInt6Codes<TWeightQuant>;
+
+        static_assert( !kIsInt6Weight || TComputePrecision == TensorDataType::BF16,
+            "The INT6 kernels are BF16 in, BF16 out" );
 
         // Toggle between the fused W8A16 GEMM and the baseline 2-phase path for A/B testing.
         //   true  -- cuda_w8a16_gemm: reads FP8 once, dequantizes inline, no staging buffer.
@@ -198,10 +205,15 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         // carry IEEE half scales because at 2-3 bits the scale is a third of the payload.
         using ScaleType = typename TensorDataTypeMap<TWeightQuant::kScaleDtype>::device_type;
 
-        /// Elements of the logical weight matrix packed into one byte of the primary tensor.
-        /// One for every format at or above byte width, so it is a valid divisor everywhere.
-        static constexpr int64_t kElementsPerStorageByte =
-            TWeightQuant::kStorageBitsPerElement < 8 ? 8 / TWeightQuant::kStorageBitsPerElement : 1;
+        /// Elements of the primary weight tensor that one row of `in_features` logical weights occupies: bytes for
+        /// a packed format, which need not hold a whole number of codes (six-bit codes take 3 bytes per 4).
+        static constexpr int64_t physicalRowElements( int64_t in_features ) noexcept
+        {
+            if constexpr ( kIsQuantized && TWeightQuant::kStorageBitsPerElement < 8 )
+                return in_features * TWeightQuant::kStorageBitsPerElement / 8;
+            else
+                return in_features;
+        }
 
         /**
          * @brief Ceiling on the BF16 staging buffer, in bytes.
@@ -281,14 +293,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             weight_ = static_cast<const WeightType*>(weight->rawData());
             weight_out_features_ = weight_shape[ 0 ];
 
-            // A packed weight tensor is allocated at its PHYSICAL extent {N, K / elements
-            // per byte}, so the logical K has to be recovered before build() can validate
-            // it against the input shape. The multiplier is the fact the policy states --
-            // 2 for a nibble format, 4 for a 2-bit code plane -- and not an inference from
-            // kPerChannel, which only ever meant "nibble-packed" because every per-group
-            // policy happened to be 4-bit until the codebook formats arrived.
-            if constexpr ( kIsQuantized && kElementsPerStorageByte > 1 )
-                weight_in_features_ = weight_shape[ 1 ] * kElementsPerStorageByte;
+            // A packed weight tensor is allocated at its PHYSICAL extent {N, K * bits / 8},
+            // so the logical K has to be recovered before build() can validate it against
+            // the input shape. The ratio is the fact the policy states -- 2 for a nibble
+            // format, 4 for a 2-bit code plane, 4/3 for six-bit codes -- and not an
+            // inference from kPerChannel, which only ever meant "nibble-packed" because
+            // every per-group policy happened to be 4-bit until the codebook formats arrived.
+            if constexpr ( kIsQuantized && TWeightQuant::kStorageBitsPerElement < 8 )
+                weight_in_features_ = weight_shape[ 1 ] * 8 / TWeightQuant::kStorageBitsPerElement;
             else
                 weight_in_features_ = weight_shape[ 1 ];
 
@@ -318,7 +330,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          *
          * Must be bound before the first forward(). The element type and the extent are
          * the policy's: FP32 per output channel for PerChannelFp8, FP32 per group for FP4,
-         * IEEE half per group for INT4 and the codebook formats.
+         * IEEE half per group for INT4, INT6 and the codebook formats.
          *
          * @param scales Device tensor, dtype TWeightQuant::kScaleDtype.
          */
@@ -477,6 +489,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     TWeightQuant::kQuantizationGroupSize,
                     staging, staging_bytes, stream );
             }
+            else if constexpr ( kIsInt6Weight )
+            {
+                void* staging = context_->getLoadStagingBuffer( staging_bytes );
+                Detail::quantize_int6_per_group(
+                    blob, weight_out, scales_out, expected_shape,
+                    TWeightQuant::kQuantizationGroupSize,
+                    staging, staging_bytes, stream );
+            }
         }
 
         void setGradients( ITensor* weight_grad, ITensor* bias_grad ) override
@@ -603,6 +623,21 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     throw std::invalid_argument( std::format(
                         "CudaLinearOp::build - input features ({}) must be a multiple of {} for the INT4 prefill",
                         cached_in_features_, kInt4GemmInFeaturesMultiple ) );
+                }
+            }
+
+            if constexpr ( kIsInt6Weight )
+            {
+                static_assert( TWeightQuant::kQuantizationGroupSize == kInt6GemmGroupSize,
+                    "The INT6 kernels scale one weight group of 32 at a time" );
+
+                // The same multiple serves the decode matvec, whose 16-byte loads need rows of a whole number
+                // of them.
+                if ( cached_in_features_ % kInt6GemmInFeaturesMultiple != 0 )
+                {
+                    throw std::invalid_argument( std::format(
+                        "CudaLinearOp::build - input features ({}) must be a multiple of {} for INT6 weights",
+                        cached_in_features_, kInt6GemmInFeaturesMultiple ) );
                 }
             }
 
@@ -815,7 +850,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         // Scales at the policy's element type. Per-channel FP32 [out_features] on the FP8
         // path; per-group [out_features x in_features/group_size] on every per-group path,
-        // FP32 for FP4 and IEEE half for INT4 and the codebook formats.
+        // FP32 for FP4 and IEEE half for INT4, INT6 and the codebook formats.
         const ScaleType* weight_scales_{ nullptr };
 
         // Codebook formats only. Borrowed exactly as the weight is: the component owns the
@@ -932,7 +967,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * prefill holds one strip of BF16 weights, the FP8-activation prefill holds one
          * strip of FP8 weights plus the FP8 activations and per-token scales of the plan's
          * row bucket, whose largest value is the built row count itself, and the INT4 prefill
-         * holds the INT8 activations and their block scales, and no weights.
+         * holds the INT8 activations and their block scales, and no weights. The INT6 GEMM
+         * reads its operands where they are and holds nothing.
          */
         static std::size_t scratchBytesFor(
             int out_features, int in_features, int outer_size, std::size_t max_staging_bytes ) noexcept
@@ -980,7 +1016,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         void dequantizeStrip( __nv_bfloat16* staging, int begin, int rows, cudaStream_t stream ) const
         {
             const auto* strip_weight = weight_ + static_cast<ptrdiff_t>( begin )
-                * ( cached_in_features_ / kElementsPerStorageByte );
+                * physicalRowElements( cached_in_features_ );
 
             if constexpr ( kIsCodebookWeight )
             {
@@ -1133,6 +1169,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     cached_in_features_, out_features_,
                     weight_group_size_, stream );
             }
+            else if constexpr ( kIsInt6Weight )
+            {
+                cuda_matvec_decode_bf16_qint6(
+                    output_row, input_row,
+                    weight_, weight_scales_, bias_,
+                    cached_in_features_, out_features_,
+                    weight_group_size_, stream );
+            }
             else if constexpr ( kIsFp4Weight )
             {
                 // All threads useful, a warp shuffle reduction, one per-group scale per 8-element chunk:
@@ -1156,8 +1200,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         }
 
         /**
-         * @brief More than one row: INT4 on the INT8 tensor cores; every other format through cuBLASLt, or a row
-         * at a time where no cuBLASLt plan exists (SM < 8.0, or a plan that failed to build).
+         * @brief More than one row: INT4 on the INT8 tensor cores; INT6 in one BF16 tensor-core GEMM that reads the
+         * packed codes; every other format through cuBLASLt, or a row at a time where no cuBLASLt plan exists
+         * (SM < 8.0, or a plan that failed to build).
          */
         void prefillRows( const ComputeType* input_ptr, ComputeType* output_ptr,
             int outer_size, cudaStream_t stream ) const
@@ -1165,6 +1210,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             if constexpr ( kIsInt4Weight )
             {
                 runInt8Prefill( input_ptr, output_ptr, outer_size, stream );
+            }
+            else if constexpr ( kIsInt6Weight )
+            {
+                cuda_int6_bf16_gemm(
+                    output_ptr, input_ptr, weight_, weight_scales_, bias_,
+                    outer_size, cached_in_features_, out_features_, stream );
             }
             else if ( use_cublaslt_ )
             {
@@ -1177,10 +1228,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         }
 
         /**
-         * @brief The cuBLASLt batched path of every format but INT4, chosen by the weight policy.
+         * @brief The cuBLASLt batched path of every format but INT4 and INT6, chosen by the weight policy.
          */
         void runCublasLtPrefill( const ComputeType* input_ptr, ComputeType* output_ptr,
-            int outer_size, cudaStream_t stream ) const requires ( !kIsInt4Weight )
+            int outer_size, cudaStream_t stream ) const requires ( !kIsInt4Weight && !kIsInt6Weight )
         {
             if constexpr ( kUsesStagedPrefill )
             {
@@ -1276,7 +1327,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 cuda_fp4_dequantize_to_fp8(
                     weight_fp8,
                     weight_ + static_cast<ptrdiff_t>( begin )
-                        * ( cached_in_features_ / kElementsPerStorageByte ),
+                        * physicalRowElements( cached_in_features_ ),
                     weight_scales_ + static_cast<ptrdiff_t>( begin )
                         * ( cached_in_features_ / weight_group_size_ ),
                     weight_fp8_scale_,
@@ -1372,7 +1423,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * no such fallback.
          */
         void runPrefillRowByRow( const ComputeType* input_ptr, ComputeType* output_ptr,
-            int outer_size, cudaStream_t stream ) const requires ( !kIsInt4Weight )
+            int outer_size, cudaStream_t stream ) const requires ( !kIsInt4Weight && !kIsInt6Weight )
         {
             if constexpr ( kIsQuantized )
             {
@@ -1623,7 +1674,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     return;
                 }
 
-                // Fused FP4 and INT4 batch paths: the kernels read packed weights directly --
+                // Fused FP4, INT4 and INT6 batch paths: the kernels read packed weights directly --
                 // no staging buffer or cuBLASLt plan needed.
                 // SM >= 8.0 is already guaranteed by supportsCuBLASLt() gating this path.
                 return;

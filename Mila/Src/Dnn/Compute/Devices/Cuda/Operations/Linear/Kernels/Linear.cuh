@@ -101,6 +101,26 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         cudaStream_t         stream );
 
     /**
+     * @brief BF16 activation x INT6 weight decode-path matvec with per-group IEEE half scales.
+     *
+     * Computes y[oc] = sum_c( x[c] * ( code[oc,c] - 32 ) * scale[oc, c/group_size] ) + bias[oc], the layout of
+     * Int6Packing.ixx: each row [3 * C / 4] bytes, its codes' low nibbles then their high two bits; scales
+     * [OC, C/group_size].
+     *
+     * @throws std::invalid_argument unless group_size is 32 and C a multiple of 64.
+     */
+    void cuda_matvec_decode_bf16_qint6(
+        __nv_bfloat16*       y,
+        const __nv_bfloat16* x,
+        const uint8_t*       weights_packed,
+        const __half*        scales,
+        const __nv_bfloat16* bias,
+        int                  C,
+        int                  OC,
+        int                  group_size,
+        cudaStream_t         stream );
+
+    /**
      * @brief BF16 bias gradient reduction: dBias[out] += sum over the batch of dY[row, out].
      *
      * Accumulates in FP32 and converts once on the final store; a BF16 running sum stops

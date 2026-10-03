@@ -609,14 +609,14 @@ namespace Mila::Tests::Dnn::Components::Linear
         }
     }
 
-    // Tying contract on quantized instantiations (D4 Design B): per-channel FP8
-    // accepts the (weight, scales) overload -- the per-output-channel scale axis IS
-    // the vocab row a tied embedding gathers -- while per-group policies stay
-    // excluded (input-axis scales do not transfer to a row gather), and a quantized
-    // weight without scales is always rejected. Deferred construction (no device)
+    // Tying contract on quantized instantiations (D4 Design B): a quantized weight
+    // without scales is always rejected, and so is a codebook policy, whose table and
+    // high-bit plane the (weight, scales) overload cannot carry. Per-channel and
+    // per-group scales both follow the output rows a tied embedding gathers, so both
+    // install (INT6: TokenEmbedding.Int6.Cuda.cpp). Deferred construction (no device)
     // keeps the throw tests GPU-independent: the throw precedes any op or context
     // use, and the arguments are never dereferenced.
-    TEST( LinearCudaQuantizedTests, InstallSharedWeight_PerGroupPath_Throws )
+    TEST( LinearCudaQuantizedTests, InstallSharedWeight_PerGroupWithoutScales_Throws )
     {
         using QuantizedLinear =
             Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupFp4<128>>;
@@ -626,6 +626,17 @@ namespace Mila::Tests::Dnn::Components::Linear
         QuantizedLinear linear( "linear_quantized", config );
 
         EXPECT_THROW( linear.installSharedWeight( nullptr ), std::logic_error );
+    }
+
+    TEST( LinearCudaQuantizedTests, InstallSharedWeight_Codebook_Throws )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupCodebook2<32>>;
+
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+        QuantizedLinear linear( "linear_quantized", config );
+
         EXPECT_THROW( linear.installSharedWeight( nullptr, nullptr ), std::logic_error );
     }
 

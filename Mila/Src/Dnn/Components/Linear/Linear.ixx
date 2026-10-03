@@ -725,21 +725,22 @@ namespace Mila::Dnn
 
         /**
          * @brief Replace the owned weight and scales with shared tensors -- the tied
-         *        FP8 embedding/lm_head table (D4 Design B).
+         *        quantized embedding/lm_head table (D4 Design B).
          *
-         * Only per-channel policies are installable: the per-output-channel scale
-         * axis IS the vocabulary row the embedding gathers, so one scale tensor
-         * serves both consumers. Per-group scales sit on the input axis and do not
-         * transfer to a row gather -- those instantiations throw.
+         * The head's output channel is the vocabulary row the embedding gathers, and
+         * both per-channel scales [out_features] and per-group scales
+         * [out_features, in_features / group] follow it, so one weight tensor and one
+         * scale tensor serve both consumers. A codebook policy carries a table and a
+         * high-bit plane besides, which this overload cannot install, so it throws.
          *
-         * @param shared_weight Shared quantized device tensor [out_features, in_features].
-         * @param shared_scales Shared FP32 scale tensor [out_features].
+         * @param shared_weight Shared quantized device tensor, at the policy's physical extent.
+         * @param shared_scales Shared scale tensor, at the policy's scale dtype and extent.
          */
         void installSharedWeight(
             std::shared_ptr<WeightTensorType> shared_weight,
             std::shared_ptr<WeightScaleTensorType> shared_scales )
         {
-            if constexpr ( kIsQuantized && TWeightQuant::kPerChannel )
+            if constexpr ( kIsQuantized && !HasCodebookTable<TWeightQuant> )
             {
                 weight_ = std::move( shared_weight );
                 weight_scales_ = std::move( shared_scales );
@@ -756,9 +757,8 @@ namespace Mila::Dnn
             else
             {
                 throw std::logic_error( std::format(
-                    "Linear '{}': installSharedWeight with scales requires a per-channel "
-                    "quantized lm_head; per-group scales sit on the input axis and do not "
-                    "transfer to a row gather",
+                    "Linear '{}': installSharedWeight with scales requires a quantized lm_head "
+                    "whose policy has no codebook",
                     this->getName() ) );
             }
         }

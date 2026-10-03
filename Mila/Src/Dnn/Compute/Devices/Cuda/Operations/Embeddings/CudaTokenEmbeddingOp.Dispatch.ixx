@@ -99,4 +99,26 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding::Detail
             cuda_token_embedding_decode_bf16_qfp8( Y, X, wte_fp8, scales, B, C, stream );
         }
     };
+
+    // ========================================================================
+    // BF16 output, INT6 table: six-bit codes, one IEEE half scale per 32
+    // elements of a row. Inference-only: no backward.
+    // ========================================================================
+
+    struct cuda_token_embedding_int6_impl
+    {
+        static void forward(
+            __nv_bfloat16* Y, const int* X, const unsigned char* wte_codes, const void* scales,
+            int B, int T, int C, cudaStream_t stream )
+        {
+            cuda_token_embedding_forward_bf16_qint6( Y, X, wte_codes, scales, B, T, C, stream );
+        }
+
+        static void decode(
+            __nv_bfloat16* Y, const int* X, const unsigned char* wte_codes, const void* scales,
+            int B, int C, cudaStream_t stream )
+        {
+            cuda_token_embedding_decode_bf16_qint6( Y, X, wte_codes, scales, B, C, stream );
+        }
+    };
 }

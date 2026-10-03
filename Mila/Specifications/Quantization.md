@@ -645,10 +645,11 @@ host reference of exact weights, and prefill against a host reference of the INT
 `google/gemma-4-12B-it-qat-q4_0-gguf` (fused projections split by rows; the global layers have no
 `attn_v`); then G2 re-run on the Q4_0 build.
 
-### The tied table — six bits per 32 (decided 2026-10-01, not built)
+### The tied table — six bits per 32 (decided 2026-10-01, built `0.21.0-dev+31`)
 
-Gemma's tied embedding and head is one table, quantized as `PerChannelFp8<>` whenever the body is
-(`Gemma.ixx`, `TableQuantizationPolicy`). Its decode matvec already reads at the card's bandwidth -- the 26B-A4B's
+Gemma's tied embedding and head is one table, quantized whenever the body is (`Gemma.ixx`,
+`TableQuantizationPolicy`); until `+31` it was `PerChannelFp8<>`. Its decode matvec already read at the card's
+bandwidth -- the 26B-A4B's
 704 MiB table in 1.74 ms, 424 GB/s -- so only fewer bytes make it faster. Measured with
 `Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_head_format.py`: Google's QAT BF16 weights, the final normalized
 hidden states of two PG-19 books (2048 tokens each, 4094 scored positions, after the final softcap), every format
@@ -656,7 +657,7 @@ applied to those same states, so only the head differs.
 
 | Table | Bits a weight | 26B-A4B MiB | KL from BF16 | Top-1 agreement | NLL above BF16 | 12B KL | 12B top-1 |
 |---|---|---|---|---|---|---|---|
-| FP8 per row (today) | 8 | 704 | 7.0e-4 | 99.10% | +0.0017 | 7.6e-4 | 99.05% |
+| FP8 per row (until `+31`) | 8 | 704 | 7.0e-4 | 99.10% | +0.0017 | 7.6e-4 | 99.05% |
 | Q8_0 | 8.5 | 748 | 8.1e-5 | 99.81% | +0.0002 | 8.0e-5 | 99.81% |
 | Q6_K's layout, absmax scales | 6.56 | 578 | 2.7e-4 | 99.24% | +0.0011 | 2.8e-4 | 99.27% |
 | **INT6 per 32** | **6.5** | **572** | **2.5e-4** | **99.51%** | **+0.0005** | 2.6e-4 | 99.54% |
@@ -670,11 +671,55 @@ The Q6_K arm lacked llama.cpp's search over candidate scales, so Q6_K itself may
 simpler layout and measured the better. Llama's head is BF16, 1.05 GB read every token on the 8B; the same format
 would cut it to 0.43 GB, unmeasured for quality.
 
-To build: a policy type; `TokenEmbedding` and `Linear` dispatch for it; the embedding row gather, the decode matvec and
-the batched head (the log-likelihood window); the loader's refusal by declared policy; `ExportArtifact`'s writer and
-the CPU codec it shares with the CUDA quantizer, bit for bit, as Q4_0's; and the Gemma packages exported again. Gate:
-the codec's tests, each kernel against a host reference of the exact decoded table, Gemma's greedy parity, and this
-table's numbers reproduced by Mila's own head at the 2048-token G2 positions.
+**As built.** `PerGroupInt6<32>` (`Quantization/Weight/PerGroupInt6.ixx`), detected by `HasInt6Codes`. Four
+decisions, each with the alternative it closed:
+
+1. **One code tensor, two planes per row.** A row of `C` codes is `3C/4` bytes: the low nibbles in Q4_0's order, then
+   the high two bits, four codes a byte. The scales are FP16 `[rows, C/32]`. A separate high-bit tensor, as the 3-bit
+   codebook keeps, would have made the tie carry three tensors; GGUF's interleaved block breaks 16-byte loads. Rows of
+   whole 16-byte loads need `C` a multiple of 64, which every Gemma width is. Normative layout and rounding:
+   `Quantization/Weight/Int6Packing.ixx`.
+2. **Q4_0's rounding rule, widened.** `d` = signed extreme / -32 in FP32, the codes from FP32 `1/d` with the product
+   rounded before 32.5 is added, `d` stored FP16 -- one rule in the CPU codec and the CUDA quantizer (`__fmul_rn`,
+   `__fadd_rn`), bit for bit. The measurement above rounded `d` to FP16 before inverting it; the difference moves
+   codes only on boundaries.
+3. **The batched head computes exactly, on the BF16 tensor cores** (`Kernels/Int6/CudaInt6Gemm.cu`). A code widens to
+   BF16 without rounding, a group's dot product is two k16 MMAs into an FP32 partial, and its scale applies once to
+   that partial -- the decode matvec's arithmetic. Q4_0's INT8 path was the cheaper kernel to write, but it would round
+   the activations, and the batched head exists for scoring; staging BF16 weights rounds `code * d` to eight bits, the
+   defect the FP8 head's batched path carries (`Untriaged.md`). So the log-likelihood window and decode agree to FP32
+   accumulation order, at every window.
+4. **A table stored in another format is refused, not converted.** The scheme a package declares names its body
+   (`q4_0`, `per_group_fp4_128`), and the same scheme carried an FP8 table before `+31`. `GemmaModel` checks the stored
+   table's dtype at planning, and `TokenEmbedding` refuses any table blob that is neither the policy's storage dtype
+   nor BF16 -- read as BF16, FP8 bytes would quantize to a model that loads and is wrong. Gemma packages exported
+   before `+31` must be exported again; there is no separate writer, `ExportArtifact` saves what quantize-on-load
+   produced.
+
+`Linear::installSharedWeight( weight, scales )` takes any quantized policy but a codebook: per-group scales follow the
+output rows exactly as per-channel ones do (`WeightTying.md` D4).
+
+Gate: the codec's tests (`Int6Packing.Cpu.cpp`); the CUDA quantizer equal to the codec, the decode matvec and the
+batched GEMM against a host reference of the exact decoded weights, a tied head equal to a directly quantized one,
+the gather equal to the exact table rounded once (`CudaLinearOp.Int6.Cuda.cpp`, `TokenEmbedding.Int6.Cuda.cpp`);
+Gemma's greedy parity; and this table's numbers reproduced by Mila's own head at the 2048-token G2 positions.
+
+**Measured, `0.21.0-dev+31`.** Every test above passes; the re-exported 12B packages differ from the FP8-table ones in
+`temb.wte` and `temb.wte_scale` only (769 of 771 tensors byte-identical), and the 12B parity and the 26B-A4B's
+HuggingFace greedy tokens hold. The head on Mila's own states (`GemmaLogLikelihoodCudaTests.DISABLED_TiedHeadAgainstBf16_*`:
+the Q4_0 body quantized on load, the same two books and 4094 positions, Mila's INT6 head and a BF16 head applied to the
+same final rows):
+
+| | KL from BF16 | Top-1 agreement | NLL against BF16 head | Table above, KL / top-1 |
+|---|---|---|---|---|
+| 26B-A4B | 2.76e-4 | 99.34% | -0.0019 | 2.5e-4 / 99.51% |
+| 12B | 2.90e-4 | 99.51% | -0.0021 | 2.6e-4 / 99.54% |
+
+Within about 10% of the table's KL on states from a different body (Q4_0 here, BF16 there) under a rounding rule that
+inverts FP32 rather than FP16 `d`. Decode, Q4_0 quantized on load, 512-token prompt then 128 tokens, RTX 5060 Ti, two
+alternated rounds of five runs against the `+30` build: the 26B-A4B 123.3 to 130.4 tokens a second, 8.11 to 7.67 ms a
+token (0.45 ms, beyond the 0.33 the bytes predicted); the 12B 52.2 to 53.4, 0.43 ms a token. Run to run spread under
+0.1 token a second.
 
 ---
 

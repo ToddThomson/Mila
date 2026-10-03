@@ -312,6 +312,16 @@ namespace Mila::Dnn::Serialization
         }
 
         /**
+         * @brief Get the stored element type of a named tensor, from the index; no I/O is performed.
+         *
+         * @throws std::runtime_error if name is not found.
+         */
+        TensorDataType getTensorDataType( const std::string& name ) const
+        {
+            return dtypeToTensorDataType( getTensorBlobMetadata( name ).dtype );
+        }
+
+        /**
          * @brief Get the maximum byte size across all tensors in the index.
          *
          * Returns the largest nbytes value in the tensor index. All sizes are

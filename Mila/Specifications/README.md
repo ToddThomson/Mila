@@ -112,6 +112,12 @@ means a status line or target is out of date and the rest has not been re-read.
 | [DecodeGraph.md](DecodeGraph.md) | Design | Replaying a decode step as one recorded graph, and the contract every decode op keeps | |
 | [SpeculativeDecoding.md](SpeculativeDecoding.md) | Design | Draft-verify decoding | Draft; no code |
 
+### Measurement
+
+| Document | Role | Decides or records | Notes |
+|---|---|---|---|
+| [ContextProfile.md](ContextProfile.md) | Design | Measuring a model configuration at each context length it holds: fit, loss by band, recall, instruction retention, tool calls, turn cost | Draft; no code |
+
 ### Distribution and serialization
 
 | Document | Role | Decides or records | Notes |

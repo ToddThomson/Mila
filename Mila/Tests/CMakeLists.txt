@@ -117,6 +117,7 @@ add_executable( MilaTests
     "Dnn/Quantization/CodebookOracle.Cpu.cpp"
     "Dnn/Quantization/CodebookPacking.Cpu.cpp"
     "Dnn/Quantization/Int4Packing.Cpu.cpp"
+    "Dnn/Quantization/Int6Packing.Cpu.cpp"
     "Dnn/Quantization/PrecisionPlan.Cpu.cpp"
 
     # ==============================================================
@@ -224,6 +225,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Convolutions/CausalConv1d.Cuda.cpp"
         "Dnn/Components/DeltaNet/GatedDeltaRule.Cuda.cpp"
         "Dnn/Components/Embeddings/TokenEmbedding.Cuda.cpp"
+        "Dnn/Components/Embeddings/TokenEmbedding.Int6.Cuda.cpp"
         "Dnn/Components/Encodings/Lpe/Lpe.Cuda.cpp"
         "Dnn/Components/Encodings/Rope/Rope.Cuda.cpp"
         # CudaRopeOp.Calculated.Cuda.cpp retired 2026-10-01 with the table it compared against.
@@ -253,6 +255,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Linear/CodebookGemv.Cuda.cpp"
         "Dnn/Components/Linear/CudaLinearOp.Codebook.Cuda.cpp"
         "Dnn/Components/Linear/CudaLinearOp.Int4.Cuda.cpp"
+        "Dnn/Components/Linear/CudaLinearOp.Int6.Cuda.cpp"
         # The saveParameterToArchive staging branch needs a device-only dtype (BF16),
         # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
         "Dnn/Core/Component.Cuda.cpp"

@@ -2,7 +2,8 @@
  * @file CudaTokenEmbeddingOp.Quantize.ixx
  * @brief Quantize partition of CudaTokenEmbeddingOp (D4 Design B).
  *
- * Exports Detail::quantize_table_fp8_per_row() as a non-template function so
+ * Exports Detail::quantize_table_fp8_per_row() and quantize_table_int6_per_group()
+ * as non-template functions so
  * that CudaTokenEmbeddingOp::quantize() (a class-template member instantiated
  * by cl.exe) never needs the NVCC-compiled kernel body -- the same module
  * boundary crossing pattern as CudaLinearOp:Quantize.
@@ -19,6 +20,7 @@ module;
 #include <stdexcept>
 #include <format>
 #include "../Linear/Kernels/Quantization/CudaFp8WeightQuantization.cuh"
+#include "../Linear/Kernels/Quantization/CudaInt6WeightQuantization.cuh"
 
 export module Compute.CudaTokenEmbeddingOp:Quantize;
 
@@ -110,6 +112,57 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
                     staging_bytes,
                     stream );
             }
+        }
+
+        /**
+         * @brief Validate, quantize and upload a BF16 embedding table blob to six-bit codes with one IEEE half
+         *        scale per 32 elements of a row, by the rule in Int6Packing.ixx.
+         *
+         * A table row is a weight row with out_features = vocab_size, so this delegates to the Linear INT6
+         * quantizer, which already walks the rows in blocks that fit the staging buffer.
+         *
+         * @param blob           Host BF16 table blob [vocab_size, embedding_dim].
+         * @param table_out      Device UINT8 tensor [vocab_size, 3 * embedding_dim / 4].
+         * @param scales_out     Device FP16 tensor [vocab_size, embedding_dim / 32].
+         * @param expected_shape Logical table shape [vocab_size, embedding_dim], for validation.
+         * @param group_size     Elements per scale (32).
+         * @param dev_staging    Device staging buffer of at least staging_bytes.
+         * @param staging_bytes  Usable staging size; must hold at least one BF16 row.
+         * @param stream         CUDA stream for all async operations.
+         *
+         * @throws std::invalid_argument if the blob shape does not match expected_shape.
+         * @throws std::runtime_error    if staging cannot hold one row or a CUDA call fails.
+         */
+        export void quantize_table_int6_per_group(
+            const Mila::Dnn::Serialization::ITensorBlob& blob,
+            Mila::Dnn::ITensor&                          table_out,
+            Mila::Dnn::ITensor&                          scales_out,
+            const Mila::Dnn::shape_t&                    expected_shape,
+            int                                          group_size,
+            void*                                        dev_staging,
+            size_t                                       staging_bytes,
+            cudaStream_t                                 stream )
+        {
+            const auto& meta = blob.getMetadata();
+
+            if ( meta.shape != expected_shape )
+            {
+                throw std::invalid_argument( std::format(
+                    "quantize_table_int6_per_group - shape mismatch: expected [{},{}], got [{},{}]",
+                    expected_shape[ 0 ], expected_shape[ 1 ],
+                    meta.shape[ 0 ], meta.shape[ 1 ] ) );
+            }
+
+            Mila::Dnn::Compute::Cuda::Linear::cuda_quantize_int6_per_group(
+                blob.data(),
+                table_out.rawData(),
+                scales_out.rawData(),
+                static_cast<int64_t>( expected_shape[ 0 ] ),
+                static_cast<int64_t>( expected_shape[ 1 ] ),
+                group_size,
+                dev_staging,
+                staging_bytes,
+                stream );
         }
 
     } // namespace Detail

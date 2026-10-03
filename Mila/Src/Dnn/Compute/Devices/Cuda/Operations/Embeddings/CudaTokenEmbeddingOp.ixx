@@ -7,13 +7,14 @@
  * by a dedicated encoding component (RoPE, ALiBi, or Learned).
  *
  * TTableQuantization = PerChannelFp8<> stores the table as FP8_E4M3 with one
- * float32 absmax scale per vocabulary row and dequantizes inline during the
+ * float32 absmax scale per vocabulary row, PerGroupInt6<32> as six-bit codes with
+ * one IEEE half scale per 32 elements of a row; both dequantize inline during the
  * gather (D4 Design B). quantize() and setTableScales() are only callable on
  * quantized instantiations; the quantized path is inference-only.
  *
  * @tparam TInput              Data type of token index input (INT32).
  * @tparam TPrecision          Precision of embedding output (FP32 or BF16).
- * @tparam TTableQuantization  Table quantization policy (NoWeightQuant or PerChannelFp8<>).
+ * @tparam TTableQuantization  Table quantization policy (NoWeightQuant, PerChannelFp8<> or PerGroupInt6<32>).
  */
 
 module;
@@ -69,19 +70,30 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         using ConfigType = TokenEmbeddingConfig;
 
         static constexpr bool kIsQuantized = TTableQuantization::kIsQuantized;
+        static constexpr bool kIsInt6Table = HasInt6Codes<TTableQuantization>;
 
-        // Per-group scales sit on the gather (input) axis and do not transfer to a
-        // row lookup -- only per-vocab-row (per-channel) quantization is meaningful.
-        static_assert( !kIsQuantized || TTableQuantization::kPerChannel,
-            "CudaTokenEmbeddingOp: table quantization must be per-channel (per vocabulary row)" );
+        static_assert( !kIsQuantized || TTableQuantization::kPerChannel || kIsInt6Table,
+            "CudaTokenEmbeddingOp: a quantized table is FP8 per vocabulary row or INT6 per 32 elements of a row" );
 
         static_assert( !kIsQuantized || TPrecision == TensorDataType::BF16,
-            "CudaTokenEmbeddingOp: the FP8 table gather-dequant path is BF16-only" );
+            "CudaTokenEmbeddingOp: the quantized table gather-dequant paths are BF16-only" );
 
         static constexpr TensorDataType kTableDtype = kIsQuantized
             ? TTableQuantization::kStorageDtype : TPrecision;
 
         using TableNativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<kTableDtype>::device_type;
+
+        // FP32 per row for FP8, IEEE half per group for INT6. Unused when unquantized.
+        using TableScaleNativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TTableQuantization::kScaleDtype>::device_type;
+
+        /// Bytes of one stored table row of embedding_dim elements.
+        static constexpr int64_t storedRowElements( int64_t embedding_dim ) noexcept
+        {
+            if constexpr ( kIsInt6Table )
+                return embedding_dim * TTableQuantization::kStorageBitsPerElement / 8;
+            else
+                return embedding_dim;
+        }
 
         CudaTokenEmbeddingOp( IExecutionContext* context, const TokenEmbeddingConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaTokenEmbeddingOp" ) ),
@@ -97,7 +109,8 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         /**
          * @brief Bind the wte parameter tensor (module retains ownership).
          *
-         * @param wte Token embedding table -- CUDA tensor of shape [vocab_size, C].
+         * @param wte Token embedding table -- CUDA tensor of shape [vocab_size, C], or [vocab_size, 3 * C / 4]
+         *            bytes for an INT6 table.
          *
          * @throws std::invalid_argument on null, non-CUDA, or shape-mismatched tensor.
          */
@@ -119,22 +132,31 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
                     "CudaTokenEmbeddingOp::setParameters - wte vocab_size {} does not match config {}",
                     shape[ 0 ], config_.getVocabSize() ) );
 
-            if ( shape[ 1 ] != config_.getEmbeddingDim() )
+            if ( shape[ 1 ] != storedRowElements( config_.getEmbeddingDim() ) )
                 throw std::invalid_argument( std::format(
-                    "CudaTokenEmbeddingOp::setParameters - wte embedding_dim {} does not match config {}",
-                    shape[ 1 ], config_.getEmbeddingDim() ) );
+                    "CudaTokenEmbeddingOp::setParameters - wte row extent {} does not match {} for embedding_dim {}",
+                    shape[ 1 ], storedRowElements( config_.getEmbeddingDim() ), config_.getEmbeddingDim() ) );
+
+            if constexpr ( kIsInt6Table )
+            {
+                // The gather's 4-byte low-nibble loads and 16-byte stores, and the head's matvec, need it.
+                if ( config_.getEmbeddingDim() % 64 != 0 )
+                    throw std::invalid_argument( std::format(
+                        "CudaTokenEmbeddingOp::setParameters - an INT6 table needs embedding_dim a multiple of 64, got {}",
+                        config_.getEmbeddingDim() ) );
+            }
 
             wte_ = static_cast<TableNativeType*>(wte->rawData());
             vocab_size_ = static_cast<int>(shape[ 0 ]);
-            embedding_dim_ = static_cast<int>(shape[ 1 ]);
+            embedding_dim_ = static_cast<int>(config_.getEmbeddingDim());
         }
 
         /**
-         * @brief Bind the per-vocab-row FP32 table scale tensor (module retains ownership).
+         * @brief Bind the table scale tensor (module retains ownership).
          *
          * Must be bound before build(). quantize() fills the allocation at load time.
          *
-         * @param scales Device tensor of shape [vocab_size], dtype Float32.
+         * @param scales Device tensor: FP32 [vocab_size] for an FP8 table, FP16 [vocab_size, C / 32] for INT6.
          */
         void setTableScales( ITensor* scales ) requires kIsQuantized
         {
@@ -144,24 +166,23 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             if ( scales->getDeviceType() != DeviceType::Cuda )
                 throw std::invalid_argument( "CudaTokenEmbeddingOp::setTableScales - scales must be a CUDA tensor" );
 
-            table_scales_ = static_cast<const float*>(scales->rawData());
+            table_scales_ = static_cast<const TableScaleNativeType*>(scales->rawData());
         }
 
         /**
-         * @brief Quantize a BF16 host table blob to FP8_E4M3 with per-vocab-row FP32 scales.
+         * @brief Quantize a BF16 host table blob into the policy's storage format.
          *
-         * Runs once at model load time. Delegates to Detail::quantize_table_fp8_per_row()
-         * (pre-compiled by NVCC in the :Quantize partition), which chunks the table over
-         * rows through the load's staging buffer, under its limit; the full BF16 table is
-         * about 2 GB on the 12B build, so staging it whole would set the load's peak. All
-         * device work is issued on the execution context stream; the caller synchronizes
-         * after loading (the BF16 source blob is uploaded asynchronously and never
-         * retained on device).
+         * Runs once at model load time. Delegates to the Detail:: entries pre-compiled by
+         * NVCC in the :Quantize partition, which chunk the table over rows through the
+         * load's staging buffer, under its limit; the full BF16 table is about 2 GB on the
+         * 12B build, so staging it whole would set the load's peak. All device work is
+         * issued on the execution context stream; the caller synchronizes after loading
+         * (the BF16 source blob is uploaded asynchronously and never retained on device).
          *
          * @param blob           Host BF16 table blob from the model archive.
-         * @param table_out      Device FP8_E4M3 tensor [vocab_size, embedding_dim].
-         * @param scales_out     Device Float32 tensor [vocab_size].
-         * @param expected_shape Expected table shape for validation.
+         * @param table_out      Device table tensor at the policy's storage extent.
+         * @param scales_out     Device scale tensor at the policy's scale dtype and extent.
+         * @param expected_shape Logical table shape [vocab_size, embedding_dim], for validation.
          */
         void quantize(
             const ITensorBlob& blob,
@@ -177,8 +198,16 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
 
             void* staging = context_->getLoadStagingBuffer( staging_bytes );
 
-            Detail::quantize_table_fp8_per_row( blob, table_out, scales_out, expected_shape,
-                staging, staging_bytes, context_->getStream() );
+            if constexpr ( kIsInt6Table )
+            {
+                Detail::quantize_table_int6_per_group( blob, table_out, scales_out, expected_shape,
+                    TTableQuantization::kQuantizationGroupSize, staging, staging_bytes, context_->getStream() );
+            }
+            else
+            {
+                Detail::quantize_table_fp8_per_row( blob, table_out, scales_out, expected_shape,
+                    staging, staging_bytes, context_->getStream() );
+            }
         }
 
         /**
@@ -257,7 +286,12 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             const int32_t* X = static_cast<const int32_t*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
 
-            if constexpr ( kIsQuantized )
+            if constexpr ( kIsInt6Table )
+            {
+                Detail::cuda_token_embedding_int6_impl::forward(
+                    Y, X, wte_, table_scales_, B, T, embedding_dim_, context_->getStream() );
+            }
+            else if constexpr ( kIsQuantized )
             {
                 Detail::cuda_token_embedding_fp8_impl::forward(
                     Y, X, wte_, table_scales_, B, T, embedding_dim_, context_->getStream() );
@@ -332,7 +366,12 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             const int32_t* X = static_cast<const int32_t*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
 
-            if constexpr ( kIsQuantized )
+            if constexpr ( kIsInt6Table )
+            {
+                Detail::cuda_token_embedding_int6_impl::decode(
+                    Y, X, wte_, table_scales_, B, embedding_dim_, context_->getStream() );
+            }
+            else if constexpr ( kIsQuantized )
             {
                 Detail::cuda_token_embedding_fp8_impl::decode(
                     Y, X, wte_, table_scales_, B, embedding_dim_, context_->getStream() );
@@ -365,8 +404,8 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         TableNativeType* wte_{ nullptr };
         NativeType* wte_grad_{ nullptr };
 
-        // Per-vocab-row FP32 dequantization scales. Non-null only when kIsQuantized.
-        const float* table_scales_{ nullptr };
+        // Dequantization scales at the policy's dtype. Non-null only when kIsQuantized.
+        const TableScaleNativeType* table_scales_{ nullptr };
 
         int vocab_size_{ 0 };
         int embedding_dim_{ 0 };

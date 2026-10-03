@@ -148,6 +148,23 @@ statement of the property does not. It was inert while prefix reuse lived inside
 `generate`, and becomes live now that the agent core manages the splice itself: the core reads the
 refusal from the handle and reports it, rather than meeting it as a failed rewind.
 
+#### A conversation that fills its context stops, and nothing carries it forward
+
+`open` · `ai` · `adaptors`
+
+Chat ends a reply at the context limit ("finish: context_limit") and nothing shortens the history, so a
+long tool session cannot continue. Admitted 2026-10-03 with a `Mila::AI` success
+criterion added the same day (Todd): scope grown by decision, not found in passing. Two levels, both
+mechanism in `Mila/AI/`: reasoning from earlier turns dropped at turn boundaries -- kept within a turn,
+which is the opposite of the failure in "Gemma loses its own reasoning between tool calls in a turn" --
+and text compaction, the history summarized into a fresh context with instructions kept verbatim,
+reusing the system prompt's cached prefix. It triggers at the configuration's reliable depth, which
+ContextProfile measures, so it needs that tool's first profiles; Qwen's re-prefill is cheap only once
+its prefix reuse lands. Compaction in the cache itself (deleting spans in place) is research, outside
+this item (`.internal/Ideas/AgentStreams.md`).
+
+`ROADMAP.md`, Mila::AI success criteria · `Mila/Specifications/ContextProfile.md`
+
 ### Applications
 
 #### The inference server chooses each model's loader and grammar by a family enum of its own
@@ -271,7 +288,7 @@ The comparison is as fair as the script can make it, because a win that comes fr
 cell holds these, and the page states them:
 
 - **Like against like.** The same weights where both engines load them; any tensor stored differently -- Gemma's
-  output head is FP8 in Mila and Q6_K in Google's GGUF -- is named in the cell. The KV cache matches too: where Mila
+  output head is six bits per 32 in Mila and Q6_K in Google's GGUF -- is named in the cell. The KV cache matches too: where Mila
   runs FP8 KV, llama.cpp runs its 8-bit cache (`-ctk q8_0 -ctv q8_0`) in the same cell; BF16 against FP16 otherwise.
 - **llama.cpp at its best.** Its batch and micro-batch sizes (`-b`, `-ub`) are swept per cell and its fastest
   setting kept and recorded; Mila runs the plan it chooses for itself, with nothing a user could not set.
@@ -497,7 +514,7 @@ rounds activations to FP8 with one scale per token, which the QAT weights never 
 Google's BF16 checkpoint `google/gemma-4-12B-it-qat-q4_0-unquantized`, read by the existing Gemma converter
 and rounded by the Q4_0 reference rule -- the rule Google's own GGUF was made with, bit for bit -- in the
 same code that serves `ExportArtifact` and quantize-on-load. The tied
-embedding goes to FP8 from BF16. Delivered as a Mila package, not rounded at install: Google's only complete
+embedding goes to six bits per 32 from BF16 (`Quantization.md` Part II, "The tied table"). Delivered as a Mila package, not rounded at install: Google's only complete
 source is 22 GiB, and its 6.5 GiB GGUF lacks the image and audio weights (`ModelFamilyParity.md` §9, item 14).
 Ships in G4's single republish of the 12B.
 

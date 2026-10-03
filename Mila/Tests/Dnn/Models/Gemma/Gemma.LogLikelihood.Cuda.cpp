@@ -1893,4 +1893,198 @@ namespace Mila::Tests::Dnn::Models
             }
         }
     }
+
+    // ====================================================================
+    // The tied table's format against BF16 on Mila's own states (Quantization.md Part II, "The tied table -- six
+    // bits per 32", gate).
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=GemmaLogLikelihoodCudaTests.DISABLED_TiedHeadAgainstBf16_*
+    //
+    // The spec's table applied every format to HuggingFace's final normalized states of two PG-19 books, 2048 tokens
+    // each in a model turn. Here the Q4_0 network, quantized on load, produces those states, and two heads are applied
+    // to the same rows: the INT6 head the network deploys (its batched GEMM, which a tied head computes bit for bit --
+    // TokenEmbedding.Int6.Cuda.cpp) and the BF16 table. Scored as the spec scored: after the final softcap, KL from the
+    // BF16 head, top-1 agreement with it, and each head's mean NLL of the true next token.
+    // ====================================================================
+    namespace
+    {
+        struct HeadComparison
+        {
+            double reference_nll{ 0.0 };
+            double nll{ 0.0 };
+            double kl{ 0.0 };
+            dim_t agreements{ 0 };
+            dim_t positions{ 0 };
+        };
+
+        /// Log-softmax of one capped row, in FP64.
+        void cappedLogSoftmax( const float* logits, dim_t vocab, double softcap, std::vector<double>& out )
+        {
+            out.resize( static_cast<std::size_t>( vocab ) );
+            double largest = -INFINITY;
+
+            for ( dim_t index = 0; index < vocab; ++index )
+            {
+                const double value = softcap > 0.0 ? std::tanh( logits[ index ] / softcap ) * softcap : logits[ index ];
+                out[ static_cast<std::size_t>( index ) ] = value;
+                largest = std::max( largest, value );
+            }
+
+            double sum = 0.0;
+
+            for ( const double value : out )
+                sum += std::exp( value - largest );
+
+            const double log_sum = largest + std::log( sum );
+
+            for ( double& value : out )
+                value -= log_sum;
+        }
+
+        template<typename TNetwork>
+        void measureTiedHeadAgainstBf16( const fs::path& weights )
+        {
+            constexpr dim_t kTokens = 2048;
+            constexpr dim_t kRowsPerPass = 256;
+
+            const GemmaConfig config = measuredConfigOf( weights, 64 );
+            const dim_t model_dim = config.getModelDim();
+            const dim_t vocab = config.getVocabSize();
+            const double softcap = config.getFinalLogitSoftcapping();
+
+            auto tokenizer = Mila::Data::BpeTokenizer::loadGemma( tokenizerPath() );
+
+            std::vector<std::vector<std::int32_t>> books;
+
+            for ( const char* name : { "30312.txt", "3608.txt" } )
+            {
+                BookSegment segment = bookSegment( pg19TestPath() / name, *tokenizer, kTokens );
+                ASSERT_EQ( static_cast<dim_t>( segment.tokens.size() ), kTokens ) << name;
+                books.push_back( std::move( segment.tokens ) );
+            }
+
+            // Every position's final normalized row, but each book's last, which predicts nothing.
+            std::vector<float> rows;
+            std::vector<std::int32_t> targets;
+
+            {
+                auto network = buildMeasured<TNetwork>( weights, 64, kTokens );
+                RowCapture capture( model_dim, 0, kTokens - 1 );
+
+                const std::size_t observed = network->observe( "*.rmsn_final", ComputePassMask::inference(),
+                    [&]( std::string_view, ComputePass, std::string_view stage, const ITensor& value )
+                    {
+                        if ( stage == "output" )
+                            capture.record( *network, value );
+                    } );
+
+                ASSERT_EQ( observed, 1u );
+
+                for ( const auto& book : books )
+                {
+                    capture.begin();
+                    (void)Common::sequenceLogLikelihoodOf( *network, book );
+                    targets.insert( targets.end(), book.begin() + 1, book.end() );
+                }
+
+                network->stopObserving();
+                rows = std::move( capture.rows );
+            }
+
+            const dim_t positions = static_cast<dim_t>( targets.size() );
+            ASSERT_EQ( static_cast<dim_t>( rows.size() ), positions * model_dim );
+
+            // The two heads over the same rows, the BF16 table loaded into both: one keeps it, one quantizes it.
+            Serialization::WeightsReader reader( weights );
+            auto table = reader.readTensorBlob<CpuMemoryResource>( "temb.wte" );
+            ASSERT_EQ( table.getMetadata().dtype, TensorDataType::BF16 );
+
+            LinearConfig head_config( model_dim, vocab );
+            head_config.withBias( false );
+
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16> reference_head(
+                "bf16", head_config, DeviceId{ DeviceType::Cuda, 0 } );
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Quant::Weight::PerGroupInt6<32>> int6_head(
+                "int6", head_config, DeviceId{ DeviceType::Cuda, 0 } );
+
+            const BuildContext head_context( shape_t{ kRowsPerPass, model_dim }, RuntimeMode::Inference, false );
+            reference_head.build( head_context );
+            int6_head.build( head_context );
+            reference_head.loadParameter( "weight", table );
+            int6_head.loadParameter( "weight", table );
+            reference_head.synchronize();
+            int6_head.synchronize();
+
+            HeadComparison comparison;
+            std::vector<double> wanted;
+            std::vector<double> got;
+
+            for ( dim_t first = 0; first < positions; first += kRowsPerPass )
+            {
+                const dim_t count = std::min( kRowsPerPass, positions - first );
+
+                Tensor<TensorDataType::FP32, CpuMemoryResource> host_rows( Device::Cpu(), shape_t{ count, model_dim } );
+                std::copy( rows.begin() + first * model_dim, rows.begin() + ( first + count ) * model_dim, host_rows.data() );
+
+                Tensor<TensorDataType::BF16, CudaDeviceMemoryResource> device_rows( Device::Cuda( 0 ), shape_t{ count, model_dim } );
+                copy( host_rows, device_rows );
+
+                auto reference_logits = toHost<TensorDataType::FP32>( reference_head.forward( device_rows ) );
+                auto int6_logits = toHost<TensorDataType::FP32>( int6_head.forward( device_rows ) );
+                int6_head.synchronize();
+
+                for ( dim_t row = 0; row < count; ++row )
+                {
+                    const std::size_t target = static_cast<std::size_t>( targets[ static_cast<std::size_t>( first + row ) ] );
+
+                    cappedLogSoftmax( reference_logits.data() + row * vocab, vocab, softcap, wanted );
+                    cappedLogSoftmax( int6_logits.data() + row * vocab, vocab, softcap, got );
+
+                    double kl = 0.0;
+
+                    for ( std::size_t index = 0; index < wanted.size(); ++index )
+                        kl += std::exp( wanted[ index ] ) * ( wanted[ index ] - got[ index ] );
+
+                    comparison.kl += kl;
+                    comparison.reference_nll -= wanted[ target ];
+                    comparison.nll -= got[ target ];
+                    comparison.agreements += ( std::ranges::max_element( wanted ) - wanted.begin() )
+                        == ( std::ranges::max_element( got ) - got.begin() );
+                    ++comparison.positions;
+                }
+            }
+
+            const double n = static_cast<double>( comparison.positions );
+
+            std::cout << std::format(
+                "  {}: {} positions, NLL BF16 {:.5f}, INT6 {:.5f} ({:+.4f}), KL from BF16 {:.3e}, top-1 agreement {:.2f}%\n",
+                weights.filename().string(), comparison.positions, comparison.reference_nll / n, comparison.nll / n,
+                ( comparison.nll - comparison.reference_nll ) / n, comparison.kl / n,
+                100.0 * static_cast<double>( comparison.agreements ) / n ) << std::flush;
+        }
+    }
+
+    TEST( GemmaLogLikelihoodCudaTests, DISABLED_TiedHeadAgainstBf16_12B )
+    {
+        const fs::path weights = fs::path( TEST_DATA_DIR ) / "models" / "gemma" / "gemma4_12b_it_qat_bf16.bin";
+
+        if ( getDeviceCount( DeviceType::Cuda ) == 0 || !fs::exists( weights ) || !fs::exists( tokenizerPath() )
+            || !fs::exists( pg19TestPath() ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << weights.string() << ", the Gemma tokenizer and PG-19";
+        }
+
+        measureTiedHeadAgainstBf16<MeasuredGemmaQ4_0>( weights );
+    }
+
+    TEST( GemmaLogLikelihoodCudaTests, DISABLED_TiedHeadAgainstBf16_26B )
+    {
+        if ( getDeviceCount( DeviceType::Cuda ) == 0 || !fs::exists( routedWeightsPath() ) || !fs::exists( tokenizerPath() )
+            || !fs::exists( pg19TestPath() ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << routedWeightsPath().string() << ", the Gemma tokenizer and PG-19";
+        }
+
+        measureTiedHeadAgainstBf16<MeasuredRoutedQ4_0>( routedWeightsPath() );
+    }
 }

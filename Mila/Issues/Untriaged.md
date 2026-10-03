@@ -19,6 +19,7 @@ and Q8_0 at 8.5 bits 8.6x closer (26B-A4B; 9.5x on the 12B). E4M3 keeps three si
 scale. `PerChannelFp8<>` is also the body format of Mila's FP8 packages (Llama 3.2 3B and 3.1 8B FP8); whether an
 integer block format at equal or fewer bytes would serve those bodies better, as it does the head, is unmeasured. A
 random 512 x 2816 matrix, before the head run: relative RMS error FP8 per row 2.6e-2, INT6 per 32 2.1e-2, Q8_0 5.6e-3.
+Gemma's head moved to INT6 per 32 at `0.21.0-dev+31`; the FP8 bodies are what remains.
 
 ## A multi-line paste into mila-chat becomes one turn per line
 
@@ -149,7 +150,8 @@ Read from the code, same day, arithmetic not yet measured component by component
 - **The prefill score buffers** (`preatt`, `att`) are chunk x heads x (window + chunk) and stay allocated when every
   layer prefills through flash and never reads them (`Gemma.ixx`, `prefillScoreWidth`): about 134 MB at a 1024-row
   chunk if BF16.
-- Weights are 0.35 GB over llama.cpp's, 0.13 GB of it the FP8 tied table against Q6_K.
+- Weights are 0.35 GB over llama.cpp's, 0.13 GB of it the FP8 tied table against Q6_K. At `0.21.0-dev+31` the
+  table is six bits per 32, the same 0.56 GiB as Q6_K.
 
 Per token, about 23 KB (global K and V, the RoPE tables, decode scores). The 37.7 MB difference between the refusals
 at 32768 and 33792 overstates it: each of those tensors rounds up to the 2 MiB granularity, and a 1K step crosses a
@@ -349,7 +351,9 @@ exact in BF16, so the rounding comes only from folding the scale in early. Measu
 `temb.wte` (ModelFamilyParity.md 8.2, G1 result): the staged path's extra error is this rounding alone, reproduced
 to four digits by a model of it. Every per-channel FP8 Linear at more than one row takes the same path.
 Decided 2026-09-26 (Todd): the fix -- scale after the dot product -- is its own change with a Linear-level gate
-against exact FP64, and it sets `Gemma.LogLikelihood.Cuda.cpp`'s window bound back from 2e-3 to 1e-3.
+against exact FP64, and it sets `Gemma.LogLikelihood.Cuda.cpp`'s window bound back from 2e-3 to 1e-3. At
+`0.21.0-dev+31` Gemma's head left this path: its table is INT6 per 32, whose batched GEMM scales each group's exact
+dot product. The FP8 Linears of Llama's FP8 packages still take it.
 
 ## The site's crawl signals lag the site
 

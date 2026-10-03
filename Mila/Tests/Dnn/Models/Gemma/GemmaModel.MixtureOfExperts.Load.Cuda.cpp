@@ -63,9 +63,9 @@ namespace Mila::Tests::Dnn::Models
         constexpr std::size_t kLayerBankBytes = 432'013'312;
         constexpr std::size_t kLayerInactiveBytes = kLayerBankBytes / 128 * 120;
 
-        // Gemma.md s10.5, the PerGroupFp4<64> row: bank 11.96 + Linears 0.86 + FP8 table 0.69 + router 0.02. The Q4_0
+        // Gemma.md s10.5, the PerGroupFp4<64> row: bank 11.96 + Linears 0.86 + INT6 table 0.56 + router 0.02. The Q4_0
         // row is the same bytes.
-        constexpr double kSection8WeightsGiB = 13.54;
+        constexpr double kSection8WeightsGiB = 13.41;
 
         // Below this much free after the load, cudaMemGetInfo has stopped measuring: WDDM places the rest in host
         // memory and reports the card as full, so "consumed" saturates at what was free.

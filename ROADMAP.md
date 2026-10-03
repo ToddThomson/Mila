@@ -130,6 +130,12 @@ with no re-render of the conversation and no re-tokenize. Tools are registered a
 functions. Qwen cannot rewind its recurrent state, so it refuses prefix reuse; the loop reads that
 from the handle as a property of the model rather than discovering it as a failed retry.
 
+A conversation that grows toward the depth where its model stops being reliable is compacted rather
+than ended: reasoning from earlier turns is dropped, and the history is summarized into a fresh context
+that keeps its instructions verbatim, reusing the system prompt's cached prefix. The depth comes from
+measurement of that model and format (`ContextProfile.md`), not a guess. Compaction is mechanism; what a
+summary keeps is a policy the application may replace.
+
 The autonomy policy is not in this release. Chat keeps its human approval gate as an application
 concern.
 
@@ -137,7 +143,9 @@ concern.
 streaming and calling a tool; `plan()` and `model()` reach the objects that actually ran; a sample
 creates an `AI` over a network it composed from components itself; and across a multi-turn tool
 session, prefill tokens per turn equal the tokens the turn added, measured, for every family that
-permits prefix reuse — for Qwen the refusal is reported, not discovered.
+permits prefix reuse — for Qwen the refusal is reported, not discovered; and a tool session run past
+its model's measured reliable depth continues after compaction with its system instructions still
+obeyed, measured by the instruction-retention arm.
 
 ### Applications
 

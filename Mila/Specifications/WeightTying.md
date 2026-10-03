@@ -69,7 +69,7 @@ For an unquantized `lm_head`, `WeightTensorType` is exactly
 `EmbeddingTensorType`, so `getWeightTensorShared()` assigns into
 `installSharedWeight` with no conversion.
 
-**D4 — SUPERSEDED 2026-07-04 by "D4 Design B" (tied FP8 table).**
+**D4 — SUPERSEDED 2026-07-04 by "D4 Design B" (tied quantized table).**
 The original decision here ("`lm_head` is never quantized, so tying is always
 safe") was a deliberate deferral, reopened once decode profiling showed the
 BF16 `lm_head` weight read dominating decode traffic on the 12B FP4 build. The
@@ -77,20 +77,28 @@ axis coincidence that makes quantized tying clean: per-channel FP8 scales sit
 on the `lm_head`'s output-channel axis, which IS the vocabulary row the
 embedding gathers, so one FP32 scale tensor `[vocab]` serves both consumers.
 
-Current design (see BACKLOG "D4 Design B" for the full scope):
+Current design. The table moved from FP8 per row to six-bit codes per 32 at
+`0.21.0-dev+31` (`Quantization.md` Part II, "The tied table -- six bits per 32"):
 - `TokenEmbedding` carries a `TTableQuantization` axis (`NoWeightQuant` |
-  `PerChannelFp8<>`). The quantized instantiation stores `wte_` as FP8_E4M3
-  `[vocab, d]` plus FP32 row scales `[vocab]`, quantized at `loadParameter`
-  time, and dequantizes inline during the gather.
-- `Linear::installSharedWeight(weight, scales)` is a real install path for
-  per-channel policies. Per-group policies (FP4) remain excluded — their
-  scales sit on the input axis and do not transfer to a row gather — and a
-  quantized single-argument install always throws (a quantized weight is
+  `PerChannelFp8<>` | `PerGroupInt6<32>`). `PerGroupInt6<32>` stores `wte_` as
+  UINT8 `[vocab, 3d/4]` (the layout of `Int6Packing.ixx`) plus FP16 scales
+  `[vocab, d/32]`; `PerChannelFp8<>` as FP8_E4M3 `[vocab, d]` plus FP32 row
+  scales `[vocab]`. Either is quantized at `loadParameter` time from a BF16
+  table or loaded packed, refuses a table stored in any other format, and
+  dequantizes inline during the gather.
+- `Linear::installSharedWeight(weight, scales)` installs any quantized policy
+  but a codebook: per-channel scales `[out]` and per-group scales
+  `[out, in/group]` both follow the output channel, which IS the vocabulary
+  row the embedding gathers, so one scale tensor serves both consumers. A
+  codebook policy throws (its table and high-bit plane cannot be passed), and
+  a quantized single-argument install always throws (a quantized weight is
   meaningless without its scales).
 - `GemmaTransformer` selects the table policy from its `TWeightQuantization`:
-  quantized bodies (FP4/FP8) use the FP8 table and an FP8 `lm_head`; the
+  quantized bodies use the INT6 table and an INT6 `lm_head`; the
   `NoWeightQuant` body keeps the BF16 table and head, preserving the exact HF
-  token-parity oracle in the reference configuration.
+  token-parity oracle in the reference configuration. `GemmaModel` refuses at
+  planning weights whose stored table is in neither the compiled format nor
+  BF16 -- a Gemma package exported before `+31` carries it as FP8.
 
 **D5 — Gemma sqrt(hidden_size) scale moves from converter to runtime.**
 The Gemma converter currently folds `sqrt(hidden_size)` into the stored

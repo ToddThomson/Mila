@@ -47,7 +47,7 @@ has been measured; where it has not, the family is not finished.
 | Llama 3.1 8B Instruct | Llama | `Llama-3.1-8B-Instruct-fp4` | 12 GB |
 | Gemma 4 12B | Gemma | `gemma-4-12b-it-fp4` | 12 GB |
 | Gemma 4 26B-A4B | Gemma (mixture of experts) | none -- in `Mila/Src`, gated, unpublished | 16 GB, and not yet at context 8192 (3.6) |
-| Qwen 3.8 27B | Qwen | `Qwen3.8-27B-fp4`; `Qwen3.8-27B-cb2-3` fitted, unpublished | FP4: 16 GB. cb2-3: 12 GB |
+| Qwen 3.8 27B | Qwen | `Qwen3.8-27B-fp4`; `Qwen3.8-27B-cb2-3` fitted, unpublished | FP4: 16 GB, short of 32K. cb2-3: 12-16 GB (8.3) |
 
 ---
 
@@ -69,7 +69,7 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 
 | Capability | Llama | Gemma | Qwen | Anchor |
 |---|---|---|---|---|
-| FP4, FP8 and BF16 weights; quantize-on-load | Y | Y | Y | `QuantizationDispatch.ixx` |
+| FP4, FP8 and BF16 weights; quantize-on-load | Y | Y | partial | `QuantizationDispatch.ixx`; `QwenModel` refuses a uniform FP8 body and Q4_0 (`QwenModel.ixx:578`), loading BF16, FP4 and its per-role plan |
 | Embedding table and output head quantized with the body | -- | Y | Y | Llama's are always BF16 (`Llama.ixx:86`, `:88`): about 1.4 GiB on 3.1 8B |
 | A tied checkpoint's embedding and head held once | -- | Y | n/a | Llama 3.2 1B and 3B tie them upstream (3.1 8B does not); the converter copies the table into `lm_head.weight` (`convert_weights.py:226`) and the transformer loads both, a second BF16 copy of 0.73 GiB on the 3B and 0.49 GiB on the 1B, in the package and on the device. Gemma shares one table. Qwen 3.8 27B does not tie |
 | Sub-4-bit codebook weights | -- | -- | Y | the fitting and packing tools are Qwen's (`Tools/Quantization/pack_qwen.py`, `qwen_plan.py`); the dispatch is Qwen's own (`dispatchQwenWeightPlan`) |
@@ -691,11 +691,91 @@ as section 9 item 1 records.
 
 ### 8.3 Qwen 3.8
 
-Not started. Most of Qwen's gaps already have entries under Qwen 3.8 Complete: KV-cache compression,
-quality beyond 16K, streaming in Chat, the smaller dense members. So its pass is mostly a reconciliation.
-The one new item is pricing the vision tower against 16 GB, where the FP4 build already holds 13.2 GB of
-weights; the vision tower is currently recorded nowhere. G1's shared reduction is a refactor of Qwen's own
-code, gated by Qwen's scores staying bit-identical.
+Started 2026-10-03 (Todd), as Gemma's was: measure first, against llama.cpp, then reconcile. Several of Qwen's
+gaps already have entries under Qwen 3.8 Complete (KV-cache compression, quality beyond 16K, streaming in Chat,
+the smaller dense members); the stages below add what the measurements found. G1's shared reduction already
+landed, gated by Qwen's scores staying bit-identical.
+
+**Where the model sits.** Qwen 3.8 27B is dense: 64 layers, 48 of them DeltaNet with a constant-size state, 16 full
+attention (4 KV heads x 256, so 64 KiB a token at BF16), an untied 248,320-token table and head. Every weight is read
+every token, so generation is bandwidth-bound near 27-34 tokens a second on the reference card. The producers'
+quality-preserving allocations do not fit 16 GB: Qwen's FP8 build (E4M3, one scale per 128 x 128 block, head and table
+BF16) is about 30 GB, and NVIDIA's `nvidia/Qwen3.8-27B-NVFP4` -- NVFP4 feed-forward and head, every attention and
+DeltaNet projection FP8 per tensor -- about 17.6 GB on the card. The 3.8 family has no mixture of experts at this size
+(its others are Flash-Next, about 360 GB at BF16, and 2.4T-A95B). So the FP4 package fits 16 GB only short of 32K, and
+**Mila's 2.82-bit build is the 12-16 GB model** (Todd, 2026-10-03): on 16 GB it holds 32K and more and generates
+faster than FP4. All three producers' builds and Mila's keep DeltaNet's `in_proj_a` and `in_proj_b` at BF16.
+
+**Q1 -- Mila's rates on the reference card.** *Measured 2026-10-03, `+31`, RTX 5060 Ti, three runs, within 0.5%.*
+
+| Tokens a second | Prefill 512 / 2K / 8K / 32K | Generation at depth 0 / 8K / 32K |
+|---|---|---|
+| FP4 (the published package) | 1,266 / 1,375 / 1,298 / refused (16.67 GB against 15.90 free) | 26.9 / 26.0 / refused |
+| 2.82-bit (cb2-3) | 681 / 727 / 705 / 634 | 33.8 / 32.4 / 29.0 |
+
+FP4 decode reads at about 79% of the card's bandwidth, 2.82-bit at about 65%. August's figures (31-37 tokens a
+second) were close: decode replay and the kernel work since did not change Qwen's picture much.
+
+**Q2 -- llama.cpp on the format its users run.** llama.cpp b11216 (architecture `qwen35`) on
+`unsloth/Qwen3.8-27B-UD-IQ4_XS` -- a 2-to-6-bit mix despite its name (feed-forward mostly IQ4_XS, about a third of
+layers IQ3, a few IQ2; head Q5_K; table Q3_K; DeltaNet gates Q8_0), 14.24 GB, about 13.7 GB on the card. Flash
+attention, every layer on the GPU, no vision projector, micro-batch swept, three runs. *Measured 2026-10-03, RTX
+5060 Ti:*
+
+| Tokens a second | Prefill 512 / 2K / 8K / 32K | Generation 0 / 8K / 32K |
+|---|---|---|
+| llama.cpp, FP16 cache | 986 / 988 / 953 / 849 (spills at a 2048 micro-batch: 105) | 27.7 / 26.9 / 24.3 |
+| llama.cpp, q8_0 cache | 972 / 981 / 947 / 842 | 27.6 / 26.4 / 23.3 |
+| Mila FP4 / llama.cpp FP16 | 1.28x / 1.39x / 1.36x / refused | 0.97x / 0.97x / refused |
+| Mila 2.82-bit / llama.cpp FP16 | 0.69x / 0.74x / 0.74x / 0.75x | 1.22x / 1.20x / 1.19x |
+
+**Capacity** -- generation of 32 tokens at rising depth, two runs; a spill into host memory shows as the rate
+collapsing:
+
+| Depth | 16K | 24K | 40K | 48K | 56K | 64K |
+|---|---|---|---|---|---|---|
+| llama.cpp, FP16 cache | 25.8 | 25.0 | 22.6 | 14.6 | 11.0 | 8.6 |
+| llama.cpp, q8_0 cache | 25.2 | 24.1 | 22.3 | 21.5 | 20.8 | 20.1 |
+
+With an FP16 cache llama.cpp runs at full speed to about 40K and spills past it; with q8_0 it holds 64K without
+spilling, at a quarter less than its short-context rate. Mila's FP4 refuses 32K and its 2.82-bit build is still
+faster at 32K (29.0 against 24.3 and 23.3); Mila has no compressed cache for Qwen to set against q8_0 (Q6).
+Different formats, named in every cell: Mila's FP4 holds more bytes than the mix.
+
+**Q3 -- Head to head on identical Q4_0 weights.** Q4_0 for Qwen in `Mila/Src` (`QwenModel.ixx:578` refuses it; the
+INT8 prefill's width rules hold at 5120 and 17408) and a `qwen_q4_0_gguf.py` writer modelled on Llama's, the GGUF
+proven equal by scores and greedy tokens before any rate is read -- the gate the other two families passed. Scope
+open (Todd).
+
+**Q4 -- FP4's footprint at 32K.** Mila refuses 32K at 16.67 GB where llama.cpp holds it with about 13.7 GB of weights
+and a 2 GB FP16 cache. Split Mila's footprint into weights, state and scratch at 32K, name each difference from
+llama.cpp's, and separate choices (FP4 holds more bytes than the mix) from allocations Mila does not need.
+
+**Q5 -- Prompt-prefix reuse by snapshot and restore.** The agent blocker: without it every turn re-prefills the whole
+conversation -- 6.3 s at 8K on FP4, 52 s at 32K on 2.82-bit, each turn. The per-block `snapshotState` /
+`restoreState` exist; a whole-model property does not (`BACKLOG.md`, Mila::AI, "Qwen refuses prompt-prefix reuse").
+
+**Q6 -- An FP8 KV cache.** A capacity item on 16 GB, not a nicety: 32 KiB a token saved across the 16 cached layers,
+about 1 GB at 32K, which is FP4's whole shortfall there (`BACKLOG.md`, Qwen 3.8 Complete).
+
+**Q7 -- Quality across the planner's range, through ContextProfile.** Measured to 16K only. The 2.82-bit plan puts
+DeltaNet's query and key at 3 bits, the opposite of NVIDIA's choice to keep every attention-side projection at 8,
+and Gemma's long-context loss was carried by 4-bit query and key projections (8.2, G2). The profile's reliable depth
+decides whether "12-16 GB" holds in public (`ContextProfile.md`).
+
+**Q8 -- The output head's format.** Both Mila plans put the head in FP4; Qwen's FP8 build keeps it at BF16, NVIDIA's
+puts it in NVFP4. Measured as Gemma's tied table was (`Quantization.md` Part II): the formats applied to the same final
+hidden states, KL and top-1 against BF16. The INT6 kernels exist.
+
+**Q9 -- The 2.82-bit build's prefill and decode efficiency.** Prefill trails llama.cpp by a quarter because the
+codebook weights expand to BF16 before each GEMM (`Qwen3.8.md`, two-phase staging); decode reads at 65% of
+bandwidth against FP4's 79%.
+
+**Q10 -- Records that exist nowhere.** The vision tower (27 layers, width 1152) priced against 16 GB, and the
+multi-token prediction layer (both converters skip `mtp.*`; the producers' builds carry it).
+
+Q1 and Q2 are measurements; Q4 to Q9 follow from them and from the agentic positioning (`ContextProfile.md`). Streaming
+in Chat and the smaller dense members keep their existing entries.
 
 ### 8.4 Llama 3.x
 

@@ -119,12 +119,13 @@ namespace Mila::Dnn
         using NetworkBase = LanguageModelNetwork<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
 
-        // D4 Design B: weight-quantized bodies (FP4/FP8) convert the tied
-        // embedding/lm_head table to per-vocab-row FP8 -- one shared FP8 table plus
-        // one FP32 scale tensor read by both consumers. The NoWeightQuant body keeps
-        // the BF16 table and head, preserving the exact HF token-parity oracle in
-        // the reference configuration.
-        using TableQuantizationPolicy = std::conditional_t<TWeightQuantization::kIsQuantized, PerChannelFp8<>, NoWeightQuant>;
+        // D4 Design B: weight-quantized bodies store the tied embedding/lm_head table
+        // as six-bit codes with one FP16 scale per 32 elements of a row -- one code
+        // tensor and one scale tensor read by both consumers. Against FP8 per row it is
+        // closer to BF16 on every measure in 18% fewer bytes (Quantization.md, "The tied
+        // table -- six bits per 32"). The NoWeightQuant body keeps the BF16 table and
+        // head, preserving the exact HF token-parity oracle in the reference configuration.
+        using TableQuantizationPolicy = std::conditional_t<TWeightQuantization::kIsQuantized, PerGroupInt6<32>, NoWeightQuant>;
 
         using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision, TableQuantizationPolicy>;
         using LmHeadLinearType = Linear<TDeviceType, TPrecision, TableQuantizationPolicy>;
@@ -602,8 +603,8 @@ namespace Mila::Dnn
             // Tie lm_head to the (raw) embedding table after all blobs stream. When tied,
             // lm_head.weight is absent from the file, so nothing was loaded into lm_head's
             // own allocation; we replace it with the shared table here (WeightTying.md D2).
-            // On quantized bodies the table is FP8 and the head also adopts the shared
-            // per-vocab-row scales (D4 Design B).
+            // On quantized bodies the table is INT6 and the head also adopts the shared
+            // scales (D4 Design B).
             if ( tie_word_embeddings_ )
             {
                 if constexpr ( TableQuantizationPolicy::kIsQuantized )
@@ -714,9 +715,9 @@ namespace Mila::Dnn
             lm_head_ = this->template getComponentAs<LmHeadLinearType>( this->getName() + ".lm_head" );
 
             // Tied lm_head: install the shared embedding table BEFORE build so the head
-            // never allocates its own [vocab_size, model_dim] weight (~1 GB FP8). Without
+            // never allocates its own [vocab_size, model_dim] weight (~0.7 GB INT6). Without
             // this, build allocates that weight and loadParameters immediately frees it when
-            // it installs the shared table -- a wasted ~1 GB load-time VRAM transient that
+            // it installs the shared table -- a wasted load-time VRAM transient that
             // raises the load high-water and lowers the loadable-context ceiling. The tie
             // flag comes from checkpoint metadata via config; token_embedding_ is built above
             // so its table/scales allocations already exist. Inference only (the shared table

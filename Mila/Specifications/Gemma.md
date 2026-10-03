@@ -502,9 +502,9 @@ exactly the size that format gives its shape.
   the cost over BF16.
 - **The Q6_K table is the GGUF's conversion, not the trained format**; the
   unquantized checkpoint carries it at full precision. The 12B's Q4_0 build
-  holds its tied table at per-row FP8 (`Quantization.md` Part III), and the 26B
-  follows the 12B. The llama.cpp comparison states the head's difference or
-  removes it.
+  holds its tied table at six bits per 32 (`Quantization.md` Part II, "The tied
+  table"; per-row FP8 before `0.21.0-dev+31`), and the 26B follows the 12B. The
+  llama.cpp comparison states the head's difference or removes it.
 - **The router stays unquantized** at compute precision, as it does today
   (`MixtureOfExperts.md` §4); the GGUF keeps it F32.
 - **The policy is `PerGroupInt4<32>`** in Mila's two-plane layout
@@ -552,19 +552,20 @@ and driver):
 | `PerGroupFp4<128>` (11.30 GiB) | BF16 (4.46 GiB) | **15.76 GiB — does not fit** |
 | NVFP4 (11.97 GiB) | FP8 (2.23 GiB) | 14.20 GiB — fits, ~1 GiB headroom |
 | `PerGroupFp4<128>` (11.30 GiB) | FP8 (2.23 GiB) | 13.53 GiB — fits |
-| `PerGroupFp4<64>` (11.96 GiB) | `PerGroupFp4<64>` Linears 0.86 + FP8 table 0.69 + BF16 router 0.02 (1.57 GiB) | **13.54 GiB — what `WeightQuantization::FP4` builds** |
-| **Q4_0 (11.96 GiB)** | Q4_0 Linears 0.86 + FP8 table 0.69 + BF16 router 0.02 (1.57 GiB) | **13.54 GiB — the build this model publishes; not built** |
+| `PerGroupFp4<64>` (11.96 GiB) | `PerGroupFp4<64>` Linears 0.86 + INT6 table 0.56 + BF16 router 0.02 (1.44 GiB) | **13.41 GiB — what `WeightQuantization::FP4` builds** |
+| **Q4_0 (11.96 GiB)** | Q4_0 Linears 0.86 + INT6 table 0.56 + BF16 router 0.02 (1.44 GiB) | **13.41 GiB — the build this model publishes** |
 
 The `PerGroupFp4<64>` row is the build that exists (`Gemma4MoE.md` Phase 8). Every width is a multiple of 64, not of 128, so
 the group is 64; `WeightQuantization::FP4` quantizes every `Linear` rather than only the experts, the tied
-table takes Gemma's per-row FP8, and the router projection stays unquantized. The expert term is exact from the
+table takes Gemma's six bits per 32 (per-row FP8, 0.69 GiB, before `0.21.0-dev+31`), and the router projection
+stays unquantized. The expert term is exact from the
 packed layout — per layer, `[128, 1408, 1408]` + `[128, 1408, 44]` FP32 scales for `gate_up_proj` and
 `[128, 2816, 352]` + `[128, 2816, 11]` for `down_proj`, 428,212,224 bytes, x30 = 12,846,366,720 (11.96 GiB).
 
 The Q4_0 row is the same composition as the 12B's Q4_0 build, and Q4_0 costs every quantized tensor exactly the
-bytes `PerGroupFp4<64>` does (10.4), so the two rows are equal; the exported Q4_0 weights measure 13.54 GiB
-(`0.21.0-dev+24`), and a Q4_0 load reports the same parameter bytes as an FP4 one. Google's GGUF of the same
-model is 13.45 GiB, its Q6_K table 0.56 GiB against Mila's FP8 0.69.
+bytes `PerGroupFp4<64>` does (10.4), so the two rows are equal; the exported Q4_0 weights measured 13.54 GiB with
+the FP8 table (`0.21.0-dev+24`), and a Q4_0 load reports the same parameter bytes as an FP4 one. Google's GGUF of the
+same model is 13.45 GiB, its Q6_K table 0.56 GiB, as Mila's INT6 table is.
 
 **Measured, and short of the card** (`Gemma4MoE.md` Phase 8, after RoPE's tables were sized to the built
 context): the `PerGroupFp4<64>` build at context 8192 predicts 15,982,200,832 bytes — 13.54 GiB of weights and

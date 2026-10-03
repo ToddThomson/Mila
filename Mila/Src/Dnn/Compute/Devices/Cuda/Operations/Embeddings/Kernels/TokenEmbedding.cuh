@@ -50,4 +50,20 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
     void cuda_token_embedding_decode_bf16_qfp8(
         __nv_bfloat16* Y, const int* X, const void* wte_fp8, const float* scales,
         int B, int C, cudaStream_t stream );
+
+    // ========================================================================
+    // BF16 output, INT6 table (the layout of Int6Packing.ixx)
+    //
+    // Gather-dequant: Y[b,t,c] = bf16( ( code[X[b,t],c] - 32 ) * scales[X[b,t], c / 32] ).
+    // One IEEE half scale per 32 elements of a row; the code and scale tensors
+    // are shared with a tied lm_head. C must be a multiple of 64. The scale
+    // pointer is void* for the same reason as the FP8 table's.
+    // ========================================================================
+    void cuda_token_embedding_forward_bf16_qint6(
+        __nv_bfloat16* Y, const int* X, const unsigned char* wte_codes, const void* scales,
+        int B, int T, int C, cudaStream_t stream );
+
+    void cuda_token_embedding_decode_bf16_qint6(
+        __nv_bfloat16* Y, const int* X, const unsigned char* wte_codes, const void* scales,
+        int B, int C, cudaStream_t stream );
 }

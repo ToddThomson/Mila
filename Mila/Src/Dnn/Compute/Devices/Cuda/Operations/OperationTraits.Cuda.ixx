@@ -115,6 +115,12 @@ namespace Mila::Dnn::Compute
         using type = CudaLinearOp<TensorDataType::BF16, PerGroupInt4<32>>;
     };
 
+    template<>
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupInt6<32>>
+    {
+        using type = CudaLinearOp<TensorDataType::BF16, PerGroupInt6<32>>;
+    };
+
     /// FP4 E2M1 per-group quantized BF16 path. W4A16 fused GEMM with E2M1 decode, group_size=128. Requires SM >= 8.0.
     template<>
     struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupFp4<128>>
@@ -397,8 +403,9 @@ namespace Mila::Dnn::Compute
     // TokenEmbeddingOp -- CUDA specializations
     // Index type is always INT32 (vocabulary token indices).
     // TPolicy = table quantization policy (D4 Design B): NoWeightQuant keeps the
-    // full-precision table; PerChannelFp8<> stores FP8_E4M3 rows + FP32 row scales
-    // shared with a tied lm_head.
+    // full-precision table; PerChannelFp8<> stores FP8_E4M3 rows + FP32 row scales,
+    // PerGroupInt6<32> six-bit codes + FP16 scales per 32, both shared with a tied
+    // lm_head.
     // -------------------------------------------------------------------------
 
     template<>
@@ -418,6 +425,13 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::BF16, PerChannelFp8<>>
     {
         using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::BF16, PerChannelFp8<>>;
+    };
+
+    /// INT6 table, one FP16 scale per 32 elements of a row, BF16 gather-dequant output.
+    template<>
+    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupInt6<32>>
+    {
+        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::BF16, PerGroupInt6<32>>;
     };
 
     // -------------------------------------------------------------------------
