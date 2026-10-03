@@ -51,6 +51,14 @@ The rest of this document is about **read-time fusion**.
   today it takes 128. At 32K, the same cache moving the chunk from 256 to 1024 made the whole prefill 1.41x faster
   (`Quantization.md`, decode at 32K). The earlier "about 96K" estimate is withdrawn; capacity at the largest chunk is
   the figure that matters to a user waiting on a prompt.
+
+  **Capacity, from the planner, 2026-10-03** (`ProfileModel --model gemma --quantization q4_0 --kv-cache fp8`, the
+  26B-A4B quantized on load from Google's QAT checkpoint, `0.21.0-dev+32`, 15,904,800,768 bytes free on the RTX 5060
+  Ti). Today 81920 fits at a 256-row chunk with 22 MiB to spare; 98304 plans 15,992,329,216 bytes, 87 MB over; 131072
+  plans 16,330,494,976, 426 MB over. Between the two refusals the deployment grows 10,320 bytes a token: five global
+  layers, two KV heads of 512 at one byte, keys and values, plus their scales. Storing keys once removes 5,160 of
+  those, so 131072 would plan about 15,654 MB, **about 251 MB under** -- the 26B-A4B at 128K on a 16 GB card, at
+  whatever chunk that margin buys.
 - **Nothing else that Mila can use.** Unrotated keys would let a cached prefix be reused at a shifted position, but
   that changes outputs, and `PromptCaching.md`'s invariant is that reuse never does.
 

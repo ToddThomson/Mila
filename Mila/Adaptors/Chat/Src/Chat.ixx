@@ -2747,13 +2747,11 @@ namespace Mila::ChatApp
             renderer_.printStatsDetail( lines );
         }
 
-        static constexpr const char* kVersion = "v0.20";
-
         const std::string& modelName() const { return config_.model_name; }
 
         void printBanner() const
         {
-            renderer_.printWelcomeBox( std::format( "Mila Chat {}", kVersion ) );
+            renderer_.printWelcomeBox( std::format( "Mila Chat v{}", getAPIVersion().toString() ) );
         }
 
         /**

@@ -54,7 +54,9 @@ an item is workable whenever its own blockers are gone.
 
 Pre-1.0 still holds: breaking changes are acceptable, and this release carries several — the
 per-family session classes, the `Mila/Adaptors/` directory, and Chat refusing an explicit context
-length that does not fit where today it warns and tries.
+length that does not fit where today it warns and tries. **A model a user installed is not one of
+them.** From this release on, upgrading Mila by one minor never stops an installed model loading,
+and an older Mila can still install a build of a model that it can run.
 
 ### Model Handle
 
@@ -86,8 +88,10 @@ proving Mila is not one.
 **Success criteria:** a new architecture is added in one place; no dispatch site outside the handle
 carries a per-family branch; a model's declared capabilities come from its manifest, and a model
 whose manifest omits a field loads rather than failing; a network composed from components meets the
-handle's contract with no registration; and the erasure costs no measurable decode throughput, since
-it happens once per session and not once per token.
+handle's contract with no registration; the erasure costs no measurable decode throughput, since
+it happens once per session and not once per token; and every model v0.20 published loads on v0.21
+as installed, while a pull whose newest build needs a later Mila installs the newest one this Mila
+can read (`ModelDistribution.md` *Compatibility*).
 
 ### Deployment Planning
 

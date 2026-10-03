@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. Its first production release was `0.20.0`; `0.21.0` is the cycle in flight (see `Version.txt`). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. Its first production release was `0.20.0`; `0.21.0` is the cycle in flight (see `Version.txt`). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes to the API are acceptable — backward compatibility is not a goal there. **Weights on a user's disk are the exception:** a format a published minor wrote is read by the next minor, and an older Mila can still install a model it can run (`ModelDistribution.md` *Compatibility*, decided 2026-10-03).
 
 ### There is no feature freeze right now
 

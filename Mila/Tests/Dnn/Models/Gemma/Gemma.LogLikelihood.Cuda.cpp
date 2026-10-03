@@ -1894,6 +1894,34 @@ namespace Mila::Tests::Dnn::Models
         }
     }
 
+    // What one allocation per weight tensor costs the 26B-A4B in 2 MiB granules: its parameters priced at the
+    // device's granularity, which is what the planner reports, and at none, which is their bytes. No weights load.
+    //   MilaTests --gtest_also_run_disabled_tests --gtest_filter=GemmaLogLikelihoodCudaTests.DISABLED_ParameterRounding_26B_Q4_0
+    TEST( GemmaLogLikelihoodCudaTests, DISABLED_ParameterRounding_26B_Q4_0 )
+    {
+        if ( getDeviceCount( DeviceType::Cuda ) == 0 || !fs::exists( routedWeightsPath() ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device and " << routedWeightsPath().string();
+        }
+
+        constexpr double kMiB = 1024.0 * 1024.0;
+
+        const DeviceId device{ DeviceType::Cuda, 0 };
+        const Mila::Deployment::DeviceReading reading = Mila::Deployment::DeviceReading::take( device );
+        Serialization::WeightsReader reader( routedWeightsPath() );
+        const MeasuredRoutedQ4_0Fp8Global network( reader.getWeightsMetadata().model_name,
+            measuredConfigOf( routedWeightsPath(), 1 ), device );
+
+        const BuildContext context = BuildContext( shape_t{ 1, 8192 }, RuntimeMode::Inference, false )
+            .withPrefillSize( MeasuredRoutedQ4_0Fp8Global::kPrefillChunkRungs[ 0 ] );
+        const MemoryStats rounded = network.getRequiredMemory( context.withAllocationGranularity( reading.allocation_granularity ) );
+        const MemoryStats exact = network.getRequiredMemory( context.withAllocationGranularity( 0 ) );
+
+        std::cout << std::format( "  parameters at {} byte granules {:.1f} MiB, as bytes {:.1f} MiB, rounding {:.1f} MiB\n",
+            reading.allocation_granularity, rounded.device_parameter_bytes / kMiB, exact.device_parameter_bytes / kMiB,
+            ( rounded.device_parameter_bytes - exact.device_parameter_bytes ) / kMiB );
+    }
+
     // ====================================================================
     // The tied table's format against BF16 on Mila's own states (Quantization.md Part II, "The tied table -- six
     // bits per 32", gate).

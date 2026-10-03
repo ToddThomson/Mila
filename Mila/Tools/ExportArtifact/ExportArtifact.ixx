@@ -342,11 +342,12 @@ namespace Mila::Tools
     /**
      * @brief The oldest Mila that can read what this build writes.
      *
-     * Stamped into every variant it packages. It tracks the artifact format, not the build, so
-     * it is a constant here rather than the running version -- an artifact this build produces
-     * is readable by any 0.20 Mila.
+     * Stamped into every variant it packages. It tracks the weights format, not the build, so
+     * it is a constant here rather than the running version, and it moves only when this build
+     * writes something an older Mila cannot read. 0.21.0: Gemma's feed-forward tensors moved under
+     * `ffn`, and its tied embedding and head are six-bit codes per 32, which no 0.20 reads.
      */
-    inline constexpr const char* kArtifactMinimumMilaVersion = "0.20.0";
+    inline constexpr const char* kArtifactMinimumMilaVersion = "0.21.0";
 
     /**
      * @brief Assemble the package around the artifact.

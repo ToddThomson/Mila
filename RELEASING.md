@@ -348,6 +348,7 @@ fails.
    **First time only:** the clean-room workflow is `workflow_dispatch` and so is dispatchable only
    once `wheel-cleanroom.yml` is on `master`. Until the merge that puts it there, this step has to
    follow the merge instead — once, and never again.
+   **Load every model on the same snapshot** — [Publishing the models](#publishing-the-models) step 1.
 2. **Release-prep commit on `dev`** — set `Version.txt` to the release version with the whole
    pre-release tail **dropped**: `0.21.0-dev+7` becomes `0.21.0`. A tag never carries a tail, so this
    is what lets step 5's drift check pass. Reconcile BACKLOG / ROADMAP in the same commit. `master`
@@ -413,7 +414,8 @@ fails.
    from the tagged tree first (steps 1 and 2 there), since these carry the release version rather than
    the `.devN` snapshot validated in step 1. Like step 7 this must happen **before step 12**: the
    wheel version derives from `Version.txt`, so a wheel built after the next checkpoint opens carries
-   the wrong version entirely.
+   the wrong version entirely. **Then republish the models** —
+   [Publishing the models](#publishing-the-models) step 2.
 9. **Publish the container images** — [Publishing the container images](#publishing-the-container-images).
    Two tags, `-runtime` and `-devel`, from one script invocation. Post-tag by construction: the
    script refuses to build unless the tag exists on `origin`, `HEAD` is that tag, and the tree is
@@ -602,6 +604,26 @@ and not at all on any other. A maintainer setting up a new machine installs `twi
 The workflow is `workflow_dispatch`, so it is dispatchable only once `wheel-cleanroom.yml` is on the
 default branch (`master`). Until the merge that first puts it there, the validation run has to
 follow the merge rather than precede it — a one-off, called out at release step 1.
+
+---
+
+## Publishing the models
+
+A model on a user's disk survives an upgrade, and a user on an older Mila can still install one —
+the two rules are in [ModelDistribution.md](Mila/Specifications/ModelDistribution.md#compatibility).
+Neither was checked before `0.21.0`; on its dev builds, the 12B's `ffn` rename and then its token
+table each stopped an installed model loading.
+
+1. **Load every model, at release step 1.** On the `dev` snapshot the wheels are built from: every
+   package this release will publish, installed from its local directory, **and** every model the
+   previous minor published, pulled from `mila-llm` as it stands. Each one answers a factual prompt and
+   writes a short function in a piped Chat session at greedy sampling. A model that loads and talks
+   nonsense fails here as surely as one that refuses.
+2. **Republish at release step 8, after the wheels reach PyPI.** A package that needs this release
+   cannot go on `main` before this release can be installed, or every fresh install between the two
+   is refused. `Mila/Tools/Publishing/publish_model.py` uploads it. When the new package raises
+   `minimum_mila_version`, the commit it replaces is tagged `mila-<major>.<minor>` first, after that
+   commit's own minimum; a tag is never moved or deleted.
 
 ---
 

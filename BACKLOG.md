@@ -42,6 +42,10 @@ Scope grew a second time on 2026-09-29: the Gemma 4 26B-A4B's bar rose from a pu
 with every other model Mila publishes, admitting three entries under Gemma 4 Complete with no removal. It
 is scope the parity survey found rather than scope invented, and it is held to the same date.
 
+Scope grew a third time on 2026-10-03: installed models now survive an upgrade
+(`ModelDistribution.md` *Compatibility*), admitting two entries under Model Handle with no removal,
+held to the same date.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -93,6 +97,36 @@ configuration. Gate: a manifest omitting every new field still loads.
 
 Also the root of Codex's "Model metadata not found" warning against `/v1/models` — all three
 validated flows pass regardless, so that is a symptom of this gap rather than separate work.
+
+#### A model installed under v0.20 stops loading when Mila is upgraded
+
+`open` · `distribution` · `gemma` · `quantization` · `mila-src`
+
+v0.20 published `gemma-4-12b-it-fp4` with its feed-forward tensors outside `ffn` and its tied
+embedding and head in FP8. This tree reads neither: the block names its feed-forward `.ffn`
+(`Gemma.Block.ixx:867`), and the planner refuses the FP8 table (`GemmaModel.ixx:595`). Both stay
+readable through v0.21 (`ModelDistribution.md` *Compatibility*): the names as an alias at load, the FP8
+table as its own decode path again -- row gather, decode matvec and batched head. Not a conversion to
+six-bit codes at load, which quantizes twice.
+
+Gate: every model `mila-llm` published at v0.20 loads on this tree as installed, and answers a factual
+prompt in a piped Chat session -- the 12B by the two readers above, Llama and Qwen by confirming that
+nothing they carry changed.
+
+#### A Mila one release behind the newest build of a model cannot install it
+
+`open` · `distribution` · `mila-src`
+
+A pull refuses when the manifest on `main` needs a newer Mila (`requireCompatibleMilaVersion`,
+`ModelManifest.ixx:267`), even when an earlier commit in the same repository holds a build this Mila
+reads. Two halves. `Mila/Tools/Publishing/publish_model.py` tags the commit it replaces
+`mila-<major>.<minor>`, after that commit's own minimum, before uploading a package that raises it. The
+pull lists the repository's tags on that refusal and installs the highest one its version satisfies;
+`IModelHub` has no query for a repository's tags today (`ModelHub.ixx:93` lists models only).
+
+Gate: against a hub whose `main` needs 9.0 and that carries a `mila-0.21` tag, a pull installs the
+tagged commit and records it; with no tag it refuses as it does now. The 12B's republish with the
+six-bit table is the first real use, and tags its v0.20 build `mila-0.20`.
 
 ### Deployment Planning
 

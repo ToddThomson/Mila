@@ -120,6 +120,27 @@ nvcc -gencode=arch=compute_120,code=sm_120 -O3 RotateOnRead.cu -o RotateOnRead.e
 No MMA competes for issue in it, so its K = V margin is an upper bound on the real kernel's. Measured 2026-10-01 on
 the RTX 5060 Ti: at 65536 positions `sincosf` runs 0.69 of today's time, the recurrence 0.67, the table 0.91.
 
+## `AllocationLayout.cu`
+
+Whether packing tensors into fewer device allocations costs anything: the same tensors as one allocation each, packed
+into slabs, as one block, and in one reserved address range mapped a chunk at a time. Each arm is allocated, read with
+no pressure, read while a second process holds memory the card does not have spare, and read again after it frees it.
+
+```
+nvcc -gencode=arch=compute_120,code=sm_120 -O3 AllocationLayout.cu -o AllocationLayout.exe -lcuda
+AllocationLayout.exe <tensor list> 3072 20 <arm>
+```
+
+The tensor list is `layer bytes` per line, written from a weights file. **Run one arm per process:** an arm run after
+another under pressure inherits whatever the driver moved to system memory, which once read as a layout effect.
+
+Measured 2026-10-03, RTX 5060 Ti, Windows (WDDM), Qwen 3.8 27B FP4's 1,203 device tensors (13,019 MiB), both
+orders: every arm reads at 381-384 GB/s quiet, under pressure and after. One allocation per tensor consumes 13,540
+MiB; one block 13,044; a mapped range 13,044 at 2 MiB chunks (twice the placement time) and 13,054 at 64; slabs of
+256 MiB 13,150. The pressure process's 3 GiB never displaced the resident arm: free memory did not fall, and its
+allocation went to system memory instead. On this driver the allocation made when the card is full is the one that
+spills, whatever the layout.
+
 ## `kernel_shares.py`
 
 Groups an nsys kernel summary into attention / GEMM / plumbing / other, so a profile answers

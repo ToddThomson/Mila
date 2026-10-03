@@ -10,6 +10,38 @@ pointer to its GitHub issue rather than a copy. Triage flow, categories and the 
 
 ---
 
+## Each device tensor larger than 1 MiB is its own allocation, and its rounding costs up to 7% of a model's weights
+
+`CudaDeviceMemoryResource::do_allocate` (one `cudaMalloc` per tensor), `DeviceAllocation.ixx` @ `0.21.0-dev+32`
+
+Measured 2026-10-03. Rounding each allocation to the 2 MiB granule costs Qwen 3.8 27B 2.82-bit 679 MiB of its
+weights, Qwen FP4 497, Gemma 4 12B Q4_0 318, the 26B-A4B 225 (priced by `DISABLED_ParameterRounding_26B_Q4_0`), Llama
+64-70. Packing changes nothing else measured: `Profiling/Microbenchmarks/AllocationLayout.cu` reads every layout at the
+same bandwidth, quiet and under a second process's pressure, which on WDDM spills the newcomer rather than evicting
+the resident. Where it would change a user's limit: the 26B-A4B at 96K, 87 MB over today. A memory manager behind
+`CudaDeviceMemoryResource` would take it with no component change, at the cost of rebuilding the planner's exactness
+around allocation order; discussed with Todd the same day and judged over-engineering for the bytes alone, worth
+revisiting when per-session KV memory needs an owner (`.internal/Ideas/AgentStreams.md`).
+
+## Qwen's FP4 load consumes about 40 MiB more than its planned footprint
+
+`Mila/Specifications/ModelFamilyParity.md` 8.3, Q4 @ `0.21.0-dev+32`
+
+Measured 2026-10-03, RTX 5060 Ti, `ProfileModel --model qwen --quantization fp4`: from the post-initialization
+baseline, the load consumed 14,962 MiB at context 8192 against a footprint of 14,920. At 16384 the plan left a
+26 MiB margin, and the card read zero free after the load -- the condition the planner's exactness exists to prevent.
+Not yet attributed; the cb2-3 build was not checked.
+
+## Compaction summarizes a conversation, and the detail it drops cannot be retrieved afterwards
+
+`BACKLOG.md`, Mila::AI, "A conversation that fills its context stops" @ `0.21.0-dev+32`
+
+Raised 2026-10-03 by Luca (ctx, `github.com/ctxrs/ctx`) about agent harnesses built on Mila: a summary keeps the
+conclusion and loses the evidence -- why an approach failed, what a number was measured on. The planned text compaction
+summarizes the history into a fresh context and keeps only the instructions verbatim. `Mila::AI` already holds the
+conversation it compacts, so the original turns could stay addressable after compaction -- for example as a tool the
+model calls to search them. No decision; ctx is cited as the source of the idea.
+
 ## FP8 per row loses to six-bit integer blocks on Gemma's head, and Mila's FP8 weight packages use the same format
 
 `Mila/Specifications/Quantization.md` Part II, "The tied table -- six bits per 32" @ `0.21.0-dev+30`
@@ -106,9 +138,10 @@ Todd's RoPE policy had three forms: table, calculated, fused into the attention 
 (`MemoryFootprint.md` 8.4); fused is not built. On Gemma's global layers K = RoPE(k_norm(x)) and V = v_norm(x), so the
 cache holds two tensors where the checkpoint has one projection. Rotating keys inside the flash and decode attention
 kernels -- from the same angle function, `Rope.Angle.cuh` -- would leave the cache unrotated keys, the precondition for
-storing that tensor once. Estimated from the 26B-A4B footprint (not measured): about 96K on a 16 GB card with the FP8
-global cache, against 64K today. Whether k_norm and v_norm differ only by weights, so one stored tensor serves both, is
-not checked. The case for and against, and the two measurements that decide it: `Specifications/RopeInAttention.md`.
+storing that tensor once. Both deciding measurements passed on 2026-10-01 -- one stored tensor serves both, and
+rotating 64 pairs on read costs 0.69 of today's two-tensor read at 64K -- and the planner puts the 26B-A4B at 128K with
+about 251 MB spare once keys are stored once, against 80K today (2026-10-03). Its quality gate, the kernels' shape and
+whether it is admitted to v0.21 are open: `Specifications/RopeInAttention.md`.
 
 ## A masked key's zero probability still multiplies whatever an unwritten cache row holds
 
@@ -163,16 +196,6 @@ prefill score buffers are gone, and 32768 fits at a 128-row chunk. The FP8 globa
 caller can ask for it (`withKvCacheCompression( FP8 )`); the FP8 ring failed on the 26B-A4B and is not offered
 (`Quantization.md` decision 6). RoPE no longer holds tables (`MemoryFootprint.md` 8.4): with the FP8 global cache,
 65536 fits at a 128-row chunk with 93 MiB spare.
-
-## A package's manifest claims the Mila version of its first publish, not the version its weights need
-
-`Mila/Tools/ExportArtifact` (`--package`), `minimum_mila_version` @ `0.21.0-dev+23`
-
-Repackaging the Gemma 4 12B FP4 build after the `ffn` rename (`ModelFamilyParity.md` 8.2, G4) wrote
-`minimum_mila_version: 0.20.0`, but those weights load only on `0.21.0-dev+23` or later -- every feed-forward
-tensor moved under `ffn`. A 0.20 install that fetches the republished package would fail to load it rather than
-refuse it by version. Installed locally 2026-09-30 so `mila-chat` loads the 12B on this tree; the republish must
-carry the right minimum.
 
 ## A fix to the published site sits in the repo until someone dispatches the workflow
 

@@ -751,6 +751,37 @@ open (Todd).
 and a 2 GB FP16 cache. Split Mila's footprint into weights, state and scratch at 32K, name each difference from
 llama.cpp's, and separate choices (FP4 holds more bytes than the mix) from allocations Mila does not need.
 
+*Measured 2026-10-03, `+32`, RTX 5060 Ti.* Mila's side from the planner's refusals at 24576 and 32768 (512 MiB apart,
+64 KiB a token) and the weights file; llama.cpp's from its own load report (`llama-completion -c 32768 -fa on -ngl
+99`, b11216, default micro-batch).
+
+| At 32K, MiB | Mila FP4 | llama.cpp, UD-IQ4_XS |
+|---|---|---|
+| Weights on the card | 13,019, plus **497 of allocation rounding** | 12,726; the embedding table on the host (521, Q3_K) |
+| Embedding table on the host | 2,425 (BF16) | 521 |
+| KV cache, 16 attention layers | 2,048 (BF16) | 2,048 (FP16) |
+| DeltaNet state, other state, scratch | 332 | 150 state, 505 compute buffer |
+| **Total on the card** | **15,896** | **15,429** |
+| Free at the reading | 15,168 | 15,172 |
+
+**The premise was wrong: llama.cpp does not fit 32K either.** Its own fit check projects 15,428 MiB against 15,022
+free and proceeds, since it does not refuse; Windows keeps only the pages a run touches resident, which is why its
+32K prefill spilled at a 2048-token micro-batch (Q2) while generation ran. Mila refuses where llama.cpp
+over-commits. The gap between the two is 468 MiB:
+
+- *A choice:* FP4 holds 293 MiB more weight bytes than the mix.
+- *An allocation Mila does not need:* 497 MiB of rounding, because each tensor larger than 1 MiB is its own
+  `cudaMalloc` and occupies a whole number of 2 MiB granules (`DeviceAllocation.ixx`; computed from the file's
+  tensor sizes, it equals the planner's figure to the MiB). One allocation holding every weight would remove it,
+  for every family.
+- Mila's state and scratch are 323 MiB *smaller* than llama.cpp's.
+
+With the rounding gone, 32K needs 15,399 MiB, still 231 over. An FP8 KV cache (Q6) saves 1,024 MiB and fits 32K on
+its own, with about 300 MiB spare; both together leave about 800.
+
+The load also consumed more than the plan: at 8K, 14,962 MiB against a footprint of 14,920. At 16K the footprint
+left a 26 MiB margin, and the card read zero free after the load.
+
 **Q5 -- Prompt-prefix reuse by snapshot and restore.** The agent blocker: without it every turn re-prefills the whole
 conversation -- 6.3 s at 8K on FP4, 52 s at 32K on 2.82-bit, each turn. The per-block `snapshotState` /
 `restoreState` exist; a whole-model property does not (`BACKLOG.md`, Mila::AI, "Qwen refuses prompt-prefix reuse").
@@ -770,6 +801,61 @@ hidden states, KL and top-1 against BF16. The INT6 kernels exist.
 **Q9 -- The 2.82-bit build's prefill and decode efficiency.** Prefill trails llama.cpp by a quarter because the
 codebook weights expand to BF16 before each GEMM (`Qwen3.8.md`, two-phase staging); decode reads at 65% of
 bandwidth against FP4's 79%.
+
+*Measured 2026-10-03, `+32`, RTX 5060 Ti; Nsight Systems on one 8K prefill and on 128 decode tokens (graph nodes
+traced), Nsight Compute for the counters.* Both 8K and 32K plan a 1024-row chunk, the largest the context admits,
+so the chunk is not a lever. **The expansion is not the cost; the GEMM is.**
+
+| Prefill at 8K, 11.54 s GPU busy | ms | Share |
+|---|---|---|
+| Codebook GEMMs, cuBLASLt `cutlass_80_tensorop_bf16_s16816gemm` | 7,869 | 68.2% |
+| DeltaNet `gated_delta_rule_chunked_kernel` | 1,808 | 15.7% |
+| Codebook expansion to BF16 | 710 | 6.2% |
+| Flash attention, 16 layers | 440 | 3.8% |
+| FP8 GEMMs of the FP4 roles (query-key-value and output of the attention layers) | 174 | 1.5% |
+
+The BF16 GEMM's tensor pipe is 99% busy: it runs 47 TFLOPS, at the card's BF16 `mma.sync` ceiling, so no BF16
+kernel can close the gap -- the finding `Quantization.md` Q4_0 decision 4 made for Gemma, whose INT8 prefill GEMM
+(84-94 TFLOPS on this card) reads packed codes with no staging. The FP4 roles' FP8 GEMM runs 170 TFLOPS here.
+
+| Decode, depth 0, 29.4 ms a token busy | ms a token | Bytes | Share of 448 GB/s | SM throughput |
+|---|---|---|---|---|
+| `fc_gate_up`, 2-bit, 64 launches | 10.10 | 55.7 MB each | 79% (ncu 76%) | **93%** |
+| `fc_down`, 3-bit, 64 | 6.91 | 36.2 MB | 75% | 73% |
+| DeltaNet `in_proj_v` and `in_proj_z`, 2-bit, 96 | 2.88 | 9.8 MB | 73% | 80% |
+| DeltaNet `out_proj`, 2-bit, 48 | 1.38 | 9.8 MB | 76% | 81% |
+| DeltaNet `in_proj_qk`, 3-bit, 48 | 1.31 | 8.5 MB | 70% | 66% |
+| FP4 head, 1 | 1.60 | 675 MB | 94% | |
+| FP4 attention query-key-value and output, 32 | 2.25 | 39 / 16.7 MB | 90% / 85% | |
+| DeltaNet state update, 48 | 1.34 | | | |
+| BF16 `in_proj_a` and `in_proj_b`, 96 | 0.48 | 0.5 MB | 22%, launch-bound | |
+
+Graph replay leaves 0.3 ms a token idle. The FP4 kernels reach 85-94% of bandwidth and the codebook kernels 70-79%.
+The 2-bit kernel is bound by the SM, not by DRAM -- a shuffle and a bit extraction per weight fill the issue slots
+-- and both codebook kernels hold 24 warps of 48 at 79-80 registers. The 2-bit roles' FP16 scale per 32 weights is
+a fifth of their bytes, a format fact rather than a kernel one.
+
+**Levers, ranked by what they are worth:**
+
+1. *Prefill: the codebook GEMM in INT8* -- decision 4's arithmetic, codes mapped through an INT8 copy of the
+   codebook in the tile load, no staging. Group 32 is one k32 MMA block and group 64 two. At the INT8 kernel's
+   measured rate the GEMMs go from 7.9 s to about 4.2 s and the expansion's 0.7 s goes, so the 8K prefill goes from 705 to
+   about 1,100 tokens a second, ahead of llama.cpp's 953. One new rounding -- the codebook's four or eight fitted
+   entries to INT8, at most 1/254 of the largest -- and decode keeps its exact matvec, the split Q4_0 already has.
+   Gated by Q7.
+2. *Prefill: the INT8 kernel itself* runs at 40-45% of the INT8 `mma.sync` peak (207.5 TFLOPS on this card), and it
+   is shared with Gemma's and Llama's Q4_0. At 150 TFLOPS the 2.82-bit build prefills at about 1,500.
+3. *Decode: fewer instructions per weight in the 2-bit kernel.* Two adjacent 2-bit codes are one 4-bit field, so one
+   shuffle can return both weights from a 16-entry FP16 pair table: half the shuffles and most of the bit
+   extraction. It moves the kernel from SM-bound to DRAM-bound, about 1.8 ms a token. The codebook multiplies in
+   FP16 rather than FP32, still finer than the prefill's BF16, and the host codec moves with it.
+4. *Decode: the 3-bit kernel's occupancy* -- fewer registers or the next iteration's codes loaded early; about
+   1 ms a token at 85% of bandwidth.
+5. *Decode: `in_proj_a` and `in_proj_b` in one launch* -- the same input, 48 rows each; about 0.3 ms a token.
+6. *Prefill: the DeltaNet chunked kernel*, 1.8 s at 8K and a quarter of prefill once lever 1 lands. Its efficiency
+   is unmeasured.
+
+Levers 3 to 5 together are about 3.1 ms a token: 33.8 to about 37.7 tokens a second at depth 0.
 
 **Q10 -- Records that exist nowhere.** The vision tower (27 layers, width 1152) priced against 16 GB, and the
 multi-token prediction layer (both converters skip `mtp.*`; the producers' builds carry it).

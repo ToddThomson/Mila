@@ -710,6 +710,20 @@ namespace Mila::Profiling
             phaseName( options.phase ), options.measured_runs, sum_tok_per_s / options.measured_runs, run_tok_per_s );
     }
 
+    void printDeploymentPlan( const Deployment::DeploymentPlan& plan )
+    {
+        const auto& footprint = plan.footprint();
+        constexpr double kMiB = 1024.0 * 1024.0;
+
+        std::cout << std::format(
+            "[plan] prefill chunk {} (largest the context admits {}), free at reading {:.0f} MiB, footprint {:.0f} MiB: "
+            "parameters {:.0f}, state {:.0f}, scratch {:.0f}\n",
+            plan.prefillChunkRows(), plan.prefillChunking().unconstrained_chunk_rows,
+            plan.reading().free_bytes / kMiB, footprint.totalDeviceBytes() / kMiB,
+            footprint.device_parameter_bytes / kMiB, footprint.device_state_bytes / kMiB,
+            footprint.device_scratch_bytes / kMiB );
+    }
+
     template<TensorDataType TPrecision>
     void runProfileLlama( const Options& options )
     {
@@ -750,6 +764,7 @@ namespace Mila::Profiling
         load_sampler.stopAndReport( "during load window (transient high-water)" );
         std::cout << model->toString();
         printGpuMemory( "after model load (weights + KV cache + prefill workspace)" );
+        printDeploymentPlan( model->getDeploymentPlan() );
 
         auto tokenizer = BpeTokenizer::loadLlama32( options.tokenizer_path );
         const auto encoded = tokenizer->encode( options.prompt );
@@ -801,19 +816,7 @@ namespace Mila::Profiling
         std::cout << model->toString();
         printGpuMemory( "after model load (weights + KV cache + prefill workspace)" );
 
-        {
-            const auto& plan = model->getDeploymentPlan();
-            const auto& footprint = plan.footprint();
-            constexpr double kMiB = 1024.0 * 1024.0;
-
-            std::cout << std::format(
-                "[plan] prefill chunk {} (largest the context admits {}), free at reading {:.0f} MiB, footprint {:.0f} MiB: "
-                "parameters {:.0f}, state {:.0f}, scratch {:.0f}\n",
-                plan.prefillChunkRows(), plan.prefillChunking().unconstrained_chunk_rows,
-                plan.reading().free_bytes / kMiB, footprint.totalDeviceBytes() / kMiB,
-                footprint.device_parameter_bytes / kMiB, footprint.device_state_bytes / kMiB,
-                footprint.device_scratch_bytes / kMiB );
-        }
+        printDeploymentPlan( model->getDeploymentPlan() );
 
         auto tokenizer = BpeTokenizer::loadGemma( options.tokenizer_path );
         const auto encoded = tokenizer->encode( options.prompt );
@@ -864,6 +867,7 @@ namespace Mila::Profiling
         load_sampler.stopAndReport( "during load window (transient high-water)" );
         std::cout << model->toString();
         printGpuMemory( "after model load (weights + KV cache + prefill workspace)" );
+        printDeploymentPlan( model->getDeploymentPlan() );
 
         auto tokenizer = BpeTokenizer::loadQwen( options.tokenizer_path );
         const auto encoded = tokenizer->encode( options.prompt );

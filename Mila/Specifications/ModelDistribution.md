@@ -444,7 +444,8 @@ run it on a yes -- an explicit user gate, not an implicit download. The inferenc
 1. Parse the coordinate; reject anything that is not one. A path here is a mistake worth naming, since
    installing is the operation that takes one.
 2. Fetch `mila.json` and check `minimum_mila_version`. One repository describes one model, so there is
-   nothing to select.
+   nothing to select -- except when `main` needs a newer Mila, where the pull falls back to the
+   newest tagged revision this Mila can read ([Compatibility](#compatibility)).
 3. For each declared file: if `blobs/sha256-<digest>` exists, it is done. Otherwise take the transfer
    lock, download into `tmp/` while hashing, verify, rename into `blobs/`.
 4. Write the record, including the resolved revision.
@@ -453,6 +454,49 @@ A pull of a model already installed at a different revision **replaces** the rec
 referenced become unreferenced and the next sweep reclaims them. Holding two revisions of one model
 side by side is not supported: a store that silently keeps two copies of a 6.33 GB model is a disk
 trap, and a user who wants both can say so with two coordinates today only by choosing.
+
+---
+
+## Compatibility
+
+Decided 2026-10-03. **A model on a user's disk survives an upgrade.** Pre-1.0, the library's API may
+break between minors; the weights a published release wrote may not. The two directions are separate
+rules, because they fail different users.
+
+### Older weights, newer Mila
+
+**A weights format a published minor wrote is read by the next minor.** 0.21 reads every package
+0.20 published; the reader for a superseded format may go at 0.22, and its refusal names the install
+that replaces the model. A user who skips a minor meets that refusal, and nobody else does.
+
+So a format change costs a reader for one minor. A renamed tensor is an alias at load. A changed
+storage format keeps its decode path for that minor. Converting the old format into the new one at
+load is not the bridge: it quantizes twice, and the result is numbers no gate measured.
+
+0.21 owes two such readers, both Gemma's: the feed-forward tensors moved under `ffn`
+(`ModelFamilyParity.md` 8.2, G4), and the tied embedding and head moved from FP8 to six-bit codes per
+32 (`Quantization.md` Part II, "The tied table").
+
+### Newer weights, older Mila
+
+`main` carries the newest build of a model. **Before a republish raises `minimum_mila_version`, the
+commit it replaces is tagged `mila-<major>.<minor>`, after that commit's own minimum** -- the 12B's
+0.20 build becomes `mila-0.20`. A republish that leaves the minimum alone replaces `main` and tags
+nothing.
+
+A pull whose `main` manifest needs a newer Mila lists the repository's tags and takes the highest
+`mila-X.Y` that its own version satisfies, and refuses as it does today when there is none. That is
+one extra request, made only on the path that would otherwise refuse. The record stores the resolved
+commit, as for any pull, so a tag is never moved or deleted once published.
+
+0.20.0 predates the rule and has no fallback: it refuses by version, and the answer it gives is to
+upgrade.
+
+### The release gate
+
+Both rules are checked where a release still costs nothing to fix: the release build loads every
+package it is about to publish, **and** every package the previous minor published, from the hub as
+it stands. `RELEASING.md` step 1, under [Publishing the models](../../RELEASING.md#publishing-the-models).
 
 ---
 
