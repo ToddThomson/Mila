@@ -275,11 +275,22 @@ namespace Mila::Dnn
          * applied to each row before the log-softmax: the sampler applies it before sampling,
          * and a probability, unlike an argmax, is not invariant to it.
          *
-         * The prefill overwrites the KV caches from position 0, as prefill() does.
+         * The prefill overwrites the KV caches from position 0, as prefill() does; sequenceLogLikelihoodFrom
+         * from its offset, as prefillFrom() does.
          *
          * @throws std::out_of_range when a token past the first is outside the vocabulary.
          */
         SequenceLogLikelihood sequenceLogLikelihood( const TokenIndexType& input ) override
+        {
+            return sequenceLogLikelihoodFrom( input, 0 );
+        }
+
+        /**
+         * @brief The same, scoring only from `start_offset`: positions [0, start_offset) must already be resident
+         * in the caches (rewindKvCache), as for prefillFrom. Scores the tokens after start_offset, each given
+         * everything before it.
+         */
+        SequenceLogLikelihood sequenceLogLikelihoodFrom( const TokenIndexType& input, dim_t start_offset ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaTransformer must be built before calling sequenceLogLikelihood()." );
@@ -295,6 +306,11 @@ namespace Mila::Dnn
             if ( T < 2 )
                 throw std::invalid_argument( std::format(
                     "GemmaTransformer::sequenceLogLikelihood: need at least 2 tokens to score one position, got {}", T ) );
+
+            if ( start_offset < 0 || start_offset > T - 2 )
+                throw std::invalid_argument( std::format(
+                    "GemmaTransformer::sequenceLogLikelihoodFrom: start_offset {} leaves no position to score in a "
+                    "sequence of {}", start_offset, T ) );
 
             const dim_t model_dim = config_.getModelDim();
             const dim_t vocab_size = config_.getVocabSize();
@@ -312,7 +328,7 @@ namespace Mila::Dnn
 
             log_likelihood_op_->begin( T - 1 );
 
-            dim_t offset = 0;
+            dim_t offset = start_offset;
 
             while ( offset < T )
             {
@@ -354,12 +370,12 @@ namespace Mila::Dnn
 
             SequenceLogLikelihood result;
 
-            for ( const float log_probability : log_likelihood_op_->logProbabilities( T - 1 ) )
+            for ( const float log_probability : log_likelihood_op_->logProbabilities( T - 1 ).subspan( static_cast<std::size_t>( start_offset ) ) )
             {
                 result.total_log_probability += log_probability;
             }
 
-            result.scored_positions = T - 1;
+            result.scored_positions = T - 1 - start_offset;
 
             return result;
         }

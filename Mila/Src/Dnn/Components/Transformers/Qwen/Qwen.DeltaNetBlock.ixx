@@ -396,8 +396,8 @@ namespace Mila::Dnn
          * A KV cache stores each position separately, so dropping a suffix is exact. This
          * block's state is a LOSSY SUMMARY of every position it has seen -- the information
          * needed to undo the last N steps is not in it. Returning true would silently
-         * corrupt a prefix-reuse session rather than fail it, so prompt-prefix reuse is
-         * unavailable for any model containing these layers.
+         * corrupt a prefix-reuse session rather than fail it; the transformer returns to a
+         * saved position through snapshotState/restoreState instead.
          */
         bool rewindKvCache( dim_t, dim_t ) override
         {

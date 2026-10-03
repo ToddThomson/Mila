@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include <cuda_runtime.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -109,6 +110,14 @@ namespace Mila::Tests::Dnn::Models
             return differing + ( a.size() > b.size() ? a.size() - b.size() : b.size() - a.size() );
         }
 
+        /// Steps holding a NaN or an infinity. Two runs that are both NaN compare equal byte for byte.
+        std::size_t nonFiniteSteps( const std::vector<std::vector<float>>& steps )
+        {
+            return static_cast<std::size_t>( std::count_if( steps.begin(), steps.end(), []( const std::vector<float>& logits ) {
+                return !std::all_of( logits.begin(), logits.end(), []( float x ) { return std::isfinite( x ); } );
+            } ) );
+        }
+
         /// B2: replay on equals replay off at every step, bit for bit, and the replayed run really replayed.
         template<typename TNetwork, typename TConfig>
         void expectReplayEqualsCalled( const TConfig& config )
@@ -116,6 +125,7 @@ namespace Mila::Tests::Dnn::Models
             const DecodeRun called = runDecode<TNetwork>( config, false );
             const DecodeRun replayed = runDecode<TNetwork>( config, true );
 
+            EXPECT_EQ( nonFiniteSteps( called.logits ), 0u );
             EXPECT_EQ( differingSteps( called.logits, replayed.logits ), 0u );
             EXPECT_TRUE( replayed.replayed ) << "the self-check turned replay off";
             EXPECT_EQ( replayed.called_steps, 3 ) << "priming, recording and the self-check are the only called steps";
@@ -218,6 +228,7 @@ namespace Mila::Tests::Dnn::Models
         const DecodeRun replayed = runDecode<FrozenPositionLlama>( Common::tinyLlamaConfig( kContextLength ), true );
 
         EXPECT_FALSE( replayed.replayed );
+        EXPECT_EQ( nonFiniteSteps( called.logits ), 0u );
         EXPECT_EQ( differingSteps( called.logits, replayed.logits ), 0u );
     }
 
@@ -259,45 +270,66 @@ namespace Mila::Tests::Dnn::Models
         EXPECT_EQ( called_on, 12 );
     }
 
-    // B5: a chat continuation after replayed steps rewinds and reuses the prompt prefix exactly as the called path does.
+    namespace
+    {
+        /// B5: a chat continuation after replayed steps rewinds and reuses the prompt prefix exactly as the called path does.
+        template<typename TNetwork, typename TConfig>
+        void expectPrefixReuseAfterReplayEqualsCalled( const TConfig& config )
+        {
+            const auto session = [ &config ]( bool replay ) {
+                auto network = Common::buildTinyNetwork<TNetwork>( config, kContextLength );
+                network->setDecodeReplay( replay );
+
+                std::vector<std::int32_t> first_prompt;
+                std::vector<std::int32_t> second_prompt;
+
+                for ( dim_t position = 0; position < 40; ++position )
+                    first_prompt.push_back( tokenAt( position ) );
+
+                // The second turn shares the first 30 tokens and diverges after them.
+                for ( dim_t position = 0; position < 45; ++position )
+                    second_prompt.push_back( position < 30 ? tokenAt( position ) : tokenAt( position + 1000 ) );
+
+                Common::DecodeInput<TNetwork> input( *network );
+                std::vector<std::vector<float>> logits;
+
+                logits.push_back( Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, first_prompt ) ) ) );
+
+                for ( auto& step : decodeSteps( *network, input, 40, 20 ) )
+                    logits.push_back( std::move( step ) );
+
+                EXPECT_TRUE( network->rewindKvCache( 30 ) );
+
+                logits.push_back( Common::hostLogits(
+                    *network, network->prefillFrom( Common::deviceTokens( *network, second_prompt ), 30 ) ) );
+
+                for ( auto& step : decodeSteps( *network, input, 45, 20 ) )
+                    logits.push_back( std::move( step ) );
+
+                EXPECT_EQ( network->isDecodeReplayed(), replay );
+
+                return logits;
+            };
+
+            const auto called = session( false );
+
+            EXPECT_EQ( nonFiniteSteps( called ), 0u );
+            EXPECT_EQ( differingSteps( called, session( true ) ), 0u );
+        }
+    }
+
     TEST_F( DecodeReplayCudaTests, PrefixReuseAfterReplayedStepsMatchesTheCalledPath )
     {
-        const auto session = []( bool replay ) {
-            auto network = Common::buildTinyNetwork<TinyGemmaBf16>(
-                Common::tinyGemmaConfig( kContextLength ), kContextLength );
-            network->setDecodeReplay( replay );
+        expectPrefixReuseAfterReplayEqualsCalled<TinyGemmaBf16>( Common::tinyGemmaConfig( kContextLength ) );
+    }
 
-            std::vector<std::int32_t> first_prompt;
-            std::vector<std::int32_t> second_prompt;
+    TEST_F( DecodeReplayCudaTests, PrefixReuseAfterReplayedStepsMatchesTheCalledPath_LlamaBf16 )
+    {
+        expectPrefixReuseAfterReplayEqualsCalled<TinyLlamaBf16>( Common::tinyLlamaConfig( kContextLength ) );
+    }
 
-            for ( dim_t position = 0; position < 40; ++position )
-                first_prompt.push_back( tokenAt( position ) );
-
-            // The second turn shares the first 30 tokens and diverges after them.
-            for ( dim_t position = 0; position < 45; ++position )
-                second_prompt.push_back( position < 30 ? tokenAt( position ) : tokenAt( position + 1000 ) );
-
-            Common::DecodeInput<TinyGemmaBf16> input( *network );
-            std::vector<std::vector<float>> logits;
-
-            logits.push_back( Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, first_prompt ) ) ) );
-
-            for ( auto& step : decodeSteps( *network, input, 40, 20 ) )
-                logits.push_back( std::move( step ) );
-
-            EXPECT_TRUE( network->rewindKvCache( 30 ) );
-
-            logits.push_back( Common::hostLogits(
-                *network, network->prefillFrom( Common::deviceTokens( *network, second_prompt ), 30 ) ) );
-
-            for ( auto& step : decodeSteps( *network, input, 45, 20 ) )
-                logits.push_back( std::move( step ) );
-
-            EXPECT_EQ( network->isDecodeReplayed(), replay );
-
-            return logits;
-        };
-
-        EXPECT_EQ( differingSteps( session( false ), session( true ) ), 0u );
+    TEST_F( DecodeReplayCudaTests, PrefixReuseAfterReplayedStepsMatchesTheCalledPath_LlamaBf16Fp8KvCache )
+    {
+        expectPrefixReuseAfterReplayEqualsCalled<TinyLlamaBf16Fp8Kv>( Common::tinyLlamaConfig( kContextLength ) );
     }
 }

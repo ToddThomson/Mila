@@ -150,10 +150,31 @@ namespace Mila::Dnn
 
         TensorType& prefill( const TokenIndexType& input ) override
         {
+            return prefillFrom( input, 0 );
+        }
+
+        /**
+         * @brief Chunked prefill starting at an absolute position (prompt-prefix reuse).
+         *
+         * `input` is the FULL prompt tensor, so the token index and the absolute position coincide;
+         * chunking starts at start_offset instead of 0. Positions [0, start_offset) must already be
+         * resident in the KV caches (rewindKvCache). start_offset must lie inside the prompt so at least
+         * one position is prefilled and the returned last-position logits are fresh.
+         */
+        TensorType& prefillFrom( const TokenIndexType& input, dim_t start_offset ) override
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error( "LlamaTransformer must be built before calling prefill()." );
+
             const int64_t B = input.shape()[ 0 ];
             const int64_t T_prompt = input.shape()[ 1 ];
-            
-            int64_t offset = 0;
+
+            if ( start_offset < 0 || start_offset >= T_prompt )
+                throw std::invalid_argument( std::format(
+                    "LlamaTransformer::prefillFrom: start_offset {} must lie inside the prompt (length {})",
+                    start_offset, T_prompt ) );
+
+            int64_t offset = start_offset;
             int64_t T_last = 0;
 
             TensorType* last_block_out = nullptr;
@@ -209,6 +230,16 @@ namespace Mila::Dnn
          */
         SequenceLogLikelihood sequenceLogLikelihood( const TokenIndexType& input ) override
         {
+            return sequenceLogLikelihoodFrom( input, 0 );
+        }
+
+        /**
+         * @brief The same, scoring only from `start_offset`: positions [0, start_offset) must already be resident
+         * in the caches (rewindKvCache), as for prefillFrom. Scores the tokens after start_offset, each given
+         * everything before it.
+         */
+        SequenceLogLikelihood sequenceLogLikelihoodFrom( const TokenIndexType& input, dim_t start_offset ) override
+        {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "LlamaTransformer must be built before calling sequenceLogLikelihood()." );
 
@@ -223,6 +254,11 @@ namespace Mila::Dnn
             if ( T < 2 )
                 throw std::invalid_argument( std::format(
                     "LlamaTransformer::sequenceLogLikelihood: need at least 2 tokens to score one position, got {}", T ) );
+
+            if ( start_offset < 0 || start_offset > T - 2 )
+                throw std::invalid_argument( std::format(
+                    "LlamaTransformer::sequenceLogLikelihoodFrom: start_offset {} leaves no position to score in a "
+                    "sequence of {}", start_offset, T ) );
 
             const dim_t model_dim = config_.getModelDim();
             const dim_t vocab_size = config_.getVocabSize();
@@ -239,7 +275,7 @@ namespace Mila::Dnn
 
             log_likelihood_op_->begin( T - 1 );
 
-            dim_t offset = 0;
+            dim_t offset = start_offset;
 
             while ( offset < T )
             {
@@ -280,12 +316,12 @@ namespace Mila::Dnn
 
             SequenceLogLikelihood result;
 
-            for ( const float log_probability : log_likelihood_op_->logProbabilities( T - 1 ) )
+            for ( const float log_probability : log_likelihood_op_->logProbabilities( T - 1 ).subspan( static_cast<std::size_t>( start_offset ) ) )
             {
                 result.total_log_probability += log_probability;
             }
 
-            result.scored_positions = T - 1;
+            result.scored_positions = T - 1 - start_offset;
 
             return result;
         }
@@ -318,6 +354,22 @@ namespace Mila::Dnn
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
 
             return *logits_ptr_;
+        }
+
+        /**
+         * @brief Whether every layer's KV cache accepts a rewind to `position` for prefix reuse.
+         *
+         * All-or-nothing to the caller: on false it falls back to a full prefill, which positionally
+         * overwrites every cache, so a refusal needs no cleanup.
+         */
+        bool onRewindKvCache( dim_t position, dim_t cached_length ) override
+        {
+            bool all_accepted = true;
+
+            for ( auto& block : transformer_blocks_ )
+                all_accepted = block->rewindKvCache( position, cached_length ) && all_accepted;
+
+            return all_accepted;
         }
 
     public:

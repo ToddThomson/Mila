@@ -6,18 +6,16 @@
  * which is the family this one is modelled on -- both drive a heterogeneous layer stack --
  * with two deliberate divergences, each forced by the Gated DeltaNet mixer:
  *
- *  - NO PROMPT-PREFIX REUSE. A recurrent state is a lossy summary of every position it has
- *    seen, so it cannot be rewound; `QwenDeltaNetBlock::rewindKvCache` always refuses and
- *    the transformer ANDs that into a stack-wide refusal. Gemma's reuse block is therefore
- *    absent here rather than present and permanently failing -- machinery that can never
- *    fire reads as a capability. See Qwen3.8.md section 7.
+ *  - PREFIX REUSE ONLY FROM A SAVED POSITION. A recurrent state is a lossy summary of every
+ *    position it has seen, so it cannot be rewound to an arbitrary position. Each generation
+ *    saves the state at the end of its prompt, and the next resumes there when its prompt
+ *    extends that one. See Qwen3.8.md section 7.
  *
  *  - THE MIXER STATE IS SELF-CLEANING AT PREFILL, not reset by a call. `prefill` at
  *    position 0 zeroes the recurrent state and starts the convolution window cold
  *    (`GatedDeltaRule::prefill`, `CausalConv1d::prefill`), so a fresh generation cannot
- *    inherit the previous one's state. That is also precisely why `prefillFrom` at a
- *    non-zero offset must never be reached on this family: it would carry state forward
- *    for a prefix the caches no longer hold.
+ *    inherit the previous one's state. That is also why `prefillFrom` at a non-zero offset
+ *    is reached only after a rewind to the saved position put the matching state back.
  *
  * REFERENCE PRECISION ONLY, for now. Section 5's allocation is a per-role PLAN over
  * codebook formats, and the artifact that carries it does not exist yet, so this entry
@@ -75,6 +73,7 @@ import Dnn.Components.QwenConfig;
 import Dnn.Components.QwenPrecisionPlan;
 import Dnn.GenerateParams;
 import Dnn.GenerateStatus;
+import Dnn.PromptPrefixReuse;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceAllocation;
@@ -299,15 +298,15 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief False, always: this stack cannot reuse a prompt prefix.
+         * @brief SavedPosition: a conversation resumes only from the end of the previous prompt.
          *
          * Stated as a model property rather than left for a caller to discover through a
          * refused rewind, because the reason is architectural and permanent -- 48 of the 64
          * layers hold a recurrent state, and a lossy summary cannot be rolled back.
          */
-        bool supportsPromptPrefixReuse() const noexcept
+        PromptPrefixReuse promptPrefixReuse() const noexcept
         {
-            return false;
+            return PromptPrefixReuse::SavedPosition;
         }
 
         std::string toString() const override
@@ -395,17 +394,36 @@ namespace Mila::Dnn
             const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
-            // Always a full prefill from position 0. That is what zeroes the recurrent state
-            // and starts the convolution window cold, so this call is also what makes the
-            // generation independent of whatever ran before it. No prefix reuse exists here
-            // -- see the file header.
-            auto& logits = this->getNetwork().prefill( prefill_input );
+            // Prefix reuse returns to the position saved at the end of the previous prompt, so it
+            // applies when this prompt starts with that whole prompt and extends it. Saved at the
+            // end of the prompt rather than of the reply: the chat template drops a reply's
+            // reasoning from the history, so the next prompt diverges inside the reply. Otherwise
+            // a full prefill from position 0, which zeroes the recurrent state and starts the
+            // convolution windows cold, so nothing carries over from what ran before.
+            const int64_t saved = static_cast<int64_t>( saved_prompt_.size() );
+            const bool extends_saved = saved > 0 && saved < seq_len
+                && std::equal( saved_prompt_.begin(), saved_prompt_.end(), prompt_tokens.begin() );
+
+            const bool reused = extends_saved
+                && this->getNetwork().rewindKvCache( saved );
+
+            auto& logits = reused
+                ? this->getNetwork().prefillFrom( prefill_input, saved )
+                : this->getNetwork().prefill( prefill_input );
+
+            if ( reused )
+                Logging::Logger::info( std::format(
+                    "QwenModel: KV prefix reuse -- skipped {} of {} prompt tokens", saved, seq_len ) );
 
             // Decode-ahead pipeline: the sampler runs on the network stream (ordered after
             // the forward that produced the logits) and writes the sampled token into
             // decode_token_device_ in place, so the NEXT forward is enqueued before the host
             // has read the token id back.
             this->enqueueSampleNext( logits, decode_token_device_, params.sampling );
+
+            // Stream-ordered after the prefill and before the first decode step changes the state.
+            this->getNetwork().savePosition();
+            saved_prompt_.assign( prompt_tokens.begin(), prompt_tokens.end() );
 
             dim_t position = seq_len;
             int emitted = 0;
@@ -511,6 +529,9 @@ namespace Mila::Dnn
         // Device decode-input buffer: the sampler writes the next token here in place, and
         // decode() reads it directly -- no host staging round-trip.
         TokenIndexType decode_token_device_;
+
+        // The prompt whose end the network saved (savePosition): the prefix the next generation may resume from.
+        std::vector<int32_t> saved_prompt_;
 
         // Qwen 3.8 instruct stop tokens, read from the checkpoint's own tokenizer_config and
         // generation_config: <|im_end|> is the conversational EOS and <|endoftext|> the

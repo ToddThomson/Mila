@@ -218,6 +218,49 @@ namespace Mila::Tests::Dnn::Models
         EXPECT_EQ( first, second );
     }
 
+    // A second turn whose prompt extends the first resumes from the position saved at the end of the first prompt,
+    // and picks the tokens a model that never saw the first turn picks for the whole conversation.
+    TEST_F( QwenModelLoadCudaTests, SecondTurn_ResumesFromTheSavedPromptAndMatchesAFreshModel )
+    {
+        QwenModelConfig model_config( kContextLength );
+
+        const std::vector<int32_t> first_prompt{ 9707, 11, 1879, 0, 576, 3974, 13876, 38835 };
+        const std::vector<int32_t> second_turn{ 151645, 198, 151644, 872, 198, 3838, 374, 279 };
+
+        GenerateParams params;
+        params.max_new_tokens = 6;
+        params.sampling.temperature = 0.0f;
+
+        const auto generate = []( QwenBf16& model, const std::vector<int32_t>& prompt, const GenerateParams& params )
+        {
+            std::vector<int32_t> tokens;
+            (void)model.generate( prompt, [&]( int32_t token ) { tokens.push_back( token ); }, params, std::stop_token{} );
+
+            return tokens;
+        };
+
+        std::vector<int32_t> second_prompt = first_prompt;
+        std::vector<int32_t> continued;
+
+        {
+            auto model = QwenBf16::load( fixture_, model_config );
+
+            EXPECT_EQ( model->promptPrefixReuse(), PromptPrefixReuse::SavedPosition );
+
+            const std::vector<int32_t> reply = generate( *model, first_prompt, params );
+
+            // The reply is left out of the next prompt, as the chat template leaves out a reply's reasoning.
+            second_prompt.insert( second_prompt.end(), second_turn.begin(), second_turn.end() );
+            ASSERT_FALSE( reply.empty() );
+
+            continued = generate( *model, second_prompt, params );
+        }
+
+        auto fresh_model = QwenBf16::load( fixture_, model_config );
+
+        EXPECT_EQ( continued, generate( *fresh_model, second_prompt, params ) );
+    }
+
     // The Phase 4 / Phase 5 boundary, refused by name. Checked before the artifact is opened,
     // so it needs no fixture -- and it must stay that way: a caller asking for an allocation
     // this chassis cannot build should hear so immediately.

@@ -44,7 +44,10 @@ is scope the parity survey found rather than scope invented, and it is held to t
 
 Scope grew a third time on 2026-10-03: installed models now survive an upgrade
 (`ModelDistribution.md` *Compatibility*), admitting two entries under Model Handle with no removal,
-held to the same date.
+held to the same date. Later the same day (Todd): agentic quality measured for every published model in every
+family, admitting one entry under Mila::AI, and the 2.82-bit Qwen build's prefill and decode efficiency,
+admitting two under Qwen 3.8 Complete -- each with a success criterion written first, none with a removal,
+all held to the same date.
 
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
@@ -171,17 +174,6 @@ the agent core's.
 Gate: across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
 measured, for every family that permits prefix reuse.
 
-#### Qwen refuses prompt-prefix reuse and nothing reports it
-
-`open` · `qwen` · `ai` · `mila-src`
-
-`QwenDeltaNetBlock::rewindKvCache` always returns false — correctly, since a recurrent state is a
-lossy summary and cannot be rewound — and `QwenTransformer::rewindKvCache` ANDs that into a refusal
-for the whole stack. The per-block mechanism exists (`snapshotState`/`restoreState`); a whole-model
-statement of the property does not. It was inert while prefix reuse lived inside each model's
-`generate`, and becomes live now that the agent core manages the splice itself: the core reads the
-refusal from the handle and reports it, rather than meeting it as a failed rewind.
-
 #### A conversation that fills its context stops, and nothing carries it forward
 
 `open` · `ai` · `adaptors`
@@ -193,9 +185,45 @@ mechanism in `Mila/AI/`: reasoning from earlier turns dropped at turn boundaries
 which is the opposite of the failure in "Gemma loses its own reasoning between tool calls in a turn" --
 and text compaction, the history summarized into a fresh context with instructions kept verbatim,
 reusing the system prompt's cached prefix. It triggers at the configuration's reliable depth, which
-ContextProfile measures, so it needs that tool's first profiles; Qwen's re-prefill is cheap only once
-its prefix reuse lands. Compaction in the cache itself (deleting spans in place) is research, outside
+ContextProfile measures, so it needs that tool's first profiles; Qwen resumes from the position it
+saved at the end of each prompt (`savePosition`, `+33`). Compaction in the cache itself (deleting spans in place) is research, outside
 this item (`.internal/Ideas/AgentStreams.md`).
+
+`ROADMAP.md`, Mila::AI success criteria · `Mila/Specifications/ContextProfile.md`
+
+#### Nobody knows how deep into a conversation each model still finds a fact, obeys its instructions and calls a tool correctly
+
+`in progress` · `models` · `ai` · `gemma` · `llama` · `qwen` · `gate`
+
+The quality evidence Mila has is perplexity by context band (`ModelFamilyParity.md` 3.4, 8.2 G2) and
+two single-family instruction-retention tests (`Llama.InstructionRetention.Cuda.cpp`,
+`Gemma.InstructionRetention.Cuda.cpp`). None of it says where an agent fails, and no family is measured
+across the contexts its planner can choose. Admitted 2026-10-03 for every family in the parity matrix
+(Todd); the design is `ContextProfile.md`, a tool under `Mila/Tools/ContextProfile`.
+
+In scope: Phase 1 (fit, loss by band, recall at depth) and Phase 2 (instruction retention, tool-call
+fidelity), for every model the release publishes -- Llama 3.2 3B and 3.1 8B, Gemma 4 12B and 26B-A4B
+in Q4_0, Qwen 3.8 27B in FP4 and 2.82-bit -- at every band each fits on the 16 GB card, against section 9's decisions and
+thresholds, from 16K (Todd, 2026-10-03; section 3).
+
+Every question is asked from the end of one conversation, which the pricing shows is the difference
+between about 3 hours for all six models and about 73 (`ContextProfile.md` section 9). Three library
+changes make that possible, agreed with Todd the same day, all three in `+33`: Llama's transformer
+rewinds and continues a prefill as Gemma's does, and `LlamaModel` reuses a matching prefix; Qwen returns
+to a saved position (`savePosition`), and `QwenModel` resumes each turn from the end of the previous
+prompt; and `sequenceLogLikelihoodFrom` scores after a cached prefix on all three families, so the recall
+arm's answer score reads the same prefill path the loss gates use. Building them exposed a flash prefill
+defect -- a masked key's zero probability multiplied unwritten cache rows, NaN on fresh memory -- fixed
+in the same change.
+
+Llama's tool-call arm needs its grammar in `Mila/Src`, which "Chat and the inference server each hold
+code that knows which model they are running" moves. Turn cost and the llama.cpp column (Phases 3 and
+4) are not required by the criterion. Storing Gemma's global keys once (K = V, `RopeInAttention.md`)
+waits on the 26B-A4B's profile, and returns for discussion only if its reliable depth runs past the 80K
+that fits today.
+
+Gate: section 8's Phase 1 gate before any profile is recorded, then one profile per model, and the
+reliable depth each reports is the one compaction reads.
 
 `ROADMAP.md`, Mila::AI success criteria · `Mila/Specifications/ContextProfile.md`
 
@@ -418,6 +446,39 @@ free performance knob, so both arms of a quantization comparison have to use the
 
 Probably already recorded at `Qwen3.8.md:509` and `:546` — verify, and if so this entry is a
 duplicate and should be deleted rather than worked.
+
+#### The 12-16 GB Qwen build prefills slowly because its 2- and 3-bit weights are widened to 16 bits before every matrix multiply
+
+`open` · `qwen` · `quantization` · `perf` · `mila-src` · `measured`
+
+At 8K the codebook GEMMs are 68% of prefill and run cuBLASLt's BF16 kernel with its tensor pipe 99% busy, at the
+card's BF16 ceiling, so no BF16 kernel closes it; the expansion to BF16 is another 6%. The 2.82-bit build prefills
+705 tokens a second at 8K, three-quarters of llama.cpp on the format its users run. The fix is `Quantization.md`'s
+Q4_0 decision 4 applied to codebooks: codes mapped through an INT8 copy of the codebook in the INT8 prefill GEMM's
+tile load, no staging -- group 32 is one k32 MMA block, group 64 two. Projected 8K prefill about 1,100 tokens a
+second. One new rounding (the fitted entries to INT8, at most 1/254 of the largest); decode keeps its exact matvec.
+
+Gate: loss by band, by G2's protocol on the log-likelihood harness the context profile's loss arm reuses, within
+noise of the BF16-staged path; then rates before and after on the reference card. The build's context profile
+reads the same arm once the tool exists. Not in this entry: the INT8 kernel's own efficiency, shared with every
+Q4_0 build (lever 2), and the DeltaNet chunked kernel (lever 6, unmeasured).
+
+`ModelFamilyParity.md` 8.3, Q9, lever 1
+
+#### The 12-16 GB Qwen build generates below the card's memory bandwidth because its 2-bit kernel runs out of instructions first
+
+`open` · `qwen` · `quantization` · `perf` · `mila-src` · `measured`
+
+Decode reads at 65% of bandwidth against FP4's 79%. The 2-bit matvec is SM-bound at 93% (a shuffle and a bit
+extraction per weight), the 3-bit one holds 24 warps of 48 at 79-80 registers, and DeltaNet's `in_proj_a` and
+`in_proj_b` are 96 launch-bound BF16 launches a token. Three levers, about 3.1 ms a token together (33.8 to
+about 37.7 tokens a second at depth 0): a 16-entry FP16 pair table so one shuffle returns two 2-bit weights, with
+the host codec moving to FP16 with it; the 3-bit kernel's occupancy; `in_proj_a` and `in_proj_b` in one launch.
+
+Gate: Nsight Compute shows each codebook kernel DRAM-bound rather than SM-bound; greedy tokens and scores
+unchanged against the host codec; rates before and after on the reference card.
+
+`ModelFamilyParity.md` 8.3, Q9, levers 3 to 5
 
 ### Gemma 4 Complete
 

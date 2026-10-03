@@ -61,7 +61,7 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 |---|---|---|---|---|
 | Sampling on the device: top-k, top-p, seedable | Y | Y | Y | the shared `TokenSampler`; Llama since 8.4 L5 |
 | Sampling overlapped with the next forward | Y | Y | Y | every family's loop enqueues the next decode before reading the token back; Llama since 8.4 L5 |
-| Prompt-prefix reuse | -- | Y | n/a | Gemma `GemmaModel.ixx:412`; Qwen `supportsPromptPrefixReuse`, `QwenModel.ixx:338` |
+| Prompt-prefix reuse | Y | Y | n/a | Gemma `GemmaModel.ixx:412`; Llama `LlamaModel::onGenerating` since `0.21.0-dev+33`, the transformer's rewind and `prefillFrom` as Gemma's, gated by `SecondTurn_ReusesThePrefixAndMatchesAFreshModel` and decode replay's B5; Qwen `supportsPromptPrefixReuse`, `QwenModel.ixx:338`. Qwen's n/a is a rewind to any position (section 5); since `+33` it returns to the position it saved at the end of each prompt (`savePosition`, 8.3 Q5), gated by `SecondTurn_ResumesFromTheSavedPromptAndMatchesAFreshModel` and `Qwen.Cuda.cpp` section G |
 | Correct at the trained context length | partial | Y | Y | Llama's frequency scaling applied since 8.4 L2, and matched to HuggingFace past 8192 on the 3.2 1B; quality across the planner's range is L3 |
 | Flash-attention prefill | Y | Y | Y | every BF16 build of every family, with no context threshold (8.4, L4) |
 
@@ -74,7 +74,7 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 | A tied checkpoint's embedding and head held once | -- | Y | n/a | Llama 3.2 1B and 3B tie them upstream (3.1 8B does not); the converter copies the table into `lm_head.weight` (`convert_weights.py:226`) and the transformer loads both, a second BF16 copy of 0.73 GiB on the 3B and 0.49 GiB on the 1B, in the package and on the device. Gemma shares one table. Qwen 3.8 27B does not tie |
 | Sub-4-bit codebook weights | -- | -- | Y | the fitting and packing tools are Qwen's (`Tools/Quantization/pack_qwen.py`, `qwen_plan.py`); the dispatch is Qwen's own (`dispatchQwenWeightPlan`) |
 | FP8 KV cache, on the caller's request | Y | Y | -- | `dispatchKvCacheCompression`; Gemma's global layers only, its sliding ring stays BF16 (`Quantization.md` KV decision 6); Qwen not measured, refused |
-| Sequence log-likelihood at the network layer, for the quality harness | Y | Y | Y | `sequenceLogLikelihood` on `GemmaTransformer` and `QwenTransformer`, reached through `Tests/Common/LogLikelihoodHarness.h`; what an in-library perplexity gate measures. Until `0.21.0-dev+9` it was Qwen's `scoreTokens`, public on `QwenModel` with a head width on every family's deployment request; both left the public surface (8.2, G1) |
+| Sequence log-likelihood at the network layer, for the quality harness | Y | Y | Y | `sequenceLogLikelihood` on each family's transformer, and since `0.21.0-dev+33` `sequenceLogLikelihoodFrom`, which scores after a cached prefix (`SequenceLogLikelihoodFrom.Cuda.cpp`), reached through `Tests/Common/LogLikelihoodHarness.h`; what an in-library perplexity gate measures. Until `0.21.0-dev+9` it was Qwen's `scoreTokens`, public on `QwenModel` with a head width on every family's deployment request; both left the public surface (8.2, G1) |
 | Deployment planning, exact footprint | Y | Y | Y | `Deployment.md` Phases 1 to 4 |
 | Per-block activations pooled across layers | Y | Y | Y | one block workspace installed on every block: Gemma's and Qwen's `allocateBlockWorkspace`, Llama's `makeLlamaBlockWorkspace` since 8.4 L4, where the 32 per-block sets had cost 2,762 MiB from chunk 512 to 1024 on the 3.1 8B |
 
@@ -95,6 +95,7 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 | Token-for-token agreement with HuggingFace, in the suite | Y | Y | Y | `GemmaModel.Parity.Cuda.cpp`, `QwenModel.Parity.Cuda.cpp`; Llama's `Llama.HuggingFaceReference.Cuda.cpp` (tiny model, in the suite) and `Llama.LogLikelihood.Cuda.cpp` (the real 3.2 1B, opt-in) |
 | Throughput harness | -- | Y | Y | `GemmaModel.Rates.Cuda.cpp`; Qwen's `DISABLED_PrefillRate` / `DISABLED_DecodeRate*` |
 | Quality measured across the planner's range | -- | -- | partial | Qwen to 16K (`Qwen3.8.md` §8) while the planner chooses up to 64512 for cb2-3 on 16 GB; Gemma unmeasured above 131072 against a header of 262144; Llama as the RoPE row above |
+| Agentic quality profiled across the planner's range: recall at depth, instruction retention, tool-call fidelity, reliable depth | -- | -- | -- | `ContextProfile.md`, not built; row added 2026-10-03 when the measurement was admitted to v0.21 for every model in section 2 that the release publishes, the 26B-A4B included (Todd). Llama's tool-call cell also needs its grammar in `Mila/Src` (3.3) |
 
 ### 3.5 Applications
 
@@ -856,6 +857,9 @@ a fifth of their bytes, a format fact rather than a kernel one.
    is unmeasured.
 
 Levers 3 to 5 together are about 3.1 ms a token: 33.8 to about 37.7 tokens a second at depth 0.
+
+Levers 1 and 3 to 5 admitted to v0.21 on 2026-10-03 (Todd), two `BACKLOG.md` entries under Qwen 3.8 Complete; lever 2
+and lever 6 are not.
 
 **Q10 -- Records that exist nowhere.** The vision tower (27 layers, width 1152) priced against 16 GB, and the
 multi-token prediction layer (both converters skip `mtp.*`; the producers' builds carry it).

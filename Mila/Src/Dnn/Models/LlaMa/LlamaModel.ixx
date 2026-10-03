@@ -8,6 +8,7 @@
 module;
 #include <memory>
 #include <vector>
+#include <algorithm>
 #include <unordered_set>
 #include <string>
 #include <sstream>
@@ -31,6 +32,7 @@ import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
 import Dnn.GenerateParams;
 import Dnn.GenerateStatus;
+import Dnn.PromptPrefixReuse;
 import Dnn.LanguageModelNetwork;
 import Dnn.Models.QuantizationDispatch;
 import Deployment.PrefillChunkRule;
@@ -200,6 +202,12 @@ namespace Mila::Dnn
         const DeploymentPlan& getDeploymentPlan() const noexcept
         {
             return plan_;
+        }
+
+        /// AnyPosition: every layer caches each position, so a prompt resumes after any prefix it shares.
+        PromptPrefixReuse promptPrefixReuse() const noexcept
+        {
+            return PromptPrefixReuse::AnyPosition;
         }
 
         /**
@@ -410,7 +418,32 @@ namespace Mila::Dnn
             const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
-            auto& logits = this->getNetwork().prefill( prefill_input );
+            // Transparent KV prefix reuse (PromptCaching.md): cache positions [0, n) are a deterministic
+            // function of the first n tokens, so exact token equality against what the caches hold is the
+            // sole validity test and reuse can never change outputs. Capped at seq_len - 1 so the final
+            // position prefills and the sampled logits are fresh; a refused rewind falls back to the full
+            // prefill, which positionally overwrites regardless of cache state.
+            int64_t common = 0;
+            const int64_t comparable = std::min( seq_len, static_cast<int64_t>( kv_token_history_.size() ) );
+
+            while ( common < comparable && kv_token_history_[ static_cast<size_t>( common ) ] == prompt_tokens[ static_cast<size_t>( common ) ] )
+                ++common;
+
+            const int64_t reuse = std::min( common, seq_len - 1 );
+
+            const bool reused = reuse > 0
+                && this->getNetwork().rewindKvCache( reuse );
+
+            auto& logits = reused
+                ? this->getNetwork().prefillFrom( prefill_input, reuse )
+                : this->getNetwork().prefill( prefill_input );
+
+            if ( reused )
+                Logging::Logger::info( std::format(
+                    "LlamaModel: KV prefix reuse -- skipped {} of {} prompt tokens", reuse, seq_len ) );
+
+            // The caches now hold exactly the prompt; decode appends below in lockstep.
+            kv_token_history_.assign( prompt_tokens.begin(), prompt_tokens.end() );
 
             // Decode-ahead pipeline: the sampler runs on the network stream (ordered after the
             // forward that produced the logits) and writes the sampled token into
@@ -449,7 +482,12 @@ namespace Mila::Dnn
                 const int32_t token = this->awaitSampledToken();
 
                 if ( decode_logits )
+                {
+                    // The ahead-decode entered this token into the KV cache at `position`, whatever it
+                    // turns out to be; the reuse history records it in lockstep.
+                    kv_token_history_.push_back( token );
                     ++position;
+                }
 
                 if ( stop_ids.contains( token ) )
                 {
@@ -665,6 +703,11 @@ namespace Mila::Dnn
 
         // The sampled token, written in place by the sampler and read by the next decode.
         TokenIndexType decode_token_device_;
+
+        // The token ids whose K/V the caches hold, in position order: the last prefilled prompt plus every
+        // token fed through decode. Drives the prefix reuse in onGenerating; host-side bookkeeping only,
+        // bounded by the deployment context length.
+        std::vector<int32_t> kv_token_history_;
 
         /**
          * @brief LLaMA 3.x end-of-sequence token.

@@ -2427,6 +2427,20 @@ policy — how many prefixes to hold in the 31.8 GB of host RAM, and eviction.
 for the DeltaNet layers, the existing positional rewind for the 16 attention layers — and
 choosing how belongs with Phase 6's caching policy, not with the mechanism.
 
+**Built at `0.21.0-dev+33`** (Todd, 2026-10-03; `ModelFamilyParity.md` 8.3, Q5). `savePosition()` on
+the network copies every DeltaNet layer's state to the host; `rewindKvCache` to exactly that position
+puts the copy back and rewinds the attention layers, and refuses any other position; a prefill or decode
+that writes inside the saved prefix discards it. One position is held. `QwenModel` saves at the end of
+each prompt, not of the reply, because the chat template drops a reply's reasoning from the history and
+the next prompt diverges inside the reply; it reports `PromptPrefixReuse::SavedPosition`. Measured cost
+of what it replaces: a refill of 52 s at 32K and 118 s at 64K on the 2.82-bit build.
+
+**Host, not device, for now.** On the device the copy would restore in under a millisecond instead of
+about ten, at 144 MiB of VRAM -- about 2,300 tokens of the cache, on a card the weights already fill.
+Revisited when either is known: Qwen's reliable depth from its context profile (`ContextProfile.md`),
+which says whether those tokens are worth anything, or speculative decoding on Qwen, which rolls the
+state back every few tokens.
+
 ### Where prefill actually goes: the dequantize costs more than the GEMM (2026-08-26)
 
 The section above named the quantized projections as prefill's real cost without measuring

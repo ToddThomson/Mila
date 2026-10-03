@@ -131,14 +131,24 @@ Beneath it is the tool loop, which exists today only inside Chat: parse a call, 
 the result, continue. It moves into `Mila/AI/` so that no application holds a private copy, and it
 gains the depth decided in v0.20 and deferred: a tool result's tokens are appended to the live cache,
 with no re-render of the conversation and no re-tokenize. Tools are registered as compiled-in
-functions. Qwen cannot rewind its recurrent state, so it refuses prefix reuse; the loop reads that
-from the handle as a property of the model rather than discovering it as a failed retry.
+functions. Qwen cannot rewind its recurrent state to an arbitrary position, but it can return to a
+position whose state it saved, which is all a turn boundary needs; the loop reads which kind of reuse a
+model offers from the handle rather than discovering it as a failed retry.
 
 A conversation that grows toward the depth where its model stops being reliable is compacted rather
 than ended: reasoning from earlier turns is dropped, and the history is summarized into a fresh context
 that keeps its instructions verbatim, reusing the system prompt's cached prefix. The depth comes from
 measurement of that model and format (`ContextProfile.md`), not a guess. Compaction is mechanism; what a
 summary keeps is a policy the application may replace.
+
+**Every model the release publishes is measured for agentic work, in every family.** Perplexity
+averages over a whole text and hides the failure an agent meets first: a fact far back in the
+conversation that is no longer found, an instruction no longer obeyed, a tool call that no longer
+parses. So each model and format is profiled at every context its plan can choose -- recall of a fact
+planted at depth, retention of a system instruction, a correct tool call -- and its reliable depth is
+the deepest context at which all three still hold. That depth is what compaction triggers on, and it
+is the measured reason, or the measured absence of one, for spending further work on a model's
+longest contexts.
 
 The autonomy policy is not in this release. Chat keeps its human approval gate as an application
 concern.
@@ -147,9 +157,12 @@ concern.
 streaming and calling a tool; `plan()` and `model()` reach the objects that actually ran; a sample
 creates an `AI` over a network it composed from components itself; and across a multi-turn tool
 session, prefill tokens per turn equal the tokens the turn added, measured, for every family that
-permits prefix reuse — for Qwen the refusal is reported, not discovered; and a tool session run past
+permits prefix reuse, Qwen from the position it saved at the end of the previous turn; and a tool session run past
 its model's measured reliable depth continues after compaction with its system instructions still
-obeyed, measured by the instruction-retention arm.
+obeyed, measured by the instruction-retention arm; and every model the release publishes, in every
+family, has a context profile on the 16 GB card -- recall at depth, instruction retention and tool-call
+fidelity at every context its plan can choose, against thresholds fixed before the first profile ran --
+produced by one tool in the repository, whose reliable depth is the one compaction uses.
 
 ### Applications
 
@@ -222,6 +235,12 @@ because the per-token router was written against Gemma's four control tokens and
 `<think>`/`</think>` pair was never wired to it. It is the longest wait in Mila with nothing on
 screen.
 
+**The 2.82-bit build is the 12-16 GB model, and it is the less efficient of Qwen's two builds.** Its
+prefill multiplies at the card's 16-bit tensor-core ceiling after widening every weight, where the
+integer path the Q4_0 formats already use is about twice as fast; its 2-bit generation kernel runs out
+of instructions before it runs out of memory bandwidth, where the FP4 kernels reach 85-94% of it. Both
+are measured (`ModelFamilyParity.md` 8.3, Q9), and both are closed in this release.
+
 **Publishing the 2.82-bit build is not release work** — weights publish on their own schedule and a
 release never re-publishes them — but the claim below depends on it, which is why it is named here.
 
@@ -230,8 +249,10 @@ FP8 KV cache compression measured against BF16 at the context the model is claim
 protocol the weight allocation used, priced exactly by the footprint the planner reads, and the freed
 margin spent deliberately rather than absorbed; the quality gate re-run at whatever context the
 release ends up advertising rather than stopping at 16K; a dense member decodes token-for-token
-against HuggingFace at BF16 and FP8; and Qwen streams its reasoning and its answer as separate
-channels.
+against HuggingFace at BF16 and FP8; Qwen streams its reasoning and its answer as separate
+channels; and the 2.82-bit build prefills on integer tensor cores with no 16-bit staging and generates
+with kernels bound by memory bandwidth rather than by their own instruction count, each measured before
+and after on the reference card, with its quality cost read from the build's context profile.
 
 ### Gemma 4 Complete
 

@@ -719,7 +719,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 {
                     auto tensor = std::make_shared<TTensor>( device, shape, name );
                     state_memory_size_ += occupiedTensorBytes( *tensor );
-
                     return tensor;
                 };
 

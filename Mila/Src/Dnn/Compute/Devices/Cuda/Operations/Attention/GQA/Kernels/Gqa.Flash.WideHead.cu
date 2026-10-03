@@ -136,10 +136,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             return position < cache_capacity ? position : cache_capacity - 1;
         }
 
-        // One tile of K or V ([kKeys x 512]) into a stage. Keys past the cache clamp to its last row, which lands only
-        // on a column the causal mask sets to -inf.
+        // One tile of K or V ([kKeys x 512]) into a stage. Keys past the cache clamp to its last row. A key past
+        // key_limit -- the last position any of the block's rows attends to -- loads as zeros rather than as its
+        // row: the row may never have been written, and the mask's zero probability still multiplies its V, so a NaN
+        // there would reach every output of the tile (0 x NaN).
         __device__ __forceinline__ void load_tile( __nv_bfloat16* stage, const __nv_bfloat16* source,
-            std::size_t kv_base, int tile_start, int cache_capacity, int tid )
+            std::size_t kv_base, int tile_start, int key_limit, int cache_capacity, int tid )
         {
             constexpr int kChunksPerRow = kHeadSize / 8;
 
@@ -149,17 +151,20 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 const int chunk = tid + i * kWarps * 32;
                 const int key = chunk / kChunksPerRow;
                 const int column = ( chunk % kChunksPerRow ) * 8;
-                const int row = cache_row( tile_start + key, cache_capacity );
+                const int position = tile_start + key;
+                const int row = cache_row( position, cache_capacity );
 
                 __pipeline_memcpy_async( stage + key * kPad + column,
-                    source + kv_base + static_cast<std::size_t>( row ) * kHeadSize + column, 16 );
+                    source + kv_base + static_cast<std::size_t>( row ) * kHeadSize + column, 16,
+                    position > key_limit ? 16 : 0 );
             }
         }
 
-        // One tile of E4M3 codes ([kKeys x 512], unpadded) and their row scales into a code stage.
+        // One tile of E4M3 codes ([kKeys x 512], unpadded) and their row scales into a code stage; a key past
+        // key_limit loads as zero codes and a zero scale.
         __device__ __forceinline__ void load_code_tile( uint8_t* codes, float* scales,
             const uint8_t* source, const float* source_scales,
-            std::size_t kv_base, std::size_t scale_base, int tile_start, int cache_capacity, int tid )
+            std::size_t kv_base, std::size_t scale_base, int tile_start, int key_limit, int cache_capacity, int tid )
         {
             constexpr int kChunksPerRow = kHeadSize / 16;
 
@@ -169,14 +174,21 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 const int chunk = tid + i * kWarps * 32;
                 const int key = chunk / kChunksPerRow;
                 const int column = ( chunk % kChunksPerRow ) * 16;
-                const int row = cache_row( tile_start + key, cache_capacity );
+                const int position = tile_start + key;
+                const int row = cache_row( position, cache_capacity );
 
                 __pipeline_memcpy_async( codes + key * kHeadSize + column,
-                    source + kv_base + static_cast<std::size_t>( row ) * kHeadSize + column, 16 );
+                    source + kv_base + static_cast<std::size_t>( row ) * kHeadSize + column, 16,
+                    position > key_limit ? 16 : 0 );
             }
 
             if ( tid < kKeys )
-                __pipeline_memcpy_async( scales + tid, source_scales + scale_base + cache_row( tile_start + tid, cache_capacity ), 4 );
+            {
+                const int position = tile_start + tid;
+
+                __pipeline_memcpy_async( scales + tid, source_scales + scale_base + cache_row( position, cache_capacity ), 4,
+                    position > key_limit ? 4 : 0 );
+            }
         }
 
         // Widen a K code stage into the padded BF16 stage, unscaled, sixteen codes a thread a step.
@@ -275,6 +287,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const int block_row0 = blockIdx.x * kRows;
         const int warp_row0 = block_row0 + warp * kWarpRows;
 
+        // The last key position any of the block's rows attends to; past it the loads are zeros.
+        const int key_limit = position_offset + ( min( block_row0 + kRows, total_rows ) - 1 ) / group;
+
         const std::size_t kv_base = ( static_cast<std::size_t>( b ) * NKV + kv_head ) * cache_capacity * kHeadSize;
         const std::size_t scale_base = ( static_cast<std::size_t>( b ) * NKV + kv_head ) * cache_capacity;
 
@@ -293,18 +308,18 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         {
             if constexpr ( kFp8 )
                 load_code_tile( s_k_codes, s_k_scale, static_cast<const uint8_t*>( K_raw ), k_scales,
-                    kv_base, scale_base, tile_start, cache_capacity, tid );
+                    kv_base, scale_base, tile_start, key_limit, cache_capacity, tid );
             else
-                load_tile( s_k, static_cast<const __nv_bfloat16*>( K_raw ), kv_base, tile_start, cache_capacity, tid );
+                load_tile( s_k, static_cast<const __nv_bfloat16*>( K_raw ), kv_base, tile_start, key_limit, cache_capacity, tid );
         };
 
         const auto loadV = [&]( int tile_start )
         {
             if constexpr ( kFp8 )
                 load_code_tile( s_v_codes, s_v_scale, static_cast<const uint8_t*>( V_raw ), v_scales,
-                    kv_base, scale_base, tile_start, cache_capacity, tid );
+                    kv_base, scale_base, tile_start, key_limit, cache_capacity, tid );
             else
-                load_tile( s_v, static_cast<const __nv_bfloat16*>( V_raw ), kv_base, tile_start, cache_capacity, tid );
+                load_tile( s_v, static_cast<const __nv_bfloat16*>( V_raw ), kv_base, tile_start, key_limit, cache_capacity, tid );
         };
 
         const auto rowOffset = [&]( int row ) -> std::size_t

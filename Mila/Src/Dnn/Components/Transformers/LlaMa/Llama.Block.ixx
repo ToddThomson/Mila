@@ -410,6 +410,11 @@ namespace Mila::Dnn
             }
         }
 
+        bool rewindKvCache( dim_t position, dim_t cached_length )
+        {
+            return attn_ && attn_->rewindKvCache( position, cached_length );
+        }
+
         // ====================================================================
         // Gradient management
         // ====================================================================

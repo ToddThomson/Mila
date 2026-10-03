@@ -21,10 +21,10 @@
  *    the attention workspace's, so they pool through a SECOND workspace struct rather than a
  *    wider one. Both are owned here and both are counted once, by this network.
  *
- * One consequence reaches the product rather than the code: `rewindKvCache` asks every layer,
- * and a DeltaNet layer always refuses, because a recurrent state is a lossy summary that
- * cannot be rolled back to an earlier position. PROMPT-PREFIX REUSE IS THEREFORE UNAVAILABLE
- * for any configuration containing these layers.
+ * One consequence reaches the product rather than the code: a DeltaNet layer refuses every
+ * rewind, because a recurrent state is a lossy summary that cannot be rolled back to an earlier
+ * position. Prefix reuse is therefore a return to a position saved beforehand (savePosition):
+ * the DeltaNet layers put their host copy back and the attention layers rewind positionally.
  *
  * ## What this network cannot do yet
  *
@@ -202,13 +202,9 @@ namespace Mila::Dnn
         /**
          * @brief Chunked prefill starting at an absolute position (prompt-prefix reuse).
          *
-         * `input` is the FULL prompt tensor, so token index and absolute position coincide.
-         *
-         * Prefix reuse will not survive Phase 3: a recurrent state cannot be rewound (section
-         * 7), so with 48 of 64 layers refusing, the all-or-nothing rewind always fails and
-         * every start_offset above 0 becomes unreachable through the model layer. The path
-         * stays because it is correct for the layers that do cache, and because snapshot and
-         * restore -- which does work on a constant-size state -- is Phase 6.
+         * `input` is the FULL prompt tensor, so token index and absolute position coincide. A
+         * start_offset above 0 continues the DeltaNet layers from the state they hold, so it is
+         * correct only after a rewind to the saved position put that state back.
          */
         TensorType& prefillFrom( const TokenIndexType& input, dim_t start_offset ) override
         {
@@ -222,6 +218,8 @@ namespace Mila::Dnn
                 throw std::invalid_argument( std::format(
                     "QwenTransformer::prefillFrom: start_offset {} must lie inside the prompt (length {})",
                     start_offset, T_prompt ) );
+
+            discardSavedPositionAt( start_offset );
 
             int64_t offset = start_offset;
             int64_t T_last = 0;
@@ -282,6 +280,16 @@ namespace Mila::Dnn
          */
         SequenceLogLikelihood sequenceLogLikelihood( const TokenIndexType& input ) override
         {
+            return sequenceLogLikelihoodFrom( input, 0 );
+        }
+
+        /**
+         * @brief The same, scoring only from `start_offset`: positions [0, start_offset) must already be resident
+         * in the caches (rewindKvCache), as for prefillFrom. Scores the tokens after start_offset, each given
+         * everything before it.
+         */
+        SequenceLogLikelihood sequenceLogLikelihoodFrom( const TokenIndexType& input, dim_t start_offset ) override
+        {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "QwenTransformer must be built before calling sequenceLogLikelihood()." );
 
@@ -296,6 +304,11 @@ namespace Mila::Dnn
             if ( T < 2 )
                 throw std::invalid_argument( std::format(
                     "QwenTransformer::sequenceLogLikelihood: need at least 2 tokens to score one position, got {}", T ) );
+
+            if ( start_offset < 0 || start_offset > T - 2 )
+                throw std::invalid_argument( std::format(
+                    "QwenTransformer::sequenceLogLikelihoodFrom: start_offset {} leaves no position to score in a "
+                    "sequence of {}", start_offset, T ) );
 
             const dim_t model_dim = config_.getModelDim();
             const dim_t vocab_size = config_.getVocabSize();
@@ -312,7 +325,9 @@ namespace Mila::Dnn
 
             log_likelihood_op_->begin( T - 1 );
 
-            dim_t offset = 0;
+            discardSavedPositionAt( start_offset );
+
+            dim_t offset = start_offset;
 
             while ( offset < T )
             {
@@ -355,12 +370,12 @@ namespace Mila::Dnn
 
             SequenceLogLikelihood result;
 
-            for ( const float log_probability : log_likelihood_op_->logProbabilities( T - 1 ) )
+            for ( const float log_probability : log_likelihood_op_->logProbabilities( T - 1 ).subspan( static_cast<std::size_t>( start_offset ) ) )
             {
                 result.total_log_probability += log_probability;
             }
 
-            result.scored_positions = T - 1;
+            result.scored_positions = T - 1 - start_offset;
 
             return result;
         }
@@ -371,6 +386,8 @@ namespace Mila::Dnn
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "QwenTransformer must be built before calling decode()." );
+
+            discardSavedPositionAt( position );
 
             TensorType* block_input = &token_embedding_->forward( input );
 
@@ -427,12 +444,57 @@ namespace Mila::Dnn
          */
         bool onRewindKvCache( dim_t position, dim_t cached_length ) override
         {
-            bool all_accepted = true;
+            // The DeltaNet layers refuse every rewind; only a return to the saved position is possible, by
+            // putting their copy back. The attention layers are asked first, since their answer changes nothing.
+            if ( position != saved_position_ )
+                return false;
 
-            for ( auto* block : blocks_ )
-                all_accepted = block->rewindKvCache( position, cached_length ) && all_accepted;
+            for ( dim_t i = 0; i < config_.getNumLayers(); ++i )
+            {
+                if ( config_.isFullAttentionLayer( i ) && !blocks_[ i ]->rewindKvCache( position, cached_length ) )
+                    return false;
+            }
 
-            return all_accepted;
+            std::size_t saved = 0;
+
+            for ( dim_t i = 0; i < config_.getNumLayers(); ++i )
+            {
+                if ( config_.isFullAttentionLayer( i ) )
+                    continue;
+
+                this->template getComponentAs<DeltaNetBlockType>( blockName( i ) )->restoreState( saved_state_.at( saved++ ) );
+            }
+
+            return true;
+        }
+
+        /// Copy every DeltaNet layer's recurrent state and convolution windows to the host, for a later return.
+        void onSavePosition( dim_t position ) override
+        {
+            const bool allocate = saved_state_.empty();
+            std::size_t saved = 0;
+
+            for ( dim_t i = 0; i < config_.getNumLayers(); ++i )
+            {
+                if ( config_.isFullAttentionLayer( i ) )
+                    continue;
+
+                auto block = this->template getComponentAs<DeltaNetBlockType>( blockName( i ) );
+
+                if ( allocate )
+                    saved_state_.push_back( block->makeStateSnapshot() );
+
+                block->snapshotState( saved_state_.at( saved++ ) );
+            }
+
+            saved_position_ = position;
+        }
+
+        /// A write at `position` changes the saved prefix when it lands inside it; the copy then describes nothing.
+        void discardSavedPositionAt( dim_t position ) noexcept
+        {
+            if ( position < saved_position_ )
+                saved_position_ = kNoSavedPosition;
         }
 
     public:
@@ -749,6 +811,13 @@ namespace Mila::Dnn
 
         // Host copies the decode self-check takes, one per DeltaNet layer (holdDecodeState).
         std::vector<typename DeltaNetBlockType::StateSnapshot> held_decode_state_;
+
+        static constexpr dim_t kNoSavedPosition = -1;
+
+        // Host copies savePosition() takes, one per DeltaNet layer, and the position they describe. Separate from the
+        // self-check's copies, which a decode step takes and frees while a saved position stays valid.
+        std::vector<typename DeltaNetBlockType::StateSnapshot> saved_state_;
+        dim_t saved_position_{ kNoSavedPosition };
 
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
         std::shared_ptr<LmHeadLinearType> lm_head_{ nullptr };

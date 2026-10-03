@@ -219,12 +219,13 @@ reproduced by the planner on the measured models before Chat's own code is delet
 
 The in-process loop, extracted from Chat into Mila.AI, with the delivered splice that
 `MilaProductFamily.md` decided on and deferred: tool-result tokens appended to the live cache, no
-re-render and no re-tokenize. Qwen's refusal of prefix reuse is a model property the core reads from
-the handle.
+re-render and no re-tokenize. Which kind of prefix reuse a model offers -- a rewind to any position,
+or for Qwen a return to a position whose recurrent state it saved -- is a model property the core reads
+from the handle (decided 2026-10-03, Todd; `ModelFamilyParity.md` 8.3, Q5).
 
 *Success:* across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
-measured, for every family that permits prefix reuse; for Qwen the refusal is reported, not
-discovered.
+measured, for every family -- Qwen continuing from the position it saved at the end of the previous
+turn.
 
 ### 5.4 `Mila::AI`
 

@@ -5,15 +5,14 @@
  * QwenTransformer is the Qwen 3.8 decoder-only language network:
  *   TokenEmbedding -> N x [QwenAttentionBlock | QwenDeltaNetBlock] -> RmsNorm -> lm_head
  *
- * The DeltaNet block is Phase 3 and does not exist, so every test here uses an
- * all-full-attention configuration (`full_attention_interval: 1`) -- and one test asserts
- * the REFUSAL of a configuration that needs the missing block, because a transformer that
- * quietly built 16 of 64 layers would be the worst of the available failures.
+ * Sections A to F use an all-full-attention configuration (`full_attention_interval: 1`) and
+ * assert shape, finiteness, the inference-only contract, and the untied-table accounting --
+ * Qwen has no weight tying, so the parameter count carries two full tables where Gemma's
+ * carries one. The value oracle is HF parity (QwenModel.Parity.Cuda.cpp).
  *
- * Numerics are intentionally NOT asserted: the value oracle is HF parity, which is Phase 4.
- * What is asserted is shape, finiteness, the inference-only contract, and the untied-table
- * accounting -- Qwen has no weight tying, so the parameter count carries two full tables
- * where Gemma's carries one.
+ * Section G uses the seeded hybrid network of TinyDecodeNetworks.h, three DeltaNet layers and
+ * one attention layer, and asserts the return to a saved position against the path that never
+ * left it.
  *
  * CUDA device tests -- skipped when no CUDA device is present.
  */
@@ -26,8 +25,18 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <vector>
+#include <filesystem>
+#include <cstdio>
+#include <format>
+#include <unordered_set>
 
+// The harness headers below include these too; included first, before the module import, as MSVC requires.
 import Mila;
+
+#include "Common/DecodeHarness.h"
+#include "Common/LogLikelihoodHarness.h"
+#include "Common/TinyDecodeNetworks.h"
 
 namespace Mila::Tests::Dnn::Components::Transformers::Qwen
 {
@@ -668,5 +677,155 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         QwenCuda net( "qwen", allAttentionConfig(), Device::Cuda( 0 ) );
 
         EXPECT_EQ( net.getModelType(), ModelType::Qwen );
+    }
+
+    // ====================================================================
+    // G. Return to a saved position (PromptCaching.md)
+    // ====================================================================
+
+    namespace
+    {
+        using TinyQwen = Mila::Dnn::QwenTransformer<DeviceType::Cuda, TensorDataType::BF16>;
+
+        constexpr dim_t kSavedContext = 256;
+        constexpr dim_t kConversation = 40;
+
+        std::vector<std::int32_t> tokenRun( std::size_t length, std::int32_t salt )
+        {
+            std::vector<std::int32_t> tokens( length );
+
+            for ( std::size_t i = 0; i < length; ++i )
+                tokens[ i ] = static_cast<std::int32_t>( ( salt + 37 * i ) % Common::kTinyVocabulary );
+
+            return tokens;
+        }
+
+        std::vector<std::int32_t> conversationThen( const std::vector<std::int32_t>& question )
+        {
+            std::vector<std::int32_t> tokens = tokenRun( static_cast<std::size_t>( kConversation ), 7 );
+            tokens.insert( tokens.end(), question.begin(), question.end() );
+
+            return tokens;
+        }
+
+        /// The question's prefill logits, then five teacher-forced decode steps after it.
+        std::vector<std::vector<float>> askFromSavedPosition( TinyQwen& network, const std::vector<std::int32_t>& question )
+        {
+            const std::vector<std::int32_t> tokens = conversationThen( question );
+            const auto saved = static_cast<dim_t>( kConversation );
+
+            std::vector<std::vector<float>> logits;
+            logits.push_back( Common::hostLogits( network, network.prefillFrom( Common::deviceTokens( network, tokens ), saved ) ) );
+
+            Common::DecodeInput<TinyQwen> input( network );
+
+            for ( dim_t step = 0; step < 5; ++step )
+            {
+                const auto position = static_cast<dim_t>( tokens.size() ) + step;
+                logits.push_back( Common::hostLogits( network, network.decode( input.set( 11 + static_cast<std::int32_t>( step ) ), position ) ) );
+            }
+
+            return logits;
+        }
+    }
+
+    // After one question has moved the recurrent state on, a return to the saved position answers a second
+    // question bit for bit as a network that saw only the conversation does: the copy put back is exact.
+    TEST_F( QwenTransformerCudaTests, ReturnToSavedPosition_AnswersAsIfTheEarlierQuestionNeverHappened )
+    {
+        const auto first_question = tokenRun( 6, 101 );
+        const auto second_question = tokenRun( 9, 203 );
+
+        auto network = Common::buildTinyNetwork<TinyQwen>( Common::tinyQwenConfig( kSavedContext ), kSavedContext );
+        (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
+
+        ASSERT_EQ( network->savePosition(), kConversation );
+
+        ASSERT_TRUE( network->rewindKvCache( kConversation ) );
+        (void)askFromSavedPosition( *network, first_question );
+
+        ASSERT_TRUE( network->rewindKvCache( kConversation ) );
+        const auto returned = askFromSavedPosition( *network, second_question );
+
+        auto untouched = Common::buildTinyNetwork<TinyQwen>( Common::tinyQwenConfig( kSavedContext ), kSavedContext );
+        (void)Common::hostLogits( *untouched, untouched->prefill( Common::deviceTokens( *untouched, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
+        const auto expected = askFromSavedPosition( *untouched, second_question );
+
+        ASSERT_EQ( returned.size(), expected.size() );
+
+        for ( std::size_t i = 0; i < expected.size(); ++i )
+        {
+            ASSERT_TRUE( std::all_of( expected[ i ].begin(), expected[ i ].end(), []( float x ) { return std::isfinite( x ); } ) )
+                << "pass " << i << " of the reference is not finite, so equality would prove nothing";
+            EXPECT_EQ( returned[ i ], expected[ i ] ) << "pass " << i << " differs from the network that never left the saved position";
+        }
+    }
+
+    // The continuation is the conversation's own: a whole prefill of conversation and question agrees with the
+    // prefill resumed at the saved position, within what moving a chunk boundary changes at BF16.
+    TEST_F( QwenTransformerCudaTests, ReturnToSavedPosition_AgreesWithAWholePrefill )
+    {
+        const auto question = tokenRun( 9, 203 );
+
+        auto network = Common::buildTinyNetwork<TinyQwen>( Common::tinyQwenConfig( kSavedContext ), kSavedContext );
+        (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
+        network->savePosition();
+
+        ASSERT_TRUE( network->rewindKvCache( kConversation ) );
+        const auto resumed = Common::hostLogits( *network,
+            network->prefillFrom( Common::deviceTokens( *network, conversationThen( question ) ), kConversation ) );
+
+        auto whole_network = Common::buildTinyNetwork<TinyQwen>( Common::tinyQwenConfig( kSavedContext ), kSavedContext );
+        const auto whole = Common::hostLogits( *whole_network,
+            whole_network->prefill( Common::deviceTokens( *whole_network, conversationThen( question ) ) ) );
+
+        ASSERT_EQ( resumed.size(), whole.size() );
+
+        // A NaN compares false both ways, so every bound below would pass on it.
+        const auto finite = []( const std::vector<float>& logits ) {
+            return std::all_of( logits.begin(), logits.end(), []( float x ) { return std::isfinite( x ); } );
+        };
+
+        ASSERT_TRUE( finite( whole ) ) << "the whole prefill's logits are not finite";
+        ASSERT_TRUE( finite( resumed ) ) << "the resumed prefill's logits are not finite";
+
+        float largest = 0.0f;
+        float largest_difference = 0.0f;
+
+        for ( std::size_t i = 0; i < whole.size(); ++i )
+        {
+            largest = std::max( largest, std::fabs( whole[ i ] ) );
+            largest_difference = std::max( largest_difference, std::fabs( resumed[ i ] - whole[ i ] ) );
+        }
+
+        EXPECT_LE( largest_difference, 0.02f * largest );
+        EXPECT_EQ( std::max_element( resumed.begin(), resumed.end() ) - resumed.begin(),
+            std::max_element( whole.begin(), whole.end() ) - whole.begin() );
+    }
+
+    TEST_F( QwenTransformerCudaTests, RewindKvCache_RefusesEveryPositionButTheSavedOne )
+    {
+        auto network = Common::buildTinyNetwork<TinyQwen>( Common::tinyQwenConfig( kSavedContext ), kSavedContext );
+        (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
+
+        EXPECT_FALSE( network->rewindKvCache( kConversation ) ) << "nothing was saved";
+
+        network->savePosition();
+
+        EXPECT_FALSE( network->rewindKvCache( kConversation - 1 ) );
+        EXPECT_FALSE( network->rewindKvCache( 10 ) );
+        EXPECT_TRUE( network->rewindKvCache( kConversation ) );
+    }
+
+    // A prefill that writes inside the saved prefix makes the copy describe a conversation the caches no longer hold.
+    TEST_F( QwenTransformerCudaTests, PrefillInsideTheSavedPrefix_DiscardsIt )
+    {
+        auto network = Common::buildTinyNetwork<TinyQwen>( Common::tinyQwenConfig( kSavedContext ), kSavedContext );
+        (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
+        network->savePosition();
+
+        (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ) + 4, 300 ) ) ) );
+
+        EXPECT_FALSE( network->rewindKvCache( kConversation ) );
     }
 }

@@ -1,10 +1,14 @@
 # Context Profile
 
-**Status:** Draft, 2026-10-03. Agreed in discussion with Todd the same day; no code. Section 9's decisions are open.
+**Status:** Draft, 2026-10-03. Agreed in discussion with Todd the same day; no code. Section 9 decided the same day.
+Admitted to v0.21 the same day for every family in `ModelFamilyParity.md` (Todd): Phases 1 and 2, for every model the
+release publishes (`ROADMAP.md`, Mila::AI success criteria).
 
 **Area:** measuring what a model configuration is worth to an agent at each context length it can hold, and what
-it costs there. The first use is choosing between Gemma 4 26B-A4B and Qwen 3.8 27B for agentic work on the 16 GB
-card, and the long-context quality gate that K = V's 128K needs (`RopeInAttention.md`).
+it costs there. Its uses: the reliable depth at which `Mila::AI` compacts a conversation; choosing between Gemma 4
+26B-A4B and Qwen 3.8 27B for agentic work on the 16 GB card; and the measured reason K = V needs before it is built
+(`RopeInAttention.md`) -- storing the 26B-A4B's global keys once raises what fits from 80K to 128K, which is worth
+discussing only if the profile's reliable depth runs past 80K (Todd, 2026-10-03).
 
 ---
 
@@ -50,7 +54,8 @@ survey makes about eviction (`Quantization.md` Part III). So the profile carries
 
 ## 3. Bands
 
-4K, 8K, 16K, 32K, 64K, 128K, and the configuration's largest planned context when that is not one of them. A band
+16K, 32K, 64K, 128K, and the configuration's largest planned context when that is not one of them (from 16K: Todd,
+2026-10-03 -- the depths an agent runs at). A band
 the planner refuses is reported as refused, with the planner's bytes, and its other arms are skipped.
 
 ## 4. Arms
@@ -142,7 +147,7 @@ Gate, written before the first run:
 - **Determinism.** One configuration run twice gives identical JSON.
 
 Then the first profiles: Gemma 4 26B-A4B Q4_0 (FP8 global cache) and Qwen 3.8 27B FP4 and 2.82-bit, on the RTX 5060
-Ti, every band each fits.
+Ti, every band each fits; then the rest of the release's models -- Gemma 4 12B Q4_0, Llama 3.2 3B and Llama 3.1 8B.
 
 **Phase 2 -- instruction retention and tool-call fidelity**, ported from the existing arms and the families' grammar.
 
@@ -152,13 +157,41 @@ missing reuse. Until then its cells run and say what they measured.
 **Phase 4 -- a llama.cpp column** for loss by band, through `llama_cpp_long_context_loss.py`, on the GGUFs of
 `benchmark_comparison.py`'s rows.
 
-## 9. Open decisions
+## 9. Decisions
 
-1. Records per conversation and trials per cell for recall at depth: enough for an interval of about +-10 points at
-   the 50% depth, priced in prefill time before the first run.
-2. Whether a band's arms share one prefill where the books allow it, or each arm builds its own conversation.
-3. The record format: key-value lines, JSON objects, or table rows. All three are tool output an agent meets; one is
-   enough for Phase 1.
-4. When the profile becomes a published page and a blog post: after the first profiles, written from their data.
-5. The thresholds that define the reliable depth -- for example exact recall of at least 90% at every planted depth
-   and retention of at least 90% -- set before the first profile is run, so no profile chooses its own bar.
+Decided 2026-10-03 (Todd), before any profile has run.
+
+1. **Trials:** about 96 per recall cell, which bounds the interval near +-10 points at 50%. They come from many records
+   per conversation, several questions asked after one shared prefill, each from the end of the conversation -- a
+   rewind on Gemma and Llama, a return to the saved state on Qwen. Priced per family before the first run:
+
+   *Priced 2026-10-03, `+33`, RTX 5060 Ti:* one `generate()` per band through ProfileModel, filled to the band and
+   then 32 tokens generated, one run, no warm-up -- a price, not a published rate. Seconds to fill one conversation /
+   generation rate at that depth, tokens a second:
+
+   | Configuration | 4K | 8K | 16K | 32K | 64K | 128K |
+   |---|---|---|---|---|---|---|
+   | Llama 3.2 3B FP4, BF16 cache | 0.33 / 131 | 0.81 / 114 | 2.3 / 90 | 7.1 / 64 | 24.8 / 40 | refused, 18.3 GB |
+   | Llama 3.1 8B FP4, BF16 cache | 0.70 / 71 | 1.6 / 65 | 4.3 / 56 | 12.5 / 43 | 40.9 / 30 | refused, 23.2 GB |
+   | Gemma 4 12B Q4_0, BF16 cache | 1.3 / 50 | 2.8 / 49 | 6.1 / 49 | 14.2 / 47 | 36.0 / 44 | 102.6 / 40 |
+   | Gemma 4 26B-A4B Q4_0, FP8 global cache | 0.91 / 118 | 1.7 / 117 | 3.4 / 114 | 7.8 / 108 | 23.5 / 98 (chunk 512) | refused, 16.33 GB |
+   | Qwen 3.8 27B FP4 | 3.1 / 22 | 6.4 / 21 | 14.9 / 21 (chunk 512) | refused, 16.67 GB | -- | -- |
+   | Qwen 3.8 27B 2.82-bit | 5.7 / 26 | 11.7 / 25 | 24.3 / 23 | 52.1 / 23 | 118.1 / 21 | refused, 18.97 GB |
+
+   Free memory at every reading: 15,168 MiB. With 12 conversations a band, 8 records at each of the 5 depths (96
+   trials a cell) and a question costing about 20 decode steps, every question asked from the end of its conversation,
+   the recall arm from 16K costs: 26B-A4B 13 min, Qwen FP4 11 min (16K only), Llama 3B 16 min, Llama 8B 25 min, 12B
+   48 min, 2.82-bit 61 min -- about 3 h for all six. Refilling the conversation for every question instead would cost
+   about 73 h from 4K. Asking from the end needed three library changes, agreed with Todd the same day and made at
+   `+33`: Llama's transformer rewinds and continues a prefill as Gemma's does; Qwen returns to a position whose
+   recurrent state it saved (`savePosition`, `ModelFamilyParity.md` 8.3, Q5); and `sequenceLogLikelihoodFrom` scores
+   after a cached prefix. A question is a rewind to the end of the conversation, a prefill of the question, then
+   greedy decode; an answer's log-likelihood is the difference of two `sequenceLogLikelihoodFrom` calls from that
+   position, with and without the answer. The 4K and 8K cells above are kept as measured.
+2. **Each arm builds its own conversation.** A system rule or a set of declared tools inside a recall conversation
+   would change what recall measures.
+3. **Records are JSON objects**, the form of tool output an agent meets most.
+4. **The page and the post follow the first profiles**, written from their data.
+5. **Reliable depth** is the deepest band at which exact recall is at least 90% at every planted depth, instruction
+   retention at least 90%, and tool-call fidelity at least 90% (well-formed, right tool, exact arguments). Until
+   Phase 2 lands for a configuration, its reliable depth is reported on recall alone and says so.

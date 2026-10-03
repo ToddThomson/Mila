@@ -286,6 +286,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Models/DecodeReference.Cuda.cpp"
         # A replayed decode step against the called one -- DecodeGraph.md gates B2-B5.
         "Dnn/Models/DecodeReplay.Cuda.cpp"
+        "Dnn/Models/SequenceLogLikelihoodFrom.Cuda.cpp"
         "Dnn/Models/LlaMa/Llama.LogLikelihood.Cuda.cpp"
         # A load that fits BF16 weights settles at its exported form's footprint: the load staging is freed.
         # Needs both weights of each model -- see Specifications/MemoryFootprint.md Phase 6 step 1.

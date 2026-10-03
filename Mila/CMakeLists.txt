@@ -498,6 +498,7 @@ PUBLIC
         "Src/Dnn/Core/Model.RuntimeMode.ixx"
         "Src/Dnn/Core/Model.ixx"
         "Src/Dnn/Core/SequenceLogLikelihood.ixx"
+        "Src/Dnn/Core/PromptPrefixReuse.ixx"
         "Src/Dnn/Core/LanguageModelNetwork.ixx"
         "Src/Dnn/Core/LanguageModel.ixx"
         "Src/Dnn/Core/Component.TrainingMode.ixx"

@@ -10,6 +10,20 @@ pointer to its GitHub issue rather than a copy. Triage flow, categories and the 
 
 ---
 
+## Qwen's own DeltaNet prefill kernels run 2.2 to 2.9 times faster than FLA's, by three ideas Mila's kernel has not been measured against
+
+`gated_delta_rule_chunked_kernel` (`GatedDeltaRule.cu:399`), `ModelFamilyParity.md` 8.3, Q9 lever 6 @ `0.21.0-dev+33`
+
+Netra Runtime's write-up of FlashQLA (`github.com/QwenLM/FlashQLA`, MIT, TileLang, Hopper only), shared by Todd
+2026-10-03: forward 0.31 against 0.91 ms (TP8) to 1.49 against 3.34 ms (TP1) for one 32,768-token sequence on an H200,
+against FLA Triton 0.5.0; backward 1.4 to 1.9 times. Three ideas: splitting one sequence into segments that run in
+parallel, each warmed up only over the preceding chunks whose accumulated gate exceeds -10 (e^-10 is below what BF16
+holds) -- an approximation, not bit-exact; the gate's cumulative sum computed once per chunk and one triangular
+inverse shared by the output and state paths; warp-specialized fusion, a TMA producer warpgroup beside three consumer
+warpgroups. Mila's kernel is 1.8 s of the 2.82-bit build's 8K prefill (37 ms a layer) on a card with 36 SMs, for
+48 value heads. Its efficiency, and how its blocks fill the card, are unmeasured. Papers: Gated Delta Networks (arXiv
+2412.06464), Parallelizing Linear Transformers with the Delta Rule (arXiv 2406.06484).
+
 ## Each device tensor larger than 1 MiB is its own allocation, and its rounding costs up to 7% of a model's weights
 
 `CudaDeviceMemoryResource::do_allocate` (one `cudaMalloc` per tensor), `DeviceAllocation.ixx` @ `0.21.0-dev+32`
@@ -140,19 +154,9 @@ cache holds two tensors where the checkpoint has one projection. Rotating keys i
 kernels -- from the same angle function, `Rope.Angle.cuh` -- would leave the cache unrotated keys, the precondition for
 storing that tensor once. Both deciding measurements passed on 2026-10-01 -- one stored tensor serves both, and
 rotating 64 pairs on read costs 0.69 of today's two-tensor read at 64K -- and the planner puts the 26B-A4B at 128K with
-about 251 MB spare once keys are stored once, against 80K today (2026-10-03). Its quality gate, the kernels' shape and
-whether it is admitted to v0.21 are open: `Specifications/RopeInAttention.md`.
-
-## A masked key's zero probability still multiplies whatever an unwritten cache row holds
-
-`Gqa.Flash.Packed.cu` (`p * v_scale` before PV; the PV MMA), the clamped and ring rows of every GQA cache @ `0.21.0-dev+24`
-
-Flash prefill loads whole key tiles. Keys past the last written position -- the clamped tail of an unbounded cache,
-the not-yet-written rows of a ring -- read rows no write has reached, and device memory is not zeroed
-(`TensorBuffer`). Their scores are masked to -inf after scaling, so their probability is exactly 0, but that 0
-then multiplies the row's V values in the PV MMA, and in the FP8 caches the row's V scale too. A row holding a NaN or
-infinity -- an E4M3 NaN code, a stale non-finite scale -- makes 0 x NaN = NaN in every output that tile touches.
-Nothing has been seen to fail; whether fresh or recycled device memory can hold such patterns is not measured.
+about 251 MB spare once keys are stored once, against 80K today (2026-10-03). It waits on a measured reason (Todd,
+2026-10-03): if the 26B-A4B's context profile, admitted to v0.21, shows its reliable depth running past 80K, it
+returns for discussion. The kernels' shape is open: `Specifications/RopeInAttention.md`.
 
 ## Gemma 4 26B-A4B does not fit a 16 GB card at context 32768, and llama.cpp runs it there with an FP16 cache
 

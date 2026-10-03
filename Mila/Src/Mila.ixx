@@ -170,6 +170,7 @@ export import Dnn.LanguageModel;
 export import Dnn.SamplingParams;
 export import Dnn.GenerateParams;
 export import Dnn.GenerateStatus;
+export import Dnn.PromptPrefixReuse;
 export import Dnn.RuntimeMode;
 
 // ====================================================================

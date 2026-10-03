@@ -129,11 +129,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // Prefetch one key tile's K and V ([Bc x HS] BF16 each) into the given smem stage
         // via 16-byte cp.async copies, addressed by ABSOLUTE key position with the ring
         // cache-row mapping row = abs_pos % cache_capacity. Aliased slots land only on
-        // columns the causal/window mask forces to -inf. Caller commits + waits.
+        // columns the causal/window mask forces to -inf. A key past key_limit -- the last
+        // position any of the block's rows attends to -- loads as zeros: its row may never
+        // have been written, and the mask's zero probability still multiplies its V
+        // (0 x NaN). Caller commits + waits.
         __device__ __forceinline__ void cp_async_kv_tile_ring(
             __nv_bfloat16* s_K_stage, __nv_bfloat16* s_V_stage,
             const __nv_bfloat16* K, const __nv_bfloat16* V,
-            size_t kv_head_base, int tile_start, int HS, int hs_pad, int cache_capacity,
+            size_t kv_head_base, int tile_start, int key_limit, int HS, int hs_pad, int cache_capacity,
             int tid, int block_threads )
         {
             const int chunks_per_row = HS / kCopyElems;
@@ -148,9 +151,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
                 const size_t g_off = kv_head_base + static_cast<size_t>( p_src ) * HS + d0;
                 const int s_off = p_local * hs_pad + d0;
+                const size_t zero_fill = p > key_limit ? 16 : 0;
 
-                __pipeline_memcpy_async( s_K_stage + s_off, K + g_off, 16 );
-                __pipeline_memcpy_async( s_V_stage + s_off, V + g_off, 16 );
+                __pipeline_memcpy_async( s_K_stage + s_off, K + g_off, 16, zero_fill );
+                __pipeline_memcpy_async( s_V_stage + s_off, V + g_off, 16, zero_fill );
             }
         }
 #endif
@@ -274,7 +278,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // --- prologue: prefetch the first band tile into its parity stage ---
         cp_async_kv_tile_ring( s_K + ( first_tile & 1 ) * stage_elems,
             s_V + ( first_tile & 1 ) * stage_elems,
-            K, V, kv_head_base, first_tile * kFa2Keys, HS, hs_pad, cache_capacity,
+            K, V, kv_head_base, first_tile * kFa2Keys, block_max_key, HS, hs_pad, cache_capacity,
             tid, block_threads );
         __pipeline_commit();
 
@@ -296,7 +300,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             {
                 const int next_stage = ( t + 1 ) & 1;
                 cp_async_kv_tile_ring( s_K + next_stage * stage_elems, s_V + next_stage * stage_elems,
-                    K, V, kv_head_base, ( t + 1 ) * kFa2Keys, HS, hs_pad, cache_capacity,
+                    K, V, kv_head_base, ( t + 1 ) * kFa2Keys, block_max_key, HS, hs_pad, cache_capacity,
                     tid, block_threads );
                 __pipeline_commit();
             }

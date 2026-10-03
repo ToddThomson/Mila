@@ -42,7 +42,7 @@ namespace Mila::Dnn
      * not be a different type because its weights are FP4. LanguageModelNetwork is where they
      * stop. LanguageModel holds one of these and drives generation through it, so the
      * interface below is the whole vocabulary a model needs from a transformer:
-     * prefill/decode, the prefix-reuse pair (prefillFrom + rewindKvCache), and nothing else.
+     * prefill/decode, prefix reuse (prefillFrom, rewindKvCache, savePosition), and nothing else.
      *
      * The virtual boundary is deliberately coarse. One dispatch per layer per token step is
      * negligible against the per-layer GEMMs, so the interface is drawn at whole passes
@@ -184,8 +184,8 @@ namespace Mila::Dnn
          *                     be resident in the KV caches (see rewindKvCache).
          * @return             Logits for the last token position.
          *
-         * Implemented by GemmaTransformer and QwenTransformer, which override both this and
-         * rewindKvCache; on any other network it throws. Because rewindKvCache defaults to
+         * Implemented by GemmaTransformer, LlamaTransformer and QwenTransformer, which override both
+         * this and rewindKvCache; on any other network it throws. Because rewindKvCache defaults to
          * false and a caller reaches this only after a successful rewind, the throw is not
          * reachable through the intended sequence.
          */
@@ -210,8 +210,8 @@ namespace Mila::Dnn
          * silently move which row a sampler reads.
          *
          * The head is evaluated in windows of the family config's log-likelihood window; at the
-         * default of 1 it costs one head pass per position. Implemented by GemmaTransformer and
-         * QwenTransformer; on any other network it throws.
+         * default of 1 it costs one head pass per position. Implemented by GemmaTransformer,
+         * LlamaTransformer and QwenTransformer; on any other network it throws.
          *
          * @param input Token indices [1, T], T >= 2. Batching is not supported: the targets
          *              are the sequence's own next tokens, so two sequences in one call would
@@ -224,9 +224,47 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief The log-likelihood of `input` after a cached prefix, as prefillFrom continues a prefill.
+         *
+         * Positions [0, start_offset) must already be resident in the caches (rewindKvCache). Scores the
+         * T - 1 - start_offset tokens after start_offset, each given everything before it, through the same
+         * prefill path sequenceLogLikelihood runs. The log-likelihood of a continuation is then the difference
+         * of two calls from one rewound position.
+         *
+         * @param input        The FULL sequence [1, T]; token index and absolute position coincide.
+         * @param start_offset First position to prefill, at most T - 2 so one position is scored.
+         */
+        virtual SequenceLogLikelihood sequenceLogLikelihoodFrom( const TokenIndexType& input, dim_t start_offset )
+        {
+            ( void )input;
+            ( void )start_offset;
+            throw std::logic_error( "LanguageModelNetwork::sequenceLogLikelihoodFrom: not supported by this network" );
+        }
+
+        /**
+         * @brief Keep what a later rewindKvCache needs to return to the current fill.
+         *
+         * A network whose caches are positional can rewind to any position it holds and keeps
+         * nothing. A network with recurrent layers cannot rewind them, so it copies their state
+         * here, and a rewind to exactly this position succeeds by putting the copy back. One
+         * position is held at a time; saving again replaces it, and a prefill or decode that
+         * writes inside the saved prefix discards it.
+         *
+         * @return The saved position: the number of positions the caches hold.
+         */
+        dim_t savePosition()
+        {
+            onSavePosition( cached_length_ );
+
+            return cached_length_;
+        }
+
+        /**
          * @brief Rewind the KV caches to `position` for prompt-prefix reuse
          * (PromptCaching.md). Positions [0, position) stay valid; device contents
          * are untouched.
+         *
+         * A network with recurrent layers accepts only the position it saved (savePosition).
          *
          * @return true when every layer accepted the rewind, which then sets the cached
          * length to `position`. False on a network with no reuse capability; a full
@@ -254,7 +292,7 @@ namespace Mila::Dnn
         /**
          * @brief Whether every layer accepts a rewind to `position` from `cached_length`.
          *
-         * Implemented by GemmaTransformer and QwenTransformer; false on any other network.
+         * Implemented by GemmaTransformer, LlamaTransformer and QwenTransformer; false on any other network.
          */
         virtual bool onRewindKvCache( dim_t position, dim_t cached_length )
         {
@@ -262,6 +300,12 @@ namespace Mila::Dnn
             ( void )cached_length;
 
             return false;
+        }
+
+        /// Keep the state a rewind to `position` will need. Nothing, for a network whose caches are positional.
+        virtual void onSavePosition( dim_t position )
+        {
+            ( void )position;
         }
 
         /**

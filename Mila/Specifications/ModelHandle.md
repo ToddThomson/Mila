@@ -94,8 +94,9 @@ Two members move onto the base, because every family already has them and a call
 reach them:
 
 - `getDeploymentPlan()` -- each family keeps an identical `plan_` today.
-- `supportsPromptPrefixReuse()` -- on `QwenModel` only (`QwenModel.ixx:338`). On the base it is virtual and
-  false; Gemma, whose generate loop reuses a cached prefix (`PromptCaching.md`), returns true.
+- `promptPrefixReuse()` -- on each of `GemmaModel`, `LlamaModel` and `QwenModel` since `0.21.0-dev+33`, which
+  replaced Qwen's `supportsPromptPrefixReuse()`: `AnyPosition` for Gemma and Llama, `SavedPosition` for Qwen,
+  which resumes only from the end of the previous prompt (`PromptCaching.md`). On the base it becomes virtual.
 
 ### 3.2 Capabilities: each fact from the one place that knows it
 
@@ -373,7 +374,7 @@ Bounds written before any run; each gate forced to fail once. All in the maintai
 ## 7. Phasing
 
 **Phase 1 -- capabilities.** The manifest fields and their defaults; `getDeploymentPlan` and
-`supportsPromptPrefixReuse` onto the base. *Exit:* H3, H4, N3. Independent of everything else.
+`promptPrefixReuse` onto the base. *Exit:* H3, H4, N3. Independent of everything else.
 
 **Phase 2 -- the protocol.** The interface, Gemma and Qwen implementations over their free functions,
 Llama's fold into the library, Gemma's renderers made one. *Exit:* P1 for all three families. No application
@@ -406,7 +407,7 @@ there.
 - `Deployment.md` -- the factory is `load( path, request )` behind a name; the plan is the handle's.
 - `ModelDistribution.md` -- the manifest and the store the factory reads; gains two fields.
 - `ChatConfiguration.md` -- section 5's `maximum_context_length` is replaced by the weights header (10.3).
-- `PromptCaching.md` -- what `supportsPromptPrefixReuse` reports.
+- `PromptCaching.md` -- what `promptPrefixReuse` reports.
 - `PythonBinding.md` -- the per-family sessions this replaces, via `mila.AI`.
 - `ModelFamilyParity.md` -- what each family can do; its grammar rows are this spec's Phase 2.
 

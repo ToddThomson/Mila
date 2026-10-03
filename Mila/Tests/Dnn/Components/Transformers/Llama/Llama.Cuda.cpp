@@ -15,7 +15,9 @@
  * path is a no-op stub (BACKLOG: GroupedQueryAttention::forward), so the validated
  * compute path is prefill/decode driven by the network with the shared GqaState
  * workspace. This suite therefore covers the network's public contract and logits
- * shape only -- a value/convergence oracle belongs with the loss-on-device work.
+ * shape only -- a value/convergence oracle belongs with the loss-on-device work. The one exception
+ * is section F, which compares the prefill path against itself: a prefill continued after a rewind
+ * must reproduce the whole prefill.
  *
  * load is NOT tested here: LlamaTransformer::load is retired
  * (commented out in Src); LlamaModel::load is the supported load path.
@@ -26,6 +28,7 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <format>
@@ -225,6 +228,85 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
         auto& logits = net->forward( input );
 
         EXPECT_EQ( logits.shape(), ( shape_t{ batch_, seq_, kVocab } ) );
+    }
+
+    // ====================================================================
+    // F. Prompt-prefix reuse (PromptCaching.md)
+    // ====================================================================
+
+    // Rewinding to a prefix boundary and prefilling only the tail must reproduce the whole prefill's logits:
+    // the KV rows [0, split) are a deterministic function of the tokens, so the two paths differ only in float
+    // accumulation across chunk boundaries. Explicitly initialized weights make the comparison meaningful.
+    TEST_F( LlamaTransformerCudaTests, PrefillFrom_AfterRewind_MatchesFullPrefill )
+    {
+        using HostTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+        constexpr int64_t kSeq = 24;
+        constexpr int64_t kSplit = 16;
+
+        auto net = std::make_unique<LlamaCuda>( "llama", smallConfig(), Device::Cuda( 0 ) );
+        net->build( BuildContext( shape_t{ batch_, kSeq }, RuntimeMode::Inference, true ).withPrefillSize( kSeq ) );
+
+        auto tokens = makeTokens( batch_, kSeq );
+
+        auto& logits_full = net->prefill( tokens );
+        HostTensor full_host( Device::Cpu(), logits_full.shape() );
+        copy( logits_full, full_host );
+        net->synchronize();
+
+        ASSERT_TRUE( net->rewindKvCache( kSplit ) );
+
+        auto& logits_incremental = net->prefillFrom( tokens, kSplit );
+        HostTensor incremental_host( Device::Cpu(), logits_incremental.shape() );
+        copy( logits_incremental, incremental_host );
+        net->synchronize();
+
+        ASSERT_EQ( incremental_host.size(), full_host.size() );
+
+        for ( dim_t i = 0; i < full_host.size(); ++i )
+        {
+            const float expected = full_host.data()[ i ];
+            const float tolerance = 1e-4f + 1e-3f * std::fabs( expected );
+
+            EXPECT_NEAR( incremental_host.data()[ i ], expected, tolerance )
+                << "incremental prefill diverged from full prefill at logit " << i;
+        }
+    }
+
+    TEST_F( LlamaTransformerCudaTests, RewindKvCache_RejectsPositionsBeyondFill )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        net->prefill( makeTokens( batch_, seq_ ) );
+        net->synchronize();
+
+        EXPECT_TRUE( net->rewindKvCache( seq_ - 1 ) );
+        EXPECT_FALSE( net->rewindKvCache( seq_ + 10 ) );
+    }
+
+    // The fill a rewind is judged against is the network's: prefill sets it, decode advances it and an accepted
+    // rewind moves it (DecodeGraph.md 4.3).
+    TEST_F( LlamaTransformerCudaTests, RewindKvCache_JudgesAgainstTheNetworksFill )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        net->prefill( makeTokens( batch_, seq_ - 2 ) );
+        net->decode( makeTokens( batch_, 1 ), seq_ - 2 );
+        net->synchronize();
+
+        EXPECT_FALSE( net->rewindKvCache( seq_ ) );
+        EXPECT_TRUE( net->rewindKvCache( seq_ - 1 ) );
+        EXPECT_TRUE( net->rewindKvCache( 1 ) );
+        EXPECT_FALSE( net->rewindKvCache( 2 ) );
+    }
+
+    TEST_F( LlamaTransformerCudaTests, PrefillFrom_ThrowsOnOffsetOutsidePrompt )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
+        auto tokens = makeTokens( batch_, seq_ );
+
+        EXPECT_THROW( net->prefillFrom( tokens, seq_ ), std::invalid_argument );
+        EXPECT_THROW( net->prefillFrom( tokens, -1 ), std::invalid_argument );
     }
 
     // ====================================================================

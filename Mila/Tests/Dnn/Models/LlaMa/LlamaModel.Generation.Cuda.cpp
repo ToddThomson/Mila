@@ -158,6 +158,31 @@ namespace Mila::Tests::Dnn::Models::Llama
         EXPECT_EQ( nucleus.tokens, argmax.tokens );
     }
 
+    // A second turn that extends the first -- its prompt, the reply, then new tokens -- reuses the cached prefix and
+    // picks the tokens a model that never saw the first turn picks for the whole conversation.
+    TEST_F( LlamaModelGenerationCudaTests, SecondTurn_ReusesThePrefixAndMatchesAFreshModel )
+    {
+        constexpr int kReply = 6;
+
+        const std::vector<std::int32_t> first_prompt = promptOf( 8 );
+        const Generation first = generate( *model_, first_prompt, greedy( kReply ) );
+
+        ASSERT_EQ( first.tokens.size(), static_cast<std::size_t>( kReply ) );
+
+        std::vector<std::int32_t> second_prompt = first_prompt;
+        second_prompt.insert( second_prompt.end(), first.tokens.begin(), first.tokens.end() );
+
+        for ( std::int32_t token : { 11, 12, 13, 14 } )
+            second_prompt.push_back( token );
+
+        const Generation continued = generate( *model_, second_prompt, greedy( kGenerated - 4 ) );
+
+        const auto fresh_model = LlamaFp32::load( weightsPath(), LlamaModelConfig( kContext ), Device::Cuda( 0 ) );
+        const Generation fresh = generate( *fresh_model, second_prompt, greedy( kGenerated - 4 ) );
+
+        EXPECT_EQ( continued.tokens, fresh.tokens );
+    }
+
     // The token sampled from the last position's logits is still reported; nothing is decoded past the context.
     TEST_F( LlamaModelGenerationCudaTests, ContextBound_ReportsEveryPositionThenOverflows )
     {

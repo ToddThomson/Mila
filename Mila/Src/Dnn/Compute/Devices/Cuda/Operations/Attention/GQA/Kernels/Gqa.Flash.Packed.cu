@@ -150,13 +150,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
         // One key tile of K and V ([keys x HS] each) into a stage. Unbounded, keys past the cache clamp to its
-        // last row; in a ring, position p lives in row p % cache_capacity. Either way a row that is not the key's
-        // own lands only on a column the causal or window mask sets to -inf.
+        // last row; in a ring, position p lives in row p % cache_capacity. A key past key_limit -- the last
+        // position any of the block's rows attends to -- loads as zeros rather than as its row: the row may never
+        // have been written, and the mask's zero probability still multiplies its V, so a NaN there would reach
+        // every output of the tile (0 x NaN). Every key up to key_limit was written by this chunk or before it.
         template<int kHeadSize, int kKeys>
         __device__ __forceinline__ void load_kv_tile(
             __nv_bfloat16* k_stage, __nv_bfloat16* v_stage,
             const __nv_bfloat16* K, const __nv_bfloat16* V,
-            std::size_t kv_base, int tile_start, int cache_capacity, bool ring, int tid )
+            std::size_t kv_base, int tile_start, int key_limit, int cache_capacity, bool ring, int tid )
         {
             constexpr int kChunksPerRow = kHeadSize / kCopyElements;
             constexpr int kPad = kHeadSize + kSkew;
@@ -169,19 +171,22 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 const int row = ring ? position % cache_capacity
                     : ( position < cache_capacity ? position : cache_capacity - 1 );
                 const std::size_t source = kv_base + static_cast<std::size_t>( row ) * kHeadSize + column;
+                const std::size_t zero_fill = position > key_limit ? 16 : 0;
 
-                __pipeline_memcpy_async( k_stage + key * kPad + column, K + source, 16 );
-                __pipeline_memcpy_async( v_stage + key * kPad + column, V + source, 16 );
+                __pipeline_memcpy_async( k_stage + key * kPad + column, K + source, 16, zero_fill );
+                __pipeline_memcpy_async( v_stage + key * kPad + column, V + source, 16, zero_fill );
             }
         }
 
         // One key tile of FP8 K and V codes and their row scales into a staging stage, unpadded. Rows are found as
-        // load_kv_tile finds them, clamped or wrapped into the ring.
+        // load_kv_tile finds them, clamped or wrapped into the ring, and a key past key_limit loads as zero codes
+        // and zero scales.
         template<int kHeadSize, int kKeys>
         __device__ __forceinline__ void load_kv_tile_fp8(
             uint8_t* k_codes, uint8_t* v_codes, float* k_scale_stage, float* v_scale_stage,
             const uint8_t* K, const uint8_t* V, const float* k_scales, const float* v_scales,
-            std::size_t kv_base, std::size_t scale_base, int tile_start, int cache_capacity, bool ring, int tid )
+            std::size_t kv_base, std::size_t scale_base, int tile_start, int key_limit, int cache_capacity, bool ring,
+            int tid )
         {
             constexpr int kChunksPerRow = kHeadSize / 16;
 
@@ -194,19 +199,23 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             {
                 const int key = chunk / kChunksPerRow;
                 const int column = ( chunk % kChunksPerRow ) * 16;
-                const int row = rowOf( tile_start + key );
+                const int position = tile_start + key;
+                const int row = rowOf( position );
                 const std::size_t source = kv_base + static_cast<std::size_t>( row ) * kHeadSize + column;
+                const std::size_t zero_fill = position > key_limit ? 16 : 0;
 
-                __pipeline_memcpy_async( k_codes + key * kHeadSize + column, K + source, 16 );
-                __pipeline_memcpy_async( v_codes + key * kHeadSize + column, V + source, 16 );
+                __pipeline_memcpy_async( k_codes + key * kHeadSize + column, K + source, 16, zero_fill );
+                __pipeline_memcpy_async( v_codes + key * kHeadSize + column, V + source, 16, zero_fill );
             }
 
             for ( int key = tid; key < kKeys; key += kWarps * 32 )
             {
-                const int row = rowOf( tile_start + key );
+                const int position = tile_start + key;
+                const int row = rowOf( position );
+                const std::size_t zero_fill = position > key_limit ? 4 : 0;
 
-                __pipeline_memcpy_async( k_scale_stage + key, k_scales + scale_base + row, 4 );
-                __pipeline_memcpy_async( v_scale_stage + key, v_scales + scale_base + row, 4 );
+                __pipeline_memcpy_async( k_scale_stage + key, k_scales + scale_base + row, 4, zero_fill );
+                __pipeline_memcpy_async( v_scale_stage + key, v_scales + scale_base + row, 4, zero_fill );
             }
         }
 
@@ -269,6 +278,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const int total_rows = chunk_len * group;
         const int block_row0 = blockIdx.x * Geometry::kRows;
 
+        // The last key position any of the block's rows attends to; past it the loads are zeros.
+        const int key_limit = position_offset + ( min( block_row0 + Geometry::kRows, total_rows ) - 1 ) / group;
+
         const std::size_t kv_base = ( static_cast<std::size_t>( b ) * NKV + kv_head ) * cache_capacity * kHeadSize;
 
         extern __shared__ __align__( 16 ) char smem_raw[];
@@ -305,14 +317,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     s_k_scale + stage * Geometry::kKeys, s_v_scale + stage * Geometry::kKeys,
                     static_cast<const uint8_t*>( K_raw ), static_cast<const uint8_t*>( V_raw ), k_scales, v_scales,
                     kv_base, scale_base,
-                    tile * Geometry::kKeys, cache_capacity, ring, threadIdx.x );
+                    tile * Geometry::kKeys, key_limit, cache_capacity, ring, threadIdx.x );
             }
             else
             {
                 load_kv_tile<kHeadSize, Geometry::kKeys>(
                     bf16Stage( s_k, tile ), bf16Stage( s_v, tile ),
                     K, V, kv_base,
-                    tile * Geometry::kKeys, cache_capacity, ring, threadIdx.x );
+                    tile * Geometry::kKeys, key_limit, cache_capacity, ring, threadIdx.x );
             }
         };
 

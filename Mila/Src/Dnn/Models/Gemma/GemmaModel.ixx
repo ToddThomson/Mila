@@ -58,6 +58,7 @@ import Dnn.Components.GemmaFeedForward;
 import Dnn.Components.MixtureOfExperts;
 import Dnn.GenerateParams;
 import Dnn.GenerateStatus;
+import Dnn.PromptPrefixReuse;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceAllocation;
@@ -315,6 +316,12 @@ namespace Mila::Dnn
         dim_t contextLength() const noexcept
         {
             return static_cast<int64_t>( model_config_.getContextLength() );
+        }
+
+        /// AnyPosition: every layer caches each position, so a prompt resumes after any prefix it shares.
+        PromptPrefixReuse promptPrefixReuse() const noexcept
+        {
+            return PromptPrefixReuse::AnyPosition;
         }
 
         /**
