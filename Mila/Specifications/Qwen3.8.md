@@ -415,7 +415,7 @@ Ordered by dependency, not priority. Nothing here is scheduled.
    *Renamed and moved at `0.21.0-dev+9`* (`ModelFamilyParity.md` 8.2, G1): this was
    `scoreTokens`, reached through a public `QwenModel::scoreTokens` and a head width on every
    family's deployment request. Both left the public surface, since nothing outside the tests
-   called them; the harnesses below build the network themselves (`Tests/Common/LogLikelihoodHarness.h`).
+   called them; the harnesses below build the network themselves (`Tools/Measurement/LogLikelihoodHarness.h`).
    The host reduction became `SequenceLogLikelihood::addNextTokenLogProbabilities`, shared with Gemma.
    *Moved to the device at `0.21.0-dev+15`:* each window is reduced where its logits are
    (`NextTokenLogProbabilityOp`, one block per row, the exponentials summed in double), the results

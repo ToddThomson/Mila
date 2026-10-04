@@ -11,3 +11,9 @@ if(MILA_ENABLE_CUDA)
     add_subdirectory( ExportArtifact )
 endif()
 
+# The context profile measures real models on a real card (Specifications/ContextProfile.md), so it is
+# CUDA-only for the same reason.
+if(MILA_ENABLE_CUDA)
+    add_subdirectory( ContextProfile )
+endif()
+

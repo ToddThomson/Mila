@@ -47,7 +47,8 @@ import Mila;
 // included above, so their own includes are no-ops in this TU -- which is what keeps this
 // clear of import Mila poisoning std headers first seen after it.
 #include "Common/GenerationRates.h"
-#include "Common/LogLikelihoodHarness.h"
+#include "Measurement/LogLikelihoodHarness.h"
+#include "Measurement/Pg19Books.h"
 
 namespace Mila::Tests::Dnn::Models
 {
@@ -428,7 +429,7 @@ namespace Mila::Tests::Dnn::Models
         {
             PrefillChunking chunking;
 
-            auto network = Common::buildMeasuredNetwork<MeasuredQwen<TWeightPlan>>(
+            auto network = Measurement::buildMeasuredNetwork<MeasuredQwen<TWeightPlan>>(
                 weights, measuredQwenConfig( weights, window ), DeviceId{ DeviceType::Cuda, 0 }, context_length, &chunking );
 
             std::cout << "  prefill chunk: " << chunking.chunk_rows << "\n" << std::flush;
@@ -478,7 +479,7 @@ namespace Mila::Tests::Dnn::Models
                     tokens.begin() + static_cast<std::ptrdiff_t>( offset ),
                     tokens.begin() + static_cast<std::ptrdiff_t>( offset + length ) );
 
-                const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( *network, segment );
+                const SequenceLogLikelihood scored = Measurement::sequenceLogLikelihoodOf( *network, segment );
 
                 total.total_log_probability += scored.total_log_probability;
                 total.scored_positions += scored.scored_positions;
@@ -559,7 +560,7 @@ namespace Mila::Tests::Dnn::Models
                 // A context overflow would mean the harness, not the model, ended the run.
                 EXPECT_LT( static_cast<dim_t>( prompt.size() ) + generated_tokens, context_length );
 
-                Common::GreedyContinuation continuation = Common::greedyContinuationOf(
+                Measurement::GreedyContinuation continuation = Measurement::greedyContinuationOf(
                     *network, prompt, generated_tokens, kQwenStopTokens, context_length );
 
                 EXPECT_FALSE( continuation.prompt_logits.empty() ) << "the prefill returned no logits for this prompt";
@@ -619,7 +620,7 @@ namespace Mila::Tests::Dnn::Models
                     sequence.insert( sequence.end(), continuation.begin(),
                         continuation.begin() + static_cast<std::ptrdiff_t>( length ) );
 
-                    return Common::sequenceLogLikelihoodOf( oracle, sequence ).total_log_probability;
+                    return Measurement::sequenceLogLikelihoodOf( oracle, sequence ).total_log_probability;
                 };
 
             comparison.oracle_path_log_probability = scorePath( oracle_continuation );
@@ -1727,6 +1728,97 @@ namespace Mila::Tests::Dnn::Models
     }
 
     // ====================================================================
+    // Decode against prefill deep into a book, both builds (ContextProfile.md section 8, the FP4 build's loss arm).
+    //   MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_DecodeAgainstPrefillAlongTheBook
+    //
+    // From 8K on, the FP4 build scores a PG-19 book worse with the whole book before it than with 1024 tokens of it;
+    // the 2.82-bit build does not. FP4's prefill multiplies FP8 activations whose scale is shared across a chunk, its
+    // decode BF16 activations; the 2.82-bit build is BF16 in both. After P tokens of the book turn the next 257 targets
+    // are scored both ways -- decode one token at a time from a prefill of P, and the prefix of P + 257 less the prefix
+    // of P -- at window 1, so both reach the same head. P = 2048 is the control. Reports and does not gate.
+    // ====================================================================
+    TEST_F( QwenPackedArtifactTests, DISABLED_DecodeAgainstPrefillAlongTheBook )
+    {
+        constexpr dim_t kSteps = 256;
+        constexpr dim_t kContextLength = 16384;
+
+        const fs::path tokenizer_path = fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_tokenizer.bin";
+        const fs::path fp4_weights = fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_fp4.safetensors";
+
+        if ( !fs::exists( tokenizer_path ) || !fs::exists( fp4_weights )
+            || !fs::exists( Measurement::pg19TestPath( TEST_DATA_DIR ) ) )
+        {
+            GTEST_SKIP() << "Needs the Qwen tokenizer, " << fp4_weights.string() << " and PG-19";
+        }
+
+        auto tokenizer = Mila::Data::BpeTokenizer::loadQwen( tokenizer_path );
+
+        // The loss arm's book turn: a user turn and the assistant's reasoning span closed.
+        const std::vector<::Mila::Dnn::Conversation::Turn> history{
+            { ::Mila::Dnn::Conversation::Role::User, "Continue this book." } };
+
+        auto report = [&]<typename TWeightPlan>( const fs::path& weights, std::string_view label, std::string_view book )
+        {
+            std::vector<int32_t> tokens = tokenizer->encode( ::Mila::Dnn::Qwen::formatPrompt( history, false ) );
+            const std::size_t opening = tokens.size();
+
+            const std::vector<int32_t> text = tokenizer->encode( Measurement::joinWraps( Measurement::readBook(
+                Measurement::pg19TestPath( TEST_DATA_DIR ) / book, static_cast<std::size_t>( kContextLength ) * 6 ) ) );
+
+            ASSERT_GE( text.size(), static_cast<std::size_t>( kContextLength ) - opening );
+
+            tokens.insert( tokens.end(), text.begin(),
+                text.begin() + static_cast<std::ptrdiff_t>( static_cast<std::size_t>( kContextLength ) - opening ) );
+
+            auto network = buildMeasuredQwen<TWeightPlan>( weights, 1, kContextLength );
+
+            auto prefix = [&]( dim_t length )
+            {
+                return std::vector<int32_t>( tokens.begin(), tokens.begin() + static_cast<std::ptrdiff_t>( length ) );
+            };
+
+            for ( const dim_t start : { dim_t{ 2048 }, dim_t{ 8192 }, dim_t{ 12288 } } )
+            {
+                SequenceLogLikelihood decoded;
+
+                std::vector<float> logits = Measurement::hostLogits( *network,
+                    network->prefill( Measurement::deviceTokens( *network, prefix( start ) ) ) );
+                const dim_t vocab = static_cast<dim_t>( logits.size() );
+
+                decoded.addNextTokenLogProbabilities( logits.data(), 1, vocab, tokens.data(), start - 1, kContextLength, 0.0f );
+
+                for ( dim_t step = 0; step < kSteps; ++step )
+                {
+                    const dim_t position = start + step;
+
+                    logits = Measurement::hostLogits( *network, network->decode(
+                        Measurement::deviceTokens( *network, { tokens[ static_cast<std::size_t>( position ) ] } ), position ) );
+
+                    decoded.addNextTokenLogProbabilities( logits.data(), 1, vocab, tokens.data(), position, kContextLength, 0.0f );
+                }
+
+                const SequenceLogLikelihood longer = Measurement::sequenceLogLikelihoodOf( *network, prefix( start + kSteps + 1 ) );
+                const SequenceLogLikelihood shorter = Measurement::sequenceLogLikelihoodOf( *network, prefix( start ) );
+
+                const double prefilled = longer.total_log_probability - shorter.total_log_probability;
+                const dim_t prefilled_positions = longer.scored_positions - shorter.scored_positions;
+
+                std::cout << std::format( "  {} book {} after {:>5}: decode {:.4f} nats/token over {}, prefill {:.4f} over {}\n",
+                    label, book, start, -decoded.total_log_probability / static_cast<double>( decoded.scored_positions ),
+                    decoded.scored_positions, -prefilled / static_cast<double>( prefilled_positions ), prefilled_positions )
+                    << std::flush;
+            }
+        };
+
+        for ( const std::string_view book : { std::string_view( "10321.txt" ), std::string_view( "10356.txt" ) } )
+        {
+            report.template operator()<QwenOraclePrecisionPlan>( fp4_weights, "FP4     ", book );
+            report.template operator()<QwenPrecisionPlan>( artifact_, "2.82-bit", book );
+        }
+    }
+
+    // ====================================================================
     // Section 5's other two quality criteria: divergence point and logit divergence.
     //   MilaTests --gtest_also_run_disabled_tests
     //       --gtest_filter=QwenPackedArtifactTests.DISABLED_DivergenceAgainstTheOracle
@@ -1838,7 +1930,7 @@ namespace Mila::Tests::Dnn::Models
             summed_kl += kl;
 
             const bool same_top1 =
-                Common::argMax( oracle.last_logits[ index ] ) == Common::argMax( packed.last_logits[ index ] );
+                Measurement::argMax( oracle.last_logits[ index ] ) == Measurement::argMax( packed.last_logits[ index ] );
 
             if ( same_top1 )
             {
@@ -1956,10 +2048,10 @@ namespace Mila::Tests::Dnn::Models
         // first-touch paging, and charging that to whichever ran first would invent a
         // difference between them.
         {
-            (void)network->prefill( Common::deviceTokens( *network, segments.front() ) );
+            (void)network->prefill( Measurement::deviceTokens( *network, segments.front() ) );
             network->synchronize();
 
-            (void)Common::sequenceLogLikelihoodOf( *network, segments.front() );
+            (void)Measurement::sequenceLogLikelihoodOf( *network, segments.front() );
         }
 
         double forward_seconds = 0.0;
@@ -1970,7 +2062,7 @@ namespace Mila::Tests::Dnn::Models
         {
             const auto forward_start = std::chrono::steady_clock::now();
 
-            (void)network->prefill( Common::deviceTokens( *network, segment ) );
+            (void)network->prefill( Measurement::deviceTokens( *network, segment ) );
             network->synchronize();
 
             forward_seconds += std::chrono::duration<double>(
@@ -1978,7 +2070,7 @@ namespace Mila::Tests::Dnn::Models
 
             const auto scoring_start = std::chrono::steady_clock::now();
 
-            const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( *network, segment );
+            const SequenceLogLikelihood scored = Measurement::sequenceLogLikelihoodOf( *network, segment );
 
             scoring_seconds += std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - scoring_start ).count();

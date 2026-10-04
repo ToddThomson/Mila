@@ -35,7 +35,7 @@
 import Mila;
 
 #include "Common/DecodeHarness.h"
-#include "Common/LogLikelihoodHarness.h"
+#include "Measurement/LogLikelihoodHarness.h"
 #include "Common/TinyDecodeNetworks.h"
 
 namespace Mila::Tests::Dnn::Components::Transformers::Qwen
@@ -715,14 +715,14 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
             const auto saved = static_cast<dim_t>( kConversation );
 
             std::vector<std::vector<float>> logits;
-            logits.push_back( Common::hostLogits( network, network.prefillFrom( Common::deviceTokens( network, tokens ), saved ) ) );
+            logits.push_back( Measurement::hostLogits( network, network.prefillFrom( Measurement::deviceTokens( network, tokens ), saved ) ) );
 
             Common::DecodeInput<TinyQwen> input( network );
 
             for ( dim_t step = 0; step < 5; ++step )
             {
                 const auto position = static_cast<dim_t>( tokens.size() ) + step;
-                logits.push_back( Common::hostLogits( network, network.decode( input.set( 11 + static_cast<std::int32_t>( step ) ), position ) ) );
+                logits.push_back( Measurement::hostLogits( network, network.decode( input.set( 11 + static_cast<std::int32_t>( step ) ), position ) ) );
             }
 
             return logits;
@@ -737,7 +737,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         const auto second_question = tokenRun( 9, 203 );
 
         auto network = Common::buildTinyNetwork<TinyQwen>( Common::tinyQwenConfig( kSavedContext ), kSavedContext );
-        (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
+        (void)Measurement::hostLogits( *network, network->prefill( Measurement::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
 
         ASSERT_EQ( network->savePosition(), kConversation );
 
@@ -748,7 +748,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         const auto returned = askFromSavedPosition( *network, second_question );
 
         auto untouched = Common::buildTinyNetwork<TinyQwen>( Common::tinyQwenConfig( kSavedContext ), kSavedContext );
-        (void)Common::hostLogits( *untouched, untouched->prefill( Common::deviceTokens( *untouched, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
+        (void)Measurement::hostLogits( *untouched, untouched->prefill( Measurement::deviceTokens( *untouched, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
         const auto expected = askFromSavedPosition( *untouched, second_question );
 
         ASSERT_EQ( returned.size(), expected.size() );
@@ -768,16 +768,16 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
         const auto question = tokenRun( 9, 203 );
 
         auto network = Common::buildTinyNetwork<TinyQwen>( Common::tinyQwenConfig( kSavedContext ), kSavedContext );
-        (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
+        (void)Measurement::hostLogits( *network, network->prefill( Measurement::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
         network->savePosition();
 
         ASSERT_TRUE( network->rewindKvCache( kConversation ) );
-        const auto resumed = Common::hostLogits( *network,
-            network->prefillFrom( Common::deviceTokens( *network, conversationThen( question ) ), kConversation ) );
+        const auto resumed = Measurement::hostLogits( *network,
+            network->prefillFrom( Measurement::deviceTokens( *network, conversationThen( question ) ), kConversation ) );
 
         auto whole_network = Common::buildTinyNetwork<TinyQwen>( Common::tinyQwenConfig( kSavedContext ), kSavedContext );
-        const auto whole = Common::hostLogits( *whole_network,
-            whole_network->prefill( Common::deviceTokens( *whole_network, conversationThen( question ) ) ) );
+        const auto whole = Measurement::hostLogits( *whole_network,
+            whole_network->prefill( Measurement::deviceTokens( *whole_network, conversationThen( question ) ) ) );
 
         ASSERT_EQ( resumed.size(), whole.size() );
 
@@ -806,7 +806,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
     TEST_F( QwenTransformerCudaTests, RewindKvCache_RefusesEveryPositionButTheSavedOne )
     {
         auto network = Common::buildTinyNetwork<TinyQwen>( Common::tinyQwenConfig( kSavedContext ), kSavedContext );
-        (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
+        (void)Measurement::hostLogits( *network, network->prefill( Measurement::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
 
         EXPECT_FALSE( network->rewindKvCache( kConversation ) ) << "nothing was saved";
 
@@ -821,10 +821,10 @@ namespace Mila::Tests::Dnn::Components::Transformers::Qwen
     TEST_F( QwenTransformerCudaTests, PrefillInsideTheSavedPrefix_DiscardsIt )
     {
         auto network = Common::buildTinyNetwork<TinyQwen>( Common::tinyQwenConfig( kSavedContext ), kSavedContext );
-        (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
+        (void)Measurement::hostLogits( *network, network->prefill( Measurement::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ), 7 ) ) ) );
         network->savePosition();
 
-        (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ) + 4, 300 ) ) ) );
+        (void)Measurement::hostLogits( *network, network->prefill( Measurement::deviceTokens( *network, tokenRun( static_cast<std::size_t>( kConversation ) + 4, 300 ) ) ) );
 
         EXPECT_FALSE( network->rewindKvCache( kConversation ) );
     }

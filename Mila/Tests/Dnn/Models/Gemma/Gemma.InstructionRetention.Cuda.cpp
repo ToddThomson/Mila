@@ -23,8 +23,8 @@
 
 import Mila;
 
-#include "Common/LogLikelihoodHarness.h"
-#include "Common/Pg19Books.h"
+#include "Measurement/LogLikelihoodHarness.h"
+#include "Measurement/Pg19Books.h"
 
 namespace Mila::Tests::Dnn::Models::GemmaInstructionRetention
 {
@@ -154,7 +154,7 @@ namespace Mila::Tests::Dnn::Models::GemmaInstructionRetention
                 kQuestion, Protocol::kTurnClose, Protocol::kTurnOpen, Protocol::kThoughtPrime ) );
 
             const std::size_t book_tokens = static_cast<std::size_t>( length ) - head.size() - tail.size() - kReplyTokens;
-            const auto text = tokenizer.encode( Common::joinWraps( Common::readBook( book, book_tokens * 6 ) ) );
+            const auto text = tokenizer.encode( Measurement::joinWraps( Measurement::readBook( book, book_tokens * 6 ) ) );
 
             if ( text.size() < book_tokens )
             {
@@ -190,7 +190,7 @@ namespace Mila::Tests::Dnn::Models::GemmaInstructionRetention
             const GemmaConfig config = GemmaBf16::configFromMetadata( reader.getWeightsMetadata() );
 
             PrefillChunking chunking;
-            auto network = Common::buildMeasuredNetwork<TNetwork>( weights, config, DeviceId{ DeviceType::Cuda, 0 },
+            auto network = Measurement::buildMeasuredNetwork<TNetwork>( weights, config, DeviceId{ DeviceType::Cuda, 0 },
                 context, &chunking );
 
             std::cout << std::format( "  {}: context {}, prefill chunk {}\n", weights.filename().string(), context,
@@ -205,7 +205,7 @@ namespace Mila::Tests::Dnn::Models::GemmaInstructionRetention
                     for ( const Instruction& instruction : kInstructions )
                     {
                         const auto tokens = prompt( *tokenizer, instruction, book, length );
-                        const auto generated = Common::greedyContinuationOf( *network, tokens, kReplyTokens,
+                        const auto generated = Measurement::greedyContinuationOf( *network, tokens, kReplyTokens,
                             kStopTokens, context );
                         const std::string text = tokenizer->decode( generated.tokens );
 
@@ -268,12 +268,12 @@ namespace Mila::Tests::Dnn::Models::GemmaInstructionRetention
         bool inputsPresent( const fs::path& weights )
         {
             return getDeviceCount( DeviceType::Cuda ) > 0 && fs::exists( weights ) && fs::exists( tokenizerPath() )
-                && fs::exists( Common::pg19TestPath() );
+                && fs::exists( Measurement::pg19TestPath( TEST_DATA_DIR ) );
         }
 
         std::vector<fs::path> books()
         {
-            return { Common::pg19TestPath() / "30312.txt", Common::pg19TestPath() / "3608.txt" };
+            return { Measurement::pg19TestPath( TEST_DATA_DIR ) / "30312.txt", Measurement::pg19TestPath( TEST_DATA_DIR ) / "3608.txt" };
         }
     }
 
@@ -313,5 +313,35 @@ namespace Mila::Tests::Dnn::Models::GemmaInstructionRetention
         const std::vector<Reply> fp8 = replies<Fp8GlobalCache26B>( weights26BPath(), 65536, fp8_lengths, books() );
 
         report( fp8_lengths, books(), bf16, fp8 );
+    }
+
+    // The 26B-A4B past what the 16 GB card fits, for the K = V discussion (RopeInAttention.md, ContextProfile.md): with
+    // the FP8 global cache, 131072 is about 406 MiB over the card's free memory, so the network is built past it. The
+    // replies do not depend on the fit; nothing here is a rate. 64K again at this build, so the rows above it read
+    // against one the card holds. Reports only.
+    TEST( GemmaInstructionRetentionCudaTests, DISABLED_Fp8GlobalCache_26B_Q4_0_PastTheCard )
+    {
+        if ( !inputsPresent( weights26BPath() ) )
+        {
+            GTEST_SKIP() << "Needs a CUDA device, " << weights26BPath().string() << ", the Gemma tokenizer and PG-19";
+        }
+
+        const std::vector<dim_t> lengths = { 65536 - 1024, 98304 - 1024, 131072 - 1024 };
+        const std::vector<Reply> fp8 = replies<Fp8GlobalCache26B>( weights26BPath(), 131072, lengths, books() );
+
+        report( lengths, books(), {}, fp8 );
+
+        const std::size_t per_length = books().size() * std::size( kInstructions );
+
+        for ( std::size_t index = 0; index < lengths.size(); ++index )
+        {
+            const auto first = fp8.begin() + static_cast<std::ptrdiff_t>( index * per_length );
+            const auto holds = std::count_if( first, first + static_cast<std::ptrdiff_t>( per_length ),
+                []( const Reply& reply ) { return reply.holds; } );
+
+            std::cout << std::format( "  at {}: FP8 global cache holds {} of {}\n", lengths[ index ], holds, per_length );
+        }
+
+        std::cout << std::flush;
     }
 }

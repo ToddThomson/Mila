@@ -10,6 +10,22 @@ pointer to its GitHub issue rather than a copy. Triage flow, categories and the 
 
 ---
 
+## A program that skips `Mila::initialize` sees no devices instead of an error
+
+`Mila::initialize` (`Mila.ixx:443`), `DeviceRegistrar.ixx`, `DeviceRegistry.ixx` @ `0.21.0-dev+34`
+
+Found 2026-10-03 building `Tools/ContextProfile`, which did not call it: `DeviceRegistry::getDevice` threw "Device
+'CUDA:0' not registered". `initialize` now does three things -- the log sink, the random seed, and device discovery
+(constructing `DeviceRegistrar`) -- and only discovery is required; the other two have defaults. The deprecated
+operation registry is no longer part of it (stale Doxygen still names it, e.g. `Gelu.ixx:58`, `Residual.ixx:8`).
+Skipping the call fails silently everywhere but `getDevice`: `getDeviceCount` is `noexcept` and returns 0, so a
+device check skips; `DeviceReading::take` catches and reports no memory, so the planner refuses with
+`DeviceDoesNotReportMemory` rather than saying no device was found. Discovery is a ceremony because of an import
+cycle: `CudaDevice` imports `DeviceRegistry` to register into it, so the registry cannot import the registrar to
+discover on first use. Raised by Todd ("is it really necessary?"); one shape discussed: the registry runs discovery
+once, through a function the registrar module installs, on first request -- leaving `initialize` as configuration
+only.
+
 ## Qwen's own DeltaNet prefill kernels run 2.2 to 2.9 times faster than FLA's, by three ideas Mila's kernel has not been measured against
 
 `gated_delta_rule_chunked_kernel` (`GatedDeltaRule.cu:399`), `ModelFamilyParity.md` 8.3, Q9 lever 6 @ `0.21.0-dev+33`
@@ -23,19 +39,6 @@ inverse shared by the output and state paths; warp-specialized fusion, a TMA pro
 warpgroups. Mila's kernel is 1.8 s of the 2.82-bit build's 8K prefill (37 ms a layer) on a card with 36 SMs, for
 48 value heads. Its efficiency, and how its blocks fill the card, are unmeasured. Papers: Gated Delta Networks (arXiv
 2412.06464), Parallelizing Linear Transformers with the Delta Rule (arXiv 2406.06484).
-
-## Each device tensor larger than 1 MiB is its own allocation, and its rounding costs up to 7% of a model's weights
-
-`CudaDeviceMemoryResource::do_allocate` (one `cudaMalloc` per tensor), `DeviceAllocation.ixx` @ `0.21.0-dev+32`
-
-Measured 2026-10-03. Rounding each allocation to the 2 MiB granule costs Qwen 3.8 27B 2.82-bit 679 MiB of its
-weights, Qwen FP4 497, Gemma 4 12B Q4_0 318, the 26B-A4B 225 (priced by `DISABLED_ParameterRounding_26B_Q4_0`), Llama
-64-70. Packing changes nothing else measured: `Profiling/Microbenchmarks/AllocationLayout.cu` reads every layout at the
-same bandwidth, quiet and under a second process's pressure, which on WDDM spills the newcomer rather than evicting
-the resident. Where it would change a user's limit: the 26B-A4B at 96K, 87 MB over today. A memory manager behind
-`CudaDeviceMemoryResource` would take it with no component change, at the cost of rebuilding the planner's exactness
-around allocation order; discussed with Todd the same day and judged over-engineering for the bytes alone, worth
-revisiting when per-session KV memory needs an owner (`.internal/Ideas/AgentStreams.md`).
 
 ## Qwen's FP4 load consumes about 40 MiB more than its planned footprint
 
@@ -143,20 +146,6 @@ model's, measured 2026-10-01:** HuggingFace with the BF16 weights loses all six 
 Mila on 11 of 12 verdicts at 16384 (`Quantization.md` Part III, decision 6's behavioral arm;
 `Tools/Converters/Llama/hf_llama_instruction_retention.py`). So nothing in Mila to fix; what is left is what a Llama
 user is told, since the planner may give Llama 3.1 8B up to 131072 tokens.
-
-## RoPE is a separate pass, so a Gemma global layer caches its rotated keys and its values as two tensors
-
-`CudaRopeOp` (`Rope.Rotation.cuh`), `GemmaBlock` global layers (K = V checkpoints) @ `0.21.0-dev+26`
-
-Todd's RoPE policy had three forms: table, calculated, fused into the attention kernels. Calculated replaced the table
-(`MemoryFootprint.md` 8.4); fused is not built. On Gemma's global layers K = RoPE(k_norm(x)) and V = v_norm(x), so the
-cache holds two tensors where the checkpoint has one projection. Rotating keys inside the flash and decode attention
-kernels -- from the same angle function, `Rope.Angle.cuh` -- would leave the cache unrotated keys, the precondition for
-storing that tensor once. Both deciding measurements passed on 2026-10-01 -- one stored tensor serves both, and
-rotating 64 pairs on read costs 0.69 of today's two-tensor read at 64K -- and the planner puts the 26B-A4B at 128K with
-about 251 MB spare once keys are stored once, against 80K today (2026-10-03). It waits on a measured reason (Todd,
-2026-10-03): if the 26B-A4B's context profile, admitted to v0.21, shows its reliable depth running past 80K, it
-returns for discussion. The kernels' shape is open: `Specifications/RopeInAttention.md`.
 
 ## Gemma 4 26B-A4B does not fit a 16 GB card at context 32768, and llama.cpp runs it there with an FP16 cache
 
@@ -486,22 +475,6 @@ model resolution against the store, the deployment request, the turn loop, tool 
 channel routing -- currently lives in console-bound modules (`Chat.ixx`, `Chat.Renderer.ixx`), so a second front end
 would share that core only once it is separated from the console. Not in `ROADMAP.md`, `BACKLOG.md` or
 `MilaProductFamily.md`.
-
-## A unified model loads text only, whatever its package could do
-
-`Mila/Tools/Converters/Gemma/convert_weights.py` (`SKIPPED_PREFIXES`) @ `0.21.0-dev+11`
-
-Raised by Todd 2026-09-27: for a unified model such as Gemma 4, the deployment should say which of text, vision
-and audio to enable, where the VRAM budget allows. Discussed the same day, no decision taken: modality as an axis
-of the deployment request beside context length (`Deployment.md`), the package's manifest declaring what it carries
-(`ModelHandle.md` section 10 names the manifest as a capability source), each encoder a component built only when
-enabled rather than a template flag, and "auto" enabling a modality only while the text context stays above a floor.
-Facts found along the way: the Gemma converter drops every modality tensor today (`model.vision_tower.`,
-`model.embed_vision.`, `model.vision_embedder.`, `model.audio_tower.`, `model.embed_audio.`), so no Mila package
-carries them; the 12B QAT checkpoint's vision stack is a patch embedder only (`patch_dense`, `patch_ln1`, `patch_ln2`,
-`pos_embedding`, `pos_norm`), so its cost is image tokens in the context rather than weights, while `audio_tower` is an
-encoder; and the Q4_0 12B package was chosen over Google's GGUF partly because the GGUF lacks these weights
-(`ModelFamilyParity.md` section 9, item 14).
 
 ## An FP4 KV cache would halve FP8's, and no family here was trained for one
 

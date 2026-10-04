@@ -109,6 +109,7 @@ code, they come from three different places, and putting each in the wrong one r
 | Instruction-tuned | the weights | manifest `instruct` (exists) | false |
 | Reasoning channel | the weights: one family can publish a checkpoint with or without one | manifest `reasoning` (new) | the architecture's default (3.3) |
 | Input modalities | the weights carry them; Mila must also load them | manifest `modalities` (new), intersected with what the family's loader reads | `["text"]` |
+| Draft model | the package carries one, or does not | manifest (new, 2026-10-04), naming the draft's weights in the package | none |
 | Prompt-prefix reuse | Mila's implementation of the architecture | the model type (3.1) | n/a |
 | Trained reasoning-effort levels | the grammar | the protocol (3.4): Qwen has three, Gemma none | n/a |
 | Streaming by channel | the application's display | stays in the application (`ROADMAP.md`, Model Handle) | n/a |
@@ -300,6 +301,23 @@ static ModelHandle adopt( std::unique_ptr<TModel> model,
 
 A developer's model has no manifest, so what the factory reads from the record the developer passes. What
 `plan()` returns for a model the planner did not load is open (10.4).
+
+### 3.8 A model deployed for a use case
+
+*Direction, decided 2026-10-04 (Todd); not built.* "`Mila::AI` can deploy a model for a specific use case; we
+should have full control of the model features loaded." A handle is a model **and the features its use case
+selected**, with nothing else resident. The capabilities in 3.2 are what a package offers; a deployment request
+selects from them (`Deployment.md` 2.1) -- modalities, the draft model, context and cache format -- and the
+factory builds exactly the selection the plan priced. A feature not selected is not built.
+
+Each feature is a component that is built or not, never a template axis of the core blocks: an image path,
+an audio encoder, a vision tower and a draft model attach to the network beside its blocks, so a selection is
+not a new instantiation and the build cost does not multiply with combinations. The draft model is the one to
+watch, since it shares the embedding table and reads the last hidden state.
+
+`Mila::AI` names use cases over this -- a coding agent, a vision assistant, a long-document reader -- each a
+selection with measured defaults (a context from the model's profile, a draft model where its speedup is
+measured), overridable before creation, and never a second path: a preset produces an ordinary request.
 
 ---
 

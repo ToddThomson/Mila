@@ -17,7 +17,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace Mila::Tests::Common
+namespace Mila::Measurement
 {
     /**
      * @brief Build `TNetwork` from `weights` at `context_length` and load it, as a plan would.

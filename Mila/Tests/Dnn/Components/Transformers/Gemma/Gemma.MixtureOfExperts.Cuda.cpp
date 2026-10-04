@@ -29,7 +29,7 @@
 
 import Mila;
 
-#include "Common/LogLikelihoodHarness.h"
+#include "Measurement/LogLikelihoodHarness.h"
 
 namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 {
@@ -375,7 +375,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         {
             auto network = loadedRoutedFp32( capturedConfigWithWindow( window ) );
 
-            const SequenceLogLikelihood measured = Common::sequenceLogLikelihoodOf( *network, reference.tokens );
+            const SequenceLogLikelihood measured = Measurement::sequenceLogLikelihoodOf( *network, reference.tokens );
 
             std::cout << std::format( "[ log-likelihood ] window {}: {:.9f} against HuggingFace {:.9f}, difference {:.3e}\n",
                 window, measured.total_log_probability, reference.total,
@@ -402,7 +402,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         auto network = loadedRoutedFp32( uncapped );
 
-        const SequenceLogLikelihood measured = Common::sequenceLogLikelihoodOf( *network, reference.tokens );
+        const SequenceLogLikelihood measured = Measurement::sequenceLogLikelihoodOf( *network, reference.tokens );
 
         std::cout << std::format( "[ log-likelihood ] without the softcap: difference {:.3e}\n",
             measured.total_log_probability - reference.total );
@@ -426,8 +426,8 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         auto network = loadedRoutedFp32( capturedConfigWithWindow( 3 ) );
 
-        const Common::GreedyContinuation greedy =
-            Common::greedyContinuationOf( *network, prompt, kGenerated, {}, kContext );
+        const Measurement::GreedyContinuation greedy =
+            Measurement::greedyContinuationOf( *network, prompt, kGenerated, {}, kContext );
 
         ASSERT_EQ( greedy.tokens.size(), static_cast<std::size_t>( kGenerated ) );
 
@@ -462,7 +462,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         ASSERT_EQ( observed, 1u ) << "the head was not selected, so no rows will arrive";
 
-        (void)Common::sequenceLogLikelihoodOf( *network, sequence );
+        (void)Measurement::sequenceLogLikelihoodOf( *network, sequence );
 
         network->stopObserving();
 
@@ -473,7 +473,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         {
             const std::size_t position = prompt.size() - 1 + static_cast<std::size_t>( generated );
 
-            EXPECT_EQ( Common::argMax( rows[ position ] ), greedy.tokens[ static_cast<std::size_t>( generated ) ] )
+            EXPECT_EQ( Measurement::argMax( rows[ position ] ), greedy.tokens[ static_cast<std::size_t>( generated ) ] )
                 << "position " << position;
         }
     }

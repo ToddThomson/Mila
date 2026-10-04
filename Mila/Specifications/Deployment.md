@@ -61,6 +61,29 @@ measurement knob on every family's public request is a diagnostic in the user's 
 `withLogLikelihoodWindow` on the network configs that implement the measurement (`ModelFamilyParity.md`
 8.2, G1), set by the harness that builds the network.
 
+### 2.1 Features, selected per deployment
+
+*Direction, decided 2026-10-04 (Todd); not built. `ModelHandle.md` 3.8 holds the handle's half.* The table
+above is incomplete: a package can carry features a deployment may or may not want -- an image path, an
+audio encoder, a vision tower, a draft model -- and on a 16 GB card they compete with context for the same
+bytes. The 26B-A4B's vision tower is about 410 MB at FP8, about 39K tokens of its cache.
+
+| Knob | Selectable | Who decides |
+|---|---|---|
+| Modalities (text always; image, audio where the package carries them) | per request | caller, or the planner within a stated floor of text context |
+| Draft model | per request, where the package carries one | caller |
+
+The rules carry over unchanged. Each feature is fixed by the caller or left to the planner like any other
+value; the plan prices the selection exactly, and `PlanEqualsBuild` holds a selection as it holds the rest;
+a selection that does not fit is refused naming the feature and what fits without it -- "image input needs
+410 MB; at 64K nothing fits; at 25K it does" -- not discovered as an allocation failure; and a feature not
+selected allocates nothing. The weight format remains the caller's.
+
+**The bytes a selection spends are recovered first.** One `cudaMalloc` per weight tensor, each rounded to
+the 2 MiB granule, costs a model 64 to 679 MiB (`BACKLOG.md`, Deployment Planning); an arena removes it,
+priced so that what the planner reads stays what the build allocates. Gemma's keys stored once
+(`RopeInAttention.md`) is the family's own lever.
+
 ---
 
 ## 3. Design

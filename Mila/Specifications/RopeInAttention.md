@@ -3,7 +3,9 @@
 **Status:** Draft, 2026-10-01. No code. Both facts that decide it (section 5) were measured the same day and both
 pass; Todd, the same day, takes it forward for what it does to latency: the stored-once cache buys the 26B-A4B its
 largest prefill chunk at 64K on a 16 GB card (section 3). What remains before it is a design is section 4.3's quality
-gate and the kernels' shape.
+gate and the kernels' shape. Admitted to v0.21 on 2026-10-04 (Todd), after the 26B-A4B's context profile measured it
+reliable to 96K on recall and losing the middle of a conversation at 128K (`ContextProfile.md` section 8): the stored-once
+cache is for reaching 96K, or a vision tower at a useful context, not 128K -- and for the 12B's global layers too.
 
 **Area:** where rotary position embedding is applied, and what the KV cache stores as a result. RoPE as a
 separate operation is `CudaRopeOp`; its angles are calculated, not stored (`MemoryFootprint.md` 8.4).

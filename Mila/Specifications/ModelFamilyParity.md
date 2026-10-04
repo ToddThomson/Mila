@@ -32,6 +32,14 @@ for: **a capability the base model has upstream is in scope unless it cannot fit
 precision**, and "it did not fit 12 GB" no longer justifies leaving it out. 12 GB remains a supported card
 for the models that fit it -- it is a tier, not the ceiling.
 
+**Capabilities are shared; depth of optimization follows the card** (Todd, 2026-10-04). Every family keeps
+the capabilities above, but how far each model is tuned -- its kernels' efficiency, its long-context
+investigations, its further profiles -- follows the card class it is for. On the 16 GB card that is Gemma 4,
+whose models fit with room to spend on context, a vision tower and a draft model; a 27B fits there with
+none, so Qwen 3.8's tuning (section 8.3, Q9 and the FP4 build's long-context loss) waits in `Vnext.md` for a
+24 or 32 GB card. A capability one family has and another lacks is still a gap; a kernel one family has
+tuned and another has not is not.
+
 **Every automatic value is a validated value.** Since `Deployment.md` Phase 3 the planner may choose any
 context length up to a model's trained maximum. A context the planner can choose is a context whose quality
 has been measured; where it has not, the family is not finished.
@@ -74,7 +82,7 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 | A tied checkpoint's embedding and head held once | -- | Y | n/a | Llama 3.2 1B and 3B tie them upstream (3.1 8B does not); the converter copies the table into `lm_head.weight` (`convert_weights.py:226`) and the transformer loads both, a second BF16 copy of 0.73 GiB on the 3B and 0.49 GiB on the 1B, in the package and on the device. Gemma shares one table. Qwen 3.8 27B does not tie |
 | Sub-4-bit codebook weights | -- | -- | Y | the fitting and packing tools are Qwen's (`Tools/Quantization/pack_qwen.py`, `qwen_plan.py`); the dispatch is Qwen's own (`dispatchQwenWeightPlan`) |
 | FP8 KV cache, on the caller's request | Y | Y | -- | `dispatchKvCacheCompression`; Gemma's global layers only, its sliding ring stays BF16 (`Quantization.md` KV decision 6); Qwen not measured, refused |
-| Sequence log-likelihood at the network layer, for the quality harness | Y | Y | Y | `sequenceLogLikelihood` on each family's transformer, and since `0.21.0-dev+33` `sequenceLogLikelihoodFrom`, which scores after a cached prefix (`SequenceLogLikelihoodFrom.Cuda.cpp`), reached through `Tests/Common/LogLikelihoodHarness.h`; what an in-library perplexity gate measures. Until `0.21.0-dev+9` it was Qwen's `scoreTokens`, public on `QwenModel` with a head width on every family's deployment request; both left the public surface (8.2, G1) |
+| Sequence log-likelihood at the network layer, for the quality harness | Y | Y | Y | `sequenceLogLikelihood` on each family's transformer, and since `0.21.0-dev+33` `sequenceLogLikelihoodFrom`, which scores after a cached prefix (`SequenceLogLikelihoodFrom.Cuda.cpp`), reached through `Tools/Measurement/LogLikelihoodHarness.h`; what an in-library perplexity gate measures. Until `0.21.0-dev+9` it was Qwen's `scoreTokens`, public on `QwenModel` with a head width on every family's deployment request; both left the public surface (8.2, G1) |
 | Deployment planning, exact footprint | Y | Y | Y | `Deployment.md` Phases 1 to 4 |
 | Per-block activations pooled across layers | Y | Y | Y | one block workspace installed on every block: Gemma's and Qwen's `allocateBlockWorkspace`, Llama's `makeLlamaBlockWorkspace` since 8.4 L4, where the 32 per-block sets had cost 2,762 MiB from chunk 512 to 1024 on the 3.1 8B |
 
@@ -140,7 +148,7 @@ each row is in scope unless it cannot fit 16 GB; the last column says whether th
 | Gemma 4 26B-A4B | Quantization-aware 4-bit checkpoint (Q4_0, instruct only) | Y, `PerGroupInt4<32>` in the bank since `0.21.0-dev+24`; unpublished | yes, the same bytes as `PerGroupFp4<64>` | `Gemma4MoE.md` Phase 9; 8.2, G5 |
 | Qwen 3.8 27B | Vision tower (27 layers, width 1152) and multimodal positions (mrope) | -- out of scope for the first chassis (`Qwen3.8.md` §1) | not priced; tight beside the FP4 build (13.2 GB of weights on device) | nowhere |
 | Qwen 3.8 27B | Multi-token prediction head, one layer (~0.45 B) | -- both converters skip `mtp.*` | not priced | nowhere |
-| Qwen 3.8 27B | 262144-token context, 1M by YaRN | the planner allows 262144; quality measured to 16K | only with KV-cache compression, and not at FP4 | BACKLOG, "Qwen's perplexity gate has only been run to 16K"; KV compression entry |
+| Qwen 3.8 27B | 262144-token context, 1M by YaRN | the planner allows 262144; quality measured to 16K on wikitext, and the 2.82-bit build's context profile to 74752 | only with KV-cache compression, and not at FP4 | `Vnext.md`, "Qwen's wikitext perplexity gate has only been run to 16K"; BACKLOG KV compression entry; `ContextProfile.md` section 8 |
 | Qwen 3.8 | Smaller dense members | -- | yes | BACKLOG, "The smaller dense Qwen members were never built" |
 | Llama 3.1 / 3.2 | 128K context by Llama 3 RoPE scaling | Y since 8.4 L2; quality past 10240 unmeasured (L3) | 8B: only with KV compression | 8.4 |
 | Llama 3.1 | Built-in tools (the `ipython` role, `<|python_tag|>` ... `<|eom_id|>`) | custom JSON tools only (`Chat.MessageFormatter.ixx:143`) | yes | nowhere |
@@ -858,8 +866,8 @@ a fifth of their bytes, a format fact rather than a kernel one.
 
 Levers 3 to 5 together are about 3.1 ms a token: 33.8 to about 37.7 tokens a second at depth 0.
 
-Levers 1 and 3 to 5 admitted to v0.21 on 2026-10-03 (Todd), two `BACKLOG.md` entries under Qwen 3.8 Complete; lever 2
-and lever 6 are not.
+Levers 1 and 3 to 5 admitted to v0.21 on 2026-10-03 (Todd), and moved to `Vnext.md` on 2026-10-04 with the rest of
+Qwen's tuning, which waits for a 24 or 32 GB card (section 1); lever 2 and lever 6 were never admitted.
 
 **Q10 -- Records that exist nowhere.** The vision tower (27 layers, width 1152) priced against 16 GB, and the
 multi-token prediction layer (both converters skip `mtp.*`; the producers' builds carry it).
@@ -879,7 +887,7 @@ whether that publish joins the pass or stays in `Future.md` is decided at L7. Th
 **L1 -- Sequence log-likelihood and HuggingFace token parity, in the suite.** *Closes:* 3.2's log-likelihood
 row and 3.4's first row. *Needs:* nothing. `LlamaTransformer` gains `sequenceLogLikelihood` over G1's shared
 reduction (no softcap) and `withLogLikelihoodWindow` on its config, reached only through
-`Tests/Common/LogLikelihoodHarness.h` (8.1's audit). The reference is a tiny random Llama, as Gemma's MoE
+`Tools/Measurement/LogLikelihoodHarness.h` (8.1's audit). The reference is a tiny random Llama, as Gemma's MoE
 gates use, not the real 3.2 1B: every real Llama 3.x checkpoint carries RoPE scaling, so no real model can
 match HuggingFace before L2, and the real 1B's token parity moves to L2's gate.
 `Tools/Converters/Llama/hf_llama_tiny_reference.py` builds it (head dimension 128, a group of 2, so L4 reuses

@@ -30,8 +30,8 @@
 
 import Mila;
 
-#include "Common/LogLikelihoodHarness.h"
-#include "Common/Pg19Books.h"
+#include "Measurement/LogLikelihoodHarness.h"
+#include "Measurement/Pg19Books.h"
 
 namespace Mila::Tests::Dnn::Models
 {
@@ -83,7 +83,7 @@ namespace Mila::Tests::Dnn::Models
 
             PrefillChunking chunking;
 
-            auto network = Common::buildMeasuredNetwork<MeasuredLlama>(
+            auto network = Measurement::buildMeasuredNetwork<MeasuredLlama>(
                 weightsPath(), config, DeviceId{ DeviceType::Cuda, 0 }, context_length, &chunking );
 
             std::cout << std::format( "  {}: window {}, context {}, prefill chunk {}\n",
@@ -145,7 +145,7 @@ namespace Mila::Tests::Dnn::Models
                     tokens.begin() + static_cast<std::ptrdiff_t>( offset ),
                     tokens.begin() + static_cast<std::ptrdiff_t>( offset + length ) );
 
-                const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( network, segment );
+                const SequenceLogLikelihood scored = Measurement::sequenceLogLikelihoodOf( network, segment );
 
                 result.total.total_log_probability += scored.total_log_probability;
                 result.total.scored_positions += scored.scored_positions;
@@ -259,7 +259,7 @@ namespace Mila::Tests::Dnn::Models
                 config.withRoPEFrequencyScaling( RopeFrequencyScaling{} );
             }
 
-            return Common::buildMeasuredNetwork<MeasuredLlama1B>(
+            return Measurement::buildMeasuredNetwork<MeasuredLlama1B>(
                 oneBillionWeightsPath(), config, DeviceId{ DeviceType::Cuda, 0 }, context_length );
         }
 
@@ -325,7 +325,7 @@ namespace Mila::Tests::Dnn::Models
 
             EXPECT_EQ( observed, 1u ) << "the head was not selected, so no rows will arrive";
 
-            (void)Common::sequenceLogLikelihoodOf( network, tokens );
+            (void)Measurement::sequenceLogLikelihoodOf( network, tokens );
 
             network.stopObserving();
 
@@ -468,7 +468,7 @@ namespace Mila::Tests::Dnn::Models
 
             PrefillChunking chunking;
 
-            auto network = Common::buildMeasuredNetwork<MeasuredLlama>(
+            auto network = Measurement::buildMeasuredNetwork<MeasuredLlama>(
                 weightsPath(), config, DeviceId{ DeviceType::Cuda, 0 }, kContextLength, &chunking );
 
             std::optional<CublasLtWorkspace> cublaslt;
@@ -526,7 +526,7 @@ namespace Mila::Tests::Dnn::Models
 
                 PrefillChunking chunking;
 
-                auto network = Common::buildMeasuredNetwork<MeasuredLlama>(
+                auto network = Measurement::buildMeasuredNetwork<MeasuredLlama>(
                     weightsPath(), config, DeviceId{ DeviceType::Cuda, 0 }, prompt_length, &chunking );
 
                 std::optional<CublasLtWorkspace> cublaslt;
@@ -544,7 +544,7 @@ namespace Mila::Tests::Dnn::Models
                     }
                 }
 
-                const auto device_prompt = Common::deviceTokens( *network, prompt );
+                const auto device_prompt = Measurement::deviceTokens( *network, prompt );
 
                 double best = 0.0;
 
@@ -643,7 +643,7 @@ namespace Mila::Tests::Dnn::Models
                     .withPrefillSize( chunk ) );
                 network->loadParameters( reader );
 
-                const auto device_prompt = Common::deviceTokens( *network, prompt );
+                const auto device_prompt = Measurement::deviceTokens( *network, prompt );
 
                 double best = 0.0;
 
@@ -685,7 +685,7 @@ namespace Mila::Tests::Dnn::Models
         const std::vector<std::int32_t> corpus = corpusTokens( 20480 );
         const LlamaConfig config = measuredConfig( 1 );
 
-        auto network = Common::buildMeasuredNetwork<MeasuredLlama>(
+        auto network = Measurement::buildMeasuredNetwork<MeasuredLlama>(
             weightsPath(), config, DeviceId{ DeviceType::Cuda, 0 }, kContextLength );
 
         auto setFusedDecode = [&]( bool fused )
@@ -712,9 +712,9 @@ namespace Mila::Tests::Dnn::Models
             {
                 setFusedDecode( fused );
 
-                (void)network->prefill( Common::deviceTokens( *network, prompt ) );
+                (void)network->prefill( Measurement::deviceTokens( *network, prompt ) );
 
-                const auto token = Common::deviceTokens( *network, { 128000 } );
+                const auto token = Measurement::deviceTokens( *network, { 128000 } );
 
                 // One untimed step: the first decode builds the cuBLASLt plans.
                 (void)network->decode( token, prompt_length );
@@ -755,7 +755,7 @@ namespace Mila::Tests::Dnn::Models
         auto network = buildMeasuredLlama1B( true, kContextLength );
 
         // <|end_of_text|>: the base model's stop token, which HuggingFace's continuation keeps and Mila's does not.
-        const Common::GreedyContinuation greedy = Common::greedyContinuationOf(
+        const Measurement::GreedyContinuation greedy = Measurement::greedyContinuationOf(
             *network, prompt, static_cast<int>( expected.size() ), { 128001 }, kContextLength );
 
         ASSERT_LE( greedy.tokens.size(), expected.size() );
@@ -793,9 +793,13 @@ namespace Mila::Tests::Dnn::Models
             return fs::path( TEST_DATA_DIR ) / "models" / "llama" / "llama31_8b_instruct_q4_0.safetensors";
         }
 
-        using Common::pg19TestPath;
-        using Common::readBook;
-        using Common::joinWraps;
+        fs::path pg19TestPath()
+        {
+            return Measurement::pg19TestPath( TEST_DATA_DIR );
+        }
+
+        using Measurement::readBook;
+        using Measurement::joinWraps;
 
         // Chat's rendering of a user turn and the assistant header, with no system block. HuggingFace's 3.1 template
         // adds a dated one by default; its scripts are fed these ids instead.
@@ -888,7 +892,7 @@ namespace Mila::Tests::Dnn::Models
 
             PrefillChunking chunking;
 
-            auto network = Common::buildMeasuredNetwork<TNetwork>( weights, config, DeviceId{ DeviceType::Cuda, 0 },
+            auto network = Measurement::buildMeasuredNetwork<TNetwork>( weights, config, DeviceId{ DeviceType::Cuda, 0 },
                 context_length, &chunking );
 
             std::cout << std::format( "  {}: window {}, context {}, prefill chunk {}\n", weights.filename().string(),
@@ -943,11 +947,11 @@ namespace Mila::Tests::Dnn::Models
                 std::vector<double> short_context( prefixes.size(), 0.0 );
                 std::vector<dim_t> positions( prefixes.size(), 0 );
 
-                SequenceLogLikelihood previous = Common::sequenceLogLikelihoodOf( *network, opening );
+                SequenceLogLikelihood previous = Measurement::sequenceLogLikelihoodOf( *network, opening );
 
                 for ( std::size_t index = 0; index < prefixes.size(); ++index )
                 {
-                    const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( *network,
+                    const SequenceLogLikelihood scored = Measurement::sequenceLogLikelihoodOf( *network,
                         std::vector<std::int32_t>( segment.tokens.begin(),
                             segment.tokens.begin() + static_cast<std::ptrdiff_t>( prefixes[ index ] ) ) );
 
@@ -966,12 +970,12 @@ namespace Mila::Tests::Dnn::Models
                     sequence.insert( sequence.end(), segment.tokens.begin() + static_cast<std::ptrdiff_t>( context_start ),
                         segment.tokens.begin() + static_cast<std::ptrdiff_t>( first_target ) );
 
-                    const SequenceLogLikelihood before = Common::sequenceLogLikelihoodOf( *network, sequence );
+                    const SequenceLogLikelihood before = Measurement::sequenceLogLikelihoodOf( *network, sequence );
 
                     sequence.insert( sequence.end(), segment.tokens.begin() + static_cast<std::ptrdiff_t>( first_target ),
                         segment.tokens.begin() + static_cast<std::ptrdiff_t>( block + kShortContext ) );
 
-                    const SequenceLogLikelihood after = Common::sequenceLogLikelihoodOf( *network, sequence );
+                    const SequenceLogLikelihood after = Measurement::sequenceLogLikelihoodOf( *network, sequence );
 
                     short_context[ bandOf( block ) ] += after.total_log_probability - before.total_log_probability;
                 }

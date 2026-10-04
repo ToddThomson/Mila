@@ -273,7 +273,7 @@ if(MILA_ENABLE_CUDA)
         # the same subtraction. Common/GenerationRates.h is the one implementation.
         "Dnn/Models/Gemma/GemmaModel.Rates.Cuda.cpp"
         # Sequence log-likelihood on the published FP4 weights, DISABLED: window 1 against window 64 and
-        # argmax against greedy -- ModelFamilyParity.md 8.2, G1. Common/LogLikelihoodHarness.h builds the network.
+        # argmax against greedy -- ModelFamilyParity.md 8.2, G1. Measurement/LogLikelihoodHarness.h builds the network.
         "Dnn/Models/Gemma/Gemma.LogLikelihood.Cuda.cpp"
         # Decision 6's behavioral arm on Gemma, DISABLED: an instruction at position 0 after a book, BF16 against
         # the FP8 global cache.
@@ -382,7 +382,8 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   )
 endif()
 
-target_link_libraries( MilaTests PRIVATE Mila gtest )
+# MilaMeasurement: the log-likelihood harness and PG-19 reader, shared with Tools/ContextProfile.
+target_link_libraries( MilaTests PRIVATE Mila MilaMeasurement gtest )
 
 if(MILA_ENABLE_CUDA)
     # No NVML. The Gate B tests once used it to find a device driving no display, so an absolute

@@ -21,7 +21,7 @@ import Mila;
 import Compute.CudaExecutionContext;
 
 #include "Common/DecodeHarness.h"
-#include "Common/LogLikelihoodHarness.h"
+#include "Measurement/LogLikelihoodHarness.h"
 #include "Common/TinyDecodeNetworks.h"
 
 namespace Mila::Tests::Dnn::Models
@@ -70,7 +70,7 @@ namespace Mila::Tests::Dnn::Models
 
             for ( dim_t position = first_position; position < first_position + steps; ++position )
             {
-                logits.push_back( Common::hostLogits( network, network.decode( input.set( tokenAt( position ) ), position ) ) );
+                logits.push_back( Measurement::hostLogits( network, network.decode( input.set( tokenAt( position ) ), position ) ) );
             }
 
             return logits;
@@ -82,7 +82,7 @@ namespace Mila::Tests::Dnn::Models
             auto network = Common::buildTinyNetwork<TNetwork>( config, kContextLength );
             network->setDecodeReplay( replay );
 
-            (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, { tokenAt( 0 ) } ) ) );
+            (void)Measurement::hostLogits( *network, network->prefill( Measurement::deviceTokens( *network, { tokenAt( 0 ) } ) ) );
 
             Common::DecodeInput<TNetwork> input( *network );
 
@@ -205,12 +205,12 @@ namespace Mila::Tests::Dnn::Models
         for ( dim_t position = 0; position < 16; ++position )
             prompt.push_back( tokenAt( position ) );
 
-        (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, prompt ) ) );
+        (void)Measurement::hostLogits( *network, network->prefill( Measurement::deviceTokens( *network, prompt ) ) );
 
         Common::DecodeInput<TinyQwenBf16> input( *network );
 
-        const auto first = Common::hostLogits( *network, network->decode( input.set( tokenAt( 16 ) ), 16 ) );
-        const auto again = Common::hostLogits( *network, network->decode( input.set( tokenAt( 16 ) ), 16 ) );
+        const auto first = Measurement::hostLogits( *network, network->decode( input.set( tokenAt( 16 ) ), 16 ) );
+        const auto again = Measurement::hostLogits( *network, network->decode( input.set( tokenAt( 16 ) ), 16 ) );
 
         EXPECT_NE( differingSteps( { first }, { again } ), 0u );
     }
@@ -240,7 +240,7 @@ namespace Mila::Tests::Dnn::Models
                 Common::tinyLlamaConfig( kContextLength ), kContextLength );
             network->setDecodeReplay( replay );
 
-            (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, { tokenAt( 0 ) } ) ) );
+            (void)Measurement::hostLogits( *network, network->prefill( Measurement::deviceTokens( *network, { tokenAt( 0 ) } ) ) );
 
             int count = 0;
             const std::size_t matched = network->observe( "*", ComputePassMask::inference(),
@@ -293,15 +293,15 @@ namespace Mila::Tests::Dnn::Models
                 Common::DecodeInput<TNetwork> input( *network );
                 std::vector<std::vector<float>> logits;
 
-                logits.push_back( Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, first_prompt ) ) ) );
+                logits.push_back( Measurement::hostLogits( *network, network->prefill( Measurement::deviceTokens( *network, first_prompt ) ) ) );
 
                 for ( auto& step : decodeSteps( *network, input, 40, 20 ) )
                     logits.push_back( std::move( step ) );
 
                 EXPECT_TRUE( network->rewindKvCache( 30 ) );
 
-                logits.push_back( Common::hostLogits(
-                    *network, network->prefillFrom( Common::deviceTokens( *network, second_prompt ), 30 ) ) );
+                logits.push_back( Measurement::hostLogits(
+                    *network, network->prefillFrom( Measurement::deviceTokens( *network, second_prompt ), 30 ) ) );
 
                 for ( auto& step : decodeSteps( *network, input, 45, 20 ) )
                     logits.push_back( std::move( step ) );

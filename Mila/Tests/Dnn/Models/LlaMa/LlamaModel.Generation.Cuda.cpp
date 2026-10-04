@@ -16,7 +16,7 @@
 
 import Mila;
 
-#include "Common/LogLikelihoodHarness.h"
+#include "Measurement/LogLikelihoodHarness.h"
 
 namespace Mila::Tests::Dnn::Models::Llama
 {
@@ -123,7 +123,7 @@ namespace Mila::Tests::Dnn::Models::Llama
         network.build( BuildContext( shape_t{ 1, kContext }, RuntimeMode::Inference ).withPrefillSize( kContext ) );
         network.loadParameters( weights );
 
-        const Common::GreedyContinuation reference = Common::greedyContinuationOf( network, prompt, kGenerated, {}, kContext );
+        const Measurement::GreedyContinuation reference = Measurement::greedyContinuationOf( network, prompt, kGenerated, {}, kContext );
 
         EXPECT_EQ( generated.status, GenerateStatus::MaxNewTokensReached );
         EXPECT_EQ( generated.tokens, reference.tokens );

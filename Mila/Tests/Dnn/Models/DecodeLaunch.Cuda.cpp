@@ -22,7 +22,7 @@
 import Mila;
 import Compute.CudaExecutionContext;
 
-#include "Common/LogLikelihoodHarness.h"
+#include "Measurement/LogLikelihoodHarness.h"
 
 namespace Mila::Tests::Dnn::Models
 {
@@ -67,7 +67,7 @@ namespace Mila::Tests::Dnn::Models
                 GTEST_SKIP() << "Needs a CUDA device and " << weights.string();
             }
 
-            auto network = Common::buildMeasuredNetwork<TNetwork>(
+            auto network = Measurement::buildMeasuredNetwork<TNetwork>(
                 weights, config, DeviceId{ DeviceType::Cuda, 0 }, kContextLength );
 
             auto* context = dynamic_cast<CudaExecutionContext*>( network->getExecutionContext() );
@@ -81,9 +81,9 @@ namespace Mila::Tests::Dnn::Models
                 prompt[ static_cast<std::size_t>( i ) ] = 1000 + 37 * i;
             }
 
-            (void)network->prefill( Common::deviceTokens( *network, prompt ) );
+            (void)network->prefill( Measurement::deviceTokens( *network, prompt ) );
 
-            const auto token = Common::deviceTokens( *network, { 1234 } );
+            const auto token = Measurement::deviceTokens( *network, { 1234 } );
             dim_t position = kPrompt;
 
             // Grows whatever scratch the step asks for, so neither arm allocates and the capture records final pointers.

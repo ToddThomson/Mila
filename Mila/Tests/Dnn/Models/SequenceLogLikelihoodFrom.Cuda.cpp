@@ -20,7 +20,7 @@
 
 import Mila;
 
-#include "Common/LogLikelihoodHarness.h"
+#include "Measurement/LogLikelihoodHarness.h"
 #include "Common/TinyDecodeNetworks.h"
 
 namespace Mila::Tests::Dnn::Models
@@ -63,14 +63,14 @@ namespace Mila::Tests::Dnn::Models
 
             auto network = Common::buildTinyNetwork<TNetwork>( config, kContextLength );
 
-            const double whole = Common::sequenceLogLikelihoodOf( *network, tokens ).total_log_probability;
-            const double before = Common::sequenceLogLikelihoodOf( *network, prefix_and_one ).total_log_probability;
+            const double whole = Measurement::sequenceLogLikelihoodOf( *network, tokens ).total_log_probability;
+            const double before = Measurement::sequenceLogLikelihoodOf( *network, prefix_and_one ).total_log_probability;
 
-            (void)Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, prefix ) ) );
+            (void)Measurement::hostLogits( *network, network->prefill( Measurement::deviceTokens( *network, prefix ) ) );
             ASSERT_EQ( network->savePosition(), kOffset );
             ASSERT_TRUE( network->rewindKvCache( kOffset ) );
 
-            const SequenceLogLikelihood resumed = network->sequenceLogLikelihoodFrom( Common::deviceTokens( *network, tokens ), kOffset );
+            const SequenceLogLikelihood resumed = network->sequenceLogLikelihoodFrom( Measurement::deviceTokens( *network, tokens ), kOffset );
 
             ASSERT_TRUE( std::isfinite( whole ) && std::isfinite( before ) && std::isfinite( resumed.total_log_probability ) );
             EXPECT_EQ( resumed.scored_positions, kLength - 1 - kOffset );
@@ -114,7 +114,7 @@ namespace Mila::Tests::Dnn::Models
     TEST_F( SequenceLogLikelihoodFromCudaTests, AnOffsetThatLeavesNothingToScoreIsRefused )
     {
         auto network = Common::buildTinyNetwork<TinyLlama>( Common::tinyLlamaConfig( kContextLength ), kContextLength );
-        const auto tokens = Common::deviceTokens( *network, sequence( 8 ) );
+        const auto tokens = Measurement::deviceTokens( *network, sequence( 8 ) );
 
         EXPECT_THROW( (void)network->sequenceLogLikelihoodFrom( tokens, 7 ), std::invalid_argument );
         EXPECT_THROW( (void)network->sequenceLogLikelihoodFrom( tokens, -1 ), std::invalid_argument );

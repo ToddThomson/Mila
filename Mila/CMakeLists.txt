@@ -1109,6 +1109,12 @@ if(MILA_ENABLE_DOCS)
     add_subdirectory( Docs )
 endif()
 
+# The measurement harness the tests and Tools/ContextProfile share. Outside the Tools gate
+# below, since the tests build without the tools.
+if(MILA_ENABLE_TOOLS OR MILA_ENABLE_TESTING)
+    add_subdirectory( Tools/Measurement )
+endif()
+
 # Developer tooling (tokenize.exe, the mila CLI, ExportArtifact). Defaults to
 # PROJECT_IS_TOP_LEVEL; the option exists so a top-level build that packages nothing
 # from Tools (the wheel presets) can drop it.

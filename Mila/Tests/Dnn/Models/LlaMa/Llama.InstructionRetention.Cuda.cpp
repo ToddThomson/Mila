@@ -23,8 +23,8 @@
 
 import Mila;
 
-#include "Common/LogLikelihoodHarness.h"
-#include "Common/Pg19Books.h"
+#include "Measurement/LogLikelihoodHarness.h"
+#include "Measurement/Pg19Books.h"
 
 namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
 {
@@ -140,7 +140,7 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
                 "\n\n{}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n", kQuestion ) );
 
             const std::size_t book_tokens = static_cast<std::size_t>( length ) - head.size() - tail.size() - kReplyTokens;
-            const auto text = tokenizer.encode( Common::joinWraps( Common::readBook( book, book_tokens * 6 ) ) );
+            const auto text = tokenizer.encode( Measurement::joinWraps( Measurement::readBook( book, book_tokens * 6 ) ) );
 
             if ( text.size() < book_tokens )
             {
@@ -174,7 +174,7 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
             Serialization::WeightsReader reader( weightsPath() );
             LlamaConfig config = LlamaBf16::configFromMetadata( reader.getWeightsMetadata() );
 
-            auto network = Common::buildMeasuredNetwork<TNetwork>( weightsPath(), config, DeviceId{ DeviceType::Cuda, 0 }, context );
+            auto network = Measurement::buildMeasuredNetwork<TNetwork>( weightsPath(), config, DeviceId{ DeviceType::Cuda, 0 }, context );
 
             std::vector<Reply> results;
 
@@ -185,7 +185,7 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
                     for ( const Instruction& instruction : kInstructions )
                     {
                         const auto tokens = prompt( *tokenizer, instruction, book, length );
-                        const auto generated = Common::greedyContinuationOf( *network, tokens, kReplyTokens,
+                        const auto generated = Measurement::greedyContinuationOf( *network, tokens, kReplyTokens,
                             { kEndOfTurn, kEndOfText }, context );
                         const std::string text = tokenizer->decode( generated.tokens );
 
@@ -214,12 +214,12 @@ namespace Mila::Tests::Dnn::Models::LlamaInstructionRetention
     TEST( LlamaInstructionRetentionCudaTests, DISABLED_Bf16AgainstFp8Cache_Q4_0 )
     {
         if ( getDeviceCount( DeviceType::Cuda ) == 0 || !fs::exists( weightsPath() ) || !fs::exists( tokenizerPath() )
-            || !fs::exists( Common::pg19TestPath() ) )
+            || !fs::exists( Measurement::pg19TestPath( TEST_DATA_DIR ) ) )
         {
             GTEST_SKIP() << "Needs a CUDA device, " << weightsPath().string() << ", the Llama tokenizer and PG-19";
         }
 
-        const std::vector<fs::path> books = { Common::pg19TestPath() / "30312.txt", Common::pg19TestPath() / "3608.txt" };
+        const std::vector<fs::path> books = { Measurement::pg19TestPath( TEST_DATA_DIR ) / "30312.txt", Measurement::pg19TestPath( TEST_DATA_DIR ) / "3608.txt" };
         const std::vector<dim_t> shared = { 2048, 16384, 65536 };
 
         // The BF16 cache reaches 69632 on the 16 GB card; the FP8 cache 131072, which it alone is asked about.

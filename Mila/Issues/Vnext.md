@@ -505,6 +505,11 @@ ever measurable.
 The fix is PCRE2, RE2, or a hand-written Unicode scanner, which makes this a vendored-dependency
 decision as much as a tokenizer one — the same ground the curl pin sits on.
 
+Qwen 3.8 takes the same path (2026-10-03). It surfaced in ContextProfile's loss arm: of the five PG-19
+books the 2.82-bit build scored at 74752, the one that is UTF-8 -- 26183, curly quotes throughout,
+13,532 non-ASCII bytes -- is the one whose loss rises with context and fails gate 1 in every band
+(2.86 to 2.99 nats a token), where the four ASCII books fall with context and pass.
+
 ## The authored test suite is green except for the files still commented out
 
 `architecture`
@@ -933,3 +938,71 @@ runtime extents" is the defect the new ops must not repeat. Memory bandwidth bou
 (1B) and 13 GB (3B), read once per token -- roughly 10 and 4 tokens a second on desktop memory. It is also the first
 Llama that runs on an Apple M1 without a Metal backend (`Future.md` "Compute backends beyond CUDA"). The bar is the
 CUDA families': token parity with HuggingFace.
+
+## The 2.82-bit Qwen build prefills slowly because its 2- and 3-bit weights are widened to 16 bits before every matrix multiply
+
+`qwen` · `quantization` · `perf` · `mila-src` · `measured`
+
+Moved from `BACKLOG.md` on 2026-10-04 (Todd): Qwen's own tuning waits for a 24 or 32 GB card. At 8K the
+codebook GEMMs are 68% of prefill and run cuBLASLt's BF16 kernel with its tensor pipe 99% busy, at the card's
+BF16 ceiling, so no BF16 kernel closes it; the expansion to BF16 is another 6%. The 2.82-bit build prefills
+705 tokens a second at 8K, three-quarters of llama.cpp on the format its users run. The fix is
+`Quantization.md`'s Q4_0 decision 4 applied to codebooks: codes mapped through an INT8 copy of the codebook in
+the INT8 prefill GEMM's tile load, no staging -- group 32 is one k32 MMA block, group 64 two. Projected 8K
+prefill about 1,100 tokens a second. One new rounding (the fitted entries to INT8, at most 1/254 of the
+largest); decode keeps its exact matvec. Gate: loss by band within noise of the BF16-staged path, then rates
+before and after. `ModelFamilyParity.md` 8.3, Q9, lever 1.
+
+## The 2.82-bit Qwen build generates below the card's memory bandwidth because its 2-bit kernel runs out of instructions first
+
+`qwen` · `quantization` · `perf` · `mila-src` · `measured`
+
+Moved from `BACKLOG.md` on 2026-10-04, as above. Decode reads at 65% of bandwidth against FP4's 79%. The 2-bit
+matvec is SM-bound at 93% (a shuffle and a bit extraction per weight), the 3-bit one holds 24 warps of 48 at
+79-80 registers, and DeltaNet's `in_proj_a` and `in_proj_b` are 96 launch-bound BF16 launches a token. Three
+levers, about 3.1 ms a token together (33.8 to about 37.7 tokens a second at depth 0): a 16-entry FP16 pair
+table so one shuffle returns two 2-bit weights; the 3-bit kernel's occupancy; `in_proj_a` and `in_proj_b` in
+one launch. Gate: each codebook kernel DRAM-bound in Nsight Compute; greedy tokens and scores unchanged; rates
+before and after. `ModelFamilyParity.md` 8.3, Q9, levers 3 to 5.
+
+## Qwen's wikitext perplexity gate has only been run to 16K
+
+`qwen` · `measured`
+
+Moved from `BACKLOG.md` on 2026-10-04, as above. From 8K to 16K the FP4 oracle improves 7.2% while the 2.82-bit
+plan improves only 3.4% (`Qwen3.8.md` §8 item 9; `DISABLED_QualityGateAcrossContextLengths`). Since then the
+context profile measured the 2.82-bit build healthy to 74,752 on PG-19 -- loss falling with context, recall at
+least 97% (`ContextProfile.md` section 8) -- which answers the release's question for the build it publishes;
+the wikitext ratio past 16K, and the FP4 oracle's, are what is left.
+
+## Qwen's head paths disagree in the third decimal, so a perplexity must fix the head width
+
+`qwen` · `measured`
+
+Moved from `BACKLOG.md` on 2026-10-04, as above. Same weights, same corpus: width 1 (the decode matvec) and width
+64 (the W4A8-FP8 GEMM) do not produce identical numbers, so both arms of a quantization comparison use one
+width. Probably already recorded at `Qwen3.8.md:509` and `:546` -- verify, and if so delete this entry rather
+than work it.
+
+## Qwen 3.8 27B FP4 predicts a book worse with the whole book before it than with 1024 tokens of it, from 8K on
+
+`qwen` · `quantization` · `measured`
+
+Moved from `Untriaged.md` on 2026-10-04 with Qwen's tuning (Todd); the FP4 build is not published again in v0.21.
+Anchor: `QwenOraclePrecisionPlan` (`Qwen.PrecisionPlan.ixx:141`), ContextProfile's loss arm @ `0.21.0-dev+34`
+
+Found 2026-10-03 by the first ContextProfile run of `qwen-3.8-27b-fp4` (RTX 5060 Ti, files `D:\Claude\context_profile\
+provisional`, `qwen_loss`). Five PG-19 books at 16384, window 64: gate 1 fails in 9 of 10 book-bands, pooled 2.835 /
+2.739 at 0-8K and 3.013 / 2.685 at 8K-16K (whole book / 1024 tokens of it); book 10356 reads 3.61 / 2.49 at 8K-16K.
+The 2.82-bit build on the same books passes but for 0.015 on one band -- 3.341 / 3.459 on book 10321 at 8K-16K, where
+FP4 reads 3.39-3.46 -- although FP4 has more bits on every role where the two plans differ (feed-forward, DeltaNet
+query/key, value/gate/output); both share FP4 attention and head and BF16 gating. Not the prefill chunk: 64, 256 and
+1024 move it by 0.05. Not the exported file: quantized on load from the BF16 blob it scores identically. Not mainly
+FP8 activations: `QwenPackedArtifactTests.DISABLED_DecodeAgainstPrefillAlongTheBook` (added `+34`) scores 257
+targets by decode (BF16 activations) and by prefill -- book 10356 after 12288 reads 5.10 decode / 5.25 prefill for
+FP4 against 2.59 / 2.59 for the 2.82-bit build; after 2048, 2.87 / 2.87 against 3.03 / 3.02. In August FP4 improved
+with context on wikitext to 16K (`Qwen3.8.md` section 8, 5.686 at 16K), segments scored cold, no chat turn. Recall
+at 11K and 16K is 99-100% on the same build. One difference left between the plans besides bits: the codebooks
+were fitted by GPTQ on calibration text, FP4 is round to nearest. The reference that would separate format from
+defect is HuggingFace BF16 and HuggingFace with the same weights rounded to FP4, layer-streamed
+(`hf_qwen_layer_stream.py` scores one prompt's last token today), at those positions.

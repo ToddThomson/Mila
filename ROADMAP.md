@@ -27,6 +27,16 @@ already fill, a checkpoint whose image weights the loader drops. They complete i
 they are what the new entry point is demonstrated on. An entry point that has only ever met the
 models it was written against is an abstraction nobody has stressed.
 
+**On the 16 GB card the main effort is Gemma 4** (Todd, 2026-10-04, from the first context profiles).
+A 16 GB card is one budget, shared by context, a vision tower and a draft model, and Gemma 4 is the
+family that can spend it on all three: its two models fit with room to choose. So the release
+recovers memory where Mila wastes it and lets a deployment choose what to spend it on — a model is
+deployed for a use case, with the features that use case needs and nothing else resident. Qwen 3.8
+finishes what every family shares — a fetchable 12 GB build, streaming, a compressed cache — and its
+own tuning waits for a 24 or 32 GB card, where a 27B has room to be tuned (`SPONSORING.md`).
+Capabilities stay shared across the families; how deeply each is optimized follows the card it is
+for.
+
 **One release rather than three.** The model handle's entry point is the deployment planner, and
 `Mila::AI` is created over the handle. Built in separate releases, Chat, the inference server and the
 Python binding would each move twice — onto the handle, then onto `Mila::AI` — and Chat's automatic
@@ -36,8 +46,11 @@ context would move twice with them. Together, each moves once.
 the two families; on 2026-09-23, before any of that work started, it was widened to take in
 `Direction.md` section 5 and re-dated. That was a re-plan at the start of the cycle, and it is the
 only one: the date does not move again. What has not landed by 2026-12-15 returns to [`Vnext.md`](Mila/Issues/Vnext.md) and the
-release ships with what it has, its claim stated as narrowed. **Gemma 4 image input drains first** —
-it is the largest item whose size is not yet known, and the release's proof does not rest on it.
+release ships with what it has, its claim stated as narrowed. On 2026-10-04 the scope was
+re-weighted rather than re-dated: the memory levers, deployment by use case and Gemma 4's remaining
+features came in, and Qwen's own tuning went to `Vnext.md`. Image input on the 12B no longer drains
+first, because a use case with an image in it is part of the claim; **the 26B-A4B's vision tower drains
+first, then audio** — the newest work, and the least sized.
 
 **The arc runs in five stages, in dependency order.** The stages are a sequence, not a partition —
 an item is workable whenever its own blockers are gone.
@@ -50,7 +63,8 @@ an item is workable whenever its own blockers are gone.
 3. **`Mila::AI`.** The object, and the in-process tool loop beneath it with the token-level splice.
 4. **The applications.** Chat, the inference server and the binding rebuilt on `Mila::AI`, the
    QuickStarts rewritten, and the public message moved.
-5. **The families finished.** Qwen 3.8, then Gemma 4, ending in modality.
+5. **The families finished.** Qwen 3.8's shared capabilities, then Gemma 4 with its memory levers,
+   draft model and modality — each a feature a deployment can choose.
 
 Pre-1.0 still holds: breaking changes are acceptable, and this release carries several — the
 per-family session classes, the `Mila/Adaptors/` directory, and Chat refusing an explicit context
@@ -64,8 +78,9 @@ and an older Mila can still install a build of a model that it can run.
 rather than inferring it from the family.*
 
 It starts at the manifest. A model's capabilities — reasoning channel, context limits, and now
-modality — are declared in its own record, which is additive rather than breaking because the
-manifest already tolerates unknown fields and `instruct` proves the pattern. Today
+modality and a draft model — are declared in its own record, which is additive rather than breaking
+because the manifest already tolerates unknown fields and `instruct` proves the pattern. They are what
+a deployment selects from (Deployment Planning, below). Today
 `Chat.FamilyTraits.ixx` derives those same facts from the family, which is correct only while the set
 of families is the set it was written against. **Streaming is not one of them**: whether a display can
 route a model's output token by token is a fact about the application that renders it, not about the
@@ -111,10 +126,27 @@ devices is Phase 5 and a later release. The weight format stays the caller's cho
 in the library and each application chooses its own; an explicit value that does not fit is refused,
 naming what bound it.
 
+**A deployment is a model and the features its use case needs.** A model's package declares what it
+can do — modalities, a draft model, the contexts and cache formats it supports — and a request selects
+from that, each feature fixed or left to the planner like any other value. The planner prices the
+selection exactly and refuses it in its own terms: an image path that costs the context the request
+fixed is refused as that, with what does fit beside it, rather than surfacing as an allocation failure.
+What is not selected is not built and costs nothing. The weight format remains the caller's, as it
+always was.
+
+**The bytes the selection spends are recovered first.** Every weight tensor over 1 MiB is its own
+allocation rounded to the device's 2 MiB granule, which costs a model 64 to 679 MiB of its card
+(`BACKLOG.md`, measured); each feature a deployment adds brings more such tensors. The planner's
+exactness is kept: what it prices is what the build allocates.
+
 **Success criteria:** `Deployment.md` gates G1 to G4 and negatives N1 to N4, each forced to fail
 once; Chat's automatic choices are reproduced by the planner on the measured models before Chat's own
 code is deleted; and a Python session and an inference server request each run with an automatic
-context length.
+context length; a request selects every feature a package declares — modality, draft model, context,
+cache format — and the plan prices each one exactly, by the same build-equals-plan gate as the rest;
+an unaffordable selection is refused naming the feature and what fits without it; an unselected
+feature allocates nothing; and every published model's weights cost within one granule of their bytes
+on the device, measured per model before and after.
 
 ### Mila::AI
 
@@ -150,6 +182,12 @@ the deepest context at which all three still hold. That depth is what compaction
 is the measured reason, or the measured absence of one, for spending further work on a model's
 longest contexts.
 
+`Mila::AI` deploys a model for a use case. A use case is a named selection of features over the
+same request -- a coding agent, a vision assistant, a long-document reader -- and its defaults come
+from measurement: what a context is worth from the model's profile, what a draft model buys from its
+measured speedup. A preset is a convenience over the request, never a second path to a deployment,
+and the plan it produced is as readable as any other.
+
 The autonomy policy is not in this release. Chat keeps its human approval gate as an application
 concern.
 
@@ -162,7 +200,9 @@ its model's measured reliable depth continues after compaction with its system i
 obeyed, measured by the instruction-retention arm; and every model the release publishes, in every
 family, has a context profile on the 16 GB card -- recall at depth, instruction retention and tool-call
 fidelity at every context its plan can choose, against thresholds fixed before the first profile ran --
-produced by one tool in the repository, whose reliable depth is the one compaction uses.
+produced by one tool in the repository, whose reliable depth is the one compaction uses; and an `AI`
+created for a named use case runs with exactly that use case's features resident, its plan showing
+each one's bytes, and a program can change any of them before creation.
 
 ### Applications
 
@@ -235,11 +275,13 @@ because the per-token router was written against Gemma's four control tokens and
 `<think>`/`</think>` pair was never wired to it. It is the longest wait in Mila with nothing on
 screen.
 
-**The 2.82-bit build is the 12-16 GB model, and it is the less efficient of Qwen's two builds.** Its
-prefill multiplies at the card's 16-bit tensor-core ceiling after widening every weight, where the
-integer path the Q4_0 formats already use is about twice as fast; its 2-bit generation kernel runs out
-of instructions before it runs out of memory bandwidth, where the FP4 kernels reach 85-94% of it. Both
-are measured (`ModelFamilyParity.md` 8.3, Q9), and both are closed in this release.
+**This release finishes what Qwen shares with the other families, not its tuning.** The 2.82-bit
+build's prefill and generation are measurably less efficient than they could be (`ModelFamilyParity.md`
+8.3, Q9), and the FP4 build predicts a book worse with more of it in context from 8K on, for a reason
+not yet known (`ContextProfile.md` section 8). Both are work on a model that does not fit a 16 GB card
+with room to spare, and both wait in `Vnext.md` for the 24 or 32 GB card where a 27B has that room.
+The 2.82-bit build is healthy at every context it fits, 74,752 on the 16 GB card, and it is the Qwen
+this release publishes; the FP4 build v0.20 published stays installable and is not published again.
 
 **Publishing the 2.82-bit build is not release work** — weights publish on their own schedule and a
 release never re-publishes them — but the claim below depends on it, which is why it is named here.
@@ -247,12 +289,9 @@ release never re-publishes them — but the claim below depends on it, which is 
 **Success criteria:** a 27B model runs on a 12 GB card from a package a stranger can fetch;
 FP8 KV cache compression measured against BF16 at the context the model is claimed for, by the same
 protocol the weight allocation used, priced exactly by the footprint the planner reads, and the freed
-margin spent deliberately rather than absorbed; the quality gate re-run at whatever context the
-release ends up advertising rather than stopping at 16K; a dense member decodes token-for-token
-against HuggingFace at BF16 and FP8; Qwen streams its reasoning and its answer as separate
-channels; and the 2.82-bit build prefills on integer tensor cores with no 16-bit staging and generates
-with kernels bound by memory bandwidth rather than by their own instruction count, each measured before
-and after on the reference card, with its quality cost read from the build's context profile.
+margin spent deliberately rather than absorbed; a dense member decodes token-for-token
+against HuggingFace at BF16 and FP8; and Qwen streams its reasoning and its answer as separate
+channels.
 
 ### Gemma 4 Complete
 
@@ -276,7 +315,10 @@ materially smaller than the vision-language work in **Future** below, and it is 
 de-risks it: patch embedding, soft-token placement, image templates, the application surface on both
 wire protocols, manifest modality and footprint accounting all carry over, leaving a tower as the
 only genuinely new piece. It also runs on a 12 GB card, so unlike that work it is not gated on
-hardware.
+hardware. **The 26B-A4B does have a tower** — 27 layers, about 411 million parameters, about 410 MB at
+FP8 — which its loader skips today (`Gemma4MoE.md`), and on the 16 GB card those bytes are context:
+about 39K tokens of the 26B's cache. Image input on the 26B is therefore a choice a deployment makes
+against its context, and the memory levers below are what make it a choice worth having.
 
 **Its size is not yet known, and that is stated rather than estimated.** Two questions decide it:
 whether image soft tokens must attend bidirectionally within a prefill, when every attention path in
@@ -291,10 +333,22 @@ token of BF16 through the same range. So the 12B runs those weights in that form
 the format it was trained for, and Mila's own formats are the fallback for models whose producer ships
 no quantization-aware release.
 
-Google's published drafter is answered by a measurement rather than committed on intent, with its own
-stop condition: it is only worth a speculative loop if a K-token verify costs meaningfully less than K
-decodes on a bandwidth-bound 4-bit path. The measurement is this release; the loop it would justify is
-not.
+Google's published drafter is answered by a measurement first, with its own stop condition: it is
+only worth a speculative loop if a K-token verify costs meaningfully less than K decodes on a
+bandwidth-bound 4-bit path. **The loop is in this release when the measurement says it pays** (Todd,
+2026-10-04), as a feature a deployment selects; when it does not, the result is recorded and the loop
+stays out. It is for the dense 12B: a mixture of experts gains little from drafting at batch 1, by
+Google's own account.
+
+**Gemma's memory is spent on what a use case needs.** Two levers are Gemma's own. Its global layers
+are trained with keys equal to values (K = V), and Mila caches both; storing them once returns about
+half the global cache, which on the 26B-A4B is the difference between the 64K it fits today and the
+96K its context profile measures it reliable to (recall alone; 128K loses the middle of the
+conversation, `ContextProfile.md` section 8), or room for its vision tower at a useful context. And its
+sliding layers keep a ring of the last window, so a reply longer than about a thousand tokens -- any
+reasoning reply -- leaves nothing to rewind to, and the next turn pays a full prefill: about 100 s at
+128K on the 12B. Saving the ring's last window when a position is saved, as Qwen saves its recurrent
+state, removes that.
 
 **Finished also means level with the other families** (`ModelFamilyParity.md`). Gemma is the
 furthest along of the three, and its gaps are few but one of them is sharp: it cannot score a text,
@@ -311,9 +365,16 @@ Google's GGUF, its quality is measured across the planner's range, and Chat, the
 the Python binding run it with tool calls; reasoning survives across tool calls within a turn and a malformed call is refused
 rather than executed as empty; Gemma 4 12B runs Google's quantization-aware weights in Q4_0, and its
 cost over BF16 is measured at every context length the planner can choose for it; the drafter
-question has a recorded result, including the result "not worth doing"; Gemma's quality is measured at every context length the planner can
+question has a recorded result, including the result "not worth doing", and where it pays, a
+deployment that selects the drafter decodes the 12B token-for-token as it does without it, faster by
+the measured amount; Gemma's quality is measured at every context length the planner can
 choose for it, by a measurement that lives in the harness rather than in the public API; and Chat renders
-Gemma's prompt with the library's template, not its own.
+Gemma's prompt with the library's template, not its own; Gemma 4 12B accepts audio, gated against
+HuggingFace as its image path is; the 26B-A4B accepts an image through its tower, at a context the
+plan states; the global layers store each key once, gated equal to storing both on G2's books and on
+recall at depth, and the 26B-A4B fits its measured reliable depth on the 16 GB card; and a turn that
+follows a reply of any length resumes the cached conversation without a full prefill, measured on the
+12B at 128K.
 
 ---
 

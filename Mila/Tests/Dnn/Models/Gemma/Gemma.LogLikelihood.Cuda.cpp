@@ -29,8 +29,8 @@
 
 import Mila;
 
-#include "Common/LogLikelihoodHarness.h"
-#include "Common/Pg19Books.h"
+#include "Measurement/LogLikelihoodHarness.h"
+#include "Measurement/Pg19Books.h"
 
 namespace Mila::Tests::Dnn::Models
 {
@@ -116,7 +116,7 @@ namespace Mila::Tests::Dnn::Models
         {
             PrefillChunking chunking;
 
-            auto network = Common::buildMeasuredNetwork<TNetwork>(
+            auto network = Measurement::buildMeasuredNetwork<TNetwork>(
                 weights, measuredConfigOf( weights, window ), DeviceId{ DeviceType::Cuda, 0 }, context_length, &chunking );
 
             std::cout << std::format( "  {}: window {}, context {}, prefill chunk {}\n",
@@ -188,7 +188,7 @@ namespace Mila::Tests::Dnn::Models
                     tokens.begin() + static_cast<std::ptrdiff_t>( offset ),
                     tokens.begin() + static_cast<std::ptrdiff_t>( offset + length ) );
 
-                const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( network, segment );
+                const SequenceLogLikelihood scored = Measurement::sequenceLogLikelihoodOf( network, segment );
 
                 result.total.total_log_probability += scored.total_log_probability;
                 result.total.scored_positions += scored.scored_positions;
@@ -285,8 +285,8 @@ namespace Mila::Tests::Dnn::Models
 
         auto network = buildMeasuredGemma( 64, kContextLength );
 
-        const Common::GreedyContinuation greedy =
-            Common::greedyContinuationOf( *network, prompt, kGenerated, kGemmaStopTokens, kContextLength );
+        const Measurement::GreedyContinuation greedy =
+            Measurement::greedyContinuationOf( *network, prompt, kGenerated, kGemmaStopTokens, kContextLength );
 
         ASSERT_FALSE( greedy.tokens.empty() );
 
@@ -321,7 +321,7 @@ namespace Mila::Tests::Dnn::Models
 
         ASSERT_EQ( observed, 1u ) << "the head was not selected, so no rows will arrive";
 
-        (void)Common::sequenceLogLikelihoodOf( *network, sequence );
+        (void)Measurement::sequenceLogLikelihoodOf( *network, sequence );
 
         network->stopObserving();
 
@@ -334,7 +334,7 @@ namespace Mila::Tests::Dnn::Models
             const std::size_t position = prompt.size() - 1 + generated;
             const std::vector<float>& row = rows[ position ];
             const std::int32_t expected = greedy.tokens[ generated ];
-            const std::int32_t actual = Common::argMax( row );
+            const std::int32_t actual = Measurement::argMax( row );
 
             if ( actual == expected )
             {
@@ -492,7 +492,7 @@ namespace Mila::Tests::Dnn::Models
             ASSERT_EQ( network->observe( "*.rmsn_final", ComputePassMask::inference(), route ), 1u );
             ASSERT_EQ( network->observe( "*.lm_head", ComputePassMask::inference(), route ), 1u );
 
-            (void)Common::sequenceLogLikelihoodOf( *network, segment );
+            (void)Measurement::sequenceLogLikelihoodOf( *network, segment );
 
             network->stopObserving();
 
@@ -563,8 +563,8 @@ namespace Mila::Tests::Dnn::Models
                     decode_rows.record( *network, value );
             } ), 1u );
 
-        const Common::GreedyContinuation greedy =
-            Common::greedyContinuationOf( *network, prompt, kGenerated, kGemmaStopTokens, kContextLength );
+        const Measurement::GreedyContinuation greedy =
+            Measurement::greedyContinuationOf( *network, prompt, kGenerated, kGemmaStopTokens, kContextLength );
 
         network->stopObserving();
 
@@ -582,7 +582,7 @@ namespace Mila::Tests::Dnn::Models
                     prefill_rows.record( *network, value );
             } ), 1u );
 
-        (void)Common::sequenceLogLikelihoodOf( *network, sequence );
+        (void)Measurement::sequenceLogLikelihoodOf( *network, sequence );
 
         network->stopObserving();
 
@@ -637,7 +637,7 @@ namespace Mila::Tests::Dnn::Models
 
             const std::vector<float> decoded_row( decoded, decoded + vocab );
             const std::vector<float> prefilled_row( prefilled, prefilled + vocab );
-            const bool same = Common::argMax( decoded_row ) == Common::argMax( prefilled_row );
+            const bool same = Measurement::argMax( decoded_row ) == Measurement::argMax( prefilled_row );
 
             agreements += same ? 1 : 0;
             summed_kl += kl;
@@ -699,7 +699,7 @@ namespace Mila::Tests::Dnn::Models
 
         auto lastRowOfPrefill = [&]( const std::vector<std::int32_t>& tokens )
         {
-            return Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, tokens ) ) );
+            return Measurement::hostLogits( *network, network->prefill( Measurement::deviceTokens( *network, tokens ) ) );
         };
 
         const std::int64_t vocab = static_cast<std::int64_t>( measuredConfig( 1 ).getVocabSize() );
@@ -715,7 +715,7 @@ namespace Mila::Tests::Dnn::Models
                         rows.record( *network, value );
                 } );
 
-            (void)Common::sequenceLogLikelihoodOf( *network, longer );
+            (void)Measurement::sequenceLogLikelihoodOf( *network, longer );
 
             network->stopObserving();
 
@@ -735,7 +735,7 @@ namespace Mila::Tests::Dnn::Models
             }
 
             std::cout << std::format( "  {:<56} max |dlogit| {:>8.4f}   mean {:>9.5f}   argmax {} vs {}\n",
-                label, largest, summed / static_cast<double>( left.size() ), Common::argMax( left ), Common::argMax( right ) );
+                label, largest, summed / static_cast<double>( left.size() ), Measurement::argMax( left ), Measurement::argMax( right ) );
         };
 
         const std::vector<float> first = lastRowOfPrefill( prompt );
@@ -827,7 +827,7 @@ namespace Mila::Tests::Dnn::Models
                         std::vector<float>( host.data() + position * width, host.data() + ( position + 1 ) * width ) } );
                 } );
 
-            (void)network->prefill( Common::deviceTokens( *network, tokens ) );
+            (void)network->prefill( Measurement::deviceTokens( *network, tokens ) );
             network->synchronize();
             network->stopObserving();
 
@@ -948,7 +948,7 @@ namespace Mila::Tests::Dnn::Models
                     }
                 } );
 
-            (void)network->prefill( Common::deviceTokens( *network, tokens ) );
+            (void)network->prefill( Measurement::deviceTokens( *network, tokens ) );
             network->synchronize();
             network->stopObserving();
 
@@ -1054,7 +1054,7 @@ namespace Mila::Tests::Dnn::Models
                 }
             } );
 
-        (void)network->prefill( Common::deviceTokens( *network, tokens ) );
+        (void)network->prefill( Measurement::deviceTokens( *network, tokens ) );
         network->synchronize();
         network->stopObserving();
 
@@ -1108,7 +1108,7 @@ namespace Mila::Tests::Dnn::Models
 
             for ( const auto& ids : segments )
             {
-                const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( network, ids );
+                const SequenceLogLikelihood scored = Measurement::sequenceLogLikelihoodOf( network, ids );
                 total.total_log_probability += scored.total_log_probability;
                 total.scored_positions += scored.scored_positions;
             }
@@ -1132,9 +1132,13 @@ namespace Mila::Tests::Dnn::Models
 
     namespace
     {
-        using Common::pg19TestPath;
-        using Common::readBook;
-        using Common::joinWraps;
+        fs::path pg19TestPath()
+        {
+            return Measurement::pg19TestPath( TEST_DATA_DIR );
+        }
+
+        using Measurement::readBook;
+        using Measurement::joinWraps;
 
         // Gemma 4 *it* predicts running text only inside a model turn: on the same book passage, 3.79 nats per token
         // there against 9.61 as bare text after <bos> (diagnostic H). Thinking off, as Chat primes it.
@@ -1228,12 +1232,12 @@ namespace Mila::Tests::Dnn::Models
 
             ASSERT_LE( static_cast<dim_t>( sequence.size() ), kContextLength );
 
-            const SequenceLogLikelihood whole = Common::sequenceLogLikelihoodOf( *network, sequence );
+            const SequenceLogLikelihood whole = Measurement::sequenceLogLikelihoodOf( *network, sequence );
             SequenceLogLikelihood before;
 
             if ( prefix.size() > 1 )
             {
-                before = Common::sequenceLogLikelihoodOf( *network, prefix );
+                before = Measurement::sequenceLogLikelihoodOf( *network, prefix );
             }
 
             const double log_probability = whole.total_log_probability - before.total_log_probability;
@@ -1295,7 +1299,7 @@ namespace Mila::Tests::Dnn::Models
 
         auto score = [&]( const std::vector<std::int32_t>& tokens, std::size_t length )
         {
-            return Common::sequenceLogLikelihoodOf( *network,
+            return Measurement::sequenceLogLikelihoodOf( *network,
                 std::vector<std::int32_t>( tokens.begin(), tokens.begin() + static_cast<std::ptrdiff_t>( length ) ) );
         };
 
@@ -1389,7 +1393,7 @@ namespace Mila::Tests::Dnn::Models
         {
             SequenceLogLikelihood decoded;
 
-            std::vector<float> logits = Common::hostLogits( *network, network->prefill( Common::deviceTokens( *network, prefix( start ) ) ) );
+            std::vector<float> logits = Measurement::hostLogits( *network, network->prefill( Measurement::deviceTokens( *network, prefix( start ) ) ) );
             const dim_t vocab = static_cast<dim_t>( logits.size() );
 
             decoded.addNextTokenLogProbabilities( logits.data(), 1, vocab, tokens.data(), start - 1, sequence_length,
@@ -1399,15 +1403,15 @@ namespace Mila::Tests::Dnn::Models
             {
                 const dim_t position = start + step;
 
-                logits = Common::hostLogits( *network,
-                    network->decode( Common::deviceTokens( *network, { tokens[ static_cast<std::size_t>( position ) ] } ), position ) );
+                logits = Measurement::hostLogits( *network,
+                    network->decode( Measurement::deviceTokens( *network, { tokens[ static_cast<std::size_t>( position ) ] } ), position ) );
 
                 decoded.addNextTokenLogProbabilities( logits.data(), 1, vocab, tokens.data(), position, sequence_length,
                     config.getFinalLogitSoftcapping() );
             }
 
-            const SequenceLogLikelihood longer = Common::sequenceLogLikelihoodOf( *network, prefix( start + kSteps + 1 ) );
-            const SequenceLogLikelihood shorter = Common::sequenceLogLikelihoodOf( *network, prefix( start ) );
+            const SequenceLogLikelihood longer = Measurement::sequenceLogLikelihoodOf( *network, prefix( start + kSteps + 1 ) );
+            const SequenceLogLikelihood shorter = Measurement::sequenceLogLikelihoodOf( *network, prefix( start ) );
 
             const double prefilled = longer.total_log_probability - shorter.total_log_probability;
             const dim_t prefilled_positions = longer.scored_positions - shorter.scored_positions;
@@ -1469,7 +1473,7 @@ namespace Mila::Tests::Dnn::Models
 
         PrefillChunking chunking;
 
-        auto network = Common::buildMeasuredNetwork<MeasuredGemma>( weightsPath(), measuredConfig( kWindow ),
+        auto network = Measurement::buildMeasuredNetwork<MeasuredGemma>( weightsPath(), measuredConfig( kWindow ),
             DeviceId{ DeviceType::Cuda, 0 }, kContextLength, &chunking );
 
         std::cout << std::format( "  window {}, context {}, prefill chunk {}\n", kWindow, kContextLength,
@@ -1506,7 +1510,7 @@ namespace Mila::Tests::Dnn::Models
             std::cout << std::format( "  {}:", book.filename().string() ) << std::flush;
 
             // Every band and prefix counts the book's tokens only: the turn's prompt is scored alone and taken off.
-            const SequenceLogLikelihood prompt = Common::sequenceLogLikelihoodOf( *network,
+            const SequenceLogLikelihood prompt = Measurement::sequenceLogLikelihoodOf( *network,
                 std::vector<std::int32_t>( segment.tokens.begin(),
                     segment.tokens.begin() + static_cast<std::ptrdiff_t>( segment.prompt_length ) ) );
 
@@ -1517,7 +1521,7 @@ namespace Mila::Tests::Dnn::Models
                 const std::vector<std::int32_t> prefix( segment.tokens.begin(),
                     segment.tokens.begin() + static_cast<std::ptrdiff_t>( prefixes[ index ] ) );
 
-                const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( *network, prefix );
+                const SequenceLogLikelihood scored = Measurement::sequenceLogLikelihoodOf( *network, prefix );
 
                 prefix_log_probability[ index ] += scored.total_log_probability - prompt.total_log_probability;
                 prefix_positions[ index ] += scored.scored_positions - prompt.scored_positions;
@@ -1671,7 +1675,7 @@ namespace Mila::Tests::Dnn::Models
             }
             else
             {
-                network = Common::buildMeasuredNetwork<TNetwork>( weights,
+                network = Measurement::buildMeasuredNetwork<TNetwork>( weights,
                     measuredConfigOf( weights, kWindow ), DeviceId{ DeviceType::Cuda, 0 }, context_length, &chunking );
             }
 
@@ -1716,7 +1720,7 @@ namespace Mila::Tests::Dnn::Models
 
                 const std::vector<std::int32_t> opening( segment.tokens.begin(),
                     segment.tokens.begin() + static_cast<std::ptrdiff_t>( segment.prompt_length ) );
-                const SequenceLogLikelihood prompt = Common::sequenceLogLikelihoodOf( *network, opening );
+                const SequenceLogLikelihood prompt = Measurement::sequenceLogLikelihoodOf( *network, opening );
 
                 std::vector<double> whole( prefixes.size(), 0.0 );
                 std::vector<double> window( prefixes.size(), 0.0 );
@@ -1726,7 +1730,7 @@ namespace Mila::Tests::Dnn::Models
 
                 for ( std::size_t index = 0; index < prefixes.size(); ++index )
                 {
-                    const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( *network,
+                    const SequenceLogLikelihood scored = Measurement::sequenceLogLikelihoodOf( *network,
                         std::vector<std::int32_t>( segment.tokens.begin(),
                             segment.tokens.begin() + static_cast<std::ptrdiff_t>( prefixes[ index ] ) ) );
 
@@ -1745,12 +1749,12 @@ namespace Mila::Tests::Dnn::Models
                     sequence.insert( sequence.end(), segment.tokens.begin() + static_cast<std::ptrdiff_t>( context_start ),
                         segment.tokens.begin() + static_cast<std::ptrdiff_t>( first_target ) );
 
-                    const SequenceLogLikelihood before = Common::sequenceLogLikelihoodOf( *network, sequence );
+                    const SequenceLogLikelihood before = Measurement::sequenceLogLikelihoodOf( *network, sequence );
 
                     sequence.insert( sequence.end(), segment.tokens.begin() + static_cast<std::ptrdiff_t>( first_target ),
                         segment.tokens.begin() + static_cast<std::ptrdiff_t>( block + kSlidingWindow ) );
 
-                    const SequenceLogLikelihood after = Common::sequenceLogLikelihoodOf( *network, sequence );
+                    const SequenceLogLikelihood after = Measurement::sequenceLogLikelihoodOf( *network, sequence );
 
                     window[ bandOf( block ) ] += after.total_log_probability - before.total_log_probability;
                 }
@@ -2011,7 +2015,7 @@ namespace Mila::Tests::Dnn::Models
                 for ( const auto& book : books )
                 {
                     capture.begin();
-                    (void)Common::sequenceLogLikelihoodOf( *network, book );
+                    (void)Measurement::sequenceLogLikelihoodOf( *network, book );
                     targets.insert( targets.end(), book.begin() + 1, book.end() );
                 }
 

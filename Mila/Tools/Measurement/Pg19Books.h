@@ -1,6 +1,6 @@
 /**
  * @file Pg19Books.h
- * @brief The PG-19 test split's books as the long-context tests read them (ModelFamilyParity.md 8.2 G2, 8.4 L3).
+ * @brief The PG-19 test split's books as the long-context measurements read them (ModelFamilyParity.md 8.2 G2, 8.4 L3).
  */
 
 #pragma once
@@ -10,12 +10,12 @@
 #include <filesystem>
 #include <string>
 
-namespace Mila::Tests::Common
+namespace Mila::Measurement
 {
-    /// Data/Datasets/PG19/raw/test; Data/Datasets/PG19/README.md says how to fetch it.
-    inline std::filesystem::path pg19TestPath()
+    /// Datasets/PG19/raw/test under the data root; Data/Datasets/PG19/README.md says how to fetch it.
+    inline std::filesystem::path pg19TestPath( const std::filesystem::path& data_root )
     {
-        return std::filesystem::path( TEST_DATA_DIR ) / "Datasets" / "PG19" / "raw" / "test";
+        return data_root / "Datasets" / "PG19" / "raw" / "test";
     }
 
     /// The first `characters` bytes of a book, or fewer if it is shorter. C stdio: an input-stream header in a TU

@@ -6,8 +6,10 @@ FetchContent never configures it.
 | Directory | Language | What it does |
 |---|---|---|
 | `Cli/` | C++ | The `mila` command: the local model store and the server front door |
+| `ContextProfile/` | C++ | What a model configuration is worth to an agent at each context length it fits |
 | `Converters/` | Python | HuggingFace weights and tokenizers to Mila format, per family |
 | `ExportArtifact/` | C++ | Artifact, package and local-store lifecycle |
+| `Measurement/` | C++ | Header-only harness: a network built from weights, scored teacher-forced; PG-19 books |
 | `Publishing/` | Python | Uploads a model package to the HuggingFace Hub |
 | `Quantization/` | Python | Fits, encodes and gates a sub-4-bit weight quantization scheme |
 | `Tokenize/` | C++ | Trains, encodes and decodes vocabularies |
@@ -22,6 +24,9 @@ quantized weights back off the device, which needs a built, weights-loaded model
 
 Both are behind `PROJECT_IS_TOP_LEVEL` in `Mila/CMakeLists.txt`, so they build when Mila is the top
 level project and not when it is a subproject.
+
+`Measurement` is added from `Mila/CMakeLists.txt` directly, whenever the tools or the tests are, since
+the tests link it and build without the tools. Include it after `import Mila;`.
 
 ## Converters
 
@@ -83,6 +88,15 @@ ExportArtifact --fetch <lfs-url> probe.bin --resume     # digest must come back 
 
 There is no upload here. Publishing is `Publishing/publish_model.py`, and the library itself never
 uploads.
+
+## ContextProfile
+
+`ContextProfile list` names the configurations; `ContextProfile run <configuration>` profiles one on the card
+it runs on and writes `<configuration>.json` and a Markdown rendering beside it. Phase 1 of
+`Specifications/ContextProfile.md`: fit at each band (the planner, nothing allocated), loss by band (G2's
+protocol on PG-19), and recall at depth (records planted in a conversation of tool results, each asked
+for from the end of it). `--bands`, `--arms`, `--books` and `--conversations` narrow a run; with no
+`--bands` it profiles 16K, 32K, 64K, 128K and the planner's own choice, every one that fits. CUDA-only.
 
 ## Publishing
 

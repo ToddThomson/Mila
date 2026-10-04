@@ -35,8 +35,7 @@ v0.21.0 opened against 2026-10-31 and was widened on 2026-09-23, before its work
 `Direction.md` section 5, re-dated to **2026-12-15** — a deliberate admission that scope grew, made
 once at the start of the cycle. Whatever has not landed by then goes back to
 [`Vnext.md`](Mila/Issues/Vnext.md) and the release ships narrowed, rather than the date moving to
-accommodate the list. Gemma 4 image input is the first item to drain. A backlog that grows while the
-date holds is the signal to drain it early.
+accommodate the list. A backlog that grows while the date holds is the signal to drain it early.
 
 Scope grew a second time on 2026-09-29: the Gemma 4 26B-A4B's bar rose from a published package to parity
 with every other model Mila publishes, admitting three entries under Gemma 4 Complete with no removal. It
@@ -48,6 +47,16 @@ held to the same date. Later the same day (Todd): agentic quality measured for e
 family, admitting one entry under Mila::AI, and the 2.82-bit Qwen build's prefill and decode efficiency,
 admitting two under Qwen 3.8 Complete -- each with a success criterion written first, none with a removal,
 all held to the same date.
+
+Scope was re-weighted on 2026-10-04 (Todd), the date held: on the 16 GB card the main effort is Gemma 4,
+and Qwen's own tuning waits for a 24 or 32 GB card. Admitted, each against a criterion written first:
+deployment by use case and the allocation lever under Deployment Planning, use-case presets under
+Mila::AI, and under Gemma 4 Complete the 26B-A4B's vision tower, keys stored once, the sliding ring
+kept across a rewind, and the drafter's loop where its measurement says it pays. Removed to `Vnext.md`:
+four Qwen 3.8 entries -- the 2.82-bit build's prefill and decode efficiency, its 16K perplexity gate and
+the head-width note -- with the FP4 build's long-context loss beside them. Capabilities stay shared across
+the families; how deeply each is optimized follows the card it is for. If the date presses, the 26B's
+vision tower drains first, then audio.
 
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
@@ -133,6 +142,45 @@ six-bit table is the first real use, and tags its v0.20 build `mila-0.20`.
 
 ### Deployment Planning
 
+#### A model loads with every feature its loader supports, and the caller cannot choose which
+
+`open` · `models` · `api` · `mila-src` · `breaking`
+
+A deployment request fixes or leaves to the planner the context, the weight format and the cache format,
+and nothing else. A unified Gemma 4 package can carry image and audio paths, and the 26B-A4B a vision tower
+of about 411 million parameters; Gemma 4 ships a draft model; and today the converter drops every
+modality tensor (`convert_weights.py`, `SKIPPED_PREFIXES`) and the loader builds what the code supports.
+So a use case cannot spend the card's memory on what it needs: on the 26B-A4B, a tower's 410 MB at FP8 is
+about 39K tokens of its context.
+
+Work: the manifest declares the features a package carries (`ModelHandle.md`); the request selects from
+them, each fixed or left to the planner; the planner prices the selection exactly -- `PlanEqualsBuild`
+holds a selection as it holds the rest -- and refuses it naming the feature and what fits without it; a
+feature not selected is not built and allocates nothing. Each feature is a component built or not, never
+a template axis of the core blocks, so a selection is not a new instantiation. Raised by Todd 2026-09-27
+(modality as an axis of the request) and decided 2026-10-04 ("Mila::AI can deploy a model for a specific
+use case; full control of the model features loaded").
+
+`ROADMAP.md`, Deployment Planning success criteria · `Mila/Specifications/Deployment.md`
+
+#### Each weight tensor over 1 MiB is its own allocation, and the rounding costs a model up to 679 MiB of its card
+
+`open` · `models` · `mila-src` · `measured`
+
+`CudaDeviceMemoryResource::do_allocate` makes one `cudaMalloc` per tensor, each rounded to the device's 2 MiB
+granule: Qwen 3.8 27B 2.82-bit loses 679 MiB of its weights to it, Qwen FP4 497, Gemma 4 12B Q4_0 318, the
+26B-A4B 225 (priced by `DISABLED_ParameterRounding_26B_Q4_0`), Llama 64-70. Layout changes nothing else
+measured (`Profiling/Microbenchmarks/AllocationLayout.cu`). Judged over-engineering for the bytes alone on
+2026-10-03; on 2026-10-04 the bytes became features -- the 26B-A4B is 87 MB short of the 96K its profile
+measures it reliable to, and every feature a deployment selects brings more such tensors.
+
+Work: an arena behind the weights' memory resource, one allocation per model or per layer, so tensors are
+placed rather than rounded. The planner's exactness is the constraint: what it prices must stay what the
+build allocates, so the arena's own layout is priced the same way. Gate: every published model's weights
+within one granule of their bytes, measured per model before and after; `PlanEqualsBuild` unchanged.
+
+`ROADMAP.md`, Deployment Planning success criteria
+
 ### Mila::AI
 
 #### Running a model from a program means naming its concrete C++ type
@@ -203,29 +251,47 @@ across the contexts its planner can choose. Admitted 2026-10-03 for every family
 
 In scope: Phase 1 (fit, loss by band, recall at depth) and Phase 2 (instruction retention, tool-call
 fidelity), for every model the release publishes -- Llama 3.2 3B and 3.1 8B, Gemma 4 12B and 26B-A4B
-in Q4_0, Qwen 3.8 27B in FP4 and 2.82-bit -- at every band each fits on the 16 GB card, against section 9's decisions and
-thresholds, from 16K (Todd, 2026-10-03; section 3).
+in Q4_0, Qwen 3.8 27B at 2.82 bits -- at every band each fits on the 16 GB card, against section 9's decisions and
+thresholds, from 16K (Todd, 2026-10-03; section 3). Added 2026-10-04 (Todd): thinking as a configuration
+axis, profiled off and on (section 4.3), and a recovery arm beside Phase 2's -- whether an agent with the
+tool declared ends up right -- since recall alone measures one unaided lookup.
 
 Every question is asked from the end of one conversation, which the pricing shows is the difference
 between about 3 hours for all six models and about 73 (`ContextProfile.md` section 9). Three library
 changes make that possible, agreed with Todd the same day, all three in `+33`: Llama's transformer
 rewinds and continues a prefill as Gemma's does, and `LlamaModel` reuses a matching prefix; Qwen returns
 to a saved position (`savePosition`), and `QwenModel` resumes each turn from the end of the previous
-prompt; and `sequenceLogLikelihoodFrom` scores after a cached prefix on all three families, so the recall
-arm's answer score reads the same prefill path the loss gates use. Building them exposed a flash prefill
-defect -- a masked key's zero probability multiplied unwritten cache rows, NaN on fresh memory -- fixed
-in the same change.
+prompt; and `sequenceLogLikelihoodFrom` scores after a cached prefix on all three families. Building them
+exposed a flash prefill defect -- a masked key's zero probability multiplied unwritten cache rows, NaN on
+fresh memory -- fixed in the same change. The recall arm's answer score forces the value through decode
+steps rather than differencing two of those scores (`ContextProfile.md` 4.3).
 
 Llama's tool-call arm needs its grammar in `Mila/Src`, which "Chat and the inference server each hold
 code that knows which model they are running" moves. Turn cost and the llama.cpp column (Phases 3 and
 4) are not required by the criterion. Storing Gemma's global keys once (K = V, `RopeInAttention.md`)
-waits on the 26B-A4B's profile, and returns for discussion only if its reliable depth runs past the 80K
-that fits today.
+waited on the 26B-A4B's profile, to return for discussion only if its reliable depth ran past the 80K that
+fits today; the profile puts it at 96K and not 128K (`ContextProfile.md` section 8), so it returns, framed
+as reaching 96K rather than 128K.
 
 Gate: section 8's Phase 1 gate before any profile is recorded, then one profile per model, and the
 reliable depth each reports is the one compaction reads.
 
 `ROADMAP.md`, Mila::AI success criteria · `Mila/Specifications/ContextProfile.md`
+
+#### A program cannot ask for a model set up for its use case
+
+`open` · `ai` · `api`
+
+Choosing a model's features -- an image path, a draft model, a context and a cache format -- is a
+decision every program would make again, and the right defaults are measurements, not guesses: what
+context a model is reliable to (its context profile), what a draft model buys (its measured speedup).
+`Mila::AI` names use cases -- a coding agent, a vision assistant, a long-document reader -- as
+selections over the deployment request, each overridable before creation. A preset is a convenience,
+never a second path: it produces an ordinary request, and the plan it produced reads like any other.
+
+The finding is an absence; nothing selects features yet (the entry under Deployment Planning).
+
+`ROADMAP.md`, Mila::AI success criteria
 
 ### Applications
 
@@ -422,64 +488,6 @@ it, and so the first test of "a new architecture is added in one place".
 The finding is an absence — there is no partial implementation to point at. Gate: a dense member
 decodes token-for-token against HuggingFace at BF16 and FP8.
 
-#### Qwen's perplexity gate has only been run to 16K
-
-`open` · `qwen` · `measured`
-
-From 8K to 16K the FP4 oracle improves 7.2% while the 2.82-bit plan improves only 3.4%, so the
-quantized arm captures about half the benefit of the extra context — the compounding signature the
-recurrent layers make plausible. It was held out of v0.20 because nothing claimed a context above
-16K: the model card stopped there and recorded the ratio as flat from 1K.
-
-**The condition it was waiting on has fired.** KV-cache compression above buys context back, and a
-release that advertises a longer one has to gate quality at that length rather than at the length
-the old card stopped at. The table and caveats are in `Qwen3.8.md` §8 item 9;
-`DISABLED_QualityGateAcrossContextLengths` is the harness.
-
-#### The head's two paths disagree in the third decimal, so perplexity must fix the width
-
-`open` · `qwen` · `measured`
-
-Same weights, same corpus: width 1 (the decode matvec) and width 64 (the W4A8-FP8 GEMM) do not
-produce identical numbers. Small, but head width is part of the measurement protocol rather than a
-free performance knob, so both arms of a quantization comparison have to use the same one.
-
-Probably already recorded at `Qwen3.8.md:509` and `:546` — verify, and if so this entry is a
-duplicate and should be deleted rather than worked.
-
-#### The 12-16 GB Qwen build prefills slowly because its 2- and 3-bit weights are widened to 16 bits before every matrix multiply
-
-`open` · `qwen` · `quantization` · `perf` · `mila-src` · `measured`
-
-At 8K the codebook GEMMs are 68% of prefill and run cuBLASLt's BF16 kernel with its tensor pipe 99% busy, at the
-card's BF16 ceiling, so no BF16 kernel closes it; the expansion to BF16 is another 6%. The 2.82-bit build prefills
-705 tokens a second at 8K, three-quarters of llama.cpp on the format its users run. The fix is `Quantization.md`'s
-Q4_0 decision 4 applied to codebooks: codes mapped through an INT8 copy of the codebook in the INT8 prefill GEMM's
-tile load, no staging -- group 32 is one k32 MMA block, group 64 two. Projected 8K prefill about 1,100 tokens a
-second. One new rounding (the fitted entries to INT8, at most 1/254 of the largest); decode keeps its exact matvec.
-
-Gate: loss by band, by G2's protocol on the log-likelihood harness the context profile's loss arm reuses, within
-noise of the BF16-staged path; then rates before and after on the reference card. The build's context profile
-reads the same arm once the tool exists. Not in this entry: the INT8 kernel's own efficiency, shared with every
-Q4_0 build (lever 2), and the DeltaNet chunked kernel (lever 6, unmeasured).
-
-`ModelFamilyParity.md` 8.3, Q9, lever 1
-
-#### The 12-16 GB Qwen build generates below the card's memory bandwidth because its 2-bit kernel runs out of instructions first
-
-`open` · `qwen` · `quantization` · `perf` · `mila-src` · `measured`
-
-Decode reads at 65% of bandwidth against FP4's 79%. The 2-bit matvec is SM-bound at 93% (a shuffle and a bit
-extraction per weight), the 3-bit one holds 24 warps of 48 at 79-80 registers, and DeltaNet's `in_proj_a` and
-`in_proj_b` are 96 launch-bound BF16 launches a token. Three levers, about 3.1 ms a token together (33.8 to
-about 37.7 tokens a second at depth 0): a 16-entry FP16 pair table so one shuffle returns two 2-bit weights, with
-the host codec moving to FP16 with it; the 3-bit kernel's occupancy; `in_proj_a` and `in_proj_b` in one launch.
-
-Gate: Nsight Compute shows each codebook kernel DRAM-bound rather than SM-bound; greedy tokens and scores
-unchanged against the host codec; rates before and after on the reference card.
-
-`ModelFamilyParity.md` 8.3, Q9, levers 3 to 5
-
 ### Gemma 4 Complete
 
 #### Two questions decide the size of Gemma's image path, and neither is answered
@@ -487,8 +495,8 @@ unchanged against the host codec; rates before and after on the reference card.
 `open` · `gemma` · `mila-src`
 
 Answer both before building, because one of them reaches every attention path in the library. This
-is first-stage work — reading the HuggingFace implementation, not building — and its answers decide
-whether image input stays in the release, since it is the first item to drain.
+is first-stage work — reading the HuggingFace implementation, not building — and its answers size the
+image path the release now counts on (a use case with an image in it is part of the claim).
 
 **Do image soft tokens attend bidirectionally within a prefill?** Every attention path in Mila is
 causal. If a bidirectional span is required, that is a mask change across the attention machinery
@@ -516,7 +524,59 @@ placement before layer 0, image decode/resize/normalize (a vendored decoder is a
 belongs in the applications), template image tokens, Chat attach, MIS image content blocks for both
 protocols, converter keeps the embedders, manifest declares modality, footprint counts image prefill.
 Image input reaches applications through `Mila::AI`, not around it. Gate: embedder parity against
-HuggingFace, then token-for-token on an image prompt.
+HuggingFace, then token-for-token on an image prompt; the same for audio, whose `audio_tower` is an
+encoder rather than an embedder. Each is a feature a deployment selects (Deployment Planning).
+
+#### The 26B-A4B's vision tower is dropped when it loads
+
+`open` · `gemma` · `mila-src`
+
+The 26B-A4B checkpoint carries a vision tower -- 27 layers, 1,152 wide, about 411 million parameters,
+about 820 MB at BF16 and 410 at FP8 -- and the loader skips its 355 tensors (`Gemma4MoE.md`). The image
+path the 12B's work builds (soft-token placement, templates, the application surface) carries over; the
+tower is the new piece. On the 16 GB card its bytes are about 39K tokens of the 26B's context, so it is
+selected by a deployment rather than always built, and the memory levers are what make it worth
+selecting. First to drain if the date presses. Gate: tower parity against HuggingFace, then an image
+prompt token-for-token, at a context the plan states.
+
+`ROADMAP.md`, Gemma 4 Complete success criteria
+
+#### Gemma caches each global layer's keys and values separately, though its checkpoint makes them equal
+
+`open` · `gemma` · `mila-src` · `measured`
+
+On Gemma 4's global layers K = RoPE(k_norm(x)) and V = v_norm(x) from one projection, and the cache holds
+both. Storing one tensor and rotating the keys inside the attention kernels -- from the same angle
+function, `Rope.Angle.cuh` -- returns about half the global cache. Both deciding measurements passed on
+2026-10-01: one stored tensor serves both, and rotating 64 pairs on read costs 0.69 of today's two-tensor
+read at 64K (`RopeInAttention.md`). The context profile then gave it its reason (2026-10-04): the
+26B-A4B is reliable to 96K on recall and loses the middle of a conversation at 128K, while it fits 64K
+today -- so the bytes buy the 96K it is good for, or its vision tower at a useful context, rather than
+128K. Applies to the 12B's global layers as well. The kernels' shape is open.
+
+Gate: G2's books and recall at depth equal to storing both; the 26B-A4B plans its measured reliable
+depth on the 16 GB card.
+
+`ROADMAP.md`, Gemma 4 Complete success criteria · `Mila/Specifications/RopeInAttention.md`
+
+#### A Gemma reply longer than about 1,024 tokens costs the next turn a full prefill
+
+`open` · `gemma` · `mila-src` · `measured`
+
+Gemma's sliding layers keep a ring of `window + prefill_chunk - 1` rows (2,047 at chunk 1024,
+`SlidingWindowKvCache.md` D2). Writing more than about 1,024 tokens past a position overwrites the window
+its continuation attends to, so a rewind to it is refused -- correctly -- and the caller prefills from 0:
+`GemmaModel` reuses a prefix only when the rewind is accepted. Thinking-off replies never reach it;
+reasoning replies run to thousands of tokens (ContextProfile's thinking runs, 2026-10-04), and a full
+prefill is about 100 s at 128K on the 12B. The window is the architecture's; the finite rewind horizon is
+the ring's, a memory optimization. Work: what Qwen does for its recurrent state -- `savePosition` copies
+the sliding layers' last window, and a rewind to the saved position puts it back -- bounded by the window,
+not the context. Size unmeasured. Also what makes the drafter's rewind safe.
+
+Gate: a turn after a reply of any length resumes without a full prefill, measured on the 12B at 128K;
+tokens equal to a fresh prefill's.
+
+`ROADMAP.md`, Gemma 4 Complete success criteria
 
 #### Announce the Gemma 4 26B-A4B mixture of experts
 
@@ -585,9 +645,12 @@ K-token verify forward costs against K decodes on the 5060 Ti, in Mila on the Q4
 and how many drafted tokens the target accepts, from HuggingFace's assisted generation. If K=4 costs near 4
 decodes, or too few drafts are accepted, there is no win, and the recorded result is "not worth doing".
 
-This release is the measurement only. The loop it would justify — draft/verify/accept/rewind, the
-drafter's KV cache, wrap-safe rewind on the sliding ring — is in `Vnext.md`, and `SpeculativeDecoding.md`
-is the draft design.
+The loop is in this release where the measurement says it pays (Todd, 2026-10-04), as a feature a
+deployment selects: draft/verify/accept/rewind, the drafter's KV cache, and rewind on the sliding ring --
+which the ring entry below makes safe after any number of tokens. `SpeculativeDecoding.md` is the draft
+design. Gate: with the drafter selected, the 12B decodes token-for-token as without it, faster by the
+measured amount; if the measurement says "not worth doing", that result is recorded and the loop stays
+out. The 26B-A4B is not paired with it: a mixture of experts gains little from drafting at batch 1.
 
 #### Gemma 4 12B at 4 bits predicts worse the longer the context, and Mila cannot run the weights Google trained to prevent it
 

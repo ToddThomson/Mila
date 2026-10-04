@@ -26,7 +26,7 @@
 
 import Mila;
 
-#include "Common/LogLikelihoodHarness.h"
+#include "Measurement/LogLikelihoodHarness.h"
 
 namespace Mila::Tests::Dnn::Components::Transformers::Llama
 {
@@ -195,18 +195,18 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
 
             auto append = [&]( const auto& logits )
             {
-                const std::vector<float> host = Common::hostLogits( *network, logits );
+                const std::vector<float> host = Measurement::hostLogits( *network, logits );
                 actual.insert( actual.end(), host.begin(), host.end() );
             };
 
-            append( network->prefill( Common::deviceTokens( *network,
+            append( network->prefill( Measurement::deviceTokens( *network,
                 std::vector<std::int32_t>( tokens.begin(), tokens.begin() + prompt ) ) ) );
 
             for ( int64_t step = 1; step < steps; ++step )
             {
                 const int64_t position = prompt + step - 1;
 
-                append( network->decode( Common::deviceTokens( *network, { tokens[ static_cast<std::size_t>( position ) ] } ), position ) );
+                append( network->decode( Measurement::deviceTokens( *network, { tokens[ static_cast<std::size_t>( position ) ] } ), position ) );
             }
 
             ASSERT_EQ( actual.size(), expected.size() );
@@ -273,7 +273,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
                 auto network = loadedNetwork<TensorDataType::FP32>(
                     capture, capturedConfig( capture, TensorDataType::FP32, window ), kChunk );
 
-                const SequenceLogLikelihood measured = Common::sequenceLogLikelihoodOf( *network, tokens );
+                const SequenceLogLikelihood measured = Measurement::sequenceLogLikelihoodOf( *network, tokens );
 
                 std::cout << std::format( "[ log-likelihood ] {} window {}: {:.9f} against HuggingFace {:.9f}, difference {:.3e}\n",
                     capture == Capture::Scaled ? "scaled" : "unscaled", window, measured.total_log_probability,
@@ -338,7 +338,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
 
         auto network = loadedNetwork<TensorDataType::FP32>( Capture::Scaled, unscaled, kChunk );
 
-        const SequenceLogLikelihood measured = Common::sequenceLogLikelihoodOf( *network, referenceTokens( Capture::Scaled ) );
+        const SequenceLogLikelihood measured = Measurement::sequenceLogLikelihoodOf( *network, referenceTokens( Capture::Scaled ) );
 
         std::cout << std::format( "[ log-likelihood ] scaled weights without the scaling: difference {:.3e}\n",
             measured.total_log_probability - reference.total );
@@ -412,8 +412,8 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
         auto network = loadedNetwork<TensorDataType::FP32>(
             Capture::Unscaled, capturedConfig( Capture::Unscaled, TensorDataType::FP32, 3 ), kChunk );
 
-        const Common::GreedyContinuation greedy =
-            Common::greedyContinuationOf( *network, prompt, kGenerated, {}, kContext );
+        const Measurement::GreedyContinuation greedy =
+            Measurement::greedyContinuationOf( *network, prompt, kGenerated, {}, kContext );
 
         ASSERT_EQ( greedy.tokens.size(), static_cast<std::size_t>( kGenerated ) );
 
@@ -448,7 +448,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
 
         ASSERT_EQ( observed, 1u ) << "the head was not selected, so no rows will arrive";
 
-        (void)Common::sequenceLogLikelihoodOf( *network, sequence );
+        (void)Measurement::sequenceLogLikelihoodOf( *network, sequence );
 
         network->stopObserving();
 
@@ -458,7 +458,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
         {
             const std::size_t position = prompt.size() - 1 + static_cast<std::size_t>( generated );
 
-            EXPECT_EQ( Common::argMax( rows[ position ] ), greedy.tokens[ static_cast<std::size_t>( generated ) ] )
+            EXPECT_EQ( Measurement::argMax( rows[ position ] ), greedy.tokens[ static_cast<std::size_t>( generated ) ] )
                 << "position " << position;
         }
     }

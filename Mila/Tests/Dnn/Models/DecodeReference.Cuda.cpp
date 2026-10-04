@@ -27,7 +27,7 @@
 import Mila;
 
 #include "Common/DecodeHarness.h"
-#include "Common/LogLikelihoodHarness.h"
+#include "Measurement/LogLikelihoodHarness.h"
 #include "Common/TinyDecodeNetworks.h"
 
 namespace Mila::Tests::Dnn::Models
@@ -101,13 +101,13 @@ namespace Mila::Tests::Dnn::Models
             DecodeTrace trace;
             trace.step_hashes.reserve( static_cast<std::size_t>( kLastPosition ) );
 
-            (void)Common::hostLogits( network, network.prefill( Common::deviceTokens( network, { tokenAt( 0 ) } ) ) );
+            (void)Measurement::hostLogits( network, network.prefill( Measurement::deviceTokens( network, { tokenAt( 0 ) } ) ) );
 
             Common::DecodeInput<TNetwork> input( network );
 
             for ( dim_t position = 1; position <= kLastPosition; ++position )
             {
-                std::vector<float> logits = Common::hostLogits(
+                std::vector<float> logits = Measurement::hostLogits(
                     network, network.decode( input.set( tokenAt( position ) ), position ) );
 
                 trace.step_hashes.push_back( hashOf( logits ) );
@@ -284,7 +284,7 @@ namespace Mila::Tests::Dnn::Models
                 const auto& logits = trace.kept_logits[ k ];
                 const auto finite = std::ranges::count_if( logits, []( float x ) { return std::isfinite( x ); } );
 
-                line += std::format( " [{}] argmax {}{}", trace.kept_positions[ k ], Common::argMax( logits ),
+                line += std::format( " [{}] argmax {}{}", trace.kept_positions[ k ], Measurement::argMax( logits ),
                     finite == static_cast<std::ptrdiff_t>( logits.size() ) ? "" : std::format( " ({} non-finite)",
                         logits.size() - static_cast<std::size_t>( finite ) ) );
             }
@@ -383,7 +383,7 @@ namespace Mila::Tests::Dnn::Models
             Decoding decoding = Decoding::Called )
         {
             checkAgainstReference( arm, static_cast<std::int32_t>( config.getVocabSize() ), [ & ] {
-                return Common::buildMeasuredNetwork<TNetwork>( weights, config, DeviceId{ DeviceType::Cuda, 0 },
+                return Measurement::buildMeasuredNetwork<TNetwork>( weights, config, DeviceId{ DeviceType::Cuda, 0 },
                     kContextLength );
             }, decoding );
         }

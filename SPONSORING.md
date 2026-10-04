@@ -30,9 +30,11 @@ runnable; 32 GB on Blackwell also reaches the native FP4 compute path Mila canno
 
 The next models Mila plans to support are agentic ones — **Qwen 3.8 27B** and **Muse Glimmer 30B**,
 both dense, both tuned for tool use, long tasks and failure recovery. At FP4 their weights alone are
-roughly **13.5 GB and 16 GB**, before a single token of KV cache. The development rig is a 12 GB
-RTX 4070. **Neither model loads on it, at any precision Mila supports** — which makes this a
-precondition for the work rather than an improvement to it.
+roughly **13.5 GB and 16 GB**, before a single token of KV cache. On the 16 GB card Mila is developed
+on, Qwen 3.8 27B runs at FP4 with 16K of context, or with more only below three bits a weight, and
+Muse Glimmer does not load at all. So Mila's work on 16 GB goes to Gemma 4, whose models fit with room
+to choose, and the tuning a 27B needs waits for a larger card — which makes this a precondition for
+that work rather than an improvement to it.
 
 What 24 GB buys is development, benchmarking, and establishing what is practical on a single card. It
 does not buy token-for-token validation against the HuggingFace reference: at BF16 those models are

@@ -28,7 +28,7 @@
 
 import Mila;
 
-#include "Common/LogLikelihoodHarness.h"
+#include "Measurement/LogLikelihoodHarness.h"
 
 namespace Mila::Tests::Dnn::Models
 {
@@ -396,7 +396,7 @@ namespace Mila::Tests::Dnn::Models
                 const auto first = text.begin() + static_cast<std::ptrdiff_t>( segment ) * ( kSegmentLength - 1 );
                 tokens.insert( tokens.end(), first, first + ( kSegmentLength - 1 ) );
 
-                const SequenceLogLikelihood scored = Common::sequenceLogLikelihoodOf( *network, tokens );
+                const SequenceLogLikelihood scored = Measurement::sequenceLogLikelihoodOf( *network, tokens );
                 total += scored.total_log_probability;
                 positions += scored.scored_positions;
             }
