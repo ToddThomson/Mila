@@ -49,8 +49,9 @@ policy axis (Section 6).
 "Unified" = the **encoder-free multimodal** architecture (12B/26B project raw
 image patches and audio waveforms directly into the embedding space via linear
 layers, dropping the dedicated encoders the E2B/E4B edge models use). The
-multimodal projection is out of scope for the initial text port; the **dense text
-chassis is the entry target**.
+multimodal projection was out of scope for the initial text port, which made the
+**dense text chassis the entry target**; image and audio input are designed in
+`Gemma4Modality.md`, and the draft model in `Gemma4Mtp.md`.
 
 ---
 

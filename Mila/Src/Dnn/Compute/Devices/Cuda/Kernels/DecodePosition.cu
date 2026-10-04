@@ -12,11 +12,23 @@ namespace Mila::Dnn::Compute::Cuda
         {
             *target = position;
         }
+
+        __global__ void offset_decode_position_kernel( int* target, const int* position, int offset )
+        {
+            *target = *position + offset;
+        }
     }
 
     void cuda_set_decode_position( int* target, int position, cudaStream_t stream )
     {
         set_decode_position_kernel<<<1, 1, 0, stream>>>( target, position );
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_offset_decode_position( int* target, const int* position, int offset, cudaStream_t stream )
+    {
+        offset_decode_position_kernel<<<1, 1, 0, stream>>>( target, position, offset );
 
         cudaCheck( cudaGetLastError() );
     }

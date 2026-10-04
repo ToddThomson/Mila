@@ -5,6 +5,11 @@ Design Contract for Draft-Verify Accelerated Decoding in Mila's Generation Loop
 Status: **DRAFT / proposed milestone** (no code yet). Sibling of the planned-feature specs
 (`TokenSampling.md`, `PromptCaching.md`, `ToolCalling.md`).
 
+**Superseded for Gemma by `Gemma4Mtp.md` (2026-10-04).** Google's drafter attends the target's own cache
+and keeps none, takes the target's final-normed hidden state joined to its token embedding, and carries its
+own head; drafters are features built or not, never a compile-time axis (`ModelHandle.md` 3.8). Sections
+3.2, 3.3 and 6 below do not describe it, and section 8's phase plan is not the path.
+
 ---
 
 ## 1. Overview

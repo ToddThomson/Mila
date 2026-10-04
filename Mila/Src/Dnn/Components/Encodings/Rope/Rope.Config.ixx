@@ -48,7 +48,8 @@ namespace Mila::Dnn
          *
          * @param channels     Total Q embedding width (n_heads * head_dim).
          * @param n_heads      Number of query heads.
-         * @param n_kv_heads   Number of key/value heads (GQA: <= n_heads).
+         * @param n_kv_heads   Number of key/value heads (GQA: <= n_heads). Zero rotates queries only, for
+         *                     attention whose keys another layer rotated and cached (Gemma4Mtp.md 4.3).
          * @param max_seq_len  Trained maximum sequence length. A build longer than this is
          *                     refused; the cos/sin tables are sized to the build's own length.
          */
@@ -179,8 +180,8 @@ namespace Mila::Dnn
         /**
          * @brief Validate configuration.
          *
-         * Enforces: required fields are positive, channels is divisible by n_heads,
-         * head_dim is even (RoPE requires paired dimensions), n_kv_heads <= n_heads,
+         * Enforces: required fields are positive (n_kv_heads may be zero), channels is divisible by
+         * n_heads, head_dim is even (RoPE requires paired dimensions), n_kv_heads <= n_heads,
          * and rotary_dim (if set) does not exceed head_dim.
          *
          * @throws std::invalid_argument on any violated constraint.
@@ -197,9 +198,9 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "RopeConfig: n_heads must be > 0" );
             }
 
-            if ( n_kv_heads_ <= 0 )
+            if ( n_kv_heads_ < 0 )
             {
-                throw std::invalid_argument( "RopeConfig: n_kv_heads must be > 0" );
+                throw std::invalid_argument( "RopeConfig: n_kv_heads must be >= 0" );
             }
 
             if ( channels_ % n_heads_ != 0 )

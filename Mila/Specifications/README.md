@@ -70,6 +70,8 @@ means a status line or target is out of date and the rest has not been re-read.
 |---|---|---|---|
 | [Gemma.md](Gemma.md) | Design | The Gemma 4 chassis; §10 the Gemma 4 26B-A4B — configuration, topology, Q4_0 format, memory, the bar | |
 | [GemmaChatProtocol.md](GemmaChatProtocol.md) | Design | Gemma 4's turn and tool protocol, and Chat's implementation of it | |
+| [Gemma4Modality.md](Gemma4Modality.md) | Design | Image and audio input for Gemma 4: the 12B's embedders, the 26B-A4B's vision tower, bidirectional image spans, and the applications' attach path | Draft; the mask is built, the rest is not |
+| [Gemma4Mtp.md](Gemma4Mtp.md) | Design | Speculative decoding of Gemma 4 12B and 26B-A4B with Google's draft models | Draft; stage 1 built and measured, the loop not built. Supersedes `SpeculativeDecoding.md` for Gemma |
 | [Notebooks/Gemma4MoE.md](Notebooks/Gemma4MoE.md) | Notebook | Gemma 4 26B-A4B, phases 1-9 | Decisions owned by `Gemma.md` §10 and `MixtureOfExperts.md`; carries the map from the section numbers it cites to where they moved. Keeps its name because code cites it by name |
 | [Notebooks/Gemma4InferenceReview.md](Notebooks/Gemma4InferenceReview.md) | Notebook | Review of the Gemma 4 12B generation path, 2026-07-02 | Its recommendations went to `BACKLOG.md`; five specs and a test cite its sections as evidence |
 | [Qwen3.8.md](Qwen3.8.md) | Design and notebook | The Qwen 3.8 27B chassis, and its measurements | To split. Read before relying: its opening calls it a research track outside v0.20, and it shipped in v0.20 |
@@ -110,7 +112,7 @@ means a status line or target is out of date and the rest has not been re-read.
 |---|---|---|---|
 | [TokenSampling.md](TokenSampling.md) | Design | Sampling on the device | |
 | [DecodeGraph.md](DecodeGraph.md) | Design | Replaying a decode step as one recorded graph, and the contract every decode op keeps | |
-| [SpeculativeDecoding.md](SpeculativeDecoding.md) | Design | Draft-verify decoding | Draft; no code |
+| [SpeculativeDecoding.md](SpeculativeDecoding.md) | Design | Draft-verify decoding | Draft; no code. For Gemma superseded by `Gemma4Mtp.md` (2026-10-04): Google's drafter has no cache of its own and is a feature built or not, not a `TDrafter` axis, so its §3.2, §3.3 and §6 do not describe it. Archive candidate once nothing else plans on it |
 
 ### Measurement
 

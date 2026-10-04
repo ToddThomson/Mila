@@ -46,6 +46,7 @@ import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
 import Compute.IKvInference;
 import Compute.GqaState;
+import Compute.KvCacheView;
 import Compute.CublasLtPlan;
 import CublasLt.Error;
 import Logging.Logger;
@@ -187,6 +188,29 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // The fill count is the network's (DecodeGraph.md 4.3); the cache itself is only positional.
         void resetKvCache() override
         {
+        }
+
+        /**
+         * @brief This op's cache, for attention another component runs over it without writing.
+         *
+         * @throws std::logic_error Before initializeKvCache(): there is no cache to view.
+         */
+        [[nodiscard]] KvCacheView getKvCacheView() const
+        {
+            ensureKvCacheEnabled();
+
+            KvCacheView view;
+            view.keys = k_opt_;
+            view.values = v_opt_;
+            view.key_scales = k_scale_opt_;
+            view.value_scales = v_scale_opt_;
+            view.capacity = cache_capacity_;
+            view.num_kv_heads = NKV_;
+            view.head_size = HS_;
+            view.window = window_;
+            view.fp8 = kFp8Cache;
+
+            return view;
         }
 
         bool rewindKvCache( dim_t position, dim_t cached_length ) override
@@ -769,6 +793,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     "CudaGqaOp: an FP8 KV cache is read only by the flash prefill; switch it on before prefill" );
             }
 
+            const int* key_bounds = context_->getPrefillKeyBounds( position_offset, chunk_len );
             cudaStream_t stream = context_->getStream();
 
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv_fp8(
@@ -780,7 +805,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             {
                 Detail::cuda_gqa_kernels<NativeType>::flash_prefill_ring_fp8(
                     static_cast<const NativeType*>( q.rawData() ), k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
-                    static_cast<NativeType*>( output.rawData() ),
+                    static_cast<NativeType*>( output.rawData() ), key_bounds,
                     B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
                     position_offset, window_, attention_scale_, stream );
             }
@@ -788,7 +813,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             {
                 Detail::cuda_gqa_kernels<NativeType>::flash_prefill_fp8(
                     static_cast<const NativeType*>( q.rawData() ), k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
-                    static_cast<NativeType*>( output.rawData() ),
+                    static_cast<NativeType*>( output.rawData() ), key_bounds,
                     B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
                     position_offset, window_, attention_scale_, stream );
             }
@@ -903,6 +928,17 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const float beta = 0.0f;
             const float scale = attention_scale_;   // config-derived: 1/sqrt(HS) (Llama) or explicit (Gemma 1.0)
 
+            // Only the BF16 flash kernels read key bounds. Any other path would attend the chunk causally, which for a
+            // prompt with an image is a different model, so it refuses rather than runs.
+            const int* key_bounds = context_->getPrefillKeyBounds( position_offset, chunk_len );
+
+            if ( key_bounds != nullptr && ( !std::is_same_v<NativeType, nv_bfloat16> || !use_flash_prefill_ ) )
+            {
+                throw std::logic_error(
+                    "CudaGqaOp: prefill key bounds are read only by the BF16 flash prefill; this op runs FP32 or the "
+                    "cuBLASLt pipeline" );
+            }
+
             // Write K/V into the compact [B, NKV, cache_capacity_, HS] cache. The write
             // kernel wraps the row index by cache_capacity_ (the ring); unbounded keeps
             // cache_capacity_ == T_ so the wrap is the identity.
@@ -921,14 +957,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     if constexpr ( kBounded )
                     {
                         Detail::cuda_gqa_kernels<NativeType>::flash_prefill_ring(
-                            Xq, k_opt_, v_opt_, Y,
+                            Xq, k_opt_, v_opt_, Y, key_bounds,
                             B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
                             position_offset, window_, scale, stream );
                     }
                     else
                     {
                         Detail::cuda_gqa_kernels<NativeType>::flash_prefill(
-                            Xq, k_opt_, v_opt_, Y,
+                            Xq, k_opt_, v_opt_, Y, key_bounds,
                             B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
                             position_offset, window_, scale, stream );
                     }

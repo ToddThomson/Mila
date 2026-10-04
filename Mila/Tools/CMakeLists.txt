@@ -17,3 +17,8 @@ if(MILA_ENABLE_CUDA)
     add_subdirectory( ContextProfile )
 endif()
 
+# Whether a draft model pays on a target (Specifications/Gemma4Mtp.md section 5.1), timed on a real card.
+if(MILA_ENABLE_CUDA)
+    add_subdirectory( Drafting )
+endif()
+

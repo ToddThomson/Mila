@@ -320,10 +320,10 @@ FP8 — which its loader skips today (`Gemma4MoE.md`), and on the 16 GB card tho
 about 39K tokens of the 26B's cache. Image input on the 26B is therefore a choice a deployment makes
 against its context, and the memory levers below are what make it a choice worth having.
 
-**Its size is not yet known, and that is stated rather than estimated.** Two questions decide it:
-whether image soft tokens must attend bidirectionally within a prefill, when every attention path in
-Mila is causal, and the position scheme for image spans. Both are answered in the first stage of the
-release, before anything is built, and the answers decide whether modality stays in it.
+**Its size is now known** (`Gemma4Modality.md`). Image tokens take ordinary positions, but the tokens
+of one picture attend each other in both directions, while every attention path in Mila is causal: that
+mask change, in every prefill path, is the work. The embedders are small, and the 12B's audio is a
+single projection of raw 40 ms frames, not an encoder. Chat accepts both an image and an audio clip.
 
 **The 4-bit 12B has to hold its quality at the context lengths agentic work runs at, and today it
 does not.** Mila's FP4 package predicts text worse the more of it the model has read -- about twice
@@ -337,8 +337,8 @@ Google's published drafter is answered by a measurement first, with its own stop
 only worth a speculative loop if a K-token verify costs meaningfully less than K decodes on a
 bandwidth-bound 4-bit path. **The loop is in this release when the measurement says it pays** (Todd,
 2026-10-04), as a feature a deployment selects; when it does not, the result is recorded and the loop
-stays out. It is for the dense 12B: a mixture of experts gains little from drafting at batch 1, by
-Google's own account.
+stays out. It is for both Gemma 4 models, each with its own drafter (Todd, 2026-10-04): Google says a
+mixture of experts gains little from drafting at batch 1, so the 26B-A4B's is measured, not assumed.
 
 **Gemma's memory is spent on what a use case needs.** Two levers are Gemma's own. Its global layers
 are trained with keys equal to values (K = V), and Mila caches both; storing them once returns about
@@ -365,12 +365,12 @@ Google's GGUF, its quality is measured across the planner's range, and Chat, the
 the Python binding run it with tool calls; reasoning survives across tool calls within a turn and a malformed call is refused
 rather than executed as empty; Gemma 4 12B runs Google's quantization-aware weights in Q4_0, and its
 cost over BF16 is measured at every context length the planner can choose for it; the drafter
-question has a recorded result, including the result "not worth doing", and where it pays, a
-deployment that selects the drafter decodes the 12B token-for-token as it does without it, faster by
-the measured amount; Gemma's quality is measured at every context length the planner can
+question has a recorded result for each Gemma 4 model, including the result "not worth doing", and where
+it pays, a deployment that selects the drafter decodes that model token-for-token as it does without it,
+faster by the measured amount; Gemma's quality is measured at every context length the planner can
 choose for it, by a measurement that lives in the harness rather than in the public API; and Chat renders
 Gemma's prompt with the library's template, not its own; Gemma 4 12B accepts audio, gated against
-HuggingFace as its image path is; the 26B-A4B accepts an image through its tower, at a context the
+HuggingFace as its image path is, and Chat accepts both an image and an audio clip; the 26B-A4B accepts an image through its tower, at a context the
 plan states; the global layers store each key once, gated equal to storing both on G2's books and on
 recall at depth, and the 26B-A4B fits its measured reliable depth on the 16 GB card; and a turn that
 follows a reply of any length resumes the cached conversation without a full prefill, measured on the

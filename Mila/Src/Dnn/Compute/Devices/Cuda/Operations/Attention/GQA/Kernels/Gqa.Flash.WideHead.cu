@@ -269,6 +269,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const float* __restrict__ k_scales,    // [B, NKV, cache_capacity], kFp8 only
         const float* __restrict__ v_scales,    // [B, NKV, cache_capacity], kFp8 only
         __nv_bfloat16* __restrict__ Y,         // [B, chunk_len, NH * 512]
+        const int* __restrict__ key_bounds,    // [chunk_len] last key each position attends; null is causal
         int chunk_len, int NH, int NKV, int cache_capacity, int position_offset, float scale )
     {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
@@ -287,8 +288,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const int block_row0 = blockIdx.x * kRows;
         const int warp_row0 = block_row0 + warp * kWarpRows;
 
+        // The last key a chunk position attends: itself, or the end of its image's run. Bounds never decrease, so the
+        // block's last position bounds the whole block.
+        const auto keyBound = [&]( int position ) -> int
+        {
+            return key_bounds != nullptr ? key_bounds[ position ] : position_offset + position;
+        };
+
         // The last key position any of the block's rows attends to; past it the loads are zeros.
-        const int key_limit = position_offset + ( min( block_row0 + kRows, total_rows ) - 1 ) / group;
+        const int key_limit = keyBound( ( min( block_row0 + kRows, total_rows ) - 1 ) / group );
 
         const std::size_t kv_base = ( static_cast<std::size_t>( b ) * NKV + kv_head ) * cache_capacity * kHeadSize;
         const std::size_t scale_base = ( static_cast<std::size_t>( b ) * NKV + kv_head ) * cache_capacity;
@@ -366,8 +374,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             __syncwarp();
         }
 
-        // The score columns this lane holds: rows 2tg and 2tg + 1 of the warp.
-        int absolute[ 2 ];
+        // The score columns this lane holds: rows 2tg and 2tg + 1 of the warp, and the last key each attends.
+        int bound[ 2 ];
         bool active[ 2 ];
 
 #pragma unroll
@@ -375,14 +383,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         {
             const int row = warp_row0 + 2 * tg + j;
             active[ j ] = row < total_rows;
-            absolute[ j ] = position_offset + ( active[ j ] ? row / group : 0 );
+            bound[ j ] = keyBound( active[ j ] ? row / group : 0 );
         }
 
-        // The block's keys run to its last position; tiles wholly at or before its first position need no mask.
-        const int last_row = min( block_row0 + kRows, total_rows ) - 1;
+        // The block's keys run to its last bound; tiles wholly at or before its first position need no mask, since a
+        // bound is never below its own position.
         const int first_position = position_offset + block_row0 / group;
-        const int last_position = position_offset + last_row / group;
-        const int tile_count = last_position / kKeys + 1;
+        const int tile_count = key_limit / kKeys + 1;
         const int unmasked_tiles = ( first_position + 1 ) / kKeys;
 
         float o[ kDimTiles ][ 4 ];
@@ -479,7 +486,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     const float key_scale = kFp8 ? scale * s_k_scale[ key_in_tile ] : scale;
                     float score = s[ kt ][ e ] * key_scale;
 
-                    if ( masked && ( !active[ j ] || tile_start + key_in_tile > absolute[ j ] ) )
+                    if ( masked && ( !active[ j ] || tile_start + key_in_tile > bound[ j ] ) )
                         score = -CUDART_INF_F;
 
                     s[ kt ][ e ] = score;
@@ -645,7 +652,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         template<bool kFp8>
         void launch_wide_head_prefill(
             const __nv_bfloat16* Q, const void* K, const void* V, const float* k_scales, const float* v_scales,
-            __nv_bfloat16* Y, int B, int chunk_len, int NH, int NKV, int cache_capacity,
+            __nv_bfloat16* Y, const int* key_bounds, int B, int chunk_len, int NH, int NKV, int cache_capacity,
             int position_offset, float scale, cudaStream_t stream )
         {
             constexpr std::size_t kSharedBytes = WideHeadGeometry<kFp8>::kSharedBytes;
@@ -659,7 +666,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const dim3 grid( ceil_div( total_rows, kRows ), NKV, B );
 
             gqa_flash_prefill_wide_head_kernel<kFp8> <<< grid, kWarps * 32, kSharedBytes, stream >>> (
-                Q, K, V, k_scales, v_scales, Y, chunk_len, NH, NKV, cache_capacity, position_offset, scale );
+                Q, K, V, k_scales, v_scales, Y, key_bounds, chunk_len, NH, NKV, cache_capacity, position_offset, scale );
 
             cudaCheck( cudaGetLastError() );
         }
@@ -667,24 +674,24 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
     void cuda_gqa_flash_prefill_wide_head_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
-        __nv_bfloat16* Y,
+        __nv_bfloat16* Y, const int* key_bounds,
         int B, int chunk_len, int NH, int NKV, int cache_capacity,
         int position_offset, float scale,
         cudaStream_t stream )
     {
-        launch_wide_head_prefill<false>( Q, K, V, nullptr, nullptr, Y, B, chunk_len, NH, NKV, cache_capacity,
+        launch_wide_head_prefill<false>( Q, K, V, nullptr, nullptr, Y, key_bounds, B, chunk_len, NH, NKV, cache_capacity,
             position_offset, scale, stream );
     }
 
     void cuda_gqa_flash_prefill_wide_head_fp8(
         const __nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
         const float* k_scales, const float* v_scales,
-        __nv_bfloat16* Y,
+        __nv_bfloat16* Y, const int* key_bounds,
         int B, int chunk_len, int NH, int NKV, int cache_capacity,
         int position_offset, float scale,
         cudaStream_t stream )
     {
-        launch_wide_head_prefill<true>( Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, cache_capacity,
+        launch_wide_head_prefill<true>( Q, K, V, k_scales, v_scales, Y, key_bounds, B, chunk_len, NH, NKV, cache_capacity,
             position_offset, scale, stream );
     }
 }

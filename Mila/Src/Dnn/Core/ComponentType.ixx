@@ -60,6 +60,9 @@ namespace Mila::Dnn
         // Top-level networks
         Network,
 
+        // Leaf components added after the list above; appended so no earlier value moves.
+        SharedKvAttention,
+
         // Reserve range for custom components (1000+)
         CustomComponentStart = 1000,
 
@@ -120,7 +123,9 @@ namespace Mila::Dnn
                 return "Lpe";
             case ComponentType::Rope:
                 return "Rope";
-            
+            case ComponentType::SharedKvAttention:
+                return "SharedKvAttention";
+
             case ComponentType::Network:
                 return "Network";
 
@@ -184,6 +189,8 @@ namespace Mila::Dnn
             return ComponentType::Lpe;
         if ( low == "rope" )
             return ComponentType::Rope;
+        if ( low == "sharedkvattention" )
+            return ComponentType::SharedKvAttention;
         if ( low == "network" )
             return ComponentType::Network;
 
@@ -246,6 +253,8 @@ namespace Mila::Dnn
                 return "lpe";
             case ComponentType::Rope:
                 return "rope";
+            case ComponentType::SharedKvAttention:
+                return "skva";
             case ComponentType::Network:
                 return "net";
 
@@ -306,6 +315,8 @@ namespace Mila::Dnn
             return ComponentType::Lpe;
         if ( s == "rope" )
             return ComponentType::Rope;
+        if ( s == "skva" )
+            return ComponentType::SharedKvAttention;
         if ( s == "net" )
             return ComponentType::Network;
         

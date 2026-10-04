@@ -404,15 +404,16 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             // Fused FlashAttention prefill (Iteration 1). BF16-only; the caller gates on
             // NativeType == nv_bfloat16 so the FP32 specialization never needs this symbol.
+            // `key_bounds`: each chunk position's last key, or null for causal attention (cuda_gqa_flash_prefill_bf16).
             static void flash_prefill(
                 const nv_bfloat16* Q, const nv_bfloat16* K, const nv_bfloat16* V,
-                nv_bfloat16* Y,
+                nv_bfloat16* Y, const int* key_bounds,
                 int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
                 int position_offset, int window, float scale,
                 cudaStream_t stream )
             {
                 cuda_gqa_flash_prefill_bf16(
-                    Q, K, V, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
+                    Q, K, V, Y, key_bounds, B, chunk_len, NH, NKV, HS, cache_capacity,
                     position_offset, window, scale, stream );
             }
 
@@ -420,13 +421,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // same gating as flash_prefill.
             static void flash_prefill_ring(
                 const nv_bfloat16* Q, const nv_bfloat16* K, const nv_bfloat16* V,
-                nv_bfloat16* Y,
+                nv_bfloat16* Y, const int* key_bounds,
                 int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
                 int position_offset, int window, float scale,
                 cudaStream_t stream )
             {
                 cuda_gqa_flash_prefill_ring_bf16(
-                    Q, K, V, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
+                    Q, K, V, Y, key_bounds, B, chunk_len, NH, NKV, HS, cache_capacity,
                     position_offset, window, scale, stream );
             }
 
@@ -491,26 +492,26 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             static void flash_prefill_fp8(
                 const nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
-                const float* k_scales, const float* v_scales, nv_bfloat16* Y,
+                const float* k_scales, const float* v_scales, nv_bfloat16* Y, const int* key_bounds,
                 int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
                 int position_offset, int window, float scale,
                 cudaStream_t stream )
             {
                 cuda_gqa_flash_prefill_fp8(
-                    Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
+                    Q, K, V, k_scales, v_scales, Y, key_bounds, B, chunk_len, NH, NKV, HS, cache_capacity,
                     position_offset, window, scale, stream );
             }
 
             // The bounded ring of FP8 codes (SlidingWindowKvFp8).
             static void flash_prefill_ring_fp8(
                 const nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
-                const float* k_scales, const float* v_scales, nv_bfloat16* Y,
+                const float* k_scales, const float* v_scales, nv_bfloat16* Y, const int* key_bounds,
                 int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
                 int position_offset, int window, float scale,
                 cudaStream_t stream )
             {
                 cuda_gqa_flash_prefill_ring_fp8(
-                    Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
+                    Q, K, V, k_scales, v_scales, Y, key_bounds, B, chunk_len, NH, NKV, HS, cache_capacity,
                     position_offset, window, scale, stream );
             }
 

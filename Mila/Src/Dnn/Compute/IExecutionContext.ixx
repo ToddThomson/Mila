@@ -6,6 +6,8 @@
 module;
 #include <cstddef>
 #include <memory>
+#include <span>
+#include <stdexcept>
 #include <utility>
 
 export module Compute.IExecutionContext;
@@ -82,6 +84,29 @@ namespace Mila::Dnn::Compute
          * position as an argument.
          */
         virtual void setDecodePosition( [[maybe_unused]] dim_t position )
+        {
+        }
+
+        /**
+         * @brief Set how far each row of the next prefill chunk attends.
+         *
+         * `bounds[i]` is the last key position row `position_offset + i` reads, so a row whose bound lies past it
+         * also attends later keys of its own chunk: an image's tokens attend each other in both directions
+         * (Gemma4Modality.md 5.4). A network sets them before such a chunk and clears them after it; an attention
+         * op asks for the bounds of its own chunk. Empty bounds are causal attention.
+         *
+         * @throws std::logic_error For non-empty bounds on a context whose attention reads none.
+         */
+        virtual void setPrefillKeyBounds( [[maybe_unused]] dim_t position_offset, std::span<const dim_t> bounds )
+        {
+            if ( !bounds.empty() )
+            {
+                throw std::logic_error( "IExecutionContext: this context's attention reads no prefill key bounds" );
+            }
+        }
+
+        /// Return the next prefill to causal attention. Safe when no bounds are set.
+        virtual void clearPrefillKeyBounds() noexcept
         {
         }
 

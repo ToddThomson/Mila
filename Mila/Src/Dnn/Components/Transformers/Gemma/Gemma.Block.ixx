@@ -368,6 +368,16 @@ namespace Mila::Dnn
             return attn_ && attn_->rewindKvCache( position, cached_length );
         }
 
+        /// This layer's KV cache, which Gemma 4's draft model attends without writing (Gemma4Mtp.md 4.3).
+        [[nodiscard]] KvCacheView kvCacheView() const
+            requires ( TDeviceType == DeviceType::Cuda )
+        {
+            if ( !attn_ )
+                throw std::logic_error( std::format( "GemmaBlock '{}': no KV cache before build", this->getName() ) );
+
+            return attn_->getKvCacheView();
+        }
+
         /**
          * @brief Install the transformer-owned shared activation workspace (pooling).
          *

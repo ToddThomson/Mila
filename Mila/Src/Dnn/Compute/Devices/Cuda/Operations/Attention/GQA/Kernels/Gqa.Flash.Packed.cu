@@ -253,6 +253,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const float* __restrict__ k_scales,    // [B, NKV, cache_capacity], kFp8 only
         const float* __restrict__ v_scales,    // [B, NKV, cache_capacity], kFp8 only
         __nv_bfloat16* __restrict__ Y,         // [B, chunk_len, NH * HS]
+        const int* __restrict__ key_bounds,    // [chunk_len] last key each position attends; null is causal
         int chunk_len, int NH, int NKV, int cache_capacity,
         int position_offset, int window, float scale, bool ring )
     {
@@ -278,8 +279,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const int total_rows = chunk_len * group;
         const int block_row0 = blockIdx.x * Geometry::kRows;
 
+        // The last key a chunk position attends: itself, or the end of its image's run. Bounds never decrease, so the
+        // block's last position bounds the whole block.
+        const auto keyBound = [&]( int position ) -> int
+        {
+            return key_bounds != nullptr ? key_bounds[ position ] : position_offset + position;
+        };
+
         // The last key position any of the block's rows attends to; past it the loads are zeros.
-        const int key_limit = position_offset + ( min( block_row0 + Geometry::kRows, total_rows ) - 1 ) / group;
+        const int key_limit = keyBound( ( min( block_row0 + Geometry::kRows, total_rows ) - 1 ) / group );
 
         const std::size_t kv_base = ( static_cast<std::size_t>( b ) * NKV + kv_head ) * cache_capacity * kHeadSize;
 
@@ -343,6 +351,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const int position_high = active_high ? row_high / group : 0;
         const int absolute_low = position_offset + position_low;
         const int absolute_high = position_offset + position_high;
+        const int bound_low = keyBound( position_low );
+        const int bound_high = keyBound( position_high );
         const int window_low = window > 0 ? max( 0, absolute_low - window + 1 ) : 0;
         const int window_high = window > 0 ? max( 0, absolute_high - window + 1 ) : 0;
 
@@ -373,12 +383,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
         // The block's key range: every position its rows hold. Row order is position-major.
-        const int last_row = min( block_row0 + Geometry::kRows, total_rows ) - 1;
         const int first_position = block_row0 / group;
-        const int last_position = last_row / group;
         const int band_start = window > 0 ? max( 0, position_offset + first_position - window + 1 ) : 0;
         const int first_tile = band_start / Geometry::kKeys;
-        const int tile_count = ( position_offset + last_position ) / Geometry::kKeys + 1;
+        const int tile_count = key_limit / Geometry::kKeys + 1;
 
         float o[ kSliceNTiles ][ 4 ];
 #pragma unroll
@@ -507,11 +515,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     const float key_scale = kFp8 ? scale * k_scale_tile[ nt * kMmaN + 2 * tg + j ] : scale;
 
                     float low = s[ nt ][ j ] * key_scale;
-                    if ( !active_low || key > absolute_low || key < window_low )
+                    if ( !active_low || key > bound_low || key < window_low )
                         low = -CUDART_INF_F;
 
                     float high = s[ nt ][ 2 + j ] * key_scale;
-                    if ( !active_high || key > absolute_high || key < window_high )
+                    if ( !active_high || key > bound_high || key < window_high )
                         high = -CUDART_INF_F;
 
                     s[ nt ][ j ] = low;
@@ -652,7 +660,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         template<int kHeadSize, bool kFp8>
         void launch_packed_prefill(
             const __nv_bfloat16* Q, const void* K, const void* V, const float* k_scales, const float* v_scales,
-            __nv_bfloat16* Y, int B, int chunk_len, int NH, int NKV, int cache_capacity,
+            __nv_bfloat16* Y, const int* key_bounds, int B, int chunk_len, int NH, int NKV, int cache_capacity,
             int position_offset, int window, float scale, bool ring, cudaStream_t stream )
         {
             using Geometry = PackedGeometry<kHeadSize, kFp8>;
@@ -666,7 +674,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const dim3 grid( ceil_div( total_rows, Geometry::kRows ), NKV, B );
 
             gqa_flash_prefill_packed_bf16_kernel<kHeadSize, kFp8> <<< grid, kWarps * 32, Geometry::kSharedBytes, stream >>> (
-                Q, K, V, k_scales, v_scales, Y, chunk_len, NH, NKV, cache_capacity, position_offset, window, scale, ring );
+                Q, K, V, k_scales, v_scales, Y, key_bounds, chunk_len, NH, NKV, cache_capacity, position_offset, window,
+                scale, ring );
 
             cudaCheck( cudaGetLastError() );
         }
@@ -691,7 +700,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         void flashPrefill(
             const char* caller,
             const __nv_bfloat16* Q, const void* K, const void* V, const float* k_scales, const float* v_scales,
-            __nv_bfloat16* Y, int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+            __nv_bfloat16* Y, const int* key_bounds, int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
             int position_offset, int window, float scale, bool ring, cudaStream_t stream )
         {
             if ( !cuda_gqa_flash_prefill_supported( HS ) )
@@ -703,18 +712,18 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             switch ( HS )
             {
                 case 128:
-                    launch_packed_prefill<128, kFp8>( Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, cache_capacity,
-                        position_offset, window, scale, ring, stream );
+                    launch_packed_prefill<128, kFp8>( Q, K, V, k_scales, v_scales, Y, key_bounds, B, chunk_len, NH, NKV,
+                        cache_capacity, position_offset, window, scale, ring, stream );
                     break;
 
                 case 256:
-                    launch_packed_prefill<256, kFp8>( Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, cache_capacity,
-                        position_offset, window, scale, ring, stream );
+                    launch_packed_prefill<256, kFp8>( Q, K, V, k_scales, v_scales, Y, key_bounds, B, chunk_len, NH, NKV,
+                        cache_capacity, position_offset, window, scale, ring, stream );
                     break;
 
                 case 512:
-                    launch_packed_prefill<512, kFp8>( Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, cache_capacity,
-                        position_offset, window, scale, ring, stream );
+                    launch_packed_prefill<512, kFp8>( Q, K, V, k_scales, v_scales, Y, key_bounds, B, chunk_len, NH, NKV,
+                        cache_capacity, position_offset, window, scale, ring, stream );
                     break;
             }
         }
@@ -722,7 +731,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
     void cuda_gqa_flash_prefill_ring_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
-        __nv_bfloat16* Y,
+        __nv_bfloat16* Y, const int* key_bounds,
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
         int position_offset, int window, float scale,
         cudaStream_t stream )
@@ -731,6 +740,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // head, serves the head sizes the packed geometry does not.
         if ( !cuda_gqa_flash_prefill_supported( HS ) )
         {
+            if ( key_bounds != nullptr )
+                throw std::logic_error( "cuda_gqa_flash_prefill_ring_bf16: the FA-2 kernel at head size " + std::to_string( HS )
+                    + " reads no prefill key bounds; a prompt with an image needs head size 128, 256 or 512" );
+
             cuda_gqa_flash_prefill_ring_fa2_bf16( Q, K, V, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
                 position_offset, window, scale, stream );
 
@@ -740,7 +753,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         if ( window <= 0 )
             throw std::runtime_error( "cuda_gqa_flash_prefill_ring_bf16: a bounded ring requires a positive window" );
 
-        flashPrefill<false>( "cuda_gqa_flash_prefill_ring_bf16", Q, K, V, nullptr, nullptr, Y,
+        flashPrefill<false>( "cuda_gqa_flash_prefill_ring_bf16", Q, K, V, nullptr, nullptr, Y, key_bounds,
             B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, true, stream );
     }
 
@@ -751,7 +764,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
     void cuda_gqa_flash_prefill_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
-        __nv_bfloat16* Y,
+        __nv_bfloat16* Y, const int* key_bounds,
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
         int position_offset, int window, float scale,
         cudaStream_t stream )
@@ -761,20 +774,20 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         if ( HS == 512 && window <= 0 )
         {
             requireLaunchable( "cuda_gqa_flash_prefill_bf16", NH, NKV );
-            cuda_gqa_flash_prefill_wide_head_bf16( Q, K, V, Y, B, chunk_len, NH, NKV, cache_capacity,
+            cuda_gqa_flash_prefill_wide_head_bf16( Q, K, V, Y, key_bounds, B, chunk_len, NH, NKV, cache_capacity,
                 position_offset, scale, stream );
 
             return;
         }
 
-        flashPrefill<false>( "cuda_gqa_flash_prefill_bf16", Q, K, V, nullptr, nullptr, Y,
+        flashPrefill<false>( "cuda_gqa_flash_prefill_bf16", Q, K, V, nullptr, nullptr, Y, key_bounds,
             B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, false, stream );
     }
 
     void cuda_gqa_flash_prefill_fp8(
         const __nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
         const float* k_scales, const float* v_scales,
-        __nv_bfloat16* Y,
+        __nv_bfloat16* Y, const int* key_bounds,
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
         int position_offset, int window, float scale,
         cudaStream_t stream )
@@ -783,20 +796,20 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         if ( HS == 512 && window <= 0 )
         {
             requireLaunchable( "cuda_gqa_flash_prefill_fp8", NH, NKV );
-            cuda_gqa_flash_prefill_wide_head_fp8( Q, K, V, k_scales, v_scales, Y, B, chunk_len, NH, NKV, cache_capacity,
-                position_offset, scale, stream );
+            cuda_gqa_flash_prefill_wide_head_fp8( Q, K, V, k_scales, v_scales, Y, key_bounds, B, chunk_len, NH, NKV,
+                cache_capacity, position_offset, scale, stream );
 
             return;
         }
 
-        flashPrefill<true>( "cuda_gqa_flash_prefill_fp8", Q, K, V, k_scales, v_scales, Y,
+        flashPrefill<true>( "cuda_gqa_flash_prefill_fp8", Q, K, V, k_scales, v_scales, Y, key_bounds,
             B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, false, stream );
     }
 
     void cuda_gqa_flash_prefill_ring_fp8(
         const __nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
         const float* k_scales, const float* v_scales,
-        __nv_bfloat16* Y,
+        __nv_bfloat16* Y, const int* key_bounds,
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
         int position_offset, int window, float scale,
         cudaStream_t stream )
@@ -804,7 +817,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         if ( window <= 0 )
             throw std::runtime_error( "cuda_gqa_flash_prefill_ring_fp8: a bounded ring requires a positive window" );
 
-        flashPrefill<true>( "cuda_gqa_flash_prefill_ring_fp8", Q, K, V, k_scales, v_scales, Y,
+        flashPrefill<true>( "cuda_gqa_flash_prefill_ring_fp8", Q, K, V, k_scales, v_scales, Y, key_bounds,
             B, chunk_len, NH, NKV, HS, cache_capacity, position_offset, window, scale, true, stream );
     }
 }

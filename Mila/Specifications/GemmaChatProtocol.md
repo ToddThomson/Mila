@@ -22,6 +22,11 @@ This document records the protocol and how the Mila chat harness
 Chat runs text only and has no display form for any of the seven modality markers: both the buffered
 strip and the streaming router drop them.
 
+The template writes one `<|image|>` or `<|audio|>` per item; before tokenizing it becomes the delimited
+run `<|image>` + n x `<|image|>` + `<image|>` (or the audio triple), where n is the item's soft-token
+count, known only after preprocessing. Image and audio input, Chat's attach path included, is
+`Gemma4Modality.md`.
+
 ## Turn structure
 
 ```

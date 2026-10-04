@@ -140,10 +140,11 @@ each row is in scope unless it cannot fit 16 GB; the last column says whether th
 
 | Model | Upstream capability | In Mila | Fits 16 GB | Tracked |
 |---|---|---|---|---|
-| Gemma 4 12B | Image and audio input, encoder-free: patches and waveforms projected into the decoder, no vision tower | -- the converter skips `embed_vision` and `embed_audio` | not priced; the embedders are small beside the decoder | BACKLOG, Gemma 4 Complete (two entries) |
-| Gemma 4 12B | Multi-token prediction: a dedicated draft model for speculative decoding | -- | not priced | BACKLOG (measurement only); `SpeculativeDecoding.md` draft; loop in `Vnext.md` |
+| Gemma 4 12B | Image and audio input, encoder-free: patches and waveforms projected into the decoder, no vision tower | -- the converter skips `embed_vision` and `embed_audio` | not priced; about 52M parameters, 105 MB at BF16 (derived) | BACKLOG, Gemma 4 Complete; `Gemma4Modality.md` |
+| Gemma 4 12B | Multi-token prediction: a dedicated draft model for speculative decoding | -- | not priced; about 0.85 GB at BF16 (derived), no cache of its own | BACKLOG, Gemma 4 Complete (the measurement, then the loop where it pays); `Gemma4Mtp.md` |
 | Gemma 4 12B | 262144-token context | planner allows it; Chat caps 131072; quality unmeasured above 131072 | yes, at FP4 | `ModelHandle.md` 10.3 |
 | Gemma 4 12B | Quantization-aware 4-bit checkpoint (int4, group 32) | Y, `PerGroupInt4<32>` since `0.21.0-dev+12`; its package rides G4's republish | yes | `Quantization.md`, Q4_0 |
+| Gemma 4 26B-A4B | Multi-token prediction: its own draft model | -- | not priced | BACKLOG, Gemma 4 Complete (the same measurement as the 12B's, Todd 2026-10-04); `Gemma4Mtp.md` |
 | Gemma 4 26B-A4B | Mixture of experts | Y, in `Mila/Src`, unpublished | yes, at 8192 and the 12B's chunk, since the routed buffers were pooled (3.6) | BACKLOG, "Announce the Gemma 4 26B-A4B mixture of experts" |
 | Gemma 4 26B-A4B | Quantization-aware 4-bit checkpoint (Q4_0, instruct only) | Y, `PerGroupInt4<32>` in the bank since `0.21.0-dev+24`; unpublished | yes, the same bytes as `PerGroupFp4<64>` | `Gemma4MoE.md` Phase 9; 8.2, G5 |
 | Qwen 3.8 27B | Vision tower (27 layers, width 1152) and multimodal positions (mrope) | -- out of scope for the first chassis (`Qwen3.8.md` §1) | not priced; tight beside the FP4 build (13.2 GB of weights on device) | nowhere |
@@ -683,6 +684,10 @@ harness for the card's quality line.
 - The two questions are reading, not building, and they decide what the 12B's one republish carries, so they
   are answered early -- before G4 lands. The build follows its BACKLOG entry and is the first item to drain
   if the answers make it large.
+- **Answered 2026-10-04** (`Gemma4Modality.md` section 1): image soft tokens take ordinary positions, and they
+  attend bidirectionally within their run. The second is a mask change in every prefill attention path, and
+  it is the size of the work; the embedders are about 52M parameters, and the 12B's audio is one projection,
+  not an encoder.
 
 **Independent of the order:** the drafter measurement ("Nobody knows whether Google's drafter would make Gemma
 4 12B decode faster") needs only today's prefill path and can run whenever a card is free.
@@ -1373,6 +1378,7 @@ streaming in Chat.
 - `MixtureOfExperts.md` -- the MoE path's design of record: the router, the expert bank, its kernels per format, and
   G5b's floor.
 - `Notebooks/Gemma4MoE.md` -- the 26B-A4B's notebook, one phase per stage.
-- `SpeculativeDecoding.md` -- the draft design behind the MTP rows.
+- `Gemma4Mtp.md` -- the design behind the MTP row.
+- `Gemma4Modality.md` -- the design behind the image and audio rows, and G7.
 - `PromptCaching.md` -- the prefix-reuse row.
 - `TokenSampling.md` -- the device sampler Llama does not use.

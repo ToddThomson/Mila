@@ -201,6 +201,7 @@ export import Dnn.ConnectionType;
 
 export import Dnn.Components.MultiHeadAttention;
 export import Dnn.Components.Gqa;
+export import Dnn.Components.SharedKvAttention;
 export import Compute.GqaWorkspace;
 export import Dnn.Components.Lpe;
 export import Dnn.Components.Rope;
@@ -281,6 +282,8 @@ export import Dnn.Components.GemmaRoutedFeedForward;
 export import Dnn.Components.GemmaFeedForwardTraits;
 export import Dnn.Components.ITransformerBlock;
 export import Dnn.Components.GemmaBlock;
+export import Dnn.Components.GemmaDraftBlock;
+export import Dnn.Components.GemmaDrafter;
 export import Dnn.Components.GemmaTransformer;
 
 export import Dnn.Components.QwenPrecisionPlan;

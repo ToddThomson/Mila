@@ -12,6 +12,8 @@ module;
 #endif
 #include <cstdio>
 #include <memory>
+#include <span>
+#include <vector>
 #include <string>
 #include <format>
 #include <stdexcept>
@@ -404,6 +406,106 @@ namespace Mila::Dnn::Compute
         }
 
         /**
+         * @brief Enqueue the key bounds of the next prefill chunk on this context's stream.
+         *
+         * Each bound lies between its own row and the chunk's last row and none falls below the one before it,
+         * which is what lets a flash kernel take a block's key range from its last row. The device buffer grows to
+         * the largest chunk bounded and is not shrunk.
+         *
+         * @throws std::invalid_argument For a bound outside that range.
+         * @throws std::runtime_error If allocation fails.
+         */
+        void setPrefillKeyBounds( dim_t position_offset, std::span<const dim_t> bounds ) override
+        {
+            if ( bounds.empty() )
+            {
+                clearPrefillKeyBounds();
+
+                return;
+            }
+
+            const dim_t rows = static_cast<dim_t>( bounds.size() );
+            const dim_t last_row = position_offset + rows - 1;
+
+            host_key_bounds_.resize( bounds.size() );
+
+            for ( dim_t i = 0; i < rows; ++i )
+            {
+                const dim_t row = position_offset + i;
+                const dim_t bound = bounds[ static_cast<std::size_t>( i ) ];
+
+                if ( bound < row || bound > last_row || ( i > 0 && bound < bounds[ static_cast<std::size_t>( i - 1 ) ] ) )
+                {
+                    throw std::invalid_argument( std::format(
+                        "CudaExecutionContext: prefill key bound {} for row {} must lie in [{}, {}] and not fall below "
+                        "the bound of the row before it", bound, row, row, last_row ) );
+                }
+
+                host_key_bounds_[ static_cast<std::size_t>( i ) ] = narrowToKernelIndex( bound );
+            }
+
+            if ( host_key_bounds_.size() > key_bounds_capacity_ )
+            {
+                if ( key_bounds_ )
+                {
+                    cudaFree( key_bounds_ );
+                    key_bounds_ = nullptr;
+                    key_bounds_capacity_ = 0;
+                }
+
+                cudaError_t err = cudaMalloc( &key_bounds_, host_key_bounds_.size() * sizeof( int ) );
+
+                if ( err != cudaSuccess )
+                {
+                    cudaDiscardLastError();
+                    key_bounds_ = nullptr;
+
+                    throw std::runtime_error(
+                        std::format( "Failed to allocate the prefill key bounds: {}", cudaGetErrorString( err ) ) );
+                }
+
+                key_bounds_capacity_ = host_key_bounds_.size();
+            }
+
+            // From pageable memory the call returns once the bounds are staged, so the host vector is free to change.
+            cudaCheckStatus( cudaMemcpyAsync( key_bounds_, host_key_bounds_.data(),
+                host_key_bounds_.size() * sizeof( int ), cudaMemcpyHostToDevice, stream_ ) );
+
+            key_bounds_offset_ = position_offset;
+            key_bounds_rows_ = rows;
+            key_bounds_set_ = true;
+        }
+
+        void clearPrefillKeyBounds() noexcept override
+        {
+            key_bounds_set_ = false;
+        }
+
+        /**
+         * @brief The device ints a prefill kernel reads its rows' key bounds from, or null for causal attention.
+         *
+         * @throws std::logic_error If bounds are set for any chunk other than [position_offset, + chunk_length): an
+         *         op would otherwise bound its rows by another chunk's.
+         */
+        [[nodiscard]] const int* getPrefillKeyBounds( dim_t position_offset, dim_t chunk_length ) const
+        {
+            if ( !key_bounds_set_ )
+            {
+                return nullptr;
+            }
+
+            if ( position_offset != key_bounds_offset_ || chunk_length != key_bounds_rows_ )
+            {
+                throw std::logic_error( std::format(
+                    "CudaExecutionContext: prefill key bounds were set for rows [{}, {}) and a prefill of rows [{}, {}) "
+                    "asked for them", key_bounds_offset_, key_bounds_offset_ + key_bounds_rows_, position_offset,
+                    position_offset + chunk_length ) );
+            }
+
+            return key_bounds_;
+        }
+
+        /**
          * @brief Gets or grows the pinned host staging buffer for Host->Device transfers.
          *
          * Page-locked via cudaHostAlloc so cudaMemcpyAsync from it to device memory
@@ -486,6 +588,14 @@ namespace Mila::Dnn::Compute
         mutable size_t pinned_staging_size_{ 0 };
 
         int* decode_position_{ nullptr };
+
+        // The next prefill chunk's key bounds: rows [key_bounds_offset_, + key_bounds_rows_) when set.
+        int* key_bounds_{ nullptr };
+        std::size_t key_bounds_capacity_{ 0 };
+        std::vector<int> host_key_bounds_;
+        dim_t key_bounds_offset_{ 0 };
+        dim_t key_bounds_rows_{ 0 };
+        bool key_bounds_set_{ false };
 
         mutable void* cublaslt_workspace_{ nullptr };
         mutable size_t cublaslt_workspace_size_{ 0 };
@@ -617,6 +727,14 @@ namespace Mila::Dnn::Compute
             {
                 cudaFree( decode_position_ );
                 decode_position_ = nullptr;
+            }
+
+            if ( key_bounds_ )
+            {
+                cudaFree( key_bounds_ );
+                key_bounds_ = nullptr;
+                key_bounds_capacity_ = 0;
+                key_bounds_set_ = false;
             }
 
             if ( stream_created_ && stream_ )

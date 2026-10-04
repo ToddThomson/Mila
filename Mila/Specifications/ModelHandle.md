@@ -311,9 +311,10 @@ selects from them (`Deployment.md` 2.1) -- modalities, the draft model, context 
 factory builds exactly the selection the plan priced. A feature not selected is not built.
 
 Each feature is a component that is built or not, never a template axis of the core blocks: an image path,
-an audio encoder, a vision tower and a draft model attach to the network beside its blocks, so a selection is
+an audio path, a vision tower and a draft model attach to the network beside its blocks, so a selection is
 not a new instantiation and the build cost does not multiply with combinations. The draft model is the one to
-watch, since it shares the embedding table and reads the last hidden state.
+watch: it reads the network's embedding table, its final-normed hidden state and the caches of its last
+sliding and last global layer (`Gemma4Mtp.md`).
 
 `Mila::AI` names use cases over this -- a coding agent, a vision assistant, a long-document reader -- each a
 selection with measured defaults (a context from the model's profile, a draft model where its speedup is

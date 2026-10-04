@@ -118,8 +118,8 @@ has nothing to compare against and the wiring would be read from tensor shapes a
 (`Qwen3.8.md`, "MTP has no HF reference at all").
 
 Until 2026-09-25 this entry was titled "Gemma 4 MTP", but its body was this Qwen fact. Gemma's
-speculative decoding uses a separate drafter model Google ships, and lives in `Vnext.md` ("Gemma 4
-12B decodes one token per forward pass") behind the measurement in `BACKLOG.md`.
+speculative decoding uses a separate drafter model Google ships; it is in `BACKLOG.md` ("Nobody knows
+whether Google's drafters would make Gemma 4 decode faster") and designed in `Gemma4Mtp.md`.
 
 ## Ministral
 

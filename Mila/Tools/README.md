@@ -8,6 +8,7 @@ FetchContent never configures it.
 | `Cli/` | C++ | The `mila` command: the local model store and the server front door |
 | `ContextProfile/` | C++ | What a model configuration is worth to an agent at each context length it fits |
 | `Converters/` | Python | HuggingFace weights and tokenizers to Mila format, per family |
+| `Drafting/` | C++ | Whether a draft model pays on its target: what a verify costs, and how many drafts are accepted |
 | `ExportArtifact/` | C++ | Artifact, package and local-store lifecycle |
 | `Measurement/` | C++ | Header-only harness: a network built from weights, scored teacher-forced; PG-19 books |
 | `Publishing/` | Python | Uploads a model package to the HuggingFace Hub |
@@ -31,7 +32,8 @@ the tests link it and build without the tools. Include it after `import Mila;`.
 ## Converters
 
 `convert_weights.py` and `convert_tokenizer.py` under `Gpt2/`, `Llama/` and `Gemma/`, over a shared
-`MilaWeightWriter` in `common.py`. Converters always write BF16; quantization is a separate offline
+`MilaWeightWriter` in `common.py`. `Gemma/convert_drafter.py` converts Google's Gemma 4 draft model into a file of
+its own, `drafter.*` (`Specifications/Gemma4Mtp.md`). Converters always write BF16; quantization is a separate offline
 step — `Quantization/` for the sub-4-bit formats, `ExportArtifact` for FP8 and FP4. Requires PyTorch
 and Transformers — see `Converters/README.md` for the interpreter constraint.
 `Gemma/gemma_4_26b_moe/hf_gemma_router_reference.py` captures the HuggingFace router reference that
@@ -97,6 +99,16 @@ it runs on and writes `<configuration>.json` and a Markdown rendering beside it.
 protocol on PG-19), and recall at depth (records planted in a conversation of tool results, each asked
 for from the end of it). `--bands`, `--arms`, `--books` and `--conversations` narrow a run; with no
 `--bands` it profiles 16K, 32K, 64K, 128K and the planner's own choice, every one that fits. CUDA-only.
+
+## Drafting
+
+`Drafting verify-cost` times what checking K drafted tokens costs Gemma 4 12B at Q4_0, against one decode, at
+each `--depths` (default 8192 and 65536), for K from 1 to `--max-draft`. The decode is the replayed step a model
+runs; the verify is the prefill path from the same rewound position, with the head on the last row and on every
+row. `Drafting drafter-parity` runs Google's draft model from the 12B's state after a PG-19 prompt and dumps each
+step's inputs, both caches and its logits; `Converters/Gemma/hf_gemma_drafter_reference.py --dump <dir>` runs
+HuggingFace's drafter on the same inputs and gates the two. Stage 1 of `Specifications/Gemma4Mtp.md`, section 5.1.
+CUDA-only.
 
 ## Publishing
 

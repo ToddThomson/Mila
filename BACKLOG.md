@@ -490,42 +490,26 @@ decodes token-for-token against HuggingFace at BF16 and FP8.
 
 ### Gemma 4 Complete
 
-#### Two questions decide the size of Gemma's image path, and neither is answered
-
-`open` · `gemma` · `mila-src`
-
-Answer both before building, because one of them reaches every attention path in the library. This
-is first-stage work — reading the HuggingFace implementation, not building — and its answers size the
-image path the release now counts on (a use case with an image in it is part of the claim).
-
-**Do image soft tokens attend bidirectionally within a prefill?** Every attention path in Mila is
-causal. If a bidirectional span is required, that is a mask change across the attention machinery
-rather than a component added beside it, and it resizes everything downstream of it.
-
-**What is the position scheme for an image span?** 280 soft tokens arrive at `model_patch_size` 48
-inside a sequence whose positions are otherwise one per token.
-
-The finding is an absence: no code answers either question today, and the entry below cannot be
-honestly sized until they do. Whatever the answers are, they are recorded in `Gemma4.md` rather than
-in the implementation that assumes them.
-
 #### Gemma 4 12B is multimodal and Mila drops its image and audio weights
 
-`open` · `gemma` · `mila-src` · `adaptors`
+`in progress` · `gemma` · `mila-src` · `adaptors`
 
-The 12B is **encoder-free** (`Gemma4UnifiedForConditionalGeneration`): no vision tower. Images enter
-through `vision_embedder` (`patch_dense`, `patch_ln1`, `patch_ln2`, `pos_norm`) and
-`embed_vision.embedding_projection` into the decoder itself — `patch_size` 16, `model_patch_size` 48,
-280 soft tokens, `mm_embed_dim` 3840; audio through `embed_audio` (`audio_embed_dim` 640).
-`convert_weights.py:116` skips `model.embed_vision.` and `model.embed_audio.`. Open before sizing:
-whether image soft tokens attend bidirectionally within a prefill (every Mila attention path is causal),
-the position scheme for image spans, and the audio front end. Work: patch embedding component, soft-token
-placement before layer 0, image decode/resize/normalize (a vendored decoder is a NOTICE entry; decode
-belongs in the applications), template image tokens, Chat attach, MIS image content blocks for both
-protocols, converter keeps the embedders, manifest declares modality, footprint counts image prefill.
-Image input reaches applications through `Mila::AI`, not around it. Gate: embedder parity against
-HuggingFace, then token-for-token on an image prompt; the same for audio, whose `audio_tower` is an
-encoder rather than an embedder. Each is a feature a deployment selects (Deployment Planning).
+The 12B is **encoder-free** (`Gemma4UnifiedForConditionalGeneration`): no vision tower and no audio
+encoder. An image is resized and cut into 48-pixel patches, at most 280 soft tokens, each through a
+small embedder (about 50M parameters) into the decoder; an audio clip is 40 ms frames of raw 16 kHz
+samples, each through one projection. `convert_weights.py` skips both. The image tokens of one picture
+attend each other in both directions, and every Mila attention path is causal: that mask change, in every
+prefill path, is the largest piece. Work, in `Gemma4Modality.md` section 7's order: the mask; the image
+embedder, soft-token placement, a prompt that carries media, and prefix reuse keyed on the media rather
+than its token ids; audio; Chat accepting an image or a clip (`/image`, `/audio`, Todd 2026-10-04), the
+inference server's content blocks in both protocols, the binding; converter, manifest and footprint.
+Image and audio reach applications through `Mila::AI`, not around it. Each is a feature a deployment
+selects (Deployment Planning).
+
+Gate: embedder parity against HuggingFace, then token for token on an image prompt and on an audio
+prompt; Chat answers about an attached image and an attached clip.
+
+`ROADMAP.md`, Gemma 4 Complete success criteria · `Mila/Specifications/Gemma4Modality.md`
 
 #### The 26B-A4B's vision tower is dropped when it loads
 
@@ -539,7 +523,7 @@ selected by a deployment rather than always built, and the memory levers are wha
 selecting. First to drain if the date presses. Gate: tower parity against HuggingFace, then an image
 prompt token-for-token, at a context the plan states.
 
-`ROADMAP.md`, Gemma 4 Complete success criteria
+`ROADMAP.md`, Gemma 4 Complete success criteria · `Mila/Specifications/Gemma4Modality.md` section 4
 
 #### Gemma caches each global layer's keys and values separately, though its checkpoint makes them equal
 
@@ -571,7 +555,7 @@ reasoning replies run to thousands of tokens (ContextProfile's thinking runs, 20
 prefill is about 100 s at 128K on the 12B. The window is the architecture's; the finite rewind horizon is
 the ring's, a memory optimization. Work: what Qwen does for its recurrent state -- `savePosition` copies
 the sliding layers' last window, and a rewind to the saved position puts it back -- bounded by the window,
-not the context. Size unmeasured. Also what makes the drafter's rewind safe.
+not the context. Size unmeasured.
 
 Gate: a turn after a reply of any length resumes without a full prefill, measured on the 12B at 128K;
 tokens equal to a fresh prefill's.
@@ -633,24 +617,31 @@ it carries a header saying so. Kept on disk under the retire-don't-delete rule, 
 state for now; removing it is a one-file deletion whenever the reconciled grammar has been driven
 long enough to be sure.
 
-#### Nobody knows whether Google's drafter would make Gemma 4 12B decode faster
+#### Nobody knows whether Google's drafters would make Gemma 4 decode faster
 
-`open` · `gemma` · `perf` · `measured`
+`in progress` · `gemma` · `perf` · `measured`
 
 Every Gemma 4 size ships a dedicated draft model for speculative decoding (ai.google.dev/gemma/docs/core,
 read 2026-09-17), and the QAT targets ship QAT drafters (`google/gemma-4-12B-it-qat-q4_0-unquantized-assistant`),
-so the pair measured is that drafter and the Q4_0 12B. 4-bit decode is bandwidth-bound and a verify goes
-through the prefill GEMM, so the question is two measurements whose product predicts the speedup: what a
-K-token verify forward costs against K decodes on the 5060 Ti, in Mila on the Q4_0 kernels once they land,
-and how many drafted tokens the target accepts, from HuggingFace's assisted generation. If K=4 costs near 4
-decodes, or too few drafts are accepted, there is no win, and the recorded result is "not worth doing".
+so the pair measured is that drafter and the Q4_0 12B. The drafter is four layers and its own head, about
+0.85 GB at BF16, and keeps no cache: it attends the 12B's last sliding and last global layer's caches.
+Three measurements predict the speedup: what a drafter step costs, what a verify of K + 1 tokens costs
+against one decode on the 5060 Ti, and how many drafts the 12B accepts. Acceptance is measured in Mila,
+with the drafter's forward built and gated first, because the BF16 12B does not fit the card that
+HuggingFace's loop would need. If too few drafts are accepted, or a verify costs too much, there is no
+win, and the recorded result is "not worth doing".
 
 The loop is in this release where the measurement says it pays (Todd, 2026-10-04), as a feature a
-deployment selects: draft/verify/accept/rewind, the drafter's KV cache, and rewind on the sliding ring --
-which the ring entry below makes safe after any number of tokens. `SpeculativeDecoding.md` is the draft
-design. Gate: with the drafter selected, the 12B decodes token-for-token as without it, faster by the
-measured amount; if the measurement says "not worth doing", that result is recorded and the loop stays
-out. The 26B-A4B is not paired with it: a mixture of experts gains little from drafting at batch 1.
+deployment selects: draft, verify, accept, rewind. Sampled as well as greedy, since Chat samples by
+default. The rewind is a few tokens and the sliding ring already allows it. Which path runs the verify --
+prefill's, or a multi-row decode that makes greedy output identical by construction -- is
+`Gemma4Mtp.md`'s open decision 1. Gate: with the drafter selected, the 12B decodes token-for-token as
+without it, faster by the measured amount; if the measurement says "not worth doing", that result is
+recorded and the loop stays out. The 26B-A4B gets its own drafter by the same measurement and gate (Todd,
+2026-10-04): Google says a mixture of experts gains little at batch 1, and a community report measured 1.46x
+on it, so it is measured on the 16 GB card, FP8 global cache included.
+
+`ROADMAP.md`, Gemma 4 Complete success criteria · `Mila/Specifications/Gemma4Mtp.md`
 
 #### Gemma 4 12B at 4 bits predicts worse the longer the context, and Mila cannot run the weights Google trained to prevent it
 

@@ -199,6 +199,33 @@ namespace Mila::Dnn
             this->publish( ComputePass::Decode, "k", K );
         }
 
+        /**
+         * @brief Single-token decode of queries alone, for attention over keys another layer rotated and cached.
+         *
+         * Requires a configuration of zero key/value heads, so the op rotates no key and `Q` stands in for the
+         * key arguments it never reads (Gemma4Mtp.md 4.3).
+         *
+         * @param Q        Query tensor [B, 1, n_heads * head_dim]. Mutated in-place.
+         * @param position Absolute position of the token in the full sequence.
+         */
+        void decodeQuery( TensorType& Q, dim_t position )
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error( "Rope must be built before calling decodeQuery()." );
+
+            if ( !positional_op_ )
+                throw std::runtime_error( "Rope: backend does not support positional inference." );
+
+            if ( config_.getNumKVHeads() != 0 )
+                throw std::logic_error( std::format(
+                    "Rope '{}': decodeQuery rotates queries only, but the configuration has {} key/value heads",
+                    this->getName(), config_.getNumKVHeads() ) );
+
+            positional_op_->decode( Q, Q, Q, Q, position );
+
+            this->publish( ComputePass::Decode, "q", Q );
+        }
+
         // ====================================================================
         // Component interface
         // ====================================================================

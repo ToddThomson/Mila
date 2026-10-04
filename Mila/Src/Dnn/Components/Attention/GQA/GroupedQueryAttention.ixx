@@ -32,6 +32,7 @@ import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.OperationTraits;
 import Compute.GqaState;
+export import Compute.KvCacheView;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.IKvInference;
@@ -381,6 +382,16 @@ namespace Mila::Dnn
         {
             if constexpr ( TDeviceType == DeviceType::Cuda )
                 operation_->setUseFlashDecode( enabled );
+        }
+
+        /**
+         * @brief This layer's KV cache, for attention another component runs over it without writing
+         *        (Gemma4Mtp.md 4.3). CUDA only: the CPU backend keeps no cache.
+         */
+        [[nodiscard]] Compute::KvCacheView getKvCacheView() const
+            requires ( TDeviceType == DeviceType::Cuda )
+        {
+            return operation_->getKvCacheView();
         }
 
         /**

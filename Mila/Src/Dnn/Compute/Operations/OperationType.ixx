@@ -41,6 +41,7 @@ namespace Mila::Dnn::Compute
         RmsNormOp,					///< RMS normalization operation
 		MultiHeadAttentionOp,		///< Multi-head attention operation (MHA) for transformers
 		GroupedQueryAttentionOp,	///< Grouped Query Attention (GQA)
+		SharedKvAttentionOp,		///< Single-query attention over a KV cache another layer owns, writing nothing
 		CausalConv1dOp,				///< Depthwise causal 1-D convolution over the sequence axis
 		GatedDeltaRuleOp,			///< Gated delta rule -- the linear-attention (DeltaNet) mixer
 		ResidualOp,					///< Residual connection operation
@@ -70,7 +71,8 @@ namespace Mila::Dnn::Compute
 		constexpr std::string_view RmsNorm              = "RmsNormOp";
 		constexpr std::string_view MultiHeadAttention   = "MultiHeadAttentionOp";
 		constexpr std::string_view GroupedQueryAttention = "GroupedQueryAttentionOp";
-		constexpr std::string_view CausalConv1d         = "CausalConv1dOp";
+		constexpr std::string_view SharedKvAttention    = "SharedKvAttentionOp";
+		constexpr std::string_view CausalConv1d        = "CausalConv1dOp";
 		constexpr std::string_view GatedDeltaRule       = "GatedDeltaRuleOp";
 		constexpr std::string_view Residual             = "ResidualOp";
 		constexpr std::string_view Softmax              = "SoftmaxOp";
@@ -100,7 +102,8 @@ namespace Mila::Dnn::Compute
 			case OperationType::RmsNormOp:               return OperationNames::RmsNorm;
 			case OperationType::MultiHeadAttentionOp:    return OperationNames::MultiHeadAttention;
 			case OperationType::GroupedQueryAttentionOp: return OperationNames::GroupedQueryAttention;
-			case OperationType::CausalConv1dOp:          return OperationNames::CausalConv1d;
+			case OperationType::SharedKvAttentionOp:     return OperationNames::SharedKvAttention;
+			case OperationType::CausalConv1dOp:         return OperationNames::CausalConv1d;
 			case OperationType::GatedDeltaRuleOp:        return OperationNames::GatedDeltaRule;
 			case OperationType::ResidualOp:              return OperationNames::Residual;
 			case OperationType::SoftmaxOp:               return OperationNames::Softmax;

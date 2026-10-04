@@ -426,6 +426,8 @@ PUBLIC
         "Src/Dnn/Components/Transformers/Gemma/Gemma.RoutedFeedForward.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.FeedForward.Traits.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.DraftBlock.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.Drafter.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.ixx"
 
         "Src/Dnn/Components/Transformers/Qwen/Qwen.PrecisionPlan.ixx"
@@ -490,6 +492,7 @@ PUBLIC
 
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.ixx"
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
+        "Src/Dnn/Components/Attention/GQA/SharedKvAttention.ixx"
 
         "Src/Dnn/Components/Attention/OutputGate/AttentionOutputGate.Config.ixx"
         "Src/Dnn/Components/Attention/OutputGate/AttentionOutputGate.ixx"
@@ -520,6 +523,7 @@ PUBLIC
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/GqaState.ixx"
         "Src/Dnn/Compute/Operations/GqaWorkspace.ixx"
+        "Src/Dnn/Compute/Operations/KvCacheView.ixx"
         
         "Src/Logging/NullSink.ixx"
         "Src/Logging/FileSink.ixx"
@@ -807,6 +811,7 @@ if(MILA_HAS_CUDA)
 
                 # CUDA Attention Ops
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaSharedKvAttentionOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqa.Plans.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqa.Dispatch.ixx"
     

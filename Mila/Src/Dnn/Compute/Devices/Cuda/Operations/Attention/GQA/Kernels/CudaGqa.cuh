@@ -81,10 +81,16 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * cuda_gqa_flash_prefill_supported() accepts. `scale` is the config-derived attention
      * scale (1/sqrt(HS) for Llama, 1.0 for Gemma) -- never recomputed here. See
      * GqaFlashAttention.md.
+     *
+     * `key_bounds`, when not null, is the device array [chunk_len] of the last key position each
+     * chunk position attends -- past itself for an image's tokens, which attend their whole run
+     * (Gemma4Modality.md 5.4). Non-decreasing, each at least its own position and within the
+     * chunk, as CudaExecutionContext::setPrefillKeyBounds checks. Null is causal attention. Every
+     * flash prefill entry below takes it the same way.
      */
     void cuda_gqa_flash_prefill_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
-        __nv_bfloat16* Y,
+        __nv_bfloat16* Y, const int* key_bounds,
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
         int position_offset, int window, float scale,
         cudaStream_t stream );
@@ -99,7 +105,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
     void cuda_gqa_flash_prefill_fp8(
         const __nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
         const float* k_scales, const float* v_scales,
-        __nv_bfloat16* Y,
+        __nv_bfloat16* Y, const int* key_bounds,
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
         int position_offset, int window, float scale,
         cudaStream_t stream );
@@ -112,7 +118,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
     void cuda_gqa_flash_prefill_ring_fp8(
         const __nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
         const float* k_scales, const float* v_scales,
-        __nv_bfloat16* Y,
+        __nv_bfloat16* Y, const int* key_bounds,
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
         int position_offset, int window, float scale,
         cudaStream_t stream );
@@ -121,7 +127,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
     /// each warp owns eight query rows across the whole head.
     void cuda_gqa_flash_prefill_wide_head_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
-        __nv_bfloat16* Y,
+        __nv_bfloat16* Y, const int* key_bounds,
         int B, int chunk_len, int NH, int NKV, int cache_capacity,
         int position_offset, float scale,
         cudaStream_t stream );
@@ -130,7 +136,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
     void cuda_gqa_flash_prefill_wide_head_fp8(
         const __nv_bfloat16* Q, const __nv_fp8_e4m3* K, const __nv_fp8_e4m3* V,
         const float* k_scales, const float* v_scales,
-        __nv_bfloat16* Y,
+        __nv_bfloat16* Y, const int* key_bounds,
         int B, int chunk_len, int NH, int NKV, int cache_capacity,
         int position_offset, float scale,
         cudaStream_t stream );
@@ -144,10 +150,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * block) instead of running causal-triangular from zero. Replaces the cuBLASLt QK ->
      * prefill_softmax_ring -> AV pipeline on Gemma's local sliding layers. Requires
      * window > 0 and an HS cuda_gqa_flash_prefill_ring_supported() accepts. See GqaFlashAttention.md.
+     * Key bounds reach only the packed kernel: at a head size it does not serve they are refused.
      */
     void cuda_gqa_flash_prefill_ring_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
-        __nv_bfloat16* Y,
+        __nv_bfloat16* Y, const int* key_bounds,
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
         int position_offset, int window, float scale,
         cudaStream_t stream );

@@ -858,30 +858,6 @@ about two seconds with no diagnostic, and reads as a model defect rather than a 
 The finding is an absence, not a location: a note wherever the default device is documented.
 [[project_cuda_index_is_not_nvidia_smi_index]]
 
-## Gemma 4 12B decodes one token per forward pass, and Google ships a drafter for it
-
-`gemma` · `perf` · `mila-src` · `blocked`
-
-**Blocked on the v0.21.0 measurement** ("Nobody knows whether Google's drafter would make Gemma 4
-12B decode faster" in `BACKLOG.md`): if a K-token verify costs near K decodes on the bandwidth-bound
-4-bit path, this entry goes to `Declined.md` with that number. Moved out of v0.21.0 on 2026-09-23 when
-the release widened to `Direction.md` section 5 — the measurement stayed, the loop did not.
-
-Every Gemma 4 size ships a dedicated draft model (ai.google.dev/gemma/docs/core, read 2026-09-17).
-`SpeculativeDecoding.md` is a DRAFT that places Google's drafter last (phase E) behind prompt lookup
-and EAGLE; with a published drafter it moves forward. Pin the drafter checkpoint layout first (tensor
-names, how it combines the target's last hidden state). Work: draft/verify/accept/rewind loop in
-`generate()`, logits at every verify position, wrap-safe rewind on the sliding ring (`rewindKvCache`
-exists; speculative wrap unverified), drafter KV cache, the target's last hidden state exposed,
-converter/footprint/Chat stats. Gate: greedy output token-for-token identical to plain decode.
-
-Google's MTP announcement (blog.google, "multi-token-prediction-gemma-4", read 2026-09-27): the drafters
-"utilize the target model's activations and share its KV cache", so a separate drafter cache may not be
-work at all -- the checkpoint and HF's modelling code settle it. Claimed: "up to a 3x speedup", about 2.2x
-on Apple Silicon at batch 4 to 8; no batch-1 figure, no acceptance rates, nothing on quantized targets or
-long context. Google also ships QAT drafters (`google/gemma-4-12B-it-qat-q4_0-unquantized-assistant`, and
-the 26B-A4B's), the partner for the Q4_0 12B admitted to v0.21.0, so the measurement pairs those two.
-
 ## Mila cannot import the format most quantized models on the Hub are published in
 
 `quantization` · `distribution` · `mila-src`

@@ -65,7 +65,7 @@ measurement knob on every family's public request is a diagnostic in the user's 
 
 *Direction, decided 2026-10-04 (Todd); not built. `ModelHandle.md` 3.8 holds the handle's half.* The table
 above is incomplete: a package can carry features a deployment may or may not want -- an image path, an
-audio encoder, a vision tower, a draft model -- and on a 16 GB card they compete with context for the same
+audio path, a vision tower, a draft model -- and on a 16 GB card they compete with context for the same
 bytes. The 26B-A4B's vision tower is about 410 MB at FP8, about 39K tokens of its cache.
 
 | Knob | Selectable | Who decides |

@@ -219,6 +219,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Attention/GQA/GroupedQueryAttention.Cuda.cpp"
         "Dnn/Components/Attention/GQA/CudaGqaOp.Cuda.cpp"
         "Dnn/Components/Attention/GQA/CudaGqaOp.Fp8Cache.Cuda.cpp"
+        "Dnn/Components/Attention/GQA/CudaGqaOp.KeyBounds.Cuda.cpp"
         "Dnn/Models/LlaMa/Llama.InstructionRetention.Cuda.cpp"
         "Dnn/Components/Attention/MHA/MultiHeadAttention.Cuda.cpp"
         "Dnn/Components/Connections/Residual.Cuda.cpp"

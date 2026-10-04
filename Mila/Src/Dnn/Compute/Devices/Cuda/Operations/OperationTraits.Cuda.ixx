@@ -18,6 +18,7 @@ export module Compute.OperationTraits:Cuda;
 import Compute.OperationTraits.Template;
 import Compute.CudaLinearOp;
 import Compute.CudaGqaOp;
+import Compute.CudaSharedKvAttentionOp;
 import Compute.CudaGeluOp;
 import Compute.CudaElementwiseActivationOp;
 import Compute.CudaResidualOp;
@@ -185,6 +186,17 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, SlidingWindowKvFp8>
     {
         using type = CudaGqaOp<TensorDataType::BF16, true, true>;
+    };
+
+    // -------------------------------------------------------------------------
+    // SharedKvAttentionOp -- a query over a cache another layer owns (Gemma4Mtp.md 4.3). BF16 only, as the fused
+    // decode kernels it runs are; the cache's own format is read from the view at decode.
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::SharedKvAttentionOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = CudaSharedKvAttentionOp<TensorDataType::BF16>;
     };
 
     // -------------------------------------------------------------------------

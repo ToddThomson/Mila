@@ -77,6 +77,7 @@ import Compute.DeviceId;
 import Compute.DeviceTypeTraits;
 import Compute.GqaState;
 import Compute.GqaWorkspace;
+import Compute.KvCacheView;
 import Compute.CpuMemoryResource;
 #ifdef MILA_HAS_CUDA
 import Compute.CudaPinnedMemoryResource;
@@ -423,6 +424,59 @@ namespace Mila::Dnn
         ModelType getModelType() const
         {
             return ModelType::Gemma;
+        }
+
+        // ====================================================================
+        // What Gemma 4's draft model reads (Gemma4Mtp.md 2.1)
+        // ====================================================================
+
+        /// The scaled token embedding of `token` [B, 1], in the embedding's output buffer until its next pass.
+        TensorType& embed( const TokenIndexType& token )
+        {
+            return token_embedding_->forward( token );
+        }
+
+        /**
+         * @brief The final-normed hidden state of the last row the previous prefill or decode produced, [B, 1, model_dim]:
+         *        the row the head read.
+         */
+        const TensorType& finalNormedHidden() const
+        {
+            if ( normalized_ptr_ == nullptr )
+                throw std::logic_error( "GemmaTransformer::finalNormedHidden: no prefill or decode has run" );
+
+            return *normalized_ptr_;
+        }
+
+        /// The cache of the last sliding layer, which the drafter's sliding layers attend.
+        KvCacheView lastSlidingLayerCache() const
+            requires ( TDeviceType == DeviceType::Cuda )
+        {
+            for ( dim_t i = config_.getNumLayers() - 1; i >= 0; --i )
+            {
+                if ( !config_.isGlobalLayer( i ) )
+                    return this->template getComponentAs<LocalBlockType>( blockName( i ) )->kvCacheView();
+            }
+
+            throw std::logic_error( "GemmaTransformer: no sliding layer" );
+        }
+
+        /// The cache of the last global layer, which the drafter's global layer attends.
+        KvCacheView lastGlobalLayerCache() const
+            requires ( TDeviceType == DeviceType::Cuda )
+        {
+            for ( dim_t i = config_.getNumLayers() - 1; i >= 0; --i )
+            {
+                if ( config_.isGlobalLayer( i ) )
+                    return this->template getComponentAs<GlobalBlockType>( blockName( i ) )->kvCacheView();
+            }
+
+            throw std::logic_error( "GemmaTransformer: no global layer" );
+        }
+
+        const GemmaConfig& getConfig() const noexcept
+        {
+            return config_;
         }
 
         MemoryStats getMemoryStats() const override
@@ -835,6 +889,11 @@ namespace Mila::Dnn
          * prefill_chunk rows of it. Both onBuilding() and requiredMemoryAtChunk() resolve
          * through here, so the head cannot be built at one width and priced at another.
          */
+        std::string blockName( dim_t index ) const
+        {
+            return this->getName() + ".tf_layer_" + std::to_string( index );
+        }
+
         dim_t resolveLogLikelihoodWindow( dim_t prefill_chunk ) const
         {
             return std::min<dim_t>( config_.getLogLikelihoodWindow(), prefill_chunk );
