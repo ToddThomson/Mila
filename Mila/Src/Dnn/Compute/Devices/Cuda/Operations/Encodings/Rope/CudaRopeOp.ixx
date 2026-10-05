@@ -227,17 +227,16 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         }
 
         /**
-         * @brief Single-token decode with explicit position.
+         * @brief Decode of T tokens in a row from an explicit position: one, or a few (Gemma4Mtp.md 4.7).
          *
-         * Rotates at the context's decode position, which the kernel reads on the device;
-         * `position` is the same value, checked here on the host (DecodeGraph.md section 4.1).
-         * Used for KV-cache autoregressive generation where T=1.
+         * Rotates token t at the context's decode position plus t, which the kernel reads on the
+         * device; `position` is the same value, checked here on the host (DecodeGraph.md section 4.1).
          *
-         * @param Q_in   Input Q  [B, 1, n_heads,    head_dim].
-         * @param K_in   Input K  [B, 1, n_kv_heads, head_dim].
-         * @param Q_out  Output Q [B, 1, n_heads,    head_dim].
-         * @param K_out  Output K [B, 1, n_kv_heads, head_dim].
-         * @param position Zero-based absolute sequence position.
+         * @param Q_in   Input Q  [B, T, n_heads,    head_dim].
+         * @param K_in   Input K  [B, T, n_kv_heads, head_dim].
+         * @param Q_out  Output Q [B, T, n_heads,    head_dim].
+         * @param K_out  Output K [B, T, n_kv_heads, head_dim].
+         * @param position Zero-based absolute sequence position of the first token.
          */
         void decode(
             const ITensor& Q_in, const ITensor& K_in,
@@ -246,12 +245,13 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         {
             ensureBuilt();
 
-            if ( position < 0 || position >= seq_length_ )
-                throw std::invalid_argument( std::format(
-                    "CudaRopeOp::decode: position {} out of range [0, {})",
-                    position, seq_length_ ) );
+            const int B = static_cast<int>( Q_in.shape()[ 0 ] );
+            const int T = static_cast<int>( Q_in.shape()[ 1 ] );
 
-            int B = static_cast<int>( Q_in.shape()[ 0 ] );
+            if ( position < 0 || position + T > seq_length_ )
+                throw std::invalid_argument( std::format(
+                    "CudaRopeOp::decode: {} tokens from position {} exceed the {} positions this op was built for",
+                    T, position, seq_length_ ) );
 
             Detail::cuda_rope_impl<ComputeType>::decode(
                 static_cast<ComputeType*>( Q_out.rawData() ),
@@ -259,7 +259,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 static_cast<const ComputeType*>( Q_in.rawData() ),
                 static_cast<const ComputeType*>( K_in.rawData() ),
                 angles_,
-                B, context_->getDecodePosition(),
+                B, T, context_->getDecodePosition(),
                 static_cast<int>(config_.getNumHeads()),
                 static_cast<int>(config_.getNumKVHeads()),
                 static_cast<int>(config_.getHeadDim()),

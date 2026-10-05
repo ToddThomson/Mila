@@ -185,33 +185,36 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
     bool cuda_gqa_decode_attention_supported( int head_size, int group_size );
 
     /// Device scratch bytes the fused decode kernel needs for its split-K
-    /// partials at the worst-case split count. Fetch via
-    /// ExecutionContext::getDeviceScratchBuffer at decode time.
-    size_t cuda_gqa_decode_attention_scratch_bytes( int B, int NH, int HS );
+    /// partials at the worst-case split count, for `rows` decode tokens. Fetch
+    /// via ExecutionContext::getDeviceScratchBuffer at decode time.
+    size_t cuda_gqa_decode_attention_scratch_bytes( int B, int NH, int HS, int rows );
 
     /**
-     * @brief Fused single-token decode attention over the compact BF16 KV cache.
+     * @brief Fused decode attention over the compact BF16 KV cache, for one token or a few in a row.
      *
      * Replaces the cuBLASLt QK -> softmax_decode -> AV pipeline (and its
      * T=1 identity Q-permute/unpermute copies) with one streaming
-     * online-softmax kernel that reads only the live attention band:
-     * absolute positions [max(0, actual_len - window), actual_len), physical
-     * cache row = position % cache_capacity (identity when unbounded), where
-     * actual_len = *position + 1 is read on the device (DecodeGraph.md 4.1).
+     * online-softmax kernel that reads only the live attention band. Token r
+     * of `rows` sits at absolute position *position + r, read on the device
+     * (DecodeGraph.md 4.1), and attends [max(0, end - window), end) with
+     * end = *position + r + 1; physical cache row = position % cache_capacity
+     * (identity when unbounded). The tokens' keys must already be in the cache.
      * Serves both the unbounded and bounded-ring ops. Q is read from the
-     * projection output [B, 1, NH*HS]; Y is written as [B, 1, NH*HS]. Long
-     * bands are split-K parallelized across blocks with a fixup merge launch;
-     * the grid is sized for the splits max_band (the longest band the op can
-     * hold) needs, and the live count is chosen on the device, so the launch
-     * is the same at every position (DecodeGraph.md 4.2). split_scratch must
-     * hold cuda_gqa_decode_attention_scratch_bytes. `scale` is the
-     * config-derived attention scale, applied to the QK dots.
+     * projection output [B, rows, NH*HS]; Y is written as [B, rows, NH*HS].
+     * Long bands are split-K parallelized across blocks with a fixup merge
+     * launch; the grid is sized for the splits max_band (the longest band the
+     * op can hold) plus rows - 1 needs, and the live count is chosen on the
+     * device, so the launch is the same at every position (DecodeGraph.md 4.2).
+     * split_scratch must hold cuda_gqa_decode_attention_scratch_bytes for the
+     * same rows. `scale` is the config-derived attention scale, applied to the
+     * QK dots. With several tokens the splits are cut over their union band, so
+     * a token's sums run in another order than a one-token decode's.
      */
     void cuda_gqa_decode_attention_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
         __nv_bfloat16* Y, float* split_scratch,
         int B, int NH, int NKV, int HS, int cache_capacity,
-        const int* position, int max_band, int window, float scale,
+        const int* position, int rows, int max_band, int window, float scale,
         cudaStream_t stream );
 
     /**
@@ -226,7 +229,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const float* k_scales, const float* v_scales,
         __nv_bfloat16* Y, float* split_scratch,
         int B, int NH, int NKV, int HS, int cache_capacity,
-        const int* position, int max_band, int window, float scale,
+        const int* position, int rows, int max_band, int window, float scale,
         cudaStream_t stream );
 
     // ========================================================================

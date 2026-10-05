@@ -51,7 +51,8 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
      * forward() is the synchronous contract (default stream; the caller synchronizes
      * the network first and reads the token back itself), enqueueForward()/awaitToken()
      * is the pipelined decode-ahead contract (execution context's stream, async pinned
-     * readback -- no host sync between forward pass and sampler). Internal compute is FP32.
+     * readback -- no host sync between forward pass and sampler), and enqueueForwardOnDevice()
+     * leaves the token on the device with no readback at all. Internal compute is FP32.
      *
      * @tparam TPrecision Logits precision (FP32 or BF16).
      */
@@ -156,6 +157,22 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
                     "CudaSamplingOp::enqueueForward: event record failed: {}",
                     cudaGetErrorString( status ) ) );
             }
+        }
+
+        /**
+         * @brief Enqueue one sampling step on the execution context's stream, the token never read back.
+         *
+         * The token stays where the next pass on the stream reads it, as a draft step's does for the step after it
+         * (Gemma4Mtp.md 4.6); the caller copies it to the host when it needs it. Any number may be outstanding, and
+         * none touches the single slot enqueueForward()'s readback uses.
+         */
+        void enqueueForwardOnDevice(
+            const ITensor& logits,
+            ITensor& token_out,
+            const SamplingParams& params,
+            float r ) const
+        {
+            dispatchSample( logits, token_out, params, r, context_->getStream() );
         }
 
         /**

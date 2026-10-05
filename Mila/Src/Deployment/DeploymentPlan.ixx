@@ -10,6 +10,7 @@
 module;
 #include <cstddef>
 #include <format>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -22,6 +23,7 @@ import Dnn.LanguageModelConfig;
 import Dnn.RuntimeMode;
 import Dnn.TensorTypes;
 import Deployment.DeviceReading;
+export import Deployment.SpeculativeDecode;
 import Serialization.WeightsReader;
 import Compute.DeviceId;
 
@@ -80,11 +82,13 @@ namespace Mila::Deployment
             WeightQuantization weight_quantization,
             KvCacheCompression kv_cache_compression,
             const WeightsMetadata& priced_for,
-            std::string priced_stored_quantization )
+            std::string priced_stored_quantization,
+            std::optional<SpeculativeDecode> speculative_decode = std::nullopt )
             : reading_( reading ), context_length_( context_length ), context_limit_( context_limit ),
               prefill_( prefill ), footprint_( footprint ), weight_quantization_( weight_quantization ),
               kv_cache_compression_( kv_cache_compression ),
-              priced_for_( priced_for ), priced_stored_quantization_( std::move( priced_stored_quantization ) )
+              priced_for_( priced_for ), priced_stored_quantization_( std::move( priced_stored_quantization ) ),
+              speculative_decode_( std::move( speculative_decode ) )
         {
         }
 
@@ -141,6 +145,12 @@ namespace Mila::Deployment
         [[nodiscard]] KvCacheCompression kvCacheCompression() const noexcept
         {
             return kv_cache_compression_;
+        }
+
+        /// The draft model the footprint includes, if the request selected one.
+        [[nodiscard]] const std::optional<SpeculativeDecode>& speculativeDecode() const noexcept
+        {
+            return speculative_decode_;
         }
 
         /// The package facts pricing read: architecture and geometry. The name is not one of them.
@@ -248,5 +258,6 @@ namespace Mila::Deployment
         KvCacheCompression kv_cache_compression_;
         WeightsMetadata priced_for_;
         std::string priced_stored_quantization_;
+        std::optional<SpeculativeDecode> speculative_decode_;
     };
 }

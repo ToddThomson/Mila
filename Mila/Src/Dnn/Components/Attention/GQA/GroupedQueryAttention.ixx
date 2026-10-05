@@ -12,6 +12,7 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <optional>
+#include <format>
 
 export module Dnn.Components.Gqa;
 export import Dnn.Components.GqaConfig;
@@ -275,11 +276,14 @@ namespace Mila::Dnn
          * Precondition: forward() must have been called at least once to
          * populate the KV cache before decode() is called.
          *
-         * @param q               Query tensor [B, 1, Q * head_dim].
-         * @param k               Key tensor [B, 1, KV * head_dim].
-         * @param v               Value tensor [B, 1, KV * head_dim].
-         * @param position_offset Absolute position of the token (0-based).
-         * @return Reference to component-owned single-token output tensor.
+         * A decode of several tokens in a row (Gemma4Mtp.md 4.7) takes up to the decode tokens the build declared
+         * (BuildContext::withDecodeTokens).
+         *
+         * @param q               Query tensor [B, T, Q * head_dim], T tokens from position_offset.
+         * @param k               Key tensor [B, T, KV * head_dim].
+         * @param v               Value tensor [B, T, KV * head_dim].
+         * @param position_offset Absolute position of the first token (0-based).
+         * @return Reference to the component-owned decode output, viewed at [B, T, model_dim].
          */
         TensorType& decode( const TensorType& q, const TensorType& k, const TensorType& v, dim_t position_offset )
         {
@@ -291,12 +295,25 @@ namespace Mila::Dnn
 
             if ( positional_op_ && cache_initialized_ )
             {
-                positional_op_->decode( q, k, v, *decode_output_, position_offset );
+                const dim_t tokens = q.shape()[ 1 ];
+
+                if ( tokens > decode_output_->shape()[ 1 ] )
+                {
+                    throw std::invalid_argument( std::format(
+                        "GroupedQueryAttention '{}': {} tokens in one decode call, and it was built for at most {}",
+                        this->getName(), tokens, decode_output_->shape()[ 1 ] ) );
+                }
+
+                TensorType& output = tokens == decode_output_->shape()[ 1 ]
+                    ? *decode_output_
+                    : stableView( decode_output_view_, *decode_output_, shape_t{ q.shape()[ 0 ], tokens, config_.getModelDim() } );
+
+                positional_op_->decode( q, k, v, output, position_offset );
                 decode_active_ = true;
 
-                this->publish( ComputePass::Decode, "output", *decode_output_ );
+                this->publish( ComputePass::Decode, "output", output );
 
-                return *decode_output_;
+                return output;
             }
 
             // Fallback -- backend does not support KV caching or cache not yet initialized.
@@ -523,8 +540,9 @@ namespace Mila::Dnn
 
             if ( context.isInferenceMode() )
             {
-                // Decode output is T=1 and always component-owned -- never pooled.
-                stats.device_state_bytes += occupiedDeviceBytes( storageBytes<TComputePrecision>( batch * model_dim ), granularity );
+                // Decode output holds the most tokens one decode call takes, and is always component-owned -- never pooled.
+                stats.device_state_bytes += occupiedDeviceBytes(
+                    storageBytes<TComputePrecision>( batch * context.getDecodeTokens() * model_dim ), granularity );
 
                 // Prefill output is one chunk wide, not the whole context.
                 if ( !output_installed_ && !context.hasInstalledOutput() )
@@ -667,8 +685,9 @@ namespace Mila::Dnn
                     cache_initialized_ = true;
                 }
 
-                // Decode path output: T=1. Always component-owned (tiny, not pooled).
-                shape_t decode_output_shape = { input_shape[ 0 ], 1, config_.getModelDim() };
+                // Decode path output: the most tokens one decode call takes, 1 unless a multi-token decode was
+                // declared. Always component-owned (tiny, not pooled).
+                shape_t decode_output_shape = { input_shape[ 0 ], context.getDecodeTokens(), config_.getModelDim() };
                 decode_output_ = std::make_unique<TensorType>( device, decode_output_shape, this->getName() + ".output_decode" );
 
                 // Prefill path output -- sized for one prefill chunk at a time.
@@ -744,6 +763,7 @@ namespace Mila::Dnn
         std::optional<TensorType> output_view_;
         std::unique_ptr<TensorType> input_grad_{ nullptr };
         std::unique_ptr<TensorType> decode_output_{ nullptr };
+        std::unique_ptr<TensorType> decode_output_view_{ nullptr };
 
         // ====================================================================
         // Private helpers

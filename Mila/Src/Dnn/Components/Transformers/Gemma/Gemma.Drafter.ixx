@@ -7,6 +7,7 @@ module;
 #include <memory>
 #include <vector>
 #include <string>
+#include <string_view>
 #include <format>
 #include <stdexcept>
 #include <optional>
@@ -189,9 +190,12 @@ namespace Mila::Dnn
             return *next_hidden_;
         }
 
+        /// The name every tensor in a drafter's weights file is under (Tools/Converters/Gemma/convert_drafter.py).
+        static constexpr std::string_view kWeightsPrefix = "drafter.";
+
         /**
-         * @brief Load the drafter's own weights file into this component; every tensor in it is named under this
-         *        component's name.
+         * @brief Load the drafter's own weights file into this component, whatever this component is named: a
+         *        network names its drafter under its own name, the file names every tensor under `drafter`.
          *
          * @param reader The drafter's file, as Tools/Converters/Gemma/convert_drafter.py writes it.
          */
@@ -203,7 +207,14 @@ namespace Mila::Dnn
             {
                 auto [component_path, param_name] = parseParameterPath( full_name );
 
-                this->findComponent( component_path )->loadParameter( param_name, blob );
+                if ( !component_path.starts_with( kWeightsPrefix ) )
+                {
+                    throw std::runtime_error( std::format(
+                        "GemmaDrafter '{}': tensor '{}' is not under '{}'; not a drafter's weights file",
+                        this->getName(), full_name, kWeightsPrefix ) );
+                }
+
+                this->findComponent( component_path.substr( kWeightsPrefix.size() ) )->loadParameter( param_name, blob );
 
                 // The reader reuses its pinned staging slot when this returns.
                 if constexpr ( TDeviceType == DeviceType::Cuda )

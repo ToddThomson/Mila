@@ -112,6 +112,28 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Enqueue one sampling step whose token stays on the device: no readback, no host wait.
+         *
+         * For a chain of passes that each read the token the one before chose -- a draft model's steps, the rows of
+         * a verify -- with the host reading the tokens once at the end of the chain. Draws one host uniform, as
+         * enqueueSample() does, and may be called any number of times between enqueueSample() and awaitToken().
+         *
+         * @param logits    Device logits; the last `vocab_size` elements are the row sampled.
+         * @param token_out Device INT32 element the token is written to, such as one slot of a token sequence.
+         * @param params    Per-call sampling parameters; greedy draws nothing from the uniform.
+         */
+        void enqueueSampleOnDevice(
+            const ITensor& logits,
+            TokenTensor& token_out,
+            const SamplingParams& params )
+        {
+            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
+            const float r = dist( rng_ );
+
+            op_->enqueueForwardOnDevice( logits, token_out, params, r );
+        }
+
+        /**
          * @brief Block until the last enqueueSample()'s token id is host-visible and return it.
          */
         int32_t awaitToken()

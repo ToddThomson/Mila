@@ -16,6 +16,7 @@
 
 module;
 #include <memory>
+#include <stdexcept>
 
 export module Dnn.Components.ITransformerBlock;
 
@@ -57,6 +58,19 @@ namespace Mila::Dnn
          * @return Reference to the block-owned output [B, 1, model_dim].
          */
         virtual TensorType& decode( const TensorType& input, dim_t position ) = 0;
+
+        /**
+         * @brief Decode of a few tokens in a row from an absolute position, each at decode's arithmetic
+         *        (Gemma4Mtp.md 4.7). Refused by a block that has no multi-token decode.
+         * @return Reference to the block-owned output [B, T, model_dim].
+         */
+        virtual TensorType& decodeTokens( const TensorType& input, dim_t position )
+        {
+            ( void )input;
+            ( void )position;
+
+            throw std::logic_error( "ITransformerBlock::decodeTokens: this block has no multi-token decode" );
+        }
 
         /**
          * @brief Wire the shared GQA transient workspace (owned by the transformer).

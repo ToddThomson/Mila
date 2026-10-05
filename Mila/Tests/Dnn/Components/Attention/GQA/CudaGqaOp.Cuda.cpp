@@ -1312,9 +1312,9 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
             return fp8 ? rows * 2 * ( geometry.head_dim + sizeof( float ) ) : rows * 2 * geometry.head_dim * 2;
         }
 
-        /// Mean microseconds of one decode call at `depth`, DRAM-resident.
+        /// Mean microseconds of one decode call of `tokens` tokens from `depth`, DRAM-resident.
         template<typename TOp>
-        double decodeMicroseconds( const FlashGeometry& geometry, int depth, int window, bool fp8 )
+        double decodeMicroseconds( const FlashGeometry& geometry, int depth, int window, bool fp8, int tokens = 1 )
         {
             const int context = depth + kChunk;
             const std::size_t bytes = bandBytes( geometry, depth, window, fp8 );
@@ -1326,10 +1326,10 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
             DeviceBf16 v = toDevice( randomHost( shape_t{ kGBatch, kChunk, geometry.kv_heads * geometry.head_dim }, rng ) );
             DeviceBf16 out( Device::Cuda( 0 ), shape_t{ kGBatch, kChunk, geometry.modelDim() } );
 
-            DeviceBf16 q_step = toDevice( randomHost( shape_t{ kGBatch, 1, geometry.heads * geometry.head_dim }, rng ) );
-            DeviceBf16 k_step = toDevice( randomHost( shape_t{ kGBatch, 1, geometry.kv_heads * geometry.head_dim }, rng ) );
-            DeviceBf16 v_step = toDevice( randomHost( shape_t{ kGBatch, 1, geometry.kv_heads * geometry.head_dim }, rng ) );
-            DeviceBf16 out_step( Device::Cuda( 0 ), shape_t{ kGBatch, 1, geometry.modelDim() } );
+            DeviceBf16 q_step = toDevice( randomHost( shape_t{ kGBatch, tokens, geometry.heads * geometry.head_dim }, rng ) );
+            DeviceBf16 k_step = toDevice( randomHost( shape_t{ kGBatch, tokens, geometry.kv_heads * geometry.head_dim }, rng ) );
+            DeviceBf16 v_step = toDevice( randomHost( shape_t{ kGBatch, tokens, geometry.kv_heads * geometry.head_dim }, rng ) );
+            DeviceBf16 out_step( Device::Cuda( 0 ), shape_t{ kGBatch, tokens, geometry.modelDim() } );
 
             // Consumed only by the cuBLASLt paths, which neither flash leg takes.
             DeviceBf16 q_permute( Device::Cuda( 0 ), shape_t{ kGBatch, geometry.heads, kChunk, geometry.head_dim } );
@@ -1352,7 +1352,7 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
                 auto op = std::make_unique<TOp>( cuda_context_.get(),
                     GqaConfig( geometry.modelDim(), geometry.heads, geometry.kv_heads ).withWindow( window ) );
                 op->build( BuildContext( shape_t{ kGBatch, context, geometry.packedQkv() },
-                    RuntimeMode::Inference, false ).withPrefillSize( kChunk ) );
+                    RuntimeMode::Inference, false ).withPrefillSize( kChunk ).withDecodeTokens( tokens ) );
                 op->initializeKvCache( kGBatch, context );
                 op->setUseFlashPrefill( true );
                 op->setUseFlashDecode( true );
@@ -1471,5 +1471,40 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
     TEST_F( CudaGqaDecodeRate, DISABLED_GemmaSliding )
     {
         printRates<BoundedBf16Op>( "Gemma 4 12B sliding", kGemmaSliding, kGemmaSlidingWindow, false, { 8192 } );
+    }
+
+    // A decode of several tokens (Gemma4Mtp.md 4.7) against one, on both Gemma 4 12B layer kinds: the verify's
+    // attention term.
+    TEST_F( CudaGqaDecodeRate, DISABLED_GemmaSeveralTokens )
+    {
+        const auto print = [&]<typename TOp>( const char* name, const FlashGeometry& geometry, int window,
+            std::initializer_list<int> depths )
+        {
+            std::printf( "%s: microseconds a call, and as a multiple of one token's\n  %8s", name, "depth" );
+
+            for ( int tokens : { 1, 2, 4, 5, 8 } )
+                std::printf( "  %7d tok", tokens );
+
+            std::printf( "\n" );
+
+            for ( int depth : depths )
+            {
+                const double one = decodeMicroseconds<TOp>( geometry, depth, window, false, 1 );
+                std::printf( "  %8d  %11.2f", depth, one );
+
+                for ( int tokens : { 2, 4, 5, 8 } )
+                {
+                    const double several = decodeMicroseconds<TOp>( geometry, depth, window, false, tokens );
+                    std::printf( "  %5.2f (%4.2fx)", several, several / one );
+                }
+
+                std::printf( "\n" );
+            }
+
+            std::fflush( stdout );
+        };
+
+        print.template operator()<UnboundedBf16Op>( "Gemma 4 12B global", kGemmaGlobal, 0, { 1024, 8192, 32768 } );
+        print.template operator()<BoundedBf16Op>( "Gemma 4 12B sliding", kGemmaSliding, kGemmaSlidingWindow, { 8192 } );
     }
 }

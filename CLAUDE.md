@@ -213,7 +213,10 @@ bucket and no Release body; a fix is not a goal, and its commit is its own recor
   - **Admission is earned.** Point at an item and name the ROADMAP success criterion that fails if
     it never ships. If you cannot name one it belongs in `Mila/Issues/`. Membership in this file
     *is* the claim that the item blocks the release, so an unearned item makes the claim worthless
-    for every other item too.
+    for every other item too. **Exception: an internal fix the user admits** (a correctness or
+    hygiene defect in the library, with no user-visible criterion behind it) needs no ROADMAP
+    criterion -- the user's decision is its admission (Todd, 2026-10-05). It goes in the
+    `### Internal fixes` bucket at the end of the release, outside the theme join.
   - **An item is a `####` heading that reads cold**, then a metadata line, then a body ending in an
     anchor. The heading states the problem in no term that exists only inside Mila; the body carries
     whatever detail the work needs, and says so plainly when the finding is an absence rather than a

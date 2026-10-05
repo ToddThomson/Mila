@@ -176,14 +176,13 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Single-token decode with explicit position.
+         * @brief Decode with explicit position: one token, or a few in a row (Gemma4Mtp.md 4.7).
          *
-         * Rotates Q and K in-place using the cos/sin cache row at `position`.
-         * Required for KV-cache autoregressive generation where T=1.
+         * Rotates Q and K in-place, token t of T at `position` + t.
          *
-         * @param Q        Query tensor [B, 1, n_heads    * head_dim]. Mutated in-place.
-         * @param K        Key tensor   [B, 1, n_kv_heads * head_dim]. Mutated in-place.
-         * @param position Absolute position of the token in the full sequence.
+         * @param Q        Query tensor [B, T, n_heads    * head_dim]. Mutated in-place.
+         * @param K        Key tensor   [B, T, n_kv_heads * head_dim]. Mutated in-place.
+         * @param position Absolute position of the first token in the full sequence.
          */
         void decode( TensorType& Q, TensorType& K, dim_t position )
         {

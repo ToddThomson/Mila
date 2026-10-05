@@ -300,6 +300,7 @@ export import Dnn.Components.QwenTransformer;
 // transformer's build executes.
 export import Deployment.PrefillChunkRule;
 export import Deployment.DeviceReading;
+export import Deployment.SpeculativeDecode;
 export import Deployment.DeploymentRequest;
 export import Deployment.DeploymentPlan;
 export import Deployment.DeploymentPlans;

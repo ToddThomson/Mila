@@ -125,17 +125,19 @@ namespace Mila::Dnn::Compute::Cuda::Rope
     // ========================================================================
 
     /**
-     * @brief Apply RoPE for a single decode step at an explicit sequence position.
+     * @brief Apply RoPE for a decode step of T tokens in a row from an explicit sequence position.
      *
-     * The position is read on the device, so a recorded decode step replays at every position.
+     * The position is read on the device, so a recorded decode step replays at every position; token t rotates at
+     * *position + t. One token is the ordinary decode step; a few are a multi-token decode (Gemma4Mtp.md 4.7).
      *
-     * @param Q_out      Output Q [B, 1, n_heads,    head_dim].
-     * @param K_out      Output K [B, 1, n_kv_heads, head_dim].
-     * @param Q_in       Input  Q [B, 1, n_heads,    head_dim].
-     * @param K_in       Input  K [B, 1, n_kv_heads, head_dim].
+     * @param Q_out      Output Q [B, T, n_heads,    head_dim].
+     * @param K_out      Output K [B, T, n_kv_heads, head_dim].
+     * @param Q_in       Input  Q [B, T, n_heads,    head_dim].
+     * @param K_in       Input  K [B, T, n_kv_heads, head_dim].
      * @param angles     The configuration's angle parameters.
      * @param B          Batch size.
-     * @param position   Device int holding the absolute sequence position.
+     * @param T          Tokens per sequence.
+     * @param position   Device int holding the absolute sequence position of the first token.
      * @param n_heads    Number of query heads.
      * @param n_kv_heads Number of key/value heads.
      * @param head_dim   Per-head dimension (must be divisible by 2).
@@ -147,7 +149,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* Q_in,
         const float* K_in,
         const RopeAngleParameters& angles,
-        int B, const int* position,
+        int B, int T, const int* position,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
         cudaStream_t stream );
@@ -185,7 +187,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const __nv_bfloat16* Q_in,
         const __nv_bfloat16* K_in,
         const RopeAngleParameters& angles,
-        int B, const int* position,
+        int B, int T, const int* position,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
         cudaStream_t stream );

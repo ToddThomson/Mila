@@ -115,7 +115,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             // Fetched on every call: the shared scratch may be reallocated on grow.
             float* split_scratch = static_cast<float*>( context_->getDeviceScratchBuffer(
-                cuda_gqa_decode_attention_scratch_bytes( batch_, heads, head_size ) ) );
+                cuda_gqa_decode_attention_scratch_bytes( batch_, heads, head_size, 1 ) ) );
 
             const int max_band = ( window > 0 && window < context_length_ ) ? window : context_length_;
             const auto* query = static_cast<const __nv_bfloat16*>( q.rawData() );
@@ -126,7 +126,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 cuda_gqa_decode_attention_fp8( query,
                     static_cast<const __nv_fp8_e4m3*>( cache.keys ), static_cast<const __nv_fp8_e4m3*>( cache.values ),
                     cache.key_scales, cache.value_scales, out, split_scratch,
-                    batch_, heads, kv_heads, head_size, cache.capacity, key_end, max_band, window,
+                    batch_, heads, kv_heads, head_size, cache.capacity, key_end, 1, max_band, window,
                     config_.getAttentionScale(), stream );
             }
             else
@@ -134,7 +134,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 cuda_gqa_decode_attention_bf16( query,
                     static_cast<const __nv_bfloat16*>( cache.keys ), static_cast<const __nv_bfloat16*>( cache.values ),
                     out, split_scratch,
-                    batch_, heads, kv_heads, head_size, cache.capacity, key_end, max_band, window,
+                    batch_, heads, kv_heads, head_size, cache.capacity, key_end, 1, max_band, window,
                     config_.getAttentionScale(), stream );
             }
         }
@@ -169,7 +169,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         std::size_t getScratchBytes() const override
         {
             return cuda_gqa_decode_attention_scratch_bytes( batch_, static_cast<int>( config_.getNumHeads() ),
-                static_cast<int>( config_.getHeadDim() ) );
+                static_cast<int>( config_.getHeadDim() ), 1 );
         }
 
         std::size_t getRequiredScratchBytes( const BuildContext& context ) const override
@@ -177,7 +177,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             validateInputShape( context.inputShape() );
 
             return cuda_gqa_decode_attention_scratch_bytes( static_cast<int>( context.inputShape()[ 0 ] ),
-                static_cast<int>( config_.getNumHeads() ), static_cast<int>( config_.getHeadDim() ) );
+                static_cast<int>( config_.getNumHeads() ), static_cast<int>( config_.getHeadDim() ), 1 );
         }
 
     private:

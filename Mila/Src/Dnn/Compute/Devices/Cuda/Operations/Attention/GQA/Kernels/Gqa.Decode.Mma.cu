@@ -2,8 +2,9 @@
  * @file Gqa.Decode.Mma.cu
  * @brief Fused single-token decode attention over the compact KV cache, on the tensor cores.
  *
- * A block packs a KV head's whole query-head group into the rows of one m16n8k16 tile and walks one split of the
- * live band; a fixup launch merges the splits. Supersedes the CUDA-core kernel of Gqa.Decode.Bf16.cu (retired).
+ * A block packs (token, query head) pairs of one KV head into the rows of one m16n8k16 tile and walks one split of the
+ * live band; a fixup launch merges the splits. A decode of several tokens (Gemma4Mtp.md 4.7) gives each tile row its
+ * own causal end and window start. Supersedes the CUDA-core kernel of Gqa.Decode.Bf16.cu (retired).
  */
 
 #include <cuda_runtime.h>
@@ -178,14 +179,24 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 #endif
 
+        /// The decode tokens' union band, [start, end): token r of `rows` sits at *position + r.
+        __device__ __forceinline__ void decodeUnionBand( int position, int rows, int window, int& start, int& end )
+        {
+            start = decodeBandStart( position + 1, window );
+            end = position + rows;
+        }
+
         /**
-         * @brief Tensor-core decode attention: one (kv_head, split, batch) block.
+         * @brief Tensor-core decode attention: one (kv_head x row tile, split, batch) block.
          *
-         * The block's query-head group fills the rows of one m16n8k16 tile (rows past the group are zero), so a
-         * KV head is read once for its whole group and QK and PV run on the tensor cores, as the packed prefill
-         * does (Gqa.Flash.Packed.cu, whose fragment layout this follows). The split walks absolute positions
-         * [chunk_begin, chunk_end) with cache row = position % capacity; a key outside the split is staged as
-         * zeros and scored -inf, so no unwritten row is read.
+         * Tile row i is pair j = row_tile * 16 + i of the KV head's (token, query head) pairs, token j / group_size
+         * and head j % group_size; pairs past rows x group_size are zero. A KV head is read once for every pair in
+         * the tile and QK and PV run on the tensor cores, as the packed prefill does (Gqa.Flash.Packed.cu, whose
+         * fragment layout this follows). The split walks absolute positions [chunk_begin, chunk_end) of the tokens'
+         * union band with cache row = position % capacity; a key outside the split is staged as zeros, and a key
+         * outside a row's own band -- past its token, or before its window -- is scored -inf for that row, so no
+         * unwritten row is read. kSeveralTokens false compiles the one-token decode -- one token, every staged key
+         * live -- with none of the per-row band arithmetic, which measured about 0.4 us a call on short bands.
          *
          * With one split the block normalizes and writes Y; otherwise it writes the unnormalized (O, m, l) partial
          * the fixup below merges.
@@ -194,7 +205,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
          * the BF16 stage, each key's K scale multiplies its score, and each key's V scale its probability as P is
          * packed, while l sums the unscaled probabilities (Quantization.md, Part III).
          */
-        template<int kHeadSize, bool kFp8, int kKeyGroupCount>
+        template<int kHeadSize, bool kFp8, int kKeyGroupCount, bool kSeveralTokens>
         __global__ void __launch_bounds__( MmaDecodeGeometry<kHeadSize, kFp8, kKeyGroupCount>::kThreads )
             gqa_decode_attention_mma_kernel(
                 const __nv_bfloat16* __restrict__ q,
@@ -208,6 +219,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 int group_size,
                 int capacity,
                 const int* __restrict__ position,
+                int rows,
+                int row_tiles,
                 int window,
                 int target_splits,
                 float scale )
@@ -225,20 +238,26 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const int slice = warp % Geometry::kSplit;
             const int slice0 = slice * kSliceDims;
 
-            const int kv = blockIdx.x;
+            // The row tile is the fastest grid axis, so the tiles reading one split's keys run together and the
+            // keys come from L2 for all but the first.
+            const int kv = kSeveralTokens ? blockIdx.x / row_tiles : blockIdx.x;
+            const int row_tile = kSeveralTokens ? blockIdx.x - kv * row_tiles : 0;
             const int split = blockIdx.y;
+            const int tokens = kSeveralTokens ? rows : 1;
             const int batch = blockIdx.z;
             const int num_heads = num_kv_heads * group_size;
+            const int pairs = tokens * group_size;
 
-            const int actual_len = *position + 1;
-            const int window_start = decodeBandStart( actual_len, window );
-            const DecodeSplits splits = decodeSplits( actual_len - window_start, target_splits, Geometry::kTileKeys );
+            const int first_position = *position;
+            int window_start, band_end;
+            decodeUnionBand( first_position, tokens, window, window_start, band_end );
+            const DecodeSplits splits = decodeSplits( band_end - window_start, target_splits, Geometry::kTileKeys );
 
             if ( split >= splits.count )
                 return;
 
             const int chunk_begin = window_start + split * splits.chunk;
-            const int chunk_end = min( chunk_begin + splits.chunk, actual_len );
+            const int chunk_end = min( chunk_begin + splits.chunk, band_end );
             const int tile_count = ( chunk_end - chunk_begin + Geometry::kTileKeys - 1 ) / Geometry::kTileKeys;
 
             const std::size_t kv_row_base = ( static_cast<std::size_t>( batch ) * num_kv_heads + kv ) * capacity;
@@ -348,12 +367,33 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 __pipeline_commit();
             };
 
-            // Q for this warp's slice, straight into A fragments; rows past the group are zero.
-            const bool active_low = g < group_size;
-            const bool active_high = g + 8 < group_size;
-            const std::size_t head0 = static_cast<std::size_t>( batch ) * num_heads + kv * group_size;
-            const __nv_bfloat16* q_low = q + ( head0 + g ) * kHeadSize;
-            const __nv_bfloat16* q_high = q + ( head0 + g + 8 ) * kHeadSize;
+            // Tile row i's (token, head) pair: its row of Q and Y, and the band its token attends.
+            const int tile_pair0 = row_tile * kMmaRows;
+            const int tile_rows = min( kMmaRows, pairs - tile_pair0 );
+
+            const auto headOffset = [&]( int tile_row ) -> std::size_t
+            {
+                const int pair = tile_pair0 + tile_row;
+                const int token = kSeveralTokens ? pair / group_size : 0;
+
+                return ( ( static_cast<std::size_t>( batch ) * tokens + token ) * num_heads + kv * group_size
+                    + ( pair - token * group_size ) ) * kHeadSize;
+            };
+
+            const auto rowEnd = [&]( int tile_row )
+            {
+                return first_position + ( kSeveralTokens ? ( tile_pair0 + tile_row ) / group_size : 0 ) + 1;
+            };
+
+            // Q for this warp's slice, straight into A fragments; rows past the pairs are zero.
+            const bool active_low = g < tile_rows;
+            const bool active_high = g + 8 < tile_rows;
+            const __nv_bfloat16* q_low = q + ( active_low ? headOffset( g ) : 0 );
+            const __nv_bfloat16* q_high = q + ( active_high ? headOffset( g + 8 ) : 0 );
+            const int end_low = active_low ? rowEnd( g ) : 0;
+            const int end_high = active_high ? rowEnd( g + 8 ) : 0;
+            const int start_low = decodeBandStart( end_low, window );
+            const int start_high = decodeBandStart( end_high, window );
 
             uint32_t q_fragment[ kSliceKSteps ][ 4 ];
 
@@ -478,7 +518,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     }
                 }
 
-                // --- online softmax for rows g and g + 8; a lane holds keys nt*8 + 2tg + {0,1}, shared by both ---
+                // --- online softmax for rows g and g + 8; a lane holds keys nt*8 + 2tg + {0,1}, each row its own band ---
                 float max_low = -CUDART_INF_F, max_high = -CUDART_INF_F;
 
 #pragma unroll
@@ -488,11 +528,16 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     for ( int j = 0; j < 2; ++j )
                     {
                         const int key = nt * kMmaN + 2 * tg + j;
-                        const bool live = group_start + key < chunk_end;
+                        const int key_position = group_start + key;
+                        const bool staged = key_position < chunk_end;
+                        const bool live_low = kSeveralTokens
+                            ? staged && key_position >= start_low && key_position < end_low : staged;
+                        const bool live_high = kSeveralTokens
+                            ? staged && key_position >= start_high && key_position < end_high : staged;
                         const float key_scale = kFp8 ? scale * k_scale_tile[ key ] : scale;
 
-                        const float low = live ? s[ nt ][ j ] * key_scale : -CUDART_INF_F;
-                        const float high = live ? s[ nt ][ 2 + j ] * key_scale : -CUDART_INF_F;
+                        const float low = live_low ? s[ nt ][ j ] * key_scale : -CUDART_INF_F;
+                        const float high = live_high ? s[ nt ][ 2 + j ] * key_scale : -CUDART_INF_F;
 
                         s[ nt ][ j ] = low;
                         s[ nt ][ 2 + j ] = high;
@@ -508,10 +553,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     max_high = fmaxf( max_high, __shfl_xor_sync( 0xffffffffu, max_high, offset ) );
                 }
 
-                // A key group whose keys all lie past the split keeps its state; the exps below then see only -inf.
-                const bool scored = group_start < chunk_end;
-                const float new_m_low = scored ? fmaxf( m_low, max_low ) : m_low;
-                const float new_m_high = scored ? fmaxf( m_high, max_high ) : m_high;
+                // A row none of whose keys in this group is live keeps its state; its exps below see only -inf. With
+                // one token, a row's keys are live exactly when the group starts inside the split.
+                const bool scored_low = kSeveralTokens ? max_low != -CUDART_INF_F : group_start < chunk_end;
+                const bool scored_high = kSeveralTokens ? max_high != -CUDART_INF_F : group_start < chunk_end;
+                const float new_m_low = scored_low ? fmaxf( m_low, max_low ) : m_low;
+                const float new_m_high = scored_high ? fmaxf( m_high, max_high ) : m_high;
 
                 float sum_low = 0.0f, sum_high = 0.0f;
 
@@ -535,21 +582,31 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     sum_high += __shfl_xor_sync( 0xffffffffu, sum_high, offset );
                 }
 
-                if ( scored )
+                if ( scored_low )
                 {
                     const float alpha_low = m_low == -CUDART_INF_F ? 0.0f : __expf( m_low - new_m_low );
-                    const float alpha_high = m_high == -CUDART_INF_F ? 0.0f : __expf( m_high - new_m_high );
 
                     l_low = l_low * alpha_low + sum_low;
-                    l_high = l_high * alpha_high + sum_high;
                     m_low = new_m_low;
-                    m_high = new_m_high;
 
 #pragma unroll
                     for ( int nt = 0; nt < kSliceNTiles; ++nt )
                     {
                         o[ nt ][ 0 ] *= alpha_low;
                         o[ nt ][ 1 ] *= alpha_low;
+                    }
+                }
+
+                if ( scored_high )
+                {
+                    const float alpha_high = m_high == -CUDART_INF_F ? 0.0f : __expf( m_high - new_m_high );
+
+                    l_high = l_high * alpha_high + sum_high;
+                    m_high = new_m_high;
+
+#pragma unroll
+                    for ( int nt = 0; nt < kSliceNTiles; ++nt )
+                    {
                         o[ nt ][ 2 ] *= alpha_high;
                         o[ nt ][ 3 ] *= alpha_high;
                     }
@@ -589,12 +646,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             {
                 return split_partials +
                     ( ( ( static_cast<std::size_t>( batch ) * num_kv_heads + kv ) * splits.count + split )
-                        * group_size + row ) * ( kHeadSize + 2 );
+                        * pairs + tile_pair0 + row ) * ( kHeadSize + 2 );
             };
 
             const auto headRow = [&]( int row ) -> __nv_bfloat16*
             {
-                return y + ( head0 + row ) * kHeadSize;
+                return y + headOffset( row );
             };
 
             if constexpr ( Geometry::kKeyGroups == 1 )
@@ -676,7 +733,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
                 __syncthreads();
 
-                for ( int index = tid; index < group_size * kHeadSize; index += Geometry::kThreads )
+                for ( int index = tid; index < tile_rows * kHeadSize; index += Geometry::kThreads )
                 {
                     const int row = index / kHeadSize;
                     const int column = index - row * kHeadSize;
@@ -723,8 +780,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         /**
          * @brief Split-K merge for the tensor-core kernel: combines its per-split (O, m, l) partials into Y.
          *
-         * The split count is the attention kernel's, from the same device position and target; at one split that
-         * kernel wrote Y itself and this one exits.
+         * One block per (KV head, token, query head) pair and batch. The split count is the attention kernel's,
+         * from the same device position, token count and target; at one split that kernel wrote Y itself and this
+         * one exits. A split in which a token saw no key carries m = -inf and weighs nothing.
          */
         __global__ void gqa_decode_attention_mma_fixup_kernel(
             __nv_bfloat16* __restrict__ y,
@@ -733,6 +791,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             int group_size,
             int head_size,
             const int* __restrict__ position,
+            int rows,
             int window,
             int target_splits,
             int tile_keys )
@@ -740,23 +799,25 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             __shared__ float s_weight[ kMaxDecodeSplits ];
             __shared__ float s_inv_l;
 
-            const int actual_len = *position + 1;
-            const int num_splits = decodeSplits(
-                actual_len - decodeBandStart( actual_len, window ), target_splits, tile_keys ).count;
+            int band_start, band_end;
+            decodeUnionBand( *position, rows, window, band_start, band_end );
+            const int num_splits = decodeSplits( band_end - band_start, target_splits, tile_keys ).count;
 
             if ( num_splits == 1 )
                 return;
 
-            const int h = blockIdx.x;
+            const int pairs = rows * group_size;
+            const int kv = blockIdx.x / pairs;
+            const int pair = blockIdx.x - kv * pairs;
+            const int token = pair / group_size;
+            const int g = pair - token * group_size;
             const int batch = blockIdx.y;
-            const int kv = h / group_size;
-            const int g = h - kv * group_size;
-            const int num_heads = gridDim.x;
+            const int num_heads = num_kv_heads * group_size;
 
             const size_t partial_stride = static_cast<size_t>( head_size + 2 );
-            const size_t split_stride = static_cast<size_t>( group_size ) * partial_stride;
+            const size_t split_stride = static_cast<size_t>( pairs ) * partial_stride;
             const float* base = split_partials +
-                ( ( static_cast<size_t>( batch ) * num_kv_heads + kv ) * num_splits * group_size + g )
+                ( ( static_cast<size_t>( batch ) * num_kv_heads + kv ) * num_splits * pairs + pair )
                 * partial_stride;
 
             if ( threadIdx.x < 32 )
@@ -796,7 +857,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 for ( int s = 0; s < num_splits; ++s )
                     acc += base[ s * split_stride + dim ] * s_weight[ s ];
 
-                y[ ( static_cast<size_t>( batch ) * num_heads + h ) * head_size + dim ] =
+                y[ ( ( static_cast<size_t>( batch ) * rows + token ) * num_heads + kv * group_size + g ) * head_size + dim ] =
                     __float2bfloat16( acc * s_inv_l );
             }
         }
@@ -805,7 +866,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
          * The blocks one wave of the tensor-core kernel holds on the current device, measured once per device and
          * kernel; the shared-memory opt-in the launch needs is set on the same first call.
          */
-        template<int kHeadSize, bool kFp8, int kKeyGroupCount>
+        template<int kHeadSize, bool kFp8, int kKeyGroupCount, bool kSeveralTokens>
         int mmaDecodeSlots()
         {
             using Geometry = MmaDecodeGeometry<kHeadSize, kFp8, kKeyGroupCount>;
@@ -823,7 +884,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             if ( cached == 0 )
             {
-                const auto kernel = gqa_decode_attention_mma_kernel<kHeadSize, kFp8, kKeyGroupCount>;
+                const auto kernel = gqa_decode_attention_mma_kernel<kHeadSize, kFp8, kKeyGroupCount, kSeveralTokens>;
                 const int shared_bytes = static_cast<int>( Geometry::kSharedBytes );
 
                 cudaCheck( cudaFuncSetAttribute( kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_bytes ) );
@@ -851,37 +912,59 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             return std::clamp( splits, 1, kMaxDecodeSplits );
         }
 
-        template<int kHeadSize, bool kFp8, int kKeyGroupCount>
-        void launchMmaDecode(
+        template<int kHeadSize, bool kFp8, int kKeyGroupCount, bool kSeveralTokens>
+        void launchMmaDecodeTokens(
             const __nv_bfloat16* Q, const void* K, const void* V, const float* k_scales, const float* v_scales,
             __nv_bfloat16* Y, float* split_scratch,
             int B, int NH, int NKV, int cache_capacity,
-            const int* position, int max_band, int window, float scale,
+            const int* position, int rows, int max_band, int window, float scale,
             cudaStream_t stream )
         {
             using Geometry = MmaDecodeGeometry<kHeadSize, kFp8, kKeyGroupCount>;
 
             const int group_size = NH / NKV;
-            const int target_splits = waveFillingSplits( mmaDecodeSlots<kHeadSize, kFp8, kKeyGroupCount>(), NKV * B );
-            const int grid_splits = decodeGridSplits( max_band, target_splits, Geometry::kTileKeys );
+            const int row_tiles = ( rows * group_size + kMmaRows - 1 ) / kMmaRows;
+            const int target_splits = waveFillingSplits(
+                mmaDecodeSlots<kHeadSize, kFp8, kKeyGroupCount, kSeveralTokens>(), NKV * B * row_tiles );
 
-            const dim3 grid( NKV, grid_splits, B );
+            // The tokens' union band is the longest band plus the tokens after the first.
+            const int grid_splits = decodeGridSplits( max_band + rows - 1, target_splits, Geometry::kTileKeys );
 
-            gqa_decode_attention_mma_kernel<kHeadSize, kFp8, kKeyGroupCount><<<grid, Geometry::kThreads, Geometry::kSharedBytes, stream>>>(
+            const dim3 grid( NKV * row_tiles, grid_splits, B );
+
+            gqa_decode_attention_mma_kernel<kHeadSize, kFp8, kKeyGroupCount, kSeveralTokens><<<grid, Geometry::kThreads, Geometry::kSharedBytes, stream>>>(
                 Q, K, V, k_scales, v_scales, Y, split_scratch, NKV, group_size, cache_capacity,
-                position, window, target_splits, scale );
+                position, rows, row_tiles, window, target_splits, scale );
 
             cudaCheck( cudaGetLastError() );
 
             if ( grid_splits > 1 )
             {
-                const dim3 fixup_grid( NH, B );
+                const dim3 fixup_grid( NKV * rows * group_size, B );
 
                 gqa_decode_attention_mma_fixup_kernel<<<fixup_grid, 128, 0, stream>>>(
-                    Y, split_scratch, NKV, group_size, kHeadSize, position, window, target_splits, Geometry::kTileKeys );
+                    Y, split_scratch, NKV, group_size, kHeadSize, position, rows, window, target_splits,
+                    Geometry::kTileKeys );
 
                 cudaCheck( cudaGetLastError() );
             }
+        }
+
+        /// One token takes the one-token instantiation, so plain decode carries none of the per-row band work.
+        template<int kHeadSize, bool kFp8, int kKeyGroupCount>
+        void launchMmaDecode(
+            const __nv_bfloat16* Q, const void* K, const void* V, const float* k_scales, const float* v_scales,
+            __nv_bfloat16* Y, float* split_scratch,
+            int B, int NH, int NKV, int cache_capacity,
+            const int* position, int rows, int max_band, int window, float scale,
+            cudaStream_t stream )
+        {
+            if ( rows > 1 )
+                launchMmaDecodeTokens<kHeadSize, kFp8, kKeyGroupCount, true>( Q, K, V, k_scales, v_scales, Y, split_scratch,
+                    B, NH, NKV, cache_capacity, position, rows, max_band, window, scale, stream );
+            else
+                launchMmaDecodeTokens<kHeadSize, kFp8, kKeyGroupCount, false>( Q, K, V, k_scales, v_scales, Y, split_scratch,
+                    B, NH, NKV, cache_capacity, position, 1, max_band, window, scale, stream );
         }
 
         /// Key groups per head size: four warps a block at every head size. Fewer measured slower at depth and
@@ -898,24 +981,24 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const __nv_bfloat16* Q, const void* K, const void* V, const float* k_scales, const float* v_scales,
             __nv_bfloat16* Y, float* split_scratch,
             int B, int NH, int NKV, int HS, int cache_capacity,
-            const int* position, int max_band, int window, float scale,
+            const int* position, int rows, int max_band, int window, float scale,
             cudaStream_t stream )
         {
             switch ( HS )
             {
                 case 128:
                     launchMmaDecode<128, kFp8, kKeyGroupsFor<128>>( Q, K, V, k_scales, v_scales, Y, split_scratch,
-                        B, NH, NKV, cache_capacity, position, max_band, window, scale, stream );
+                        B, NH, NKV, cache_capacity, position, rows, max_band, window, scale, stream );
                     break;
 
                 case 256:
                     launchMmaDecode<256, kFp8, kKeyGroupsFor<256>>( Q, K, V, k_scales, v_scales, Y, split_scratch,
-                        B, NH, NKV, cache_capacity, position, max_band, window, scale, stream );
+                        B, NH, NKV, cache_capacity, position, rows, max_band, window, scale, stream );
                     break;
 
                 case 512:
                     launchMmaDecode<512, kFp8, kKeyGroupsFor<512>>( Q, K, V, k_scales, v_scales, Y, split_scratch,
-                        B, NH, NKV, cache_capacity, position, max_band, window, scale, stream );
+                        B, NH, NKV, cache_capacity, position, rows, max_band, window, scale, stream );
                     break;
 
                 default:
@@ -932,9 +1015,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             && group_size >= 1 && group_size <= kMaxDecodeGroupSize;
     }
 
-    size_t cuda_gqa_decode_attention_scratch_bytes( int B, int NH, int HS )
+    size_t cuda_gqa_decode_attention_scratch_bytes( int B, int NH, int HS, int rows )
     {
-        return static_cast<size_t>( B ) * NH * kMaxDecodeSplits
+        return static_cast<size_t>( B ) * NH * rows * kMaxDecodeSplits
             * ( static_cast<size_t>( HS ) + 2 ) * sizeof( float );
     }
 
@@ -942,15 +1025,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
         __nv_bfloat16* Y, float* split_scratch,
         int B, int NH, int NKV, int HS, int cache_capacity,
-        const int* position, int max_band, int window, float scale,
+        const int* position, int rows, int max_band, int window, float scale,
         cudaStream_t stream )
     {
         assert( NH % NKV == 0 );
         assert( cuda_gqa_decode_attention_supported( HS, NH / NKV ) );
-        assert( max_band >= 1 );
+        assert( max_band >= 1 && rows >= 1 );
 
         launchDecodeAttention<false>( Q, K, V, nullptr, nullptr, Y, split_scratch,
-            B, NH, NKV, HS, cache_capacity, position, max_band, window, scale, stream );
+            B, NH, NKV, HS, cache_capacity, position, rows, max_band, window, scale, stream );
     }
 
     void cuda_gqa_decode_attention_fp8(
@@ -958,14 +1041,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const float* k_scales, const float* v_scales,
         __nv_bfloat16* Y, float* split_scratch,
         int B, int NH, int NKV, int HS, int cache_capacity,
-        const int* position, int max_band, int window, float scale,
+        const int* position, int rows, int max_band, int window, float scale,
         cudaStream_t stream )
     {
         assert( NH % NKV == 0 );
         assert( cuda_gqa_decode_attention_supported( HS, NH / NKV ) );
-        assert( max_band >= 1 );
+        assert( max_band >= 1 && rows >= 1 );
 
         launchDecodeAttention<true>( Q, K, V, k_scales, v_scales, Y, split_scratch,
-            B, NH, NKV, HS, cache_capacity, position, max_band, window, scale, stream );
+            B, NH, NKV, HS, cache_capacity, position, rows, max_band, window, scale, stream );
     }
 }

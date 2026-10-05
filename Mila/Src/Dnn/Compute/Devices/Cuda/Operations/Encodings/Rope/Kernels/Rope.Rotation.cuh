@@ -47,8 +47,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      * Input and output may alias (every caller rotates in place), so neither is declared restrict.
      *
      * @tparam negate_sin  false -> forward rotation, true -> backward (inverse) rotation.
-     * @param position     Device position for a decode step (every token at it), or null for a prefill chunk,
-     *                     whose token t sits at t mod T + position_offset.
+     * @param position     Device position for a decode step, whose token t sits at *position + t mod T (one token,
+     *                     or a few in a row: Gemma4Mtp.md 4.7), or null for a prefill chunk, whose token t sits at
+     *                     t mod T + position_offset.
      */
     template <bool negate_sin, typename TElement>
     __global__ void rope_rotate_kernel(
@@ -73,7 +74,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
         if ( threadIdx.y == 0 && i < pair_half )
         {
-            const int absolute_position = position != nullptr ? *position : token % T + position_offset;
+            const int absolute_position = ( position != nullptr ? *position : position_offset ) + token % T;
 
             rope_cos_sin( absolute_position, i, angles, shared_cos[ threadIdx.x ], shared_sin[ threadIdx.x ] );
         }

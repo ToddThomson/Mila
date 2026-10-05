@@ -470,6 +470,7 @@ PUBLIC
         # Not a model: the families below import it.
         "Src/Deployment/PrefillChunkRule.ixx"
         "Src/Deployment/DeviceReading.ixx"
+        "Src/Deployment/SpeculativeDecode.ixx"
         "Src/Deployment/DeploymentRequest.ixx"
         "Src/Deployment/DeploymentPlan.ixx"
         "Src/Deployment/DeploymentPlans.ixx"
@@ -674,6 +675,7 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Int6/CudaInt6Gemm.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookGemv.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookDequantize.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/DecodeRows/CudaDecodeRows.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Fp32.cu"
@@ -747,6 +749,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Int6/CudaInt6Gemm.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookGemv.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookDequantize.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/DecodeRows/CudaDecodeRows.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/Kernels/Geglu.cuh"

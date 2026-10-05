@@ -51,7 +51,10 @@ export module Dnn.Components.GemmaTransformer;
 import Dnn.Components.GemmaConfig;
 import Dnn.Components.GemmaFeedForward;
 import Dnn.Components.GemmaBlock;
+import Dnn.Components.GemmaDrafter;
 import Dnn.Components.ITransformerBlock;
+import Dnn.Samplers.SamplingConfig;
+import Dnn.SamplingParams;
 
 import Dnn.Tensor;
 import Dnn.ITensor;
@@ -138,6 +141,10 @@ namespace Mila::Dnn
         using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ false, TWeightQuantization, TKvCachePolicy, kFeedForward>;
         using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, /*kGlobal*/ true, TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>;
         using TransformerBlockType = ITransformerBlock<TDeviceType, TPrecision>;
+        using DrafterType = GemmaDrafter<TDeviceType, TPrecision>;
+
+        /// Where a draft model can run: its read-only attention over this network's caches is CUDA and BF16 only.
+        static constexpr bool kDraftModelRuns = TDeviceType == DeviceType::Cuda && TPrecision == TensorDataType::BF16;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
@@ -262,6 +269,115 @@ namespace Mila::Dnn
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
 
             return *logits_ptr_;
+        }
+
+        /**
+         * onDecode() over T tokens: the blocks' multi-token decode, then the final norm and the head on every row,
+         * the head through Linear::decode so each row is a decode's. The final-normed hidden state keeps all T rows,
+         * the drafter's next round reading the row at the last accepted token (Gemma4Mtp.md 4.7).
+         */
+        TensorType& onDecodeTokens( const TokenIndexType& input, dim_t position ) override
+        {
+            if constexpr ( TDeviceType != DeviceType::Cuda )
+            {
+                ( void )input;
+                ( void )position;
+
+                throw std::logic_error( "GemmaTransformer::decodeTokens: a multi-token decode runs on CUDA" );
+            }
+            else
+            {
+                if ( !this->isBuilt() )
+                    throw std::runtime_error( "GemmaTransformer must be built before calling decodeTokens()." );
+
+                const dim_t tokens = input.shape()[ 1 ];
+
+                if ( input.shape()[ 0 ] != 1 || tokens < 1 || tokens > config_.getDecodeTokens() )
+                {
+                    throw std::invalid_argument( std::format(
+                        "GemmaTransformer::decodeTokens: input [{}, {}]; one sequence of 1 to {} tokens, the decode "
+                        "tokens this network was built for (GemmaConfig::withDecodeTokens)",
+                        input.shape()[ 0 ], tokens, config_.getDecodeTokens() ) );
+                }
+
+                TensorType* block_input = &token_embedding_->forward( input );
+
+                for ( auto* block : blocks_ )
+                {
+                    block_input = &block->decodeTokens( *block_input, position );
+                }
+
+                normalized_ptr_ = &final_rmsnorm_->forward( *block_input );
+                logits_ptr_ = &lm_head_->decode( *normalized_ptr_ );
+
+                return *logits_ptr_;
+            }
+        }
+
+        /**
+         * The draft model's steps (Gemma4Mtp.md 2.2): every step at `position`, the first from the target's
+         * final-normed hidden state at `hidden_row`, each later one from the step before; each token its argmax, on
+         * the device, into the slot the next step embeds. The target's caches are read, never written.
+         */
+        void onDraftTokens( TokenIndexType& tokens, dim_t position, dim_t hidden_row ) override
+        {
+            if constexpr ( !kDraftModelRuns )
+            {
+                ( void )tokens;
+                ( void )position;
+                ( void )hidden_row;
+
+                throw std::logic_error( "GemmaTransformer::draftTokens: a draft model runs on CUDA at BF16" );
+            }
+            else
+            {
+                if ( drafter_ == nullptr || !this->isBuilt() )
+                {
+                    throw std::logic_error(
+                        "GemmaTransformer::draftTokens: this network was not built with a draft model (addDrafter)" );
+                }
+
+                const dim_t length = tokens.shape()[ 1 ];
+
+                if ( tokens.shape()[ 0 ] != 1 || length < 2 || length > config_.getDecodeTokens() )
+                {
+                    throw std::invalid_argument( std::format(
+                        "GemmaTransformer::draftTokens: tokens [{}, {}]; one sequence of 2 to {} tokens, the decode "
+                        "tokens this network was built for", tokens.shape()[ 0 ], length, config_.getDecodeTokens() ) );
+                }
+
+                if ( normalized_ptr_ == nullptr || hidden_row < 0 || hidden_row >= normalized_ptr_->shape()[ 1 ] )
+                {
+                    throw std::invalid_argument( std::format(
+                        "GemmaTransformer::draftTokens: hidden row {} is not a row of the last pass's {}",
+                        hidden_row, normalized_ptr_ == nullptr ? dim_t{ 0 } : normalized_ptr_->shape()[ 1 ] ) );
+                }
+
+                if ( !draft_sampler_ )
+                {
+                    draft_sampler_ = std::make_unique<DraftSamplerType>( this->getExecutionContext(),
+                        SamplingConfig{}.withVocabularySize( drafter_->getConfig().getVocabSize() ) );
+                }
+
+                const dim_t model_dim = config_.getModelDim();
+                const KvCacheView sliding = lastSlidingLayerCache();
+                const KvCacheView global = lastGlobalLayerCache();
+                const SamplingParams greedy{ 0.0f, 1, 1.0f };
+
+                const TensorType hidden = normalized_ptr_->view( shape_t{ 1, 1, model_dim }, hidden_row * model_dim );
+                const TensorType* step_hidden = &hidden;
+
+                for ( dim_t step = 0; step + 1 < length; ++step )
+                {
+                    const TokenIndexType token = tokens.view( shape_t{ 1, 1 }, step );
+                    TokenIndexType next = tokens.view( shape_t{ 1, 1 }, step + 1 );
+
+                    auto& logits = drafter_->decode( token_embedding_->forward( token ), *step_hidden, position, sliding, global );
+
+                    draft_sampler_->enqueueForwardOnDevice( logits, next, greedy, 0.0f );
+                    step_hidden = &drafter_->nextHidden();
+                }
+            }
         }
 
     public:
@@ -427,6 +543,59 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
+        // The draft model (Gemma4Mtp.md 4.1)
+        // ====================================================================
+
+        /**
+         * @brief Build a draft model beside the blocks: a child of this network, priced and built with it.
+         *
+         * Before build(). The network's configuration must allow decodeTokens() of the draft plus the token before
+         * it (GemmaConfig::withDecodeTokens), since that is how the draft is checked.
+         *
+         * @param drafter_config The draft model's geometry, GemmaDrafter::configFromMetadata() of its weights.
+         * @throws std::logic_error      when built already, or a draft model was added before.
+         * @throws std::invalid_argument when the configuration allows fewer than two decode tokens.
+         */
+        void addDrafter( const GemmaConfig& drafter_config )
+            requires ( kDraftModelRuns )
+        {
+            if ( this->isBuilt() || drafter_ != nullptr )
+            {
+                throw std::logic_error( "GemmaTransformer::addDrafter: before build(), once" );
+            }
+
+            if ( config_.getDecodeTokens() < 2 )
+            {
+                throw std::invalid_argument(
+                    "GemmaTransformer::addDrafter: the network decodes one token at a time (GemmaConfig::withDecodeTokens), "
+                    "so it cannot check a draft" );
+            }
+
+            // No context of its own: as a child it is given this network's, which it runs on (Gemma4Mtp.md 4.1).
+            drafter_ = std::make_shared<DrafterType>( this->getName() + ".drafter", drafter_config, config_.getModelDim() );
+
+            this->addComponent( drafter_ );
+        }
+
+        /// Whether a draft model was added.
+        [[nodiscard]] bool hasDrafter() const noexcept
+        {
+            return drafter_ != nullptr;
+        }
+
+        /// Load the draft model's own weights file into the draft model added before build().
+        void loadDrafterParameters( WeightsReader& reader )
+            requires ( kDraftModelRuns )
+        {
+            if ( drafter_ == nullptr )
+            {
+                throw std::logic_error( "GemmaTransformer::loadDrafterParameters: no draft model was added" );
+            }
+
+            drafter_->loadParameters( reader );
+        }
+
+        // ====================================================================
         // What Gemma 4's draft model reads (Gemma4Mtp.md 2.1)
         // ====================================================================
 
@@ -437,8 +606,8 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief The final-normed hidden state of the last row the previous prefill or decode produced, [B, 1, model_dim]:
-         *        the row the head read.
+         * @brief The final-normed hidden state the head read last: [B, 1, model_dim] after a prefill (its last row) or a
+         *        decode, [1, T, model_dim] after decodeTokens.
          */
         const TensorType& finalNormedHidden() const
         {
@@ -538,10 +707,11 @@ namespace Mila::Dnn
                 context.forChild( shape_t{ B, T, config_.getModelDim() } )
                 .withPrefillSize( prefill_chunk )
                 .withInstalledOutput( context.isInferenceMode() )
-                .withFusedDecode( context.isInferenceMode() );
+                .withFusedDecode( context.isInferenceMode() )
+                .withDecodeTokens( config_.getDecodeTokens() );
 
             const shape_t final_shape = context.isInferenceMode()
-                ? shape_t{ B, resolveLogLikelihoodWindow( prefill_chunk ), config_.getModelDim() }
+                ? shape_t{ B, headRows( prefill_chunk ), config_.getModelDim() }
                 : shape_t{ B, T, config_.getModelDim() };
 
             const BuildContext final_context = context.forChild( final_shape );
@@ -577,6 +747,12 @@ namespace Mila::Dnn
                     ->getRequiredMemory( final_context );
 
             stats += head_stats;
+
+            if constexpr ( kDraftModelRuns )
+            {
+                if ( drafter_ != nullptr )
+                    stats += drafter_->getRequiredMemory( drafterContext( context ) );
+            }
 
             const std::size_t granularity = context.getAllocationGranularity();
 
@@ -710,12 +886,13 @@ namespace Mila::Dnn
             BuildContext block_context =
                 BuildContext( block_shape, context.getRuntimeMode(), context.shouldInitializeParameters() )
                 .withPrefillSize( prefill_chunk_size_ )
-                .withFusedDecode( context.isInferenceMode() );
+                .withFusedDecode( context.isInferenceMode() )
+                .withDecodeTokens( config_.getDecodeTokens() );
 
-            // Inference: final_rmsnorm and lm_head process the log-likelihood window, which is one
-            // row for generation. MUST agree with requiredMemoryAtChunk().
+            // Inference: final_rmsnorm and lm_head process the log-likelihood window or a multi-token decode's
+            // tokens, one row for plain generation. MUST agree with requiredMemoryAtChunk().
             shape_t final_shape = context.isInferenceMode() ?
-                shape_t{ B, resolveLogLikelihoodWindow( prefill_chunk_size_ ), config_.getModelDim() }
+                shape_t{ B, headRows( prefill_chunk_size_ ), config_.getModelDim() }
                 : shape_t{ B, T, config_.getModelDim() };
 
             BuildContext final_context( final_shape, context.getRuntimeMode(), context.shouldInitializeParameters() );
@@ -811,6 +988,13 @@ namespace Mila::Dnn
 
             lm_head_->build( final_context );
 
+            // Before the scratch reservation below: the draft model's decode attention shares the context's buffer.
+            if constexpr ( kDraftModelRuns )
+            {
+                if ( drafter_ != nullptr )
+                    drafter_->build( drafterContext( context ) );
+            }
+
             if ( context.isInferenceMode() )
                 allocateAndWireGqaWorkspace( B, input_shape[ 1 ] );
 
@@ -858,6 +1042,15 @@ namespace Mila::Dnn
         // Created at the first sequenceLogLikelihood(); holds no device memory.
         std::unique_ptr<LogLikelihoodOpType> log_likelihood_op_;
 
+        // The draft model, when addDrafter() selected one; owned by the component tree as well.
+        std::shared_ptr<DrafterType> drafter_{ nullptr };
+
+        using DraftSamplerType = typename OperationTraits<OperationType::SamplingOp, TDeviceType, TPrecision>::type;
+
+        // The draft's argmax. Created at the first draft, as the model's own sampler is at its first token: its
+        // vocabulary-wide scratch is outside the build's footprint.
+        std::unique_ptr<DraftSamplerType> draft_sampler_;
+
         // Set from checkpoint metadata in loadParameters. When true, lm_head shares the
         // token embedding table (WeightTying.md) and lm_head.weight is absent from the file.
         bool tie_word_embeddings_{ false };
@@ -897,6 +1090,12 @@ namespace Mila::Dnn
         dim_t resolveLogLikelihoodWindow( dim_t prefill_chunk ) const
         {
             return std::min<dim_t>( config_.getLogLikelihoodWindow(), prefill_chunk );
+        }
+
+        /// Rows the final norm and the head are built for: a log-likelihood window, or a multi-token decode's tokens.
+        dim_t headRows( dim_t prefill_chunk ) const
+        {
+            return std::max<dim_t>( resolveLogLikelihoodWindow( prefill_chunk ), config_.getDecodeTokens() );
         }
 
         // ====================================================================
@@ -995,6 +1194,15 @@ namespace Mila::Dnn
 
             return gqaWorkspaceDeviceBytes<TPrecision>( granularity, B, config_.getNumHeads(), HS_max, T_ctx,
                 prefill_chunk, prefillScoreWidth( T_ctx, prefill_chunk ) );
+        }
+
+        /// The context the draft model is built and priced at: the network's context, at the draft model's width.
+        BuildContext drafterContext( const BuildContext& context ) const
+            requires ( kDraftModelRuns )
+        {
+            const auto& input_shape = context.inputShape();
+
+            return context.forChild( shape_t{ input_shape[ 0 ], input_shape[ 1 ], drafter_->getConfig().getModelDim() } );
         }
 
         /**

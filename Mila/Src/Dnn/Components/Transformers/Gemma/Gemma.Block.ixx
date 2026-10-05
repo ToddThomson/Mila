@@ -327,6 +327,88 @@ namespace Mila::Dnn
             return res2;
         }
 
+        /**
+         * @brief decode() for T tokens in a row from `position` (Gemma4Mtp.md 4.7): every projection through
+         *        Linear::decode, RoPE and attention at each token's own position, each token at decode's arithmetic.
+         */
+        TensorType& decodeTokens( const TensorType& input, dim_t position ) override
+        {
+            if constexpr ( TDeviceType != DeviceType::Cuda )
+            {
+                ( void )input;
+                ( void )position;
+
+                throw std::logic_error( "GemmaBlock::decodeTokens: a multi-token decode runs on CUDA" );
+            }
+            else
+            {
+                if ( !this->isBuilt() )
+                    throw std::runtime_error( "GemmaBlock::decodeTokens: must be built before decodeTokens()." );
+
+                const int64_t B = input.shape()[ 0 ];
+                const int64_t T = input.shape()[ 1 ];
+                const dim_t NH = config_.getNumHeads();
+                const dim_t NKV = numKVHeads();
+                const dim_t HD = headDim();
+
+                auto& normed = input_norm_->forward( input );
+                auto& qkv = qkv_proj_->decode( normed );
+
+                auto q = q_->view( shape_t{ B, T, NH * HD }, 0 );
+                auto k = k_->view( shape_t{ B, T, NKV * HD }, 0 );
+
+                if constexpr ( kGlobal )
+                {
+                    split( qkv, q, k, this->getExecutionContext() );
+                }
+                else
+                {
+                    auto v = v_->view( shape_t{ B, T, NKV * HD }, 0 );
+                    split( qkv, q, k, v, this->getExecutionContext() );
+                }
+
+                auto q_perhead = q.view( shape_t{ B, T * NH, HD }, 0 );
+                auto k_perhead = k.view( shape_t{ B, T * NKV, HD }, 0 );
+                auto& q_normed = q_norm_->forward( q_perhead );
+                auto& k_normed = k_norm_->forward( k_perhead );
+
+                auto q_roped = q_normed.view( shape_t{ B, T, NH * HD }, 0 );
+                auto k_roped = k_normed.view( shape_t{ B, T, NKV * HD }, 0 );
+
+                rope_->decode( q_roped, k_roped, position );
+
+                TensorType* attn_ptr = nullptr;
+
+                if constexpr ( kGlobal )
+                {
+                    auto k_raw_perhead = k.view( shape_t{ B, T * NKV, HD }, 0 );
+                    auto& v_normed = v_norm_->forward( k_raw_perhead );
+                    auto v_view = v_normed.view( shape_t{ B, T, NKV * HD }, 0 );
+                    attn_ptr = &attn_->decode( q_roped, k_roped, v_view, position );
+                }
+                else
+                {
+                    auto v_perhead = v_->view( shape_t{ B, T * NKV, HD }, 0 );
+                    auto& v_normed = v_norm_->forward( v_perhead );
+                    auto v_view = v_normed.view( shape_t{ B, T, NKV * HD }, 0 );
+                    attn_ptr = &attn_->decode( q_roped, k_roped, v_view, position );
+                }
+
+                auto& o = o_proj_->decode( *attn_ptr );
+                auto& o_normed = post_attn_norm_->forward( o );
+                auto& res1 = res1_->forward( input, o_normed );
+
+                auto& ffn_normed = feed_forward_->decodeTokens( res1 );
+                auto& res2 = res2_->forward( res1, ffn_normed );
+
+                scale( res2, layer_scalar_, res2, this->getExecutionContext() );
+
+                this->publish( ComputePass::Decode, "output", res2 );
+
+                return res2;
+            }
+        }
+
         void setState( const GqaState& state ) override
         {
             if ( attn_ )

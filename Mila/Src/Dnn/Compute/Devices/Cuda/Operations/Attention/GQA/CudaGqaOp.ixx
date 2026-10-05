@@ -81,8 +81,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      *  5. att-value plan            -> v_out [B,NH,chunk,HS]
      *  6. prefill_unpermute_output  -> Y [B,chunk,C]
      *
-     * Decode pass (one token):
-     *  1. kvcache_write_kv          -> append single K/V into the cache
+     * Decode pass (one token; or a few in a row from the decode position, Gemma4Mtp.md 4.7, through the fused
+     * kernel only):
+     *  1. kvcache_write_kv          -> append the tokens' K/V into the cache
      *  2. permute_q_compact         -> single Q token [B,NH,1,HS] scratch
      *  3. qk decode plan            -> preatt_decode [B,NH,1,T]
      *  4. softmax_decode            -> att_decode
@@ -284,6 +285,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // The transformer decides fused decode on the context, so its scratch is known when
             // the network reserves; a test may still switch it on after build.
             use_flash_decode_ = use_flash_decode_ || context.usesFusedDecode();
+            decode_tokens_ = static_cast<int>( context.getDecodeTokens() );
 
             // Tuned prefill chunk size, threaded down from LlamaTransformer via BuildContext.
             // Training-mode contexts carry no prefill size; fall back to the full sequence
@@ -433,7 +435,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
         std::size_t getScratchBytes() const override
         {
-            return fusedDecodeScratchBytes( kFp8Cache || use_flash_decode_, B_, NH_, NKV_, HS_ );
+            return fusedDecodeScratchBytes( kFp8Cache || use_flash_decode_, B_, NH_, NKV_, HS_, decode_tokens_ );
         }
 
         std::size_t getRequiredScratchBytes( const BuildContext& context ) const override
@@ -445,7 +447,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // The FP8 cache always decodes through the fused kernel.
             return fusedDecodeScratchBytes( kFp8Cache || use_flash_decode_ || context.usesFusedDecode(),
                 static_cast<int>( input_shape[ 0 ] ), static_cast<int>( config_.getNumHeads() ),
-                static_cast<int>( config_.getNumKvHeads() ), static_cast<int>( config_.getHeadDim() ) );
+                static_cast<int>( config_.getNumKvHeads() ), static_cast<int>( config_.getHeadDim() ),
+                static_cast<int>( context.getDecodeTokens() ) );
         }
 
         /**
@@ -536,14 +539,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         /// BF16 only, and only for a geometry the kernel supports, exactly as decode() routes.
         static std::size_t fusedDecodeScratchBytes(
             [[maybe_unused]] bool fused, [[maybe_unused]] int batch, [[maybe_unused]] int heads,
-            [[maybe_unused]] int kv_heads, [[maybe_unused]] int head_size )
+            [[maybe_unused]] int kv_heads, [[maybe_unused]] int head_size, [[maybe_unused]] int decode_tokens )
         {
             if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
             {
                 if ( fused && kv_heads > 0
                     && Detail::cuda_gqa_kernels<NativeType>::decode_attention_supported( head_size, heads / kv_heads ) )
                 {
-                    return Detail::cuda_gqa_kernels<NativeType>::decode_attention_scratch_bytes( batch, heads, head_size );
+                    return Detail::cuda_gqa_kernels<NativeType>::decode_attention_scratch_bytes(
+                        batch, heads, head_size, decode_tokens );
                 }
             }
 
@@ -568,6 +572,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // and the cuBLASLt fallback's preatt/att_decode buffers stay wired via
         // setState either way.
         bool use_flash_decode_{ false };
+
+        // The most tokens one decode call takes (BuildContext::withDecodeTokens), which its scratch reservation holds.
+        int decode_tokens_{ 1 };
 
         GqaConfig config_;
         CudaExecutionContext* context_;
@@ -824,27 +831,71 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             ITensor& output,
             int position )
         {
-            if ( position < 0 || position >= active_max_seq_len_ )
-                throw std::invalid_argument( "CudaGqaOp::decode: position out of range" );
-
+            const int rows = decodeTokenCount( q, position );
             cudaStream_t stream = context_->getStream();
             const int* device_position = context_->getDecodePosition();
 
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv_fp8(
                 k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
                 static_cast<const NativeType*>( k.rawData() ), static_cast<const NativeType*>( v.rawData() ),
-                B_, 1, NKV_, HS_, 0, device_position, cache_capacity_, stream );
+                B_, rows, NKV_, HS_, 0, device_position, cache_capacity_, stream );
 
             // The split-K partials come from the shared context scratch, fetched on every call: it may be
             // reallocated on grow.
             float* split_scratch = static_cast<float*>( context_->getDeviceScratchBuffer(
-                Detail::cuda_gqa_kernels<NativeType>::decode_attention_scratch_bytes( B_, NH_, HS_ ) ) );
+                Detail::cuda_gqa_kernels<NativeType>::decode_attention_scratch_bytes( B_, NH_, HS_, rows ) ) );
 
             Detail::cuda_gqa_kernels<NativeType>::decode_attention_fp8(
                 static_cast<const NativeType*>( q.rawData() ), k_opt_, v_opt_, k_scale_opt_, v_scale_opt_,
                 static_cast<NativeType*>( output.rawData() ), split_scratch,
-                B_, NH_, NKV_, HS_, cache_capacity_, device_position, maximumDecodeBand(), window_,
+                B_, NH_, NKV_, HS_, cache_capacity_, device_position, rows, maximumDecodeBand(), window_,
                 attention_scale_, stream );
+        }
+
+        /**
+         * The tokens of a decode call -- one, or a few in a row from the decode position (Gemma4Mtp.md 4.7) -- after
+         * checking that the last of them is inside the cache and, on the ring, that writing them evicts no key the
+         * first still attends.
+         */
+        /// Whether the BF16 cache decodes through the fused kernel: switched on, and a geometry it serves.
+        bool fusedDecodeRuns() const
+        {
+            if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
+                return use_flash_decode_ && Detail::cuda_gqa_kernels<NativeType>::decode_attention_supported( HS_, GS_ );
+            else
+                return false;
+        }
+
+        int decodeTokenCount( const ITensor& q, int position ) const
+        {
+            const int rows = static_cast<int>( q.shape()[ 1 ] );
+
+            if ( rows < 1 || position < 0 || position + rows > active_max_seq_len_ )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaGqaOp::decode: {} tokens from position {} do not fit the {} positions of the cache",
+                    rows, position, active_max_seq_len_ ) );
+            }
+
+            // More would grow the shared scratch past its reservation, under any recorded step that captured it.
+            if ( rows > decode_tokens_ )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaGqaOp::decode: {} tokens, and this op was built for decode calls of at most {} "
+                    "(BuildContext::withDecodeTokens)", rows, decode_tokens_ ) );
+            }
+
+            if constexpr ( kBounded )
+            {
+                if ( rows > 1 && window_ + rows - 1 > cache_capacity_ )
+                {
+                    throw std::invalid_argument( std::format(
+                        "CudaGqaOp::decode: {} tokens over a window of {} need {} ring rows; the ring holds {}",
+                        rows, window_, window_ + rows - 1, cache_capacity_ ) );
+                }
+            }
+
+            return rows;
         }
 
         /// The longest band a decode step can attend to: the window, or the whole context when there is none.
@@ -1047,9 +1098,16 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             ITensor& output,
             int position )
         {
-            if ( position < 0 || position >= active_max_seq_len_ )
-                throw std::invalid_argument(
-                    "CudaGroupedQueryAttentionOp::decode_optimized position out of range" );
+            const int rows = decodeTokenCount( q, position );
+
+            // The cuBLASLt pipeline's plans, softmax and permutes are built for one query token; refused before the
+            // cache is written.
+            if ( rows > 1 && !fusedDecodeRuns() )
+            {
+                throw std::logic_error( std::format(
+                    "CudaGqaOp::decode: {} tokens need the fused decode attention, which does not run here "
+                    "(FP32, flash decode off, or head size {} with {} query heads per KV head)", rows, HS_, GS_ ) );
+            }
 
             // Every kernel below reads the position from the context, which the network wrote at the start of
             // the step; `position` is only range-checked here (DecodeGraph.md 4.1).
@@ -1069,7 +1127,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // kernel wraps the row index by cache_capacity_; unbounded keeps
             // cache_capacity_ == T_ so the wrap is the identity.
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
-                k_opt_, v_opt_, Xk, Xv, B_, 1, NKV_, HS_, 0, device_position, cache_capacity_, stream );
+                k_opt_, v_opt_, Xk, Xv, B_, rows, NKV_, HS_, 0, device_position, cache_capacity_, stream );
 
             // Fused decode attention: one streaming online-softmax kernel over the live
             // band, straight from Xq to Y -- no Q permute, no preatt/att round-trip, no
@@ -1079,16 +1137,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // call -- it may be reallocated on grow, so the pointer is never cached.
             if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
             {
-                if ( use_flash_decode_
-                    && Detail::cuda_gqa_kernels<NativeType>::decode_attention_supported( HS_, GS_ ) )
+                if ( fusedDecodeRuns() )
                 {
                     float* split_scratch = static_cast<float*>( context_->getDeviceScratchBuffer(
-                        Detail::cuda_gqa_kernels<NativeType>::decode_attention_scratch_bytes( B_, NH_, HS_ ) ) );
+                        Detail::cuda_gqa_kernels<NativeType>::decode_attention_scratch_bytes( B_, NH_, HS_, rows ) ) );
 
                     Detail::cuda_gqa_kernels<NativeType>::decode_attention(
                         Xq, k_opt_, v_opt_, Y, split_scratch,
-                        B_, NH_, NKV_, HS_, cache_capacity_, device_position, maximumDecodeBand(), window_, scale,
-                        stream );
+                        B_, NH_, NKV_, HS_, cache_capacity_, device_position, rows, maximumDecodeBand(), window_,
+                        scale, stream );
 
                     return;
                 }

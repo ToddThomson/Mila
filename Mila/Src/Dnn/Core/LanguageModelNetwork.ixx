@@ -42,7 +42,8 @@ namespace Mila::Dnn
      * not be a different type because its weights are FP4. LanguageModelNetwork is where they
      * stop. LanguageModel holds one of these and drives generation through it, so the
      * interface below is the whole vocabulary a model needs from a transformer:
-     * prefill/decode, prefix reuse (prefillFrom, rewindKvCache, savePosition), and nothing else.
+     * prefill/decode, a draft and its check (draftTokens, decodeTokens), prefix reuse (prefillFrom,
+     * rewindKvCache, savePosition), and nothing else.
      *
      * The virtual boundary is deliberately coarse. One dispatch per layer per token step is
      * negligible against the per-layer GEMMs, so the interface is drawn at whole passes
@@ -151,6 +152,56 @@ namespace Mila::Dnn
             cached_length_ = std::max( cached_length_, position + 1 );
 
             return logits;
+        }
+
+        /**
+         * @brief Decode of a few tokens in a row from `position`, each at decode's arithmetic, in one pass.
+         *
+         * The verify of speculative decoding (Gemma4Mtp.md 4.7), and any run of tokens already known: token t
+         * sits at position + t, attends everything before it, and leaves its keys in the caches, as t + 1 decode()
+         * calls would; every weight is read once for all of them. Writes `position` into the execution context as
+         * decode() does and advances the cached length past the last token. Each token's logits equal its
+         * decode()'s to FP32 rounding, not bit for bit (the sums run in another order).
+         *
+         * Called, never replayed: a decode recording holds one token's launches. Implemented by GemmaTransformer
+         * (dense layers); any other network throws, as does one whose configuration declares fewer decode tokens.
+         *
+         * @param input    Token indices [1, T], T up to the decode tokens the network was built for.
+         * @param position Position of the first token (0-based).
+         * @return         Logits [1, T, vocab_size].
+         */
+        TensorType& decodeTokens( const TokenIndexType& input, dim_t position )
+        {
+            IExecutionContext& context = *this->getExecutionContext();
+
+            context.setDecodePosition( position );
+
+            TensorType& logits = onDecodeTokens( input, position );
+
+            cached_length_ = std::max( cached_length_, position + input.shape()[ 1 ] );
+
+            return logits;
+        }
+
+        /**
+         * @brief Propose the tokens after a known one with the network's draft model, for decodeTokens() to check.
+         *
+         * Slot 0 of `tokens` holds the token at `position`, not yet in the caches; the draft model fills slots 1 to
+         * T - 1, each its most likely next token, on the device, reading the caches up to position - 1 and writing
+         * nothing to them (Gemma4Mtp.md 4.3). It continues from the final-normed hidden state of the last pass at
+         * `hidden_row`: the row of the token before `position` -- 0 after a prefill or decode, which keep one row,
+         * and after decodeTokens the row of the last token kept. Writes `position` into the execution context as
+         * decode() does. Implemented by GemmaTransformer built with a draft model; any other network throws.
+         *
+         * @param tokens     Token indices [1, T], T up to the decode tokens the network was built for.
+         * @param position   Position of slot 0's token (0-based).
+         * @param hidden_row Row of the last pass's final-normed hidden state the draft continues from.
+         */
+        void draftTokens( TokenIndexType& tokens, dim_t position, dim_t hidden_row )
+        {
+            this->getExecutionContext()->setDecodePosition( position );
+
+            onDraftTokens( tokens, position, hidden_row );
         }
 
         /**
@@ -288,6 +339,25 @@ namespace Mila::Dnn
 
         /// The family's decode step, the one decode() runs (DecodeGraph.md section 4.4).
         virtual TensorType& onDecode( const TokenIndexType& input, dim_t position ) = 0;
+
+        /// The family's multi-token decode, the one decodeTokens() runs. Throws on a family without one.
+        virtual TensorType& onDecodeTokens( const TokenIndexType& input, dim_t position )
+        {
+            ( void )input;
+            ( void )position;
+
+            throw std::logic_error( "LanguageModelNetwork::decodeTokens: not supported by this network" );
+        }
+
+        /// The family's draft, the one draftTokens() runs. Throws on a network built without a draft model.
+        virtual void onDraftTokens( TokenIndexType& tokens, dim_t position, dim_t hidden_row )
+        {
+            ( void )tokens;
+            ( void )position;
+            ( void )hidden_row;
+
+            throw std::logic_error( "LanguageModelNetwork::draftTokens: this network has no draft model" );
+        }
 
         /**
          * @brief Whether every layer accepts a rewind to `position` from `cached_length`.

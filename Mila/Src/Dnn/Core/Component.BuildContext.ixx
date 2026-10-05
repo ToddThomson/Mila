@@ -22,7 +22,7 @@ namespace Mila::Dnn
      * @brief Build-time context for Component::build().
      *
      * Carries five orthogonal concerns down the Component hierarchy, plus the per-component
-     * declarations a composite makes for its children (installed output, fused decode):
+     * declarations a composite makes for its children (installed output, fused decode, decode tokens):
      *
      * 1. **Input shape**             -- the full input shape the component receives.
      *                                  Used for parameter sizing, output buffer
@@ -175,7 +175,7 @@ namespace Mila::Dnn
          * @brief A context for a child component with a different input shape.
          *
          * Carries the runtime mode, parameter initialization and the allocation granularity, and
-         * none of the per-component declarations -- prefill size, installed output, fused decode --
+         * none of the per-component declarations -- prefill size, installed output, fused decode, decode tokens --
          * which the composite states for each child itself. withShape() is the call that keeps those.
          */
         [[nodiscard]] BuildContext forChild( shape_t input_shape ) const
@@ -313,6 +313,36 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Declare the most tokens one decode call takes: 1, or a few for a multi-token decode
+         *        (Gemma4Mtp.md 4.7).
+         *
+         * Sizes what a decode call writes and requests -- attention's decode output and its split
+         * scratch -- so the prediction and the network's one scratch reservation hold them, and a
+         * recorded decode step never sees the shared buffer grow under it.
+         */
+        [[nodiscard]] BuildContext withDecodeTokens( int64_t tokens ) const
+        {
+            if ( tokens < 1 )
+            {
+                throw std::invalid_argument( std::format(
+                    "BuildContext::withDecodeTokens: a decode call takes at least one token, got {}", tokens ) );
+            }
+
+            BuildContext copy( *this );
+            copy.decode_tokens_ = tokens;
+
+            return copy;
+        }
+
+        /**
+         * @brief The most tokens one decode call takes. Default 1.
+         */
+        int64_t getDecodeTokens() const noexcept
+        {
+            return decode_tokens_;
+        }
+
+        /**
          * @brief Number of tokens processed per prefill pass.
          *
          * The tuned prefill chunk size, computed once at network build time and
@@ -385,6 +415,7 @@ namespace Mila::Dnn
         bool                     initialize_parameters_{ true };
         bool                     installed_output_{ false };
         bool                     fused_decode_{ false };
+        int64_t                  decode_tokens_{ 1 };
         std::optional<std::size_t> allocation_granularity_;
     };
 }

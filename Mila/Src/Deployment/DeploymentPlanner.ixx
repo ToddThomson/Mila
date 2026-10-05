@@ -99,7 +99,7 @@ namespace Mila::Deployment
             return DeploymentPlans( std::vector<DeploymentPlan>{ DeploymentPlan(
                 reading, priced.context_length, limit, priced.prefill, priced.footprint,
                 request.getWeightQuantization(), request.getKvCacheCompression(),
-                metadata, std::string( stored_quantization ) ) } );
+                metadata, std::string( stored_quantization ), request.getSpeculativeDecode() ) } );
         };
 
         auto refusalOf = [&]( DeploymentRefusal::Reason reason, const Priced& priced )

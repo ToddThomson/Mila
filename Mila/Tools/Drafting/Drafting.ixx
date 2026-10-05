@@ -4,6 +4,8 @@
  *
  * `verify-cost`: what checking K drafted tokens costs the target, against one decode, at a depth.
  * `drafter-parity`: the drafter's steps from the target's state, with every input dumped for HuggingFace's forward.
+ * `acceptance`: how many drafts the target accepts. `speculate`: the greedy loop's rate against plain decoding.
+ * `generate`: the same through GemmaModel::generate, the loop a program runs.
  */
 
 module;
@@ -32,6 +34,8 @@ module;
 export module Tools.Drafting;
 
 import Mila;
+import Dnn.Samplers.TokenSampler;
+import Dnn.Samplers.SamplingConfig;
 
 #include "Measurement/LogLikelihoodHarness.h"
 #include "Measurement/Pg19Books.h"
@@ -40,6 +44,7 @@ namespace Mila::Tools::Drafting
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using Mila::Deployment::DeploymentRequest;
 
     namespace fs = std::filesystem;
 
@@ -78,7 +83,11 @@ namespace Mila::Tools::Drafting
         int prompt_tokens{ 1536 };
         int positions{ 256 };
         float temperature{ 0.8f };
+        std::vector<int> drafts{ 2, 3, 4, 5 };
+        int tokens{ 512 };
+        int runs{ 3 };
         bool fp8_cache{ false };
+        bool sample{ false };
         fs::path weights{ fs::path( MILA_DATA_DIR ) / "Models" / "Gemma" / "gemma4_12b_it_qat_q4_0.safetensors" };
         fs::path drafter{ fs::path( MILA_DATA_DIR ) / "Models" / "Gemma" / "gemma4_12b_it_qat_drafter_bf16.bin" };
         fs::path output{ "drafter_parity" };
@@ -111,6 +120,19 @@ namespace Mila::Tools::Drafting
             << "  --prompt-tokens Prose and code prompt length. Default: 1536.\n"
             << "  --temperature   For the first draft's sampled acceptance, sum min(p, q). Default: 0.8.\n"
             << "  --kv-cache      bf16 | fp8 (the target's global layers). Default: bf16.\n"
+            << "\n"
+            << "Drafting speculate [options]\n"
+            << "  Greedy decoding with the drafter against greedy decoding without it, on the acceptance prompts: each\n"
+            << "  round drafts K tokens, verifies them in one multi-token decode and keeps the agreed prefix.\n"
+            << "  --drafts        Comma-separated K, each 1 to 7. Default: 2,3,4,5.\n"
+            << "  --tokens        Tokens generated after the prompt's first. Default: 512.\n"
+            << "  --runs          Timed runs per cell; the median is reported. Default: 3.\n"
+            << "  --prompt-tokens Prose and code prompt length. Default: 1536.\n"
+            << "  --kv-cache      bf16 | fp8 (the target's global layers). Default: bf16.\n"
+            << "\n"
+            << "Drafting generate [options]\n"
+            << "  The same comparison through GemmaModel::generate: the model loaded without a draft model, then with\n"
+            << "  one at each K. Takes --drafts, --tokens, --runs, --prompt-tokens and --kv-cache as speculate does.\n"
             << "\n"
             << "Every mode takes --target 12b | 26b (default 12b): the 26B-A4B runs Q4_0, quantized on load from\n"
             << "Models/Gemma/gemma4_26b_a4b_it_qat_bf16.bin, with its drafter gemma4_26b_a4b_it_qat_drafter_bf16.bin.\n";
@@ -160,6 +182,36 @@ namespace Mila::Tools::Drafting
             else if ( arg == "--max-draft" )
             {
                 options.max_draft = parseInt( value(), "--max-draft" );
+            }
+            else if ( arg == "--drafts" )
+            {
+                options.drafts.clear();
+                std::string_view list = value();
+
+                while ( !list.empty() )
+                {
+                    const std::size_t comma = list.find( ',' );
+                    const int draft = parseInt( list.substr( 0, comma ), "--drafts" );
+
+                    // A verify is K + 1 rows, and a network decodes at most 8 tokens in one call.
+                    if ( draft > 7 )
+                        throw std::invalid_argument( std::format( "--drafts: K is at most 7, got {}", draft ) );
+
+                    options.drafts.push_back( draft );
+                    list = comma == std::string_view::npos ? std::string_view{} : list.substr( comma + 1 );
+                }
+            }
+            else if ( arg == "--tokens" )
+            {
+                options.tokens = parseInt( value(), "--tokens" );
+            }
+            else if ( arg == "--sample" )
+            {
+                options.sample = true;
+            }
+            else if ( arg == "--runs" )
+            {
+                options.runs = parseInt( value(), "--runs" );
             }
             else if ( arg == "--repeats" )
             {
@@ -849,13 +901,683 @@ namespace Mila::Tools::Drafting
             draft_ms, decode_ms, draft_ms / decode_ms, prompts.front().tokens.size() );
     }
 
+    using SamplerCuda = TokenSampler<DeviceType::Cuda, TensorDataType::BF16>;
+    using HostTokens = Tensor<TensorDataType::INT32, CpuMemoryResource>;
+
+    const SamplingParams kGreedy{ 0.0f, 1, 1.0f };
+
+    /**
+     * @brief The distribution the device sampler draws from: the cap, the temperature, then the top_k largest kept.
+     *
+     * Greedy puts all of it on the argmax. The device's top-k threshold is found by search rather than exactly, so
+     * the two can differ at a tie on the threshold.
+     */
+    std::vector<double> samplerDistribution( const std::vector<float>& logits, const SamplingParams& sampling, float softcap )
+    {
+        if ( sampling.temperature <= 0.0f || sampling.top_k == 1 )
+        {
+            std::vector<double> point( logits.size(), 0.0 );
+            point[ static_cast<std::size_t>( Measurement::argMax( logits ) ) ] = 1.0;
+
+            return point;
+        }
+
+        std::vector<double> probabilities = distribution( logits, sampling.temperature, softcap );
+
+        if ( sampling.top_k > 0 && static_cast<std::size_t>( sampling.top_k ) < probabilities.size() )
+        {
+            std::vector<double> ordered( probabilities );
+            std::nth_element( ordered.begin(), ordered.begin() + ( sampling.top_k - 1 ), ordered.end(), std::greater<double>() );
+            const double threshold = ordered[ static_cast<std::size_t>( sampling.top_k - 1 ) ];
+            double total = 0.0;
+
+            for ( double& value : probabilities )
+            {
+                value = value < threshold ? 0.0 : value;
+                total += value;
+            }
+
+            for ( double& value : probabilities )
+                value /= total;
+        }
+
+        return probabilities;
+    }
+
+    /// Chat's default sampling (Chat.Config.ixx) at --temperature, or greedy.
+    SamplingParams samplingOf( const Options& options )
+    {
+        return options.sample ? SamplingParams{ options.temperature, 40, 1.0f } : kGreedy;
+    }
+
+    /// One element of a device token sequence, as the [1, 1] tensor a pass reads or a sampler writes.
+    template<typename TTokens>
+    TTokens tokenSlot( const TTokens& tokens, dim_t index )
+    {
+        return tokens.view( shape_t{ 1, 1 }, index );
+    }
+
+    template<typename TTokens>
+    void setToken( TTokens& device, std::int32_t id, IExecutionContext* context )
+    {
+        HostTokens host( Device::Cpu(), shape_t{ 1, 1 } );
+        host.data()[ 0 ] = id;
+        copy( host, device, context );
+        context->synchronize();
+    }
+
+    template<typename TTokens>
+    std::vector<std::int32_t> readTokens( const TTokens& device, IExecutionContext* context )
+    {
+        HostTokens host( Device::Cpu(), device.shape() );
+        copy( device, host, context );
+        context->synchronize();
+
+        return std::vector<std::int32_t>( host.data(), host.data() + host.size() );
+    }
+
+    struct Generation
+    {
+        std::vector<std::int32_t> tokens;  // the prompt's next token, then one per token generated
+        double milliseconds{ 0.0 };        // generating, not the prefill
+        std::vector<int> accepted;         // drafts accepted per round; empty without the drafter
+    };
+
+    /**
+     * @brief Greedy decoding as generate() runs it: replayed steps, each choosing its token on the device into the
+     *        tensor the next step reads, the host waiting only at the end.
+     */
+    template<typename TNetwork>
+    Generation plainDecode( TNetwork& network, SamplerCuda& sampler, const SamplingParams& sampling,
+        typename TNetwork::TokenIndexType& decode_token,
+        const std::vector<std::int32_t>& prompt, int tokens )
+    {
+        IExecutionContext* context = network.getExecutionContext();
+        const dim_t start = static_cast<dim_t>( prompt.size() );
+
+        auto history = Measurement::deviceTokens( network, std::vector<std::int32_t>( tokens + 1, 0 ) );
+        auto first = tokenSlot( history, 0 );
+
+        sampler.enqueueSampleOnDevice( network.prefill( Measurement::deviceTokens( network, prompt ) ), decode_token, sampling );
+        copy( decode_token, first, context );
+        network.synchronize();
+
+        Generation result;
+        result.milliseconds = timedMilliseconds( network, [&]
+        {
+            for ( int step = 0; step < tokens; ++step )
+            {
+                sampler.enqueueSampleOnDevice( network.decode( decode_token, start + step ), decode_token, sampling );
+
+                auto slot = tokenSlot( history, step + 1 );
+                copy( decode_token, slot, context );
+            }
+        } );
+        result.tokens = readTokens( history, context );
+
+        return result;
+    }
+
+    /**
+     * @brief Greedy decoding with the drafter (Gemma4Mtp.md 4.2 b): a round at position p drafts K tokens from the
+     *        target's state, verifies the token at p and the K drafts in one decodeTokens, and keeps the drafts the
+     *        target agrees with plus the target's own token after them.
+     *
+     * Every token is chosen on the device into the slot the next pass reads, so the host waits once a round, to read
+     * the drafts and the target's choices and decide how far to keep.
+     */
+    template<typename TNetwork>
+    Generation speculativeDecode( TNetwork& network, GemmaDrafterCuda& drafter, SamplerCuda& sampler,
+        const SamplingParams& sampling, const std::vector<std::int32_t>& prompt, int tokens, int draft, dim_t model_dim,
+        dim_t vocabulary, float softcap = 0.0f, std::vector<double>* first_draft_probability = nullptr )
+    {
+        IExecutionContext* context = network.getExecutionContext();
+        const KvCacheView sliding = network.lastSlidingLayerCache();
+        const KvCacheView global = network.lastGlobalLayerCache();
+        const dim_t rows = draft + 1;
+
+        // The verify's input: the token at p, then the drafts. The target's choice after each of them.
+        auto verify = Measurement::deviceTokens( network, std::vector<std::int32_t>( rows, 0 ) );
+        auto chosen = Measurement::deviceTokens( network, std::vector<std::int32_t>( rows, 0 ) );
+        HostTokens host_verify( Device::Cpu(), verify.shape() );
+        HostTokens host_chosen( Device::Cpu(), chosen.shape() );
+
+        auto head = tokenSlot( verify, 0 );
+        sampler.enqueueSampleOnDevice( network.prefill( Measurement::deviceTokens( network, prompt ) ), head, sampling );
+
+        Generation result;
+        result.tokens.push_back( readTokens( head, context )[ 0 ] );
+
+        dim_t position = static_cast<dim_t>( prompt.size() );
+
+        // The target's final-normed hidden state at p - 1: the prefill's last row, then the row of the last token kept.
+        auto hidden = network.finalNormedHidden().view( shape_t{ 1, 1, model_dim }, 0 );
+
+        const auto start = std::chrono::steady_clock::now();
+
+        while ( static_cast<int>( result.tokens.size() ) <= tokens )
+        {
+            context->setDecodePosition( position );
+
+            const auto* step_hidden = &hidden;
+
+            for ( dim_t k = 0; k < draft; ++k )
+            {
+                auto& embedding = network.embed( tokenSlot( verify, k ) );
+                auto& logits = drafter.decode( embedding, *step_hidden, position, sliding, global );
+
+                auto next = tokenSlot( verify, k + 1 );
+                sampler.enqueueSampleOnDevice( logits, next, kGreedy );
+                step_hidden = &drafter.nextHidden();
+            }
+
+            auto& logits = network.decodeTokens( verify, position );
+
+            for ( dim_t row = 0; row < rows; ++row )
+            {
+                auto target = tokenSlot( chosen, row );
+                sampler.enqueueSampleOnDevice( logits.view( shape_t{ 1, 1, vocabulary }, row * vocabulary ), target, sampling );
+            }
+
+            copy( verify, host_verify, context );
+            copy( chosen, host_chosen, context );
+            context->synchronize();
+
+            // The probability the model's sampler gives the first draft at row 0: its expected chance of being kept.
+            if ( first_draft_probability != nullptr )
+            {
+                const auto row = toHost<TensorDataType::FP32>( logits.view( shape_t{ 1, 1, vocabulary }, 0 ) );
+                const std::vector<float> host_row( row.data(), row.data() + row.size() );
+                const auto probabilities = samplerDistribution( host_row, sampling, softcap );
+
+                first_draft_probability->push_back( probabilities[ static_cast<std::size_t>( host_verify.data()[ 1 ] ) ] );
+            }
+
+            int accepted = 0;
+
+            while ( accepted < draft && host_verify.data()[ accepted + 1 ] == host_chosen.data()[ accepted ] )
+                ++accepted;
+
+            for ( int i = 1; i <= accepted; ++i )
+                result.tokens.push_back( host_verify.data()[ i ] );
+
+            result.tokens.push_back( host_chosen.data()[ accepted ] );
+            result.accepted.push_back( accepted );
+
+            // The caches keep p .. p + accepted; the rejected drafts' rows are written over by the next round.
+            position += accepted + 1;
+            requireRewind( network, position );
+
+            auto bonus = tokenSlot( chosen, accepted );
+            copy( bonus, head, context );
+            hidden = network.finalNormedHidden().view( shape_t{ 1, 1, model_dim }, accepted * model_dim );
+        }
+
+        context->synchronize();
+        result.milliseconds = std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count();
+        result.tokens.resize( static_cast<std::size_t>( tokens ) + 1 );
+
+        return result;
+    }
+
+    struct StepCosts
+    {
+        double decode_ms{ 0.0 };
+        double called_decode_ms{ 0.0 };  // the same step called instead of replayed, as decodeTokens is
+        double draft_ms{ 0.0 };
+        std::vector<double> verify_ms;  // indexed by rows, 2 to 8
+    };
+
+    /// What section 3 prices, at the prompt's depth: a replayed decode, a draft step, and a verify of each row count.
+    template<typename TNetwork>
+    StepCosts measureStepCosts( TNetwork& network, GemmaDrafterCuda& drafter, typename TNetwork::TokenIndexType& decode_token,
+        const std::vector<std::int32_t>& prompt, const std::vector<std::int32_t>& continuation, int max_rows )
+    {
+        IExecutionContext* context = network.getExecutionContext();
+        const dim_t start = static_cast<dim_t>( prompt.size() );
+        const KvCacheView sliding = network.lastSlidingLayerCache();
+        const KvCacheView global = network.lastGlobalLayerCache();
+
+        StepCosts costs;
+        network.prefill( Measurement::deviceTokens( network, prompt ) );
+
+        context->setDecodePosition( start );
+        auto& embedding = network.embed( decode_token );
+        const auto& hidden = network.finalNormedHidden();
+
+        drafter.decode( embedding, hidden, start, sliding, global );
+        costs.draft_ms = timedMilliseconds( network, [&]
+        {
+            for ( int step = 0; step < 64; ++step )
+                drafter.decode( embedding, hidden, start, sliding, global );
+        } ) / 64;
+
+        decodeMilliseconds( network, decode_token, start, 4 );
+
+        std::vector<double> decode_runs;
+
+        for ( int repeat = 0; repeat < 5; ++repeat )
+            decode_runs.push_back( decodeMilliseconds( network, decode_token, start, 64 ) );
+
+        costs.decode_ms = median( decode_runs );
+
+        network.setDecodeReplay( false );
+        decode_runs.clear();
+
+        for ( int repeat = 0; repeat < 5; ++repeat )
+            decode_runs.push_back( decodeMilliseconds( network, decode_token, start, 64 ) );
+
+        costs.called_decode_ms = median( decode_runs );
+        network.setDecodeReplay( true );
+
+        costs.verify_ms.assign( static_cast<std::size_t>( max_rows ) + 1, 0.0 );
+
+        for ( int rows = 2; rows <= max_rows; ++rows )
+        {
+            const auto input = Measurement::deviceTokens( network,
+                std::vector<std::int32_t>( continuation.begin(), continuation.begin() + rows ) );
+            std::vector<double> runs;
+
+            for ( int repeat = 0; repeat <= 10; ++repeat )
+            {
+                requireRewind( network, start );
+                const double ms = timedMilliseconds( network, [&] { network.decodeTokens( input, start ); } );
+
+                if ( repeat > 0 )
+                    runs.push_back( ms );
+            }
+
+            costs.verify_ms[ static_cast<std::size_t>( rows ) ] = median( runs );
+        }
+
+        return costs;
+    }
+
+    /// The largest difference over the reference's RMS, and how many rows' argmax differ.
+    std::pair<double, int> logitDifference( const std::vector<float>& produced, const std::vector<float>& reference, dim_t vocabulary )
+    {
+        double square_sum = 0.0;
+        double largest = 0.0;
+
+        for ( std::size_t i = 0; i < reference.size(); ++i )
+        {
+            square_sum += static_cast<double>( reference[ i ] ) * reference[ i ];
+            largest = std::max( largest, std::abs( static_cast<double>( produced[ i ] ) - reference[ i ] ) );
+        }
+
+        int differing = 0;
+
+        for ( std::size_t row = 0; row * vocabulary < reference.size(); ++row )
+        {
+            const auto begin = static_cast<std::ptrdiff_t>( row * vocabulary );
+            const std::vector<float> a( produced.begin() + begin, produced.begin() + begin + vocabulary );
+            const std::vector<float> b( reference.begin() + begin, reference.begin() + begin + vocabulary );
+
+            differing += Measurement::argMax( a ) != Measurement::argMax( b );
+        }
+
+        return { largest / std::sqrt( square_sum / reference.size() ), differing };
+    }
+
+    /**
+     * @brief Gemma4Mtp.md 5.2's first gate on the target: a verify's logits against decodes of the same tokens, beside
+     *        how far the prefill path -- a third arithmetic -- lies from the same decodes.
+     */
+    template<typename TNetwork>
+    void compareVerifyWithDecode( TNetwork& network, typename TNetwork::TokenIndexType& decode_token,
+        const std::vector<std::int32_t>& prompt, const std::vector<std::int32_t>& continuation, int rows, dim_t vocabulary )
+    {
+        IExecutionContext* context = network.getExecutionContext();
+        const dim_t start = static_cast<dim_t>( prompt.size() );
+        const std::vector<std::int32_t> run( continuation.begin(), continuation.begin() + rows );
+
+        network.prefill( Measurement::deviceTokens( network, prompt ) );
+
+        std::vector<float> decoded;
+
+        for ( int row = 0; row < rows; ++row )
+        {
+            setToken( decode_token, run[ row ], context );
+            const auto logits = Measurement::hostLogits( network, network.decode( decode_token, start + row ) );
+            decoded.insert( decoded.end(), logits.begin(), logits.end() );
+        }
+
+        requireRewind( network, start );
+        const auto verified = Measurement::hostLogits( network, network.decodeTokens( Measurement::deviceTokens( network, run ), start ) );
+
+        // Each row through the prefill path: the prompt continued through that row, its last row's logits.
+        std::vector<float> prefilled;
+
+        for ( int row = 0; row < rows; ++row )
+        {
+            std::vector<std::int32_t> sequence( prompt );
+            sequence.insert( sequence.end(), run.begin(), run.begin() + row + 1 );
+
+            requireRewind( network, start );
+            const auto logits = Measurement::hostLogits( network, network.prefillFrom( Measurement::deviceTokens( network, sequence ), start ) );
+            prefilled.insert( prefilled.end(), logits.begin(), logits.end() );
+        }
+
+        const auto [verify_difference, verify_argmax] = logitDifference( verified, decoded, vocabulary );
+        const auto [prefill_difference, prefill_argmax] = logitDifference( prefilled, decoded, vocabulary );
+
+        std::cout << std::format( "  {} tokens against their decodes, largest difference over the logits' RMS: verify {:.2e} "
+            "({} argmax differ), prefill path {:.2e} ({} argmax differ)\n",
+            rows, verify_difference, verify_argmax, prefill_difference, prefill_argmax );
+    }
+
+    /// Where two greedy runs first part, with the plain run's logits there: a near-tie or a structural error.
+    template<typename TNetwork>
+    std::string describeDivergence( TNetwork& network, typename TNetwork::TokenIndexType& decode_token,
+        const std::vector<std::int32_t>& prompt, const Generation& plain, const Generation& drafted, int draft )
+    {
+        std::size_t index = 0;
+
+        while ( index < plain.tokens.size() && plain.tokens[ index ] == drafted.tokens[ index ] )
+            ++index;
+
+        if ( index == plain.tokens.size() )
+            return {};
+
+        IExecutionContext* context = network.getExecutionContext();
+        const dim_t start = static_cast<dim_t>( prompt.size() );
+
+        network.prefill( Measurement::deviceTokens( network, prompt ) );
+
+        std::vector<float> logits;
+
+        for ( std::size_t i = 0; i < index; ++i )
+        {
+            setToken( decode_token, plain.tokens[ i ], context );
+            logits = Measurement::hostLogits( network, network.decode( decode_token, start + static_cast<dim_t>( i ) ) );
+        }
+
+        std::vector<float> sorted = logits;
+        std::partial_sort( sorted.begin(), sorted.begin() + 2, sorted.end(), std::greater<float>() );
+
+        return std::format( "K = {}: parted at token {}: plain chose {} (logit {:.4f}), drafted chose {} (logit {:.4f}); "
+            "the plain run's top two differ by {:.4f}\n", draft, index, plain.tokens[ index ], logits[ plain.tokens[ index ] ],
+            drafted.tokens[ index ], logits[ drafted.tokens[ index ] ], sorted[ 0 ] - sorted[ 1 ] );
+    }
+
+    template<typename TNetwork>
+    void measureSpeculationOn( const Options& options )
+    {
+        const auto prompts = acceptancePrompts( options.prompt_tokens );
+        const int max_draft = *std::max_element( options.drafts.begin(), options.drafts.end() );
+        const int max_rows = max_draft + 1;
+
+        dim_t longest = 0;
+
+        for ( const auto& prompt : prompts )
+            longest = std::max<dim_t>( longest, static_cast<dim_t>( prompt.tokens.size() ) );
+
+        const dim_t context_length = longest + options.tokens + max_rows + 64;
+
+        Serialization::WeightsReader reader( options.weights );
+        GemmaConfig target_config = GemmaCuda::configFromMetadata( reader.getWeightsMetadata() );
+        target_config.withDecodeTokens( max_rows );
+
+        auto network = Measurement::buildMeasuredNetwork<TNetwork>( options.weights, target_config, kDevice, context_length );
+        network->setDecodeReplay( true );
+
+        Serialization::WeightsReader drafter_reader( options.drafter );
+        auto drafter = std::make_shared<GemmaDrafterCuda>( "drafter",
+            GemmaDrafterCuda::configFromMetadata( drafter_reader.getWeightsMetadata(), target_config ),
+            target_config.getModelDim(), network->getExecutionContext() );
+        drafter->build( BuildContext( shape_t{ 1, context_length, drafter->getConfig().getModelDim() }, RuntimeMode::Inference, false )
+            .withAllocationGranularity( allocationGranularity( kDevice ) ) );
+        drafter->loadParameters( drafter_reader );
+
+        const dim_t model_dim = target_config.getModelDim();
+        const dim_t vocabulary = target_config.getVocabSize();
+
+        SamplerCuda sampler( network->getExecutionContext(), SamplingConfig{}
+            .withVocabularySize( vocabulary )
+            .withFinalLogitSoftcap( target_config.getFinalLogitSoftcapping() ) );
+
+        // Every decode reads this one tensor, so the recording made of the first stays valid for the run.
+        auto decode_token = Measurement::deviceTokens( *network, { 0 } );
+
+        const SamplingParams sampling = samplingOf( options );
+        const float softcap = target_config.getFinalLogitSoftcapping();
+
+        std::cout << std::format( "weights {}\ndrafter {}\ncache {}, {} tokens after the prompt's first, median of {} runs, {}\n",
+            options.weights.string(), options.drafter.string(), options.fp8_cache ? "FP8 global layers" : "BF16",
+            options.tokens, options.runs, options.sample
+                ? std::format( "sampled at temperature {}, top-k 40", options.temperature ) : std::string( "greedy" ) );
+
+        for ( const auto& prompt : prompts )
+        {
+            std::vector<Generation> plain_runs;
+
+            for ( int run = 0; run < options.runs; ++run )
+                plain_runs.push_back( plainDecode( *network, sampler, sampling, decode_token, prompt.tokens, options.tokens ) );
+
+            std::vector<double> plain_ms;
+
+            for ( const auto& run : plain_runs )
+                plain_ms.push_back( run.milliseconds );
+
+            const Generation& plain = plain_runs.back();
+            const double plain_per_token = median( plain_ms ) / options.tokens;
+
+            const StepCosts costs = measureStepCosts( *network, *drafter, decode_token, prompt.tokens, plain.tokens, max_rows );
+
+            std::cout << std::format( "\n## {} ({} prompt tokens)\n\nplain {:.3f} ms/token; at the prompt's depth a "
+                "replayed decode {:.3f} ms ({:.3f} called), a draft step {:.3f} ms ({:.3f} of a decode), a verify of",
+                prompt.name, prompt.tokens.size(), plain_per_token, costs.decode_ms, costs.called_decode_ms, costs.draft_ms,
+                costs.draft_ms / costs.decode_ms );
+
+            for ( int rows = 2; rows <= max_rows; ++rows )
+                std::cout << std::format( " {} rows {:.3f} ms ({:.2f}){}", rows, costs.verify_ms[ rows ],
+                    costs.verify_ms[ rows ] / costs.decode_ms, rows == max_rows ? "\n" : "," );
+
+            for ( std::size_t i = 1; i < plain.tokens.size(); ++i )
+            {
+                if ( isStopToken( plain.tokens[ i ] ) )
+                {
+                    std::cout << std::format( "  NOTE: the plain reply ends at token {}; tokens past it continue a finished reply\n", i );
+                    break;
+                }
+            }
+
+            compareVerifyWithDecode( *network, decode_token, prompt.tokens, plain.tokens, max_rows, vocabulary );
+
+            std::vector<std::string> divergences;
+
+            std::cout << std::format( "\n| K | rounds | E[accepted] | ms/token | speedup | predicted | round ms, measured / "
+                "priced | {} |\n|---|---|---|---|---|---|---|---|\n",
+                options.sample ? "draft 1 kept, measured / expected" : "same tokens as plain" );
+
+            for ( const int draft : options.drafts )
+            {
+                std::vector<Generation> runs;
+                std::vector<double> ms;
+
+                for ( int run = 0; run < options.runs; ++run )
+                {
+                    runs.push_back( speculativeDecode( *network, *drafter, sampler, sampling, prompt.tokens, options.tokens,
+                        draft, model_dim, vocabulary ) );
+                    ms.push_back( runs.back().milliseconds );
+                }
+
+                const Generation& drafted = runs.back();
+                const double per_token = median( ms ) / options.tokens;
+                const double rounds = static_cast<double>( drafted.accepted.size() );
+
+                double accepted = 0.0;
+
+                for ( const int value : drafted.accepted )
+                    accepted += value;
+
+                accepted /= rounds;
+
+                // Section 3, with this run's acceptance and the costs measured above.
+                const double priced_round = draft * costs.draft_ms + costs.verify_ms[ draft + 1 ];
+                const double predicted = ( accepted + 1.0 ) * costs.decode_ms / priced_round;
+
+                std::string last_column;
+
+                if ( options.sample )
+                {
+                    // A further, untimed run: each round's first draft is kept with probability p(draft) under the
+                    // model's own sampler, so the kept fraction must match the mean of p within its standard error.
+                    std::vector<double> probability;
+                    const Generation checked = speculativeDecode( *network, *drafter, sampler, sampling, prompt.tokens,
+                        options.tokens, draft, model_dim, vocabulary, softcap, &probability );
+
+                    double kept = 0.0;
+                    double expected = 0.0;
+                    double variance = 0.0;
+
+                    for ( std::size_t round = 0; round < probability.size(); ++round )
+                    {
+                        kept += checked.accepted[ round ] >= 1 ? 1.0 : 0.0;
+                        expected += probability[ round ];
+                        variance += probability[ round ] * ( 1.0 - probability[ round ] );
+                    }
+
+                    const double n = static_cast<double>( probability.size() );
+                    last_column = std::format( "{:.3f} / {:.3f} +- {:.3f}", kept / n, expected / n, std::sqrt( variance ) / n );
+                }
+                else
+                {
+                    std::size_t same = 0;
+
+                    while ( same < plain.tokens.size() && plain.tokens[ same ] == drafted.tokens[ same ] )
+                        ++same;
+
+                    last_column = same == plain.tokens.size() ? std::string( "all" ) : std::format( "first {}", same );
+
+                    if ( same < plain.tokens.size() )
+                        divergences.push_back( describeDivergence( *network, decode_token, prompt.tokens, plain, drafted, draft ) );
+                }
+
+                std::cout << std::format( "| {} | {} | {:.2f} | {:.3f} | {:.2f}x | {:.2f}x | {:.2f} / {:.2f} | {} |\n",
+                    draft, drafted.accepted.size(), accepted, per_token, plain_per_token / per_token, predicted,
+                    median( ms ) / rounds, priced_round, last_column );
+            }
+
+            for ( const auto& divergence : divergences )
+                std::cout << divergence;
+        }
+    }
+
+    struct LibraryRun
+    {
+        std::vector<std::int32_t> tokens;
+        double ms_per_token{ 0.0 };  // from the first token's callback to the last, so the prefill is not in it
+    };
+
+    /// Greedy generation through GemmaModel::generate, as a program runs it: median of `runs`.
+    LibraryRun generateThroughTheModel( GemmaCuda& model, const SamplingParams& sampling, const std::vector<std::int32_t>& prompt,
+        int tokens, int runs )
+    {
+        GenerateParams params;
+        params.max_new_tokens = tokens + 1;
+        params.sampling = sampling;
+
+        LibraryRun result;
+        std::vector<double> per_token;
+
+        for ( int run = 0; run < runs; ++run )
+        {
+            std::vector<std::int32_t> generated;
+            std::chrono::steady_clock::time_point first{};
+            std::chrono::steady_clock::time_point last{};
+
+            ( void )model.generate( prompt, [&]( std::int32_t token )
+            {
+                last = std::chrono::steady_clock::now();
+
+                if ( generated.empty() )
+                    first = last;
+
+                generated.push_back( token );
+            }, params );
+
+            if ( generated.size() < 2 )
+                throw std::runtime_error( "the reply ended before a second token" );
+
+            per_token.push_back( std::chrono::duration<double, std::milli>( last - first ).count() / ( generated.size() - 1 ) );
+            result.tokens = std::move( generated );
+        }
+
+        result.ms_per_token = median( per_token );
+
+        return result;
+    }
+
+    /// Gemma4Mtp.md 4.7, 6b-1's gate: the library's loop at the rate the tool's loop measured, with plain greedy's tokens.
+    void measureGenerateThroughTheModel( const Options& options )
+    {
+        const auto prompts = acceptancePrompts( options.prompt_tokens );
+
+        dim_t longest = 0;
+
+        for ( const auto& prompt : prompts )
+            longest = std::max<dim_t>( longest, static_cast<dim_t>( prompt.tokens.size() ) );
+
+        const int max_draft = *std::max_element( options.drafts.begin(), options.drafts.end() );
+        const dim_t context_length = ( ( longest + options.tokens + max_draft + 64 ) / 1024 + 1 ) * 1024;
+
+        DeploymentRequest request;
+        request.withWeightQuantization( WeightQuantization::Q4_0 )
+            .withKvCacheCompression( options.fp8_cache ? KvCacheCompression::FP8 : KvCacheCompression::None )
+            .withContextLength( context_length );
+
+        // Sampled replies part from the first token whatever the draft does, so only greedy ones are compared.
+        std::cout << std::format( "weights {}\ndrafter {}\ncontext {}, {} tokens after the first, median of {} runs, {}, "
+            "through GemmaModel::generate\n\n| prompt | K | ms/token | speedup | same tokens as plain |\n|---|---|---|---|---|\n",
+            options.weights.string(), options.drafter.string(), context_length, options.tokens, options.runs,
+            options.sample ? std::format( "sampled at temperature {}, top-k 40", options.temperature ) : std::string( "greedy" ) );
+
+        std::vector<LibraryRun> plain;
+
+        {
+            auto model = GemmaCuda::load( options.weights, request );
+
+            for ( const auto& prompt : prompts )
+            {
+                plain.push_back( generateThroughTheModel( *model, samplingOf( options ), prompt.tokens, options.tokens, options.runs ) );
+                std::cout << std::format( "| {} | - | {:.3f} | 1.00x | - |\n", prompt.name, plain.back().ms_per_token );
+            }
+        }
+
+        for ( const int draft : options.drafts )
+        {
+            auto model = GemmaCuda::load( options.weights,
+                DeploymentRequest( request ).withSpeculativeDecode( options.drafter, draft ) );
+
+            for ( std::size_t i = 0; i < prompts.size(); ++i )
+            {
+                const LibraryRun drafted = generateThroughTheModel( *model, samplingOf( options ), prompts[ i ].tokens, options.tokens, options.runs );
+
+                std::size_t same = 0;
+
+                while ( same < plain[ i ].tokens.size() && same < drafted.tokens.size()
+                    && plain[ i ].tokens[ same ] == drafted.tokens[ same ] )
+                {
+                    ++same;
+                }
+
+                std::cout << std::format( "| {} | {} | {:.3f} | {:.2f}x | {} |\n", prompts[ i ].name, draft,
+                    drafted.ms_per_token, plain[ i ].ms_per_token / drafted.ms_per_token,
+                    options.sample ? std::string( "-" )
+                        : same == plain[ i ].tokens.size() ? std::string( "all" ) : std::format( "first {}", same ) );
+            }
+        }
+    }
+
     export int run( int argc, char** argv )
     {
         try
         {
             const std::string_view command = argc > 1 ? argv[ 1 ] : "";
 
-            if ( command != "verify-cost" && command != "drafter-parity" && command != "acceptance" )
+            if ( command != "verify-cost" && command != "drafter-parity" && command != "acceptance" && command != "speculate"
+                && command != "generate" )
             {
                 printUsage();
 
@@ -867,12 +1589,21 @@ namespace Mila::Tools::Drafting
             // Warnings shown: a decode step that stops replaying says so here, and its timing changes with it.
             Mila::initialize( 0, std::make_shared<Mila::Logging::ConsoleSink>( Mila::Logging::LogLevel::Warning ) );
 
+            if ( command == "generate" )
+            {
+                measureGenerateThroughTheModel( options );
+
+                return 0;
+            }
+
             const auto measure = [&]<typename TNetwork>()
             {
                 if ( command == "verify-cost" )
                     measureVerifyCost<TNetwork>( options );
                 else if ( command == "drafter-parity" )
                     dumpDrafterParity<TNetwork>( options );
+                else if ( command == "speculate" )
+                    measureSpeculationOn<TNetwork>( options );
                 else
                     measureAcceptanceOn<TNetwork>( options );
             };

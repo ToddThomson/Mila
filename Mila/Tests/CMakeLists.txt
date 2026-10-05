@@ -257,6 +257,9 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Linear/CudaLinearOp.Codebook.Cuda.cpp"
         "Dnn/Components/Linear/CudaLinearOp.Int4.Cuda.cpp"
         "Dnn/Components/Linear/CudaLinearOp.Int6.Cuda.cpp"
+        "Dnn/Components/Linear/Linear.Decode.Cuda.cpp"
+        "Dnn/Components/Attention/GQA/CudaGqaOp.DecodeTokens.Cuda.cpp"
+        "Dnn/Models/DecodeTokens.Cuda.cpp"
         # The saveParameterToArchive staging branch needs a device-only dtype (BF16),
         # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
         "Dnn/Core/Component.Cuda.cpp"
@@ -278,6 +281,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Models/Gemma/Gemma.LogLikelihood.Cuda.cpp"
         # Decision 6's behavioral arm on Gemma, DISABLED: an instruction at position 0 after a book, BF16 against
         # the FP8 global cache.
+        "Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp"
         "Dnn/Models/Gemma/Gemma.InstructionRetention.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Footprint.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Generation.Cuda.cpp"

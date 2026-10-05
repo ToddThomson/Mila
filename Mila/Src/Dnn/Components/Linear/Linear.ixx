@@ -198,6 +198,38 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Decode's arithmetic for each of up to 8 rows: output = input * weight^T + bias.
+         *
+         * Where forward() over several rows runs the prefill path, this runs every row as a decode does, with each
+         * weight read once for all of them -- the multi-token decode a speculative verify needs (Gemma4Mtp.md 4.7).
+         * Each row equals a one-row forward() to FP32 rounding.
+         *
+         * @param input Input tensor [..., in_features] of at most 8 rows.
+         * @return      The output buffer, viewed at the input's leading shape.
+         *
+         * @throws std::invalid_argument for more than 8 rows, or an input feature mismatch.
+         */
+        TensorType& decode( const TensorType& input ) requires ( TDeviceType == DeviceType::Cuda )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "Linear must be built before calling decode." );
+            }
+
+            validateInputShape( input.shape() );
+
+            operation_->decode( input, *output_ );
+
+            auto output_shape = input.shape();
+            output_shape.back() = config_.getOutputFeatures();
+            TensorType& result = stableView( output_view_, *output_, output_shape );
+
+            this->publish( ComputePass::Forward, "output", result );
+
+            return result;
+        }
+
+        /**
          * @brief Perform backward pass.
          *
          * Pre-zeros the component-owned input gradient buffer, then delegates to the

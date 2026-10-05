@@ -5,6 +5,7 @@
  */
 
 module;
+#include <format>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -81,6 +82,19 @@ namespace Mila::Dnn
             auto& combined = sum_->forward( dense_normed, routed_normed );
 
             return post_norm_->forward( combined );
+        }
+
+        /**
+         * @brief Refused until the expert bank decodes several tokens: its forward runs prefill's arithmetic, and the
+         *        union of the tokens' experts at decode's is Gemma4Mtp.md 4.7's step 5.
+         */
+        TensorType& decodeTokens( const TensorType& residual ) requires ( TDeviceType == DeviceType::Cuda )
+        {
+            ( void )residual;
+
+            throw std::logic_error( std::format(
+                "GemmaRoutedFeedForward '{}': a multi-token decode needs the expert bank's multi-token decode, which "
+                "is not built yet", this->getName() ) );
         }
 
         /**

@@ -35,6 +35,7 @@ module;
 #include "Kernels/Codebook/CodebookGemv.cuh"
 #include "Kernels/Int4/CudaInt4Gemm.cuh"
 #include "Kernels/Int6/CudaInt6Gemm.cuh"
+#include "Kernels/DecodeRows/CudaDecodeRows.cuh"
 
 export module Compute.CudaLinearOp;
 import :Plans;
@@ -729,6 +730,51 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         }
 
         /**
+         * @brief Decode's arithmetic for each of up to kDecodeRowsMaximum rows, where forward() would run prefill's.
+         *
+         * One row is forward()'s own decode matvec. More rows at BF16 run one tensor-core product that reads each weight
+         * once for all of them, so a few rows cost about one row's bandwidth (Gemma4Mtp.md 4.7); each row equals a
+         * one-row decode to FP32 rounding. At FP32 the rows take the decode matvec one at a time.
+         *
+         * @throws std::invalid_argument for more than kDecodeRowsMaximum rows.
+         */
+        void decode( const TensorType& input, TensorType& output ) const
+        {
+            const int rows = narrowToKernelIndex( input.size() / cached_in_features_ );
+
+            if ( rows > kDecodeRowsMaximum )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaLinearOp::decode - {} rows; decode takes at most {}", rows, kDecodeRowsMaximum ) );
+            }
+
+            const ComputeType* input_ptr = static_cast<const ComputeType*>( input.rawData() );
+            ComputeType* output_ptr = static_cast<ComputeType*>( output.rawData() );
+            cudaStream_t stream = context_->getStream();
+
+            if ( rows == 1 )
+            {
+                decodeRow( input_ptr, output_ptr, stream );
+            }
+            else if constexpr ( TComputePrecision == TensorDataType::BF16 )
+            {
+                cuda_decode_rows_bf16(
+                    output_ptr, input_ptr, decodeRowsWeights(), bias_,
+                    rows, cached_in_features_, out_features_, stream );
+            }
+            else
+            {
+                for ( int row = 0; row < rows; ++row )
+                {
+                    decodeRow(
+                        input_ptr + static_cast<ptrdiff_t>( row ) * cached_in_features_,
+                        output_ptr + static_cast<ptrdiff_t>( row ) * out_features_,
+                        stream );
+                }
+            }
+        }
+
+        /**
          * @brief Backward pass. Not supported on the quantized path.
          *
          * @param input       Saved forward input.
@@ -1197,6 +1243,40 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     cached_in_features_, out_features_,
                     stream );
             }
+        }
+
+        /// The weight tensors as the multi-row decode reads them, by policy.
+        DecodeRowsWeights decodeRowsWeights() const requires ( TComputePrecision == TensorDataType::BF16 )
+        {
+            DecodeRowsWeights weights{ DecodeRowsFormat::Bf16, weight_, nullptr, nullptr, nullptr, weight_group_size_ };
+
+            if constexpr ( kIsQuantized )
+                weights.scales = weight_scales_;
+
+            if constexpr ( kIsCodebookWeight )
+            {
+                weights.format = kHasHighBitPlane ? DecodeRowsFormat::Codebook3 : DecodeRowsFormat::Codebook2;
+                weights.high_plane = weight_high_plane_;
+                weights.codebook = weight_codebook_;
+            }
+            else if constexpr ( kIsInt4Weight )
+            {
+                weights.format = DecodeRowsFormat::Int4;
+            }
+            else if constexpr ( kIsInt6Weight )
+            {
+                weights.format = DecodeRowsFormat::Int6;
+            }
+            else if constexpr ( kIsFp4Weight )
+            {
+                weights.format = DecodeRowsFormat::Fp4;
+            }
+            else if constexpr ( kIsPerChannelQuantized )
+            {
+                weights.format = DecodeRowsFormat::Fp8PerChannel;
+            }
+
+            return weights;
         }
 
         /**

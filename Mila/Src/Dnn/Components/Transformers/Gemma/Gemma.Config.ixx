@@ -17,6 +17,7 @@
  */
 
 module;
+#include <format>
 #include <stdexcept>
 #include <string>
 #include <sstream>
@@ -359,6 +360,28 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        /**
+         * @brief The most tokens one decodeTokens() call takes. Default 1: no multi-token decode.
+         *
+         * A speculative verify decodes the drafter's K tokens and the one before them in one call
+         * (Gemma4Mtp.md 4.7), so a deployment that selects the drafter raises this to K + 1. It sizes
+         * the head's logit rows, attention's decode output and the decode scratch the network
+         * reserves. At most 8, the rows one multi-row Linear decode takes. A run capacity, absent from
+         * toMetadata(), as the log-likelihood window is.
+         */
+        template <typename Self>
+        decltype(auto) withDecodeTokens( this Self&& self, dim_t tokens )
+        {
+            if ( tokens < 1 || tokens > 8 )
+            {
+                throw std::invalid_argument( std::format(
+                    "GemmaConfig: decode_tokens must be 1 to 8, got {}", tokens ) );
+            }
+
+            self.decode_tokens_ = tokens;
+            return std::forward<Self>( self );
+        }
+
         // ====================================================================
         // Primary accessors
         // ====================================================================
@@ -521,6 +544,7 @@ namespace Mila::Dnn
         float getRoPEThetaGlobal() const noexcept { return rope_theta_global_; }
         float getFinalLogitSoftcapping() const noexcept { return final_logit_softcapping_; }
         dim_t getLogLikelihoodWindow() const noexcept { return log_likelihood_window_; }
+        dim_t getDecodeTokens() const noexcept { return decode_tokens_; }
 
         /**
          * @brief Embedding scale applied after token lookup: sqrt(embedding_dim).
@@ -875,6 +899,7 @@ namespace Mila::Dnn
             oss << "  Global rotary dim: " << global_rotary_dim_ << "\n";
             oss << "  Final logit softcap: " << final_logit_softcapping_ << "\n";
             oss << "  Log-likelihood window: " << log_likelihood_window_ << "\n";
+            oss << "  Decode tokens: " << decode_tokens_ << "\n";
 
             if ( num_experts_ > 0 )
             {
@@ -915,6 +940,9 @@ namespace Mila::Dnn
         // A run capacity rather than published geometry: 1 is what generation needs, and a
         // log-likelihood measurement raises it. Not serialized -- it describes the run, not the model.
         dim_t log_likelihood_window_ = 1;
+
+        // The most tokens one decodeTokens() call takes; a run capacity as the window above is.
+        dim_t decode_tokens_ = 1;
 
         // Routed feed-forward: zero experts is a dense model.
         dim_t num_experts_ = 0;

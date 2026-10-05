@@ -326,6 +326,22 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Enqueue a sampling step whose token stays on the device, for a pass that reads it next.
+         *
+         * No readback and no wait: the caller copies the token to the host when it needs it. May be called any
+         * number of times between enqueueSampleNext() and awaitSampledToken().
+         */
+        void enqueueSampleNextOnDevice(
+            const TensorType& logits,
+            TokenTensor& token_out,
+            const SamplingParams& params )
+        {
+            ensureSampler();
+
+            token_sampler_->enqueueSampleOnDevice( logits, token_out, params );
+        }
+
+        /**
          * @brief Block until the last enqueueSampleNext()'s token id is host-visible.
          *
          * Waits only for that sampling step -- device work enqueued after it (the

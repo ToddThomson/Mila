@@ -26,6 +26,7 @@ module;
 #include <functional>
 #include <stop_token>
 #include <cstring>
+#include <optional>
 
 export module Dnn.Models.GemmaModel;
 
@@ -36,6 +37,7 @@ import Dnn.LanguageModelNetwork;
 import Dnn.Models.QuantizationDispatch;
 import Deployment.PrefillChunkRule;
 import Deployment.DeviceReading;
+import Deployment.SpeculativeDecode;
 import Deployment.DeploymentRequest;
 import Deployment.DeploymentPlan;
 import Deployment.DeploymentPlans;
@@ -70,6 +72,9 @@ import Compute.CpuMemoryResource;
 import Compute.DeviceTypeTraits.Cuda;
 #endif
 import Compute.ExecutionContextFactory;
+import Compute.IExecutionContext;
+import Dnn.SamplingParams;
+import Dnn.TensorOps;
 import Serialization.WeightsReader;
 import Serialization.SafeTensors;
 import Serialization.Mode;
@@ -434,6 +439,9 @@ namespace Mila::Dnn
             // The caches now hold exactly the prompt; decode appends below in lockstep.
             kv_token_history_.assign( prompt_tokens.begin(), prompt_tokens.end() );
 
+            if ( plan_.speculativeDecode() )
+                return generateWithDraft( logits, seq_len, stop_ids, on_token, params, stop );
+
             // Decode-ahead pipeline: the sampler runs on the network stream (ordered
             // after the forward that produced the logits -- no synchronize needed) and
             // writes the sampled token into decode_token_device_ in place, so the NEXT
@@ -515,6 +523,156 @@ namespace Mila::Dnn
                 "GemmaModel::onTraining: Gemma is inference-only" );
         }
 
+        /**
+         * @brief Generation with the draft model (Gemma4Mtp.md 4.2 b, 4.4): each round the draft model proposes
+         *        tokens after the one at `position`, one decodeTokens() checks them, and the round keeps the drafts
+         *        the model agrees with and the model's own token after them.
+         *
+         * The draft is greedy, and the model chooses its token at every checked row with the caller's sampling, as it
+         * would without a draft; a draft is kept while it is the token the model chose. With a greedy draft this is
+         * the rule of Leviathan et al. (arXiv 2211.17192) -- a draft d is kept with probability p(d), and on a
+         * rejection the model's own choice is a draw from p without d -- so every token is drawn from the model's
+         * distribution and sampled output is distributed as it is without the draft model. Greedy output equals
+         * greedy output without it except where the top two logits are within the multi-token decode's rounding
+         * (4.7, "Equal to decode").
+         *
+         * Every token is chosen on the device into the slot the next pass reads, so the host waits once a round. The
+         * caches and the reuse history hold exactly the positions kept: the token at a round's position and the
+         * drafts accepted after it.
+         */
+        GenerateStatus generateWithDraft(
+            const TensorType& prompt_logits,
+            dim_t prompt_length,
+            const std::unordered_set<int32_t>& stop_ids,
+            const std::function<void( int32_t )>& on_token,
+            const GenerateParams& params,
+            std::stop_token stop )
+        {
+            auto& network = this->getNetwork();
+            IExecutionContext* context = network.getExecutionContext();
+            const dim_t draft = plan_.speculativeDecode()->draft_tokens;
+            const dim_t vocabulary = config_.getVocabSize();
+            const SamplingParams& sampling = params.sampling;
+            const int max_new = params.max_new_tokens.value_or( static_cast<int>( contextLength() ) );
+
+            Tensor<dtype_t::INT32, CpuMemoryResource> drafted( Device::Cpu(), draft_tokens_device_.shape() );
+            Tensor<dtype_t::INT32, CpuMemoryResource> chosen( Device::Cpu(), chosen_tokens_device_.shape() );
+
+            auto head = draft_tokens_device_.view( shape_t{ 1, 1 }, 0 );
+            this->enqueueSampleNextOnDevice( prompt_logits, head, sampling );
+
+            auto head_on_host = drafted.view( shape_t{ 1, 1 }, 0 );
+            copy( head, head_on_host, context );
+            context->synchronize();
+
+            // The token at `position`: chosen, not yet in the caches.
+            int32_t pending = drafted.data()[ 0 ];
+            dim_t position = prompt_length;
+            dim_t hidden_row = 0;
+            int emitted = 0;
+
+            // Emits one token; false when generation ends at it.
+            GenerateStatus ended = GenerateStatus::Success;
+
+            const auto emit = [&]( int32_t token ) -> bool
+            {
+                if ( stop_ids.contains( token ) )
+                {
+                    ended = GenerateStatus::Success;
+                    return false;
+                }
+
+                on_token( token );
+
+                if ( ++emitted >= max_new )
+                {
+                    ended = GenerateStatus::MaxNewTokensReached;
+                    return false;
+                }
+
+                return true;
+            };
+
+            if ( !emit( pending ) )
+                return ended;
+
+            while ( true )
+            {
+                if ( stop.stop_requested() )
+                {
+                    context->synchronize();
+
+                    return GenerateStatus::ClientCancelled;
+                }
+
+                // A round writes the caches from `position` through the last draft, all within the context.
+                if ( position >= contextLength() )
+                {
+                    context->synchronize();
+
+                    return GenerateStatus::ContextOverflow;
+                }
+
+                const dim_t round_draft = std::min<dim_t>( draft, contextLength() - 1 - position );
+                const dim_t rows = round_draft + 1;
+
+                auto checked = draft_tokens_device_.view( shape_t{ 1, rows }, 0 );
+
+                if ( round_draft > 0 )
+                    network.draftTokens( checked, position, hidden_row );
+
+                const TensorType& logits = network.decodeTokens( checked, position );
+
+                for ( dim_t row = 0; row < rows; ++row )
+                {
+                    auto target = chosen_tokens_device_.view( shape_t{ 1, 1 }, row );
+                    this->enqueueSampleNextOnDevice(
+                        logits.view( shape_t{ 1, 1, vocabulary }, row * vocabulary ), target, sampling );
+                }
+
+                auto drafted_rows = drafted.view( shape_t{ 1, rows }, 0 );
+                auto chosen_rows = chosen.view( shape_t{ 1, rows }, 0 );
+                copy( checked, drafted_rows, context );
+                copy( chosen_tokens_device_.view( shape_t{ 1, rows }, 0 ), chosen_rows, context );
+                context->synchronize();
+
+                dim_t accepted = 0;
+
+                while ( accepted < round_draft && drafted.data()[ accepted + 1 ] == chosen.data()[ accepted ] )
+                    ++accepted;
+
+                // Keep the token at `position` and the accepted drafts; the rejected drafts' rows are written over.
+                kv_token_history_.insert( kv_token_history_.end(), drafted.data(), drafted.data() + accepted + 1 );
+                position += accepted + 1;
+                hidden_row = accepted;
+
+                if ( accepted < round_draft && !network.rewindKvCache( position ) )
+                {
+                    throw std::logic_error( std::format(
+                        "GemmaModel::generate: the caches refused a rewind of {} drafted tokens", round_draft - accepted ) );
+                }
+
+                // The model's token after the last one kept starts the next round.
+                pending = chosen.data()[ accepted ];
+
+                auto bonus = chosen_tokens_device_.view( shape_t{ 1, 1 }, accepted );
+                copy( bonus, head, context );
+
+                bool more = true;
+
+                for ( dim_t i = 1; more && i <= accepted; ++i )
+                    more = emit( drafted.data()[ i ] );
+
+                if ( !more || !emit( pending ) )
+                {
+                    // The copy above may still be in flight; nothing runs past return.
+                    context->synchronize();
+
+                    return ended;
+                }
+            }
+        }
+
         dim_t maxSequenceLength() const noexcept override
         {
             return config_.getMaxSequenceLength();
@@ -550,9 +708,17 @@ namespace Mila::Dnn
             , model_config_( plan.modelConfig<GemmaModelConfig>() )
             , plan_( plan )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
+            , draft_tokens_device_( this->getDeviceId(), shape_t{ 1, draftRows( plan ) } )
+            , chosen_tokens_device_( this->getDeviceId(), shape_t{ 1, draftRows( plan ) } )
         {
             // Every load path builds the model here; a network built directly stays off (DecodeGraph.md 4.6).
             this->setDecodeReplay( true );
+        }
+
+        /// Rows a round checks: the draft and the token before it, or one when no draft model is selected.
+        static dim_t draftRows( const DeploymentPlan& plan ) noexcept
+        {
+            return plan.speculativeDecode() ? plan.speculativeDecode()->draft_tokens + 1 : 1;
         }
 
         static bool isRoutedCheckpoint( const std::filesystem::path& path )
@@ -663,6 +829,54 @@ namespace Mila::Dnn
         using ChassisTransformer = GemmaTransformer<
             TDeviceType, TPrecision, TWeightQuantization, GemmaSlidingKvPolicy, kFeedForward, TGlobalKvCachePolicy>;
 
+        /**
+         * @brief The network a plan prices and a load builds: the package's, with the request's draft model beside it.
+         *
+         * One construction for both, so what the planner priced is what the load builds (Deployment.md 2.1). A draft
+         * is checked by a multi-token decode, so selecting one raises the network's decode tokens to the draft and the
+         * token before it.
+         */
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>
+        static std::unique_ptr<ChassisTransformer<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>> constructNetwork(
+            std::string_view caller, const WeightsMetadata& metadata, DeviceId device_id,
+            const std::optional<SpeculativeDecode>& speculative_decode )
+        {
+            using Network = ChassisTransformer<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>;
+
+            GemmaConfig network_config = configFromMetadata( metadata );
+
+            if ( !speculative_decode )
+            {
+                return std::make_unique<Network>( metadata.model_name, network_config, device_id );
+            }
+
+            if constexpr ( !Network::kDraftModelRuns )
+            {
+                throw std::invalid_argument( std::format( "{}: a draft model runs on CUDA at BF16", caller ) );
+            }
+            else if constexpr ( kFeedForward == GemmaFeedForward::Routed )
+            {
+                throw std::invalid_argument( std::format(
+                    "{}: a mixture-of-experts Gemma cannot check a draft yet; its expert bank decodes one token at a "
+                    "time", caller ) );
+            }
+            else
+            {
+                speculative_decode->validate();
+
+                WeightsReader drafter_reader( speculative_decode->draft_model );
+                const GemmaConfig drafter_config =
+                    Network::DrafterType::configFromMetadata( drafter_reader.getWeightsMetadata(), network_config );
+
+                network_config.withDecodeTokens( speculative_decode->draft_tokens + 1 );
+
+                auto network = std::make_unique<Network>( metadata.model_name, network_config, device_id );
+                network->addDrafter( drafter_config );
+
+                return network;
+            }
+        }
+
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>
         static std::expected<DeploymentPlans, DeploymentRefusal> planImpl(
             const std::filesystem::path& path,
@@ -679,15 +893,13 @@ namespace Mila::Dnn
             requireStoredTableMatches<typename ChassisTransformer<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>::TableQuantizationPolicy>(
                 "GemmaModel::planDeployment", path, reader );
 
-            const GemmaConfig network_config = configFromMetadata( metadata );
-
             // Construction commits no device memory, but it creates the execution context, which holds some;
             // the reading is taken after it, as the load's build will find the device (Deployment.md 9).
-            const ChassisTransformer<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward> network(
-                metadata.model_name, network_config, device_id );
+            const auto network = constructNetwork<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>(
+                "GemmaModel::planDeployment", metadata, device_id, request.getSpeculativeDecode() );
 
-            return planOnDevice( network, request, DeviceReading::take( device_id ),
-                network_config.getMaxSequenceLength(), metadata, reader.getWeightQuantization() );
+            return planOnDevice( *network, request, DeviceReading::take( device_id ),
+                network->getConfig().getMaxSequenceLength(), metadata, reader.getWeightQuantization() );
         }
 
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>
@@ -708,16 +920,25 @@ namespace Mila::Dnn
             requireStoredTableMatches<typename ChassisTransformer<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>::TableQuantizationPolicy>(
                 "GemmaModel::load", path, reader );
 
-            const GemmaConfig network_config = configFromMetadata( metadata );
-
-            auto network = std::make_unique<ChassisTransformer<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>>(
-                metadata.model_name, network_config, plan.device() );
+            auto network = constructNetwork<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>(
+                "GemmaModel::load", metadata, plan.device(), plan.speculativeDecode() );
 
             network->build( plan.buildContext() );
 
             Logging::Logger::info( network->toString() );
 
             network->loadParameters( reader );
+
+            if constexpr ( decltype( network )::element_type::kDraftModelRuns )
+            {
+                if ( plan.speculativeDecode() )
+                {
+                    WeightsReader drafter_reader( plan.speculativeDecode()->draft_model );
+                    network->loadDrafterParameters( drafter_reader );
+                }
+            }
+
+            const GemmaConfig network_config = network->getConfig();
 
             return std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>(
                 new GemmaModel<TDeviceType, TPrecision>(
@@ -798,6 +1019,11 @@ namespace Mila::Dnn
         // Device decode-input buffer: the sampler writes the next token here in place,
         // and decode() reads it directly -- no host staging round-trip.
         TokenIndexType decode_token_device_;
+
+        // Speculative decode (Gemma4Mtp.md 4.2 b), one row when the plan selects no draft model: slot 0 the token at
+        // a round's position, then the draft; and the model's own choice after each of them.
+        TokenIndexType draft_tokens_device_;
+        TokenIndexType chosen_tokens_device_;
 
         // The token ids whose K/V the caches currently hold, in position order:
         // the last prefilled prompt plus every token fed through decode (appended

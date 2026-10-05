@@ -81,20 +81,20 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
         }
 
         /**
-         * @brief Single-token decode at an explicit sequence position.
+         * @brief Decode of T tokens in a row from an explicit sequence position.
          */
         static void decode(
             float* Q_out, float* K_out,
             const float* Q_in, const float* K_in,
             const RopeAngleParameters& angles,
-            int B, const int* position,
+            int B, int T, const int* position,
             int n_heads, int n_kv_heads, int head_dim,
             int rotary_dim, int rotary_layout,
             cudaStream_t stream )
         {
             cuda_rope_decode_fp32(
                 Q_out, K_out, Q_in, K_in, angles,
-                B, position, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
+                B, T, position, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
         }
     };
 
@@ -138,14 +138,14 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             __nv_bfloat16* Q_out, __nv_bfloat16* K_out,
             const __nv_bfloat16* Q_in, const __nv_bfloat16* K_in,
             const RopeAngleParameters& angles,
-            int B, const int* position,
+            int B, int T, const int* position,
             int n_heads, int n_kv_heads, int head_dim,
             int rotary_dim, int rotary_layout,
             cudaStream_t stream )
         {
             cuda_rope_decode_bf16(
                 Q_out, K_out, Q_in, K_in, angles,
-                B, position, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
+                B, T, position, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, stream );
         }
     };
 }

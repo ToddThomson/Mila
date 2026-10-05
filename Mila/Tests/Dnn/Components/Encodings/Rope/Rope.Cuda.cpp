@@ -370,6 +370,104 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
         this->expectClose( this->toFloat( device_k ), expected_k, "decode K" );
     }
 
+    // A decode of several tokens (Gemma4Mtp.md 4.7) rotates token t at the decode position plus t: bit for bit what a
+    // one-token decode at each position does, and what a prefill at that offset does.
+    TYPED_TEST( RopeCudaTests, Decode_SeveralTokensRotateAsOneTokenDecodesAndAPrefill )
+    {
+        const int64_t B = 2;
+        const int64_t tokens = 3;
+        const int position = 5;
+
+        auto rope = this->builtRope( shape_t{ B, kMaxSeq }, RuntimeMode::Inference );
+        auto host_q = this->spreadHost( shape_t{ B, tokens, kChannels }, 0.0f );
+        auto host_k = this->spreadHost( shape_t{ B, tokens, kKvChannels }, 1.7f );
+
+        const auto values = [&]( auto& device_q, auto& device_k )
+        {
+            rope->synchronize();
+            auto q = this->toFloat( device_q );
+            auto k = this->toFloat( device_k );
+            std::vector<float> all( q.data(), q.data() + q.size() );
+            all.insert( all.end(), k.data(), k.data() + k.size() );
+
+            return all;
+        };
+
+        auto decoded_q = this->toDevice( host_q );
+        auto decoded_k = this->toDevice( host_k );
+        rope->getExecutionContext()->setDecodePosition( position );
+        rope->decode( decoded_q, decoded_k, position );
+        const std::vector<float> decoded = values( decoded_q, decoded_k );
+
+        auto prefilled_q = this->toDevice( host_q );
+        auto prefilled_k = this->toDevice( host_k );
+        rope->prefill( prefilled_q, prefilled_k, position );
+        const std::vector<float> prefilled = values( prefilled_q, prefilled_k );
+
+        // One token at a time: each batch row's token t, rotated alone at position + t.
+        std::vector<float> one_at_a_time( decoded.size() );
+        const std::size_t q_size = static_cast<std::size_t>( B * tokens * kChannels );
+
+        for ( int64_t t = 0; t < tokens; ++t )
+        {
+            auto single_q_host = this->spreadHost( shape_t{ B, 1, kChannels }, 0.0f );
+            auto single_k_host = this->spreadHost( shape_t{ B, 1, kKvChannels }, 1.7f );
+
+            for ( int64_t b = 0; b < B; ++b )
+            {
+                std::memcpy( single_q_host.data() + b * kChannels, host_q.data() + ( b * tokens + t ) * kChannels,
+                    kChannels * sizeof( float ) );
+                std::memcpy( single_k_host.data() + b * kKvChannels, host_k.data() + ( b * tokens + t ) * kKvChannels,
+                    kKvChannels * sizeof( float ) );
+            }
+
+            auto single_q = this->toDevice( single_q_host );
+            auto single_k = this->toDevice( single_k_host );
+            rope->getExecutionContext()->setDecodePosition( position + static_cast<int>( t ) );
+            rope->decode( single_q, single_k, position + t );
+            const std::vector<float> single = values( single_q, single_k );
+
+            for ( int64_t b = 0; b < B; ++b )
+            {
+                std::memcpy( one_at_a_time.data() + ( b * tokens + t ) * kChannels, single.data() + b * kChannels,
+                    kChannels * sizeof( float ) );
+                std::memcpy( one_at_a_time.data() + q_size + ( b * tokens + t ) * kKvChannels,
+                    single.data() + B * kChannels + b * kKvChannels, kKvChannels * sizeof( float ) );
+            }
+        }
+
+        ASSERT_EQ( decoded.size(), prefilled.size() );
+
+        std::size_t from_prefill = 0;
+        std::size_t from_single = 0;
+
+        for ( std::size_t i = 0; i < decoded.size(); ++i )
+        {
+            from_prefill += std::memcmp( &decoded[ i ], &prefilled[ i ], sizeof( float ) ) != 0;
+            from_single += std::memcmp( &decoded[ i ], &one_at_a_time[ i ], sizeof( float ) ) != 0;
+        }
+
+        EXPECT_EQ( from_prefill, 0u ) << "against a prefill at the decode position";
+        EXPECT_EQ( from_single, 0u ) << "against one-token decodes";
+    }
+
+    TYPED_TEST( RopeCudaTests, Decode_RefusesTokensPastTheBuiltLength )
+    {
+        const int64_t B = 2;
+        const int64_t T = 6;
+        const int64_t tokens = 3;
+
+        auto rope = this->builtRope( shape_t{ B, T }, RuntimeMode::Inference );
+
+        auto device_q = this->toDevice( this->spreadHost( shape_t{ B, tokens, kChannels }, 0.0f ) );
+        auto device_k = this->toDevice( this->spreadHost( shape_t{ B, tokens, kKvChannels }, 1.7f ) );
+
+        rope->getExecutionContext()->setDecodePosition( static_cast<int>( T - tokens ) );
+
+        EXPECT_NO_THROW( rope->decode( device_q, device_k, T - tokens ) );
+        EXPECT_THROW( rope->decode( device_q, device_k, T - tokens + 1 ), std::invalid_argument );
+    }
+
     // ====================================================================
     // G. Built length -- it bounds every position, and costs no memory
     // ====================================================================

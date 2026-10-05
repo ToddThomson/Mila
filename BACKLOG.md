@@ -58,6 +58,9 @@ the head-width note -- with the FP4 build's long-context loss beside them. Capab
 the families; how deeply each is optimized follows the card it is for. If the date presses, the 26B's
 vision tower drains first, then audio.
 
+Scope grew on 2026-10-05 (Todd), the date held: the token sampler's synchronous entry moves onto the model's
+stream, admitted under Internal fixes with no removal.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -633,11 +636,12 @@ win, and the recorded result is "not worth doing".
 
 The loop is in this release where the measurement says it pays (Todd, 2026-10-04), as a feature a
 deployment selects: draft, verify, accept, rewind. Sampled as well as greedy, since Chat samples by
-default. The rewind is a few tokens and the sliding ring already allows it. Which path runs the verify --
-prefill's, or a multi-row decode that makes greedy output identical by construction -- is
-`Gemma4Mtp.md`'s open decision 1. Gate: with the drafter selected, the 12B decodes token-for-token as
-without it, faster by the measured amount; if the measurement says "not worth doing", that result is
-recorded and the loop stays out. The 26B-A4B gets its own drafter by the same measurement and gate (Todd,
+default. The rewind is a few tokens and the sliding ring already allows it. The verify is a decode of K + 1
+tokens with one tensor-core product per Linear, which reads the weights once for all of them
+(`Gemma4Mtp.md` 4.7). Gate: with the drafter selected, the 12B's verify logits are within its decode's own
+numerical noise -- token-for-token equality holds only if decode moves to the same kernels, 4.7's option
+(a) -- and it decodes faster by the measured amount; if the measurement says "not worth doing", that result
+is recorded and the loop stays out. The 26B-A4B gets its own drafter by the same measurement and gate (Todd,
 2026-10-04): Google says a mixture of experts gains little at batch 1, and a community report measured 1.46x
 on it, so it is measured on the 16 GB card, FP8 global cache included.
 
@@ -704,3 +708,25 @@ output on recorded fixtures (thinking on and off, with and without tools, multi-
 it — the `+34` fold's recipe. Chat's effort sentences stay Chat's text: Gemma's `<|think|>` has no
 trained budget, so they are a prompt, not grammar (`ModelHandle.md` 3.4). The Gemma half of
 `ModelHandle.md` Phase 2.
+
+### Internal fixes
+
+Defects in the library the user admitted to this release with no ROADMAP criterion behind them.
+
+#### The synchronous token sampler is ordered after the model's work only by an accident of how its stream was created
+
+`open` · `ai` · `architecture` · `mila-src`
+
+`CudaSamplingOp::forward()` and `forwardReference()` launch on stream 0, and `TokenSampler::sample()` reads the
+token back with a copy given no context. They see finished logits only because the execution context creates its
+stream blocking (`cudaStreamDefault`, `CudaExecutionContext.ixx:650`), which makes stream 0 wait for it -- nothing
+states or checks it, and a non-blocking stream or a per-thread default stream would let `sample()` read logits
+still being written. Every other entry of the op runs on the context's stream. The change: both entries dispatch on
+the context's stream, `sample()` copies with the context and synchronizes it, the "Phase A, default stream"
+comments are rewritten to the contract, and `Sampling.Cuda.cpp`'s tests that read the token after `forward()`
+synchronize explicitly. `LanguageModel::sampleNext()` and `TokenSampler::sample()` have no caller outside tests --
+whether they stay is a separate decision.
+
+Gate: the sampling suite passes with the context's stream created non-blocking.
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/CudaSamplingOp.ixx:94` · `Mila/Src/Dnn/Samplers/TokenSampler.ixx:74`

@@ -447,21 +447,21 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 return cuda_gqa_decode_attention_supported( head_size, group_size );
             }
 
-            static size_t decode_attention_scratch_bytes( int B, int NH, int HS )
+            static size_t decode_attention_scratch_bytes( int B, int NH, int HS, int rows )
             {
-                return cuda_gqa_decode_attention_scratch_bytes( B, NH, HS );
+                return cuda_gqa_decode_attention_scratch_bytes( B, NH, HS, rows );
             }
 
             static void decode_attention(
                 const nv_bfloat16* Q, const nv_bfloat16* K, const nv_bfloat16* V,
                 nv_bfloat16* Y, float* split_scratch,
                 int B, int NH, int NKV, int HS, int cache_capacity,
-                const int* position, int max_band, int window, float scale,
+                const int* position, int rows, int max_band, int window, float scale,
                 cudaStream_t stream )
             {
                 cuda_gqa_decode_attention_bf16(
                     Q, K, V, Y, split_scratch, B, NH, NKV, HS, cache_capacity,
-                    position, max_band, window, scale, stream );
+                    position, rows, max_band, window, scale, stream );
             }
 
             // ----------------------------------------------------------------
@@ -520,12 +520,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 const float* k_scales, const float* v_scales,
                 nv_bfloat16* Y, float* split_scratch,
                 int B, int NH, int NKV, int HS, int cache_capacity,
-                const int* position, int max_band, int window, float scale,
+                const int* position, int rows, int max_band, int window, float scale,
                 cudaStream_t stream )
             {
                 cuda_gqa_decode_attention_fp8(
                     Q, K, V, k_scales, v_scales, Y, split_scratch, B, NH, NKV, HS, cache_capacity,
-                    position, max_band, window, scale, stream );
+                    position, rows, max_band, window, scale, stream );
             }
 
             // ----------------------------------------------------------------

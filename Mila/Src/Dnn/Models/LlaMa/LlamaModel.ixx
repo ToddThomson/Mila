@@ -123,6 +123,9 @@ namespace Mila::Dnn
             const DeviceId device = requireDevice( "LlamaModel::planDeployment",
                 request.getDevice().value_or( DeviceId{ TDeviceType, 0 } ) );
 
+            if ( request.getSpeculativeDecode() )
+                throw std::invalid_argument( "LlamaModel::planDeployment: Llama has no draft model to decode with" );
+
             return dispatchChassis<std::expected<DeploymentPlans, DeploymentRefusal>>(
                 request.getWeightQuantization(), request.getKvCacheCompression(), "LlamaModel::planDeployment",
                 [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()

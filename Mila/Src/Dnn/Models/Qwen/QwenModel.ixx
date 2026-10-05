@@ -152,6 +152,9 @@ namespace Mila::Dnn
 
             validateDeployment( "QwenModel::planDeployment", request.getKvCacheCompression(), device );
 
+            if ( request.getSpeculativeDecode() )
+                throw std::invalid_argument( "QwenModel::planDeployment: Qwen has no draft model to decode with" );
+
             return dispatchQwenWeightPlan<std::expected<DeploymentPlans, DeploymentRefusal>>(
                 request.getWeightQuantization(), "QwenModel::planDeployment",
                 [&]<typename TWeightPlan>()

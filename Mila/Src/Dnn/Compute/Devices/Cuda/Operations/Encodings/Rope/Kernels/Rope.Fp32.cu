@@ -42,12 +42,12 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* Q_in,
         const float* K_in,
         const RopeAngleParameters& angles,
-        int B, const int* position,
+        int B, int T, const int* position,
         int n_heads, int n_kv_heads, int head_dim,
         int rotary_dim, int rotary_layout,
         cudaStream_t stream )
     {
         launch_rope_rotation<false>( Q_out, K_out, Q_in, K_in, angles,
-            B, 1, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, 0, position, stream );
+            B * T, T, n_heads, n_kv_heads, head_dim, rotary_dim, rotary_layout, 0, position, stream );
     }
 }

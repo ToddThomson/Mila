@@ -141,6 +141,40 @@ MiB; one block 13,044; a mapped range 13,044 at 2 MiB chunks (twice the placemen
 allocation went to system memory instead. On this driver the allocation made when the card is full is the one that
 spills, whatever the layout.
 
+## `VerifyRows.cu`
+
+What a speculative verify of R rows costs against one decode, on the Gemma 4 12B's Q4_0 Linear shapes
+(`Gemma4Mtp.md` 4.7): today's decode matvec copied verbatim, the same matvec with R accumulators (bit-identical per
+row), and a tensor-core product with the rows as the `mma` n = 8 operand, in six tile/warp configurations.
+
+```
+nvcc -gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_89,code=sm_89 -O3 VerifyRows.cu -o VerifyRows.exe
+```
+
+Every arm is checked against an FP64 reference and against the one-row decode before it is timed. Measured
+2026-10-05: per token, R = 5 rows cost 1.91 decodes as a matvec and 1.01 as the product on the RTX 5060 Ti (1.78
+and 1.06 on the 4070); the product's R = 1 is 1.01x decode. Table in `Gemma4Mtp.md` 4.7.
+
+A `cute` arm compiles when CUTLASS's include directory is on the path (`-std=c++17 --expt-relaxed-constexpr
+-Xcompiler=/Zc:__cplusplus,/Zc:preprocessor -I<cutlass>/include`; measured with v4.8.0, kept outside the tree):
+CuTe's TiledMMA in the canonical sm80 structure -- warps tile M, a cp.async pipeline walks K through shared memory,
+the codes are widened into a swizzled BF16 tile and read by ldmatrix. Same accuracy as the product; 1.32x decode at
+every R on the 5060 Ti (272 to 331 GB/s), best at 4 warps x 3 stages. Shared memory holds it to 2 to 4 warps per SM
+against the product's 48, and each stage serializes a widening pass between two barriers -- the structure, at eight
+rows, not CuTe as notation.
+
+A `cute-split` arm then gives CuTe the product's structure: warps splitting K, register prefetch, and the product's k
+permutation passed as the TiledMMA's `PermutationMNK`, so `partition_A`/`partition_B` and `cute::copy` deliver the
+operands and `cute::gemm` multiplies. Its outputs match the product's bit for bit, which shows the permutation is
+expressed exactly; it runs at 1.41x decode. The SASS shows why: per 64 columns it issues 32 single-byte weight loads
+and 48 byte permutes where the product issues one 32-bit load per row and block -- the SM80 atom's register order
+interleaves rows g and g + 8, so a copy of 4-bit elements cannot vectorize across them. CUTLASS's remedy is an offline
+reorder of the stored codes (`examples/55_hopper_mixed_dtype_gemm`), which for Mila would be a new Q4_0 storage
+format.
+
+*Harness note:* clear an output on the benchmark's own stream. A non-blocking stream does not order against a
+legacy-stream `cudaMemset`, and a clear that landed after the kernel once read as wrong results on one card only.
+
 ## `kernel_shares.py`
 
 Groups an nsys kernel summary into attention / GEMM / plumbing / other, so a profile answers

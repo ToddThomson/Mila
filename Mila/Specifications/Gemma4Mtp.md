@@ -178,14 +178,29 @@ drafter's full layer reads through the same path. The two land in either order; 
 
 ### 4.4 Sampling
 
-Chat samples by default (temperature 0.8), so a greedy-only loop would not reach Chat's default use. The
-lossless sampled rule (Leviathan et al., *Fast Inference from Transformers via Speculative Decoding*,
-arXiv 2211.17192; HuggingFace `_speculative_sampling`): accept `d_i` with probability
-`min(1, p_i(d_i) / q_i(d_i))`, where `p` is the 12B's distribution and `q` the drafter's after the same
-temperature, top-k and top-p; on the first rejection, sample from `normalize(max(0, p_i - q_i))`; if all
-K are accepted, sample the bonus from `p_K`. It needs the drafter's logits as well as its tokens, and
-runs on the device sampler (`TokenSampling.md`) with host-drawn uniforms, so a seeded run stays
-reproducible. Greedy lands first and gates the loop; sampling follows it before the feature is offered.
+Chat samples by default (temperature 0.8, top-k 40), so a greedy-only loop would not reach Chat's default use.
+The lossless sampled rule (Leviathan et al., *Fast Inference from Transformers via Speculative Decoding*,
+arXiv 2211.17192): accept `d_i` with probability `min(1, p_i(d_i) / q_i(d_i))`, where `p` is the 12B's
+distribution and `q` the drafter's; on the first rejection, sample from `normalize(max(0, p_i - q_i))`; if all
+K are accepted, sample the bonus from `p_K`.
+
+**Decided 2026-10-05 (Todd): the draft stays greedy, and every verified row is sampled with the caller's own
+settings, a draft kept while it is the token the 12B sampled.** With a greedy draft `q_i` is all on `d_i`, so the
+rule above keeps `d_i` with probability `p_i(d_i)` -- the chance the 12B's own draw is `d_i` -- and on a rejection
+draws from `p_i` without `d_i`, which is what a draw that came out other than `d_i` is. So the two are the same
+rule, and sampled output is distributed as it is without the drafter. It needs no drafter logits and no residual
+kernel: the device sampler (`TokenSampling.md`) runs at every row with host-drawn uniforms, so a seeded run stays
+reproducible. The gate is statistical: the fraction of rounds whose first draft is kept matches the mean of
+`p(d_1)` over the same rounds, within its standard error (`Tools/Drafting speculate --sample`).
+
+A drafter that samples its own draft is kept with probability `1 - TV(p, q)`, the sum of `min(p, q)`, where a greedy
+one is kept with `p(argmax q)`; neither bounds the other, and sampling-aware drafting is where Xia et al.,
+*Acceptance-Aware Draft Model Training for Speculative Decoding* (arXiv 2609.24150), find their gains. **Measured
+2026-10-05, it is worth little here:** at temperature 0.8 the greedy draft's first-draft acceptance, the mean of
+`p(d_1)`, is chat 0.73 to 0.79, code 0.70 to 0.75, prose 0.55 to 0.62 (4.7, the sampled loop), against stage 1's
+`sum min(p, q)` of 0.80, 0.75 and 0.60 (5.1) -- a few hundredths at most, measured on other positions and without
+top-k there. So the draft stays greedy; sampling it would need the drafter's logits kept per step and a residual
+draw from `max(0, p - q)`.
 
 ### 4.5 Rewind and the sliding ring
 
@@ -204,40 +219,187 @@ recording. The acceptance decision needs the tokens on the host once per round, 
 
 ### 4.7 The multi-row decode
 
-*Design, 2026-10-04; for Todd's review before code.* A verify is a decode of R = K + 1 rows at positions p to
-p + K: one forward in which **every row computes exactly what a decode at its position computes**, and every weight
-is read once for all R. Family-neutral by construction: it is the decode path widened, not a Gemma path.
+*Design, 2026-10-04; revised 2026-10-05 with Todd: the `Linear` rows are a tensor-core product, not a matvec, and
+the entry is `decodeTokens`, not `prefillFrom` routing a short sequence -- the verify is decode's arithmetic, and
+decode's operations read the position from the execution context where prefill's take it as a launch argument, which
+a replayed step may not.* A verify is a decode of R = K + 1 tokens at positions p to p + K: one forward in which
+every row runs decode's arithmetic at its own position, and every weight is read once for all R. Family-neutral by
+construction: it is the decode path widened, not a Gemma path.
 
-**The entry.** `LanguageModelNetwork::decodeRows( tokens [1, R], position )` beside `decode`, returning logits
+**The entry.** `LanguageModelNetwork::decodeTokens( tokens [1, R], position )` beside `decode`, returning logits
 [1, R, vocab]; it sets the context's decode position to p, as `decode` does, and advances the cached length to
-p + R. Each family implements `onDecodeRows`, Gemma first; a family without one refuses. `ITransformerBlock` gains
-`decodeRows( input [1, R, model_dim], position )`. The final-norm output keeps all R rows, since the drafter's next
-round reads the row at the last accepted position.
+p + R. It is not tied to speculation: any run of known tokens -- a template's fixed tokens after a reply -- can go
+through it. Each family implements `onDecodeTokens`, Gemma first; a family without one refuses. `ITransformerBlock`
+gains `decodeTokens( input [1, R, model_dim], position )`. The final-norm output keeps all R rows, since the
+drafter's next round reads the row at the last accepted position.
 
 **What each operation does with R rows, and what changes:**
 
 | Operation | Today at one row | At R rows |
 |---|---|---|
 | Norms, residuals, scale, GeGLU, embedding | Row-count blind | Unchanged |
-| `Linear`, every weight format (Q4_0, BF16, FP8, FP4, six-bit head, codebook) | One warp per output channel, lanes striding the input, a fixed shuffle tree | An R-row matvec: each weight word unpacked once, R accumulators, each following today's order exactly -- so each row is bit-identical to a one-row decode, and the weights are read once. R up to 9, a template parameter, so register pressure is per instantiation |
+| `Linear`, every weight format (Q4_0, BF16, FP8, FP4, six-bit head, codebook) | One warp per output channel, lanes striding the input, a fixed shuffle tree | A tensor-core product with the R rows as the `mma` n = 8 operand: each weight widened to BF16 once in registers, the group scales applied to the accumulator, split-K across a block's warps and reduced in a fixed order. Its work per weight does not grow with R, so R up to 8 costs one decode's bandwidth (measured below). Not bit-identical to today's matvec -- see "Equal to decode" |
 | RoPE | Reads the decode position for its one row | Row r at `*position + r` (one-line change; row 0 is today's) |
 | KV write | Writes one row at the decode position | Writes R rows from it (the same one-line change) |
-| Decode attention (BF16 and FP8 caches) | One query at the decode position, the band ending there, split-K chosen on the device by band length | R queries, row r's band ending at p + r, its split count chosen as a one-row decode at p + r would; the scratch is R times one row's. A grid dimension, not a new kernel |
+| Decode attention (BF16 and FP8 caches) | One query at the decode position, the band ending there, split-K chosen on the device by band length | The tile's rows are (token, query head) pairs of one KV head, so a KV head's keys stream once for every pair in the tile -- all R tokens of a sliding layer (2 heads a KV head), one token a tile on a global layer (16), the R tiles reading the same keys. Row r masks to its own band, ending at p + r; splits are cut over the tokens' union band, so a token's sums run in another order than its one-token decode's. The scratch is R times one token's. The same kernel at R = 1 is today's decode exactly |
 | Expert bank (26B-A4B) | Gathers the token's 8 experts | Groups the R rows' (row, expert) pairs by expert, so each chosen expert's weights are read once for every row that chose it; each row combines its experts in its own routing order, as a one-row decode does. This is the expert union section 3 prices |
 | Head (tied six-bit table) | The six-bit matvec | The R-row form of it, as every `Linear` |
 
-**Lossless by construction, and gated as such**: greedy output with the drafter equal to without it, token for
-token, because each row's arithmetic is a one-row decode's; the R-row kernels are tested bit for bit against R
-calls of the one-row kernel, format by format, before the loop is.
+**Equal to decode.** A first draft of this design kept each row in the matvec's own order, so that each row was
+bit-identical to a one-row decode. That ties the verify to CUDA-core work that grows with R, and it was measured
+(below): 1.9 decodes at R = 5. The tensor-core product sums in another order: on the 12B's shapes 0.01 to 0.05% of
+its outputs differ from the matvec's, by 1 to 6 BF16 ulps, at the same error against an FP64 reference. Two ways to
+keep greedy output with the drafter equal to greedy output without it:
+
+- **(a)** decode itself becomes the R = 1 case of the same kernel, and a verify row equals a decode because it is one.
+  Every decode `Linear` of the moved formats changes, and decode's rate must hold. Attention needs the same: its
+  multi-token splits are cut over the tokens' union band, so equality there means each token keeping its own split
+  boundaries -- its own blocks, reading the keys once per token.
+- **(b)** decode keeps its matvecs and only the verify uses the product. Greedy output can then differ at near-ties,
+  and the gate is the verify's logits within decode's own numerical noise, not token equality.
+
+(b) is built first and is a prefix of (a): the kernels are the same, and moving to (a) is one dispatch per format,
+taken if R = 1 holds decode's rate end to end. The R-row kernels are tested against R one-row decodes, format by
+format, before the loop is.
+
+**Measured 2026-10-05** (`Profiling/Microbenchmarks/VerifyRows.cu`; files `D:\Claude\verify_rows`): the 12B's six
+Q4_0 Linear shapes, DRAM-resident, in CUDA graphs, weighted per token (40 sliding layers, 8 global, 48 FFN). Each
+entry is the Linear time of one token's R rows as a multiple of one decode's:
+
+| Card | Arm | R = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|---|
+| RTX 5060 Ti | matvec, R rows in today's order | 0.99 | 1.05 | 1.28 | 1.60 | 1.91 | 2.26 | 2.59 | 2.93 |
+| RTX 5060 Ti | tensor-core product | 1.01 | 1.01 | 1.01 | 1.01 | 1.01 | 1.01 | 1.02 | 1.02 |
+| RTX 4070 | matvec, R rows in today's order | 1.00 | 1.11 | 1.22 | 1.47 | 1.78 | 2.20 | 2.42 | 2.88 |
+| RTX 4070 | tensor-core product | 1.04 | 1.02 | 1.04 | 1.05 | 1.06 | 1.06 | 1.06 | 1.02 |
+
+One decode's Q4_0 Linear time is 14.96 ms on the 5060 Ti, 13.49 ms on the 4070 (which also drives a display, so its
+rows are noisier). The product runs 384 to 419 GB/s on the 5060 Ti against decode's 384 to 418; its one slower shape
+is the FFN down projection (C = 15360), 1.06x decode on the 5060 Ti and 1.11x on the 4070, which is tuning left in
+its split. The gate written before the run -- R = 5 within 1.3x of decode -- holds at 1.01x; R = 1 within 5% of
+decode, which makes (a) worth pricing end to end, holds on the 5060 Ti. Two CuTe arms were measured against it
+(CUTLASS 4.8.0, Todd's question): its canonical sm80 structure at 1.32x, occupancy-bound, and the product's own
+structure written in CuTe at 1.41x, losing on delivering 4-bit operands (byte loads where the product loads words);
+the product stays hand-written (`Profiling/Microbenchmarks/README.md`).
+
+**Attention at R tokens -- measured 2026-10-05** (`CudaGqaDecodeRate.DISABLED_GemmaSeveralTokens`, RTX 5060 Ti, one
+call DRAM-resident and replayed; correctness in `CudaGqaOp.DecodeTokens.Cuda.cpp`, which a token taking another
+token's causal end fails). One call of R tokens as a multiple of one token's:
+
+| Layer of the 12B | Depth | 1 token | 2 | 4 | 5 | 8 |
+|---|---|---|---|---|---|---|
+| sliding (2 heads a KV head) | 8192 | 28.8 us | 1.04 | 1.09 | 1.15 | 1.23 |
+| global (16 heads a KV head) | 1024 | 15.0 us | 1.05 | 1.39 | 2.21 | 2.46 |
+| global | 8192 | 51.0 us | 1.12 | 1.97 | 2.79 | 3.80 |
+| global | 32768 | 174 us | 1.13 | 2.18 | 2.80 | 4.30 |
+
+A sliding layer's tokens share one tile and read its keys once. A global layer's 16 heads fill a tile per token, so R
+tokens are R times the blocks over the same splits; their keys come from L2 (the row tile is the fastest grid axis),
+but each block's walk is latency-bound, so the extra tiles cost waves. Per token of the 12B at R = 5 that is about
+0.17 ms on the sliding layers and 0.7 ms on the global layers at 8K (2.5 ms at 32K), against a 19 to 21 ms decode.
+The remedy, not built: a block that stages each key tile once for all its row tiles, a warp group per tile. The one-
+token kernel is a separate instantiation and runs at its rate before this change (the per-row band arithmetic cost
+0.4 us a call on short bands when it was shared). Not yet measured: attention at R queries,
+the six-bit head, and the 26B-A4B's expert union.
 
 **Replay.** The verify is a recording of its own (`DecodeGraph.md`), keyed by R: its token buffer and the context's
 decode position are device memory, so one recording replays every round at a fixed K.
 
-**Order of work**, each step gated before the next: (1) the R-row Q4_0 matvec and its bit-for-bit test, and a
-microbenchmark of R = 1 to 9 against one row -- the first number that prices (b), with no loop built; (2) every other
-`Linear` format and the head; (3) RoPE, KV write and attention at R rows; (4) `decodeRows` through Gemma's blocks,
-gated equal to R decodes; (5) the expert bank's union and its measured cost on the 26B-A4B; (6) the loop, greedy,
-then sampled (4.4).
+**Order of work**, each step gated before the next: (1) the R-row Q4_0 product and a microbenchmark of R = 1 to 8
+against one row -- the first number that prices (b), with no loop built (done, above); (2) every other
+`Linear` format and the head (done 2026-10-05: `Linear::decode`, `Kernels/DecodeRows`, all seven formats tested
+against one-row decodes in `Linear.Decode.Cuda.cpp`; in the library the 12B's gate and up projection costs 1.01 to
+1.03x one row at R = 2 to 8); (3) RoPE, KV write and attention at R rows (done 2026-10-05, measured below); (4)
+`decodeTokens` through Gemma's blocks, gated equal to R decodes, with the network reserving R tokens' attention
+scratch -- a recorded decode step must not see the buffer it captured grow (done 2026-10-05, below); (5) the expert
+bank's union and its measured cost on the 26B-A4B; (6) the loop, greedy, then sampled (4.4).
+
+**`decodeTokens` -- built 2026-10-05.** `GemmaConfig::withDecodeTokens( n )`, 1 to 8 and 1 by default, is the run
+capacity a deployment selecting the drafter raises to K + 1; it reaches the build as `BuildContext::withDecodeTokens`
+and sizes the head's logit rows, attention's decode output and the decode split scratch, so it is priced and reserved
+with everything else, and an attention op refuses a decode call of more tokens than it was built for. The routed
+feed-forward (26B-A4B) refuses until step 5; Llama and Qwen refuse (a family without one). `decodeTokens` is called,
+never replayed: a decode recording holds one token's launches, and the verify's own recording is the loop's (step 6).
+Gate (`Tests/Dnn/Models/DecodeTokens.Cuda.cpp`, the seeded tiny Gemma, BF16): five tokens in one call against five
+decodes differ by 5.0e-2 of the logits' RMS on a 150-token prompt, against 3.8e-2 for a prefill of the same tokens --
+the network carries any summation-order change that far -- and the next decode after the call is bit-identical, so
+the caches it leaves are exact. The budget is twice the prefill yardstick. The test runs a 12-token prompt, where the
+call is bit-identical to the decodes (prefill 6.3e-2) and a token attending past itself measured 2.3 times the RMS; at
+150 the diffuse attention of random weights put that same error at only 9.1e-2. A decode replayed across a `decodeTokens` call stays bit-identical to the
+same steps called. For the loop: after `decodeTokens` the final-normed hidden state holds all T rows, and a replayed
+decode updates no host state, so the drafter reads the row it needs by position rather than trusting the last
+call's shape.
+
+**The greedy loop -- measured 2026-10-05** (`Tools/Drafting speculate`, RTX 5060 Ti, the 12B Q4_0, BF16 cache, the
+acceptance prompts, 512 tokens after the prompt's first, median of 3 runs; files `D:\Claude\drafting\speculate`).
+Each token is chosen on the device into the slot the next pass reads (`TokenSampler::enqueueSampleOnDevice`), so a
+round waits on the host once: K draft steps, one `decodeTokens` of K + 1, an argmax per row, then the host keeps the
+agreed drafts and the target's next token, rewinds past the rest, and the drafter's next round reads the row of the last
+token kept. Plain decoding is the replayed decode with the same device argmax.
+
+| Prompt | K | E[accepted] | ms/token, plain / drafted | Speedup | Predicted (section 3) | Same tokens as plain |
+|---|---|---|---|---|---|---|
+| prose | 2 | 0.94 | 19.07 / 14.29 | 1.33x | 1.35x | first 23 |
+| prose | 4 | 1.16 | 19.07 / 15.30 | 1.25x | 1.27x | first 23 |
+| code | 3 | 1.55 | 19.07 / 11.83 | 1.61x | 1.62x | first 310 |
+| code | 4 | 1.80 | 19.07 / 11.77 | 1.62x | 1.64x | all 513 |
+| chat | 3 | 1.83 | 18.46 / 10.35 | 1.78x | 1.80x | first 402 |
+| chat | 4 | 2.12 | 18.46 / 10.26 | 1.80x | 1.82x | first 402 |
+
+The prediction uses the run's own acceptance and the step costs measured at the prompt's depth, and holds within 1 to
+3% in every cell (K = 2 to 5): a round costs 0.3 to 1 ms more than its priced parts, the host's wait and the argmaxes.
+Where a drafted run parts from plain, the plain run's top two logits differ by 0, 0.125 or 0.25 -- one BF16 step at
+logits of 16 to 64 -- so every parting is a tie the two arithmetics round differently (5.2's first gate). On the same
+point, over six tokens at the prompt's depth the verify's logits lie from decode's by 1.3e-1 (code, chat) to 1.7e-1
+(prose) of their RMS, and the prefill path's by 3.2e-1, 3.0e-1 and 1.6e-1 -- the verify above that third arithmetic
+only on prose, by 7% -- no argmax differing in either. The cache gate is `Gemma_RejectedTokensLeaveNoTraceAfterTheRewind`
+(`DecodeTokens.Cuda.cpp`): verifies that differ only in rejected tokens leave the kept tokens' logits and every later
+pass bit-identical, across the ring's wrap.
+
+Acceptance in the loop is below stage 1's at the same K (chat K = 4: 2.12 against 2.31; code 1.80 against 2.00).
+Stage 1 drafted from every position of a plain run; the loop drafts only from the positions it lands on. Not yet
+explained further.
+
+**The verify costs 1.19 to 1.23 decodes, not 1.0**, flat from 2 to 6 rows: it is called while the decode beside it is
+replayed. A called decode costs 1.12 of a replayed one (21.4 ms against 19.0 at 1.5K), so about 2.4 ms of the verify's
+3.6 ms over a decode is launch gaps, and its rows cost 1.07 called decodes. The draft step is called too. Recording the
+verify and the draft steps (4.6, 4.7 "Replay") is the next term; with the verify at 1.07 decodes and the draft step
+unchanged, section 3 gives chat 2.0x, code 1.8x, prose 1.5x (derived, not measured).
+
+**The loop in the library -- built 2026-10-05 (6b-1).** A deployment selects the drafter with
+`DeploymentRequest::withSpeculativeDecode( draft_model, draft_tokens )`, K from 1 to 7 and required: the best K
+differs by kind of text (4 for chat and code above, 2 for prose), so a use case supplies it, not the library. The
+plan carries the selection to the load. `GemmaModel` builds the network with K + 1 decode tokens and
+`GemmaTransformer::addDrafter` attaches the drafter as a child (`<network>.drafter`, on the network's context), so
+the footprint prices it with no planner change; a tiny network with a drafter prices exactly what it builds,
+category by category (`Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp`). The round is
+`LanguageModelNetwork::draftTokens( tokens, position, hidden_row )` -- slot 0 known, slots 1 to K drafted on the
+device, the hidden state taken from the row of the last pass the caller names -- then `decodeTokens`, then the
+sampler at every row (4.4); `GemmaModel::generate` runs it whenever the plan selected a drafter. The draft's argmax
+op is created at the first draft, as the model's own sampler is at its first token, so its vocabulary-wide scratch
+(about 1 MB) is outside the footprint like the sampler's. Llama and Qwen refuse the request; so does the 26B-A4B
+until its expert bank decodes several tokens (step 5). Greedy generation of 256 tokens through `GemmaModel` with the
+drafter equals it without (the same test file, the 12B). Through `GemmaModel::generate` (`Tools/Drafting generate`,
+512 tokens, median of 3, context 3072): chat 1.81x at K = 5, code 1.70x at K = 4, prose 1.39x at K = 2 -- the tool's
+loop's rates within the spread the replies' own partings cause. Chat parts from plain at token 16 for K = 2 to 4
+but not at K = 5, so at that token the drafted runs differ among themselves: a near-tie the orders round
+differently, the plain model here being another build (one decode token) than the tool's shared network.
+
+**The sampled loop -- measured 2026-10-05** (4.4's rule; `Tools/Drafting speculate --sample` and `generate --sample`,
+Chat's sampling: temperature 0.8, top-k 40; the same prompts, 512 tokens, median of 3; files
+`D:\Claude\drafting\speculate\*_sampled.txt`). The rule's gate holds in all twelve cells (three prompts, K = 2 to
+5): the fraction of rounds whose first draft is kept matches the mean of `p(d_1)` within two standard errors, most
+within one (largest gaps: prose K = 5, 0.596 against 0.617 +- 0.014; chat K = 5, 0.790 against 0.763 +- 0.017).
+Through `GemmaModel::generate`:
+
+| Prompt | Best K | Sampled speedup | Greedy speedup (above) |
+|---|---|---|---|
+| chat | 3 to 5 | 1.65x | 1.81x |
+| code | 4 | 1.58x | 1.70x |
+| prose | 2 to 3 | 1.31x | 1.39x |
+
+The tool's loop predicts its own sampled rounds within 1 to 10% (section 3, each run's acceptance); the wider
+cells are where a run's acceptance moves between runs, since each run samples another reply.
 
 ## 5. Gates
 
@@ -360,8 +522,9 @@ continues with the acceptance length.
 
 ### 5.2 Stage 2 -- the loop, greedy
 
-- With the drafter selected, greedy output equals greedy output without it, token for token, over the
-  same prompt set and lengths; under 4.2 (b) exactly, by construction.
+- With the drafter selected, the verify's logits are within decode's own numerical noise over the same
+  prompt set and lengths, and greedy output differs from greedy output without it only at near-ties; token
+  for token exactly if decode moves to the same kernels (4.7, option (a)).
 - A forced partial accept leaves the caches and the next logits equal to a run that never drafted past
   it, including a rewind across a ring wrap.
 - The measured speedup set beside section 3's prediction; a gap between them is explained before stage 3.

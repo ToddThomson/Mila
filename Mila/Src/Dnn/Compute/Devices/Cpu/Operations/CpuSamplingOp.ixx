@@ -193,6 +193,16 @@ namespace Mila::Dnn::Compute
             return pending_token_;
         }
 
+        /// Mirror of the CUDA op's device-only step: computed now, and the readback slot left alone.
+        void enqueueForwardOnDevice(
+            const ITensor& logits,
+            ITensor& token_out,
+            const SamplingParams& params,
+            float r ) const
+        {
+            forward( logits, token_out, params, r );
+        }
+
         OperationType getOperationType() const override
         {
             return OperationType::SamplingOp;
