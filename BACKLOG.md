@@ -64,6 +64,10 @@ stream, admitted under Internal fixes with no removal.
 Scope grew again on 2026-10-05 (Todd: "Chat defaults must be model based"), the date held: a model's recommended
 sampling is read from its manifest, admitted under Model Handle with no removal.
 
+Scope grew on 2026-10-06 (Todd), the date held: each Gemma 4 package carries its drafter, and the planner and Chat
+turn it on by default where it is measured to pay, written into the Deployment Planning feature-selection entry with
+no removal.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -188,6 +192,13 @@ feature not selected is not built and allocates nothing. Each feature is a compo
 a template axis of the core blocks, so a selection is not a new instantiation. Raised by Todd 2026-09-27
 (modality as an axis of the request) and decided 2026-10-04 ("Mila::AI can deploy a model for a specific
 use case; full control of the model features loaded").
+
+The draft model first, decided 2026-10-06 (Todd): every Gemma 4 package carries its own drafter, so one install
+gets both. A request that leaves the drafter to the planner gets it with the measured K wherever its speedup is
+measured and the planned context still fits with it loaded -- on the 16 GB card the 26B-A4B's drafter is context
+it gives up. Chat takes that default from the deployment, as it takes the model's sampling, with a setting to turn
+it off. The drafter's format is measured before a package ships it: BF16 as Google ships it, against its head at the
+12B's six-bit table format (`Gemma4Mtp.md` decision 2).
 
 `ROADMAP.md`, Deployment Planning success criteria · `Mila/Specifications/Deployment.md`
 

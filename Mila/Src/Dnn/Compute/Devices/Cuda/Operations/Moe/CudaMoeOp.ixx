@@ -4,7 +4,7 @@
  *
  * Same contract as CpuMoeOp, gated against HuggingFace through MixtureOfExperts (Gemma4MoE.md Phase 6).
  * Under per-group FP4 the passes read packed codes and their group scales in place. A Q4_0 bank has its own
- * kernels: the gather-matvec pair for one token, the grouped INT8 GEMMs for more.
+ * kernels: the gather-matvec pair for a decode of one token or a few, the grouped INT8 GEMMs for a prefill.
  */
 
 module;
@@ -212,61 +212,11 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         void forward( const ITensor& input, const ITensor& weights, const ITensor& indices, ITensor& gated,
             ITensor& output ) const
         {
+            const dim_t tokens = checkedTokens( "forward", input, weights, indices, gated, output );
             const dim_t hidden = config_.getHiddenSize();
             const dim_t intermediate = config_.getExpertIntermediateSize();
             const dim_t experts = config_.getNumExperts();
             const dim_t top_k = config_.getTopK();
-
-            if ( gate_up_projection_ == nullptr || down_projection_ == nullptr )
-            {
-                throw std::logic_error( "CudaMoeOp::forward: expert projections were never bound" );
-            }
-
-            if constexpr ( kIsPacked )
-            {
-                const dim_t group = TWeightQuantization::kQuantizationGroupSize;
-
-                if ( gate_up_scales_ == nullptr || down_scales_ == nullptr
-                     || gate_up_scales_->getDataType() != TWeightQuantization::kScaleDtype
-                     || down_scales_->getDataType() != TWeightQuantization::kScaleDtype
-                     || gate_up_projection_->size() != experts * 2 * intermediate * ( hidden / 2 )
-                     || down_projection_->size() != experts * hidden * ( intermediate / 2 )
-                     || gate_up_scales_->size() != experts * 2 * intermediate * ( hidden / group )
-                     || down_scales_->size() != experts * hidden * ( intermediate / group ) )
-                {
-                    throw std::invalid_argument( "CudaMoeOp::forward: packed expert projections or their scales do not match the configured geometry" );
-                }
-            }
-            else
-            {
-                if ( gate_up_projection_->size() != experts * 2 * intermediate * hidden
-                     || down_projection_->size() != experts * hidden * intermediate )
-                {
-                    throw std::invalid_argument( "CudaMoeOp::forward: expert projections do not match the configured geometry" );
-                }
-            }
-
-            if ( input.size() % hidden != 0 )
-            {
-                throw std::invalid_argument( std::format(
-                    "CudaMoeOp::forward: {} inputs is not a whole number of {}-wide tokens", input.size(), hidden ) );
-            }
-
-            const dim_t tokens = input.size() / hidden;
-
-            if ( output.size() != input.size() || weights.size() != tokens * top_k || indices.size() != tokens * top_k )
-            {
-                throw std::invalid_argument( std::format(
-                    "CudaMoeOp::forward: {} tokens need an output of {} and routing of {} elements; got {}, {} weights, {} indices",
-                    tokens, input.size(), tokens * top_k, output.size(), weights.size(), indices.size() ) );
-            }
-
-            if ( gated.getDataType() != TensorDataType::FP32 || gated.size() < tokens * top_k * intermediate )
-            {
-                throw std::invalid_argument( std::format(
-                    "CudaMoeOp::forward: {} tokens need {} FP32 gated elements; got {} of {}",
-                    tokens, tokens * top_k * intermediate, gated.size(), tensorDataTypeToString( gated.getDataType() ) ) );
-            }
 
             const cudaStream_t stream = context_->getStream();
             auto* gated_data = static_cast<float*>( gated.rawData() );
@@ -302,25 +252,7 @@ namespace Mila::Dnn::Compute::Cuda::Moe
                 // section 6). Every other count still runs the two-pass kernel.
                 if ( tokens == 1 )
                 {
-                    launch_moe_gated_gather_int4<TFunctor>(
-                        static_cast<const __nv_bfloat16*>( input.rawData() ),
-                        static_cast<const uint8_t*>( gate_up_projection_->rawData() ),
-                        static_cast<const __half*>( gate_up_scales_->rawData() ),
-                        index_data, gated_data,
-                        1, narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
-                        narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ),
-                        functor_, stream );
-
-                    launch_moe_combine_gather_int4(
-                        gated_data,
-                        static_cast<const uint8_t*>( down_projection_->rawData() ),
-                        static_cast<const __half*>( down_scales_->rawData() ),
-                        static_cast<const __nv_bfloat16*>( weights.rawData() ),
-                        index_data,
-                        static_cast<__nv_bfloat16*>( output.rawData() ),
-                        1, narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
-                        narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ),
-                        stream );
+                    gatherInt4( input, weights, indices, gated, output, tokens );
 
                     return;
                 }
@@ -366,6 +298,40 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             }
         }
 
+        /// Most tokens decode() takes in one call: a speculative verify's draft and the token before it.
+        static constexpr dim_t kMaximumDecodeTokens = 8;
+
+        /**
+         * @brief Route each of up to 8 tokens through its experts at a one-token forward's arithmetic, bit for bit.
+         *
+         * A multi-token decode (Gemma4Mtp.md 4.7). A Q4_0 bank runs its gather kernels over every token, each chosen
+         * expert read from memory once for all the tokens that chose it, where forward() would run the prefill's
+         * grouped GEMMs; an FP4 or unquantized bank's forward() already computes each token as it computes one.
+         * Arguments as forward().
+         *
+         * @throws std::invalid_argument for more than kMaximumDecodeTokens tokens.
+         */
+        void decode( const ITensor& input, const ITensor& weights, const ITensor& indices, ITensor& gated,
+            ITensor& output ) const
+        {
+            const dim_t tokens = checkedTokens( "decode", input, weights, indices, gated, output );
+
+            if ( tokens > kMaximumDecodeTokens )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaMoeOp::decode: {} tokens; a multi-token decode takes at most {}", tokens, kMaximumDecodeTokens ) );
+            }
+
+            if constexpr ( kIsInt4 )
+            {
+                gatherInt4( input, weights, indices, gated, output, tokens );
+            }
+            else
+            {
+                forward( input, weights, indices, gated, output );
+            }
+        }
+
         OperationType getOperationType() const override
         {
             return OperationType::MoeOp;
@@ -381,6 +347,102 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         MixtureOfExpertsConfig config_;
         TFunctor functor_{};
         dim_t built_tokens_{ 0 };
+
+        // The bound projections and the call's tensors against the configured geometry; the call's token count.
+        dim_t checkedTokens( const char* caller, const ITensor& input, const ITensor& weights, const ITensor& indices,
+            const ITensor& gated, const ITensor& output ) const
+        {
+            const dim_t hidden = config_.getHiddenSize();
+            const dim_t intermediate = config_.getExpertIntermediateSize();
+            const dim_t experts = config_.getNumExperts();
+            const dim_t top_k = config_.getTopK();
+
+            if ( gate_up_projection_ == nullptr || down_projection_ == nullptr )
+            {
+                throw std::logic_error( std::format( "CudaMoeOp::{}: expert projections were never bound", caller ) );
+            }
+
+            if constexpr ( kIsPacked )
+            {
+                const dim_t group = TWeightQuantization::kQuantizationGroupSize;
+
+                if ( gate_up_scales_ == nullptr || down_scales_ == nullptr
+                     || gate_up_scales_->getDataType() != TWeightQuantization::kScaleDtype
+                     || down_scales_->getDataType() != TWeightQuantization::kScaleDtype
+                     || gate_up_projection_->size() != experts * 2 * intermediate * ( hidden / 2 )
+                     || down_projection_->size() != experts * hidden * ( intermediate / 2 )
+                     || gate_up_scales_->size() != experts * 2 * intermediate * ( hidden / group )
+                     || down_scales_->size() != experts * hidden * ( intermediate / group ) )
+                {
+                    throw std::invalid_argument( std::format( "CudaMoeOp::{}: packed expert projections or their scales "
+                        "do not match the configured geometry", caller ) );
+                }
+            }
+            else
+            {
+                if ( gate_up_projection_->size() != experts * 2 * intermediate * hidden
+                     || down_projection_->size() != experts * hidden * intermediate )
+                {
+                    throw std::invalid_argument( std::format(
+                        "CudaMoeOp::{}: expert projections do not match the configured geometry", caller ) );
+                }
+            }
+
+            if ( input.size() % hidden != 0 )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaMoeOp::{}: {} inputs is not a whole number of {}-wide tokens", caller, input.size(), hidden ) );
+            }
+
+            const dim_t tokens = input.size() / hidden;
+
+            if ( output.size() != input.size() || weights.size() != tokens * top_k || indices.size() != tokens * top_k )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaMoeOp::{}: {} tokens need an output of {} and routing of {} elements; got {}, {} weights, {} indices",
+                    caller, tokens, input.size(), tokens * top_k, output.size(), weights.size(), indices.size() ) );
+            }
+
+            if ( gated.getDataType() != TensorDataType::FP32 || gated.size() < tokens * top_k * intermediate )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaMoeOp::{}: {} tokens need {} FP32 gated elements; got {} of {}",
+                    caller, tokens, tokens * top_k * intermediate, gated.size(), tensorDataTypeToString( gated.getDataType() ) ) );
+            }
+
+            return tokens;
+        }
+
+        // The gather kernels over every token: one token is the decode step, several a multi-token decode.
+        void gatherInt4( const ITensor& input, const ITensor& weights, const ITensor& indices, ITensor& gated,
+            ITensor& output, dim_t tokens ) const requires kIsInt4
+        {
+            const cudaStream_t stream = context_->getStream();
+            auto* gated_data = static_cast<float*>( gated.rawData() );
+            const auto* index_data = static_cast<const int32_t*>( indices.rawData() );
+
+            launch_moe_gated_gather_int4<TFunctor>(
+                static_cast<const __nv_bfloat16*>( input.rawData() ),
+                static_cast<const uint8_t*>( gate_up_projection_->rawData() ),
+                static_cast<const __half*>( gate_up_scales_->rawData() ),
+                index_data, gated_data,
+                narrowToKernelIndex( tokens ), narrowToKernelIndex( config_.getHiddenSize() ),
+                narrowToKernelIndex( config_.getExpertIntermediateSize() ),
+                narrowToKernelIndex( config_.getNumExperts() ), narrowToKernelIndex( config_.getTopK() ),
+                functor_, stream );
+
+            launch_moe_combine_gather_int4(
+                gated_data,
+                static_cast<const uint8_t*>( down_projection_->rawData() ),
+                static_cast<const __half*>( down_scales_->rawData() ),
+                static_cast<const __nv_bfloat16*>( weights.rawData() ),
+                index_data,
+                static_cast<__nv_bfloat16*>( output.rawData() ),
+                narrowToKernelIndex( tokens ), narrowToKernelIndex( config_.getHiddenSize() ),
+                narrowToKernelIndex( config_.getExpertIntermediateSize() ),
+                narrowToKernelIndex( config_.getNumExperts() ), narrowToKernelIndex( config_.getTopK() ),
+                stream );
+        }
 
         dim_t tokensIn( const shape_t& input_shape ) const
         {

@@ -263,7 +263,7 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
         template<typename TExperts>
         std::vector<float> run( TExperts& experts,
             const float* input, const float* weights, const std::int32_t* indices,
-            const shape_t& input_shape, const shape_t& routing_shape )
+            const shape_t& input_shape, const shape_t& routing_shape, bool decode_tokens = false )
         {
             using DeviceTensor = typename TExperts::TensorType;
 
@@ -284,7 +284,9 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
             copy( host_indices, device_indices, context_.get() );
             context_->synchronize();
 
-            auto& output = experts.forward( device_input, device_weights, device_indices );
+            auto& output = decode_tokens
+                ? experts.decodeTokens( device_input, device_weights, device_indices )
+                : experts.forward( device_input, device_weights, device_indices );
             experts.synchronize();
 
             auto host_output = toHost<TensorDataType::FP32>( output, context_.get() );
@@ -607,6 +609,50 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
             }
 
             return decoded;
+        }
+
+        /// The case's tokens again with every token choosing among six experts in its own slot order, so the rows of
+        /// a multi-token decode share experts at different slots.
+        static PackedCase sharingExperts( PackedCase weights_case )
+        {
+            for ( int64_t token = 0; token < kPackedTokens; ++token )
+            {
+                for ( int64_t slot = 0; slot < kPackedTopK; ++slot )
+                {
+                    weights_case.selections[ static_cast<std::size_t>( token * kPackedTopK + slot ) ] =
+                        static_cast<std::int32_t>( ( slot * 5 + token ) % 6 );
+                }
+            }
+
+            return weights_case;
+        }
+
+        /// decodeTokens() over every run of `rows` consecutive tokens, against each token run alone through forward(): the
+        /// number of differing bits, over every run of 1 to 8 tokens.
+        template<typename TExperts>
+        int64_t decodeTokensMismatches( TExperts& experts, const PackedCase& weights_case )
+        {
+            const std::vector<float> one_at_a_time = runPackedCaseOneTokenAtATime( experts, weights_case );
+            int64_t mismatches = 0;
+
+            for ( int64_t rows = 1; rows <= 8; ++rows )
+            {
+                for ( int64_t first = 0; first + rows <= kPackedTokens; first += rows )
+                {
+                    const std::vector<float> decoded = run( experts,
+                        weights_case.input.data() + first * kPackedHidden,
+                        weights_case.combine.data() + first * kPackedTopK,
+                        weights_case.selections.data() + first * kPackedTopK,
+                        shape_t{ 1, rows, kPackedHidden }, shape_t{ 1, rows, kPackedTopK }, true );
+
+                    const std::vector<float> expected( one_at_a_time.begin() + first * kPackedHidden,
+                        one_at_a_time.begin() + ( first + rows ) * kPackedHidden );
+
+                    mismatches += countBitMismatches( decoded, expected );
+                }
+            }
+
+            return mismatches;
         }
 
         std::unique_ptr<IExecutionContext> context_;
@@ -1038,6 +1084,37 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
             "(INT8 activations): {} differ, worst relative {:.3e} (not gated)\n",
             countBitMismatches( single_token_decoded, decoded ), expected.size(), countBitMismatches( decoded, expected ),
             countBitMismatches( prefill, expected ), prefill_worst );
+    }
+
+    // Gemma4Mtp.md 4.7, step 5: a multi-token decode gives every token the bits its one-token decode gives it, for every
+    // bank format, whether the tokens' experts are apart or shared at different slots. A Q4_0 bank runs its gather
+    // kernels over several tokens there, where forward() would run the grouped prefill. Mutation-checked 2026-10-06: a
+    // several-token launch that takes a block's slot from the wrong index fails both Q4_0 routings.
+    TEST_F( MixtureOfExpertsCudaTests, DecodeTokens_EachTokenBitIdenticalToItsOneTokenDecode )
+    {
+        for ( const PackedCase& routed : { q4Case(), sharingExperts( q4Case() ) } )
+        {
+            auto q4 = makePackedCaseBank<CudaExperts<TensorDataType::BF16, Q4_0>>( routed );
+            EXPECT_EQ( decodeTokensMismatches( *q4, routed ), 0 ) << "Q4_0";
+        }
+
+        for ( const PackedCase& routed : { fp4Case(), sharingExperts( fp4Case() ) } )
+        {
+            auto fp4 = makePackedCaseBank<CudaExperts<TensorDataType::BF16, Fp4Group64>>( routed );
+            EXPECT_EQ( decodeTokensMismatches( *fp4, routed ), 0 ) << "FP4";
+
+            auto bf16 = makePackedCaseBank<CudaExperts<TensorDataType::BF16>>( routed );
+            EXPECT_EQ( decodeTokensMismatches( *bf16, routed ), 0 ) << "BF16";
+        }
+    }
+
+    TEST_F( MixtureOfExpertsCudaTests, DecodeTokens_MoreThanEightTokensAreRefused )
+    {
+        const PackedCase routed = q4Case();
+        auto q4 = makePackedCaseBank<CudaExperts<TensorDataType::BF16, Q4_0>>( routed );
+
+        EXPECT_THROW( ( void )run( *q4, routed.input.data(), routed.combine.data(), routed.selections.data(),
+            shape_t{ 1, 9, kPackedHidden }, shape_t{ 1, 9, kPackedTopK }, true ), std::invalid_argument );
     }
 
     // Item 3.

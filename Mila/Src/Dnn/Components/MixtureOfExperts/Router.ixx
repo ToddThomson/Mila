@@ -122,20 +122,27 @@ namespace Mila::Dnn
             auto& normalized = norm_->forward( input );
             auto& logits = proj_->forward( normalized );
 
-            shape_t routing_shape = input.shape();
-            routing_shape.back() = config_.getTopK();
+            return route( input, logits );
+        }
 
-            if ( weights_view_->shape() != routing_shape )
+        /**
+         * @brief forward() for each of up to 8 tokens of a multi-token decode, the projection at decode's arithmetic
+         *        (Linear::decode, Gemma4Mtp.md 4.7).
+         *
+         * Each token's logits equal a one-token forward()'s to FP32 rounding, so a token whose top_k-th and next expert
+         * are within that rounding of a tie may select the other.
+         */
+        Routing decodeTokens( const TensorType& input ) requires ( TDeviceType == DeviceType::Cuda )
+        {
+            if ( !this->isBuilt() )
             {
-                weights_view_.emplace( weights_->view( routing_shape ) );
-                indices_view_.emplace( indices_->view( routing_shape ) );
+                throw std::runtime_error( "Router::decodeTokens: must be built before use." );
             }
 
-            operation_->forward( logits, *weights_view_, *indices_view_ );
+            auto& normalized = norm_->forward( input );
+            auto& logits = proj_->decode( normalized );
 
-            this->publish( ComputePass::Forward, "weights", *weights_view_ );
-
-            return { *weights_view_, *indices_view_ };
+            return route( input, logits );
         }
 
         /**
@@ -458,6 +465,25 @@ namespace Mila::Dnn
 
             this->addComponent( std::make_shared<LinearType>( n + ".proj",
                 LinearConfig( hidden_size, config_.getNumExperts() ).withBias( false ) ) );
+        }
+
+        // Top_k of the projection's logits into the routing views, shaped as the input.
+        Routing route( const TensorType& input, const TensorType& logits )
+        {
+            shape_t routing_shape = input.shape();
+            routing_shape.back() = config_.getTopK();
+
+            if ( weights_view_->shape() != routing_shape )
+            {
+                weights_view_.emplace( weights_->view( routing_shape ) );
+                indices_view_.emplace( indices_->view( routing_shape ) );
+            }
+
+            operation_->forward( logits, *weights_view_, *indices_view_ );
+
+            this->publish( ComputePass::Forward, "weights", *weights_view_ );
+
+            return { *weights_view_, *indices_view_ };
         }
 
         // norm weight = scale * hidden_size^-0.5 -- the unscaled norm, the learned scale and the

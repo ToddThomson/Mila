@@ -175,6 +175,24 @@ format.
 *Harness note:* clear an output on the benchmark's own stream. A non-blocking stream does not order against a
 legacy-stream `cudaMemset`, and a clear that landed after the kernel once read as wrong results on one card only.
 
+## `ExpertUnion.cu`
+
+What the Gemma 4 26B-A4B's Q4_0 expert bank costs a verify of R rows against one decode (`Gemma4Mtp.md` 4.7, step
+5), on real routing: each reply row's experts as `Tools/Drafting routing --target 26b --output <dir>` writes them,
+over random weights of the 26B's shapes, three 428 MB banks in rotation so every call is DRAM-resident. Four arms,
+each checked bit for bit against R one-row decodes before it is timed: today's gather kernels once per row, the same
+kernels at R tokens in today's block order, the same kernel bodies with the R tokens' blocks for the same rows run
+together (token-first), and a gate-and-up pass grouped by distinct expert.
+
+```
+nvcc -gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_89,code=sm_89 -O3 ExpertUnion.cu -o ExpertUnion.exe
+ExpertUnion.exe chat.routing code.routing prose.routing
+```
+
+Measured 2026-10-06: token-first runs within 3 to 8% of the union's own bytes at one row's rate on both cards -- L2
+turns the repeated reads of a shared expert into hits once the rows that chose it run together -- where today's order
+is 15 to 30% above it. The grouped arm is slower than both past R = 2. Table in `Gemma4Mtp.md` 4.7.
+
 ## `kernel_shares.py`
 
 Groups an nsys kernel summary into attention / GEMM / plumbing / other, so a profile answers

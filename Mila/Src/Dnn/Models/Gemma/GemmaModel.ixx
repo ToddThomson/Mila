@@ -834,12 +834,6 @@ namespace Mila::Dnn
             {
                 throw std::invalid_argument( std::format( "{}: a draft model runs on CUDA at BF16", caller ) );
             }
-            else if constexpr ( kFeedForward == GemmaFeedForward::Routed )
-            {
-                throw std::invalid_argument( std::format(
-                    "{}: a mixture-of-experts Gemma cannot check a draft yet; its expert bank decodes one token at a "
-                    "time", caller ) );
-            }
             else
             {
                 speculative_decode->validate();

@@ -104,15 +104,32 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             return even + odd;
         }
 
-        template<typename TFunctor>
+        // Several tokens' blocks for the same rows run together under kTokenFirst, so an expert two tokens chose is read
+        // from memory once and from L2 for the other (Gemma4Mtp.md 4.7). Only which block is which changes.
+        template<typename TFunctor, bool kTokenFirst>
         __global__ void __launch_bounds__( 32 * kWarpsPerBlock, 2 ) moe_gated_gather_int4_kernel(
             const __nv_bfloat16* __restrict__ input, const uint8_t* __restrict__ gate_up,
             const __half* __restrict__ gate_up_scales, const int32_t* __restrict__ indices, float* __restrict__ gated,
-            int hidden, int intermediate, int experts, int top_k, TFunctor functor )
+            int tokens, int hidden, int intermediate, int experts, int top_k, TFunctor functor )
         {
-            const int first_unit = ( blockIdx.x * kWarpsPerBlock + threadIdx.y ) * kUnitsPerWarp;
-            const int slot = blockIdx.y;
-            const int64_t token = blockIdx.z;
+            int chunk;
+            int slot;
+            int64_t token;
+
+            if constexpr ( kTokenFirst )
+            {
+                token = blockIdx.x % tokens;
+                slot = ( blockIdx.x / tokens ) % top_k;
+                chunk = blockIdx.x / ( tokens * top_k );
+            }
+            else
+            {
+                chunk = blockIdx.x;
+                slot = blockIdx.y;
+                token = blockIdx.z;
+            }
+
+            const int first_unit = ( chunk * kWarpsPerBlock + threadIdx.y ) * kUnitsPerWarp;
 
             if ( first_unit >= intermediate )
             {
@@ -198,15 +215,17 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             }
         }
 
+        template<bool kTokenFirst>
         __global__ void __launch_bounds__( 32 * kWarpsPerBlock, 2 ) moe_combine_gather_int4_kernel(
             const float* __restrict__ gated, const uint8_t* __restrict__ down, const __half* __restrict__ down_scales,
             const __nv_bfloat16* __restrict__ weights, const int32_t* __restrict__ indices,
-            __nv_bfloat16* __restrict__ output, int hidden, int intermediate, int experts, int top_k )
+            __nv_bfloat16* __restrict__ output, int tokens, int hidden, int intermediate, int experts, int top_k )
         {
             extern __shared__ float4 shared_groups[];
             float* staged = reinterpret_cast<float*>( shared_groups );
 
-            const int64_t token = blockIdx.y;
+            const int chunk = kTokenFirst ? static_cast<int>( blockIdx.x ) / tokens : static_cast<int>( blockIdx.x );
+            const int64_t token = kTokenFirst ? blockIdx.x % tokens : blockIdx.y;
             const int groups_per_row = intermediate / kGroup;
             const int token_groups = top_k * groups_per_row;
 
@@ -223,7 +242,7 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
             __syncthreads();
 
-            const int first_column = ( blockIdx.x * kWarpsPerBlock + threadIdx.y ) * kColumnsPerWarp;
+            const int first_column = ( chunk * kWarpsPerBlock + threadIdx.y ) * kColumnsPerWarp;
 
             if ( first_column >= hidden )
             {
@@ -297,10 +316,18 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
         const dim3 block( 32, kWarpsPerBlock );
         const int units_per_block = kWarpsPerBlock * kUnitsPerWarp;
-        const dim3 grid( ( intermediate + units_per_block - 1 ) / units_per_block, top_k, tokens );
+        const int chunks = ( intermediate + units_per_block - 1 ) / units_per_block;
 
-        moe_gated_gather_int4_kernel<TFunctor><<<grid, block, 0, stream>>>(
-            input, gate_up, gate_up_scales, indices, gated, hidden, intermediate, experts, top_k, functor );
+        if ( tokens == 1 )
+        {
+            moe_gated_gather_int4_kernel<TFunctor, false><<<dim3( chunks, top_k, 1 ), block, 0, stream>>>(
+                input, gate_up, gate_up_scales, indices, gated, tokens, hidden, intermediate, experts, top_k, functor );
+        }
+        else
+        {
+            moe_gated_gather_int4_kernel<TFunctor, true><<<dim3( chunks * top_k * tokens ), block, 0, stream>>>(
+                input, gate_up, gate_up_scales, indices, gated, tokens, hidden, intermediate, experts, top_k, functor );
+        }
 
         cudaCheck( cudaGetLastError() );
     }
@@ -318,19 +345,21 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
         const int shared_bytes = top_k * ( intermediate / kGroup ) * kPaddedGroup * static_cast<int>( sizeof( float ) );
 
+        const auto kernel = tokens == 1 ? moe_combine_gather_int4_kernel<false> : moe_combine_gather_int4_kernel<true>;
+
         // Past the default 48 KB the kernel must ask; idempotent, as GatedDeltaRule.cu does per launch.
         if ( shared_bytes > 48 * 1024 )
         {
-            cudaCheck( cudaFuncSetAttribute(
-                moe_combine_gather_int4_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_bytes ) );
+            cudaCheck( cudaFuncSetAttribute( kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_bytes ) );
         }
 
         const dim3 block( 32, kWarpsPerBlock );
         const int columns_per_block = kWarpsPerBlock * kColumnsPerWarp;
-        const dim3 grid( ( hidden + columns_per_block - 1 ) / columns_per_block, tokens );
+        const int chunks = ( hidden + columns_per_block - 1 ) / columns_per_block;
+        const dim3 grid = tokens == 1 ? dim3( chunks, 1 ) : dim3( chunks * tokens );
 
-        moe_combine_gather_int4_kernel<<<grid, block, shared_bytes, stream>>>(
-            gated, down, down_scales, weights, indices, output, hidden, intermediate, experts, top_k );
+        kernel<<<grid, block, shared_bytes, stream>>>(
+            gated, down, down_scales, weights, indices, output, tokens, hidden, intermediate, experts, top_k );
 
         cudaCheck( cudaGetLastError() );
     }

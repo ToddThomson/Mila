@@ -40,7 +40,13 @@ namespace Mila::Tests::Dnn::Models
     {
         using TinyGemma = GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16,
             Quant::Weight::NoWeightQuant, GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::GemmaSlidingKvPolicy>;
+        using TinyRoutedGemma = GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            Quant::Weight::NoWeightQuant, GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::GemmaSlidingKvPolicy,
+            GemmaFeedForward::Routed>;
         using TinyLlama = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16>;
+        using TinyExperts = MixtureOfExperts<DeviceType::Cuda, TensorDataType::BF16, ActivationType::Gelu>;
+        using TinyComposite = CompositeComponent<DeviceType::Cuda, TensorDataType::BF16>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
 
         constexpr dim_t kContextLength = 256;
         // Short, so each key carries weight: at 150 the diffuse attention of random weights hid a token attending four
@@ -96,6 +102,44 @@ namespace Mila::Tests::Dnn::Models
 
             return { largest / std::sqrt( square_sum / expected.size() ), disagreeing };
         }
+
+        // An expert bank initializes to zeros, which would leave the routed branch out of every comparison.
+        void fillExperts( const TinyComposite& root, IExecutionContext* context )
+        {
+            for ( const auto& child : root.getComponents() )
+            {
+                if ( auto experts = std::dynamic_pointer_cast<TinyExperts>( child ) )
+                {
+                    for ( ITensor* parameter : experts->getParameters() )
+                    {
+                        if ( auto* weights = dynamic_cast<DeviceBf16*>( parameter ) )
+                            fill_uniform( *weights, -0.1f, 0.1f, context );
+                    }
+                }
+                else if ( auto composite = std::dynamic_pointer_cast<TinyComposite>( child ) )
+                {
+                    fillExperts( *composite, context );
+                }
+            }
+        }
+
+        /// The tiny Gemma with a routed feed-forward, 4 of 16 experts a token, its banks filled from a fixed seed.
+        std::unique_ptr<TinyRoutedGemma> buildTinyRoutedGemma( const GemmaConfig& dense )
+        {
+            auto network = Common::buildTinyNetwork<TinyRoutedGemma>(
+                GemmaConfig( dense ).withMixtureOfExperts( 16, 4, 128 ), kContextLength );
+
+            auto& generator = Core::RandomGenerator::getInstance();
+            const unsigned int previous = generator.getSeed();
+            generator.setSeed( Common::kTinyDecodeSeed + 1 );
+
+            fillExperts( *network, network->getExecutionContext() );
+            network->synchronize();
+
+            generator.setSeed( previous );
+
+            return network;
+        }
     }
 
     class DecodeTokensCudaTests : public ::testing::Test
@@ -115,14 +159,16 @@ namespace Mila::Tests::Dnn::Models
         }
     };
 
-    TEST_F( DecodeTokensCudaTests, Gemma_OneCallMatchesOneTokenDecodes )
+    /// `build` returns a fresh network, the same weights every call.
+    template<typename TBuild>
+    void expectOneCallMatchesOneTokenDecodes( TBuild&& build )
     {
         const auto prompt = tokensFrom( 0, kPrompt );
         const auto next = tokensFrom( kPrompt, kTokens + 1 );
         const dim_t vocabulary = Common::kTinyVocabulary;
 
-        auto one_at_a_time = Common::buildTinyNetwork<TinyGemma>( config(), kContextLength );
-        auto one_call = Common::buildTinyNetwork<TinyGemma>( config(), kContextLength );
+        auto one_at_a_time = build();
+        auto one_call = build();
 
         ( void )Measurement::hostLogits( *one_at_a_time, one_at_a_time->prefill( Measurement::deviceTokens( *one_at_a_time, prompt ) ) );
         ( void )Measurement::hostLogits( *one_call, one_call->prefill( Measurement::deviceTokens( *one_call, prompt ) ) );
@@ -150,7 +196,7 @@ namespace Mila::Tests::Dnn::Models
         // The yardstick: how far a third arithmetic -- each token's logits from a prefill of the prompt through it --
         // lies from the same one-token decodes. This small seeded network turns summation-order differences into a
         // few hundredths of its logits' RMS whichever arithmetic changes.
-        auto prefilled = Common::buildTinyNetwork<TinyGemma>( config(), kContextLength );
+        auto prefilled = build();
         std::vector<float> by_prefill;
 
         for ( dim_t t = 0; t < kTokens; ++t )
@@ -176,13 +222,25 @@ namespace Mila::Tests::Dnn::Models
             "prefill against decode %.2e\n", static_cast<long long>( kTokens ), in_call.largest_over_rms,
             after.largest_over_rms, yardstick );
 
-        // Measured 2026-10-05: 5.0e-2 in the call against 3.8e-2 for prefill, 0 on the next decode. Twice the
-        // yardstick is the budget; a token attending another's keys, or a row taken from another token, is the size
-        // of the RMS itself.
+        // Measured 2026-10-06 at this prompt: 0 in the call and on the next decode, against 6.3e-2 (dense) and 1.9e-1
+        // (routed) for prefill -- a band this short is one split, and these widths' product rounds to the matvec's
+        // BF16 bits. Twice the yardstick is the budget; a token attending another's keys, a row taken from another
+        // token, or a router skipping its norm (mutation-checked 2026-10-06, 2.1) is the size of the RMS itself.
         EXPECT_LT( in_call.largest_over_rms, 2.0 * yardstick );
         EXPECT_LT( after.largest_over_rms, 2.0 * yardstick );
         EXPECT_EQ( in_call.disagreeing_argmax, 0 );
         EXPECT_EQ( after.disagreeing_argmax, 0 );
+    }
+
+    TEST_F( DecodeTokensCudaTests, Gemma_OneCallMatchesOneTokenDecodes )
+    {
+        expectOneCallMatchesOneTokenDecodes( [] { return Common::buildTinyNetwork<TinyGemma>( config(), kContextLength ); } );
+    }
+
+    // Gemma4Mtp.md 4.7, step 5: the routed feed-forward's router and expert bank at several tokens.
+    TEST_F( DecodeTokensCudaTests, RoutedGemma_OneCallMatchesOneTokenDecodes )
+    {
+        expectOneCallMatchesOneTokenDecodes( [] { return buildTinyRoutedGemma( config() ); } );
     }
 
     // The scratch a multi-token decode requests is reserved at build, so a recorded decode step that captured the

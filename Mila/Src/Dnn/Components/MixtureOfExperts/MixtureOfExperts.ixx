@@ -154,6 +154,35 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief forward() at decode's arithmetic for each of up to 8 tokens of a multi-token decode (Gemma4Mtp.md
+         *        4.7): each token's output is the one a one-token forward() gives it, bit for bit.
+         *
+         * Where forward() over several tokens runs the prefill path, this reads each chosen expert from memory once for
+         * every token that chose it.
+         *
+         * @throws std::invalid_argument for more than 8 tokens.
+         */
+        TensorType& decodeTokens( const TensorType& input, const TensorType& weights, const IndexTensorType& indices )
+            requires ( TDeviceType == DeviceType::Cuda )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "MixtureOfExperts::decodeTokens: must be built before use." );
+            }
+
+            if ( output_view_->shape() != input.shape() )
+            {
+                output_view_.emplace( output_->view( input.shape() ) );
+            }
+
+            operation_->decode( input, weights, indices, *gated_, *output_view_ );
+
+            this->publish( ComputePass::Forward, "output", *output_view_ );
+
+            return *output_view_;
+        }
+
+        /**
          * @brief Install shared slots for the output and the FP32 gated activations (pooling); before build().
          *
          * onBuilding() then allocates neither, after checking each covers the build shape. The slots are owned and

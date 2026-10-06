@@ -64,8 +64,12 @@ namespace Mila::Dnn
      * It runs on the target's execution context (Gemma4Mtp.md 4.1), keeps no cache, and decodes one token at a
      * time for batch 1. Its sliding layers precede one global layer, as every Gemma 4 drafter's do. Its weights are
      * a file of their own, every tensor named under the component's name.
+     *
+     * @tparam THeadQuantization The head's format, apart from the layers': its vocabulary rows are most of a step's
+     *                           bytes. A BF16 head loaded into a quantized one is quantized on load.
      */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision, WeightQuantPolicy TWeightQuantization = NoWeightQuant>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision, WeightQuantPolicy TWeightQuantization = NoWeightQuant,
+        WeightQuantPolicy THeadQuantization = NoWeightQuant>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class GemmaDrafter : public CompositeComponent<TDeviceType, TPrecision>
     {
@@ -75,7 +79,7 @@ namespace Mila::Dnn
         using TensorType = Tensor<TPrecision, MR>;
         using RmsNormType = RmsNorm<TDeviceType, TPrecision>;
         using LinearType = Linear<TDeviceType, TPrecision, TWeightQuantization>;
-        using HeadType = Linear<TDeviceType, TPrecision, NoWeightQuant>;
+        using HeadType = Linear<TDeviceType, TPrecision, THeadQuantization>;
         using LocalBlockType = GemmaDraftBlock<TDeviceType, TPrecision, false, TWeightQuantization>;
         using GlobalBlockType = GemmaDraftBlock<TDeviceType, TPrecision, true, TWeightQuantization>;
 

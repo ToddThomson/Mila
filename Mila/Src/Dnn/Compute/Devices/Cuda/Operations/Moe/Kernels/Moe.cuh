@@ -65,7 +65,8 @@ namespace Mila::Dnn::Compute::Cuda::Moe
      *        group of the gate and up rows at a time. The decode path (MixtureOfExperts.md section 6).
      *
      * Each group sums x times ( code - 8 ) in FP32, then scales, so a weight is never formed. hidden must be a
-     * multiple of 32.
+     * multiple of 32. Every token's values are the ones a one-token launch gives it, bit for bit; several tokens'
+     * blocks for the same rows run together, so an expert they share comes from memory once (Gemma4Mtp.md 4.7).
      */
     template<typename TFunctor>
     void launch_moe_gated_gather_int4(
@@ -75,7 +76,8 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
     /**
      * @brief Pass 2 over a Q4_0 bank as a gather-matvec: one warp per (token, j) over every slot's down row, the
-     *        token's gated values staged in shared memory. intermediate must be a multiple of 32.
+     *        token's gated values staged in shared memory. intermediate must be a multiple of 32. Several tokens run
+     *        as launch_moe_gated_gather_int4's do: each one's output is its one-token launch's.
      */
     void launch_moe_combine_gather_int4(
         const float* gated, const uint8_t* down, const __half* down_scales, const __nv_bfloat16* weights,

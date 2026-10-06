@@ -5,7 +5,8 @@
  * `verify-cost`: what checking K drafted tokens costs the target, against one decode, at a depth.
  * `drafter-parity`: the drafter's steps from the target's state, with every input dumped for HuggingFace's forward.
  * `acceptance`: how many drafts the target accepts. `speculate`: the greedy loop's rate against plain decoding.
- * `generate`: the same through GemmaModel::generate, the loop a program runs.
+ * `generate`: the same through GemmaModel::generate, the loop a program runs. `routing`: the experts R rows of the
+ * 26B-A4B share.
  */
 
 module;
@@ -72,6 +73,10 @@ namespace Mila::Tools::Drafting
 
     using GemmaDrafterCuda = GemmaDrafter<DeviceType::Cuda, TensorDataType::BF16>;
 
+    // The same drafter with its head at the 12B's six-bit table format, quantized on load (Gemma4Mtp.md decision 2).
+    using GemmaDrafterSixBitHeadCuda = GemmaDrafter<DeviceType::Cuda, TensorDataType::BF16,
+        Quant::Weight::NoWeightQuant, Quant::Weight::PerGroupInt6<32>>;
+
     struct Options
     {
         /// The 26B-A4B and its drafter instead of the 12B and its own.
@@ -97,6 +102,9 @@ namespace Mila::Tools::Drafting
         fs::path weights{ fs::path( MILA_DATA_DIR ) / "Models" / "Gemma" / "gemma4_12b_it_qat_q4_0.safetensors" };
         fs::path drafter{ fs::path( MILA_DATA_DIR ) / "Models" / "Gemma" / "gemma4_12b_it_qat_drafter_bf16.bin" };
         fs::path output{ "drafter_parity" };
+        bool output_given{ false };
+        /// The drafter's head at the six-bit table format instead of BF16.
+        bool six_bit_drafter_head{ false };
     };
 
     void printUsage()
@@ -145,6 +153,14 @@ namespace Mila::Tools::Drafting
             << "  one at each K. Takes --drafts, --tokens, --runs, --prompt-tokens and --kv-cache as speculate does.\n"
             << "  --seed          Seed run r of every cell with seed + r and print a hash of each cell's tokens, so two\n"
             << "                  builds' sampled runs can be timed on the same replies and checked token for token.\n"
+            << "\n"
+            << "Drafting routing --target 26b [options]\n"
+            << "  How many distinct experts R = 1..8 consecutive rows of a greedy reply route to, per layer: the union a\n"
+            << "  verify of R rows reads. Takes --tokens, --prompt-tokens and --kv-cache.\n"
+            << "  --output        Also write each reply's experts, INT32 [rows, layers, top_k], to <dir>/<prompt>.routing.\n"
+            << "\n"
+            << "acceptance and speculate take --drafter-head bf16 | int6 (default bf16): the drafter's head as shipped, or\n"
+            << "at the six-bit table format, quantized on load.\n"
             << "\n"
             << "Every mode takes --target 12b | 26b (default 12b): the 26B-A4B runs Q4_0, quantized on load from\n"
             << "Models/Gemma/gemma4_26b_a4b_it_qat_bf16.bin, with its drafter gemma4_26b_a4b_it_qat_drafter_bf16.bin.\n";
@@ -254,6 +270,7 @@ namespace Mila::Tools::Drafting
             else if ( arg == "--output" )
             {
                 options.output = value();
+                options.output_given = true;
             }
             else if ( arg == "--positions" )
             {
@@ -287,6 +304,15 @@ namespace Mila::Tools::Drafting
                     throw std::invalid_argument( std::format( "--target expects 12b or 26b, got '{}'", target ) );
 
                 options.target_26b = target == "26b";
+            }
+            else if ( arg == "--drafter-head" )
+            {
+                const std::string_view format = value();
+
+                if ( format != "bf16" && format != "int6" )
+                    throw std::invalid_argument( std::format( "--drafter-head expects bf16 or int6, got '{}'", format ) );
+
+                options.six_bit_drafter_head = format == "int6";
             }
             else if ( arg == "--kv-cache" )
             {
@@ -808,8 +834,8 @@ namespace Mila::Tools::Drafting
      * The drafter reads the target's caches and writes nothing, so the target's decode is the plain one. A round at
      * position q starts from the token the target chose for q and its hidden state at q - 1, as the loop's would.
      */
-    template<typename TNetwork>
-    AcceptanceResult measureAcceptance( TNetwork& network, GemmaDrafterCuda& drafter, const std::vector<std::int32_t>& prompt,
+    template<typename TNetwork, typename TDrafter>
+    AcceptanceResult measureAcceptance( TNetwork& network, TDrafter& drafter, const std::vector<std::int32_t>& prompt,
         int rounds, int max_draft, const SamplingParams& sampling, float softcap )
     {
         IExecutionContext* context = network.getExecutionContext();
@@ -895,8 +921,8 @@ namespace Mila::Tools::Drafting
     }
 
     /// Per-step time of `steps` draft steps on a fixed input, and of `steps` target decodes, after `prompt`.
-    template<typename TNetwork>
-    std::pair<double, double> stepTimes( TNetwork& network, GemmaDrafterCuda& drafter, const std::vector<std::int32_t>& prompt,
+    template<typename TNetwork, typename TDrafter>
+    std::pair<double, double> stepTimes( TNetwork& network, TDrafter& drafter, const std::vector<std::int32_t>& prompt,
         int steps )
     {
         const KvCacheView sliding = network.lastSlidingLayerCache();
@@ -929,7 +955,7 @@ namespace Mila::Tools::Drafting
         return { draft_ms, decode_ms };
     }
 
-    template<typename TNetwork>
+    template<typename TNetwork, typename TDrafter>
     void measureAcceptanceOn( const Options& options )
     {
         const auto prompts = acceptancePrompts( options.prompt_tokens );
@@ -947,8 +973,8 @@ namespace Mila::Tools::Drafting
         auto network = Measurement::buildMeasuredNetwork<TNetwork>( options.weights, target_config, kDevice, context_length );
 
         Serialization::WeightsReader drafter_reader( options.drafter );
-        auto drafter = std::make_shared<GemmaDrafterCuda>( "drafter",
-            GemmaDrafterCuda::configFromMetadata( drafter_reader.getWeightsMetadata(), target_config ),
+        auto drafter = std::make_shared<TDrafter>( "drafter",
+            TDrafter::configFromMetadata( drafter_reader.getWeightsMetadata(), target_config ),
             target_config.getModelDim(), network->getExecutionContext() );
         drafter->build( BuildContext( shape_t{ 1, context_length, drafter->getConfig().getModelDim() }, RuntimeMode::Inference, false )
             .withAllocationGranularity( allocationGranularity( kDevice ) ) );
@@ -956,8 +982,9 @@ namespace Mila::Tools::Drafting
 
         const float softcap = target_config.getFinalLogitSoftcapping();
 
-        std::cout << std::format( "weights {}\ndrafter {}\ncache {}, {} rounds per prompt, first draft's acceptance at {}\n\n",
-            options.weights.string(), options.drafter.string(), options.fp8_cache ? "FP8 global layers" : "BF16",
+        std::cout << std::format( "weights {}\ndrafter {}, {} head\ncache {}, {} rounds per prompt, first draft's acceptance at {}\n\n",
+            options.weights.string(), options.drafter.string(), options.six_bit_drafter_head ? "six-bit" : "BF16",
+            options.fp8_cache ? "FP8 global layers" : "BF16",
             options.positions, describeSampling( options ) );
 
         std::cout << "| prompt | tokens | rounds | E[accepted], K = 1..8 | first draft greedy, p(argmax q) | first draft "
@@ -1100,8 +1127,8 @@ namespace Mila::Tools::Drafting
      * Every token is chosen on the device into the slot the next pass reads, so the host waits once a round, to read
      * the drafts and the target's choices and decide how far to keep.
      */
-    template<typename TNetwork>
-    Generation speculativeDecode( TNetwork& network, GemmaDrafterCuda& drafter, SamplerCuda& sampler,
+    template<typename TNetwork, typename TDrafter>
+    Generation speculativeDecode( TNetwork& network, TDrafter& drafter, SamplerCuda& sampler,
         const SamplingParams& sampling, const std::vector<std::int32_t>& prompt, int tokens, int draft, dim_t vocabulary, float softcap = 0.0f, std::vector<double>* first_draft_probability = nullptr )
     {
         IExecutionContext* context = network.getExecutionContext();
@@ -1200,8 +1227,8 @@ namespace Mila::Tools::Drafting
     };
 
     /// What section 3 prices, at the prompt's depth: a replayed decode, a draft step, and a verify of each row count.
-    template<typename TNetwork>
-    StepCosts measureStepCosts( TNetwork& network, GemmaDrafterCuda& drafter, typename TNetwork::TokenIndexType& decode_token,
+    template<typename TNetwork, typename TDrafter>
+    StepCosts measureStepCosts( TNetwork& network, TDrafter& drafter, typename TNetwork::TokenIndexType& decode_token,
         const std::vector<std::int32_t>& prompt, const std::vector<std::int32_t>& continuation, int max_rows )
     {
         IExecutionContext* context = network.getExecutionContext();
@@ -1371,7 +1398,7 @@ namespace Mila::Tools::Drafting
             drafted.tokens[ index ], logits[ drafted.tokens[ index ] ], sorted[ 0 ] - sorted[ 1 ] );
     }
 
-    template<typename TNetwork>
+    template<typename TNetwork, typename TDrafter>
     void measureSpeculationOn( const Options& options )
     {
         const auto prompts = acceptancePrompts( options.prompt_tokens );
@@ -1393,8 +1420,8 @@ namespace Mila::Tools::Drafting
         network->setDecodeReplay( true );
 
         Serialization::WeightsReader drafter_reader( options.drafter );
-        auto drafter = std::make_shared<GemmaDrafterCuda>( "drafter",
-            GemmaDrafterCuda::configFromMetadata( drafter_reader.getWeightsMetadata(), target_config ),
+        auto drafter = std::make_shared<TDrafter>( "drafter",
+            TDrafter::configFromMetadata( drafter_reader.getWeightsMetadata(), target_config ),
             target_config.getModelDim(), network->getExecutionContext() );
         drafter->build( BuildContext( shape_t{ 1, context_length, drafter->getConfig().getModelDim() }, RuntimeMode::Inference, false )
             .withAllocationGranularity( allocationGranularity( kDevice ) ) );
@@ -1412,8 +1439,9 @@ namespace Mila::Tools::Drafting
         const SamplingParams sampling = samplingOf( options );
         const float softcap = target_config.getFinalLogitSoftcapping();
 
-        std::cout << std::format( "weights {}\ndrafter {}\ncache {}, {} tokens after the prompt's first, median of {} runs, {}\n",
-            options.weights.string(), options.drafter.string(), options.fp8_cache ? "FP8 global layers" : "BF16",
+        std::cout << std::format( "weights {}\ndrafter {}, {} head\ncache {}, {} tokens after the prompt's first, median of {} runs, {}\n",
+            options.weights.string(), options.drafter.string(), options.six_bit_drafter_head ? "six-bit" : "BF16",
+            options.fp8_cache ? "FP8 global layers" : "BF16",
             options.tokens, options.runs, options.sample
                 ? "sampled at " + describeSampling( options ) : std::string( "greedy" ) );
 
@@ -1531,6 +1559,201 @@ namespace Mila::Tools::Drafting
 
             for ( const auto& divergence : divergences )
                 std::cout << divergence;
+        }
+    }
+
+    /**
+     * @brief How many distinct experts R consecutive rows of the 26B-A4B route to, per layer: the union a verify of R
+     *        rows reads (Gemma4Mtp.md 4.7, step 5).
+     *
+     * Each prompt's greedy reply is prefilled after it with the router projections observed; a row's experts are the
+     * top_k of its logits. A window starts at every reply position. A verify's rows past a rejected draft are other
+     * tokens than these, so the windows stand for rounds whose drafts were kept. With --output, every reply row's
+     * experts are written as INT32 [rows, layers, top_k] to <output>/<prompt>.routing.
+     */
+    template<typename TNetwork>
+    void measureRoutingOn( const Options& options )
+    {
+        const bool write_routing = options.output_given;
+
+        using DeviceLogits = Tensor<TensorDataType::BF16, typename DeviceTypeTraits<DeviceType::Cuda>::memory_resource>;
+
+        const auto prompts = acceptancePrompts( options.prompt_tokens );
+
+        dim_t longest = 0;
+
+        for ( const auto& prompt : prompts )
+            longest = std::max<dim_t>( longest, static_cast<dim_t>( prompt.tokens.size() ) );
+
+        const dim_t context_length = longest + options.tokens + 64;
+
+        Serialization::WeightsReader reader( options.weights );
+        const GemmaConfig config = GemmaCuda::configFromMetadata( reader.getWeightsMetadata() );
+        const int experts = static_cast<int>( config.getNumExperts() );
+        const int top_k = static_cast<int>( config.getTopKExperts() );
+
+        if ( experts == 0 )
+            throw std::invalid_argument( "routing measures a mixture-of-experts target: pass --target 26b" );
+
+        auto network = Measurement::buildMeasuredNetwork<TNetwork>( options.weights, config, kDevice, context_length );
+        network->setDecodeReplay( true );
+
+        IExecutionContext* context = network->getExecutionContext();
+
+        SamplerCuda sampler( context, SamplingConfig{}
+            .withVocabularySize( config.getVocabSize() )
+            .withFinalLogitSoftcap( config.getFinalLogitSoftcapping() ) );
+
+        auto decode_token = Measurement::deviceTokens( *network, { 0 } );
+
+        if ( write_routing )
+            fs::create_directories( options.output );
+
+        std::cout << std::format( "weights {}\n{} experts, top {}; greedy replies of up to {} tokens, routing from their "
+            "prefill\n", options.weights.string(), experts, top_k, options.tokens );
+
+        for ( const auto& prompt : prompts )
+        {
+            const Generation plain = plainDecode( *network, sampler, kGreedy, decode_token, prompt.tokens, options.tokens );
+
+            std::size_t reply_rows = plain.tokens.size();
+
+            for ( std::size_t i = 0; i < plain.tokens.size(); ++i )
+            {
+                if ( isStopToken( plain.tokens[ i ] ) )
+                {
+                    reply_rows = i;
+                    break;
+                }
+            }
+
+            std::vector<std::int32_t> sequence = prompt.tokens;
+            sequence.insert( sequence.end(), plain.tokens.begin(), plain.tokens.begin() + reply_rows );
+
+            // Layer paths in the order the prefill reaches them; each layer's logits row-major over the sequence.
+            std::vector<std::string> layers;
+            std::vector<std::vector<float>> logits;
+
+            const std::size_t observed = network->observe( "*.router.proj", ComputePassMask{ ComputePass::Forward },
+                [&]( std::string_view path, ComputePass, std::string_view stage, const ITensor& value )
+                {
+                    if ( stage != "output" )
+                        return;
+
+                    const auto* typed = dynamic_cast<const DeviceLogits*>( &value );
+
+                    if ( typed == nullptr )
+                        throw std::runtime_error( std::format( "{}: router logits are not BF16 on the device", path ) );
+
+                    const auto host = toHost<TensorDataType::FP32>( *typed, context );
+                    context->synchronize();
+
+                    auto layer = std::find( layers.begin(), layers.end(), path );
+
+                    if ( layer == layers.end() )
+                    {
+                        layers.emplace_back( path );
+                        logits.emplace_back();
+                        layer = layers.end() - 1;
+                    }
+
+                    auto& rows = logits[ static_cast<std::size_t>( layer - layers.begin() ) ];
+                    rows.insert( rows.end(), host.data(), host.data() + host.size() );
+                } );
+
+            if ( observed == 0 )
+                throw std::runtime_error( "no component matched *.router.proj" );
+
+            ( void )network->prefill( Measurement::deviceTokens( *network, sequence ) );
+            network->synchronize();
+            network->stopObserving();
+
+            const std::size_t first = prompt.tokens.size();
+            const std::size_t layer_count = layers.size();
+
+            for ( const auto& rows : logits )
+            {
+                if ( rows.size() != sequence.size() * static_cast<std::size_t>( experts ) )
+                    throw std::runtime_error( std::format( "a router published {} logits for {} rows of {} experts",
+                        rows.size(), sequence.size(), experts ) );
+            }
+
+            // routing[ ( row * layers + layer ) * top_k + slot ], reply rows only, highest logit first.
+            std::vector<std::int32_t> routing( reply_rows * layer_count * top_k );
+            std::vector<int> order( experts );
+
+            for ( std::size_t row = 0; row < reply_rows; ++row )
+            {
+                for ( std::size_t layer = 0; layer < layer_count; ++layer )
+                {
+                    const float* row_logits = logits[ layer ].data() + ( first + row ) * experts;
+
+                    for ( int e = 0; e < experts; ++e )
+                        order[ e ] = e;
+
+                    std::partial_sort( order.begin(), order.begin() + top_k, order.end(), [&]( int a, int b )
+                    {
+                        return row_logits[ a ] > row_logits[ b ] || ( row_logits[ a ] == row_logits[ b ] && a < b );
+                    } );
+
+                    std::copy( order.begin(), order.begin() + top_k, routing.begin() + ( row * layer_count + layer ) * top_k );
+                }
+            }
+
+            std::cout << std::format( "\n## {} ({} reply rows, {} layers)\n\n| R | union, mean | per layer, min / median / "
+                "max of window means | all distinct | uniform routing | expert bytes vs R rows apart | vs one row |\n"
+                "|---|---|---|---|---|---|---|\n", prompt.name, reply_rows, layer_count );
+
+            for ( int rows = 1; rows <= 8; ++rows )
+            {
+                if ( reply_rows < static_cast<std::size_t>( rows ) )
+                    break;
+
+                const std::size_t windows = reply_rows - rows + 1;
+                std::vector<double> layer_means( layer_count, 0.0 );
+                double total = 0.0;
+
+                for ( std::size_t start = 0; start < windows; ++start )
+                {
+                    for ( std::size_t layer = 0; layer < layer_count; ++layer )
+                    {
+                        std::vector<bool> seen( experts, false );
+                        int distinct = 0;
+
+                        for ( int r = 0; r < rows; ++r )
+                        {
+                            const std::int32_t* chosen = routing.data() + ( ( start + r ) * layer_count + layer ) * top_k;
+
+                            for ( int slot = 0; slot < top_k; ++slot )
+                            {
+                                if ( !seen[ chosen[ slot ] ] )
+                                {
+                                    seen[ chosen[ slot ] ] = true;
+                                    ++distinct;
+                                }
+                            }
+                        }
+
+                        layer_means[ layer ] += distinct;
+                        total += distinct;
+                    }
+                }
+
+                for ( double& mean : layer_means )
+                    mean /= static_cast<double>( windows );
+
+                std::sort( layer_means.begin(), layer_means.end() );
+
+                const double mean = total / static_cast<double>( windows * layer_count );
+                const double uniform = experts * ( 1.0 - std::pow( 1.0 - static_cast<double>( top_k ) / experts, rows ) );
+
+                std::cout << std::format( "| {} | {:.2f} | {:.2f} / {:.2f} / {:.2f} | {} | {:.2f} | {:.2f} | {:.2f}x |\n",
+                    rows, mean, layer_means.front(), layer_means[ layer_count / 2 ], layer_means.back(), rows * top_k,
+                    uniform, mean / ( rows * top_k ), mean / top_k );
+            }
+
+            if ( write_routing )
+                writeFile( options.output / ( prompt.name + ".routing" ), routing.data(), routing.size() * sizeof( std::int32_t ) );
         }
     }
 
@@ -1668,7 +1891,7 @@ namespace Mila::Tools::Drafting
             const std::string_view command = argc > 1 ? argv[ 1 ] : "";
 
             if ( command != "verify-cost" && command != "drafter-parity" && command != "acceptance" && command != "speculate"
-                && command != "generate" )
+                && command != "generate" && command != "routing" )
             {
                 printUsage();
 
@@ -1687,16 +1910,26 @@ namespace Mila::Tools::Drafting
                 return 0;
             }
 
-            const auto measure = [&]<typename TNetwork>()
+            const auto measureWith = [&]<typename TNetwork, typename TDrafter>()
             {
                 if ( command == "verify-cost" )
                     measureVerifyCost<TNetwork>( options );
                 else if ( command == "drafter-parity" )
                     dumpDrafterParity<TNetwork>( options );
                 else if ( command == "speculate" )
-                    measureSpeculationOn<TNetwork>( options );
+                    measureSpeculationOn<TNetwork, TDrafter>( options );
+                else if ( command == "routing" )
+                    measureRoutingOn<TNetwork>( options );
                 else
-                    measureAcceptanceOn<TNetwork>( options );
+                    measureAcceptanceOn<TNetwork, TDrafter>( options );
+            };
+
+            const auto measure = [&]<typename TNetwork>()
+            {
+                if ( options.six_bit_drafter_head )
+                    measureWith.template operator()<TNetwork, GemmaDrafterSixBitHeadCuda>();
+                else
+                    measureWith.template operator()<TNetwork, GemmaDrafterCuda>();
             };
 
             if ( options.target_26b && options.fp8_cache )

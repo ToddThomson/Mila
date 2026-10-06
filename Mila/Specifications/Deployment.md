@@ -71,7 +71,12 @@ bytes. The 26B-A4B's vision tower is about 410 MB at FP8, about 39K tokens of it
 | Knob | Selectable | Who decides |
 |---|---|---|
 | Modalities (text always; image, audio where the package carries them) | per request | caller, or the planner within a stated floor of text context |
-| Draft model | per request, where the package carries one | caller |
+| Draft model | per request, where the package carries one | caller, or the planner: on at the measured K where its speedup is measured and the planned context fits with it |
+
+*The draft model's default, decided 2026-10-06 (Todd).* Every Gemma 4 package carries its drafter. Left to the
+planner, the drafter is selected wherever its speedup on that model is measured (`Gemma4Mtp.md` section 5) and the
+context the planner would choose without it still fits with it loaded; the plan says which it chose. An adaptor
+takes the default from the plan and never holds its own -- Chat offers a setting to turn it off.
 
 The rules carry over unchanged. Each feature is fixed by the caller or left to the planner like any other
 value; the plan prices the selection exactly, and `PlanEqualsBuild` holds a selection as it holds the rest;

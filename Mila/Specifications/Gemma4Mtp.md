@@ -4,7 +4,7 @@ Speculative decoding for Gemma 4 12B and 26B-A4B, each with the draft model Goog
 
 *Status: design, 2026-10-04. Stage 1 is built and measured for both models (5.1): the drafter component, its
 parity with HuggingFace, its acceptance and the verify cost. The 12B's loop is built, greedy and sampled, and
-replayed (4.7); the 26B-A4B's waits on its expert bank (4.7, step 5); the speculative sampler, which draws every
+replayed (4.7); the 26B-A4B's is built and measured, 1.1x to 1.26x at K = 1 to 2 (4.7, step 5); the speculative sampler, which draws every
 row at once and walks acceptance on the device, is built (4.8). Supersedes `SpeculativeDecoding.md` for Gemma: that document
 proposed a drafter with its own KV cache and a compile-time drafter axis, and Google's drafter is
 neither. The work is `BACKLOG.md`, Gemma 4 Complete, "Nobody knows whether Google's drafters would make
@@ -259,7 +259,7 @@ drafter's next round reads the row at the last accepted position.
 | RoPE | Reads the decode position for its one row | Row r at `*position + r` (one-line change; row 0 is today's) |
 | KV write | Writes one row at the decode position | Writes R rows from it (the same one-line change) |
 | Decode attention (BF16 and FP8 caches) | One query at the decode position, the band ending there, split-K chosen on the device by band length | The tile's rows are (token, query head) pairs of one KV head, so a KV head's keys stream once for every pair in the tile -- all R tokens of a sliding layer (2 heads a KV head), one token a tile on a global layer (16), the R tiles reading the same keys. Row r masks to its own band, ending at p + r; splits are cut over the tokens' union band, so a token's sums run in another order than its one-token decode's. The scratch is R times one token's. The same kernel at R = 1 is today's decode exactly |
-| Expert bank (26B-A4B) | Gathers the token's 8 experts | Groups the R rows' (row, expert) pairs by expert, so each chosen expert's weights are read once for every row that chose it; each row combines its experts in its own routing order, as a one-row decode does. This is the expert union section 3 prices |
+| Expert bank (26B-A4B) | Gathers the token's 8 experts | The same gather kernels, with the R rows' blocks for the same weight rows run together, so each chosen expert comes from DRAM once and from L2 for every other row that chose it; each row's arithmetic is the one-row kernel's, so each row is bit-identical to its decode. This is the expert union section 3 prices (measured below) |
 | Head (tied six-bit table) | The six-bit matvec | The R-row form of it, as every `Linear` |
 
 **Equal to decode.** A first draft of this design kept each row in the matvec's own order, so that each row was
@@ -316,8 +316,98 @@ but each block's walk is latency-bound, so the extra tiles cost waves. Per token
 0.17 ms on the sliding layers and 0.7 ms on the global layers at 8K (2.5 ms at 32K), against a 19 to 21 ms decode.
 The remedy, not built: a block that stages each key tile once for all its row tiles, a warp group per tile. The one-
 token kernel is a separate instantiation and runs at its rate before this change (the per-row band arithmetic cost
-0.4 us a call on short bands when it was shared). Not yet measured: attention at R queries,
-the six-bit head, and the 26B-A4B's expert union.
+0.4 us a call on short bands when it was shared). Not yet measured: the six-bit head.
+
+**The expert union -- measured 2026-10-06.** How many distinct experts R consecutive rows of the 26B-A4B route to,
+per layer, from its router over its own greedy replies (`Tools/Drafting routing --target 26b`, 513 reply rows a
+prompt, routing from the reply's prefill; files `D:\Claude\expert_union`). Consecutive rows share experts well beyond
+chance, but the union still grows with every row:
+
+| Prompt | R = 2 | 3 | 4 | 5 | 6 | 8 | R = 5 if routing were uniform |
+|---|---|---|---|---|---|---|---|
+| prose | 12.4 | 16.0 | 18.9 | 21.5 | 23.7 | 27.5 | 35.3 |
+| code | 12.6 | 16.3 | 19.5 | 22.3 | 24.8 | 29.1 | 35.3 |
+| chat | 12.8 | 16.7 | 20.1 | 23.1 | 25.8 | 30.5 | 35.3 |
+
+So a 5-row verify reads 2.7 to 2.9 times one row's expert bytes, near the 3x section 3 derived. The windows are rows of
+the reply itself, so they stand for rounds whose drafts were kept; rows past a rejected draft are other tokens. The bank
+at R rows on that routing (`Profiling/Microbenchmarks/ExpertUnion.cu`, three 428 MB banks in rotation, DRAM-resident;
+chat routing; each arm bit-identical to R one-row decodes), as a multiple of one row's bank time -- 2.29 ms for 30
+layers on the RTX 5060 Ti, 2.13 ms on the 4070:
+
+| Card | Arm | R = 2 | 3 | 4 | 5 | 6 | 8 |
+|---|---|---|---|---|---|---|---|
+| | Floor: the union's bytes at one row's rate | 1.59 | 2.09 | 2.51 | 2.88 | 3.22 | 3.84 |
+| RTX 5060 Ti | Rows apart: R one-row decodes | 1.81 | 2.60 | 3.39 | 4.19 | 4.99 | 6.58 |
+| RTX 5060 Ti | Today's kernels at R tokens | 1.64 | 2.24 | 2.82 | 3.40 | 3.98 | 5.15 |
+| RTX 5060 Ti | Token-first block order | 1.56 | 2.07 | 2.51 | 2.98 | 3.44 | 4.40 |
+| RTX 5060 Ti | Grouped by distinct expert | 1.74 | 2.62 | 3.72 | 5.06 | 6.66 | 10.83 |
+| RTX 4070 | Token-first block order | 1.61 | 2.11 | 2.52 | 2.95 | 3.38 | 4.32 |
+
+Today's kernels at R tokens run one token's blocks after another's, so a shared expert is read again unless L2 still
+holds it. Token-first changes only which block is which -- the R rows' blocks for the same weight rows run together --
+and sits within 3 to 8% of the floor at R up to 6 on both cards: L2 does the grouping, and no row's arithmetic
+changes. The grouped arm, one block per distinct expert applying its codes to every row that chose it, is slower than
+both past R = 2 and is not pursued; the most it could win is token-first's distance from the floor. Code and prose
+routing give the same ordering within 0.1.
+
+**What this predicted for the 26B-A4B**, with its decode at 10.3 ms (5.1), 2.29 ms of it the bank, the rest of a verify
+at the 12B's 1.08 decodes, and token-first's bank cost: a verify of R = 2 / 3 / 4 / 5 rows at about 1.19 / 1.30 / 1.40
+/ 1.50 decodes, and chat about 1.45x at K = 3 to 4, code 1.37x, prose 1.15x. The verify held; the speedup did not,
+because 5.1's 10.3 ms was a *called* decode, and the replayed decode a generation runs is 7.85 ms -- so a draft step is
+0.30 of a decode, not 0.22, and the bank a larger share of it.
+
+**The 26B-A4B's loop -- built and measured 2026-10-06** (step 5: `CudaMoeOp::decode`, the gather kernels token-first
+above two or more tokens, `Router::decodeTokens` and `MixtureOfExperts::decodeTokens` behind the routed feed-forward's;
+gated in `MixtureOfExperts.Cuda.cpp`, every token bit-identical to its one-token decode for Q4_0, FP4 and BF16 banks, and
+`DecodeTokens.Cuda.cpp` on a tiny routed Gemma). RTX 5060 Ti, Q4_0 quantized on load, FP8 global cache, 512 tokens,
+median of 3 runs (`Tools/Drafting speculate` and `generate --target 26b`; files `D:\Claude\expert_union\speculate`).
+A replayed decode is 7.35 to 7.86 ms, a draft step 2.23 to 2.34 ms (0.29 to 0.30 of a decode), and a verify of 2 / 3 /
+4 / 5 rows 1.18-1.24 / 1.30-1.38 / 1.43-1.54 / 1.58-1.72 decodes -- the bank's union as priced, within 0.1 to 0.2 at
+five rows. Through `GemmaModel::generate`:
+
+| Prompt | Greedy, K = 1 / 2 / 3 / 4 | Sampled at Google's, K = 1 / 2 / 3 / 4 |
+|---|---|---|
+| prose | 1.11 / 1.06 / 0.96 / 0.92x | 1.09 / 0.99 / 0.89 / 0.76x |
+| code | 1.20 / 1.25 / 1.23 / 1.14x | 1.18 / 1.20 / 1.12 / 1.06x |
+| chat | 1.18 / 1.26 / 1.20 / 1.15x | 1.18 / 1.20 / 1.14 / 1.08x |
+
+The tool's own loop is within 0.11 of these, the library's the faster, and its section 3 prediction from each run's acceptance and measured costs
+within 0.06. Greedy output parts from plain greedy only at near-ties -- top two within 0.5 of a logit near 40, one or
+two BF16 steps there; the verify's logits sit from their decodes by 0.05 to 0.17 of their RMS against 0.07 to 0.17 for
+the prefill path, decode's own noise (5.2). The sampled first-draft gate holds in every cell but one, code at K = 4
+(0.667 kept against 0.708 +- 0.021).
+
+**So the 26B-A4B gains 1.1x to 1.26x at K = 1 to 2, and prose loses from K = 3.** What holds it back is the drafter: two
+draft steps are 0.6 of a decode, a third of a K = 2 round, against the 12B's 0.22. Its head is 0.54 of its 0.85 GB a
+step, so the six-bit head (decision 2, measured before a package ships the drafter) is the lever that moves the 26B
+most; the bank's union is within 3 to 8% of its floor. Each prompt's best K is 1 or 2 here, against 3 to 4 on the 12B,
+which weighs for an adaptive K (4.8).
+
+**The drafter's head at six bits -- measured 2026-10-06** (decision 2). `GemmaDrafter` takes its head's format as a
+template argument of its own; the six-bit table format (`Quantization.md` Part II), quantized on load from the shipped
+BF16, reads about 0.22 GB a step where BF16 reads 0.54. Both arms from one build, RTX 5060 Ti, the 26B-A4B with its
+FP8 global cache, the 12B with BF16 (`Tools/Drafting acceptance` and `speculate --drafter-head bf16 | int6`, Google's
+sampling; files `D:\Claude\expert_union\head`):
+
+- **Acceptance does not move.** E[accepted] at every K from 1 to 8 and both first-draft acceptances are within 0.02 of
+  the BF16 head's on every prompt for both models, and the 26B's greedy replies are the same text. A greedy draft is
+  the head's argmax, and six bits per weight with a scale per 32 leaves it in place.
+- **A draft step is a third cheaper:** 2.30 to 1.55 ms on the 26B-A4B (0.30 to 0.20 of a replayed decode), 2.32 to
+  1.57 ms on the 12B (0.109 to 0.074 of a decode).
+
+The drafted loop, each prompt at its best K (the tool's own loop):
+
+| Model | Mode | Prompt | BF16 head | Six-bit head |
+|---|---|---|---|---|
+| 26B-A4B | greedy | prose / code / chat | 1.12 / 1.17 / 1.22x | 1.20 / 1.28 / 1.36x |
+| 26B-A4B | sampled | prose / code / chat | 1.05 / 1.15 / 1.19x | 1.11 / 1.27 / 1.29x |
+| 12B | greedy | prose / code / chat | 1.46 / 1.74 / 1.94x | 1.59 / 2.02 / 2.15x |
+| 12B | sampled | prose / code / chat | 1.40 / 1.69 / 1.80x | 1.45 / 1.88 / 1.96x |
+
+Best K moves up by about one with the cheaper step: 2 on the 26B-A4B except prose (1), 3 to 4 on the 12B except prose (2
+to 3). The sampled first-draft gate holds within 2 standard errors in every cell. The drafter a package carries is
+then about 0.53 GB rather than 0.85.
 
 **Replay.** The verify is a recording of its own (`DecodeGraph.md`), keyed by R: its token buffer and the context's
 decode position are device memory, so one recording replays every round at a fixed K.
@@ -329,7 +419,7 @@ against one-row decodes in `Linear.Decode.Cuda.cpp`; in the library the 12B's ga
 1.03x one row at R = 2 to 8); (3) RoPE, KV write and attention at R rows (done 2026-10-05, measured below); (4)
 `decodeTokens` through Gemma's blocks, gated equal to R decodes, with the network reserving R tokens' attention
 scratch -- a recorded decode step must not see the buffer it captured grow (done 2026-10-05, below); (5) the expert
-bank's union and its measured cost on the 26B-A4B; (6) the loop, greedy, then sampled (4.4).
+bank's union and its measured cost on the 26B-A4B (done 2026-10-06, above); (6) the loop, greedy, then sampled (4.4).
 
 **`decodeTokens` -- built 2026-10-05.** `GemmaConfig::withDecodeTokens( n )`, 1 to 8 and 1 by default, is the run
 capacity a deployment selecting the drafter raises to K + 1; it reaches the build as `BuildContext::withDecodeTokens`
@@ -695,6 +785,9 @@ Decided 2026-10-04 (Todd, as recommended):
    the deployment only where it pays. Its verify also routes K + 1 rows, whose experts are the union of each
    row's, so the multi-row decode (4.2 b) reads more of the expert bank than one decode does; that is part of
    what its measurement prices.
+5. **Shipped and on by default** (Todd, 2026-10-06). Each Gemma 4 package carries its drafter, and a deployment that
+   leaves the choice to the planner gets it where it is measured to pay and the planned context still fits
+   (`Deployment.md` 2.1); Chat takes that default. Its format is measured before it ships (decision 2).
 
 ## 7. Non-Goals
 
