@@ -17,6 +17,7 @@
 
 import Mila;
 
+#include "Common/DecodeHarness.h"
 #include "Measurement/LogLikelihoodHarness.h"
 #include "Common/TinyDecodeNetworks.h"
 
@@ -33,6 +34,7 @@ namespace Mila::Tests::Dnn::Models
         using GemmaBf16 = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
         using TinyGemma = GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16,
             Quant::Weight::NoWeightQuant, GemmaBf16::GemmaSlidingKvPolicy>;
+        using CountedTinyGemma = Common::CountedDecodeNetwork<TinyGemma>;
 
         constexpr dim_t kContextLength = 256;
         constexpr dim_t kDraftTokens = 4;
@@ -70,13 +72,14 @@ namespace Mila::Tests::Dnn::Models
         }
 
         /// The tiny Gemma, with the tiny draft model when asked, its parameters from the tiny networks' seed.
-        std::unique_ptr<TinyGemma> buildTinyGemma( bool with_drafter )
+        template<typename TNetwork = TinyGemma>
+        std::unique_ptr<TNetwork> buildTinyGemma( bool with_drafter )
         {
             auto& generator = Core::RandomGenerator::getInstance();
             const unsigned int previous = generator.getSeed();
             generator.setSeed( Common::kTinyDecodeSeed );
 
-            auto network = std::make_unique<TinyGemma>( "tiny", tinyConfig(), Device::Cuda( 0 ) );
+            auto network = std::make_unique<TNetwork>( "tiny", tinyConfig(), Device::Cuda( 0 ) );
 
             if ( with_drafter )
                 network->addDrafter( tinyDrafterConfig( network->getConfig() ) );
@@ -197,6 +200,96 @@ namespace Mila::Tests::Dnn::Models
         EXPECT_EQ( std::memcmp( after_draft.data(), without_draft.data(), after_draft.size() * sizeof( float ) ), 0 );
     }
 
+    // DecodeGraph.md: a draft and its check replay as a decode step does, each with one recording for each number of
+    // tokens. Two networks run the same rounds, one calling every pass and one replaying; every draft and every check
+    // is equal between them bit for bit. Each round continues from another row of the last check, which the draft takes
+    // before its replay, so a row frozen into the recording shows; a shorter round among the full ones is recorded on
+    // its own and leaves theirs in place. The rounds cross the sliding ring's wrap (capacity 128 + 64 - 1 = 191), where
+    // a check's writes come nearest the keys the next draft reads.
+    TEST_F( GemmaDraftModelCudaTests, ReplayedRoundsEqualCalledRounds )
+    {
+        const dim_t prompt_length = 180;
+        const auto prompt = tokensFrom( 0, static_cast<std::size_t>( prompt_length ) );
+        const std::vector<dim_t> round_rows{ 5, 5, 5, 5, 3, 5, 5, 5 };
+
+        auto called = buildTinyGemma<CountedTinyGemma>( true );
+        auto replayed = buildTinyGemma<CountedTinyGemma>( true );
+        replayed->setDecodeReplay( true );
+
+        ( void )Measurement::hostLogits( *called, called->prefill( Measurement::deviceTokens( *called, prompt ) ) );
+        ( void )Measurement::hostLogits( *replayed, replayed->prefill( Measurement::deviceTokens( *replayed, prompt ) ) );
+
+        // One token tensor per network and round size, slot 0 rewritten each round: a recording holds its input's address.
+        const std::vector<std::int32_t> full( kDraftTokens + 1, 0 );
+        const std::vector<std::int32_t> shorter( 3, 0 );
+        auto called_full = Measurement::deviceTokens( *called, full );
+        auto called_shorter = Measurement::deviceTokens( *called, shorter );
+        auto replayed_full = Measurement::deviceTokens( *replayed, full );
+        auto replayed_shorter = Measurement::deviceTokens( *replayed, shorter );
+
+        const auto setFirst = []( auto& network, auto& tokens, std::int32_t id )
+        {
+            Tensor<TensorDataType::INT32, CpuMemoryResource> host( Device::Cpu(), shape_t{ 1, 1 } );
+            host.data()[ 0 ] = id;
+            auto first = tokens.view( shape_t{ 1, 1 }, 0 );
+            copy( host, first );
+            network.synchronize();
+        };
+
+        const auto sameOnHost = []( const auto& a, const auto& b )
+        {
+            const auto host_a = toHost<TensorDataType::INT32>( a );
+            const auto host_b = toHost<TensorDataType::INT32>( b );
+
+            return std::memcmp( host_a.data(), host_b.data(), sizeof( std::int32_t ) * host_a.size() ) == 0;
+        };
+
+        dim_t position = prompt_length;
+        dim_t hidden_row = 0;
+        int differing_drafts = 0;
+        int differing_checks = 0;
+
+        for ( std::size_t round = 0; round < round_rows.size(); ++round )
+        {
+            const dim_t rows = round_rows[ round ];
+            auto& called_tokens = rows == kDraftTokens + 1 ? called_full : called_shorter;
+            auto& replayed_tokens = rows == kDraftTokens + 1 ? replayed_full : replayed_shorter;
+            const std::int32_t first = tokensFrom( 1000 + round, 1 )[ 0 ];
+
+            setFirst( *called, called_tokens, first );
+            setFirst( *replayed, replayed_tokens, first );
+
+            called->draftTokens( called_tokens, position, hidden_row );
+            replayed->draftTokens( replayed_tokens, position, hidden_row );
+            called->synchronize();
+            replayed->synchronize();
+
+            differing_drafts += !sameOnHost( called_tokens, replayed_tokens );
+
+            const auto a = Measurement::hostLogits( *called, called->decodeTokens( called_tokens, position ) );
+            const auto b = Measurement::hostLogits( *replayed, replayed->decodeTokens( replayed_tokens, position ) );
+
+            differing_checks += std::memcmp( a.data(), b.data(), a.size() * sizeof( float ) ) != 0;
+
+            // Keep the token at the round's position and some of its drafts, as a round's acceptance would.
+            const dim_t kept = static_cast<dim_t>( round ) % rows;
+            position += kept + 1;
+            hidden_row = kept;
+
+            ASSERT_TRUE( called->rewindKvCache( position ) );
+            ASSERT_TRUE( replayed->rewindKvCache( position ) );
+        }
+
+        EXPECT_TRUE( replayed->isDecodeReplayed() ) << "a self-check turned replay off";
+        EXPECT_EQ( differing_drafts, 0 ) << "a replayed draft differs from the same draft called";
+        EXPECT_EQ( differing_checks, 0 ) << "a replayed multi-token decode differs from the same one called";
+
+        // Priming, recording and the self-check for each round size; every other full round replayed.
+        EXPECT_EQ( replayed->calledDrafts(), 4 );
+        EXPECT_EQ( replayed->calledDecodeTokens(), 4 );
+        EXPECT_EQ( called->calledDrafts(), static_cast<int>( round_rows.size() ) );
+    }
+
     TEST_F( GemmaDraftModelCudaTests, ADraftNeedsADraftModel )
     {
         auto network = buildTinyGemma( false );
@@ -223,6 +316,7 @@ namespace Mila::Tests::Dnn::Models
     // Gemma4Mtp.md 5.2: greedy generation with the draft model gives the tokens greedy generation gives without it,
     // except where the 12B's top two logits are within the multi-token decode's rounding. Measured 2026-10-05
     // (Tools/Drafting speculate): this prompt's reply first parts at token 402 at K = 4, so 256 tokens are equal.
+    // With the draft and its check replayed the tokens are those of the same passes called (DecodeGraph.md 4.7).
     TEST_F( GemmaDraftModelCudaTests, Gemma4_12B_GreedyGenerationIsUnchanged )
     {
         const fs::path weights = gemmaData( "gemma4_12b_it_qat_q4_0.safetensors" );
@@ -246,13 +340,15 @@ namespace Mila::Tests::Dnn::Models
         params.max_new_tokens = 256;
         params.sampling.temperature = 0.0f;
 
-        const auto generate = [&]( const DeploymentRequest& request )
+        const auto generate = [&]( const DeploymentRequest& request, bool replay )
         {
             auto model = GemmaBf16::load( weights, request );
+            model->setDecodeReplay( replay );
             std::vector<std::int32_t> tokens;
 
             const GenerateStatus status = model->generate( prompt, [&]( std::int32_t token ) { tokens.push_back( token ); }, params );
             EXPECT_EQ( status, GenerateStatus::MaxNewTokensReached );
+            EXPECT_EQ( model->isDecodeReplayed(), replay ) << "a self-check turned replay off";
 
             return tokens;
         };
@@ -260,12 +356,15 @@ namespace Mila::Tests::Dnn::Models
         const DeploymentRequest plain_request = DeploymentRequest()
             .withWeightQuantization( WeightQuantization::Q4_0 )
             .withContextLength( 4096 );
+        const DeploymentRequest drafted_request = DeploymentRequest( plain_request ).withSpeculativeDecode( drafter, kDraftTokens );
 
         // One 12B on the card at a time.
-        const auto plain = generate( plain_request );
-        const auto drafted = generate( DeploymentRequest( plain_request ).withSpeculativeDecode( drafter, kDraftTokens ) );
+        const auto plain = generate( plain_request, true );
+        const auto drafted = generate( drafted_request, true );
+        const auto drafted_called = generate( drafted_request, false );
 
         ASSERT_EQ( plain.size(), 256u );
         EXPECT_EQ( drafted, plain );
+        EXPECT_EQ( drafted, drafted_called );
     }
 }

@@ -61,6 +61,9 @@ vision tower drains first, then audio.
 Scope grew on 2026-10-05 (Todd), the date held: the token sampler's synchronous entry moves onto the model's
 stream, admitted under Internal fixes with no removal.
 
+Scope grew again on 2026-10-05 (Todd: "Chat defaults must be model based"), the date held: a model's recommended
+sampling is read from its manifest, admitted under Model Handle with no removal.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -112,6 +115,28 @@ configuration. Gate: a manifest omitting every new field still loads.
 
 Also the root of Codex's "Model metadata not found" warning against `/v1/models` — all three
 validated flows pass regardless, so that is a symptom of this gap rather than separate work.
+
+#### Chat samples every model at one fixed setting, not at the one its publisher recommends
+
+`open` · `distribution` · `adaptors` · `binding`
+
+Chat samples every model at temperature 0.8, top-k 40 and no top-p (`Chat.Config.ixx:104`), MIS at
+temperature 0.6 (`config.py:55`). No family's publisher recommends either. Their `generation_config.json`
+files say: Gemma 4, every size and both drafters, 1.0, top-k 64, top-p 0.95; Llama 3.1 and 3.2 Instruct 0.6,
+top-p 0.9, no top-k; Qwen 3.8 27B 1.0, top-k 20, top-p 0.95. `ChatConfiguration.md` section 5 already places
+the answer in the manifest -- `temperature`, `top_p` and `top_k`, optional, from the model card -- and none
+of it is built: no record carries them, `ExportArtifact` does not write them, and no adaptor reads them.
+Decided by Todd 2026-10-05: an adaptor's sampling defaults come from the model, and Chat's own are wrong.
+
+The exporter copies them from the source checkpoint's `generation_config.json`; Chat, MIS and the binding
+open a session at them, below the user's own layers (`/set`, the session file, the request), which still
+override. A manifest without them falls back to its family's published settings, section 5's family layer,
+not to an adaptor's constant; the adaptor-wide 0.8 / 40 and 0.6 are removed.
+
+Gate: a Gemma 4 package exported on this tree carries 1.0, 64 and 0.95, and Chat, MIS and the binding open
+at them; an installed package without the fields loads and opens at its family's settings.
+
+`Mila/Adaptors/Chat/Src/Chat.Config.ixx:104` · `Mila/Specifications/ChatConfiguration.md` section 5
 
 #### A model installed under v0.20 stops loading when Mila is upgraded
 

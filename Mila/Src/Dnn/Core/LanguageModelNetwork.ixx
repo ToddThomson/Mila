@@ -5,9 +5,10 @@
 
 module;
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <format>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -143,11 +144,10 @@ namespace Mila::Dnn
          */
         TensorType& decode( const TokenIndexType& input, dim_t position )
         {
-            IExecutionContext& context = *this->getExecutionContext();
+            this->getExecutionContext()->setDecodePosition( position );
 
-            context.setDecodePosition( position );
-
-            TensorType& logits = decodeStep( context, input, position );
+            TensorType& logits = replayed( decode_replay_, input, [] {},
+                [ & ]() -> TensorType& { return onDecode( input, position ); } );
 
             cached_length_ = std::max( cached_length_, position + 1 );
 
@@ -163,8 +163,9 @@ namespace Mila::Dnn
          * decode() does and advances the cached length past the last token. Each token's logits equal its
          * decode()'s to FP32 rounding, not bit for bit (the sums run in another order).
          *
-         * Called, never replayed: a decode recording holds one token's launches. Implemented by GemmaTransformer
-         * (dense layers); any other network throws, as does one whose configuration declares fewer decode tokens.
+         * Replayed as decode() is (setDecodeReplay), with one recording for each number of tokens. Implemented by
+         * GemmaTransformer (dense layers); any other network throws, as does one whose configuration declares fewer
+         * decode tokens.
          *
          * @param input    Token indices [1, T], T up to the decode tokens the network was built for.
          * @param position Position of the first token (0-based).
@@ -172,11 +173,10 @@ namespace Mila::Dnn
          */
         TensorType& decodeTokens( const TokenIndexType& input, dim_t position )
         {
-            IExecutionContext& context = *this->getExecutionContext();
+            this->getExecutionContext()->setDecodePosition( position );
 
-            context.setDecodePosition( position );
-
-            TensorType& logits = onDecodeTokens( input, position );
+            TensorType& logits = replayed( decode_tokens_replay_, input, [] {},
+                [ & ]() -> TensorType& { return onDecodeTokens( input, position ); } );
 
             cached_length_ = std::max( cached_length_, position + input.shape()[ 1 ] );
 
@@ -191,7 +191,9 @@ namespace Mila::Dnn
          * nothing to them (Gemma4Mtp.md 4.3). It continues from the final-normed hidden state of the last pass at
          * `hidden_row`: the row of the token before `position` -- 0 after a prefill or decode, which keep one row,
          * and after decodeTokens the row of the last token kept. Writes `position` into the execution context as
-         * decode() does. Implemented by GemmaTransformer built with a draft model; any other network throws.
+         * decode() does, and is replayed as decode() is, with one recording for each number of tokens; the row is
+         * taken before the replay, so it may differ from one draft to the next. Implemented by GemmaTransformer built
+         * with a draft model; any other network throws.
          *
          * @param tokens     Token indices [1, T], T up to the decode tokens the network was built for.
          * @param position   Position of slot 0's token (0-based).
@@ -201,29 +203,34 @@ namespace Mila::Dnn
         {
             this->getExecutionContext()->setDecodePosition( position );
 
-            onDraftTokens( tokens, position, hidden_row );
+            ( void )replayed( draft_replay_, tokens, [ & ] { onDraftFrom( hidden_row ); },
+                [ & ]() -> TokenIndexType& { onDraftTokens( tokens, position ); return tokens; } );
         }
 
         /**
-         * @brief Replay each decode step from one recording instead of calling it (DecodeGraph.md).
+         * @brief Replay each decode pass from a recording instead of calling it (DecodeGraph.md).
          *
-         * Off for a network built directly; a model turns it on at load. With it on, the first
-         * step is called, the second is recorded and replayed, the third checks a replay against
-         * the called step bit for bit, and every later step is one replay. A step that cannot be
-         * recorded, or a replay that differs, turns replay off for the network's life with a
-         * warning. A step taken while an activation observer is installed is called. Debugging a
-         * decode step means turning this off first.
+         * Covers decode(), decodeTokens() and draftTokens(), each kind with its own recordings: one for each number of
+         * tokens, made from the first call with that input tensor. Off for a network built directly; a model turns it
+         * on at load. With it on, a recording's first pass is called, the second is recorded and replayed, the third
+         * checks a replay against the called pass bit for bit, and every later pass is one replay. A pass that cannot
+         * be recorded, or a replay that differs, turns replay off for that kind of pass for the network's life with a
+         * warning. A pass taken while an activation observer is installed is called. Debugging a decode pass means
+         * turning this off first.
          */
         void setDecodeReplay( bool enabled )
         {
-            decode_replay_ = enabled;
-            discardDecodeRecording();
+            replay_enabled_ = enabled;
+
+            decode_replay_.reset();
+            decode_tokens_replay_.reset();
+            draft_replay_.reset();
         }
 
-        /// Whether decode steps are replayed: on, and not turned off by a failed recording or check.
+        /// Whether decode passes are replayed: on, and no kind of pass turned off by a failed recording or check.
         [[nodiscard]] bool isDecodeReplayed() const noexcept
         {
-            return decode_replay_;
+            return replay_enabled_ && !decode_replay_.off && !decode_tokens_replay_.off && !draft_replay_.off;
         }
 
         /**
@@ -349,12 +356,25 @@ namespace Mila::Dnn
             throw std::logic_error( "LanguageModelNetwork::decodeTokens: not supported by this network" );
         }
 
-        /// The family's draft, the one draftTokens() runs. Throws on a network built without a draft model.
-        virtual void onDraftTokens( TokenIndexType& tokens, dim_t position, dim_t hidden_row )
+        /**
+         * @brief Put the final-normed hidden state at `hidden_row` where the draft's first step reads it.
+         *
+         * Called before every run of a draft, called or replayed, and never recorded: the row differs between drafts,
+         * and onDraftTokens(), which a recording holds, reads it from one place that its later steps overwrite. Throws
+         * on a network built without a draft model.
+         */
+        virtual void onDraftFrom( dim_t hidden_row )
+        {
+            ( void )hidden_row;
+
+            throw std::logic_error( "LanguageModelNetwork::draftTokens: this network has no draft model" );
+        }
+
+        /// The family's draft, the one draftTokens() runs, from the hidden state onDraftFrom() put in place.
+        virtual void onDraftTokens( TokenIndexType& tokens, dim_t position )
         {
             ( void )tokens;
             ( void )position;
-            ( void )hidden_row;
 
             throw std::logic_error( "LanguageModelNetwork::draftTokens: this network has no draft model" );
         }
@@ -412,147 +432,192 @@ namespace Mila::Dnn
         {
         }
 
-        /// Drop the decode recording; the next steps prime and record it again.
-        void discardDecodeRecording() noexcept
+        /// Drop every decode recording; the next passes prime and record them again. Replay stays as it was.
+        void discardDecodeRecordings()
         {
-            decode_recording_.reset();
-            recorded_input_ = nullptr;
-            recorded_logits_.reset();
-            replay_stage_ = ReplayStage::Unprimed;
+            decode_replay_.recordings.clear();
+            decode_tokens_replay_.recordings.clear();
+            draft_replay_.recordings.clear();
         }
 
     private:
 
-        /// Where the recording's life stands (DecodeGraph.md section 4.4).
+        /// Where a recording's life stands (DecodeGraph.md section 4.4).
         enum class ReplayStage
         {
-            Unprimed,  ///< The next step is called, doing any lazy setup and touching every buffer.
-            Primed,    ///< The next step is recorded, then replayed.
-            Recorded,  ///< The next step checks a replay against the called step.
-            Verified   ///< Every step is replayed.
+            Unprimed,  ///< The next pass is called, doing any lazy setup and touching every buffer.
+            Primed,    ///< The next pass is recorded, then replayed.
+            Recorded,  ///< The next pass checks a replay against the called pass.
+            Verified   ///< Every pass is replayed.
         };
 
-        TensorType& decodeStep( IExecutionContext& context, const TokenIndexType& input, dim_t position )
+        /// One recorded pass: its launches, the input tensor they read and the output they write.
+        template<typename TOutput>
+        struct Recording
         {
-            if ( !decode_replay_ || context.hasActivationObserver() )
-                return onDecode( input, position );
+            std::unique_ptr<IDecodeRecording> recording;
+            const void* input{ nullptr };
+            std::unique_ptr<TOutput> output;
+            ReplayStage stage{ ReplayStage::Unprimed };
+        };
 
-            // The recording holds the input's address; a different input tensor needs a new one.
-            if ( decode_recording_ && input.rawData() != recorded_input_ )
-                discardDecodeRecording();
+        /// The recordings of one kind of pass, by its number of tokens.
+        template<typename TOutput>
+        struct PassReplay
+        {
+            std::string_view pass;
+            bool off{ false };
+            std::map<dim_t, Recording<TOutput>> recordings;
 
-            switch ( replay_stage_ )
+            void reset()
+            {
+                off = false;
+                recordings.clear();
+            }
+        };
+
+        /**
+         * `step` called or replayed, as the recording for its input's number of tokens stands. A recording holds the
+         * input's address, so a different input tensor of that number needs a new one; another number has its own.
+         * `prepare` puts in place what the pass reads that is not in the recording, and runs before every run of the
+         * pass, the self-check's two included, since a pass may overwrite it.
+         */
+        template<typename TOutput, typename TPrepare, typename TStep>
+        TOutput& replayed( PassReplay<TOutput>& replay, const TokenIndexType& input, TPrepare&& prepare, TStep&& step )
+        {
+            IExecutionContext& context = *this->getExecutionContext();
+
+            prepare();
+
+            if ( !replay_enabled_ || replay.off || context.hasActivationObserver() )
+                return step();
+
+            Recording<TOutput>& recording = replay.recordings[ input.shape()[ 1 ] ];
+
+            if ( recording.recording && input.rawData() != recording.input )
+                recording = Recording<TOutput>{};
+
+            switch ( recording.stage )
             {
                 case ReplayStage::Unprimed:
                 {
-                    TensorType& logits = onDecode( input, position );
-                    replay_stage_ = ReplayStage::Primed;
+                    TOutput& output = step();
+                    recording.stage = ReplayStage::Primed;
 
-                    return logits;
+                    return output;
                 }
 
                 case ReplayStage::Primed:
-                    return recordDecodeStep( context, input, position );
+                    return record( replay, recording, context, input, step );
 
                 case ReplayStage::Recorded:
-                    return checkDecodeRecording( context, input, position );
+                    return check( replay, recording, context, prepare, step );
 
                 case ReplayStage::Verified:
                 default:
-                    decode_recording_->replay();
+                    recording.recording->replay();
 
-                    return *recorded_logits_;
+                    return *recording.output;
             }
         }
 
-        TensorType& recordDecodeStep( IExecutionContext& context, const TokenIndexType& input, dim_t position )
+        template<typename TOutput, typename TStep>
+        TOutput& record( PassReplay<TOutput>& replay, Recording<TOutput>& recording, IExecutionContext& context,
+            const TokenIndexType& input, TStep& step )
         {
-            decode_recording_ = context.createDecodeRecording();
-            TensorType* logits = nullptr;
+            recording.recording = context.createDecodeRecording();
+            TOutput* output = nullptr;
 
-            if ( !decode_recording_
-                || !decode_recording_->record( [ & ] { logits = &onDecode( input, position ); } ) )
+            if ( !recording.recording || !recording.recording->record( [ & ] { output = &step(); } ) )
             {
-                turnOffDecodeReplay( "its decode step could not be recorded" );
+                turnOffReplay( replay, "it could not be recorded" );
 
-                return onDecode( input, position );
+                return step();
             }
 
-            // The recording outlives the step that made it: a later pass may run the head at another shape
+            // The recording outlives the pass that made it: a later pass may run the component at another shape
             // (a log-likelihood window), and the component's view then describes that. The network keeps its
-            // own description of the region the recording writes the logits to.
-            recorded_input_ = input.rawData();
-            recorded_logits_ = std::make_unique<TensorType>( logits->view( logits->shape() ) );
-            replay_stage_ = ReplayStage::Recorded;
+            // own description of the region the recording writes its output to.
+            recording.input = input.rawData();
+            recording.output = std::make_unique<TOutput>( output->view( output->shape() ) );
+            recording.stage = ReplayStage::Recorded;
 
-            decode_recording_->replay();
+            recording.recording->replay();
 
-            return *recorded_logits_;
+            return *recording.output;
         }
 
         /**
-         * The self-check (DecodeGraph.md section 5.1): the step called, then replayed at the same
+         * The self-check (DecodeGraph.md section 5.1): the pass called, then replayed at the same
          * position from the same state. Writing the same K and V to the same cache slot twice
          * leaves the cache as it was, and a recurrent state is put back between the two, so the
-         * replay sees what the called step saw and any difference is a value the recording froze.
+         * replay sees what the called pass saw and any difference is a value the recording froze.
          */
-        TensorType& checkDecodeRecording( IExecutionContext& context, const TokenIndexType& input, dim_t position )
+        template<typename TOutput, typename TPrepare, typename TStep>
+        TOutput& check( PassReplay<TOutput>& replay, Recording<TOutput>& recording, IExecutionContext& context,
+            TPrepare& prepare, TStep& step )
         {
             holdDecodeState();
 
-            TensorType& called = onDecode( input, position );
-            const std::vector<float> called_logits = hostLogits( called, context );
+            TOutput& called = step();
+            const std::vector<std::byte> called_bytes = hostBytes( called, context );
 
             restoreDecodeState();
-            decode_recording_->replay();
-            const std::vector<float> replayed_logits = hostLogits( *recorded_logits_, context );
+            prepare();
+            recording.recording->replay();
+            const std::vector<std::byte> replayed_bytes = hostBytes( *recording.output, context );
 
-            const bool identical = called.rawData() == recorded_logits_->rawData()
-                && called_logits.size() == replayed_logits.size()
-                && std::memcmp( called_logits.data(), replayed_logits.data(),
-                    called_logits.size() * sizeof( float ) ) == 0;
+            const bool identical = called.rawData() == recording.output->rawData() && called_bytes == replayed_bytes;
 
             if ( !identical )
             {
-                turnOffDecodeReplay( "a replayed decode step differed from the called one" );
+                turnOffReplay( replay, std::format( "a replayed {} differed from the called one", replay.pass ) );
 
-                // The replay overwrote the logits and advanced any recurrent state; the called step,
+                // The replay overwrote the output and advanced any recurrent state; the called pass,
                 // from the held state, writes both again.
                 restoreDecodeState();
                 releaseDecodeState();
+                prepare();
 
-                return onDecode( input, position );
+                return step();
             }
 
             releaseDecodeState();
-            replay_stage_ = ReplayStage::Verified;
+            recording.stage = ReplayStage::Verified;
 
             return called;
         }
 
-        std::vector<float> hostLogits( const TensorType& logits, IExecutionContext& context )
+        /// The tensor's values on the host: token ids as they are, anything else widened to FP32, which every
+        /// reduced-precision value converts to exactly, since the host holds no reduced-precision tensor.
+        template<TensorDataType TDataType>
+        std::vector<std::byte> hostBytes( const Tensor<TDataType, MR>& tensor, IExecutionContext& context )
         {
-            auto host = toHost<TensorDataType::FP32>( logits, &context );
+            constexpr TensorDataType kHostType = TDataType == TensorDataType::INT32 ? TensorDataType::INT32 : TensorDataType::FP32;
+
+            auto host = toHost<kHostType>( tensor, &context );
             context.synchronize();
 
-            return std::vector<float>( host.data(), host.data() + host.size() );
+            const auto* first = static_cast<const std::byte*>( host.rawData() );
+
+            return std::vector<std::byte>( first, first + host.size() * TensorDataTypeTraits<kHostType>::size_in_bytes );
         }
 
-        void turnOffDecodeReplay( std::string_view reason )
+        template<typename TOutput>
+        void turnOffReplay( PassReplay<TOutput>& replay, std::string_view reason )
         {
-            decode_replay_ = false;
-            discardDecodeRecording();
+            replay.off = true;
+            replay.recordings.clear();
 
-            Logging::Logger::warning( std::format(
-                "{}: decode replay is off for this network -- {}; every decode step is called", this->getName(), reason ) );
+            Logging::Logger::warning( std::format( "{}: replay of the {} is off for this network -- {}; every {} is called",
+                this->getName(), replay.pass, reason, replay.pass ) );
         }
 
         dim_t cached_length_{ 0 };
 
-        bool decode_replay_{ false };
-        ReplayStage replay_stage_{ ReplayStage::Unprimed };
-        std::unique_ptr<IDecodeRecording> decode_recording_;
-        const void* recorded_input_{ nullptr };
-        std::unique_ptr<TensorType> recorded_logits_;
+        bool replay_enabled_{ false };
+        PassReplay<TensorType> decode_replay_{ "decode step" };
+        PassReplay<TensorType> decode_tokens_replay_{ "multi-token decode" };
+        PassReplay<TokenIndexType> draft_replay_{ "draft" };
     };
 }

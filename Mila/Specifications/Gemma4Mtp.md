@@ -202,6 +202,21 @@ one is kept with `p(argmax q)`; neither bounds the other, and sampling-aware dra
 top-k there. So the draft stays greedy; sampling it would need the drafter's logits kept per step and a residual
 draw from `max(0, p - q)`.
 
+**Re-measured 2026-10-05 at Google's own sampling** -- temperature 1.0, top-k 64, top-p 0.95, from every Gemma 4
+`generation_config.json`, drafters included; the settings above were Chat's, which no publisher uses (`BACKLOG.md`,
+Model Handle). Both arms on the same positions, `p` and `q` at the same settings (`Tools/Drafting acceptance
+--positions 512`, files `D:\Claude\drafting\google_sampling`):
+
+| Prompt | Greedy draft, `p(argmax q)` | Sampled draft, `sum min(p, q)` | Same at Chat's 0.8 / 40 |
+|---|---|---|---|
+| prose | 0.572 | 0.601 | 0.579 / 0.604 |
+| code | 0.712 | 0.747 | 0.721 / 0.750 |
+| chat | 0.782 | 0.803 | 0.784 / 0.802 |
+
+A sampled first draft would be kept 0.02 to 0.035 more often at Google's settings, about what it gains at Chat's: top-p
+0.95 trims the tail the higher temperature adds. The decision stands on first-draft evidence; drafts 2 to K, where the
+two chains drift apart, are not measured.
+
 ### 4.5 Rewind and the sliding ring
 
 The rewind is short and always safe. A sliding ring holds `window + prefill_chunk - 1` rows
@@ -318,8 +333,8 @@ bank's union and its measured cost on the 26B-A4B; (6) the loop, greedy, then sa
 capacity a deployment selecting the drafter raises to K + 1; it reaches the build as `BuildContext::withDecodeTokens`
 and sizes the head's logit rows, attention's decode output and the decode split scratch, so it is priced and reserved
 with everything else, and an attention op refuses a decode call of more tokens than it was built for. The routed
-feed-forward (26B-A4B) refuses until step 5; Llama and Qwen refuse (a family without one). `decodeTokens` is called,
-never replayed: a decode recording holds one token's launches, and the verify's own recording is the loop's (step 6).
+feed-forward (26B-A4B) refuses until step 5; Llama and Qwen refuse (a family without one). `decodeTokens` has
+recordings of its own, one for each number of tokens (6b-2, below; `DecodeGraph.md` 4.7).
 Gate (`Tests/Dnn/Models/DecodeTokens.Cuda.cpp`, the seeded tiny Gemma, BF16): five tokens in one call against five
 decodes differ by 5.0e-2 of the logits' RMS on a 150-token prompt, against 3.8e-2 for a prefill of the same tokens --
 the network carries any summation-order change that far -- and the next decode after the call is bit-identical, so
@@ -360,11 +375,10 @@ Acceptance in the loop is below stage 1's at the same K (chat K = 4: 2.12 agains
 Stage 1 drafted from every position of a plain run; the loop drafts only from the positions it lands on. Not yet
 explained further.
 
-**The verify costs 1.19 to 1.23 decodes, not 1.0**, flat from 2 to 6 rows: it is called while the decode beside it is
-replayed. A called decode costs 1.12 of a replayed one (21.4 ms against 19.0 at 1.5K), so about 2.4 ms of the verify's
-3.6 ms over a decode is launch gaps, and its rows cost 1.07 called decodes. The draft step is called too. Recording the
-verify and the draft steps (4.6, 4.7 "Replay") is the next term; with the verify at 1.07 decodes and the draft step
-unchanged, section 3 gives chat 2.0x, code 1.8x, prose 1.5x (derived, not measured).
+**Called, the verify cost 1.19 to 1.23 decodes, not 1.0**, flat from 2 to 6 rows, beside a replayed decode. A called
+decode costs 1.12 of a replayed one (21.4 ms against 19.0 at 1.5K), so about 2.4 ms of the verify's 3.6 ms over a
+decode was launch gaps, and its rows cost 1.07 called decodes. With the verify at 1.07 decodes and the draft step
+unchanged, section 3 gave chat 2.0x, code 1.8x, prose 1.5x; replaying both (6b-2, below) measured that.
 
 **The loop in the library -- built 2026-10-05 (6b-1).** A deployment selects the drafter with
 `DeploymentRequest::withSpeculativeDecode( draft_model, draft_tokens )`, K from 1 to 7 and required: the best K
@@ -379,7 +393,9 @@ sampler at every row (4.4); `GemmaModel::generate` runs it whenever the plan sel
 op is created at the first draft, as the model's own sampler is at its first token, so its vocabulary-wide scratch
 (about 1 MB) is outside the footprint like the sampler's. Llama and Qwen refuse the request; so does the 26B-A4B
 until its expert bank decodes several tokens (step 5). Greedy generation of 256 tokens through `GemmaModel` with the
-drafter equals it without (the same test file, the 12B). Through `GemmaModel::generate` (`Tools/Drafting generate`,
+drafter equals it without on the RTX 5060 Ti (the same test file, the 12B); on the RTX 4070 the reply parts at token
+104, where the plain run's top two logits are 29.125 and 28.75 -- a near-tie that card's arithmetic rounds the other
+way, measured the same before and after 6b-2. Through `GemmaModel::generate` (`Tools/Drafting generate`,
 512 tokens, median of 3, context 3072): chat 1.81x at K = 5, code 1.70x at K = 4, prose 1.39x at K = 2 -- the tool's
 loop's rates within the spread the replies' own partings cause. Chat parts from plain at token 16 for K = 2 to 4
 but not at K = 5, so at that token the drafted runs differ among themselves: a near-tie the orders round
@@ -400,6 +416,36 @@ Through `GemmaModel::generate`:
 
 The tool's loop predicts its own sampled rounds within 1 to 10% (section 3, each run's acceptance); the wider
 cells are where a run's acceptance moves between runs, since each run samples another reply.
+
+**The round replayed -- measured 2026-10-05 (6b-2).** The draft and the verify replay as decode does
+(`DecodeGraph.md` 4.7): each with one recording for each number of tokens, the draft's hidden row put in place
+before every run, outside the recording. The replayed passes are bit-identical to the same passes called: the tiny
+Gemma's rounds (`ReplayedRoundsEqualCalledRounds`, mutation-checked by moving the row into the recording, which the
+self-check turns off) and the 12B's 256 greedy tokens. The verify now costs **1.07 to 1.10 decodes** from 2 to 6 rows
+(`Tools/Drafting speculate`, 1.5K deep), against 1.19 to 1.23 called. Through `GemmaModel::generate` (the same
+prompts and settings as above; files `D:\Claude\drafting\speculate6b2`):
+
+| Prompt | Greedy, best K | Greedy before | Sampled, best K | Sampled before |
+|---|---|---|---|---|
+| chat | 2.00x (K = 5; 1.96x at 3) | 1.81x | 1.91x (K = 3) | 1.65x |
+| code | 1.87x (K = 4) | 1.70x | 1.71x (K = 2 to 4) | 1.58x |
+| prose | 1.53x (K = 2) | 1.39x | 1.48x (K = 2) | 1.31x |
+
+The derived 2.0x, 1.8x and 1.5x hold. The tool's own loop, whose draft steps are still called, is 5 to 7% slower per
+token than the library at each prompt's best K; the two loops are otherwise the same round, so that is what replaying
+the draft is worth. What is left over a
+round's priced parts in that loop -- the host's one wait, the argmax of each row, and the round's own launches -- is
+0.2 to 0.5 ms on prose and code and 0.5 to 0.8 ms on chat, of a 25 to 33 ms round: 1 to 2.5%. That bounds what a
+round with no host wait in it can still gain on time.
+
+**Sampled at Google's settings** (temperature 1.0, top-k 64, top-p 0.95; the table's sampled columns used Chat's 0.8
+/ 40, which no publisher uses). Through `GemmaModel::generate`: chat 1.84x (K = 4), code 1.76x (K = 4), prose 1.40x
+(K = 2 and 3). The rule's gate holds in all twelve cells of the tool's loop, within two standard errors, but the three
+largest gaps all fall below the expected (code K = 2, 0.686 against 0.717 +- 0.016; chat K = 2 and 3, 0.730 and 0.726
+against 0.759 and 0.753): the device's top-p threshold is found by histogram refinement and the tool's model of it is
+exact, a difference not yet shown to be the cause. Sampling every row costs here: a sampled round runs 1 to 2.5 ms
+over its priced parts on chat and code, against 0.2 to 0.8 greedy, the top-k and top-p passes running once per row in
+launches of their own.
 
 ## 5. Gates
 

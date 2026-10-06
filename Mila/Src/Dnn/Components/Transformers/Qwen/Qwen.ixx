@@ -509,7 +509,7 @@ namespace Mila::Dnn
                 block->resetKvCache();
 
             this->setCachedLength( 0 );
-            this->discardDecodeRecording();
+            this->discardDecodeRecordings();
         }
 
         // ====================================================================

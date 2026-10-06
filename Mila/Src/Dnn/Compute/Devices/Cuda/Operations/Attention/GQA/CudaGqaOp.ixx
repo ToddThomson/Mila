@@ -852,11 +852,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 attention_scale_, stream );
         }
 
-        /**
-         * The tokens of a decode call -- one, or a few in a row from the decode position (Gemma4Mtp.md 4.7) -- after
-         * checking that the last of them is inside the cache and, on the ring, that writing them evicts no key the
-         * first still attends.
-         */
         /// Whether the BF16 cache decodes through the fused kernel: switched on, and a geometry it serves.
         bool fusedDecodeRuns() const
         {
@@ -866,6 +861,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 return false;
         }
 
+        /**
+         * The tokens of a decode call -- one, or a few in a row from the decode position (Gemma4Mtp.md 4.7) -- after
+         * checking that the last of them is inside the cache and, on the ring, that writing them evicts no key the
+         * first still attends.
+         */
         int decodeTokenCount( const ITensor& q, int position ) const
         {
             const int rows = static_cast<int>( q.shape()[ 1 ] );

@@ -1,6 +1,6 @@
 /**
  * @file DecodeHarness.h
- * @brief Decode steps driven the way a model drives them: one persistent token tensor, and a count of called steps.
+ * @brief Decode steps driven the way a model drives them: one persistent token tensor, and a count of called passes.
  *
  * A decode recording holds its input tensor's address, so a caller that makes a new token tensor every step is
  * recorded again every step and never replays; the models keep one, and so does a test. The count of called steps
@@ -14,11 +14,12 @@
 namespace Mila::Tests::Common
 {
     /**
-     * @brief `TNetwork` with a count of the decode steps that ran called rather than replayed.
+     * @brief `TNetwork` with a count of the decode passes that ran called rather than replayed: decode steps,
+     *        multi-token decodes and drafts.
      *
-     * A replayed step never enters onDecode, so a run of any length with replay on calls it exactly three times --
-     * the priming step, the recorded one, and the self-check -- and more only when the recording was discarded or
-     * turned off.
+     * A replayed pass never enters its family's method, so a run of any length with replay on calls it exactly three
+     * times for each recording -- the priming pass, the recorded one, and the self-check -- and more only when the
+     * recording was discarded or turned off.
      */
     template<typename TNetwork>
     class CountedDecodeNetwork : public TNetwork
@@ -31,6 +32,16 @@ namespace Mila::Tests::Common
             return called_decode_steps_;
         }
 
+        [[nodiscard]] int calledDecodeTokens() const noexcept
+        {
+            return called_decode_tokens_;
+        }
+
+        [[nodiscard]] int calledDrafts() const noexcept
+        {
+            return called_drafts_;
+        }
+
     protected:
         typename TNetwork::TensorType& onDecode(
             const typename TNetwork::TokenIndexType& input, Mila::Dnn::dim_t position ) override
@@ -40,8 +51,25 @@ namespace Mila::Tests::Common
             return TNetwork::onDecode( input, position );
         }
 
+        typename TNetwork::TensorType& onDecodeTokens(
+            const typename TNetwork::TokenIndexType& input, Mila::Dnn::dim_t position ) override
+        {
+            ++called_decode_tokens_;
+
+            return TNetwork::onDecodeTokens( input, position );
+        }
+
+        void onDraftTokens( typename TNetwork::TokenIndexType& tokens, Mila::Dnn::dim_t position ) override
+        {
+            ++called_drafts_;
+
+            TNetwork::onDraftTokens( tokens, position );
+        }
+
     private:
         int called_decode_steps_{ 0 };
+        int called_decode_tokens_{ 0 };
+        int called_drafts_{ 0 };
     };
 
     /// The [1, 1] device token tensor a network decodes from, written in place each step.

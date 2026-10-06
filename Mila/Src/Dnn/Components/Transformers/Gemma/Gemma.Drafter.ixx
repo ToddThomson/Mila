@@ -144,19 +144,36 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief One draft step at the context's decode position `position`.
+         * @brief Start a draft from the target's final-normed hidden state at the position before the first step's.
+         *
+         * The next decode() reads it, and each decode() leaves its own next hidden state where the step after it
+         * reads, so a draft's steps take no hidden state of their own and read it from one place.
+         *
+         * @param hidden [1, 1, target_model_dim].
+         */
+        void startFrom( const TensorType& hidden )
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error( "GemmaDrafter::startFrom: must be built before startFrom()." );
+
+            auto hidden_half = input_->view( shape_t{ 1, 1, target_model_dim_ }, target_model_dim_ );
+
+            copy( hidden, hidden_half, this->getExecutionContext() );
+        }
+
+        /**
+         * @brief One draft step at the context's decode position `position`, from the hidden state startFrom() or
+         *        the step before left.
          *
          * @param embedding  The target's token embedding of the last token, [1, 1, target_model_dim], scaled as the
          *                   target scales it.
-         * @param hidden     The target's final-normed hidden state at the position before, or the previous draft
-         *                   step's nextHidden(), [1, 1, target_model_dim].
          * @param position   The context's decode position: where the target's chosen token sits, unprocessed.
          * @param sliding    The target's last sliding layer's cache.
          * @param global     The target's last global layer's cache.
-         * @return Logits [1, 1, vocab]; nextHidden() then holds the hidden state the next step reads.
+         * @return Logits [1, 1, vocab].
          */
-        TensorType& decode( const TensorType& embedding, const TensorType& hidden, dim_t position,
-            const KvCacheView& sliding, const KvCacheView& global )
+        TensorType& decode( const TensorType& embedding, dim_t position, const KvCacheView& sliding,
+            const KvCacheView& global )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaDrafter::decode: must be built before decode()." );
@@ -165,7 +182,6 @@ namespace Mila::Dnn
             auto hidden_half = input_->view( shape_t{ 1, 1, target_model_dim_ }, target_model_dim_ );
 
             copy( embedding, embedding_half, this->getExecutionContext() );
-            copy( hidden, hidden_half, this->getExecutionContext() );
 
             TensorType* x = &pre_projection_->forward( *input_ );
 
@@ -177,11 +193,12 @@ namespace Mila::Dnn
             auto& normed = final_norm_->forward( *x );
 
             next_hidden_ = &post_projection_->forward( normed );
+            copy( *next_hidden_, hidden_half, this->getExecutionContext() );
 
             return head_->forward( normed );
         }
 
-        /// The hidden state the last decode() produced for the next step, [1, 1, target_model_dim].
+        /// The hidden state the last decode() produced, which the next decode() reads, [1, 1, target_model_dim].
         const TensorType& nextHidden() const
         {
             if ( next_hidden_ == nullptr )

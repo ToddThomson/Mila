@@ -82,7 +82,10 @@ namespace Mila::Tools::Drafting
         int decode_steps{ 64 };
         int prompt_tokens{ 1536 };
         int positions{ 256 };
+        // Chat's sampling (Chat.Config.ixx) by default; Google's generation_config.json for Gemma 4 is 1.0, 64, 0.95.
         float temperature{ 0.8f };
+        int top_k{ 40 };
+        float top_p{ 1.0f };
         std::vector<int> drafts{ 2, 3, 4, 5 };
         int tokens{ 512 };
         int runs{ 3 };
@@ -118,13 +121,17 @@ namespace Mila::Tools::Drafting
             << "  Prompts: PG-19 prose, a C++ source file, and a chat question in Gemma's template.\n"
             << "  --positions     Rounds per prompt. Default: 256.\n"
             << "  --prompt-tokens Prose and code prompt length. Default: 1536.\n"
-            << "  --temperature   For the first draft's sampled acceptance, sum min(p, q). Default: 0.8.\n"
+            << "  --temperature, --top-k, --top-p\n"
+            << "                  The sampling the first draft's acceptance is measured at: the greedy draft's p(argmax q)\n"
+            << "                  and a sampled draft's sum min(p, q), p and q both at these settings. Defaults: 0.8, 40, 1\n"
+            << "                  (Chat's); Google's for Gemma 4 are 1.0, 64, 0.95.\n"
             << "  --kv-cache      bf16 | fp8 (the target's global layers). Default: bf16.\n"
             << "\n"
             << "Drafting speculate [options]\n"
             << "  Greedy decoding with the drafter against greedy decoding without it, on the acceptance prompts: each\n"
             << "  round drafts K tokens, verifies them in one multi-token decode and keeps the agreed prefix.\n"
             << "  --drafts        Comma-separated K, each 1 to 7. Default: 2,3,4,5.\n"
+            << "  --sample        Sample at --temperature, --top-k and --top-p instead of decoding greedily.\n"
             << "  --tokens        Tokens generated after the prompt's first. Default: 512.\n"
             << "  --runs          Timed runs per cell; the median is reported. Default: 3.\n"
             << "  --prompt-tokens Prose and code prompt length. Default: 1536.\n"
@@ -250,6 +257,18 @@ namespace Mila::Tools::Drafting
 
                 if ( status.ec != std::errc{} || options.temperature <= 0.0f )
                     throw std::invalid_argument( std::format( "--temperature expects a positive number, got '{}'", text ) );
+            }
+            else if ( arg == "--top-k" )
+            {
+                options.top_k = parseInt( value(), "--top-k" );
+            }
+            else if ( arg == "--top-p" )
+            {
+                const std::string_view text = value();
+                const auto status = std::from_chars( text.data(), text.data() + text.size(), options.top_p );
+
+                if ( status.ec != std::errc{} || options.top_p <= 0.0f || options.top_p > 1.0f )
+                    throw std::invalid_argument( std::format( "--top-p expects a number in (0, 1], got '{}'", text ) );
             }
             else if ( arg == "--target" )
             {
@@ -555,6 +574,7 @@ namespace Mila::Tools::Drafting
 
         std::vector<std::int32_t> drafts;
         const auto* hidden = &network->finalNormedHidden();
+        drafter->startFrom( *hidden );
 
         for ( int step = 0; step < options.max_draft; ++step )
         {
@@ -564,7 +584,7 @@ namespace Mila::Tools::Drafting
             writeTensor( options.output / std::format( "embedding_{}.f32", step ), embedding, context );
             writeTensor( options.output / std::format( "hidden_{}.f32", step ), *hidden, context );
 
-            auto& logits = drafter->decode( embedding, *hidden, prompt_length, sliding, global );
+            auto& logits = drafter->decode( embedding, prompt_length, sliding, global );
 
             const std::vector<float> host_logits = Measurement::hostLogits( *network, logits );
             writeFile( options.output / std::format( "logits_{}.f32", step ), host_logits.data(), host_logits.size() * sizeof( float ) );
@@ -683,9 +703,84 @@ namespace Mila::Tools::Drafting
         return probabilities;
     }
 
+    /**
+     * @brief The distribution the device sampler draws from: the cap, the temperature, the top_k largest kept, then the
+     *        top_p nucleus of those.
+     *
+     * Greedy puts all of it on the argmax. The device's top-k threshold is found by search rather than exactly, so
+     * the two can differ at a tie on the threshold.
+     */
+    std::vector<double> samplerDistribution( const std::vector<float>& logits, const SamplingParams& sampling, float softcap )
+    {
+        if ( sampling.temperature <= 0.0f || sampling.top_k == 1 )
+        {
+            std::vector<double> point( logits.size(), 0.0 );
+            point[ static_cast<std::size_t>( Measurement::argMax( logits ) ) ] = 1.0;
+
+            return point;
+        }
+
+        std::vector<double> probabilities = distribution( logits, sampling.temperature, softcap );
+
+        if ( sampling.top_k > 0 && static_cast<std::size_t>( sampling.top_k ) < probabilities.size() )
+        {
+            std::vector<double> ordered( probabilities );
+            std::nth_element( ordered.begin(), ordered.begin() + ( sampling.top_k - 1 ), ordered.end(), std::greater<double>() );
+            const double threshold = ordered[ static_cast<std::size_t>( sampling.top_k - 1 ) ];
+            double total = 0.0;
+
+            for ( double& value : probabilities )
+            {
+                value = value < threshold ? 0.0 : value;
+                total += value;
+            }
+
+            for ( double& value : probabilities )
+                value /= total;
+        }
+
+        // The nucleus over what top-k kept: the smallest top set whose mass reaches top_p, the boundary value kept.
+        if ( sampling.top_p < 1.0f )
+        {
+            std::vector<double> ordered( probabilities );
+            std::sort( ordered.begin(), ordered.end(), std::greater<double>() );
+
+            double mass = 0.0;
+            double threshold = ordered.front();
+
+            for ( double value : ordered )
+            {
+                threshold = value;
+                mass += value;
+
+                if ( mass >= sampling.top_p )
+                    break;
+            }
+
+            double total = 0.0;
+
+            for ( double& value : probabilities )
+            {
+                value = value < threshold ? 0.0 : value;
+                total += value;
+            }
+
+            for ( double& value : probabilities )
+                value /= total;
+        }
+
+        return probabilities;
+    }
+
+    std::string describeSampling( const Options& options )
+    {
+        return std::format( "temperature {}, top-k {}, top-p {}", options.temperature, options.top_k, options.top_p );
+    }
+
     struct AcceptanceResult
     {
         std::vector<int> accepted;          // per round, at the longest K
+        std::vector<double> first_greedy;   // per round, p(argmax q) for the first draft
         std::vector<double> first_sampled;  // per round, sum min(p, q) for the first draft
         std::vector<std::int32_t> continuation;
     };
@@ -706,7 +801,7 @@ namespace Mila::Tools::Drafting
      */
     template<typename TNetwork>
     AcceptanceResult measureAcceptance( TNetwork& network, GemmaDrafterCuda& drafter, const std::vector<std::int32_t>& prompt,
-        int rounds, int max_draft, float temperature, float softcap )
+        int rounds, int max_draft, const SamplingParams& sampling, float softcap )
     {
         IExecutionContext* context = network.getExecutionContext();
         const KvCacheView sliding = network.lastSlidingLayerCache();
@@ -734,18 +829,18 @@ namespace Mila::Tools::Drafting
                 context->setDecodePosition( position );
 
                 std::int32_t token = target.back();
-                const auto* hidden = &network.finalNormedHidden();
                 std::vector<std::int32_t> chain;
+
+                drafter.startFrom( network.finalNormedRow( 0 ) );
 
                 for ( int step = 0; step < max_draft; ++step )
                 {
                     auto& embedding = network.embed( Measurement::deviceTokens( network, { token } ) );
                     std::vector<float> logits = Measurement::hostLogits( network,
-                        drafter.decode( embedding, *hidden, position, sliding, global ) );
+                        drafter.decode( embedding, position, sliding, global ) );
 
                     token = Measurement::argMax( logits );
                     chain.push_back( token );
-                    hidden = &drafter.nextHidden();
 
                     if ( step == 0 )
                         first_draft_logits = std::move( logits );
@@ -759,13 +854,14 @@ namespace Mila::Tools::Drafting
 
             if ( round < rounds )
             {
-                const auto p = distribution( target_logits, temperature, softcap );
-                const auto q = distribution( first_draft_logits, temperature, 0.0f );
+                const auto p = samplerDistribution( target_logits, sampling, softcap );
+                const auto q = samplerDistribution( first_draft_logits, sampling, 0.0f );
                 double overlap = 0.0;
 
                 for ( std::size_t i = 0; i < p.size(); ++i )
                     overlap += std::min( p[ i ], q[ i ] );
 
+                result.first_greedy.push_back( p[ static_cast<std::size_t>( Measurement::argMax( first_draft_logits ) ) ] );
                 result.first_sampled.push_back( overlap );
             }
 
@@ -782,6 +878,7 @@ namespace Mila::Tools::Drafting
             result.accepted.push_back( accepted );
         }
 
+        result.first_greedy.resize( static_cast<std::size_t>( rounds ) );
         result.first_sampled.resize( static_cast<std::size_t>( rounds ) );
         result.continuation.assign( target.begin(), target.begin() + rounds );
 
@@ -802,14 +899,14 @@ namespace Mila::Tools::Drafting
 
         network.getExecutionContext()->setDecodePosition( position );
         auto& embedding = network.embed( token );
-        const auto& hidden = network.finalNormedHidden();
 
-        drafter.decode( embedding, hidden, position, sliding, global );
+        drafter.startFrom( network.finalNormedRow( 0 ) );
+        drafter.decode( embedding, position, sliding, global );
 
         const double draft_ms = timedMilliseconds( network, [&]
         {
             for ( int step = 0; step < steps; ++step )
-                drafter.decode( embedding, hidden, position, sliding, global );
+                drafter.decode( embedding, position, sliding, global );
         } ) / steps;
 
         requireRewind( network, position );
@@ -850,18 +947,20 @@ namespace Mila::Tools::Drafting
 
         const float softcap = target_config.getFinalLogitSoftcapping();
 
-        std::cout << std::format( "weights {}\ndrafter {}\ncache {}, {} rounds per prompt, temperature {} for the first "
-            "draft's sampled acceptance\n\n", options.weights.string(), options.drafter.string(),
-            options.fp8_cache ? "FP8 global layers" : "BF16", options.positions, options.temperature );
+        std::cout << std::format( "weights {}\ndrafter {}\ncache {}, {} rounds per prompt, first draft's acceptance at {}\n\n",
+            options.weights.string(), options.drafter.string(), options.fp8_cache ? "FP8 global layers" : "BF16",
+            options.positions, describeSampling( options ) );
 
-        std::cout << "| prompt | tokens | rounds | E[accepted], K = 1..8 | first draft, sampled |\n|---|---|---|---|---|\n";
+        std::cout << "| prompt | tokens | rounds | E[accepted], K = 1..8 | first draft greedy, p(argmax q) | first draft "
+            "sampled, sum min(p, q) |\n|---|---|---|---|---|---|\n";
 
         std::vector<std::pair<std::string, std::vector<std::int32_t>>> continuations;
 
         for ( const auto& prompt : prompts )
         {
             const AcceptanceResult result = measureAcceptance( *network, *drafter, prompt.tokens,
-                options.positions, options.max_draft, options.temperature, softcap );
+                options.positions, options.max_draft, SamplingParams{ options.temperature, options.top_k, options.top_p },
+                softcap );
 
             std::string by_draft;
 
@@ -875,13 +974,17 @@ namespace Mila::Tools::Drafting
                 by_draft += std::format( "{}{:.2f}", k == 1 ? "" : " / ", total / result.accepted.size() );
             }
 
+            double greedy = 0.0;
             double sampled = 0.0;
+
+            for ( double value : result.first_greedy )
+                greedy += value;
 
             for ( double value : result.first_sampled )
                 sampled += value;
 
-            std::cout << std::format( "| {} | {} | {} | {} | {:.3f} |\n", prompt.name, prompt.tokens.size(),
-                result.accepted.size(), by_draft, sampled / result.first_sampled.size() );
+            std::cout << std::format( "| {} | {} | {} | {} | {:.3f} | {:.3f} |\n", prompt.name, prompt.tokens.size(),
+                result.accepted.size(), by_draft, greedy / result.first_greedy.size(), sampled / result.first_sampled.size() );
 
             continuations.push_back( { prompt.name, result.continuation } );
         }
@@ -906,48 +1009,10 @@ namespace Mila::Tools::Drafting
 
     const SamplingParams kGreedy{ 0.0f, 1, 1.0f };
 
-    /**
-     * @brief The distribution the device sampler draws from: the cap, the temperature, then the top_k largest kept.
-     *
-     * Greedy puts all of it on the argmax. The device's top-k threshold is found by search rather than exactly, so
-     * the two can differ at a tie on the threshold.
-     */
-    std::vector<double> samplerDistribution( const std::vector<float>& logits, const SamplingParams& sampling, float softcap )
-    {
-        if ( sampling.temperature <= 0.0f || sampling.top_k == 1 )
-        {
-            std::vector<double> point( logits.size(), 0.0 );
-            point[ static_cast<std::size_t>( Measurement::argMax( logits ) ) ] = 1.0;
-
-            return point;
-        }
-
-        std::vector<double> probabilities = distribution( logits, sampling.temperature, softcap );
-
-        if ( sampling.top_k > 0 && static_cast<std::size_t>( sampling.top_k ) < probabilities.size() )
-        {
-            std::vector<double> ordered( probabilities );
-            std::nth_element( ordered.begin(), ordered.begin() + ( sampling.top_k - 1 ), ordered.end(), std::greater<double>() );
-            const double threshold = ordered[ static_cast<std::size_t>( sampling.top_k - 1 ) ];
-            double total = 0.0;
-
-            for ( double& value : probabilities )
-            {
-                value = value < threshold ? 0.0 : value;
-                total += value;
-            }
-
-            for ( double& value : probabilities )
-                value /= total;
-        }
-
-        return probabilities;
-    }
-
-    /// Chat's default sampling (Chat.Config.ixx) at --temperature, or greedy.
+    /// The sampling at --temperature, --top-k and --top-p, or greedy.
     SamplingParams samplingOf( const Options& options )
     {
-        return options.sample ? SamplingParams{ options.temperature, 40, 1.0f } : kGreedy;
+        return options.sample ? SamplingParams{ options.temperature, options.top_k, options.top_p } : kGreedy;
     }
 
     /// One element of a device token sequence, as the [1, 1] tensor a pass reads or a sampler writes.
@@ -1028,8 +1093,7 @@ namespace Mila::Tools::Drafting
      */
     template<typename TNetwork>
     Generation speculativeDecode( TNetwork& network, GemmaDrafterCuda& drafter, SamplerCuda& sampler,
-        const SamplingParams& sampling, const std::vector<std::int32_t>& prompt, int tokens, int draft, dim_t model_dim,
-        dim_t vocabulary, float softcap = 0.0f, std::vector<double>* first_draft_probability = nullptr )
+        const SamplingParams& sampling, const std::vector<std::int32_t>& prompt, int tokens, int draft, dim_t vocabulary, float softcap = 0.0f, std::vector<double>* first_draft_probability = nullptr )
     {
         IExecutionContext* context = network.getExecutionContext();
         const KvCacheView sliding = network.lastSlidingLayerCache();
@@ -1050,25 +1114,23 @@ namespace Mila::Tools::Drafting
 
         dim_t position = static_cast<dim_t>( prompt.size() );
 
-        // The target's final-normed hidden state at p - 1: the prefill's last row, then the row of the last token kept.
-        auto hidden = network.finalNormedHidden().view( shape_t{ 1, 1, model_dim }, 0 );
+        // The row of the target's final-normed hidden state at p - 1: the prefill's last, then the last token kept's.
+        dim_t hidden_row = 0;
 
         const auto start = std::chrono::steady_clock::now();
 
         while ( static_cast<int>( result.tokens.size() ) <= tokens )
         {
             context->setDecodePosition( position );
-
-            const auto* step_hidden = &hidden;
+            drafter.startFrom( network.finalNormedRow( hidden_row ) );
 
             for ( dim_t k = 0; k < draft; ++k )
             {
                 auto& embedding = network.embed( tokenSlot( verify, k ) );
-                auto& logits = drafter.decode( embedding, *step_hidden, position, sliding, global );
+                auto& logits = drafter.decode( embedding, position, sliding, global );
 
                 auto next = tokenSlot( verify, k + 1 );
                 sampler.enqueueSampleOnDevice( logits, next, kGreedy );
-                step_hidden = &drafter.nextHidden();
             }
 
             auto& logits = network.decodeTokens( verify, position );
@@ -1110,7 +1172,7 @@ namespace Mila::Tools::Drafting
 
             auto bonus = tokenSlot( chosen, accepted );
             copy( bonus, head, context );
-            hidden = network.finalNormedHidden().view( shape_t{ 1, 1, model_dim }, accepted * model_dim );
+            hidden_row = accepted;
         }
 
         context->synchronize();
@@ -1123,7 +1185,7 @@ namespace Mila::Tools::Drafting
     struct StepCosts
     {
         double decode_ms{ 0.0 };
-        double called_decode_ms{ 0.0 };  // the same step called instead of replayed, as decodeTokens is
+        double called_decode_ms{ 0.0 };  // the same step called instead of replayed
         double draft_ms{ 0.0 };
         std::vector<double> verify_ms;  // indexed by rows, 2 to 8
     };
@@ -1143,13 +1205,13 @@ namespace Mila::Tools::Drafting
 
         context->setDecodePosition( start );
         auto& embedding = network.embed( decode_token );
-        const auto& hidden = network.finalNormedHidden();
 
-        drafter.decode( embedding, hidden, start, sliding, global );
+        drafter.startFrom( network.finalNormedRow( 0 ) );
+        drafter.decode( embedding, start, sliding, global );
         costs.draft_ms = timedMilliseconds( network, [&]
         {
             for ( int step = 0; step < 64; ++step )
-                drafter.decode( embedding, hidden, start, sliding, global );
+                drafter.decode( embedding, start, sliding, global );
         } ) / 64;
 
         decodeMilliseconds( network, decode_token, start, 4 );
@@ -1329,7 +1391,6 @@ namespace Mila::Tools::Drafting
             .withAllocationGranularity( allocationGranularity( kDevice ) ) );
         drafter->loadParameters( drafter_reader );
 
-        const dim_t model_dim = target_config.getModelDim();
         const dim_t vocabulary = target_config.getVocabSize();
 
         SamplerCuda sampler( network->getExecutionContext(), SamplingConfig{}
@@ -1345,7 +1406,7 @@ namespace Mila::Tools::Drafting
         std::cout << std::format( "weights {}\ndrafter {}\ncache {}, {} tokens after the prompt's first, median of {} runs, {}\n",
             options.weights.string(), options.drafter.string(), options.fp8_cache ? "FP8 global layers" : "BF16",
             options.tokens, options.runs, options.sample
-                ? std::format( "sampled at temperature {}, top-k 40", options.temperature ) : std::string( "greedy" ) );
+                ? "sampled at " + describeSampling( options ) : std::string( "greedy" ) );
 
         for ( const auto& prompt : prompts )
         {
@@ -1398,7 +1459,7 @@ namespace Mila::Tools::Drafting
                 for ( int run = 0; run < options.runs; ++run )
                 {
                     runs.push_back( speculativeDecode( *network, *drafter, sampler, sampling, prompt.tokens, options.tokens,
-                        draft, model_dim, vocabulary ) );
+                        draft, vocabulary ) );
                     ms.push_back( runs.back().milliseconds );
                 }
 
@@ -1425,7 +1486,7 @@ namespace Mila::Tools::Drafting
                     // model's own sampler, so the kept fraction must match the mean of p within its standard error.
                     std::vector<double> probability;
                     const Generation checked = speculativeDecode( *network, *drafter, sampler, sampling, prompt.tokens,
-                        options.tokens, draft, model_dim, vocabulary, softcap, &probability );
+                        options.tokens, draft, vocabulary, softcap, &probability );
 
                     double kept = 0.0;
                     double expected = 0.0;
@@ -1531,7 +1592,7 @@ namespace Mila::Tools::Drafting
         std::cout << std::format( "weights {}\ndrafter {}\ncontext {}, {} tokens after the first, median of {} runs, {}, "
             "through GemmaModel::generate\n\n| prompt | K | ms/token | speedup | same tokens as plain |\n|---|---|---|---|---|\n",
             options.weights.string(), options.drafter.string(), context_length, options.tokens, options.runs,
-            options.sample ? std::format( "sampled at temperature {}, top-k 40", options.temperature ) : std::string( "greedy" ) );
+            options.sample ? "sampled at " + describeSampling( options ) : std::string( "greedy" ) );
 
         std::vector<LibraryRun> plain;
 

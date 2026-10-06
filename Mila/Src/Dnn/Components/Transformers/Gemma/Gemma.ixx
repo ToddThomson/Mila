@@ -314,17 +314,10 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * The draft model's steps (Gemma4Mtp.md 2.2): every step at `position`, the first from the target's
-         * final-normed hidden state at `hidden_row`, each later one from the step before; each token its argmax, on
-         * the device, into the slot the next step embeds. The target's caches are read, never written.
-         */
-        void onDraftTokens( TokenIndexType& tokens, dim_t position, dim_t hidden_row ) override
+        void onDraftFrom( dim_t hidden_row ) override
         {
             if constexpr ( !kDraftModelRuns )
             {
-                ( void )tokens;
-                ( void )position;
                 ( void )hidden_row;
 
                 throw std::logic_error( "GemmaTransformer::draftTokens: a draft model runs on CUDA at BF16" );
@@ -337,6 +330,26 @@ namespace Mila::Dnn
                         "GemmaTransformer::draftTokens: this network was not built with a draft model (addDrafter)" );
                 }
 
+                drafter_->startFrom( finalNormedRow( hidden_row ) );
+            }
+        }
+
+        /**
+         * The draft model's steps (Gemma4Mtp.md 2.2): every step at `position`, the first from the hidden state
+         * onDraftFrom() put in place, each later one from the step before; each token its argmax, on the device,
+         * into the slot the next step embeds. The target's caches are read, never written.
+         */
+        void onDraftTokens( TokenIndexType& tokens, dim_t position ) override
+        {
+            if constexpr ( !kDraftModelRuns )
+            {
+                ( void )tokens;
+                ( void )position;
+
+                throw std::logic_error( "GemmaTransformer::draftTokens: a draft model runs on CUDA at BF16" );
+            }
+            else
+            {
                 const dim_t length = tokens.shape()[ 1 ];
 
                 if ( tokens.shape()[ 0 ] != 1 || length < 2 || length > config_.getDecodeTokens() )
@@ -346,36 +359,24 @@ namespace Mila::Dnn
                         "tokens this network was built for", tokens.shape()[ 0 ], length, config_.getDecodeTokens() ) );
                 }
 
-                if ( normalized_ptr_ == nullptr || hidden_row < 0 || hidden_row >= normalized_ptr_->shape()[ 1 ] )
-                {
-                    throw std::invalid_argument( std::format(
-                        "GemmaTransformer::draftTokens: hidden row {} is not a row of the last pass's {}",
-                        hidden_row, normalized_ptr_ == nullptr ? dim_t{ 0 } : normalized_ptr_->shape()[ 1 ] ) );
-                }
-
                 if ( !draft_sampler_ )
                 {
                     draft_sampler_ = std::make_unique<DraftSamplerType>( this->getExecutionContext(),
                         SamplingConfig{}.withVocabularySize( drafter_->getConfig().getVocabSize() ) );
                 }
 
-                const dim_t model_dim = config_.getModelDim();
                 const KvCacheView sliding = lastSlidingLayerCache();
                 const KvCacheView global = lastGlobalLayerCache();
                 const SamplingParams greedy{ 0.0f, 1, 1.0f };
-
-                const TensorType hidden = normalized_ptr_->view( shape_t{ 1, 1, model_dim }, hidden_row * model_dim );
-                const TensorType* step_hidden = &hidden;
 
                 for ( dim_t step = 0; step + 1 < length; ++step )
                 {
                     const TokenIndexType token = tokens.view( shape_t{ 1, 1 }, step );
                     TokenIndexType next = tokens.view( shape_t{ 1, 1 }, step + 1 );
 
-                    auto& logits = drafter_->decode( token_embedding_->forward( token ), *step_hidden, position, sliding, global );
+                    auto& logits = drafter_->decode( token_embedding_->forward( token ), position, sliding, global );
 
                     draft_sampler_->enqueueForwardOnDevice( logits, next, greedy, 0.0f );
-                    step_hidden = &drafter_->nextHidden();
                 }
             }
         }
@@ -507,7 +508,7 @@ namespace Mila::Dnn
                 block->resetKvCache();
 
             this->setCachedLength( 0 );
-            this->discardDecodeRecording();
+            this->discardDecodeRecordings();
         }
 
     protected:
@@ -607,7 +608,8 @@ namespace Mila::Dnn
 
         /**
          * @brief The final-normed hidden state the head read last: [B, 1, model_dim] after a prefill (its last row) or a
-         *        decode, [1, T, model_dim] after decodeTokens.
+         *        decode, [1, T, model_dim] after decodeTokens. The shape is the last called pass's; a replayed pass
+         *        writes the same buffer and leaves the shape as it was, so after one finalNormedRow() is the reliable read.
          */
         const TensorType& finalNormedHidden() const
         {
@@ -615,6 +617,32 @@ namespace Mila::Dnn
                 throw std::logic_error( "GemmaTransformer::finalNormedHidden: no prefill or decode has run" );
 
             return *normalized_ptr_;
+        }
+
+        /**
+         * @brief Row `row` of the final-normed hidden state the last pass wrote, [1, 1, model_dim]: 0 after a prefill (its
+         *        last position) or a decode, 0 to T - 1 after decodeTokens, whether the pass was called or replayed.
+         *
+         * Every pass writes its rows from the start of the final norm's output, so the row is read there by position.
+         *
+         * @throws std::invalid_argument when `row` is past the decode tokens the network was built for.
+         */
+        TensorType finalNormedRow( dim_t row ) const
+        {
+            if ( normalized_ptr_ == nullptr )
+                throw std::logic_error( "GemmaTransformer::finalNormedRow: no prefill or decode has run" );
+
+            if ( row < 0 || row >= config_.getDecodeTokens() )
+            {
+                throw std::invalid_argument( std::format(
+                    "GemmaTransformer::finalNormedRow: row {} is not a row a pass of at most {} tokens writes",
+                    row, config_.getDecodeTokens() ) );
+            }
+
+            const auto* rows = dynamic_cast<const TensorType*>( final_rmsnorm_->getOutputs().front() );
+            const dim_t model_dim = config_.getModelDim();
+
+            return rows->view( shape_t{ 1, 1, model_dim }, row * model_dim );
         }
 
         /// The cache of the last sliding layer, which the drafter's sliding layers attend.

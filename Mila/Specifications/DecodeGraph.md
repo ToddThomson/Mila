@@ -154,6 +154,17 @@ build (flash on or off, `setState`) can never replay a recording of the old conf
 Never replayed: `GptModel` (learned position table and the MHA op, not covered by 4.1), and a layer-split
 deployment (two devices, two streams; a later change if measured to pay).
 
+### 4.7 Multi-token decode and the draft
+
+`decodeTokens` and `draftTokens` (Gemma4Mtp.md 4.7) go through the same wrapper as `decode`, each kind of pass
+with its own recordings, one for each number of tokens: a speculative round's size can change from one round to
+the next, and each size keeps its recording rather than recording again. Each recording has its own life (4.4)
+and its own self-check (5.1); a failure turns replay off for that kind of pass alone. The one per-round input of
+the draft that is not already device memory, the row of the target's last pass it continues from, is copied into
+the draft model's input by `onDraftFrom`, outside the recording, before every run of the draft -- the self-check's
+two runs included, since the draft's later steps overwrite that input. The per-row sampling after a
+check stays outside, as 4.5 says of decode. Measured in Gemma4Mtp.md 4.7.
+
 ---
 
 ## 5. Guardrails
@@ -172,8 +183,9 @@ recording, at the third step (position p + 1, the recording having been made at 
    that state to the host before the called step and puts it back before the replay (`holdDecodeState` /
    `restoreDecodeState`, over the blocks' existing snapshots), then frees the copy. A network with only KV caches
    copies nothing.
-3. Compare bit for bit. Equal: replay is on for this network's life. Different: replay is turned off for this
-   network's life, and a warning names the network and says the called path is in use.
+3. Compare bit for bit. Equal: replay is on for this network's life. Different: replay of that kind of pass
+   (4.7) is turned off for this network's life, and a warning names the network and the pass and says the called
+   path is in use.
 
 It costs one extra decode step and two logits copies per load, and it catches the whole class, including in a
 network a user composed from their own components. It needs decode to be deterministic -- the same step twice
