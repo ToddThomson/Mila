@@ -16,14 +16,17 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         __device__ inline float to_float( float v ) { return v; }
         __device__ inline float to_float( __nv_bfloat16 v ) { return __bfloat162float( v ); }
 
-        // Single-block argmax: each thread grid-strides the vocab keeping its local
-        // (max value, lowest index), then a shared-memory tree reduction picks the
-        // global winner. Ties resolve to the lowest index to match std::max_element.
+        // One block per row: each thread strides the row keeping its local (max value,
+        // lowest index), then a shared-memory tree reduction picks the row's winner.
+        // Ties resolve to the lowest index to match std::max_element.
         template <typename TNative, int kBlock>
         __global__ void argmax_kernel( const TNative* logits, int32_t* token_out, int vocab )
         {
             __shared__ float s_val[kBlock];
             __shared__ int s_idx[kBlock];
+
+            logits += static_cast<size_t>( blockIdx.x ) * vocab;
+            token_out += blockIdx.x;
 
             const int tid = threadIdx.x;
             float best = -FLT_MAX;
@@ -65,21 +68,33 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         }
 
         template <typename TNative>
-        inline void launch_argmax( const TNative* logits, int32_t* token_out, int vocab, cudaStream_t stream )
+        inline void launch_argmax( const TNative* logits, int32_t* token_out, int rows, int vocab, cudaStream_t stream )
         {
             constexpr int kBlock = 256;
-            argmax_kernel<TNative, kBlock><<<1, kBlock, 0, stream>>>( logits, token_out, vocab );
+            argmax_kernel<TNative, kBlock><<<rows, kBlock, 0, stream>>>( logits, token_out, vocab );
         }
     }
 
     void cuda_sample_argmax_fp32( const float* logits, int32_t* token_out, int vocab, cudaStream_t stream )
     {
-        launch_argmax( logits, token_out, vocab, stream );
+        launch_argmax( logits, token_out, 1, vocab, stream );
     }
 
     void cuda_sample_argmax_bf16( const __nv_bfloat16* logits, int32_t* token_out, int vocab, cudaStream_t stream )
     {
-        launch_argmax( logits, token_out, vocab, stream );
+        launch_argmax( logits, token_out, 1, vocab, stream );
+    }
+
+    void cuda_sample_rows_argmax_fp32(
+        const float* logits, int32_t* token_out, int rows, int vocab, cudaStream_t stream )
+    {
+        launch_argmax( logits, token_out, rows, vocab, stream );
+    }
+
+    void cuda_sample_rows_argmax_bf16(
+        const __nv_bfloat16* logits, int32_t* token_out, int rows, int vocab, cudaStream_t stream )
+    {
+        launch_argmax( logits, token_out, rows, vocab, stream );
     }
 
     // ========================================================================
@@ -136,6 +151,13 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
 
         constexpr int ceil_div( int a, int b ) { return ( a + b - 1 ) / b; }
 
+        // Every pipeline kernel serves one row per grid y index, each row with working stores of its own, so a
+        // row's arithmetic is the one-row pipeline's whatever the row count.
+        __device__ inline size_t row_offset( int elements )
+        {
+            return static_cast<size_t>( blockIdx.y ) * static_cast<size_t>( elements );
+        }
+
         // Pipeline stage 1: scaled logits -> scratch; per-block max/min partials.
         template <typename TNative, int kBlock>
         __global__ void stochastic_scale_kernel(
@@ -144,6 +166,10 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         {
             __shared__ float s_max[kBlock];
             __shared__ float s_min[kBlock];
+
+            logits += row_offset( vocab );
+            scratch += row_offset( vocab );
+            reduction_scratch += row_offset( kStochasticFloatScratchElements );
 
             const int tid = threadIdx.x;
             const int stride = gridDim.x * kBlock;
@@ -191,6 +217,9 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             float* reduction_scratch, int32_t* index_scratch, int partial_count )
         {
             __shared__ float s_f[kBlock];
+
+            reduction_scratch += row_offset( kStochasticFloatScratchElements );
+            index_scratch += row_offset( kStochasticIndexScratchElements );
 
             const int tid = threadIdx.x;
 
@@ -252,6 +281,10 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             __shared__ int s_bins[kStochasticBins];
             __shared__ int s_above;
 
+            scratch += row_offset( vocab );
+            reduction_scratch += row_offset( kStochasticFloatScratchElements );
+            index_scratch += row_offset( kStochasticIndexScratchElements );
+
             const int tid = threadIdx.x;
 
             for ( int j = tid; j < kStochasticBins; j += kBlock )
@@ -305,6 +338,9 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             float* reduction_scratch, int32_t* index_scratch, int top_k, int last_round )
         {
             __shared__ int s_bins[kStochasticBins];
+
+            reduction_scratch += row_offset( kStochasticFloatScratchElements );
+            index_scratch += row_offset( kStochasticIndexScratchElements );
 
             const int tid = threadIdx.x;
 
@@ -385,6 +421,9 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             __shared__ float s_bins[kStochasticBins];
             __shared__ float s_above;
 
+            scratch += row_offset( vocab );
+            reduction_scratch += row_offset( kStochasticFloatScratchElements );
+
             const int tid = threadIdx.x;
 
             for ( int j = tid; j < kStochasticBins; j += kBlock )
@@ -437,6 +476,8 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             float* reduction_scratch, float top_p, int first_round, int last_round )
         {
             __shared__ float s_bins[kStochasticBins];
+
+            reduction_scratch += row_offset( kStochasticFloatScratchElements );
 
             const int tid = threadIdx.x;
 
@@ -513,6 +554,9 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         {
             __shared__ float s_f[kBlock];
 
+            scratch += row_offset( vocab );
+            reduction_scratch += row_offset( kStochasticFloatScratchElements );
+
             const int tid = threadIdx.x;
             const int begin = blockIdx.x * chunk_size;
             const int end = min( begin + chunk_size, vocab );
@@ -553,7 +597,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         template <int kBlock>
         __global__ void stochastic_cdf_kernel(
             const float* scratch, int vocab, const float* reduction_scratch,
-            int chunk_count, int chunk_size, float r, int32_t* token_out )
+            int chunk_count, int chunk_size, SampleRowUniforms uniforms, int32_t* token_out )
         {
             __shared__ float s_partials[kStochasticMaxChunks];
             __shared__ float s_tile[kBlock];
@@ -563,6 +607,11 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             __shared__ int s_done;
             __shared__ int s_result;
 
+            scratch += row_offset( vocab );
+            reduction_scratch += row_offset( kStochasticFloatScratchElements );
+            token_out += blockIdx.y;
+
+            const float r = uniforms.value[ blockIdx.y ];
             const int tid = threadIdx.x;
             const float* partials = reduction_scratch + kOffsetChunkPartials;
 
@@ -651,8 +700,9 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         template <typename TNative>
         inline void launch_stochastic(
             const TNative* logits, int32_t* token_out, float* scratch,
-            float* reduction_scratch, int32_t* index_scratch,
-            int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream )
+            float* reduction_scratch, int32_t* index_scratch, int rows,
+            int vocab, float softcap, float temperature, int top_k, float top_p,
+            const SampleRowUniforms& uniforms, cudaStream_t stream )
         {
             constexpr int kBlock = kStochasticBlock;
 
@@ -662,18 +712,23 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             const int chunk_size = kBlock * ceil_div( vocab, kBlock * kStochasticMaxChunks );
             const int chunk_count = ceil_div( vocab, chunk_size );
 
-            stochastic_scale_kernel<TNative, kBlock><<<scale_blocks, kBlock, 0, stream>>>(
+            const dim3 scale_grid( scale_blocks, rows );
+            const dim3 histogram_grid( histogram_blocks, rows );
+            const dim3 chunk_grid( chunk_count, rows );
+            const dim3 row_grid( 1, rows );
+
+            stochastic_scale_kernel<TNative, kBlock><<<scale_grid, kBlock, 0, stream>>>(
                 logits, scratch, vocab, softcap, temperature, reduction_scratch );
-            stochastic_prepare_kernel<kBlock><<<1, kBlock, 0, stream>>>(
+            stochastic_prepare_kernel<kBlock><<<row_grid, kBlock, 0, stream>>>(
                 reduction_scratch, index_scratch, scale_blocks );
 
             if ( top_k > 0 && top_k < vocab )
             {
                 for ( int round = 0; round < kRefinementRounds; ++round )
                 {
-                    topk_count_kernel<kBlock><<<histogram_blocks, kBlock, 0, stream>>>(
+                    topk_count_kernel<kBlock><<<histogram_grid, kBlock, 0, stream>>>(
                         scratch, vocab, reduction_scratch, index_scratch );
-                    topk_select_kernel<kBlock><<<1, kBlock, 0, stream>>>(
+                    topk_select_kernel<kBlock><<<row_grid, kBlock, 0, stream>>>(
                         reduction_scratch, index_scratch, top_k, round == kRefinementRounds - 1 );
                 }
             }
@@ -682,17 +737,25 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             {
                 for ( int round = 0; round < kRefinementRounds; ++round )
                 {
-                    topp_mass_kernel<kBlock><<<histogram_blocks, kBlock, 0, stream>>>(
+                    topp_mass_kernel<kBlock><<<histogram_grid, kBlock, 0, stream>>>(
                         scratch, vocab, reduction_scratch );
-                    topp_select_kernel<kBlock><<<1, kBlock, 0, stream>>>(
+                    topp_select_kernel<kBlock><<<row_grid, kBlock, 0, stream>>>(
                         reduction_scratch, top_p, round == 0, round == kRefinementRounds - 1 );
                 }
             }
 
-            stochastic_prob_kernel<kBlock><<<chunk_count, kBlock, 0, stream>>>(
+            stochastic_prob_kernel<kBlock><<<chunk_grid, kBlock, 0, stream>>>(
                 scratch, vocab, reduction_scratch, chunk_size );
-            stochastic_cdf_kernel<kBlock><<<1, kBlock, 0, stream>>>(
-                scratch, vocab, reduction_scratch, chunk_count, chunk_size, r, token_out );
+            stochastic_cdf_kernel<kBlock><<<row_grid, kBlock, 0, stream>>>(
+                scratch, vocab, reduction_scratch, chunk_count, chunk_size, uniforms, token_out );
+        }
+
+        inline SampleRowUniforms one_row_uniform( float r )
+        {
+            SampleRowUniforms uniforms{};
+            uniforms.value[ 0 ] = r;
+
+            return uniforms;
         }
     }
 
@@ -701,8 +764,8 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         float* reduction_scratch, int32_t* index_scratch,
         int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream )
     {
-        launch_stochastic( logits, token_out, scratch, reduction_scratch, index_scratch,
-            vocab, softcap, temperature, top_k, top_p, r, stream );
+        launch_stochastic( logits, token_out, scratch, reduction_scratch, index_scratch, 1,
+            vocab, softcap, temperature, top_k, top_p, one_row_uniform( r ), stream );
     }
 
     void cuda_sample_stochastic_bf16(
@@ -710,8 +773,62 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         float* reduction_scratch, int32_t* index_scratch,
         int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream )
     {
-        launch_stochastic( logits, token_out, scratch, reduction_scratch, index_scratch,
-            vocab, softcap, temperature, top_k, top_p, r, stream );
+        launch_stochastic( logits, token_out, scratch, reduction_scratch, index_scratch, 1,
+            vocab, softcap, temperature, top_k, top_p, one_row_uniform( r ), stream );
+    }
+
+    void cuda_sample_rows_stochastic_fp32(
+        const float* logits, int32_t* token_out, float* scratch,
+        float* reduction_scratch, int32_t* index_scratch, int rows,
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleRowUniforms& uniforms, cudaStream_t stream )
+    {
+        launch_stochastic( logits, token_out, scratch, reduction_scratch, index_scratch, rows,
+            vocab, softcap, temperature, top_k, top_p, uniforms, stream );
+    }
+
+    void cuda_sample_rows_stochastic_bf16(
+        const __nv_bfloat16* logits, int32_t* token_out, float* scratch,
+        float* reduction_scratch, int32_t* index_scratch, int rows,
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleRowUniforms& uniforms, cudaStream_t stream )
+    {
+        launch_stochastic( logits, token_out, scratch, reduction_scratch, index_scratch, rows,
+            vocab, softcap, temperature, top_k, top_p, uniforms, stream );
+    }
+
+    // ========================================================================
+    // Speculative acceptance
+    // ========================================================================
+
+    namespace
+    {
+        // One thread: the walk is at most kMaxSampleRows compares. Reads every input before it writes slot 0 of
+        // `tokens`, which is both the round's first token and, after this, the next round's.
+        __global__ void speculative_accept_kernel(
+            int32_t* tokens, const int32_t* chosen, int rows, int32_t* result )
+        {
+            int accepted = 0;
+
+            while ( accepted < rows - 1 && tokens[ accepted + 1 ] == chosen[ accepted ] )
+                ++accepted;
+
+            const int32_t next = chosen[ accepted ];
+
+            result[ 0 ] = accepted;
+
+            for ( int i = 1; i <= accepted; ++i )
+                result[ i ] = tokens[ i ];
+
+            result[ accepted + 1 ] = next;
+            tokens[ 0 ] = next;
+        }
+    }
+
+    void cuda_speculative_accept(
+        int32_t* tokens, const int32_t* chosen, int rows, int32_t* result, cudaStream_t stream )
+    {
+        speculative_accept_kernel<<<1, 1, 0, stream>>>( tokens, chosen, rows, result );
     }
 
     // ========================================================================

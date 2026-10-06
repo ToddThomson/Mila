@@ -560,6 +560,7 @@ PUBLIC
         "Src/Dnn/Core/SamplerBase.ixx"
         "Src/Dnn/Samplers/SamplingConfig.ixx"
         "Src/Dnn/Samplers/TokenSampler.ixx"
+        "Src/Dnn/Samplers/SpeculativeSampler.ixx"
  "Src/Dnn/Models/Gpt/GptModelConfig.ixx" "Src/Dnn/Core/GenerateStatus.ixx")
 
 # ----------------------------------------------------------------------------

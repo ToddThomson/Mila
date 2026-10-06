@@ -76,8 +76,7 @@ namespace Mila::Dnn
             TokenTensor& token_out,
             const SamplingParams& params ) override
         {
-            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
-            const float r = dist( rng_ );
+            const float r = drawUniform();
 
             op_->forward( logits, token_out, params, r );
 
@@ -105,8 +104,7 @@ namespace Mila::Dnn
             TokenTensor& token_out,
             const SamplingParams& params )
         {
-            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
-            const float r = dist( rng_ );
+            const float r = drawUniform();
 
             op_->enqueueForward( logits, token_out, params, r );
         }
@@ -127,8 +125,7 @@ namespace Mila::Dnn
             TokenTensor& token_out,
             const SamplingParams& params )
         {
-            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
-            const float r = dist( rng_ );
+            const float r = drawUniform();
 
             op_->enqueueForwardOnDevice( logits, token_out, params, r );
         }
@@ -139,6 +136,19 @@ namespace Mila::Dnn
         int32_t awaitToken()
         {
             return op_->awaitToken();
+        }
+
+        /**
+         * @brief Draw the next uniform in [0, 1) from the model's sampling stream.
+         *
+         * Every sampling step draws one, greedy included, so a seeded run's stream advances the same way whichever
+         * sampler consumes it; the speculative sampler's rows take theirs from here (Gemma4Mtp.md 4.8).
+         */
+        float drawUniform()
+        {
+            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
+
+            return dist( rng_ );
         }
 
         /**

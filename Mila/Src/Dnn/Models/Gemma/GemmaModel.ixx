@@ -551,22 +551,21 @@ namespace Mila::Dnn
             auto& network = this->getNetwork();
             IExecutionContext* context = network.getExecutionContext();
             const dim_t draft = plan_.speculativeDecode()->draft_tokens;
-            const dim_t vocabulary = config_.getVocabSize();
             const SamplingParams& sampling = params.sampling;
             const int max_new = params.max_new_tokens.value_or( static_cast<int>( contextLength() ) );
 
-            Tensor<dtype_t::INT32, CpuMemoryResource> drafted( Device::Cpu(), draft_tokens_device_.shape() );
-            Tensor<dtype_t::INT32, CpuMemoryResource> chosen( Device::Cpu(), chosen_tokens_device_.shape() );
+            this->reserveSpeculativeSampler( draft + 1 );
+
+            Tensor<dtype_t::INT32, CpuMemoryResource> head_on_host( Device::Cpu(), shape_t{ 1, 1 } );
 
             auto head = draft_tokens_device_.view( shape_t{ 1, 1 }, 0 );
             this->enqueueSampleNextOnDevice( prompt_logits, head, sampling );
 
-            auto head_on_host = drafted.view( shape_t{ 1, 1 }, 0 );
             copy( head, head_on_host, context );
             context->synchronize();
 
             // The token at `position`: chosen, not yet in the caches.
-            int32_t pending = drafted.data()[ 0 ];
+            int32_t pending = head_on_host.data()[ 0 ];
             dim_t position = prompt_length;
             dim_t hidden_row = 0;
             int emitted = 0;
@@ -623,26 +622,16 @@ namespace Mila::Dnn
 
                 const TensorType& logits = network.decodeTokens( checked, position );
 
-                for ( dim_t row = 0; row < rows; ++row )
-                {
-                    auto target = chosen_tokens_device_.view( shape_t{ 1, 1 }, row );
-                    this->enqueueSampleNextOnDevice(
-                        logits.view( shape_t{ 1, 1, vocabulary }, row * vocabulary ), target, sampling );
-                }
+                // The speculative sampler draws every row and walks acceptance on the device, writing the next
+                // token into slot 0 for the next round; the host waits once, for the kept tokens.
+                this->enqueueSpeculativeRound( logits, checked, rows, sampling );
 
-                auto drafted_rows = drafted.view( shape_t{ 1, rows }, 0 );
-                auto chosen_rows = chosen.view( shape_t{ 1, rows }, 0 );
-                copy( checked, drafted_rows, context );
-                copy( chosen_tokens_device_.view( shape_t{ 1, rows }, 0 ), chosen_rows, context );
-                context->synchronize();
-
-                dim_t accepted = 0;
-
-                while ( accepted < round_draft && drafted.data()[ accepted + 1 ] == chosen.data()[ accepted ] )
-                    ++accepted;
+                const std::span<const int32_t> kept = this->awaitSpeculativeRound();
+                const dim_t accepted = static_cast<dim_t>( kept.size() ) - 1;
 
                 // Keep the token at `position` and the accepted drafts; the rejected drafts' rows are written over.
-                kv_token_history_.insert( kv_token_history_.end(), drafted.data(), drafted.data() + accepted + 1 );
+                kv_token_history_.push_back( pending );
+                kv_token_history_.insert( kv_token_history_.end(), kept.begin(), kept.begin() + accepted );
                 position += accepted + 1;
                 hidden_row = accepted;
 
@@ -653,23 +642,15 @@ namespace Mila::Dnn
                 }
 
                 // The model's token after the last one kept starts the next round.
-                pending = chosen.data()[ accepted ];
-
-                auto bonus = chosen_tokens_device_.view( shape_t{ 1, 1 }, accepted );
-                copy( bonus, head, context );
+                pending = kept[ accepted ];
 
                 bool more = true;
 
-                for ( dim_t i = 1; more && i <= accepted; ++i )
-                    more = emit( drafted.data()[ i ] );
+                for ( dim_t i = 0; more && i < accepted; ++i )
+                    more = emit( kept[ i ] );
 
                 if ( !more || !emit( pending ) )
-                {
-                    // The copy above may still be in flight; nothing runs past return.
-                    context->synchronize();
-
                     return ended;
-                }
             }
         }
 
@@ -709,7 +690,6 @@ namespace Mila::Dnn
             , plan_( plan )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
             , draft_tokens_device_( this->getDeviceId(), shape_t{ 1, draftRows( plan ) } )
-            , chosen_tokens_device_( this->getDeviceId(), shape_t{ 1, draftRows( plan ) } )
         {
             // Every load path builds the model here; a network built directly stays off (DecodeGraph.md 4.6).
             this->setDecodeReplay( true );
@@ -1021,9 +1001,8 @@ namespace Mila::Dnn
         TokenIndexType decode_token_device_;
 
         // Speculative decode (Gemma4Mtp.md 4.2 b), one row when the plan selects no draft model: slot 0 the token at
-        // a round's position, then the draft; and the model's own choice after each of them.
+        // a round's position, then the draft. The speculative sampler writes the next round's slot 0 (4.8).
         TokenIndexType draft_tokens_device_;
-        TokenIndexType chosen_tokens_device_;
 
         // The token ids whose K/V the caches currently hold, in position order:
         // the last prefilled prompt plus every token fed through decode (appended

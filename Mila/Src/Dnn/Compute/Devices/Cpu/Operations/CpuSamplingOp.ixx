@@ -14,6 +14,8 @@ module;
 #include <algorithm>
 #include <vector>
 #include <functional>
+#include <format>
+#include <span>
 
 export module Compute.CpuSamplingOp;
 
@@ -63,6 +65,120 @@ namespace Mila::Dnn::Compute
             const float* row = static_cast<const float*>( logits.rawData() ) + offset;
             int32_t* out = static_cast<int32_t*>( token_out.rawData() );
 
+            out[ 0 ] = sampleRow( row, params, r );
+        }
+
+        /**
+         * @brief Enqueue-contract mirror of the CUDA op for the decode-ahead loop.
+         *
+         * CPU execution is synchronous, so this computes immediately and stashes the
+         * token; awaitToken() just returns it. Keeps the pipelined generation loop
+         * device-agnostic.
+         */
+        void enqueueForward(
+            const ITensor& logits,
+            ITensor& token_out,
+            const SamplingParams& params,
+            float r ) const
+        {
+            forward( logits, token_out, params, r );
+            pending_token_ = static_cast<const int32_t*>( token_out.rawData() )[ 0 ];
+        }
+
+        int32_t awaitToken() const
+        {
+            return pending_token_;
+        }
+
+        /// Mirror of the CUDA op's device-only step: computed now, and the readback slot left alone.
+        void enqueueForwardOnDevice(
+            const ITensor& logits,
+            ITensor& token_out,
+            const SamplingParams& params,
+            float r ) const
+        {
+            forward( logits, token_out, params, r );
+        }
+
+        /// Mirror of the CUDA op's rows step: row r of the first @p rows rows is drawn against `uniforms[r]`.
+        void enqueueRowsOnDevice(
+            const ITensor& logits,
+            ITensor& tokens_out,
+            dim_t rows,
+            const SamplingParams& params,
+            std::span<const float> uniforms ) const
+        {
+            const int64_t vocab = config_.getVocabularySize();
+
+            if ( rows < 1 || rows > config_.getMaximumRows() || static_cast<dim_t>( uniforms.size() ) < rows
+                || logits.size() < rows * vocab || tokens_out.size() < rows )
+            {
+                throw std::invalid_argument( std::format(
+                    "CpuSamplingOp::enqueueRowsOnDevice: {} rows, where this sampler was built for 1 to {}, need {} "
+                    "uniforms, {} logits and {} token slots; given {}, {} and {}",
+                    rows, config_.getMaximumRows(), rows, rows * vocab, rows,
+                    uniforms.size(), logits.size(), tokens_out.size() ) );
+            }
+
+            const float* first_row = static_cast<const float*>( logits.rawData() );
+            int32_t* out = static_cast<int32_t*>( tokens_out.rawData() );
+
+            for ( dim_t row = 0; row < rows; ++row )
+                out[ row ] = sampleRow( first_row + row * vocab, params, uniforms[ static_cast<size_t>( row ) ] );
+        }
+
+        /// Mirror of the CUDA op's acceptance walk: writes `[m, d_1 .. d_m, next]` and the next token into slot 0.
+        void enqueueAcceptOnDevice(
+            ITensor& tokens,
+            const ITensor& chosen,
+            dim_t rows,
+            ITensor& result ) const
+        {
+            if ( rows < 1 || rows > config_.getMaximumRows() || tokens.size() < rows || chosen.size() < rows
+                || result.size() < rows + 1 )
+            {
+                throw std::invalid_argument( std::format(
+                    "CpuSamplingOp::enqueueAcceptOnDevice: {} rows, where this sampler was built for 1 to {}, need {} "
+                    "tokens, {} chosen and {} result slots; given {}, {} and {}",
+                    rows, config_.getMaximumRows(), rows, rows, rows + 1, tokens.size(), chosen.size(), result.size() ) );
+            }
+
+            int32_t* round = static_cast<int32_t*>( tokens.rawData() );
+            const int32_t* picked = static_cast<const int32_t*>( chosen.rawData() );
+            int32_t* out = static_cast<int32_t*>( result.rawData() );
+
+            dim_t accepted = 0;
+
+            while ( accepted < rows - 1 && round[ accepted + 1 ] == picked[ accepted ] )
+                ++accepted;
+
+            const int32_t next = picked[ accepted ];
+
+            out[ 0 ] = static_cast<int32_t>( accepted );
+
+            for ( dim_t i = 1; i <= accepted; ++i )
+                out[ i ] = round[ i ];
+
+            out[ accepted + 1 ] = next;
+            round[ 0 ] = next;
+        }
+
+        OperationType getOperationType() const override
+        {
+            return OperationType::SamplingOp;
+        }
+
+        std::string getName() const override
+        {
+            return "Cpu::SamplingOp";
+        }
+
+    private:
+
+        int32_t sampleRow( const float* row, const SamplingParams& params, float r ) const
+        {
+            const int64_t vocab = config_.getVocabularySize();
+
             const bool greedy = (params.temperature <= 0.0f || params.top_k == 1);
 
             if (greedy)
@@ -79,8 +195,7 @@ namespace Mila::Dnn::Compute
                     }
                 }
 
-                out[ 0 ] = best_idx;
-                return;
+                return best_idx;
             }
 
             const float softcap = config_.getFinalLogitSoftcap();
@@ -168,52 +283,9 @@ namespace Mila::Dnn::Compute
                 }
             }
 
-            out[ 0 ] = result;
+            return result;
         }
 
-        /**
-         * @brief Enqueue-contract mirror of the CUDA op for the decode-ahead loop.
-         *
-         * CPU execution is synchronous, so this computes immediately and stashes the
-         * token; awaitToken() just returns it. Keeps the pipelined generation loop
-         * device-agnostic.
-         */
-        void enqueueForward(
-            const ITensor& logits,
-            ITensor& token_out,
-            const SamplingParams& params,
-            float r ) const
-        {
-            forward( logits, token_out, params, r );
-            pending_token_ = static_cast<const int32_t*>( token_out.rawData() )[ 0 ];
-        }
-
-        int32_t awaitToken() const
-        {
-            return pending_token_;
-        }
-
-        /// Mirror of the CUDA op's device-only step: computed now, and the readback slot left alone.
-        void enqueueForwardOnDevice(
-            const ITensor& logits,
-            ITensor& token_out,
-            const SamplingParams& params,
-            float r ) const
-        {
-            forward( logits, token_out, params, r );
-        }
-
-        OperationType getOperationType() const override
-        {
-            return OperationType::SamplingOp;
-        }
-
-        std::string getName() const override
-        {
-            return "Cpu::SamplingOp";
-        }
-
-    private:
         IExecutionContext* context_;
         SamplingConfig config_;
         mutable int32_t pending_token_{ 0 };

@@ -24,14 +24,18 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <random>
 #include <stdexcept>
 #include <vector>
+#include <cuda_runtime.h>
 
 import Mila;
 import Compute.CudaSamplingOp;
+import Compute.CudaExecutionContext;
 import Dnn.Samplers.SamplingConfig;
+import Dnn.Samplers.SpeculativeSampler;
 import Dnn.GenerateParams;
 
 namespace Mila::Tests::Dnn::Samplers
@@ -511,5 +515,345 @@ namespace Mila::Tests::Dnn::Samplers
         auto op = makeOp();
 
         EXPECT_THROW( (void)op->awaitToken(), std::logic_error );
+    }
+
+    // ------------------------------------------------------------------
+    // Rows: every row of a verify sampled in one call (Gemma4Mtp.md 4.8)
+    // ------------------------------------------------------------------
+
+    class SamplingRowsCudaTests : public SamplingCudaTests
+    {
+    protected:
+        static constexpr int64_t kRows = 5;
+
+        // The most rows one call samples (kMaxSampleRows in Sampling.cuh): a verify of K = 7.
+        static constexpr int64_t kMaxSampleRows = 8;
+
+        std::unique_ptr<OpType> makeRowsOp( int64_t rows, float softcap = 0.0f, int64_t vocab = kGemmaVocab )
+        {
+            SamplingConfig config = SamplingConfig{}
+                .withVocabularySize( vocab )
+                .withFinalLogitSoftcap( softcap )
+                .withMaximumRows( rows );
+
+            return std::make_unique<OpType>( ctx_.get(), config );
+        }
+
+        // `rows` rows of random logits, each its own seed, contiguous as a verify's [1, rows, vocab].
+        DeviceLogits deviceRows( int64_t rows, int64_t vocab, uint32_t seed )
+        {
+            const shape_t shape{ 1, rows, vocab };
+            Tensor<TensorDataType::FP32, CpuMemoryResource> host( Device::Cpu(), shape );
+
+            for ( int64_t row = 0; row < rows; ++row )
+            {
+                const std::vector<float> values = randomLogits( vocab, seed + static_cast<uint32_t>( row ) );
+
+                for ( int64_t i = 0; i < vocab; ++i )
+                    host.data()[ row * vocab + i ] = values[ static_cast<size_t>( i ) ];
+            }
+
+            DeviceLogits device( Device::Cuda( 0 ), shape );
+            copy( host, device, ctx_.get() );
+            ctx_->synchronize();
+
+            return device;
+        }
+
+        std::vector<int32_t> readTokens( const DeviceToken& tokens, int64_t count )
+        {
+            HostToken host( Device::Cpu(), shape_t{ count } );
+            auto first = tokens.view( shape_t{ count }, 0 );
+            copy( first, host, ctx_.get() );
+            ctx_->synchronize();
+
+            return std::vector<int32_t>( host.data(), host.data() + count );
+        }
+
+        // Each row sampled alone, as the per-row loop sampled it: the one-row call on that row's view.
+        std::vector<int32_t> sampleEachRow(
+            OpType& op, const DeviceLogits& logits, int64_t rows, const SamplingParams& params,
+            const std::vector<float>& uniforms )
+        {
+            std::vector<int32_t> tokens;
+
+            for ( int64_t row = 0; row < rows; ++row )
+            {
+                auto view = logits.view( shape_t{ 1, 1, kGemmaVocab }, row * kGemmaVocab );
+                DeviceToken token( Device::Cuda( 0 ), shape_t{ 1, 1 } );
+                op.enqueueForwardOnDevice( view, token, params, uniforms[ static_cast<size_t>( row ) ] );
+                tokens.push_back( readTokens( token, 1 )[ 0 ] );
+            }
+
+            return tokens;
+        }
+
+        static std::vector<float> uniformsFrom( uint32_t seed, int64_t count )
+        {
+            std::mt19937 rng( seed );
+            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
+            std::vector<float> uniforms( static_cast<size_t>( count ) );
+
+            for ( auto& uniform : uniforms )
+                uniform = dist( rng );
+
+            return uniforms;
+        }
+    };
+
+    // The rows call is the one-row pipeline per row: same token at every row, at Google's sampling and the truncated
+    // filter matrix, with the Gemma softcap. Top-k counts are integer-exact; the top-p cases rely on the same
+    // run-to-run stability the pipeline-vs-reference parity test above does.
+    TEST_F( SamplingRowsCudaTests, Rows_MatchOneRowCalls_AtGemmaVocab )
+    {
+        auto rows_op = makeRowsOp( kRows, 30.0f );
+        auto one_row_op = makeOp( 30.0f, kGemmaVocab );
+        auto logits = deviceRows( kRows, kGemmaVocab, 100 );
+
+        struct SettingsCase { float temperature; int top_k; float top_p; };
+        const SettingsCase cases[] = { { 1.0f, 64, 0.95f }, { 0.8f, 40, 1.0f }, { 0.8f, 0, 0.9f }, { 1.0f, 0, 1.0f } };
+
+        for ( uint32_t trial = 0; trial < 4; ++trial )
+        {
+            const std::vector<float> uniforms = uniformsFrom( 7 + trial, kRows );
+
+            for ( const auto& settings : cases )
+            {
+                SamplingParams params;
+                params.temperature = settings.temperature;
+                params.top_k = settings.top_k;
+                params.top_p = settings.top_p;
+
+                DeviceToken tokens( Device::Cuda( 0 ), shape_t{ kRows } );
+                rows_op->enqueueRowsOnDevice( logits, tokens, kRows, params, uniforms );
+
+                EXPECT_EQ( readTokens( tokens, kRows ), sampleEachRow( *one_row_op, logits, kRows, params, uniforms ) )
+                    << "temperature=" << settings.temperature << " top_k=" << settings.top_k
+                    << " top_p=" << settings.top_p << " trial=" << trial;
+            }
+        }
+    }
+
+    // Greedy rows are each row's argmax, one block a row.
+    TEST_F( SamplingRowsCudaTests, Rows_Greedy_IsEachRowsArgmax )
+    {
+        auto op = makeRowsOp( 3, 0.0f, kVocab );
+
+        const shape_t shape{ 1, 3, kVocab };
+        Tensor<TensorDataType::FP32, CpuMemoryResource> host( Device::Cpu(), shape );
+        const float values[ 3 ][ kVocab ] = {
+            { 1, 9, 2, 3, 4, 5, 6, 7 }, { 8, 1, 2, 3, 4, 5, 6, 7 }, { 1, 2, 3, 4, 5, 6, 7, 9 } };
+
+        for ( int64_t row = 0; row < 3; ++row )
+            for ( int64_t i = 0; i < kVocab; ++i )
+                host.data()[ row * kVocab + i ] = values[ row ][ i ];
+
+        DeviceLogits logits( Device::Cuda( 0 ), shape );
+        copy( host, logits, ctx_.get() );
+
+        SamplingParams params;
+        params.temperature = 0.0f;
+
+        DeviceToken tokens( Device::Cuda( 0 ), shape_t{ 3 } );
+        const std::vector<float> uniforms( 3, 0.5f );
+        op->enqueueRowsOnDevice( logits, tokens, 3, params, uniforms );
+
+        EXPECT_EQ( readTokens( tokens, 3 ), ( std::vector<int32_t>{ 1, 0, 7 } ) );
+    }
+
+    // A call of more rows than the sampler was built for, or with too few uniforms, is refused before any launch.
+    TEST_F( SamplingRowsCudaTests, Rows_RefusesMoreRowsThanBuilt )
+    {
+        auto op = makeRowsOp( 2, 0.0f, kVocab );
+        auto logits = deviceRows( 3, kVocab, 1 );
+
+        SamplingParams params;
+        DeviceToken tokens( Device::Cuda( 0 ), shape_t{ 3 } );
+
+        EXPECT_THROW( op->enqueueRowsOnDevice( logits, tokens, 3, params, std::vector<float>( 3, 0.5f ) ),
+            std::invalid_argument );
+        EXPECT_THROW( op->enqueueRowsOnDevice( logits, tokens, 2, params, std::vector<float>( 1, 0.5f ) ),
+            std::invalid_argument );
+    }
+
+    // The walk keeps a draft while the row before it chose it: none, some and all kept, the result laid out as
+    // [m, d_1 .. d_m, next] and the next token written into slot 0.
+    TEST_F( SamplingRowsCudaTests, Accept_KeepsDraftsWhileTheRowBeforeChoseThem )
+    {
+        auto op = makeRowsOp( kRows, 0.0f, kVocab );
+
+        struct AcceptCase
+        {
+            std::vector<int32_t> tokens;
+            std::vector<int32_t> chosen;
+            std::vector<int32_t> expected;
+        };
+
+        // tokens = [known, d_1 .. d_4]; chosen[r] is row r's draw.
+        const AcceptCase cases[] = {
+            { { 50, 11, 12, 13, 14 }, { 99, 12, 13, 14, 15 }, { 0, 99 } },
+            { { 50, 11, 12, 13, 14 }, { 11, 12, 77, 14, 15 }, { 2, 11, 12, 77 } },
+            { { 50, 11, 12, 13, 14 }, { 11, 12, 13, 14, 15 }, { 4, 11, 12, 13, 14, 15 } },
+            { { 50, 11, 12, 13, 14 }, { 11, 99, 13, 14, 15 }, { 1, 11, 99 } } };
+
+        for ( const auto& accept : cases )
+        {
+            HostToken host_tokens( Device::Cpu(), shape_t{ kRows } );
+            HostToken host_chosen( Device::Cpu(), shape_t{ kRows } );
+
+            for ( int64_t i = 0; i < kRows; ++i )
+            {
+                host_tokens.data()[ i ] = accept.tokens[ static_cast<size_t>( i ) ];
+                host_chosen.data()[ i ] = accept.chosen[ static_cast<size_t>( i ) ];
+            }
+
+            DeviceToken tokens( Device::Cuda( 0 ), shape_t{ kRows } );
+            DeviceToken chosen( Device::Cuda( 0 ), shape_t{ kRows } );
+            DeviceToken result( Device::Cuda( 0 ), shape_t{ kRows + 1 } );
+            copy( host_tokens, tokens, ctx_.get() );
+            copy( host_chosen, chosen, ctx_.get() );
+
+            op->enqueueAcceptOnDevice( tokens, chosen, kRows, result );
+
+            const std::vector<int32_t> written = readTokens( result, static_cast<int64_t>( accept.expected.size() ) );
+
+            EXPECT_EQ( written, accept.expected );
+            EXPECT_EQ( readTokens( tokens, 1 )[ 0 ], accept.expected.back() ) << "slot 0 holds the next token";
+        }
+    }
+
+    // The whole speculative sampler against the host walk over one-row draws: with the first j drafts set to the
+    // tokens the rows draw and draft j + 1 set to something else, it keeps exactly j and returns row j's draw.
+    TEST_F( SamplingRowsCudaTests, SpeculativeSampler_MatchesTheHostWalkOverOneRowDraws )
+    {
+        using Sampler = SpeculativeSampler<DeviceType::Cuda, TensorDataType::FP32>;
+
+        SamplingConfig config = SamplingConfig{}
+            .withVocabularySize( kGemmaVocab )
+            .withFinalLogitSoftcap( 30.0f )
+            .withMaximumRows( kRows );
+
+        Sampler sampler( ctx_.get(), config );
+        auto one_row_op = makeOp( 30.0f, kGemmaVocab );
+        auto logits = deviceRows( kRows, kGemmaVocab, 300 );
+
+        SamplingParams params;
+        params.temperature = 1.0f;
+        params.top_k = 64;
+        params.top_p = 0.95f;
+
+        const std::vector<float> uniforms = uniformsFrom( 11, kRows );
+        const std::vector<int32_t> draws = sampleEachRow( *one_row_op, logits, kRows, params, uniforms );
+
+        for ( int64_t kept_drafts = 0; kept_drafts < kRows; ++kept_drafts )
+        {
+            HostToken host_tokens( Device::Cpu(), shape_t{ kRows } );
+            host_tokens.data()[ 0 ] = 1234;
+
+            for ( int64_t i = 1; i < kRows; ++i )
+            {
+                const int32_t draw = draws[ static_cast<size_t>( i - 1 ) ];
+                host_tokens.data()[ i ] = ( i <= kept_drafts ) ? draw : ( draw + 1 ) % static_cast<int32_t>( kGemmaVocab );
+            }
+
+            DeviceToken tokens( Device::Cuda( 0 ), shape_t{ kRows } );
+            copy( host_tokens, tokens, ctx_.get() );
+
+            sampler.enqueueRound( logits, tokens, kRows, params, uniforms );
+            const auto kept = sampler.awaitRound();
+
+            std::vector<int32_t> expected( draws.begin(), draws.begin() + kept_drafts + 1 );
+
+            EXPECT_EQ( std::vector<int32_t>( kept.begin(), kept.end() ), expected ) << "kept_drafts=" << kept_drafts;
+            EXPECT_EQ( readTokens( tokens, 1 )[ 0 ], expected.back() );
+        }
+    }
+
+    // Timing, not a gate: one rows call against K + 1 one-row calls at the Gemma vocabulary and Google's sampling,
+    // DRAM-resident logits, events on the context's stream (Gemma4Mtp.md 4.8, "priced before it is built").
+    TEST_F( SamplingRowsCudaTests, DISABLED_RowsRate_AtGemmaVocab )
+    {
+        constexpr int kRepeats = 50;
+
+        auto rows_op = makeRowsOp( kMaxSampleRows, 30.0f );
+        auto one_row_op = makeOp( 30.0f, kGemmaVocab );
+        auto logits = deviceRows( kMaxSampleRows, kGemmaVocab, 500 );
+
+        // Larger than L2, so each call reads its logits from DRAM as a verify's head output would be.
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> flush( Device::Cuda( 0 ), shape_t{ 64 * 1024 * 1024 } );
+
+        auto* context = dynamic_cast<CudaExecutionContext*>( ctx_.get() );
+        ASSERT_NE( context, nullptr );
+        cudaStream_t stream = context->getStream();
+
+        const auto flushCache = [&]
+        {
+            cudaMemsetAsync( flush.rawData(), 0, flush.size() * sizeof( float ), stream );
+        };
+
+        const auto timeMs = [&]( auto&& call ) -> double
+        {
+            cudaEvent_t begin;
+            cudaEvent_t end;
+            cudaEventCreate( &begin );
+            cudaEventCreate( &end );
+
+            std::vector<double> samples;
+
+            for ( int repeat = 0; repeat < kRepeats; ++repeat )
+            {
+                flushCache();
+                cudaEventRecord( begin, stream );
+                call();
+                cudaEventRecord( end, stream );
+                cudaEventSynchronize( end );
+
+                float ms = 0.0f;
+                cudaEventElapsedTime( &ms, begin, end );
+                samples.push_back( ms );
+            }
+
+            cudaEventDestroy( begin );
+            cudaEventDestroy( end );
+            std::sort( samples.begin(), samples.end() );
+
+            return samples[ samples.size() / 2 ];
+        };
+
+        struct SettingsCase { const char* name; float temperature; int top_k; float top_p; };
+        const SettingsCase cases[] = { { "google 1.0/64/0.95", 1.0f, 64, 0.95f }, { "greedy", 0.0f, 0, 1.0f } };
+
+        DeviceToken tokens( Device::Cuda( 0 ), shape_t{ kMaxSampleRows } );
+
+        for ( const auto& settings : cases )
+        {
+            SamplingParams params;
+            params.temperature = settings.temperature;
+            params.top_k = settings.top_k;
+            params.top_p = settings.top_p;
+
+            for ( int64_t rows = 1; rows <= kMaxSampleRows; ++rows )
+            {
+                const std::vector<float> uniforms = uniformsFrom( 3, rows );
+
+                const double one_by_one = timeMs( [&]
+                {
+                    for ( int64_t row = 0; row < rows; ++row )
+                    {
+                        auto view = logits.view( shape_t{ 1, 1, kGemmaVocab }, row * kGemmaVocab );
+                        auto slot = tokens.view( shape_t{ 1, 1 }, row );
+                        one_row_op->enqueueForwardOnDevice( view, slot, params, uniforms[ static_cast<size_t>( row ) ] );
+                    }
+                } );
+
+                const double together = timeMs( [&]
+                {
+                    rows_op->enqueueRowsOnDevice( logits, tokens, rows, params, uniforms );
+                } );
+
+                std::printf( "[rows-rate] %-20s rows=%lld  one-by-one %.3f ms  rows call %.3f ms  saved %.3f ms\n",
+                    settings.name, static_cast<long long>( rows ), one_by_one, together, one_by_one - together );
+            }
+        }
     }
 }

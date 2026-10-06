@@ -14,6 +14,7 @@ module;
 #include <stdexcept>
 #include <format>
 #include <cstdint>
+#include <span>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
 #include "Kernels/Sampling.cuh"
@@ -66,13 +67,14 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
 
         CudaSamplingOp( IExecutionContext* context, const SamplingConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaSamplingOp" ) ),
-              config_( config ),
-              prob_scratch_( context->getDeviceId(), shape_t{ config.getVocabularySize() } ),
-              reduction_scratch_( context->getDeviceId(), shape_t{ kStochasticFloatScratchElements } ),
-              index_scratch_( context->getDeviceId(), shape_t{ kStochasticIndexScratchElements } ),
+              config_( validatedConfig( config ) ),
+              prob_scratch_( context->getDeviceId(), shape_t{ config.getMaximumRows() * config.getVocabularySize() } ),
+              reduction_scratch_( context->getDeviceId(),
+                  shape_t{ config.getMaximumRows() * kStochasticFloatScratchElements } ),
+              index_scratch_( context->getDeviceId(),
+                  shape_t{ config.getMaximumRows() * kStochasticIndexScratchElements } ),
               pinned_token_( context->getDeviceId(), shape_t{ 1, 1 } )
         {
-            config_.validate();
         }
 
         ~CudaSamplingOp() override
@@ -176,6 +178,113 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         }
 
         /**
+         * @brief Sample each of the first @p rows logits rows on the execution context's stream, all rows in each
+         * launch, the tokens left on the device.
+         *
+         * Row r is drawn against `uniforms[r]` into element r of @p tokens_out, exactly as enqueueForwardOnDevice()
+         * draws that row alone with that uniform -- the speculative sampler's first half (Gemma4Mtp.md 4.8).
+         *
+         * @param logits     Device logits whose first `rows x vocab_size` elements are the rows, row-major.
+         * @param tokens_out Device INT32 of at least @p rows elements.
+         * @param rows       1 to the configured maximum rows.
+         * @param params     Per-call sampling parameters, the same for every row.
+         * @param uniforms   One host-drawn uniform in [0, 1) per row; unused by the greedy branch.
+         */
+        void enqueueRowsOnDevice(
+            const ITensor& logits,
+            ITensor& tokens_out,
+            dim_t rows,
+            const SamplingParams& params,
+            std::span<const float> uniforms ) const
+        {
+            const int64_t vocab = config_.getVocabularySize();
+
+            if ( rows < 1 || rows > config_.getMaximumRows() )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaSamplingOp::enqueueRowsOnDevice: {} rows, where this sampler was built for 1 to {}",
+                    rows, config_.getMaximumRows() ) );
+            }
+
+            if ( static_cast<dim_t>( uniforms.size() ) < rows || logits.size() < rows * vocab || tokens_out.size() < rows )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaSamplingOp::enqueueRowsOnDevice: {} rows need {} uniforms, {} logits and {} token slots; "
+                    "given {}, {} and {}",
+                    rows, rows, rows * vocab, rows, uniforms.size(), logits.size(), tokens_out.size() ) );
+            }
+
+            const NativeType* first_row = static_cast<const NativeType*>( logits.rawData() );
+            int32_t* out = static_cast<int32_t*>( tokens_out.rawData() );
+            const int row_count = narrowToKernelIndex( rows );
+            cudaStream_t stream = context_->getStream();
+
+            const bool greedy = (params.temperature <= 0.0f || params.top_k == 1);
+
+            if ( greedy )
+            {
+                cuda_sample_rows_argmax<NativeType>( first_row, out, row_count, static_cast<int>( vocab ), stream );
+                return;
+            }
+
+            SampleRowUniforms row_uniforms{};
+
+            for ( int row = 0; row < row_count; ++row )
+                row_uniforms.value[ row ] = uniforms[ static_cast<size_t>( row ) ];
+
+            cuda_sample_rows_stochastic<NativeType>(
+                first_row, out,
+                static_cast<float*>( prob_scratch_.rawData() ),
+                static_cast<float*>( reduction_scratch_.rawData() ),
+                static_cast<int32_t*>( index_scratch_.rawData() ),
+                row_count, static_cast<int>( vocab ),
+                config_.getFinalLogitSoftcap(), params.temperature,
+                params.top_k, params.top_p, row_uniforms, stream );
+        }
+
+        /**
+         * @brief Walk a verified round's acceptance on the execution context's stream, the speculative sampler's
+         * second half (Gemma4Mtp.md 4.8).
+         *
+         * A draft is kept while the row before it chose it. Writes `[m, d_1 .. d_m, next]` into @p result -- the
+         * count kept, the kept drafts and the token chosen at row m -- and the next token into slot 0 of @p tokens,
+         * where the next round's draft reads it.
+         *
+         * @param tokens Device INT32 of the round's @p rows tokens: the known one, then the drafts.
+         * @param chosen Device INT32 of the token chosen at each of the @p rows rows (enqueueRowsOnDevice()).
+         * @param rows   1 to the configured maximum rows.
+         * @param result Device INT32 of at least `rows + 1` elements.
+         */
+        void enqueueAcceptOnDevice(
+            ITensor& tokens,
+            const ITensor& chosen,
+            dim_t rows,
+            ITensor& result ) const
+        {
+            if ( rows < 1 || rows > config_.getMaximumRows() )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaSamplingOp::enqueueAcceptOnDevice: {} rows, where this sampler was built for 1 to {}",
+                    rows, config_.getMaximumRows() ) );
+            }
+
+            if ( tokens.size() < rows || chosen.size() < rows || result.size() < rows + 1 )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaSamplingOp::enqueueAcceptOnDevice: {} rows need {} tokens, {} chosen and {} result slots; "
+                    "given {}, {} and {}",
+                    rows, rows, rows, rows + 1, tokens.size(), chosen.size(), result.size() ) );
+            }
+
+            cuda_speculative_accept(
+                static_cast<int32_t*>( tokens.rawData() ),
+                static_cast<const int32_t*>( chosen.rawData() ),
+                narrowToKernelIndex( rows ),
+                static_cast<int32_t*>( result.rawData() ),
+                context_->getStream() );
+        }
+
+        /**
          * @brief Block until the last enqueueForward()'s token readback lands, then
          * return the host token id.
          *
@@ -251,6 +360,20 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         }
 
     private:
+
+        static SamplingConfig validatedConfig( const SamplingConfig& config )
+        {
+            config.validate();
+
+            if ( config.getMaximumRows() > kMaxSampleRows )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaSamplingOp: {} maximum rows, where one call samples at most {}",
+                    config.getMaximumRows(), kMaxSampleRows ) );
+            }
+
+            return config;
+        }
 
         /// Kernel dispatch shared by the sync (default-stream) and enqueued (context-stream) paths.
         void dispatchSample(

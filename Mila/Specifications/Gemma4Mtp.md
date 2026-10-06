@@ -3,7 +3,9 @@
 Speculative decoding for Gemma 4 12B and 26B-A4B, each with the draft model Google trained for it.
 
 *Status: design, 2026-10-04. Stage 1 is built and measured for both models (5.1): the drafter component, its
-parity with HuggingFace, its acceptance and the verify cost; the loop (stage 2, 4.7) is not built. Supersedes `SpeculativeDecoding.md` for Gemma: that document
+parity with HuggingFace, its acceptance and the verify cost. The 12B's loop is built, greedy and sampled, and
+replayed (4.7); the 26B-A4B's waits on its expert bank (4.7, step 5); the speculative sampler, which draws every
+row at once and walks acceptance on the device, is built (4.8). Supersedes `SpeculativeDecoding.md` for Gemma: that document
 proposed a drafter with its own KV cache and a compile-time drafter axis, and Google's drafter is
 neither. The work is `BACKLOG.md`, Gemma 4 Complete, "Nobody knows whether Google's drafters would make
 Gemma 4 decode faster".*
@@ -446,6 +448,100 @@ against 0.759 and 0.753): the device's top-p threshold is found by histogram ref
 exact, a difference not yet shown to be the cause. Sampling every row costs here: a sampled round runs 1 to 2.5 ms
 over its priced parts on chat and code, against 0.2 to 0.8 greedy, the top-k and top-p passes running once per row in
 launches of their own.
+
+### 4.8 The speculative step
+
+*Design, 2026-10-06, agreed with Todd; built the same day.* The round before it (4.7, 6b-1 and 6b-2) was the draft, the verify, a sampler run
+per row, then two copies to the host, where the drafts are compared with the chosen tokens. This section splits the
+round into the model's arithmetic and the choice made from it, and gives the choice its own sampler.
+
+**The forward is arithmetic only.** In concept the draft model is a head of the Gemma transformer -- an extra input
+stage that reads the target's caches and final-normed row -- so one forward is the draft head proposing K tokens and
+the target's one pass over slot 0 and those K, returning K + 1 logits rows. The draft is greedy and carries no
+distribution forward (4.4 measured what sampling it would gain). Nothing is sampled in the forward; it is the same
+forward whatever the caller's settings are.
+
+**The choice is a speculative sampler after it.** The drafting counterpart of `TokenSampler`, owned by the model
+beside it (`TokenSampling.md` 3.1: an orchestrator tool, not a graph component). It takes the K + 1 rows, the drafted
+ids and the caller's settings, and on the device:
+
+1. **Draws every row at once.** Each row is drawn with its own uniform and the caller's settings, in one launch per
+   stage of the sampling pipeline for all K + 1 rows, where today each row runs the whole pipeline in launches of its
+   own. Each row's arithmetic is the one-row sampler's, so a row's token is the token the one-row sampler draws from
+   that row with that uniform.
+2. **Walks acceptance -- decided 2026-10-06 (Todd):** `d_i` is kept while row `i - 1`'s draw is `d_i`; the draw at
+   the first row that differs, or at the last row if all K are kept, is the next token. This is the textbook rule
+   written another way (4.4): a draw lands on `d_i` with probability `p_i(d_i)`, and a draw that does not is a draw
+   from `p_i` without `d_i`. It writes the kept drafts and the next token for the host, and the next token into slot 0
+   for the next round's draft.
+
+The host waits once a round, as today, on one copy: the count kept, the kept drafts and the next token. It emits them,
+rewinds the caches to the round's position plus the count plus one -- a check and the cached length, no device memory
+moves -- and starts the next round. The uniforms come from the model's one sampling stream, one per row in row order,
+as today's loop draws them, so a seeded run draws what it did before.
+
+**Sampled at Google's settings is the case it is built and measured for**: temperature 1.0, top-k 64, top-p 0.95,
+every Gemma 4 publisher's setting, and the default once sampling defaults are the model's (`BACKLOG.md`, Model
+Handle). Greedy remains a caller's choice -- an argmax per row, compared with the draft -- and is the exact gate:
+drafted greedy output is today's token for token, since the forward and the argmax are unchanged.
+
+**What it is worth, priced before it is built.** A sampled round at Google's settings runs 1 to 2.5 ms over its
+priced parts on chat and code (4.7), roughly 3 to 10% of a 25 to 33 ms round. The host's wait is at most the greedy
+round's leftover, 0.2 to 0.8 ms, since the wait is the same in both; the rest, about 0.8 to 1.7 ms, is inferred to be
+the per-row sampling, which drawing every row at once addresses. That split is an inference from two leftovers, so
+the rows' sampling is timed on its own first, one rows call against K + 1 one-row calls, before the loop changes.
+
+**The rows timed -- measured 2026-10-06** (`SamplingRowsCudaTests.DISABLED_RowsRate_AtGemmaVocab`, RTX 5060 Ti, the
+262144-token vocabulary, Gemma's softcap, logits DRAM-resident, median of 50):
+
+| Rows | Google's 1.0 / 64 / 0.95, one row at a time | One rows call | Greedy, one at a time | One rows call |
+|---|---|---|---|---|
+| 1 | 0.312 ms | 0.314 ms | 0.036 ms | 0.036 ms |
+| 3 | 0.978 ms | 0.443 ms | 0.103 ms | 0.042 ms |
+| 5 | 1.803 ms | 0.536 ms | 0.169 ms | 0.046 ms |
+| 8 | 2.744 ms | 0.613 ms | 0.265 ms | 0.052 ms |
+
+At K = 4 the rows call saves 1.27 ms of a sampled round, inside the 0.8 to 1.7 ms inferred above; one row costs what
+the one-row sampler did, so plain decoding is unchanged. A rows call's working stores are the one-row sampler's times
+the rows, about 1 MB a row at this vocabulary, outside the footprint as the one-row sampler's are.
+
+**Built and measured 2026-10-06.** The rows pipeline, the acceptance walk and `SpeculativeSampler`
+(`Dnn.Samplers.SpeculativeSampler`), which `GemmaModel::generate` runs for every drafted round. Tested in
+`Tests/Dnn/Samplers/Sampling.Cuda.cpp` (`SamplingRowsCudaTests`): every row's token equals the one-row sampler's at
+Google's settings and three others, and the whole sampler equals the host walk over one-row draws; mutation-checked
+-- every row reading row 0's uniform, and the next token not written into slot 0, each fail. Through
+`GemmaModel::generate` against the `+37` build (`Tools/Drafting generate`, RTX 5060 Ti, the 12B Q4_0, the
+acceptance prompts, 512 tokens, median of 3, run r seeded 1 + r in both builds; files `D:\Claude\drafting\sampler48`):
+
+| Prompt | Sampled at Google's, best K: before / after | Greedy, best K: before / after |
+|---|---|---|
+| chat | 1.83x / 1.90x (K = 5; 1.89x at 4) | 2.00x / 2.01x (K = 5) |
+| code | 1.71x / 1.75x (K = 3; 1.71x at 4) | 1.87x / 1.88x (K = 4) |
+| prose | 1.40x / 1.44x (K = 3) | 1.53x / 1.54x (K = 2) |
+
+Every one of the fifteen sampled cells (plain and K = 2 to 5) produced the same tokens in both builds -- the seeded
+runs' token hashes agree -- so the sampled gain is time on identical replies: 1.8 to 3.6% a token, 0.2 to 0.56 ms.
+Greedy parts from plain at the same token as before in every cell, 0.3 to 0.7% faster. The best K still differs by
+kind of text, and a K too high costs prose far more than one too low costs chat (prose 1.44x at K = 3, 1.24x at 5;
+chat within 1% from 3 to 5).
+
+**Next, not built: K chosen each round.** A reply changes kind as it goes, so a fixed K, even the right one for a
+prompt, is wrong for parts of it. The direction (Todd, 2026-10-06): a default from the measured costs, then a
+heuristic that updates it. Concretely, the default K is the one section 3's cost model makes fastest from the
+deployment's measured draft and verify costs, and the heuristic updates the acceptance rate -- a running mean of
+drafts kept -- choosing each round the K that model then makes fastest, which carries to the 26B-A4B's costs
+unchanged; HuggingFace's rule (raise K after a fully accepted round, lower it after a rejection) is the simple
+alternative. The deployment's K becomes the most a round may draft, which already sizes the build; recordings are
+keyed by row count, and the host learns each round's count kept. Priced first: stage 1's per-position acceptance at
+K = 8 replays any policy exactly for greedy, offline -- the best K chosen each round in hindsight, which bounds what
+any policy can gain, against the best fixed K, the cost-model heuristic and HuggingFace's rule -- and it is built
+only if the bound is worth it.
+
+**Not built, and why not now:** running ahead, with the next round enqueued before the host has read this one. It
+removes only the host's wait, at most 0.2 to 0.8 ms of a round, and it needs the decode position advanced on the
+device, `draftTokens` and `decodeTokens` taking their position from it rather than from the host, the uniforms and
+settings in device memory, and stop tokens, the budget and the context's end handled a round late. It is the option
+once the round's other costs are gone, and the measurement says whether the wait is then worth it.
 
 ## 5. Gates
 

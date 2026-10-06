@@ -35,6 +35,7 @@ import Dnn.GenerateParams;
 import Dnn.SamplingParams;
 import Dnn.GenerateStatus;
 import Dnn.Samplers.TokenSampler;
+import Dnn.Samplers.SpeculativeSampler;
 import Dnn.Samplers.SamplingConfig;
 import Compute.Device;
 import Compute.DeviceType;
@@ -353,6 +354,61 @@ namespace Mila::Dnn
             return token_sampler_->awaitToken();
         }
 
+        /**
+         * @brief Build the model-owned speculative sampler for rounds of up to @p maximum_rows rows, once.
+         *
+         * Called before the first round of a drafted generation; its working stores scale with the rows.
+         */
+        void reserveSpeculativeSampler( dim_t maximum_rows )
+        {
+            if ( speculative_sampler_ && speculative_sampler_->maximumRows() >= maximum_rows )
+                return;
+
+            SamplingConfig config = SamplingConfig{}
+                .withVocabularySize( this->vocabSize() )
+                .withFinalLogitSoftcap( this->finalLogitSoftcap() )
+                .withMaximumRows( maximum_rows );
+
+            speculative_sampler_ = std::make_unique<SpeculativeSampler<TDeviceType, TPrecision>>(
+                this->getNetwork().getExecutionContext(), config );
+        }
+
+        /**
+         * @brief Enqueue a speculative round's choice from its verified logits rows (Gemma4Mtp.md 4.8).
+         *
+         * Each row draws one uniform from the model's sampling stream, in row order, as the ordinary sampler would
+         * draw for those rows. The round's next token lands in slot 0 of @p tokens; awaitSpeculativeRound() returns
+         * the kept tokens. reserveSpeculativeSampler() must have been called for at least @p rows.
+         */
+        void enqueueSpeculativeRound(
+            const TensorType& logits,
+            TokenTensor& tokens,
+            dim_t rows,
+            const SamplingParams& params )
+        {
+            ensureSampler();
+
+            if ( !speculative_sampler_ || speculative_sampler_->maximumRows() < rows )
+            {
+                throw std::logic_error( std::format(
+                    "LanguageModel::enqueueSpeculativeRound: a round of {} rows before reserveSpeculativeSampler( {} )",
+                    rows, rows ) );
+            }
+
+            std::vector<float> uniforms( static_cast<size_t>( rows ) );
+
+            for ( auto& uniform : uniforms )
+                uniform = token_sampler_->drawUniform();
+
+            speculative_sampler_->enqueueRound( logits, tokens, rows, params, uniforms );
+        }
+
+        /// Block until the last enqueueSpeculativeRound()'s choice is on the host: the kept drafts, then the next token.
+        std::span<const int32_t> awaitSpeculativeRound()
+        {
+            return speculative_sampler_->awaitRound();
+        }
+
         // ====================================================================
         // Network accessor
         // ====================================================================
@@ -433,5 +489,6 @@ namespace Mila::Dnn
         }
 
         std::unique_ptr<TokenSampler<TDeviceType, TPrecision>> token_sampler_;
+        std::unique_ptr<SpeculativeSampler<TDeviceType, TPrecision>> speculative_sampler_;
     };
 }

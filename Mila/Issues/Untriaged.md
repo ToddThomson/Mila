@@ -656,3 +656,12 @@ feed-forward functions but sit in `Components/MixtureOfExperts/` beside `FFN/` r
 report their child's `ComponentType` (`GatedMlp` for the dense one, `MixtureOfExperts` for the routed one, the same as
 its bank). The distinction discussed, not decided: `FFN/` holds feed-forward functions, a family directory holds the
 sublayer -- the norms around the function, which differ per family.
+
+## A drafted reply runs one fixed K, though the best K changes with the kind of text
+
+`Mila/Specifications/Gemma4Mtp.md` 4.8 (`Next, not built: K chosen each round`), `GemmaModel::generateWithDraft` @ `0.21.0-dev+38`
+
+Found 2026-10-06 measuring the speculative sampler: best K is 2 to 3 on prose, 3 to 4 on code, 4 to 5 on chat, and a
+K too high costs prose far more than one too low costs chat. Todd: adaptive K will be needed eventually -- a default
+from the measured costs, then a heuristic that updates it. The spec holds the shape and the offline greedy
+simulation that prices it before anything is built.

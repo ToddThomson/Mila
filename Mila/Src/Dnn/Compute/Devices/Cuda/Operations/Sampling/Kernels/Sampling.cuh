@@ -31,6 +31,33 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             cuda_sample_argmax_bf16( logits, token_out, vocab, stream );
     }
 
+    // The most rows one call samples: a verify's K + 1 (Gemma4Mtp.md 4.8).
+    inline constexpr int kMaxSampleRows = 8;
+
+    // One host-drawn uniform per row, passed by value so a call carries every row's draw.
+    struct SampleRowUniforms
+    {
+        float value[ kMaxSampleRows ];
+    };
+
+    // Argmax of each of `rows` contiguous rows of `vocab` logits into token_out[row], one block per row.
+    void cuda_sample_rows_argmax_fp32( const float* logits, int32_t* token_out, int rows, int vocab, cudaStream_t stream );
+    void cuda_sample_rows_argmax_bf16(
+        const __nv_bfloat16* logits, int32_t* token_out, int rows, int vocab, cudaStream_t stream );
+
+    template <typename TNative>
+    inline void cuda_sample_rows_argmax(
+        const TNative* logits, int32_t* token_out, int rows, int vocab, cudaStream_t stream )
+    {
+        static_assert( std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>,
+                       "cuda_sample_rows_argmax: unsupported precision" );
+
+        if constexpr ( std::is_same_v<TNative, float> )
+            cuda_sample_rows_argmax_fp32( logits, token_out, rows, vocab, stream );
+        else
+            cuda_sample_rows_argmax_bf16( logits, token_out, rows, vocab, stream );
+    }
+
     // Stochastic pipeline scratch geometry. The op allocates one FP32 and one INT32
     // device tensor of these element counts and passes their raw pointers through;
     // the layout (header slots, reduction partials, histogram bins, chunk partials)
@@ -76,6 +103,45 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             cuda_sample_stochastic_bf16( logits, token_out, scratch, reduction_scratch, index_scratch,
                 vocab, softcap, temperature, top_k, top_p, r, stream );
     }
+
+    // The stochastic pipeline over `rows` contiguous rows of `vocab` logits at once, each launch serving every row:
+    // row r is sampled against uniforms.value[r] into token_out[r], exactly as the one-row call samples that row.
+    // `scratch`, `reduction_scratch` and `index_scratch` hold `rows` times the one-row element counts.
+    void cuda_sample_rows_stochastic_fp32(
+        const float* logits, int32_t* token_out, float* scratch,
+        float* reduction_scratch, int32_t* index_scratch, int rows,
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleRowUniforms& uniforms, cudaStream_t stream );
+    void cuda_sample_rows_stochastic_bf16(
+        const __nv_bfloat16* logits, int32_t* token_out, float* scratch,
+        float* reduction_scratch, int32_t* index_scratch, int rows,
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleRowUniforms& uniforms, cudaStream_t stream );
+
+    template <typename TNative>
+    inline void cuda_sample_rows_stochastic(
+        const TNative* logits, int32_t* token_out, float* scratch,
+        float* reduction_scratch, int32_t* index_scratch, int rows,
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleRowUniforms& uniforms, cudaStream_t stream )
+    {
+        static_assert( std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>,
+                       "cuda_sample_rows_stochastic: unsupported precision" );
+
+        if constexpr ( std::is_same_v<TNative, float> )
+            cuda_sample_rows_stochastic_fp32( logits, token_out, scratch, reduction_scratch, index_scratch, rows,
+                vocab, softcap, temperature, top_k, top_p, uniforms, stream );
+        else
+            cuda_sample_rows_stochastic_bf16( logits, token_out, scratch, reduction_scratch, index_scratch, rows,
+                vocab, softcap, temperature, top_k, top_p, uniforms, stream );
+    }
+
+    // Speculative acceptance over a verified round (Gemma4Mtp.md 4.8). `tokens` holds the round's `rows` tokens --
+    // the known one, then the drafts -- and `chosen` the token sampled at each row. A draft is kept while the row
+    // before it chose it. Writes result[0] = kept count m, result[1..m] = the kept drafts, result[m + 1] = the token
+    // chosen at row m, and that next token into tokens[0] for the next round.
+    void cuda_speculative_accept(
+        int32_t* tokens, const int32_t* chosen, int rows, int32_t* result, cudaStream_t stream );
 
     // Reference oracle: the original single-block stochastic kernel (bisection thresholds
     // + thread-0 serial inverse-CDF). Retained for new-vs-reference parity tests only —

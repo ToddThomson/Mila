@@ -24,6 +24,7 @@ module;
 #include <format>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -91,6 +92,8 @@ namespace Mila::Tools::Drafting
         int runs{ 3 };
         bool fp8_cache{ false };
         bool sample{ false };
+        // generate: run r of a cell seeds the model's sampler with seed + r, so two builds sample the same replies.
+        std::optional<std::uint64_t> seed;
         fs::path weights{ fs::path( MILA_DATA_DIR ) / "Models" / "Gemma" / "gemma4_12b_it_qat_q4_0.safetensors" };
         fs::path drafter{ fs::path( MILA_DATA_DIR ) / "Models" / "Gemma" / "gemma4_12b_it_qat_drafter_bf16.bin" };
         fs::path output{ "drafter_parity" };
@@ -140,6 +143,8 @@ namespace Mila::Tools::Drafting
             << "Drafting generate [options]\n"
             << "  The same comparison through GemmaModel::generate: the model loaded without a draft model, then with\n"
             << "  one at each K. Takes --drafts, --tokens, --runs, --prompt-tokens and --kv-cache as speculate does.\n"
+            << "  --seed          Seed run r of every cell with seed + r and print a hash of each cell's tokens, so two\n"
+            << "                  builds' sampled runs can be timed on the same replies and checked token for token.\n"
             << "\n"
             << "Every mode takes --target 12b | 26b (default 12b): the 26B-A4B runs Q4_0, quantized on load from\n"
             << "Models/Gemma/gemma4_26b_a4b_it_qat_bf16.bin, with its drafter gemma4_26b_a4b_it_qat_drafter_bf16.bin.\n";
@@ -219,6 +224,10 @@ namespace Mila::Tools::Drafting
             else if ( arg == "--runs" )
             {
                 options.runs = parseInt( value(), "--runs" );
+            }
+            else if ( arg == "--seed" )
+            {
+                options.seed = static_cast<std::uint64_t>( parseInt( value(), "--seed" ) );
             }
             else if ( arg == "--repeats" )
             {
@@ -1529,11 +1538,12 @@ namespace Mila::Tools::Drafting
     {
         std::vector<std::int32_t> tokens;
         double ms_per_token{ 0.0 };  // from the first token's callback to the last, so the prefill is not in it
+        std::uint64_t tokens_hash{ 14695981039346656037ull };  // FNV-1a over every run's tokens, in run order
     };
 
-    /// Greedy generation through GemmaModel::generate, as a program runs it: median of `runs`.
+    /// Generation through GemmaModel::generate, as a program runs it: median of `runs`.
     LibraryRun generateThroughTheModel( GemmaCuda& model, const SamplingParams& sampling, const std::vector<std::int32_t>& prompt,
-        int tokens, int runs )
+        int tokens, int runs, std::optional<std::uint64_t> seed )
     {
         GenerateParams params;
         params.max_new_tokens = tokens + 1;
@@ -1544,6 +1554,9 @@ namespace Mila::Tools::Drafting
 
         for ( int run = 0; run < runs; ++run )
         {
+            if ( seed )
+                model.seedSampler( *seed + static_cast<std::uint64_t>( run ) );
+
             std::vector<std::int32_t> generated;
             std::chrono::steady_clock::time_point first{};
             std::chrono::steady_clock::time_point last{};
@@ -1560,6 +1573,12 @@ namespace Mila::Tools::Drafting
 
             if ( generated.size() < 2 )
                 throw std::runtime_error( "the reply ended before a second token" );
+
+            for ( const std::int32_t token : generated )
+            {
+                result.tokens_hash ^= static_cast<std::uint32_t>( token );
+                result.tokens_hash *= 1099511628211ull;
+            }
 
             per_token.push_back( std::chrono::duration<double, std::milli>( last - first ).count() / ( generated.size() - 1 ) );
             result.tokens = std::move( generated );
@@ -1590,9 +1609,16 @@ namespace Mila::Tools::Drafting
 
         // Sampled replies part from the first token whatever the draft does, so only greedy ones are compared.
         std::cout << std::format( "weights {}\ndrafter {}\ncontext {}, {} tokens after the first, median of {} runs, {}, "
-            "through GemmaModel::generate\n\n| prompt | K | ms/token | speedup | same tokens as plain |\n|---|---|---|---|---|\n",
+            "through GemmaModel::generate{}\n\n| prompt | K | ms/token | speedup | same tokens as plain | tokens hash |\n"
+            "|---|---|---|---|---|---|\n",
             options.weights.string(), options.drafter.string(), context_length, options.tokens, options.runs,
-            options.sample ? "sampled at " + describeSampling( options ) : std::string( "greedy" ) );
+            options.sample ? "sampled at " + describeSampling( options ) : std::string( "greedy" ),
+            options.seed ? std::format( ", run r seeded {} + r", *options.seed ) : std::string() );
+
+        const auto hashOf = [&]( const LibraryRun& run )
+        {
+            return options.seed ? std::format( "{:016x}", run.tokens_hash ) : std::string( "-" );
+        };
 
         std::vector<LibraryRun> plain;
 
@@ -1601,8 +1627,10 @@ namespace Mila::Tools::Drafting
 
             for ( const auto& prompt : prompts )
             {
-                plain.push_back( generateThroughTheModel( *model, samplingOf( options ), prompt.tokens, options.tokens, options.runs ) );
-                std::cout << std::format( "| {} | - | {:.3f} | 1.00x | - |\n", prompt.name, plain.back().ms_per_token );
+                plain.push_back( generateThroughTheModel(
+                    *model, samplingOf( options ), prompt.tokens, options.tokens, options.runs, options.seed ) );
+                std::cout << std::format( "| {} | - | {:.3f} | 1.00x | - | {} |\n",
+                    prompt.name, plain.back().ms_per_token, hashOf( plain.back() ) );
             }
         }
 
@@ -1613,7 +1641,8 @@ namespace Mila::Tools::Drafting
 
             for ( std::size_t i = 0; i < prompts.size(); ++i )
             {
-                const LibraryRun drafted = generateThroughTheModel( *model, samplingOf( options ), prompts[ i ].tokens, options.tokens, options.runs );
+                const LibraryRun drafted = generateThroughTheModel(
+                    *model, samplingOf( options ), prompts[ i ].tokens, options.tokens, options.runs, options.seed );
 
                 std::size_t same = 0;
 
@@ -1623,10 +1652,11 @@ namespace Mila::Tools::Drafting
                     ++same;
                 }
 
-                std::cout << std::format( "| {} | {} | {:.3f} | {:.2f}x | {} |\n", prompts[ i ].name, draft,
+                std::cout << std::format( "| {} | {} | {:.3f} | {:.2f}x | {} | {} |\n", prompts[ i ].name, draft,
                     drafted.ms_per_token, plain[ i ].ms_per_token / drafted.ms_per_token,
                     options.sample ? std::string( "-" )
-                        : same == plain[ i ].tokens.size() ? std::string( "all" ) : std::format( "first {}", same ) );
+                        : same == plain[ i ].tokens.size() ? std::string( "all" ) : std::format( "first {}", same ),
+                    hashOf( drafted ) );
             }
         }
     }

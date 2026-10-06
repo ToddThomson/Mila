@@ -180,6 +180,14 @@ The op writes the device token only. The 4-byte D2H readback and the per-step `s
 are the `TokenSampler` facade's responsibility, keeping sync placement in the orchestrator's
 control.
 
+**Rows (2026-10-06, `Gemma4Mtp.md` 4.8).** `enqueueRowsOnDevice( logits, tokens_out, rows, params,
+uniforms )` samples the first `rows` rows of a `[1, rows, vocab]` logits tensor, one uniform each,
+every launch of the pipeline serving all rows; row r's token is the one-row call's on that row with
+that uniform, and the one-row call is the same kernels at one row. `SamplingConfig::withMaximumRows`
+sizes the working stores, which scale with it. `enqueueAcceptOnDevice` walks a speculative round's
+acceptance; both are the `SpeculativeSampler`'s, which draws its uniforms from the model's
+`TokenSampler` so one stream serves both.
+
 ### 4.3 RNG
 
 Randomness stays on the host: the `TokenSampler` facade owns the `std::mt19937` (seeded per

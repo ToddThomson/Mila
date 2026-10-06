@@ -13,6 +13,8 @@ module;
 
 export module Dnn.Samplers.SamplingConfig;
 
+import Dnn.TensorTypes;
+
 namespace Mila::Dnn
 {
     /**
@@ -39,6 +41,18 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        /**
+         * @brief The most logits rows one call samples, which sizes the sampler's working stores.
+         *
+         * 1 for the ordinary sampler; a verify's K + 1 for the speculative sampler (Gemma4Mtp.md 4.8).
+         */
+        template<typename Self>
+        decltype(auto) withMaximumRows( this Self&& self, dim_t rows ) noexcept
+        {
+            self.maximum_rows_ = rows;
+            return std::forward<Self>( self );
+        }
+
         int64_t getVocabularySize() const noexcept
         {
             return vocab_size_;
@@ -47,6 +61,11 @@ namespace Mila::Dnn
         float getFinalLogitSoftcap() const noexcept
         {
             return final_logit_softcap_;
+        }
+
+        dim_t getMaximumRows() const noexcept
+        {
+            return maximum_rows_;
         }
 
         /**
@@ -65,10 +84,16 @@ namespace Mila::Dnn
             {
                 throw std::invalid_argument( "SamplingConfig: final logit softcap must be non-negative" );
             }
+
+            if ( maximum_rows_ < 1 )
+            {
+                throw std::invalid_argument( "SamplingConfig: maximum rows must be at least 1" );
+            }
         }
 
     private:
         int64_t vocab_size_{ 0 };
         float final_logit_softcap_{ 0.0f };
+        dim_t maximum_rows_{ 1 };
     };
 }
