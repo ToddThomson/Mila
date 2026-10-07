@@ -9,6 +9,7 @@ FetchContent never configures it.
 | `ContextProfile/` | C++ | What a model configuration is worth to an agent at each context length it fits |
 | `Converters/` | Python | HuggingFace weights and tokenizers to Mila format, per family |
 | `Drafting/` | C++ | Whether a draft model pays on its target: what a verify costs, and how many drafts are accepted |
+| `Evaluation/` | Python | Standard benchmarks run on two engines from the same token ids, compared document by document |
 | `ExportArtifact/` | C++ | Artifact, package and local-store lifecycle |
 | `Measurement/` | C++ | Header-only harness: a network built from weights, scored teacher-forced; PG-19 books |
 | `Publishing/` | Python | Uploads a model package to the HuggingFace Hub |
@@ -109,6 +110,15 @@ row. `Drafting drafter-parity` runs Google's draft model from the 12B's state af
 step's inputs, both caches and its logits; `Converters/Gemma/hf_gemma_drafter_reference.py --dump <dir>` runs
 HuggingFace's drafter on the same inputs and gates the two. Stage 1 of `Specifications/Gemma4Mtp.md`, section 5.1.
 CUDA-only.
+
+## Evaluation
+
+`run_arm.py hf|mila --output <run>` runs one arm of a paired lm-evaluation-harness evaluation: HuggingFace
+transformers, or a running MIS sent the token ids the HuggingFace tokenizer produced. `compare_arms.py <run>/hf
+<run>/mila` pairs the two by document and reports the score difference with its interval, the answers each
+arm alone got right, and how often the replies match exactly. Its first use is Mila BF16 against transformers on
+Llama 3.2 3B over IFEval and GSM8K, which is the noise floor a quantized build is read against. `Evaluation/README.md`
+covers setup and the reading of a report.
 
 ## Publishing
 

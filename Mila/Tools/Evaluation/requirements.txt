@@ -1,0 +1,4 @@
+# torch is not listed: install the CUDA build for your card from pytorch.org first, or pip
+# resolves a build that may not match it.
+lm_eval[api,hf,ifeval]==0.4.13
+transformers>=4.48.0

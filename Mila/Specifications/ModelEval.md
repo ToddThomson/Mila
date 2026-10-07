@@ -1,0 +1,229 @@
+# Model Evaluation
+
+**Status:** Draft, 2026-10-07. Agreed in discussion with Todd the same day: start with BF16 parity on Llama 3.2 3B
+over IFEval and GSM8K. Phase 1's tool is built (`Mila/Tools/Evaluation`, `0.21.0-dev+41`) and rehearsed end to end
+on a stand-in model; its first run on real weights has not happened. No release admits this work; section 10 holds
+the decisions that would.
+
+**Area:** what Mila states about a model's quality on standard task benchmarks, and how such a statement is made
+comparable to anyone else's. Its uses: the "is it any good" answer on every model card; the measured cost of each
+weight format, read against a measured noise floor; and evidence that Mila's forward pass is correct at the scale of
+a whole benchmark, not one prompt.
+
+---
+
+## 1. The question
+
+A user deciding on a quantized model asks three things, and each has a different kind of answer:
+
+| Claim | Question | Unit | Owner |
+|---|---|---|---|
+| **Fidelity** | How close is this build to the original? | KL from BF16, top-1 agreement, perplexity ratio, flip rate | `Quantization.md` (teacher-forced); this spec (flip rate) |
+| **Capability** | Is it good at tasks people recognise? | Benchmark score, as a difference from the original under one harness | This spec |
+| **Performance** | Is it fast on my card? | Prefill and generation tokens a second, footprint at a context | `benchmark_comparison.py` (`BACKLOG.md`, the llama.cpp comparison) |
+
+Depth is the fourth question and is not this spec's: where in a long conversation a configuration stops finding
+facts, obeying instructions and calling tools is `ContextProfile.md`. The two meet in section 5's tool-call and
+long-context tasks, which are the standard counterparts of its arms.
+
+What Mila had before this spec is fidelity alone: perplexity ratios against a reference build
+(`ModelCards/Qwen3.8-27B-cb2-3`), KL and top-1 tables (`Quantization.md`). They are honest and specific, and a
+user cannot act on them: "13.9% higher perplexity" does not say whether the model still does the job. A score on a
+benchmark the reader already knows does.
+
+## 2. Principles
+
+1. **Never compare to a vendor's published score.** Meta, Google and Alibaba report under their own prompts, shot
+   counts and templates; a Mila build measured any other way differs from their number for reasons unrelated to
+   the build. Every claim is a difference between two arms run under the same harness, on the same day.
+2. **The reference is an engine the reader trusts, not Mila.** HuggingFace transformers at BF16 is the anchor. Mila
+   BF16 against it is the first measurement (section 7, Phase 1), because until that difference is known, a
+   quantized build's difference cannot be attributed to the quantization.
+3. **Paired, not averaged.** Both arms score the same documents, so a comparison counts the documents that changed,
+   in each direction, and tests whether the imbalance is larger than chance (section 6). Two averages and two
+   standard errors would hide that half the answers changed.
+4. **The noise floor is measured, not assumed.** Two correct BF16 engines disagree on some replies (section 6.3).
+   That disagreement is the floor, and a format's cost is what it adds above it.
+5. **The harness is the public one.** EleutherAI's lm-evaluation-harness, pinned, is what the field reports
+   through. Mila owns the arm definitions and the comparison, never a task's prompt or scoring.
+
+## 3. Arms
+
+An **arm** is an engine serving a model, run under the fixed settings of section 4.
+
+| Arm | Engine | Status |
+|---|---|---|
+| `hf` | transformers, BF16, via lm-eval's `hf` model | Built |
+| `mila` | MIS on the OpenAI protocol, via lm-eval's `local-completions`, any store variant | Built |
+| `llamacpp` | `llama-server` with a GGUF, via the same `local-completions` | Not built; section 7, Phase 3 |
+
+Mila reaches the harness through MIS, not the Python binding. MIS is the surface users call, so the measurement
+exercises it, and every capability the harness needs that MIS lacks is a defect in the adaptor, not a feature
+request -- the library already holds it (`CLAUDE.md`: an adaptor adds no capability). The binding stays
+consumer-blind and gains nothing for this spec.
+
+## 4. Controls
+
+Each control removes one variable that is not the engine. All are enforced by `run_arm.py` or checked by
+`compare_arms.py`; none is a convention a person must remember.
+
+- **The same token ids.** Both arms render each prompt with the reference's own HuggingFace chat template and
+  tokenizer. The `mila` arm sends the ids to `/v1/completions`, which passes token-id prompts to the model untouched
+  (added at `+41` for this). MIS's own prompt template and Mila's tokenizer are therefore outside the comparison;
+  each is its own question (section 9). `run_arm.py` proves the path before a run: it sends a rendered probe and
+  refuses to start unless MIS reports exactly the probe's token count.
+- **Greedy, one prompt at a time.** Batch size 1 on both arms. A padded batch changes a BF16 forward pass enough to
+  change a greedy reply.
+- **Stop sequences honoured by the server.** lm-eval leaves `stop` to an API server and never cuts a reply itself,
+  so a server that ignored it scores differently on the same replies. MIS cuts a buffered reply at the first stop
+  sequence (`+41`). A streamed reply does not, and no arm streams.
+- **The same prompts, checked.** lm-eval logs a hash of each prompt. `compare_arms.py` refuses two arms whose
+  documents or prompts differ. Llama 3's template writes today's date into every prompt, so both arms run on the
+  same day.
+- **The same length budget.** `max_length` 8192 on both arms; lm-eval left-truncates a context past it identically.
+- **A recorded environment.** Each arm writes `environment.json`: Mila version, lm-eval and transformers versions,
+  torch and device for `hf`, the served store record for `mila`, seed, tasks and limit.
+
+## 5. Tasks
+
+A task needs one of two things from an arm: generation (`generate_until`), or the log-likelihood of a given
+continuation (`loglikelihood`, which multiple-choice tasks use). MIS serves the first. The second needs
+`logprobs` and `echo` on `/v1/completions`, which MIS does not serve and the library already computes
+(`sequenceLogLikelihood`, all three families) -- the adaptor gap section 7, Phase 4 closes.
+
+| Task | Measures | Needs | In phase |
+|---|---|---|---|
+| `ifeval` | Instruction following, 541 prompts, rule-scored with no judge model | generation | 1 |
+| `gsm8k_cot_llama` | Grade-school maths, 1,319 problems, eight-shot chain of thought in Meta's form | generation | 1 |
+| `mmlu_pro` | Knowledge and reasoning, ten-way multiple choice | generation (CoT form) or log-likelihood | 4 |
+| `arc_challenge`, `hellaswag`, `winogrande` | The classic quantization-paper set | log-likelihood | 4 |
+| BFCL | Function calling | generation, the family's tool grammar | 5 |
+| RULER | Retrieval and tracking at length | generation | 5 |
+
+Phase 1's two were chosen because they are generative (no MIS change beyond section 4), cheap enough to run in hours
+on a 3B model, and sensitive where quantization damage shows first: multi-step arithmetic and exact
+instruction compliance.
+
+BFCL and RULER are the recognised counterparts of `ContextProfile.md`'s tool-call and recall arms. Reporting both
+lets a reader check the in-house measurement against one they already trust. BFCL sends tool declarations, so it
+measures MIS's tool path as well as the model; that is the surface a user calls, and the result says so.
+
+**Not in scope:** benchmarks scored by a judge model (MT-Bench, Arena-Hard), since the judge becomes a third engine
+in the comparison; and code benchmarks that execute generated code (HumanEval, MBPP), until there is a sandbox to run
+them in.
+
+## 6. Statistics
+
+`compare_arms.py` computes everything here from the paired samples; nothing is read off lm-eval's own summary.
+
+### 6.1 Per metric
+
+For a metric scored 0 or 1 per document (or per instruction, for IFEval's instruction-level accuracy, paired by
+position), over n paired outcomes:
+
+- **Lost** (b): documents only the reference got right. **Gained** (c): only the candidate.
+- **Difference**: (c - b) / n, candidate minus reference.
+- **95% interval**: difference ± 1.96 · sqrt((b + c) - (c - b)² / n) / n, clamped to [-1, 1]. The width grows
+  with the flip rate: GSM8K with 5% of its problems flipped resolves about ±1.2 points.
+- **Flip rate**: (b + c) / n.
+- **McNemar p**: exact two-sided binomial test of b against b + c at one half.
+
+A metric on a scale takes the mean paired difference and its interval from the standard deviation of the
+differences.
+
+### 6.2 Replies
+
+Per task, the fraction of documents on which both arms wrote byte-identical text, and for the rest the median number
+of characters before they part. Agreement is a diagnostic, not a claim: it locates divergence, and a median near zero
+means the arms differ from the first tokens, which a correct engine should not.
+
+### 6.3 The noise floor
+
+Two correct BF16 implementations accumulate in different orders. A near-tie between two tokens can then resolve
+either way, and greedy decoding diverges from there. So BF16 against BF16 is expected to show agreement short of
+100%, a non-zero flip rate, and a difference whose interval contains zero. **That flip rate is the floor.** A
+quantized build is compared against the same reference, and what it adds above the floor -- in flips, and in the
+direction of the lost-gained imbalance -- is the format's cost.
+
+This is the reason a quantized number is reported beside its floor and never alone. The direction matters as much
+as the count: equal accuracy with a high flip rate is a model that answers differently, which the accuracy hides
+(Dutta et al., "Accuracy is Not All You Need", 2024).
+
+## 7. Phases
+
+Each phase states its gate before its run. A result goes to a notebook (`Notebooks/ModelEval.md`, created with the
+first run), and any decision it forces comes back here.
+
+### Phase 1 -- BF16 parity, Llama 3.2 3B
+
+Mila BF16 (`Llama-3.2-3B-Instruct-bf16`, installed from a converted package) against transformers BF16 on
+`meta-llama/Llama-3.2-3B-Instruct`, IFEval and GSM8K in full.
+
+**Gate:** every metric's 95% interval contains zero, and every task's median divergence is past the first sentence.
+A failure is a Mila implementation finding, to be localised from the flipped documents' samples before anything
+else in this spec proceeds.
+
+**Built:** the MIS changes (token-id prompts, `stop`), `run_arm.py`, `compare_arms.py`. Rehearsed on CPU with a
+random-weight Llama-shaped model behind MIS's real routes: prompts paired, replies identical, a planted difference
+counted and tested, a planted prompt mismatch refused.
+
+### Phase 2 -- Quantized builds against the floor
+
+The published FP4 build of the same model, and FP8, each as a `mila` arm against the same `hf` reference, beside
+Phase 1's floor. Their difference from the floor is each format's cost on this model.
+
+### Phase 3 -- llama.cpp
+
+A `llamacpp` arm serving the Q4_K_M and Q4_0 GGUFs, through `llama-server`'s OpenAI endpoint with token-id prompts
+-- the same comparison the performance page makes (`BACKLOG.md`), so quality and speed come from one reference.
+
+### Phase 4 -- Log-likelihood tasks
+
+`logprobs` and `echo` on MIS's `/v1/completions`, projecting `sequenceLogLikelihood`, then the multiple-choice
+tasks of section 5. Also gives every log-likelihood task a token-exact comparison without generation, which is a
+sharper parity test than Phase 1's.
+
+### Phase 5 -- Every published model
+
+Llama 3.1 8B, Gemma 4 12B and 26B-A4B, and both Qwen 3.8 builds, on the Phase 1 to 4 tasks, plus BFCL and RULER.
+Blocked on section 10's reference decision for every model whose BF16 weights exceed the card.
+
+## 8. On the model card
+
+The card answers "is it any good" with this measurement and nothing else on its first screen (`CLAUDE.md`,
+*End-User Prose*):
+
+- One table: rows are tasks, columns are **Original (BF16)**, **This model**, and the llama.cpp build of the same
+  size where Phase 3 has run. Scores as percentages from the same harness.
+- One sentence naming the largest difference and whether it is larger than the benchmark resolves.
+- Below its own heading: the flip rate against the floor, the harness version and settings, and the fidelity
+  numbers `Quantization.md` owns.
+
+The reader never sees "arm", "noise floor" or "paired" on the first screen; the table is the claim. The comparison's
+JSON is the source for both the card and the website, so a number is written once.
+
+## 9. Separate questions
+
+Each was excluded from the comparison on purpose and is worth measuring on its own terms:
+
+- **MIS's prompt template.** Through `/v1/chat/completions`, MIS renders Llama's prompt itself, and differently from
+  Meta's (`Untriaged.md`). The same task through chat completions against Phase 1's run measures what that costs.
+- **Mila's tokenizer.** Mila's BPE against HuggingFace's on every Phase 1 prompt: identical ids, or the first
+  difference.
+- **Sampling.** Every arm here is greedy. A user samples; a sampled evaluation needs repeats and a different
+  statistic, and is not planned.
+
+## 10. Open decisions
+
+1. **The reference for models whose BF16 weights exceed the 16 GB card.** Llama 3.1 8B at BF16 is about 16 GB of
+   weights, Gemma 4 12B about 24, Qwen 3.8 27B about 54: none runs on the card the project measures on. Options: a
+   larger card for the `hf` arm alone (a rented one is enough -- the reference does not need Mila); transformers
+   with CPU offload, correct but slow; or Mila FP8 as a proxy reference, which is cheap but makes the anchor a Mila
+   build, against principle 2.
+2. **The thresholds a published format must meet**, as a difference against the reference beyond the floor. Not
+   set until Phases 1 and 2 have produced a floor and a cost to set them against.
+3. **Admission.** Whether any phase is v0.21 work. The nearest criterion is `ROADMAP.md`'s "every model the release
+   publishes is measured for agentic work", which BFCL and RULER would support; Phases 1 and 2 serve the model cards
+   and have no criterion of their own yet.
+4. **Where the run data lives.** `Data/Evaluation/` is gitignored. A number on a card cites a run that should be
+   retrievable later -- a release asset, or a committed JSON summary beside the card.

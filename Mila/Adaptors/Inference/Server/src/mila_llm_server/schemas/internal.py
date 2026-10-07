@@ -14,6 +14,9 @@ class InferenceRequest:
     top_k: int
     stream: bool
     top_p: float = 1.0
+    # OpenAI's stop sequences. The reply is cut at the first one and the sequence itself is
+    # not returned. Applied to buffered replies only; a streamed reply ignores them.
+    stop: list[str] = field(default_factory=list)
 
 
 @dataclass

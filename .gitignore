@@ -21,6 +21,10 @@ Data/**/*.exe
 # Evaluation corpora fetched from their publishers; the dataset's README says how.
 Data/Datasets/PG19/raw/
 
+# Paired evaluation runs (Mila/Tools/Evaluation): lm-eval's samples and the comparisons
+# drawn from them, reproducible from the tool.
+Data/Evaluation/
+
 # Model weights: converted .bin sources, exported safetensors and reference GGUF files built
 # for comparison runs. All are multi-gigabyte and reproducible from the tools that wrote them.
 *.bin

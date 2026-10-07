@@ -9,7 +9,12 @@ import uuid
 
 from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
 from mila_llm_server.protocols.base import ProtocolAdapter
-from mila_llm_server.protocols.utils import DEFAULT_SYSTEM_PROMPT, extract_content
+from mila_llm_server.protocols.utils import (
+    DEFAULT_SYSTEM_PROMPT,
+    extract_content,
+    parse_completion_prompt,
+    parse_stop,
+)
 from mila_llm_server.prompt import build_instruct_prompt
 from mila_llm_server.config import settings, loaded
 
@@ -47,20 +52,22 @@ class OpenAIChatAdapter(ProtocolAdapter):
             top_k=body.get("top_k", settings.default_top_k),
             top_p=body.get("top_p", settings.default_top_p),
             stream=body.get("stream", False),
+            stop=parse_stop(body.get("stop")),
         )
         return prompt_str, req
 
     def parse_completions_request(self, body: dict) -> tuple[str, InferenceRequest]:
         # DEBUG print("[MIS DEBUG] parse_completions_request:", json.dumps(body, indent=2))
 
-        prompt_str = body.get("prompt", "")
+        prompt_str, prompt_ids = parse_completion_prompt(body.get("prompt", ""))
         req = InferenceRequest(
-            prompt_ids=[],
+            prompt_ids=prompt_ids,
             max_new_tokens=body.get("max_tokens", settings.default_max_new_tokens),
             temperature=body.get("temperature", settings.default_temperature),
             top_k=body.get("top_k", settings.default_top_k),
             top_p=body.get("top_p", settings.default_top_p),
             stream=body.get("stream", False),
+            stop=parse_stop(body.get("stop")),
         )
         return prompt_str, req
 

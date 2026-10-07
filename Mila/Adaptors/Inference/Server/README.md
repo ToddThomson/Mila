@@ -195,6 +195,11 @@ MILA_DEVICE_INDEX=0
 | `anthropic` | `/v1/messages`, `/v1/models` |
 | `mila` | `/v1/chat/completions`, `/v1/completions` |
 
+On the `openai` protocol, `/v1/completions` takes a `prompt` as text or as token ids, one prompt per
+request. Token ids reach the model as sent, which is how an evaluation harness gives two engines the
+same input. `stop` cuts a buffered reply at the first stop sequence, on both Completions and Chat
+Completions. A streamed reply ignores it.
+
 `/v1/models` answers in each protocol's own shape — OpenAI's `{"object": "list", "data": [...]}`
 against Anthropic's `{"data": [...], "has_more": false}` envelope — and both carry the same lineage
 fields.

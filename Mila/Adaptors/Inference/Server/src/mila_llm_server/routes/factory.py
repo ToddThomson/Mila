@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from mila_llm_server.model_worker import worker
 from mila_llm_server.protocols.base import ProtocolAdapter, ResponsesCapable, ModelsCapable
+from mila_llm_server.protocols.utils import truncate_at_stop
 from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
 from mila_llm_server.config import settings, loaded, ModelFamily
 
@@ -52,7 +53,12 @@ def _register_completions(app: FastAPI, adapter: ProtocolAdapter) -> None:
     @app.post(adapter.completions_path, response_model=None)
     async def completions_endpoint(http_req: Request) -> JSONResponse | StreamingResponse:
         body = await http_req.json()
-        prompt_str, inf_req = adapter.parse_completions_request(body)
+
+        try:
+            prompt_str, inf_req = adapter.parse_completions_request(body)
+        except ValueError as error:
+            return _invalid_request_error(str(error))
+
         return await _dispatch(prompt_str, inf_req, http_req, adapter, is_chat=False)
 
 
@@ -92,7 +98,12 @@ async def _dispatch(
         "dispatch sampling: temperature=%.3f top_k=%d top_p=%.3f max_new_tokens=%d",
         inf_req.temperature, inf_req.top_k, inf_req.top_p, inf_req.max_new_tokens)
 
-    prompt_ids = await worker.encode(prompt_str)
+    # A Completions prompt may arrive as token ids, which are the model's input as sent:
+    # the caller tokenized it, and encoding it again here would be a second tokenizer.
+    if inf_req.prompt_ids:
+        prompt_ids = inf_req.prompt_ids
+    else:
+        prompt_ids = await worker.encode(prompt_str)
 
     remaining = loaded.context_length - len(prompt_ids)
     if remaining <= 0:
@@ -156,6 +167,10 @@ async def _dispatch(
             prompt_token_count=len(inf_req.prompt_ids),
             completion_token_count=len(new_ids),
         )
+
+    # Cut after generation rather than during it: the caller receives the same reply, and
+    # stopping early would save only the tokens past the stop.
+    response.text, _ = truncate_at_stop(response.text, inf_req.stop)
 
     payload = adapter.format_chat_response(response) if is_chat else adapter.format_completions_response(response)
     return JSONResponse(content=payload)
@@ -478,6 +493,19 @@ async def _stream_responses(
             yield adapter.format_responses_stream_done(response_id, output_text=display_text)
 
         print(f"[{_elapsed()}] {response_id}: stream closed", flush=True)
+
+
+def _invalid_request_error(message: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=400,
+        content={
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "message": message,
+            },
+        },
+    )
 
 
 def _prompt_too_long_error(prompt_length: int, context_length: int) -> JSONResponse:
