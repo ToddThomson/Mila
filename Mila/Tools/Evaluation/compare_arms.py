@@ -4,9 +4,13 @@ Two arms that scored the same documents from the same prompts can be compared pa
 says far more than two averages: how many answers changed, in which direction, and whether a
 difference is larger than the benchmark can resolve. The comparison refuses arms whose prompts
 differ, since a difference between them would then measure the prompt as well as the engine.
+
+An arm's directory may hold lm-eval samples (run_arm.py), BFCL results (run_bfcl.py), or both.
+Each is read into one record per document: its identity, its prompt, its scores and its reply.
 """
 
 import argparse
+import hashlib
 import json
 import math
 import pathlib
@@ -15,12 +19,24 @@ import statistics
 import sys
 
 SAMPLES_NAME = re.compile(r"samples_(?P<task>.+)_(?P<stamp>\d{4}-\d{2}-\d{2}T[\d\-.]+)\.jsonl$")
+BFCL_RESULT_NAME = re.compile(r"BFCL_v\d+_(?P<category>.+)_result\.json$")
 
 
-def load_arm(directory):
+def digest(value):
+    text = value if isinstance(value, str) else json.dumps(value, sort_keys=True, ensure_ascii=False)
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def read_json_lines(path):
+    with path.open(encoding="utf-8") as lines:
+        return [json.loads(line) for line in lines if line.strip()]
+
+
+def load_lm_eval(directory):
     """
-    Every logged sample under an arm's directory, keyed by (task, filter, doc_id). A task run
-    more than once keeps its latest file, by the time lm-eval stamps into the name.
+    lm-eval's logged samples, keyed by (task, filter, doc_id). A task run more than once keeps its
+    latest file, by the time lm-eval stamps into the name.
     """
     latest = {}
 
@@ -30,18 +46,90 @@ def load_arm(directory):
         if match and (match["task"] not in latest or match["stamp"] > latest[match["task"]][0]):
             latest[match["task"]] = (match["stamp"], path)
 
-    if not latest:
-        sys.exit(f"{directory} holds no samples_*.jsonl. Was the arm run with run_arm.py?")
-
-    samples = {}
+    records = {}
 
     for task, (_, path) in latest.items():
-        with path.open(encoding="utf-8") as lines:
-            for line in lines:
-                sample = json.loads(line)
-                samples[(task, sample["filter"], sample["doc_id"])] = sample
+        for sample in read_json_lines(path):
+            records[(task, sample["filter"], sample["doc_id"])] = {
+                "document": sample["doc_hash"],
+                "prompt": sample["prompt_hash"],
+                "scores": {metric: sample[metric] for metric in sample["metrics"]},
+                # A reply is logged once per filter; the filters see the same reply.
+                "reply": sample["resps"][0][0],
+            }
 
-    return samples
+    return records
+
+
+def first_prompt(inference_log):
+    """
+    The first rendered prompt in a BFCL inference log. Only the first: a later turn's prompt
+    carries the model's own earlier replies, which two engines may legitimately differ in.
+    """
+    if isinstance(inference_log, dict):
+        if inference_log.get("role") == "inference_input":
+            return inference_log.get("content")
+
+        children = inference_log.values()
+    elif isinstance(inference_log, list):
+        children = inference_log
+    else:
+        return None
+
+    for child in children:
+        found = first_prompt(child)
+
+        if found is not None:
+            return found
+
+    return None
+
+
+def load_bfcl(directory):
+    """
+    BFCL's results, keyed by ("bfcl_<category>", "none", entry id). An entry passed unless its
+    category's score file lists it: BFCL writes the failures only, under a header line.
+    """
+    records = {}
+
+    for result_path in directory.rglob("BFCL_v*_result.json"):
+        match = BFCL_RESULT_NAME.search(result_path.name)
+        parts = result_path.parts
+
+        if not match or "result" not in parts:
+            continue
+
+        # BFCL mirrors result/<model>/<group>/ under score/.
+        root = len(parts) - 1 - parts[::-1].index("result")
+        score_name = result_path.name.replace("_result.json", "_score.json")
+        score_path = pathlib.Path(*parts[:root], "score", *parts[root + 1:-1], score_name)
+
+        if not score_path.exists():
+            sys.exit(f"{result_path} has no score file at {score_path}; run_bfcl.py evaluates after it generates.")
+
+        failed = {entry["id"] for entry in read_json_lines(score_path)[1:] if "id" in entry}
+        task = f"bfcl_{match['category']}"
+
+        for entry in read_json_lines(result_path):
+            result = entry["result"]
+            records[(task, "none", entry["id"])] = {
+                "document": entry["id"],
+                "prompt": digest(first_prompt(entry.get("inference_log")) or ""),
+                "scores": {"accuracy": 0.0 if entry["id"] in failed else 1.0},
+                "reply": result if isinstance(result, str) else json.dumps(result, ensure_ascii=False),
+            }
+
+    return records
+
+
+def load_arm(directory):
+    records = load_lm_eval(directory)
+    records.update(load_bfcl(directory))
+
+    if not records:
+        sys.exit(f"{directory} holds no lm-eval samples and no BFCL results. Was it written by run_arm.py or run_bfcl.py?")
+
+    return records
 
 
 def check_pairing(reference, candidate):
@@ -52,8 +140,8 @@ def check_pairing(reference, candidate):
     if not shared:
         sys.exit("The arms share no documents: different tasks, or different --limit.")
 
-    different_documents = [key for key in shared if reference[key]["doc_hash"] != candidate[key]["doc_hash"]]
-    different_prompts = [key for key in shared if reference[key]["prompt_hash"] != candidate[key]["prompt_hash"]]
+    different_documents = [key for key in shared if reference[key]["document"] != candidate[key]["document"]]
+    different_prompts = [key for key in shared if reference[key]["prompt"] != candidate[key]["prompt"]]
 
     if different_documents:
         sys.exit(f"{len(different_documents)} documents differ between the arms, first {different_documents[0]}: "
@@ -61,7 +149,8 @@ def check_pairing(reference, candidate):
 
     if different_prompts:
         sys.exit(f"{len(different_prompts)} prompts differ between the arms, first {different_prompts[0]}. "
-                 "Llama 3's template writes today's date into every prompt, so run both arms on the same day.")
+                 "Were they given the same tokenizer and harness version? Llama 3's chat template also writes "
+                 "today's date into every prompt, so run lm-eval arms on the same day.")
 
     return shared, unpaired
 
@@ -125,23 +214,27 @@ def score_pairs(reference, candidate, keys):
     """
     Paired values per (task, filter, metric). A metric whose value is a list scores several
     instances of one document -- IFEval's instruction-level accuracy -- and pairs them by position.
+    A value of -1 on both arms is RULER's mark for a band the document is not in, and is skipped.
     """
     pairs = {}
 
     for key in keys:
         task, filter_name, _ = key
 
-        for metric in reference[key]["metrics"]:
-            reference_value = reference[key][metric]
-            candidate_value = candidate[key][metric]
+        for metric, reference_value in reference[key]["scores"].items():
+            candidate_value = candidate[key]["scores"][metric]
 
             if isinstance(reference_value, list):
                 values = list(zip(reference_value, candidate_value, strict=True))
             else:
                 values = [(reference_value, candidate_value)]
 
-            pairs.setdefault((task, filter_name, metric), []).extend(
-                (float(reference_score), float(candidate_score)) for reference_score, candidate_score in values)
+            scored = [(float(reference_score), float(candidate_score))
+                      for reference_score, candidate_score in values
+                      if not (reference_score == -1 and candidate_score == -1)]
+
+            if scored:
+                pairs.setdefault((task, filter_name, metric), []).extend(scored)
 
     results = {}
 
@@ -178,10 +271,7 @@ def compare_replies(reference, candidate, keys):
 
     for key in keys:
         task, _, doc_id = key
-        # A reply is logged once per filter; the filters see the same reply.
-        reference_reply = reference[key]["resps"][0][0]
-        candidate_reply = candidate[key]["resps"][0][0]
-        replies.setdefault(task, {})[doc_id] = (reference_reply, candidate_reply)
+        replies.setdefault(task, {})[doc_id] = (reference[key]["reply"], candidate[key]["reply"])
 
     results = {}
 
@@ -195,6 +285,17 @@ def compare_replies(reference, candidate, keys):
         }
 
     return results
+
+
+def metric_order(item):
+    """Tasks and filters by name; a RULER band, whose metric is its length, by length."""
+    (task, filter_name, metric), _ = item
+
+    return task, filter_name, (0, int(metric), "") if metric.isdigit() else (1, 0, metric)
+
+
+def metric_label(metric):
+    return f"{metric}-token band" if metric.isdigit() else metric
 
 
 def percent(value):
@@ -216,9 +317,9 @@ def render(reference_name, candidate_name, scores, replies, unpaired):
         "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
 
-    for (task, filter_name, metric), result in sorted(scores.items()):
+    for (task, filter_name, metric), result in sorted(scores.items(), key=metric_order):
         low, high = result["interval"]
-        row = (f"| {task} | {filter_name} | {metric} | {result['count']} | {percent(result['reference'])} | "
+        row = (f"| {task} | {filter_name} | {metric_label(metric)} | {result['count']} | {percent(result['reference'])} | "
                f"{percent(result['candidate'])} | {signed_points(result['difference'])} | "
                f"{signed_points(low)} to {signed_points(high)} |")
 
@@ -267,7 +368,7 @@ def main():
         arguments.report.write_text(report, encoding="utf-8")
         numbers = {
             "scores": [{"task": task, "filter": filter_name, "metric": metric, **result}
-                       for (task, filter_name, metric), result in sorted(scores.items())],
+                       for (task, filter_name, metric), result in sorted(scores.items(), key=metric_order)],
             "replies": replies,
             "unpaired": unpaired,
         }

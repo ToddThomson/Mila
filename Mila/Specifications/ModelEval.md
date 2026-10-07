@@ -1,9 +1,9 @@
 # Model Evaluation
 
 **Status:** Draft, 2026-10-07. Agreed in discussion with Todd the same day: start with BF16 parity on Llama 3.2 3B
-over IFEval and GSM8K. Phase 1's tool is built (`Mila/Tools/Evaluation`, `0.21.0-dev+41`) and rehearsed end to end
-on a stand-in model; its first run on real weights has not happened. No release admits this work; section 10 holds
-the decisions that would.
+over IFEval and GSM8K, then add BFCL, RULER and a llama.cpp arm. The tools for Phases 1 to 4 are built
+(`Mila/Tools/Evaluation`, `0.21.0-dev+41` and `+42`) and rehearsed end to end on a stand-in model; none has run on
+real weights. No release admits this work; section 10 holds the decisions that would.
 
 **Area:** what Mila states about a model's quality on standard task benchmarks, and how such a statement is made
 comparable to anyone else's. Its uses: the "is it any good" answer on every model card; the measured cost of each
@@ -51,11 +51,16 @@ benchmark the reader already knows does.
 
 An **arm** is an engine serving a model, run under the fixed settings of section 4.
 
-| Arm | Engine | Status |
-|---|---|---|
-| `hf` | transformers, BF16, via lm-eval's `hf` model | Built |
-| `mila` | MIS on the OpenAI protocol, via lm-eval's `local-completions`, any store variant | Built |
-| `llamacpp` | `llama-server` with a GGUF, via the same `local-completions` | Not built; section 7, Phase 3 |
+| Arm | Engine | lm-eval tasks (`run_arm.py`) | BFCL (`run_bfcl.py`) |
+|---|---|---|---|
+| `hf` | transformers, BF16 | lm-eval's `hf` model | `reference_server.py` |
+| `mila` | MIS on the OpenAI protocol, any store variant | `local-completions` | MIS |
+| `llamacpp` | `llama-server` with a GGUF | `local-completions` | `llama-server` |
+
+lm-eval loads the reference model itself; BFCL only talks to a server, so its `hf` arm is `reference_server.py`:
+transformers behind a Completions route with MIS's semantics there -- text or token-id prompts, greedy only, `stop`
+honoured, the end-of-turn token dropped and every other control token kept, as Mila's decode keeps them. Run on the
+same model behind MIS's real routes, the two wrote byte-identical replies to every BFCL entry in the rehearsal.
 
 Mila reaches the harness through MIS, not the Python binding. MIS is the surface users call, so the measurement
 exercises it, and every capability the harness needs that MIS lacks is a defect in the adaptor, not a feature
@@ -67,46 +72,72 @@ consumer-blind and gains nothing for this spec.
 Each control removes one variable that is not the engine. All are enforced by `run_arm.py` or checked by
 `compare_arms.py`; none is a convention a person must remember.
 
-- **The same token ids.** Both arms render each prompt with the reference's own HuggingFace chat template and
-  tokenizer. The `mila` arm sends the ids to `/v1/completions`, which passes token-id prompts to the model untouched
-  (added at `+41` for this). MIS's own prompt template and Mila's tokenizer are therefore outside the comparison;
-  each is its own question (section 9). `run_arm.py` proves the path before a run: it sends a rendered probe and
-  refuses to start unless MIS reports exactly the probe's token count.
-- **Greedy, one prompt at a time.** Batch size 1 on both arms. A padded batch changes a BF16 forward pass enough to
-  change a greedy reply.
+- **The same token ids.** Every arm renders each prompt with the reference's own HuggingFace chat template -- or,
+  for BFCL, with BFCL's own prompt format for the model -- and tokenizes it with the reference's tokenizer. Served
+  arms receive the ids on `/v1/completions`, which MIS passes to the model untouched (added at `+41` for this).
+  BFCL sends text; `run_bfcl.py` replaces its request with one carrying the ids. MIS's own prompt template and
+  Mila's tokenizer are therefore outside the comparison; each is its own question (section 9). Every served arm
+  proves the path before a run (`servers.py`): it sends a rendered probe and refuses to start unless the server
+  reports exactly the probe's token count, which also catches a server that adds a BOS token of its own.
+- **Greedy, one prompt at a time.** Batch size 1 on every arm, and one request in flight: BFCL's default of a
+  hundred concurrent requests is set to one, and `llama-server` runs one slot (`-np 1`; the arm warns otherwise). A
+  padded or shared batch changes a BF16 forward pass enough to change a greedy reply.
 - **Stop sequences honoured by the server.** lm-eval leaves `stop` to an API server and never cuts a reply itself,
   so a server that ignored it scores differently on the same replies. MIS cuts a buffered reply at the first stop
   sequence (`+41`). A streamed reply does not, and no arm streams.
 - **The same prompts, checked.** lm-eval logs a hash of each prompt. `compare_arms.py` refuses two arms whose
   documents or prompts differ. Llama 3's template writes today's date into every prompt, so both arms run on the
   same day.
-- **The same length budget.** `max_length` 8192 on both arms; lm-eval left-truncates a context past it identically.
-- **A recorded environment.** Each arm writes `environment.json`: Mila version, lm-eval and transformers versions,
-  torch and device for `hf`, the served store record for `mila`, seed, tasks and limit.
+- **The same length budget.** `max_length` 8192 on every arm by default, raised past RULER's largest band for
+  RULER; lm-eval left-truncates a context past it identically.
+- **A recorded environment.** Each arm writes `environment.json`: Mila version, harness and transformers versions,
+  torch and device for `hf`, what the server reports of itself for a served arm -- `llama-server`'s `/props` gives
+  its build, weights file, context and KV-cache settings -- and the seed, tasks and selection.
+
+One difference is not controlled. MIS's Llama model and `llama-server` each reuse the KV state of a prompt prefix
+they have already seen, so a few-shot task's shared prefix is computed once and reused; transformers recomputes it.
+Reuse is each engine's own behaviour as a user meets it, and a correct reuse changes nothing. If an arm's replies
+part from the reference at the end of a shared prefix, reuse is the first suspect.
 
 ## 5. Tasks
 
 A task needs one of two things from an arm: generation (`generate_until`), or the log-likelihood of a given
 continuation (`loglikelihood`, which multiple-choice tasks use). MIS serves the first. The second needs
 `logprobs` and `echo` on `/v1/completions`, which MIS does not serve and the library already computes
-(`sequenceLogLikelihood`, all three families) -- the adaptor gap section 7, Phase 4 closes.
+(`sequenceLogLikelihood`, all three families) -- the adaptor gap section 7, Phase 5 closes.
 
 | Task | Measures | Needs | In phase |
 |---|---|---|---|
 | `ifeval` | Instruction following, 541 prompts, rule-scored with no judge model | generation | 1 |
 | `gsm8k_cot_llama` | Grade-school maths, 1,319 problems, eight-shot chain of thought in Meta's form | generation | 1 |
-| `mmlu_pro` | Knowledge and reasoning, ten-way multiple choice | generation (CoT form) or log-likelihood | 4 |
-| `arc_challenge`, `hellaswag`, `winogrande` | The classic quantization-paper set | log-likelihood | 4 |
-| BFCL | Function calling | generation, the family's tool grammar | 5 |
-| RULER | Retrieval and tracking at length | generation | 5 |
+| BFCL, `python` collection | Function calling, single turn: simple, multiple, parallel, irrelevance, live and not; about 3,500 entries | generation | 4 |
+| RULER | Retrieval, tracing and aggregation at length, 13 tasks per band | generation | 4 |
+| `mmlu_pro` | Knowledge and reasoning, ten-way multiple choice | generation (CoT form) or log-likelihood | 5 |
+| `arc_challenge`, `hellaswag`, `winogrande` | The classic quantization-paper set | log-likelihood | 5 |
 
 Phase 1's two were chosen because they are generative (no MIS change beyond section 4), cheap enough to run in hours
 on a 3B model, and sensitive where quantization damage shows first: multi-step arithmetic and exact
 instruction compliance.
 
 BFCL and RULER are the recognised counterparts of `ContextProfile.md`'s tool-call and recall arms. Reporting both
-lets a reader check the in-house measurement against one they already trust. BFCL sends tool declarations, so it
-measures MIS's tool path as well as the model; that is the surface a user calls, and the result says so.
+lets a reader check the in-house measurement against one they already trust.
+
+**BFCL** is Gorilla's `bfcl-eval` (pinned, 2026.3.23), not part of lm-eval. Its handler for a model renders the
+function declarations into that model's own prompt format and checks the reply's calls against the answer by
+syntax tree; for Llama 3.2 3B that is `meta-llama/Llama-3.2-3B-Instruct-FC`. It measures the model's tool calling
+from a prompt BFCL renders, not MIS's tool path: MIS's grammars and its Responses route are not exercised, and are
+a separate question (section 9). The default selection is BFCL's `python` collection, every single-turn Python
+category; multi-turn, memory and web search are its agentic categories, and web search needs the network during a
+run. `compare_arms.py` reads BFCL's per-entry results: an entry passed unless its category's score file lists it.
+
+**RULER** is lm-eval's port (`ruler` group, 13 tasks). It generates its documents at run time with the tokenizer
+it is given, so every arm sees the same documents. Its bands are set with lm-eval's metadata
+(`max_seq_lengths`), and it generates 500 documents per band, laid end to end; `--limit` would take only the
+shortest band, so `run_arm.py --per-band N` selects the first N of every band. Defaults set with the tool: bands
+of 4K, 8K, 16K and 32K, and 100 documents a band, revisited after the first run. 64K is the edge of the 16 GB card
+for the `hf` arm (Llama 3.2 3B's BF16 cache is about 114 KB a token, 7.3 GB at 64K, beside 6.4 GB of weights), and
+128K does not fit it; past what the reference holds, a band has no reference, and Mila against itself across
+formats is `ContextProfile.md`'s. Four of the 13 tasks fetch text at run time (essays and two QA sets).
 
 **Not in scope:** benchmarks scored by a judge model (MT-Bench, Arena-Hard), since the judge becomes a third engine
 in the comparison; and code benchmarks that execute generated code (HumanEval, MBPP), until there is a sandbox to run
@@ -175,18 +206,34 @@ Phase 1's floor. Their difference from the floor is each format's cost on this m
 ### Phase 3 -- llama.cpp
 
 A `llamacpp` arm serving the Q4_K_M and Q4_0 GGUFs, through `llama-server`'s OpenAI endpoint with token-id prompts
--- the same comparison the performance page makes (`BACKLOG.md`), so quality and speed come from one reference.
+-- the same comparison the performance page makes (`BACKLOG.md`), so quality and speed come from one reference. A
+BF16 GGUF as a third BF16 arm measures the floor a second time: if llama.cpp BF16 and Mila BF16 flip about as many
+answers against transformers, the floor is real; if only Mila's is high, that is a Mila finding.
 
-### Phase 4 -- Log-likelihood tasks
+**Built:** the `llamacpp` arm in `run_arm.py` and `run_bfcl.py`, with `llama-server`'s `/props` recorded. Not
+rehearsed here: no `llama-server` in this environment. Its preflight is the same probe as MIS's.
+
+### Phase 4 -- BFCL and RULER, Llama 3.2 3B
+
+Every arm of Phases 1 to 3 on BFCL's `python` collection and on RULER at section 5's bands.
+
+**Gate:** as Phase 1's for the BF16 arms, per BFCL category and per RULER band.
+
+**Built:** `run_bfcl.py`, `reference_server.py`, `servers.py`, `run_arm.py --per-band`, and both readers in
+`compare_arms.py`. Rehearsed on the stand-in model: BFCL's eleven `python` categories, three entries each, against
+`reference_server.py` and against MIS's routes, every prompt paired and every reply identical; RULER's synthetic
+tasks at two short bands.
+
+### Phase 5 -- Log-likelihood tasks
 
 `logprobs` and `echo` on MIS's `/v1/completions`, projecting `sequenceLogLikelihood`, then the multiple-choice
 tasks of section 5. Also gives every log-likelihood task a token-exact comparison without generation, which is a
 sharper parity test than Phase 1's.
 
-### Phase 5 -- Every published model
+### Phase 6 -- Every published model
 
-Llama 3.1 8B, Gemma 4 12B and 26B-A4B, and both Qwen 3.8 builds, on the Phase 1 to 4 tasks, plus BFCL and RULER.
-Blocked on section 10's reference decision for every model whose BF16 weights exceed the card.
+Llama 3.1 8B, Gemma 4 12B and 26B-A4B, and both Qwen 3.8 builds, on the tasks of Phases 1, 4 and 5. Blocked on
+section 10's reference decision for every model whose BF16 weights exceed the card.
 
 ## 8. On the model card
 
@@ -210,6 +257,9 @@ Each was excluded from the comparison on purpose and is worth measuring on its o
   Meta's (`Untriaged.md`). The same task through chat completions against Phase 1's run measures what that costs.
 - **Mila's tokenizer.** Mila's BPE against HuggingFace's on every Phase 1 prompt: identical ids, or the first
   difference.
+- **MIS's tool path.** BFCL measures tool calling from a prompt it renders itself. A user's agent goes through MIS's
+  Responses or Messages route, which renders the declarations and parses the calls in each family's own grammar;
+  BFCL's categories driven through that route, against Phase 4's run, measure what the route costs.
 - **Sampling.** Every arm here is greedy. A user samples; a sampled evaluation needs repeats and a different
   statistic, and is not planned.
 

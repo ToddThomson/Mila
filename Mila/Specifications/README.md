@@ -119,7 +119,7 @@ means a status line or target is out of date and the rest has not been re-read.
 | Document | Role | Decides or records | Notes |
 |---|---|---|---|
 | [ContextProfile.md](ContextProfile.md) | Design | Measuring a model configuration at each context length it holds: fit, loss by band, recall, instruction retention, tool calls, turn cost | Draft; no code |
-| [ModelEval.md](ModelEval.md) | Design | Standard task benchmarks run paired against a reference engine: arms, controls, statistics, the noise floor, and the model card's quality claim | Draft; Phase 1's tool built (`Tools/Evaluation`), not yet run on real weights |
+| [ModelEval.md](ModelEval.md) | Design | Standard task benchmarks run paired against a reference engine: arms, controls, statistics, the noise floor, and the model card's quality claim | Draft; the tools for Phases 1 to 4 built (`Tools/Evaluation`: IFEval, GSM8K, RULER, BFCL; transformers, MIS and llama.cpp arms), none yet run on real weights |
 
 ### Distribution and serialization
 

@@ -1,0 +1,5 @@
+# run_bfcl.py, on top of requirements.txt. bfcl-eval brings a long list of API clients its own
+# leaderboard uses; none is called here.
+bfcl-eval==2026.3.23
+# Imported by bfcl-eval's qwen_agent dependency without being declared by it.
+soundfile
