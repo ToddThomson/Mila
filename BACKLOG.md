@@ -68,6 +68,11 @@ Scope grew on 2026-10-06 (Todd), the date held: each Gemma 4 package carries its
 turn it on by default where it is measured to pay, written into the Deployment Planning feature-selection entry with
 no removal.
 
+Scope grew on 2026-10-07 at the triage of `Mila/Issues/Untriaged.md` (Todd), the date held: under Mila::AI, a program
+that skips initialization fails as if it had no device; under Deployment Planning, the device allocations no plan
+prices; and under Internal fixes, the FP8 batched path's early scale, model paths outside the Windows code page, and
+the deployment type names. None with a removal.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -220,6 +225,26 @@ within one granule of their bytes, measured per model before and after; `PlanEqu
 
 `ROADMAP.md`, Deployment Planning success criteria
 
+#### A load can take more of the card than its plan priced
+
+`open` · `models` · `mila-src` · `measured`
+
+Measured 2026-10-03 on the RTX 5060 Ti (`ProfileModel --model qwen --quantization fp4`): from the post-initialization
+baseline, Qwen 3.8 27B FP4 consumed 14,962 MiB at context 8192 against a footprint of 14,920; at 16384 the plan left a
+26 MiB margin and the card read zero free after the load -- the condition the planner's exactness exists to prevent.
+Not yet attributed, and the 2.82-bit build, the Qwen this release publishes, was not checked.
+
+Two device allocations are known to sit outside every price. `CudaExecutionContext` allocates the decode position
+(`setDecodePosition`, one `int`) on its first decode step and the prefill key bounds (`key_bounds_`, `:456`) on first
+use, each by its own `cudaMalloc`, outside `reserveScratch` and outside every `getMemoryStats` a plan reads; a small
+allocation can cost a whole granule. Work: attribute the Qwen gap, measure the 2.82-bit build the same way, and bring
+each allocation a load or a decode step makes under the plan's price.
+
+Gate: free memory after a load and the first decode steps is at least the margin the plan states, on Qwen at both
+builds and on Gemma 4 12B; `PlanEqualsBuild` covers the context's own allocations.
+
+`ROADMAP.md`, Deployment Planning success criteria · `Mila/Specifications/ModelFamilyParity.md` 8.3, Q4
+
 ### Mila::AI
 
 #### Running a model from a program means naming its concrete C++ type
@@ -315,6 +340,10 @@ as reaching 96K rather than 128K.
 Gate: section 8's Phase 1 gate before any profile is recorded, then one profile per model, and the
 reliable depth each reports is the one compaction reads.
 
+Llama 3.1 8B loses a system instruction by 65536 in BF16 and FP8 cache alike, and HuggingFace on the BF16 weights
+loses it the same way (`Quantization.md` Part III, decision 6's behavioral arm), while its planner may choose up to
+131072. It is the model's, so its profile is where a Llama user is told it.
+
 `ROADMAP.md`, Mila::AI success criteria · `Mila/Specifications/ContextProfile.md`
 
 #### A program cannot ask for a model set up for its use case
@@ -331,6 +360,28 @@ never a second path: it produces an ordinary request, and the plan it produced r
 The finding is an absence; nothing selects features yet (the entry under Deployment Planning).
 
 `ROADMAP.md`, Mila::AI success criteria
+
+#### A program that skips Mila's initialization is told its GPU reports no memory
+
+`open` · `ai` · `api` · `mila-src`
+
+`Mila::initialize` (`Mila.ixx:443`) sets the log sink and the random seed, which have defaults, and discovers the
+devices by constructing `DeviceRegistrar`, which nothing else does. A program that skips it fails silently
+everywhere but `DeviceRegistry::getDevice`: `getDeviceCount` is `noexcept` and returns 0, and `DeviceReading::take`
+swallows why it could not read the device, so the planner refuses with `DeviceDoesNotReportMemory`. From Python,
+`mila.GemmaModel.from_store( name, "auto", 1 )` without `mila.initialize()` says the device "does not report its
+free memory" and advises passing a number, on both cards; with `initialize` first the same call opens at 262144.
+Found by `Tools/ContextProfile` (2026-10-03) and through the binding (`Mila_py.Wrappers.cpp:447`).
+
+Discovery is a ceremony because of an import cycle: `CudaDevice` imports `DeviceRegistry` to register into it, so
+the registry cannot import the registrar. The shape discussed with Todd: the registry runs discovery once, on first
+request, through a function the registrar module installs, leaving `initialize` as configuration only. Stale Doxygen
+still names the retired operation registry as part of it (`Gelu.ixx:58`, `Residual.ixx:8`).
+
+Gate: the ten-line program and the Python QuickStart run with no initialization call, and a device that cannot be
+read is refused naming why.
+
+`ROADMAP.md`, Mila::AI and A Developer Can Start success criteria
 
 ### Applications
 
@@ -394,6 +445,12 @@ The C++ one becomes a `FetchContent` project that creates an `AI`, calls a tool 
 the Python one moves to `mila.AI`. Each keeps a path that builds a network from components
 (`Direction.md` §7). Gate: both run from a clean machine with only the documented prerequisites.
 
+One risk to the C++ one, not yet reproduced: where CMake's feature table lacks `cxx_std_23` (Clang 21.x), the
+exported `Mila` target falls back to advertising `cxx_std_20` (`Mila/CMakeLists.txt:71-75`), and a consumer
+compiles Mila's module units under it, though they use C++23 library facilities (`std::ranges::fold_left`,
+`Tensor.ixx:806`). A `FetchContent` consumer receives the same interface features, so the QuickStart is checked
+on that compiler before it is declared clean.
+
 #### Every public surface describes Mila as a reference implementation first
 
 `open` · `docs`
@@ -413,7 +470,9 @@ and quantization happens on load, which published packages no longer do. Validat
 what is checked, against what, at which precision and length, for every model including Qwen 3.8 -- replacing a
 "token-for-token" claim that is wider than what the parity tests check. Fast's page belongs to the llama.cpp
 entry below. `hugo.toml`'s comment that the claims carry no links is replaced with the reason these do. Written
-late in the cycle, on the numbers the tag ships. Gate: no public surface describes Mila as a reference
+late in the cycle, on the numbers the tag ships. The blog post `mis-with-claude-code-and-codex.md` (2026-05-14)
+announces under "What's Coming: Tool Calling" a pybind11 `ToolCallParser` and a `MILA_TOOL_CALLING_ENABLED` flag that
+were never built; the same pass gives it a dated note pointing at the tool calling that shipped. Gate: no public surface describes Mila as a reference
 implementation first, or uses "adaptor", and every landing-page claim links to a page that states exactly what
 backs it.
 
@@ -544,6 +603,10 @@ than its token ids; audio; Chat accepting an image or a clip (`/image`, `/audio`
 inference server's content blocks in both protocols, the binding; converter, manifest and footprint.
 Image and audio reach applications through `Mila::AI`, not around it. Each is a feature a deployment
 selects (Deployment Planning).
+
+A deployment without a modality should not sample its markers. On 2026-09-28 the 12B sampled `<image|>` (258882)
+mid-sentence in a text-only Chat session, losing the rest of a pun; Chat now hides all seven of Gemma 4's modality
+markers from display, but nothing masks them out of sampling, so the model can still spend a token on one.
 
 Gate: embedder parity against HuggingFace, then token for token on an image prompt and on an audio
 prompt; Chat answers about an attached image and an attached clip.
@@ -766,3 +829,49 @@ whether they stay is a separate decision.
 Gate: the sampling suite passes with the context's stream created non-blocking.
 
 `Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/CudaSamplingOp.ixx:94` · `Mila/Src/Dnn/Samplers/TokenSampler.ixx:74`
+
+#### The FP8 batched path rounds every weight before it scales
+
+`open` · `quantization` · `llama` · `mila-src`
+
+`dequantize_fp8_to_bf16_kernel` (`CudaFp8Prefill.cu:79-82`) stores `fp8 * scale` as BF16, so every staged weight is
+rounded before the GEMM, where the decode matvec multiplies exact FP8 values and applies the per-channel scale once,
+in FP32. An E4M3 value is exact in BF16, so the error comes only from folding the scale in early; measured against
+exact logits (`ModelFamilyParity.md` 8.2, G1 result), the staged path's extra error is this rounding alone,
+reproduced to four digits by a model of it. Every per-channel FP8 Linear at more than one row takes the path: since
+`0.21.0-dev+31` Gemma's head no longer does, and the Linears of Llama's FP8 packages still do.
+
+Decided 2026-09-26 (Todd): scale after the dot product, as its own change. Gate: a Linear-level test against exact
+FP64, and `Gemma.LogLikelihood.Cuda.cpp`'s window bound set back from 2e-3 to 1e-3.
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cu:79`
+
+#### A model under a Windows path with characters outside the ANSI code page cannot be opened
+
+`open` · `distribution` · `build` · `mila-src`
+
+`WeightsReader` and `SafeTensors` open with `std::fopen( filepath.string().c_str(), ... )`. On Windows
+`path::string()` converts to the ANSI code page, so a path it cannot represent fails to open, and the store lives
+under `%LOCALAPPDATA%`: a user whose profile name has such characters cannot load any model. Found 2026-09-29
+clearing the `fopen` deprecation warning; not reproduced. The fix opens by `path::c_str()` (wide on Windows) without
+an `#ifdef` in a module. `SafeTensors` and `TokenSequenceLoader` can take `<fstream>`, which also removes the
+library's only C4996 and unblocks the warnings ratchet (`Vnext.md`); `WeightsReader` keeps positioned reads beside
+its mapping, since faulting a large model through the mapped view throttles below disk bandwidth.
+
+Gate: a model installed under a store path with characters outside the code page loads.
+
+`Mila/Src/Dnn/Serialization/WeightsReader.ixx:193` · `Mila/Src/Dnn/Serialization/SafeTensors.ixx:188`
+
+#### The deployment types repeat their namespace in their names
+
+`open` · `api` · `mila-src` · `breaking`
+
+`Mila::Deployment::DeploymentPlan`, `DeploymentPlans`, `DeploymentRequest`, `DeploymentRefusal` and
+`DeploymentRefusedError` kept the names `Deployment.md` 12.7 recorded when the planner moved to the top-level
+namespace at `0.21.0-dev+6`. The namespace lets them drop the prefix, as `Mila::Dnn::Conversation` did for `Turn` and
+`ToolCall`, and v0.21 is the release that first publishes them, so renaming before the tag costs no user a
+migration. `DeviceReading` is not part of this: its replacement name waits on `Deployment.md` 12.5 (`Vnext.md`).
+
+Gate: the types, the binding's projection and `Deployment.md` use the short names.
+
+`Mila/Src/Deployment/`

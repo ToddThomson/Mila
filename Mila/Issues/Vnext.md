@@ -982,3 +982,159 @@ at 11K and 16K is 99-100% on the same build. One difference left between the pla
 were fitted by GPTQ on calibration text, FP4 is round to nearest. The reference that would separate format from
 defect is HuggingFace BF16 and HuggingFace with the same weights rounded to FP4, layer-streamed
 (`hf_qwen_layer_stream.py` scores one prompt's last token today), at those positions.
+
+## Gemma's small kernels between the large ones are 4 to 7% of its time
+
+`gemma` · `perf` · `mila-src` · `measured`
+
+Raised by Todd 2026-10-01: if RoPE is fused into attention, fuse more. Measured the same day (nsys kernel time, Q4_0,
+RTX 5060 Ti, a 32,512-token prompt then 256 tokens at that depth; 26B-A4B with the FP8 global cache, 12B with BF16
+caches, chunk 1024). Every kernel that is neither a weight GEMM nor attention's main kernel, summed -- the ceiling on
+what fusing them could save:
+
+| | 26B-A4B | 12B |
+|---|---|---|
+| Prefill | 422 ms of 8.28 s, 5.1% | 995 ms of 14.14 s, 7.0% |
+| Decode | 0.64 ms of 9.0 ms a token, 7.1% | 0.75 ms of 20.5 ms a token, 3.7% |
+
+The largest parts: in decode, RMSNorm, launched about 330 times a token at about 1.4 us each (5.0% of the 26B-A4B's
+decode, 2.2% of the 12B's), mostly fixed cost per launch; in prefill, the 12B's GeGLU (2.7%), whose BF16 output the
+down projection's INT8 quantize (1.1%) reads straight back. So GeGLU -> quantize and RMSNorm -> quantize are the
+natural pairs. On the 26B-A4B's routed branch the router's norm and `pre_feedforward_layernorm_2` both normalize the
+same unnormalized residual (`Gemma.Block.ixx`, `Gemma4MoE.md` Phase 1), so one reduction could feed both, 30 layers a
+token, unmeasured. RoPE is 0.3 to 0.7% everywhere (`RopeInAttention.md` 4.5). Method: ProfileModel under
+`nsys profile --cuda-graph-trace=node`, decode read as the kernels after the last prefill kernel.
+
+## Qwen's DeltaNet prefill kernel has not been measured against FlashQLA's three ideas
+
+`qwen` · `perf` · `mila-src`
+
+Netra Runtime's write-up of FlashQLA (`github.com/QwenLM/FlashQLA`, MIT, TileLang, Hopper only), shared by Todd
+2026-10-03: forward 2.2 to 2.9 times FLA Triton 0.5.0 for one 32,768-token sequence on an H200. Three ideas:
+segments of one sequence run in parallel, each warmed up only over the preceding chunks whose accumulated gate
+exceeds -10 (below what BF16 holds) -- an approximation, not bit-exact; the gate's cumulative sum computed once per
+chunk and one triangular inverse shared by the output and state paths; warp-specialized fusion, a TMA producer beside
+three consumer warpgroups. Mila's `gated_delta_rule_chunked_kernel` (`GatedDeltaRule.cu:399`) is 1.8 s of the
+2.82-bit build's 8K prefill (37 ms a layer) on a 36-SM card for 48 value heads; its efficiency and how its blocks
+fill the card are unmeasured. With Qwen's other tuning, it waits for the 24 or 32 GB card.
+`ModelFamilyParity.md` 8.3, Q9 lever 6.
+
+## The FP4 prefill computes by different arithmetic than decode, and its fallback path is probably wrong
+
+`quantization` · `models` · `mila-src` · `measured`
+
+Three findings on `CudaLinearOp`'s compile-time switches. **W4A8:** with `kUseFp8ActivationPrefill` on (the
+default), the FP4 prefill rounds activations to FP8 per token and the FP4 weights to FP8 under one scale per
+tensor, 2.0e-2 to 3.6e-2 relative L2 from W4A16 per projection on Gemma 4 12B layer 0 against exact FP64; decode
+computes W4A16. It buys 1.285x prefill and shipped on short-prompt token parity; whether it costs quality on text
+the model is built for is unknown (`Fp8ActivationPrefill.md`). **The fallback:** switched off as an experiment on
+2026-09-26, the BF16-staging prefill landed far from decode (argmax against decode 20 of 32, mean KL 1.2), though
+W4A16 is what decode computes -- a probable defect, in a path no shipped build takes. **Dead branches:**
+`kUseW8A16Gemm` and `kUseFusedFp4Gemm` are false, so `cuda_w8a16_gemm` and the fused FP4 GEMMs are reached by no
+build. One decision covers all three: which prefill arithmetic each 4-bit policy keeps, measured, and the rest
+deleted. Gemma's 12B leaves the path for Q4_0 in v0.21; Llama's FP4 packages stay on it.
+
+## What a plan was decided against is called a `DeviceReading`, and the model list prices against total memory
+
+`api` · `adaptors` · `mila-src`
+
+Todd, 2026-09-23: `DeviceReading` is a poor name, kept for Phase 3. It carries one device's identity, free and
+total memory and allocation granularity, taken once after the graph is built; every plan and refusal holds one,
+Chat's `-p` JSON reports its fields, and `Deployment.md` 3.3 and 9 use the word. Chat's `/model` GPU FIT column
+(`Chat.ModelCatalog.ixx`, `largestFittingContext`) still walks its own context ladder against TOTAL memory,
+deliberately, while a plan reads FREE memory; `Deployment.md` section 8 says the column renders plans. Both wait on
+`Deployment.md` 12.5, planning for a device that is described rather than read: a described device is not a
+reading, and the column needs one.
+
+## A process's second automatic load chooses a shorter context than its first
+
+`models` · `binding` · `mila-src`
+
+Four `GemmaModel.from_store( "gemma-4-12b-it-fp4" )` loads in one process on the RTX 4070, each deleted before the
+next, chose 121856, 120832, 120832, 120832; a fresh process always chooses 121856. Stable after the first, so not
+a leak: memory the first load leaves held (lazily loaded kernel modules or a library workspace are candidates,
+unmeasured). Reaches Chat's `/model` switching and any Python program that loads twice. `DeviceReading::take`.
+
+## The scratch reservation test measures the driver loading kernels, not Mila
+
+`models` · `build` · `measured`
+
+`ScratchReservationCudaTests.Gemma4_12B_Fp4_Context8192` (`ScratchReservation.Cuda.cpp:150`) bounds device memory
+growth during generation at 64 MiB on the current device. On the RTX 4070 the reading is bimodal, 262.6 or 10.0
+MiB: under `CUDA_MODULE_LOADING=LAZY` (the default) five of six fresh processes read 262.6, under `EAGER` every run
+reads 10.0. So the step is the driver loading kernels inside the measured window. Predicted and reported scratch
+were identical in every run. The fix warms the kernels before the window opens. Not measured: why identical runs
+land in different modes, and why the 5060 Ti never shows the step.
+
+## An out-of-range token id is an illegal memory access, not an error
+
+`models` · `api` · `mila-src`
+
+Found 2026-09-26 through a test bug: uninitialized ints reached the FP8 embedding gather
+(`TokenEmbedding.Fp8.cu:122`) as token ids, and the CUDA context died with `cudaErrorIllegalAddress`, reported first
+as a cuBLAS error in the next GEMM. Nothing between a caller's ids and the gather checks them against the
+vocabulary, and a dead context takes the whole process's CUDA state with it. Checked on the host where ids enter a
+prefill, not per token on the device.
+
+## A multi-line paste into Chat becomes one turn per line
+
+`adaptors`
+
+Raised by Todd 2026-10-01. The loop reads input with `std::getline` (`Chat.ixx:242`), so a pasted block arrives as
+one turn per line: the model answers each line before the next is read, empty lines are skipped, and a pasted line
+starting with `/` runs as a command. How a user writes a multi-line message by hand is the same question.
+
+## A user cannot measure Mila's rates on their own card
+
+`perf` · `distribution` · `docs`
+
+Raised by Todd 2026-10-01: promote ProfileModel to `mila-bench`. Discussed, no decision: a separate shipped binary
+beside `mila-chat`, not a rename -- `mila-bench <model>` naming a store model, planned through `planDeployment`,
+prefill and generation rates at a depth, `--kv-cache`, machine-readable output -- with ProfileModel kept as the
+profiler and the timing core (salted prefill, decode timed first token to last) shared. A binary rather than a
+`mila` verb, by the August rule. It would let a reader reproduce the published comparison rows. A user surface:
+end-user prose, the wheel and the image, tests.
+
+## Only GPT-2 trains, and training has no row in the family parity matrix
+
+`training` · `models` · `mila-src` · `blocked`
+
+Todd, 2026-09-26: training is first-class, and asked for a second model with full training in v0.21; shelved the
+same day. Blocked on GQA backward, which does not exist (`CudaGqaOp::backward` throws). Candidates: SmolLM2-135M,
+with 360M as a step up (Llama architecture, about 2.2 and 5.8 GB of mixed-precision state; recommended, licence
+unverified); Qwen3-0.6B (about 9.6 GB, a new chassis); Pythia-160M (MHA, so no GQA backward, published loss
+curves); GPT-2 124M at full scale. Llama 3.2 1B full training is about 20 GB, a LoRA model on 16 GB. Proposed rows
+for `ModelFamilyParity.md` section 3: backward, gradient parity against PyTorch, mixed precision, optimizer,
+checkpoint save and resume, loss-curve parity. The choice also decides FP32's future (`Future.md`, "Remove FP16").
+
+## Llama and Qwen rebuild the library's gated feed-forward inside their blocks
+
+`llama` · `qwen` · `architecture` · `mila-src`
+
+Raised by Todd 2026-09-30 ("we've broken our symmetry"). `Components/FFN/GatedMLP` is a fused `fc_gate_up`, a gate
+activation and `fc_down`, with any gate and weight policy, backward, and shared-output pooling; Gemma uses it. Llama
+(`Llama.Block.ixx:27`) and Qwen (`Qwen.AttentionBlock.ixx:244`) compose the same three children inline, each with its
+own slot installation and footprint code. Moving them onto `GatedMLP<Silu>` renames their tensors (`fc_gate_up` to
+`mlp.fc_gate_up`), so every published Llama and Qwen package needs a load alias under the compatibility rule
+(`ModelDistribution.md` *Compatibility*), as Gemma's `ffn` names got. Smaller asymmetries found the same day:
+`Router` and `MixtureOfExperts` sit beside `FFN/` rather than in it, and Gemma's sublayers report their child's
+`ComponentType`. Discussed, not decided: `FFN/` holds feed-forward functions, a family directory holds the sublayer.
+
+## A drafted reply runs one fixed K, though the best K changes with the kind of text
+
+`gemma` · `perf` · `mila-src` · `measured`
+
+Found 2026-10-06 measuring the speculative sampler: best K is 2 to 3 on prose, 3 to 4 on code, 4 to 5 on chat,
+and a K too high costs prose far more than one too low costs chat. Todd: adaptive K will be needed eventually -- a
+default from the measured costs, then a heuristic that updates it. `Gemma4Mtp.md` 4.8 holds the shape and the
+offline greedy simulation that prices it before anything is built.
+
+## A Debug CPU-only MSVC build cannot compile the weights metadata module
+
+`build` · `mila-src`
+
+`out/build/x64-claude-cpuonly` (MSVC 14.51.36231, Debug, `MILA_ENABLE_CUDA=OFF`) fails on
+`WeightsMetadata.ixx` (`import nlohmann.json;`) with `json.hpp(20512): error C2678: binary '!=': no operator found
+which takes a left-hand operand of type 'nullptr'`; the Release CUDA builds compile the same file, and a Release
+build of the same directory passes. Not isolated: whether Debug or CUDA-off is the variable, and whether it is the
+module/header interaction in "`import Mila;` degrades the standard library" above. Found 2026-09-29.

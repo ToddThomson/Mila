@@ -41,6 +41,16 @@ a model composed from components can be put to work through `Mila::AI` on the sa
 one. Components are a public building surface, documented, tested and taught; they are never
 demoted to an implementation detail of the models Mila ships.
 
+### 1.2 Next to llama.cpp
+
+Faced 2026-09-27, once Mila and llama.cpp could load the same files. llama.cpp owns breadth: every device and
+format, and an ecosystem of applications. Mila does not race it there. Mila is a readable, typed, composable
+library for harnessing intelligence rather than a runtime you call; it trains as well as infers; the product family
+sits on top of it; it goes deep on NVIDIA rather than wide; and measurement is a feature of its own — the
+long-context protocol that found a loss in a published build (`ModelFamilyParity.md` 8.2, G2) could not run on
+llama.cpp's own tools. Todd: "it's not a shift, it's where Mila must go to be a useful tool to an engineer or
+researcher." Speed beside llama.cpp is evidence that the work is professional, never the race (section 9).
+
 ---
 
 ## 2. What Changes From v0.20
@@ -372,6 +382,11 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
    `MilaProductFamily.md` Open Decision 5.
 7. **How a composed model meets the handle: a C++ concept** the model satisfies — no registration,
    checked at compile time — so a developer's network and a published one pass through the same check.
+8. **A model runs in the format it was trained for** (2026-09-27). Producers ship quantization-aware
+   checkpoints fitted to one grid — Gemma 4 QAT to Q4_0, gpt-oss to MXFP4, NVIDIA's tooling to NVFP4 — and the
+   benefit does not cross grids: Gemma 4's QAT weights cost +0.03 nats per token at 32K in Q4_0 and +0.24 in Mila's
+   FP4 (`ModelFamilyParity.md` 8.2, G2). Mila's own formats are the fallback for models with no quantization-aware
+   release. The format detail is `Quantization.md`, "Q4_0".
 
 ---
 

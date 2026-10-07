@@ -417,17 +417,6 @@ Phase 0 exact-duplicate dedup, Phase 1 candidate report, Phase 2 compiler-verifi
 (Clang/GCC, not MSVC), plus domain-qualifying the generic single-segment module names
 (`Core`/`Utils`/`Components`/`Profiling` → `Dnn.*`).
 
-## The `fopen` → `<fstream>` conversion is still available in three modules
-
-`build` · `mila-src`
-
-`SafeTensors.ixx` and `TokenSequenceLoader.ixx` are straight swaps and the library's only source of
-C4996. **`WeightsReader.ixx` is not**: it deliberately uses positioned `ReadFile`/`pread`
-alongside the mapping, because faulting a large model through the mapped view throttles below disk
-bandwidth — that one needs the exemption.
-
-Clearing the first two unblocks the warnings ratchet above.
-
 ## ProgressReporter
 
 `api` · `mila-src`
@@ -707,6 +696,10 @@ Training-only, and authored from scratch rather than revived.
 
 Llama fine-tuning, loss-function GPU migration, gradient checkpointing, and BF16/GQA training.
 
+BF16 SwiGLU backward computes FP32 gradients against BF16 tensors, and
+`SwigluCudaTests/Bf16.Backward_MatchesReferenceGradients` skips for it (`Swiglu.Cuda.cpp:358`); the skip message
+still points at a backlog entry that no longer exists.
+
 Qwen training would meet a latent defect first: CUDA RMSNorm's `forward` applies
 `config_.getUnitOffset()` and its `backward` does not (`RmsNormOp.ixx:334`), so every Qwen norm
 differentiates as if the offset were zero. `CpuRmsNormOp`'s backward applies it, so a CPU/CUDA
@@ -738,6 +731,12 @@ RAM, and eviction. `Qwen3.8.md` §8, `PromptCaching.md`
 `quantization` · `mila-src`
 
 The microscaling data path and finer per-arch gating.
+
+Every preset and the library default build for plain `120` (`CMakePresets.json:118`, `Mila/CMakeLists.txt:31`), and
+block-scaled FP4 on SM120 needs the family-specific `120f` (`MixtureOfExperts.md` 7.2(b)); nothing in Mila uses
+sm_120 instructions yet. It becomes a blocker the day a CUTLASS grouped kernel or an NVFP4 path lands, and the list
+is kept in step across both wheel presets and `scripts/dockerhub/publish-image.sh`. CUTLASS's own SM12x guard fix
+(PR #3082) was closed unmerged; `MixtureOfExperts.md` 7.3 records what that means for the `120f` route.
 
 ## Compute backends beyond CUDA
 
@@ -822,3 +821,70 @@ Its `cd "${BUILD}"` is redundant — `executable_directory()` reads `/proc/self/
 the runtime image running Chat from `-w /` and `-w /tmp` — but `Docker/run-chat.sh:7` already says
 so and keeps it deliberately until a container run confirms it. Nothing breaks while it stays, which
 is why this carries no commitment.
+
+## Install a producer's quantized release rather than republish it, and let the planner choose the variant
+
+`distribution` · `quantization` · `mila-src`
+
+Agreed with Todd 2026-09-27 as a direction: recipes rather than gigabyte packages. Where a producer publishes an
+official quantized release, Mila fetches it and transcodes it into its own layout once at install, the loader
+untouched, instead of republishing the weights; Mila still publishes a package where it adds a format no producer
+ships, or where the producer's only complete source is full precision -- which is why the Gemma 4 QAT builds ship
+as Mila packages (`ModelFamilyParity.md` §9, item 14). Candidates then were NVIDIA's `nvidia/Gemma-4-31B-IT-NVFP4`
+and `-26B-A4B-NVFP4` (post-training quantization, now outranked by Google's QAT). Once a model has several
+variants, choosing one per device is the planner's kind of decision: quality depends on running QAT weights in the
+format they were trained for, speed on whether the device runs that format natively. The import half is `Vnext.md`,
+"Mila cannot import the format most quantized models on the Hub are published in".
+
+## FP8 attention compute, so the FP8 cache's prefill stops widening every key
+
+`quantization` · `perf` · `mila-src`
+
+Asked by Todd 2026-10-01. The attention MMAs are BF16 x BF16 and an MMA's operands share one format, so every K and
+V tile widens from E4M3 in shared memory first, repeated by every block sharing a KV head; prefill is compute-bound,
+so the halved read saves little. The way past it is FP8 compute -- Q quantized per row and P to E4M3, FP8 x FP8 MMAs
+on Ada and Blackwell -- as FlashAttention-3's FP8 mode does (arXiv 2407.08608); SageAttention quantizes Q and K to
+INT8 instead (arXiv 2410.02367). Two new roundings, so a change to the accuracy contract needing its own decision-6
+arm (`Quantization.md` Part III). FP8 MMA throughput on the 4070 and 5060 Ti is unmeasured;
+`Profiling/Microbenchmarks/MmaInstructionPeak.cu` is the first measurement.
+
+## A KV cache below FP8
+
+`quantization` · `models` · `mila-src`
+
+Two ways raised by Todd 2026-09-28. **FP4:** DeepSeek-V4.1-Flash (arXiv 2609.19969) stores its main KV cache as
+E2M1 with one E4M3 scale per 16 channels, after RoPE, and keeps its sliding cache at FP8 -- introduced by
+quantization-aware training, with no published comparison against FP8 or BF16. No family here was trained for it,
+and Gemma's long-context loss traced to rounding in queries and keys, the scores an FP4 key cache perturbs.
+**Transform coding:** Laus et al. (arXiv 2608.14191) factor each layer's K and V projections offline by an
+activation-whitened SVD, cache X A quantized with bits allocated by reverse waterfilling, and rebuild (X A) B at
+read; on Llama 3.1 8B at about 2.75 bits, RULER to 32K at baseline and the cache 1.07 GB to 184 MB, FP16 baselines
+only, no kernels. Its shape is the codebook pipeline plus attention kernels that reconstruct and rotate inside
+flash. Either is measured on the G2/L3 protocol against the FP8 cache.
+
+## Compacted turns stay retrievable
+
+`ai`
+
+Raised 2026-10-03 by Luca (ctx, `github.com/ctxrs/ctx`) about agent harnesses built on Mila: a summary keeps the
+conclusion and loses the evidence -- why an approach failed, what a number was measured on. `Mila::AI` holds the
+conversation it compacts, so the original turns could stay addressable afterwards, for example through a tool the
+model calls to search them. A policy over v0.21's compaction, which leaves what a summary keeps to the application.
+
+## Integer block formats for Mila's FP8 weight packages
+
+`quantization` · `llama` · `measured`
+
+On Gemma's tied head, INT6 per 32 at 6.5 bits sits 2.8x closer to BF16 by KL than FP8 per row at 8 bits, and Q8_0
+at 8.5 bits 8.6x closer (26B-A4B; 9.5x on the 12B): E4M3 keeps three significand bits whatever the row's scale.
+`PerChannelFp8<>` is also the body format of the Llama 3.2 3B and 3.1 8B FP8 packages, and whether an integer block
+format at equal or fewer bytes serves them better is unmeasured. `Quantization.md` Part II, "The tied table".
+
+## A desktop app with a window
+
+`adaptors` · `architecture`
+
+Raised by Todd 2026-09-27: a Windows GUI, `MilaStudio.exe`, whose core comes from Chat. Chat's session logic --
+model resolution, the deployment request, the turn loop, tool dispatch and the streaming display's channel routing
+-- lives in console-bound modules (`Chat.ixx`, `Chat.Renderer.ixx`), so a second front end shares it only once it is
+separated from the console; v0.21's move onto `Mila::AI` takes most of it there.
