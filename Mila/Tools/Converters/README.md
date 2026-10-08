@@ -19,6 +19,10 @@ Converters/
   Qwen/
     convert_weights.py    — Qwen 3.8 27B (hybrid DeltaNet / full-attention stack)
     convert_tokenizer.py
+  Qwen4/
+    convert_weights.py    — Qwen 4 (qwen4_exp), a skeleton until a 27B checkpoint exists
+    hf_qwen4_tiny_reference.py
+    qwen4_phase0_gate.py
 ```
 
 ## Setup
@@ -301,3 +305,42 @@ larger than host RAM), `ShardedCheckpoint` (the per-tensor reader the streaming 
 the HuggingFace -> Mila tensor name maps. The maps live here rather than in
 each converter because the Qwen3.8 codebook packer names its quantized tensors from the same source —
 the packer and the BF16 converter cannot be allowed to disagree about what fuses with what.
+
+---
+
+## Qwen 4
+
+No Qwen 4 27B checkpoint exists yet. This directory is Phase 0 of `Specifications/Qwen4.md` section 9:
+a reference and a converter that need none.
+
+> **Requires transformers 5.16.0 or newer** for `models/qwen4_exp/`. Validated on **5.16.0**.
+
+```powershell
+# The tiny reference: a random qwen4_exp model, its capture, and its conversion at FP32 and BF16
+python Qwen4/hf_qwen4_tiny_reference.py --variant moe --output-dir <data-dir>/models/qwen4/qwen4_tiny_moe
+python Qwen4/hf_qwen4_tiny_reference.py --variant dense --output-dir <data-dir>/models/qwen4/qwen4_tiny_dense
+
+# The Phase 0 gate: deterministic capture, every converted tensor equal to the reference's, lexical shards refused
+python Qwen4/qwen4_phase0_gate.py --work-dir <data-dir>/models/qwen4/phase0_gate
+```
+
+**The tiny reference** has two variants, so either 27B is covered: `moe` is `qwen4_exp` as written, `dense`
+puts the reference's own SwiGLU MLP in place of every MoE block. Its capture holds three runs of one set of
+weights: `chunked` (a two-chunk prefill and eight decode steps through the cache, with every component's
+input and output per step), `full` (one uncached pass, logits at every position) and `dense` (the indexer's
+budget lifted past the sequence, the Phase 4 reference). The capture's keys are `<step>.<component>`, for
+example `prefill1.layer1.ple.ngram_ids` or `decode3.layer3.indexer.selected`.
+
+**The converter** carries the Qwen 3.8 transforms over unchanged and adds:
+
+1. **The n-gram table concatenates in numeric shard order**, `shard_0 .. shard_{N-1}`, then pads to
+   `make_ngram_vocab_size_divisible_by`. An index lists the shards lexically, and a lexical concatenation is
+   a silent permutation of the table. The converter refuses any other order.
+2. **The n-gram hash constants move into the metadata** as decimal strings, `ple_layer_<i>_multipliers`,
+   `_head_vocab_sizes` and `_head_offsets`: a multiplier can exceed 2^53, which a JSON number does not
+   carry exactly.
+3. **The expert bank is written stacked**, passing a stacked checkpoint through and stacking a per-expert
+   one. A dense feed-forward is recognized from the tensor names.
+
+The Mila tensor names it writes are proposals; no Mila component reads them until Phase 4.
+
