@@ -26,8 +26,9 @@
 #   dense    the whole sequence with the indexer's budget lifted past the sequence length: dense causal
 #            attention over the same weights, the Phase 4 gate's reference (Qwen4.md 8.3).
 #
-# Beside the capture, each PLE layer's assembled n-gram table (`weights.layer<i>.ple.ngram_table`) and a text file
-# of its int64 hash constants, which no tensor dtype Mila's tests read can hold.
+# Beside the capture, each PLE layer's assembled n-gram table (`weights.layer<i>.ple.ngram_table`), a text file of
+# its int64 hash constants, which no tensor dtype Mila's tests read can hold, and weights_fp32.safetensors: every
+# other floating weight under its HuggingFace name, without the int64 buffers Mila's reader refuses.
 #
 #   python hf_qwen4_tiny_reference.py --variant moe --output-dir ../../../../Data/Models/Qwen4/qwen4_tiny_moe
 #   python hf_qwen4_tiny_reference.py --variant dense --output-dir ../../../../Data/Models/Qwen4/qwen4_tiny_dense
@@ -352,6 +353,12 @@ def main():
         constants.append( f'layer{index}.table_rows={ngram.ngram_embedding.weight.shape[ 0 ]}' )
 
     ( output / f'qwen4_tiny_{arguments.variant}_ngram_constants.txt' ).write_text( '\n'.join( constants ) + '\n' )
+
+    # The checkpoint's floating tensors under their HuggingFace names, as one FP32 file: Mila's safetensors reader
+    # refuses a file that holds the int64 n-gram buffers, and the component gates load weights from here.
+    floating = { name: tensor.detach().to( torch.float32 ).contiguous() for name, tensor in model.state_dict().items()
+                 if tensor.is_floating_point() and 'ngram_embedding' not in name }
+    save_file( floating, str( output / 'weights_fp32.safetensors' ) )
     tensors[ 'full.logits' ] = full_logits.to( torch.float32 ).contiguous()
     tensors[ 'dense.logits' ] = dense_logits.to( torch.float32 ).contiguous()
 

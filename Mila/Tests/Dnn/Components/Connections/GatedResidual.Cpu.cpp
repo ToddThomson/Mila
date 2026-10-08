@@ -60,10 +60,12 @@ namespace Mila::Tests::Dnn::Components::Connections
             return GatedResidualConfig( kModelDim, kStreams, kRank ).withEpsilon( 1e-6f ).withInjection( has_injection );
         }
 
-        std::unique_ptr<GatedResidualCpu> builtResidual( const GatedResidualConfig& residual_config, dim_t rows )
+        // Initialized for the structural tests, whose claims must not depend on what the allocation held; left
+        // alone for the gate, which loads every weight.
+        std::unique_ptr<GatedResidualCpu> builtResidual( const GatedResidualConfig& residual_config, dim_t rows, bool initialize = true )
         {
             auto residual = std::make_unique<GatedResidualCpu>( "residual", residual_config, Device::Cpu() );
-            residual->build( BuildContext( shape_t{ rows, kStreams * kModelDim }, RuntimeMode::Inference, false ) );
+            residual->build( BuildContext( shape_t{ rows, kStreams * kModelDim }, RuntimeMode::Inference, initialize ) );
 
             return residual;
         }
@@ -119,7 +121,7 @@ namespace Mila::Tests::Dnn::Components::Connections
     {
         GatedResidualCpu residual( "residual", config( false ), Device::Cpu() );
 
-        EXPECT_EQ( residual.findComponent( "residual.fc_inject" ), nullptr );
+        EXPECT_THROW( (void)residual.findComponent( "residual.fc_inject" ), std::exception );
     }
 
     TEST( GatedResidualCpuTests, Build_RefusesAStreamOfTheWrongWidth )
@@ -201,13 +203,13 @@ namespace Mila::Tests::Dnn::Components::Connections
     protected:
         void SetUp() override
         {
-            if ( !fs::exists( capturePath() ) )
+            if ( !fs::exists( capturePath() ) || !fs::exists( captureDirectory() / "weights_fp32.safetensors" ) )
             {
                 GTEST_SKIP() << "Qwen 4 tiny reference not present at: " << capturePath().string();
             }
 
             capture_ = std::make_unique<Serialization::WeightsReader>( capturePath() );
-            weights_ = std::make_unique<Serialization::WeightsReader>( captureDirectory() / "hf_checkpoint" / "model.safetensors" );
+            weights_ = std::make_unique<Serialization::WeightsReader>( captureDirectory() / "weights_fp32.safetensors" );
         }
 
         static fs::path capturePath()
@@ -222,7 +224,7 @@ namespace Mila::Tests::Dnn::Components::Connections
 
         std::unique_ptr<GatedResidualCpu> loadedResidual( const std::string& source, bool has_injection )
         {
-            auto residual = builtResidual( config( has_injection ), kWidestStep );
+            auto residual = builtResidual( config( has_injection ), kWidestStep, false );
 
             loadChild( *residual, "residual.norm", source + ".hc_norm.weight" );
             loadChild( *residual, "residual.fc_down", source + ".input_mix_weight_down.weight" );
