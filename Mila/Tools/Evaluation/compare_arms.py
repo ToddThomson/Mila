@@ -5,7 +5,8 @@ says far more than two averages: how many answers changed, in which direction, a
 difference is larger than the benchmark can resolve. The comparison refuses arms whose prompts
 differ, since a difference between them would then measure the prompt as well as the engine.
 
-An arm's directory may hold lm-eval samples (run_arm.py), BFCL results (run_bfcl.py), or both.
+An arm's directory may hold lm-eval samples (run_arm.py), BFCL results (run_bfcl.py) and
+inspect-ai logs (run_inspect.py), in any combination.
 Each is read into one record per document: its identity, its prompt, its scores and its reply.
 """
 
@@ -122,12 +123,51 @@ def load_bfcl(directory):
     return records
 
 
+def load_inspect(directory):
+    """
+    inspect-ai's samples (run_inspect.py), keyed by (task, "none", "<sample id>:<epoch>"). The
+    prompt is the benchmark's input before any template: each engine renders it in its own.
+    """
+    logs = sorted(directory.rglob("*.eval"))
+
+    if not logs:
+        return {}
+
+    from inspect_ai.log import read_eval_log
+    from inspect_ai.scorer import value_to_float
+
+    to_float = value_to_float()
+    records = {}
+
+    for path in logs:
+        log = read_eval_log(str(path))
+        # The benchmark's own task id, as run_inspect.py recorded it beside the log.
+        task = json.loads((path.parent / "environment.json").read_text(encoding="utf-8"))["task"]
+
+        for sample in log.samples or []:
+            # A sample that failed has no score, and is unpaired rather than wrong.
+            if not sample.scores:
+                continue
+
+            records[(task, "none", f"{sample.id}:{sample.epoch}")] = {
+                "document": digest([sample.target, sample.choices]),
+                "prompt": digest(sample.input if isinstance(sample.input, str)
+                                 else [message.model_dump(exclude={"id"}) for message in sample.input]),
+                "scores": {name: to_float(score.value) for name, score in sample.scores.items()},
+                "reply": sample.output.completion,
+            }
+
+    return records
+
+
 def load_arm(directory):
     records = load_lm_eval(directory)
     records.update(load_bfcl(directory))
+    records.update(load_inspect(directory))
 
     if not records:
-        sys.exit(f"{directory} holds no lm-eval samples and no BFCL results. Was it written by run_arm.py or run_bfcl.py?")
+        sys.exit(f"{directory} holds no lm-eval samples, BFCL results or inspect-ai logs. "
+                 "Was it written by run_arm.py, run_bfcl.py or run_inspect.py?")
 
     return records
 

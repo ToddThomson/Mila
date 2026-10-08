@@ -21,17 +21,19 @@ not a format one.
 | `run_bfcl.py` | Runs one arm of a BFCL evaluation against a server, sending token ids |
 | `reference_server.py` | transformers behind a Completions route with MIS's semantics: BFCL's `hf` arm |
 | `servers.py` | The preflight every served arm passes, and the environment record each arm writes |
-| `compare_arms.py` | Pairs two arms' results, lm-eval's and BFCL's, and writes the comparison |
+| `run_inspect.py` | Runs one arm of a Hugging Face Hub benchmark through inspect-ai, to the benchmark's own `eval.yaml` |
+| `eval_results.py` | Writes the mila arm's Hub benchmark score as the model repo's `.eval_results/<task>.yaml` |
+| `compare_arms.py` | Pairs two arms' results, lm-eval's, BFCL's and inspect-ai's, and writes the comparison |
 
 ## Arms
 
 An arm is an engine serving a model. Every arm is given the same token ids for every prompt.
 
-| Arm | lm-eval (`run_arm.py`) | BFCL (`run_bfcl.py`) |
-|---|---|---|
-| `hf` | lm-eval loads the model itself | `reference_server.py` |
-| `mila` | MIS | MIS |
-| `llamacpp` | `llama-server` | `llama-server` |
+| Arm | lm-eval (`run_arm.py`) | BFCL (`run_bfcl.py`) | Hub benchmarks (`run_inspect.py`) |
+|---|---|---|---|
+| `hf` | lm-eval loads the model itself | `reference_server.py` | inspect-ai loads the model itself |
+| `mila` | MIS | MIS | MIS, Chat Completions |
+| `llamacpp` | `llama-server` | `llama-server` | `llama-server`, Chat Completions |
 
 ## What makes the arms comparable
 
@@ -62,6 +64,7 @@ python -m venv .venv
 pip install torch --index-url https://download.pytorch.org/whl/cu128   # the build for your CUDA
 pip install -r requirements.txt
 pip install -r requirements-bfcl.txt                                   # for run_bfcl.py
+pip install -r requirements-inspect.txt                                # for run_inspect.py and eval_results.py
 hf auth login                                                          # Llama is gated
 ```
 
@@ -160,6 +163,42 @@ its `python` collection: every single-turn Python category, live and not, about 
 `--categories` takes BFCL's category or collection names, and `--limit 5` the first five entries of
 each category for a smoke run. Results go to `<output>/<arm>/bfcl`, beside the arm's lm-eval results,
 and `compare_arms.py` reads both.
+
+## Hugging Face Hub benchmarks
+
+A benchmark registered on the Hub carries an `eval.yaml` that fixes its prompt, solver and scorer. A model repo
+reports a score against it in `.eval_results/<task>.yaml`, and the Hub shows that score on the model page and in the
+benchmark's leaderboard. Every registered language benchmark runs on inspect-ai, and lm-eval is not among the
+frameworks the Hub accepts, so a score that belongs on such a leaderboard comes from `run_inspect.py`, not
+`run_arm.py`:
+
+```
+python run_inspect.py hf   --output Data/Evaluation/llama32-3b-hub
+python run_inspect.py mila --output Data/Evaluation/llama32-3b-hub --url http://localhost:8000
+python compare_arms.py Data/Evaluation/llama32-3b-hub/hf Data/Evaluation/llama32-3b-hub/mila
+python eval_results.py Data/Evaluation/llama32-3b-hub/mila --model-repo <clone of the model's Hub repo> ^
+  --notes "FP4 weights"
+```
+
+The default is MMLU-Pro (`TIGER-Lab/MMLU-Pro`, about 12,000 questions, zero-shot, the model writes its answer
+letter); `--benchmark` takes another registered benchmark's dataset id and `--task` one of its tasks. Each arm
+pins the revision of the definition it ran, and decodes greedily, one request at a time, with the same
+`--max-tokens` on every arm (2,048 by default).
+
+This differs from the other harnesses in one control: inspect-ai sends chat messages, not token ids, so each
+engine renders the prompt in its own template. The mila arm therefore measures MIS's prompt as a user meets it,
+including the system turn MIS adds when a request has none, and a comparison against `hf` measures the engine and
+the template together. `compare_arms.py` still refuses arms whose benchmark inputs differ.
+
+`run_inspect.py` refuses a benchmark that is not registered (IFEval has no `eval.yaml`), one scored by a judge
+model (the Hub's GSM8K is: `model_graded_fact`, which with no grader named grades with the model under test), and a
+gated one whose terms the logged-in account has not accepted (GPQA and HLE). `eval_results.py` refuses a run that
+used `--limit`, an arm other than `mila`, and a file that already exists. Its value is a percentage, as the Hub's
+leaderboards are written.
+
+A gated benchmark's terms forbid publishing its examples, and inspect-ai's logs quote every question. For such a
+benchmark, `eval_results.py` links a source only with `--source-private`, which states that the source is readable
+only by people who accepted the terms.
 
 ## Reading the comparison
 

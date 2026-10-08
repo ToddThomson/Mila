@@ -3,7 +3,9 @@
 **Status:** Draft, 2026-10-07. Agreed in discussion with Todd the same day: start with BF16 parity on Llama 3.2 3B
 over IFEval and GSM8K, then add BFCL, RULER and a llama.cpp arm. The tools for Phases 1 to 4 are built
 (`Mila/Tools/Evaluation`, `0.21.0-dev+41` and `+42`) and rehearsed end to end on a stand-in model; none has run on
-real weights. No release admits this work; section 10 holds the decisions that would.
+real weights. No release admits this work; section 10 holds the decisions that would. Added 2026-10-08: scores
+for the Hugging Face Hub's benchmark leaderboards (section 11, Phase 7), built at `0.21.0-dev+43` and rehearsed
+against a stand-in server on MMLU-Pro's own definition.
 
 **Area:** what Mila states about a model's quality on standard task benchmarks, and how such a statement is made
 comparable to anyone else's. Its uses: the "is it any good" answer on every model card; the measured cost of each
@@ -51,11 +53,11 @@ benchmark the reader already knows does.
 
 An **arm** is an engine serving a model, run under the fixed settings of section 4.
 
-| Arm | Engine | lm-eval tasks (`run_arm.py`) | BFCL (`run_bfcl.py`) |
-|---|---|---|---|
-| `hf` | transformers, BF16 | lm-eval's `hf` model | `reference_server.py` |
-| `mila` | MIS on the OpenAI protocol, any store variant | `local-completions` | MIS |
-| `llamacpp` | `llama-server` with a GGUF | `local-completions` | `llama-server` |
+| Arm | Engine | lm-eval tasks (`run_arm.py`) | BFCL (`run_bfcl.py`) | Hub benchmarks (`run_inspect.py`) |
+|---|---|---|---|---|
+| `hf` | transformers, BF16 | lm-eval's `hf` model | `reference_server.py` | inspect-ai's `hf` model |
+| `mila` | MIS on the OpenAI protocol, any store variant | `local-completions` | MIS | MIS, Chat Completions |
+| `llamacpp` | `llama-server` with a GGUF | `local-completions` | `llama-server` | `llama-server`, Chat Completions |
 
 lm-eval loads the reference model itself; BFCL only talks to a server, so its `hf` arm is `reference_server.py`:
 transformers behind a Completions route with MIS's semantics there -- text or token-id prompts, greedy only, `stop`
@@ -235,6 +237,20 @@ sharper parity test than Phase 1's.
 Llama 3.1 8B, Gemma 4 12B and 26B-A4B, and both Qwen 3.8 builds, on the tasks of Phases 1, 4 and 5. Blocked on
 section 10's reference decision for every model whose BF16 weights exceed the card.
 
+### Phase 7 -- Hub benchmarks
+
+MMLU-Pro through `run_inspect.py` on the `hf` and `mila` arms of Phase 1's model, compared by `compare_arms.py`, and
+the mila arm's score written to the model repo by `eval_results.py` (section 11). GPQA follows once its definition
+has been read (section 11.3).
+
+**Gate:** none for publishing, which is section 10's decision 5. The comparison against `hf` is read as Phase 1's
+is, knowing it also measures MIS's prompt template (section 9).
+
+**Built:** `run_inspect.py`, `eval_results.py`, and an inspect-ai reader in `compare_arms.py`. Rehearsed against a
+stand-in server on MMLU-Pro's real `eval.yaml`, with stand-in rows in its schema (the container could not fetch
+the Hub's data files): two served arms paired and compared, the result file written, and every refusal of section
+11.4 exercised.
+
 ## 8. On the model card
 
 The card answers "is it any good" with this measurement and nothing else on its first screen (`CLAUDE.md`,
@@ -248,6 +264,10 @@ The card answers "is it any good" with this measurement and nothing else on its 
 
 The reader never sees "arm", "noise floor" or "paired" on the first screen; the table is the claim. The comparison's
 JSON is the source for both the card and the website, so a number is written once.
+
+A Hub benchmark score (section 11) also appears on the model page, from the repo's `.eval_results/`, beside the
+card rather than in it. It answers a different question -- how this model ranks against others under the
+benchmark's own protocol -- and it is not the card's claim.
 
 ## 9. Separate questions
 
@@ -276,4 +296,74 @@ Each was excluded from the comparison on purpose and is worth measuring on its o
    publishes is measured for agentic work", which BFCL and RULER would support; Phases 1 and 2 serve the model cards
    and have no criterion of their own yet.
 4. **Where the run data lives.** `Data/Evaluation/` is gitignored. A number on a card cites a run that should be
-   retrievable later -- a release asset, or a committed JSON summary beside the card.
+   retrievable later -- a release asset, or a committed JSON summary beside the card. A gated benchmark's run (GPQA,
+   HLE) cannot be public at all: its logs quote the questions its terms forbid publishing (section 11.3).
+5. **Whether Mila publishes Hub results, and for which models.** Every result on the leaderboards read so far is
+   self-reported under its author's own settings (section 11.2), which is the comparison principle 1 refuses. A
+   Mila result is reproducible and states its settings, but it sits in a table that is not. Options: publish for
+   every model and let the notes carry the settings; publish only where the card's paired comparison already
+   stands beside it; or not at all.
+6. **Verification.** A verified result needs the run made in HF Jobs (section 11.1), which would need MIS and its
+   weights in a Hugging Face job, and Hugging Face's word that a token is issued for an engine it does not host.
+   Not pursued until decision 5 is made.
+
+## 11. The Hugging Face Hub
+
+Read 2026-10-08 from the Hub's documentation, the benchmarks' own definitions and their leaderboards. The feature is
+marked a work in progress, so this section records what was true that day.
+
+### 11.1 How a result reaches a leaderboard
+
+The Open LLM Leaderboard is archived. Its successor is decentralised: a dataset repo registered as a **benchmark**
+holds an `eval.yaml` defining how it is run, and a model repo reports a score against it in
+`.eval_results/<task>.yaml`. The Hub shows that score on the model page and aggregates it into the benchmark's
+leaderboard. An entry needs the benchmark's dataset id, a task id from its `eval.yaml`, and a value; it may carry the
+benchmark revision, a date, a source link and free-text notes.
+
+A result is **verified** only with a token from a run of inspect-ai in HF Jobs. A result in the model repo is the
+author's own; one offered by pull request to someone else's repo shows as community-provided while the request is
+open. Registering a new benchmark is by request, onto an allow-list.
+
+### 11.2 What that means for Mila
+
+- **The framework is fixed by the benchmark, and it is not lm-eval.** `eval.yaml` names one framework from a list
+  the Hub maintains; lm-evaluation-harness is not on it, and every registered language benchmark read so far uses
+  inspect-ai. A `run_arm.py` score filed against a Hub benchmark would be a different measurement from its
+  neighbours, so the Hub path is its own runner, `run_inspect.py`.
+- **The leaderboards are not controlled comparisons.** MMLU-Pro's held 141 results and GSM8K's 18; none was
+  verified, and their notes show settings from greedy to sampled at temperature 1 with long thinking budgets. A
+  Mila result there is one reproducible row among rows that are not, which is why section 10 asks whether to
+  publish.
+- **Values are percentages.** The documentation's examples show both scales; the leaderboards are written in
+  percentages (one MMLU-Pro row reports a fraction and ranks near the bottom for it).
+- **The prompt is the engine's.** inspect-ai sends chat messages, so each arm renders its own template, and the
+  section 4 control of identical token ids does not hold. inspect-ai sends one user message and no system message;
+  MIS then adds "You are a helpful assistant." as the system turn (`Untriaged.md`). The mila arm measures MIS as a
+  user meets it, and its comparison with `hf` measures the engine and the template together.
+
+### 11.3 The benchmarks
+
+| Benchmark | Dataset | Access | Definition | Fit |
+|---|---|---|---|---|
+| MMLU-Pro | `TIGER-Lab/MMLU-Pro` | open | `mmlu_pro`: zero-shot `multiple_choice`, scored by `choice`, one epoch | Runs today through MIS's Chat Completions route; no judge, no log-likelihood |
+| GSM8K | `openai/gsm8k` | open | `gsm8k`: a prompt template and `generate`, scored by `model_graded_fact`, four epochs reduced by `pass_at_1` | Out: a judge model, and with none named inspect-ai grades with the model under test |
+| GPQA | `Idavidrein/gpqa` | gated, approved on request at once | Unread: behind the gate | Small models score near the 25% of chance, and Diamond's 198 questions resolve coarsely; its value is on the larger models |
+| HLE | `cais/hle` | gated | Unread; the documentation's example scores with `model_graded_fact` and an external grader | Out on present reading: a judge, and near the floor for every model Mila runs |
+| IFEval | `google/IFEval` | open | None: not registered | Stays with `run_arm.py` |
+
+GPQA's terms: "You agree to NOT reveal examples from this dataset in plain text or images online, to reduce the
+risk of leakage into foundation model training corpora." Scores may be published; logs, samples and any comparison
+report that quotes a question may not, which binds section 10's decision 4 for it. Reading its definition needs a
+Hugging Face token from an account that has accepted the terms.
+
+### 11.4 Controls on the Hub path
+
+Enforced by the tools, as section 4's are:
+
+- `run_inspect.py` runs the benchmark's own `eval.yaml`, pinned to the revision it read, at temperature 0 with one
+  request in flight and the same reply length on every arm, and records the revision, scorers and epochs beside
+  the log. It refuses a benchmark with no `eval.yaml`, one on another framework, one scored by a judge model, and
+  a gated one the account cannot read.
+- `eval_results.py` writes only the mila arm, never a run made with `--limit`, never over an existing file, and
+  links a gated benchmark's logs only when told the link is restricted to people who accepted its terms. Its notes
+  name the Mila and inspect-ai versions and the decoding; the weight format is given with `--notes`.

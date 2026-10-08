@@ -1,0 +1,5 @@
+# run_inspect.py and eval_results.py, on top of requirements.txt. The Hub's registered language
+# benchmarks are defined for inspect-ai, which reads them through huggingface_hub 1.0 or later.
+inspect-ai==0.3.277
+openai
+huggingface_hub>=1.0

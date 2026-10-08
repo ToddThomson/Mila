@@ -19,7 +19,9 @@ Found 2026-10-07 building `Tools/Evaluation`. A Chat Completions request with no
 "You are a helpful assistant." as its system turn; Meta's template writes a "Cutting Knowledge Date / Today Date"
 header there instead. Llama's template is still written out in MIS, where Gemma's and Qwen's render through the
 runtime. The evaluation tool sends token ids to `/v1/completions` and so does not see it; a score taken through
-`/v1/chat/completions` would.
+`/v1/chat/completions` would. 2026-10-08: `run_inspect.py` takes Hub benchmark scores through that route, and
+inspect-ai sends one user message with no system message, so every such score carries MIS's added system turn.
+The route also defaults `temperature` to 0.6 when a request omits it (inspect-ai sends 0).
 
 ## MIS reports every buffered reply as `finish_reason: "stop"`
 

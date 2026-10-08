@@ -9,7 +9,7 @@ FetchContent never configures it.
 | `ContextProfile/` | C++ | What a model configuration is worth to an agent at each context length it fits |
 | `Converters/` | Python | HuggingFace weights and tokenizers to Mila format, per family |
 | `Drafting/` | C++ | Whether a draft model pays on its target: what a verify costs, and how many drafts are accepted |
-| `Evaluation/` | Python | Standard benchmarks (IFEval, GSM8K, RULER, BFCL) on Mila, transformers and llama.cpp from the same token ids, compared by document |
+| `Evaluation/` | Python | Standard benchmarks (IFEval, GSM8K, RULER, BFCL) on Mila, transformers and llama.cpp from the same token ids, compared by document; Hugging Face Hub benchmarks (MMLU-Pro) run to their own definition and written as the model repo's result |
 | `ExportArtifact/` | C++ | Artifact, package and local-store lifecycle |
 | `Measurement/` | C++ | Header-only harness: a network built from weights, scored teacher-forced; PG-19 books |
 | `Publishing/` | Python | Uploads a model package to the HuggingFace Hub |
@@ -119,7 +119,10 @@ HuggingFace transformers, MIS or `llama-server`; `run_bfcl.py` runs BFCL against
 as its transformers arm. `compare_arms.py <run>/hf <run>/mila` pairs the two by document and reports the score
 difference with its interval, the answers each arm alone got right, and how often the replies match exactly. Its
 first use is Mila BF16 against transformers on Llama 3.2 3B, which is the noise floor a quantized build is read
-against. `Evaluation/README.md` covers setup and the reading of a report; `Specifications/ModelEval.md` is the design.
+against. `run_inspect.py` runs a benchmark registered on the Hugging Face Hub (MMLU-Pro) through inspect-ai, to the
+benchmark's own `eval.yaml`, and `eval_results.py` writes the mila arm's score as the model repo's
+`.eval_results/<task>.yaml`, which the Hub shows on the model page and in the benchmark's leaderboard.
+`Evaluation/README.md` covers setup and the reading of a report; `Specifications/ModelEval.md` is the design.
 
 ## Publishing
 
