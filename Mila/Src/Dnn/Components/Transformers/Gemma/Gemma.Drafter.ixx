@@ -45,6 +45,7 @@ import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.WeightsReader;
 import Serialization.Metadata;
+import Serialization.Tensor;
 import Dnn.Quantization.Weight.Policies;
 
 namespace Mila::Dnn
