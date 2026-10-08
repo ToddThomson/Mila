@@ -26,6 +26,7 @@ module;
 
 #include <cassert>
 #include <string>
+#include <format>
 
 export module Dnn.TensorBuffer;
 

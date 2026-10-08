@@ -9,8 +9,9 @@
 
 namespace Mila::Dnn::Compute::Cuda::Convolution
 {
-    // Upper bound on retained rows (K-1), so the state shift can stage in registers.
-    constexpr int kMaxStateRows = 7;
+    // Upper bound on retained rows ((K-1) * D), so the state shift can stage in registers.
+    // CausalConv1dConfig::kMaximumStateRows refuses anything larger.
+    constexpr int kMaxStateRows = 16;
 
     __global__ void causal_conv1d_forward_fp32_kernel(
         float* __restrict__       out,
@@ -18,7 +19,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
         const float* __restrict__ state,
         const float* __restrict__ weight,
         const float* __restrict__ bias,
-        int B, int T, int C, int K )
+        int B, int T, int C, int K, int D )
     {
         const int idx = blockIdx.x * blockDim.x + threadIdx.x;
         const int total = B * T * C;
@@ -29,13 +30,13 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
         const int c = idx % C;
         const int t = (idx / C) % T;
         const int b = idx / (C * T);
-        const int state_rows = K - 1;
+        const int state_rows = (K - 1) * D;
 
         float accumulator = bias ? bias[ c ] : 0.0f;
 
         for ( int i = 0; i < K; ++i )
         {
-            const int source_t = t - state_rows + i;
+            const int source_t = t - state_rows + i * D;
             float value = 0.0f;
 
             if ( source_t >= 0 )
@@ -56,7 +57,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
     __global__ void causal_conv1d_update_state_fp32_kernel(
         float* __restrict__       state,
         const float* __restrict__ x,
-        int B, int T, int C, int K )
+        int B, int T, int C, int K, int D )
     {
         const int idx = blockIdx.x * blockDim.x + threadIdx.x;
         const int total = B * C;
@@ -66,7 +67,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
 
         const int c = idx % C;
         const int b = idx / C;
-        const int state_rows = K - 1;
+        const int state_rows = (K - 1) * D;
 
         float staged[ kMaxStateRows ];
 
@@ -94,7 +95,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
         const float* state,
         const float* weight,
         const float* bias,
-        int B, int T, int C, int K,
+        int B, int T, int C, int K, int D,
         cudaStream_t stream )
     {
         constexpr int block_size = 256;
@@ -102,7 +103,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
         const int grid_size = ceil_div( total, block_size );
 
         causal_conv1d_forward_fp32_kernel << <grid_size, block_size, 0, stream >> > (
-            out, x, state, weight, bias, B, T, C, K );
+            out, x, state, weight, bias, B, T, C, K, D );
 
         cudaCheck( cudaGetLastError() );
     }
@@ -110,7 +111,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
     void cuda_causal_conv1d_update_state_fp32(
         float* state,
         const float* x,
-        int B, int T, int C, int K,
+        int B, int T, int C, int K, int D,
         cudaStream_t stream )
     {
         constexpr int block_size = 256;
@@ -118,7 +119,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
         const int grid_size = ceil_div( total, block_size );
 
         causal_conv1d_update_state_fp32_kernel << <grid_size, block_size, 0, stream >> > (
-            state, x, B, T, C, K );
+            state, x, B, T, C, K, D );
 
         cudaCheck( cudaGetLastError() );
     }

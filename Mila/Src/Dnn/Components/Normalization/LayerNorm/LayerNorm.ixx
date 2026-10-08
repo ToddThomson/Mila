@@ -21,6 +21,7 @@ module;
 #include <optional>
 #include <numeric>
 #include <algorithm>
+#include <format>
 
 export module Dnn.Components.LayerNorm;
 export import Dnn.Components.LayerNormConfig;

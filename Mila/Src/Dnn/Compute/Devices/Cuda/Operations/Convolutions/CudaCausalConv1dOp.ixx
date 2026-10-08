@@ -53,6 +53,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
 
             channels_ = static_cast<int>( config_.getChannels() );
             kernel_width_ = static_cast<int>( config_.getKernelWidth() );
+            dilation_ = static_cast<int>( config_.getDilation() );
         }
 
         void setParameters( ITensor* weight, ITensor* bias )
@@ -65,7 +66,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
          * @brief Convolve a chunk, optionally against a retained left context.
          *
          * @param input  [B, T, C].
-         * @param state  [B, K-1, C] holding the previous K-1 input rows, or nullptr for a
+         * @param state  [B, (K-1) * D, C] holding the previous input rows, or nullptr for a
          *               sequence that starts here (missing rows are zero).
          * @param output [B, T, C].
          */
@@ -112,12 +113,12 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
                 y, x, state_data,
                 static_cast<const NativeType*>( weight_->rawData() ),
                 bias_ ? static_cast<const NativeType*>( bias_->rawData() ) : nullptr,
-                B, T, channels_, kernel_width_,
+                B, T, channels_, kernel_width_, dilation_,
                 context_->getStream() );
         }
 
         /**
-         * @brief Refresh @p state to the last K-1 rows of [state ; input].
+         * @brief Refresh @p state to the last (K-1) * D rows of [state ; input].
          *
          * Must run after forward() for the same chunk -- it overwrites the rows that pass
          * reads.
@@ -143,7 +144,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
             const int T = static_cast<int>( shape[ 1 ] );
 
             Detail::cuda_causal_conv1d_impl<NativeType>::updateState(
-                s, x, B, T, channels_, kernel_width_, context_->getStream() );
+                s, x, B, T, channels_, kernel_width_, dilation_, context_->getStream() );
         }
 
         void build( const BuildContext& /*context*/ ) override
@@ -169,5 +170,6 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
 
         int channels_{ 0 };
         int kernel_width_{ 0 };
+        int dilation_{ 1 };
     };
 }

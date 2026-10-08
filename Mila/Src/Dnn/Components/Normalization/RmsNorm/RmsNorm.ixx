@@ -19,6 +19,7 @@ module;
 #include <mutex>
 #include <utility>
 #include <optional>
+#include <format>
 
 export module Dnn.Components.RmsNorm;
 

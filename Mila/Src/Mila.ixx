@@ -290,6 +290,7 @@ export import Dnn.Components.QwenPrecisionPlan;
 export import Dnn.Components.QwenConfig;
 export import Dnn.Components.QwenAttentionBlock;
 export import Dnn.Components.QwenDeltaNetBlock;
+export import Dnn.Components.QwenDeltaNetBlockWorkspace;
 export import Dnn.Components.QwenTransformer;
 
 // ============================================================================

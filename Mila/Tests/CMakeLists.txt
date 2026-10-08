@@ -57,6 +57,8 @@ add_executable( MilaTests
     "Dnn/Components/Attention/MHA/MultiHeadAttentionConfig.cpp"
     "Dnn/Components/Connections/Residual.Cpu.cpp"
     "Dnn/Components/Connections/ResidualConfig.cpp"
+    "Dnn/Components/Convolutions/CausalConv1d.Cpu.cpp"
+    "Dnn/Components/Convolutions/CausalConv1dConfig.cpp"
     "Dnn/Components/Embeddings/TokenEmbeddingConfig.cpp"
     "Dnn/Components/Encodings/Lpe/Lpe.Cpu.cpp"
     "Dnn/Components/Encodings/Lpe/LpeConfig.cpp"

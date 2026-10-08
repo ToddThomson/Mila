@@ -2,7 +2,7 @@
  * @file CpuRmsNormOp.ixx
  * @brief CPU implementation of RMS normalization (FP32).
  *
- * The reference loop behind RmsNorm<Cpu>, mirroring CudaRmsNormOp's partitioning and its unit offset.
+ * The reference loop behind RmsNorm<Cpu>, mirroring CudaRmsNormOp's partitioning, unit offset and grouping.
  */
 
 module;
@@ -37,6 +37,9 @@ namespace Mila::Dnn::Compute
      *
      * The normalization axis is fixed at build; the slice count follows each call's input, bounded
      * by the build, because a component built at the prefill width is called with narrower inputs.
+     *
+     * With a group size G the axis is split into N / G groups, each with its own rstd, and element
+     * i of group g is scaled by weight[ g * G + i ]. Ungrouped is one group of N, the same loop.
      */
     export class CpuRmsNormOp : public Operation<DeviceType::Cpu, TensorDataType::FP32>
     {
@@ -167,9 +170,17 @@ namespace Mila::Dnn::Compute
 
             normalized_axis_ = axis;
             normalized_size_ = static_cast<int64_t>( shape[ axis ] );
+            group_size_ = config_.getGroupSize() > 0 ? static_cast<int64_t>( config_.getGroupSize() ) : normalized_size_;
+
+            if ( normalized_size_ % group_size_ != 0 )
+            {
+                throw std::invalid_argument( "CpuRmsNormOp::build - group size does not divide the normalized extent" );
+            }
+
+            groups_ = normalized_size_ / group_size_;
 
             const Geometry geometry = geometryFor( shape );
-            rstd_.assign( static_cast<size_t>( geometry.outer * geometry.inner ), 0.0f );
+            rstd_.assign( static_cast<size_t>( geometry.outer * groups_ * geometry.inner ), 0.0f );
 
             OperationBaseType::build( build_context );
         }
@@ -185,31 +196,37 @@ namespace Mila::Dnn::Compute
 
             for ( int64_t outer = 0; outer < geometry.outer; ++outer )
             {
-                for ( int64_t inner = 0; inner < geometry.inner; ++inner )
+                for ( int64_t group = 0; group < groups_; ++group )
                 {
-                    const int64_t base = outer * normalized_size_ * geometry.inner + inner;
+                    const int64_t first = group * group_size_;
 
-                    double sum_of_squares = 0.0;
-
-                    for ( int64_t i = 0; i < normalized_size_; ++i )
+                    for ( int64_t inner = 0; inner < geometry.inner; ++inner )
                     {
-                        const double value = x[ base + i * geometry.inner ];
-                        sum_of_squares += value * value;
-                    }
+                        const int64_t base = ( outer * normalized_size_ + first ) * geometry.inner + inner;
 
-                    const double rstd = 1.0 / std::sqrt( sum_of_squares / static_cast<double>( normalized_size_ ) + epsilon );
-                    rstd_[ static_cast<size_t>( outer * geometry.inner + inner ) ] = static_cast<float>( rstd );
+                        double sum_of_squares = 0.0;
 
-                    for ( int64_t i = 0; i < normalized_size_; ++i )
-                    {
-                        double normalized = x[ base + i * geometry.inner ] * rstd * ( static_cast<double>( weight_[ i ] ) + offset );
-
-                        if ( bias_ )
+                        for ( int64_t i = 0; i < group_size_; ++i )
                         {
-                            normalized += bias_[ i ];
+                            const double value = x[ base + i * geometry.inner ];
+                            sum_of_squares += value * value;
                         }
 
-                        y[ base + i * geometry.inner ] = static_cast<float>( normalized );
+                        const double rstd = 1.0 / std::sqrt( sum_of_squares / static_cast<double>( group_size_ ) + epsilon );
+                        rstd_[ static_cast<size_t>( ( outer * groups_ + group ) * geometry.inner + inner ) ] = static_cast<float>( rstd );
+
+                        for ( int64_t i = 0; i < group_size_; ++i )
+                        {
+                            const int64_t channel = first + i;
+                            double normalized = x[ base + i * geometry.inner ] * rstd * ( static_cast<double>( weight_[ channel ] ) + offset );
+
+                            if ( bias_ )
+                            {
+                                normalized += bias_[ channel ];
+                            }
+
+                            y[ base + i * geometry.inner ] = static_cast<float>( normalized );
+                        }
                     }
                 }
             }
@@ -233,36 +250,42 @@ namespace Mila::Dnn::Compute
 
             for ( int64_t outer = 0; outer < geometry.outer; ++outer )
             {
-                for ( int64_t inner = 0; inner < geometry.inner; ++inner )
+                for ( int64_t group = 0; group < groups_; ++group )
                 {
-                    const int64_t base = outer * normalized_size_ * geometry.inner + inner;
-                    const double rstd = rstd_[ static_cast<size_t>( outer * geometry.inner + inner ) ];
+                    const int64_t first = group * group_size_;
 
-                    double gradient_dot_input = 0.0;
-
-                    for ( int64_t i = 0; i < normalized_size_; ++i )
+                    for ( int64_t inner = 0; inner < geometry.inner; ++inner )
                     {
-                        const int64_t at = base + i * geometry.inner;
-                        gradient_dot_input += ( static_cast<double>( weight_[ i ] ) + offset ) * dy[ at ] * x[ at ];
-                    }
+                        const int64_t base = ( outer * normalized_size_ + first ) * geometry.inner + inner;
+                        const double rstd = rstd_[ static_cast<size_t>( ( outer * groups_ + group ) * geometry.inner + inner ) ];
 
-                    const double correction = rstd * rstd * rstd * gradient_dot_input / static_cast<double>( normalized_size_ );
+                        double gradient_dot_input = 0.0;
 
-                    for ( int64_t i = 0; i < normalized_size_; ++i )
-                    {
-                        const int64_t at = base + i * geometry.inner;
-                        const double gradient = ( static_cast<double>( weight_[ i ] ) + offset ) * dy[ at ];
-
-                        dx[ at ] += static_cast<float>( rstd * gradient - x[ at ] * correction );
-
-                        if ( weight_grad_ )
+                        for ( int64_t i = 0; i < group_size_; ++i )
                         {
-                            weight_grad_[ i ] += static_cast<float>( x[ at ] * rstd * dy[ at ] );
+                            const int64_t at = base + i * geometry.inner;
+                            gradient_dot_input += ( static_cast<double>( weight_[ first + i ] ) + offset ) * dy[ at ] * x[ at ];
                         }
 
-                        if ( bias_grad_ )
+                        const double correction = rstd * rstd * rstd * gradient_dot_input / static_cast<double>( group_size_ );
+
+                        for ( int64_t i = 0; i < group_size_; ++i )
                         {
-                            bias_grad_[ i ] += dy[ at ];
+                            const int64_t at = base + i * geometry.inner;
+                            const int64_t channel = first + i;
+                            const double gradient = ( static_cast<double>( weight_[ channel ] ) + offset ) * dy[ at ];
+
+                            dx[ at ] += static_cast<float>( rstd * gradient - x[ at ] * correction );
+
+                            if ( weight_grad_ )
+                            {
+                                weight_grad_[ channel ] += static_cast<float>( x[ at ] * rstd * dy[ at ] );
+                            }
+
+                            if ( bias_grad_ )
+                            {
+                                bias_grad_[ channel ] += dy[ at ];
+                            }
                         }
                     }
                 }
@@ -319,7 +342,7 @@ namespace Mila::Dnn::Compute
 
             const Geometry geometry = geometryFor( shape );
 
-            if ( static_cast<size_t>( geometry.outer * geometry.inner ) > rstd_.size() )
+            if ( static_cast<size_t>( geometry.outer * groups_ * geometry.inner ) > rstd_.size() )
             {
                 throw std::runtime_error( std::string( "CpuRmsNormOp::" ) + caller
                     + " - runtime slice count exceeds the built maximum" );
@@ -338,6 +361,8 @@ namespace Mila::Dnn::Compute
 
         int64_t normalized_axis_{ -1 };
         int64_t normalized_size_{ 0 };
+        int64_t group_size_{ 0 };
+        int64_t groups_{ 1 };
 
         // Written by the const forward() and read by backward(); the op holds no other state.
         mutable std::vector<float> rstd_;

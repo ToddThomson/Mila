@@ -97,6 +97,26 @@ namespace Mila::Tests::Dnn::Components::Normalization::RmsNorm
         EXPECT_THROW( RmsNormConfig( shape_t{ 0 } ).validate(), std::invalid_argument );
     }
 
+    TEST_F( RmsNormConfigTests, GroupSize_DefaultsToUngrouped )
+    {
+        EXPECT_EQ( RmsNormConfig( shape_t{ 16 } ).getGroupSize(), 0 );
+    }
+
+    TEST_F( RmsNormConfigTests, Validate_PassesForDividingGroupSize )
+    {
+        EXPECT_NO_THROW( RmsNormConfig( shape_t{ 16 } ).withGroupSize( 4 ).validate() );
+    }
+
+    TEST_F( RmsNormConfigTests, Validate_ThrowsForGroupSizeThatDoesNotDivide )
+    {
+        EXPECT_THROW( RmsNormConfig( shape_t{ 16 } ).withGroupSize( 5 ).validate(), std::invalid_argument );
+    }
+
+    TEST_F( RmsNormConfigTests, Validate_ThrowsForNegativeGroupSize )
+    {
+        EXPECT_THROW( RmsNormConfig( shape_t{ 16 } ).withGroupSize( -1 ).validate(), std::invalid_argument );
+    }
+
     // ====================================================================
     // H. Serialization round-trip
     // ====================================================================
@@ -114,6 +134,17 @@ namespace Mila::Tests::Dnn::Components::Normalization::RmsNorm
         EXPECT_EQ( loaded.getNormalizedShape(), ( shape_t{ 768 } ) );
         EXPECT_FALSE( loaded.hasBias() );
         EXPECT_FLOAT_EQ( loaded.getEpsilon(), 1e-6f );
+    }
+
+    TEST_F( RmsNormConfigTests, Metadata_RoundTripGroupSize )
+    {
+        RmsNormConfig source( shape_t{ 32 } );
+        source.withGroupSize( 8 );
+
+        RmsNormConfig loaded( shape_t{ 1 } );
+        loaded.fromMetadata( source.toMetadata() );
+
+        EXPECT_EQ( loaded.getGroupSize(), 8 );
     }
 
     // ====================================================================

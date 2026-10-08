@@ -475,4 +475,115 @@ namespace Mila::Tests::Dnn::Components::Normalization::RmsNorm
             }
         }
     }
+
+    // ====================================================================
+    // K. Grouped normalization (Qwen 4 hyper-connection norms)
+    // ====================================================================
+
+    namespace
+    {
+        constexpr int64_t kGroupSize = 8;
+        constexpr int64_t kGroupedWidth = 4 * kGroupSize;
+
+        // Qwen4ExpTextRMSNorm( 32, group_size = 8, eps = 1e-6 ) from transformers 5.16.0, weight
+        // 0.03 * j - 0.4, over the two rows x[ i ] = sin( 0.37 * i + 0.1 ). RmsNorm.Cpu.cpp holds the same table.
+        constexpr float kQwen4GroupedReference[ 2 * kGroupedWidth ] = {
+            8.23330432e-02f, 3.92172098e-01f, 6.75521374e-01f, 8.87347519e-01f, 9.89603162e-01f, 9.57646251e-01f,
+            7.85036683e-01f, 4.85865235e-01f, 9.46148112e-02f, -3.41978520e-01f, -7.61033535e-01f, -1.10080373e+00f,
+            -1.30706310e+00f, -1.34156132e+00f, -1.18859851e+00f, -8.58643770e-01f, -3.91610205e-01f, 1.64938375e-01f,
+            7.29231596e-01f, 1.22169447e+00f, 1.56883752e+00f, 1.71412814e+00f, 1.62693512e+00f, 1.30815840e+00f,
+            7.99965680e-01f, 1.42059937e-01f, -5.65548599e-01f, -1.22585154e+00f, -1.74428618e+00f, -2.04223609e+00f,
+            -2.06881571e+00f, -1.80918705e+00f, -5.01046121e-01f, -2.27570221e-01f, 1.06604151e-01f, 4.57058966e-01f,
+            7.73016453e-01f, 1.00466418e+00f, 1.11085117e+00f, 1.06598425e+00f, 8.74208808e-01f, 5.31192720e-01f,
+            8.79936293e-02f, -3.98279727e-01f, -8.60470533e-01f, -1.23064530e+00f, -1.45001578e+00f, -1.47807181e+00f,
+            -1.31047750e+00f, -9.35767114e-01f, -4.08759743e-01f, 2.04095468e-01f, 8.20599198e-01f, 1.35382557e+00f,
+            1.72435915e+00f, 1.87202418e+00f, 1.77418149e+00f, 1.41456723e+00f, 8.41468096e-01f, 1.25720426e-01f,
+            -6.38640761e-01f, -1.34672403e+00f, -1.89717293e+00f, -2.20663142e+00f };
+    }
+
+    template<typename TPrecisionTag>
+    class RmsNormGroupedCudaTests : public RmsNormCudaTests<TPrecisionTag>
+    {
+    protected:
+        using Base = RmsNormCudaTests<TPrecisionTag>;
+
+        std::unique_ptr<typename Base::RmsNormType> builtGrouped( dim_t group_size, const shape_t& shape )
+        {
+            auto config = RmsNormConfig( shape_t{ kGroupedWidth } )
+                .withEpsilon( 1e-6f )
+                .withBias( false )
+                .withUnitOffset( 1.0f )
+                .withGroupSize( group_size );
+
+            auto norm = std::make_unique<typename Base::RmsNormType>( "rmsnorm", config, Device::Cuda( 0 ) );
+            norm->build( BuildContext( shape, RuntimeMode::Inference, false ) );
+
+            typename Base::HostFp32 host_weight( Device::Cpu(), shape_t{ kGroupedWidth } );
+
+            for ( int64_t j = 0; j < kGroupedWidth; ++j )
+            {
+                host_weight.data()[ j ] = 0.03f * static_cast<float>( j ) - 0.4f;
+            }
+
+            auto params = norm->getParameters();
+            copy( host_weight, *static_cast<typename Base::DeviceTensor*>( params[ 0 ] ), this->cuda_context_.get() );
+            this->cuda_context_->synchronize();
+
+            return norm;
+        }
+
+        typename Base::HostFp32 sineHost( const shape_t& shape )
+        {
+            typename Base::HostFp32 host( Device::Cpu(), shape );
+
+            for ( dim_t i = 0; i < host.size(); ++i )
+            {
+                host.data()[ i ] = std::sin( 0.37f * static_cast<float>( i ) + 0.1f );
+            }
+
+            return host;
+        }
+    };
+
+    TYPED_TEST_SUITE( RmsNormGroupedCudaTests, RmsNormPrecisions, PrecisionNames );
+
+    TYPED_TEST( RmsNormGroupedCudaTests, Grouped_MatchesQwen4Reference )
+    {
+        const shape_t shape{ 2, kGroupedWidth };
+        auto norm = this->builtGrouped( kGroupSize, shape );
+        auto device_input = this->toDevice( this->sineHost( shape ) );
+
+        auto& device_output = norm->forward( device_input );
+        norm->synchronize();
+        auto output = this->toFloat( device_output );
+
+        for ( dim_t i = 0; i < output.size(); ++i )
+        {
+            const float expected = kQwen4GroupedReference[ i ];
+            const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected );
+
+            EXPECT_NEAR( output.data()[ i ], expected, tolerance ) << "at index " << i;
+        }
+    }
+
+    TYPED_TEST( RmsNormGroupedCudaTests, Grouped_GroupSizeEqualToExtentIsBitIdenticalToUngrouped )
+    {
+        const shape_t shape{ 2, 3, kGroupedWidth };
+        auto ungrouped = this->builtGrouped( 0, shape );
+        auto whole = this->builtGrouped( kGroupedWidth, shape );
+        auto device_input = this->toDevice( this->sineHost( shape ) );
+
+        auto& device_expected = ungrouped->forward( device_input );
+        ungrouped->synchronize();
+        auto expected = this->toFloat( device_expected );
+
+        auto& device_actual = whole->forward( device_input );
+        whole->synchronize();
+        auto actual = this->toFloat( device_actual );
+
+        for ( dim_t i = 0; i < expected.size(); ++i )
+        {
+            EXPECT_EQ( actual.data()[ i ], expected.data()[ i ] ) << "at index " << i;
+        }
+    }
 }

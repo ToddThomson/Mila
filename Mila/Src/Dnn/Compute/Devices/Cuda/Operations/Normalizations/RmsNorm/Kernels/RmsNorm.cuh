@@ -79,6 +79,9 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
      * @param norm_dim Size of the normalized dimension
      * @param epsilon Numerical stability constant
      * @param weight_offset Added to each loaded weight before scaling (Gemma (1+w): 1.0; else 0.0)
+     * @param weight_groups Consecutive slices that share one weight span: slice s reads weight and bias
+     *                      from ( s % weight_groups ) * norm_dim. 1 for an ungrouped norm; a grouped norm
+     *                      passes each group as a slice and requires inner_size == 1.
      * @param stream CUDA stream for async execution
      */
     void cuda_rmsnorm_forward_fp32(
@@ -89,6 +92,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         int outer_size, int inner_size, int norm_dim,
         float epsilon,
         float weight_offset,
+        int weight_groups,
         cudaStream_t stream );
 
     /**
@@ -104,6 +108,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
      * @param outer_size Product of dims before normalization axis
      * @param inner_size Product of dims after normalization axis
      * @param norm_dim Size of the normalized dimension
+     * @param weight_groups As for the forward launcher
      * @param stream CUDA stream for async execution
      */
     void cuda_rmsnorm_backward_fp32(
@@ -114,6 +119,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* weight,
         const float* rstd,
         int outer_size, int inner_size, int norm_dim,
+        int weight_groups,
         cudaStream_t stream );
 
     /**
@@ -130,6 +136,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         int outer_size, int inner_size, int norm_dim,
         float epsilon,
         float weight_offset,
+        int weight_groups,
         cudaStream_t stream );
 
     /**
@@ -146,5 +153,6 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const __nv_bfloat16* weight,
         const __nv_bfloat16* rstd,
         int outer_size, int inner_size, int norm_dim,
+        int weight_groups,
         cudaStream_t stream );
 }

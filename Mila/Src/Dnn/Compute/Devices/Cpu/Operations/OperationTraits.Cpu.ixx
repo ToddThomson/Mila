@@ -21,6 +21,7 @@
  *   RouterOp              complete (the reference the CUDA selection is gated against)
  *   RmsNormOp             complete (makes Router<Cpu> reachable; Gemma4MoE.md Phase 5)
  *   MoeOp                 complete (registers op_for, not type; the gate is a functor)
+ *   CausalConv1dOp        complete (the reference for the CUDA kernels' dilation; Qwen4.md Phase 1)
  *   CrossEntropyOp        pending (CpuSoftmaxCrossEntropyOp not yet wired into CMake)
  *
  * Not registered at all, by decision rather than oversight: the remaining Llama-lineage
@@ -44,6 +45,7 @@ import Compute.CpuSamplingOp;
 import Compute.CpuRouterOp;
 import Compute.CpuRmsNormOp;
 import Compute.CpuMoeOp;
+import Compute.CpuCausalConv1dOp;
 import Dnn.Quantization.Weight.Policies;
 
 namespace Mila::Dnn::Compute
@@ -183,6 +185,16 @@ namespace Mila::Dnn::Compute
         template<typename TFunctor, typename TWeightQuantization = NoWeightQuant>
             requires ( !TWeightQuantization::kIsQuantized )
         using op_for = CpuMoeOp<TFunctor>;
+    };
+
+    // -------------------------------------------------------------------------
+    // CausalConv1dOp -- CPU specialization (FP32 only)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::CausalConv1dOp, DeviceType::Cpu, TensorDataType::FP32, void>
+    {
+        using type = CpuCausalConv1dOp;
     };
 
 }  // namespace Mila::Dnn::Compute

@@ -24,7 +24,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* __restrict__ weight,
         const float* __restrict__ bias,
         int num_slices, int norm_dim, int inner_size, float epsilon,
-        float weight_offset )
+        float weight_offset, int weight_groups )
     {
         int lane_id = threadIdx.x % WARP_SIZE;
         int warp_id = threadIdx.x / WARP_SIZE;
@@ -42,6 +42,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
 
         const float* x = inp + static_cast<size_t>(outer_idx) * static_cast<size_t>(norm_dim) * static_cast<size_t>(inner_size) + inner_idx;
         float* o = out + static_cast<size_t>(outer_idx) * static_cast<size_t>(norm_dim) * static_cast<size_t>(inner_size) + inner_idx;
+        const int weight_base = (outer_idx % weight_groups) * norm_dim;
 
         // Compute mean of squares: m2 = sum_i x_i^2
         float m2 = 0.0f;
@@ -76,8 +77,8 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         {
             size_t offset = static_cast<size_t>( i ) * static_cast<size_t>( inner_size );
             float xv = x[ offset ];
-            float w = weight ? (weight[ i ] + weight_offset) : 1.0f;
-            float b = bias ? bias[ i ] : 0.0f;
+            float w = weight ? (weight[ weight_base + i ] + weight_offset) : 1.0f;
+            float b = bias ? bias[ weight_base + i ] : 0.0f;
             float xhat = xv * rstd_val;
             float res = xhat * w + b;
 
@@ -96,7 +97,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* __restrict__ inp,
         const float* __restrict__ weight,
         const float* __restrict__ rstd,
-        int num_slices, int norm_dim, int inner_size )
+        int num_slices, int norm_dim, int inner_size, int weight_groups )
     {
         int lane_id = threadIdx.x % WARP_SIZE;
         int warp_id = threadIdx.x / WARP_SIZE;
@@ -114,6 +115,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* x = inp + static_cast<size_t>(outer_idx) * static_cast<size_t>(norm_dim) * static_cast<size_t>(inner_size) + inner_idx;
         const float* dy = dout + static_cast<size_t>(outer_idx) * static_cast<size_t>(norm_dim) * static_cast<size_t>(inner_size) + inner_idx;
         float* dx = dinp + static_cast<size_t>(outer_idx) * static_cast<size_t>(norm_dim) * static_cast<size_t>(inner_size) + inner_idx;
+        const int weight_base = (outer_idx % weight_groups) * norm_dim;
 
         float rstd_val = rstd[ idx ];
         float inv_n = 1.0f / static_cast<float>(norm_dim);
@@ -127,7 +129,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             size_t offset = static_cast<size_t>( i ) * static_cast<size_t>( inner_size );
             float x_val = x[ offset ];
             float dy_val = dy[ offset ];
-            float w_val = weight ? weight[ i ] : 1.0f;
+            float w_val = weight ? weight[ weight_base + i ] : 1.0f;
 
             float g = dy_val * w_val;
             sum_gx += g * x_val;
@@ -136,12 +138,12 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             if ( dweight )
             {
                 float xhat = x_val * rstd_val;
-                atomicAdd( &dweight[ i ], dy_val * xhat );
+                atomicAdd( &dweight[ weight_base + i ], dy_val * xhat );
             }
 
             if ( dbias )
             {
-                atomicAdd( &dbias[ i ], dy_val );
+                atomicAdd( &dbias[ weight_base + i ], dy_val );
             }
         }
 
@@ -163,7 +165,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             size_t offset = static_cast<size_t>( i ) * static_cast<size_t>( inner_size );
             float x_val = x[ offset ];
             float dy_val = dy[ offset ];
-            float w_val = weight ? weight[ i ] : 1.0f;
+            float w_val = weight ? weight[ weight_base + i ] : 1.0f;
 
             float g = dy_val * w_val;
             float out_dx = rstd_val * g - x_val * correction;
@@ -182,6 +184,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         int outer_size, int inner_size, int norm_dim,
         float epsilon,
         float weight_offset,
+        int weight_groups,
         cudaStream_t stream )
     {
         const int block_size = 512;
@@ -190,7 +193,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const int grid_size = (num_slices + warps_per_block - 1) / warps_per_block;
 
         rmsnorm_forward_fp32_kernel << <grid_size, block_size, 0, stream >> > (
-            Y, rstd, X, weight, bias, num_slices, norm_dim, inner_size, epsilon, weight_offset);
+            Y, rstd, X, weight, bias, num_slices, norm_dim, inner_size, epsilon, weight_offset, weight_groups);
 
         cudaCheck( cudaGetLastError() );
     }
@@ -200,6 +203,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* dY, const float* X, const float* weight,
         const float* rstd,
         int outer_size, int inner_size, int norm_dim,
+        int weight_groups,
         cudaStream_t stream )
     {
         const int block_size = 512;
@@ -209,7 +213,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
 
         // Note: dweight and dbias must be zeroed by caller before this call
         rmsnorm_backward_fp32_kernel << <grid_size, block_size, 0, stream >> > (
-            dX, dweight, dbias, dY, X, weight, rstd, num_slices, norm_dim, inner_size);
+            dX, dweight, dbias, dY, X, weight, rstd, num_slices, norm_dim, inner_size, weight_groups);
 
         cudaCheck( cudaGetLastError() );
     }

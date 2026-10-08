@@ -434,6 +434,7 @@ PUBLIC
         "Src/Dnn/Components/Transformers/Qwen/Qwen.Config.ixx"
         "Src/Dnn/Components/Transformers/Qwen/Qwen.AttentionBlock.ixx"
         "Src/Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.ixx"
+        "Src/Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.Workspace.ixx"
         "Src/Dnn/Components/Transformers/Qwen/Qwen.ixx"
 
         "Src/Data/Tokenizers/Tokenizer.ixx"
@@ -600,6 +601,7 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuRouterOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuRmsNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuMoeOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuCausalConv1dOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx"
 

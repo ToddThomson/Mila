@@ -23,6 +23,7 @@
 #include <vector>
 #include <string>
 #include <stdexcept>
+#include <algorithm>
 
 #include "Common/GradientCheck.h"
 
@@ -245,6 +246,158 @@ namespace Mila::Tests::Dnn::Components::Normalization::RmsNorm
         setKnownParameters( *norm, true );
 
         expectMatchesReference( *norm, shape_t{ 2, 1, kChannels }, true, 0.0f );
+    }
+
+    // ====================================================================
+    // E2. Grouped normalization (Qwen 4 hyper-connection norms)
+    // ====================================================================
+
+    namespace
+    {
+        constexpr int64_t kStreams = 4;
+        constexpr int64_t kGroupSize = 8;
+        constexpr int64_t kGroupedWidth = kStreams * kGroupSize;
+
+        // Qwen4ExpTextRMSNorm( 32, group_size = 8, eps = 1e-6 ) from transformers 5.16.0, weight
+        // 0.03 * j - 0.4, over the two rows x[ i ] = sin( 0.37 * i + 0.1 ).
+        constexpr float kQwen4GroupedReference[ 2 * kGroupedWidth ] = {
+            8.23330432e-02f, 3.92172098e-01f, 6.75521374e-01f, 8.87347519e-01f, 9.89603162e-01f, 9.57646251e-01f,
+            7.85036683e-01f, 4.85865235e-01f, 9.46148112e-02f, -3.41978520e-01f, -7.61033535e-01f, -1.10080373e+00f,
+            -1.30706310e+00f, -1.34156132e+00f, -1.18859851e+00f, -8.58643770e-01f, -3.91610205e-01f, 1.64938375e-01f,
+            7.29231596e-01f, 1.22169447e+00f, 1.56883752e+00f, 1.71412814e+00f, 1.62693512e+00f, 1.30815840e+00f,
+            7.99965680e-01f, 1.42059937e-01f, -5.65548599e-01f, -1.22585154e+00f, -1.74428618e+00f, -2.04223609e+00f,
+            -2.06881571e+00f, -1.80918705e+00f, -5.01046121e-01f, -2.27570221e-01f, 1.06604151e-01f, 4.57058966e-01f,
+            7.73016453e-01f, 1.00466418e+00f, 1.11085117e+00f, 1.06598425e+00f, 8.74208808e-01f, 5.31192720e-01f,
+            8.79936293e-02f, -3.98279727e-01f, -8.60470533e-01f, -1.23064530e+00f, -1.45001578e+00f, -1.47807181e+00f,
+            -1.31047750e+00f, -9.35767114e-01f, -4.08759743e-01f, 2.04095468e-01f, 8.20599198e-01f, 1.35382557e+00f,
+            1.72435915e+00f, 1.87202418e+00f, 1.77418149e+00f, 1.41456723e+00f, 8.41468096e-01f, 1.25720426e-01f,
+            -6.38640761e-01f, -1.34672403e+00f, -1.89717293e+00f, -2.20663142e+00f };
+
+        RmsNormConfig groupedConfig( dim_t group_size )
+        {
+            return RmsNormConfig( shape_t{ kGroupedWidth } )
+                .withEpsilon( 1e-6f )
+                .withBias( false )
+                .withUnitOffset( 1.0f )
+                .withGroupSize( group_size );
+        }
+
+        std::unique_ptr<RmsNormCpu> builtGroupedRmsNorm( dim_t group_size, const shape_t& shape, RuntimeMode mode )
+        {
+            auto norm = std::make_unique<RmsNormCpu>( "rmsnorm", groupedConfig( group_size ), Device::Cpu() );
+            norm->build( BuildContext( shape, mode, false ) );
+
+            float* weight = static_cast<float*>( norm->getParameters()[ 0 ]->rawData() );
+
+            for ( int64_t j = 0; j < kGroupedWidth; ++j )
+            {
+                weight[ j ] = 0.03f * static_cast<float>( j ) - 0.4f;
+            }
+
+            return norm;
+        }
+
+        void fillSine( TensorFp32& t )
+        {
+            for ( dim_t i = 0; i < t.size(); ++i )
+            {
+                t.data()[ i ] = std::sin( 0.37f * static_cast<float>( i ) + 0.1f );
+            }
+        }
+    }
+
+    TEST_F( RmsNormCpuTests, Grouped_GroupSizeEqualToExtentIsBitIdenticalToUngrouped )
+    {
+        const shape_t shape{ 2, 3, kGroupedWidth };
+        auto ungrouped = builtGroupedRmsNorm( 0, shape, RuntimeMode::Inference );
+        auto whole = builtGroupedRmsNorm( kGroupedWidth, shape, RuntimeMode::Inference );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        fillSine( input );
+
+        const auto& expected = ungrouped->forward( input );
+        const auto& actual = whole->forward( input );
+
+        for ( dim_t i = 0; i < expected.size(); ++i )
+        {
+            EXPECT_EQ( actual.data()[ i ], expected.data()[ i ] ) << "at index " << i;
+        }
+    }
+
+    TEST_F( RmsNormCpuTests, Grouped_MatchesQwen4Reference )
+    {
+        const shape_t shape{ 2, kGroupedWidth };
+        auto norm = builtGroupedRmsNorm( kGroupSize, shape, RuntimeMode::Inference );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        fillSine( input );
+
+        const auto& output = norm->forward( input );
+
+        for ( dim_t i = 0; i < output.size(); ++i )
+        {
+            EXPECT_NEAR( output.data()[ i ], kQwen4GroupedReference[ i ], 2e-6f ) << "at index " << i;
+        }
+    }
+
+    // A positive control for the reference test: the same input normalized as one group must not match it.
+    TEST_F( RmsNormCpuTests, Grouped_DiffersFromOneGroupOverTheSameExtent )
+    {
+        const shape_t shape{ 2, kGroupedWidth };
+        auto norm = builtGroupedRmsNorm( 0, shape, RuntimeMode::Inference );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        fillSine( input );
+
+        const auto& output = norm->forward( input );
+
+        float largest = 0.0f;
+
+        for ( dim_t i = 0; i < output.size(); ++i )
+        {
+            largest = std::max( largest, std::fabs( output.data()[ i ] - kQwen4GroupedReference[ i ] ) );
+        }
+
+        EXPECT_GT( largest, 0.1f );
+    }
+
+    TEST_F( RmsNormCpuTests, Grouped_BackwardMatchesNumericGradient )
+    {
+        const shape_t shape{ 2, kGroupedWidth };
+        auto norm = builtGroupedRmsNorm( kGroupSize, shape, RuntimeMode::Training );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        TensorFp32 output_grad( Device::Cpu(), shape );
+        fillSine( input );
+
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
+        {
+            output_grad.data()[ i ] = 0.1f * static_cast<float>( ( i % 7 ) + 1 );
+        }
+
+        norm->forward( input );
+        auto& input_grad = norm->backward( input, output_grad );
+
+        std::vector<float> analytic_dx( input_grad.data(), input_grad.data() + input_grad.size() );
+
+        float* weight = static_cast<float*>( norm->getParameters()[ 0 ]->rawData() );
+        const float* weight_grad = static_cast<const float*>( norm->getGradients()[ 0 ]->rawData() );
+        std::vector<float> analytic_dw( weight_grad, weight_grad + kGroupedWidth );
+
+        auto evaluate = [&]() -> const float* { return norm->forward( input ).data(); };
+
+        const auto numeric_dx = Mila::Tests::Common::centralDifferenceGradient(
+            input.data(), input.size(), output_grad.data(), output_grad.size(), evaluate, 1e-2f );
+        Mila::Tests::Common::expectGradientsClose( analytic_dx.data(), numeric_dx, 1e-2f, 1e-2f, "grouped RmsNorm dX" );
+
+        const auto numeric_dw = Mila::Tests::Common::centralDifferenceGradient(
+            weight, kGroupedWidth, output_grad.data(), output_grad.size(), evaluate, 1e-2f );
+        Mila::Tests::Common::expectGradientsClose( analytic_dw.data(), numeric_dw, 1e-2f, 1e-2f, "grouped RmsNorm dW" );
+    }
+
+    TEST_F( RmsNormCpuTests, Grouped_GroupSizeThatDoesNotDivideTheExtentIsRefused )
+    {
+        EXPECT_THROW( RmsNormCpu( "rmsnorm", groupedConfig( 5 ), Device::Cpu() ), std::invalid_argument );
     }
 
     // ====================================================================

@@ -14,6 +14,9 @@
  *
  * The overloads are unambiguous -- shape_t and int64_t cannot collide.
  *
+ * A group size splits the normalized extent into equal groups, each normalized on its own,
+ * while the weight still spans the whole extent (Qwen 4's hyper-connection norms).
+ *
  * Typical usage:
  * @code
  * // Shape mode (most common for transformers)
@@ -118,6 +121,21 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        /**
+         * @brief Normalize each run of @p group_size elements of the normalized extent on its own.
+         *
+         * The weight and bias still span the whole extent: element i of group g is scaled by
+         * weight[ g * group_size + i ]. Default 0, no grouping. A group size equal to the extent
+         * is the ungrouped norm. Qwen 4 normalizes its n-stream hyper-connection state, n * H
+         * wide, in groups of H.
+         */
+        template <typename Self>
+        decltype(auto) withGroupSize( this Self&& self, dim_t group_size )
+        {
+            self.group_size_ = group_size;
+            return std::forward<Self>( self );
+        }
+
         // ====================================================================
         // Accessors
         // ====================================================================
@@ -152,6 +170,12 @@ namespace Mila::Dnn
             return unit_offset_;
         }
 
+        /// The group size, or 0 when the whole normalized extent is one group.
+        dim_t getGroupSize() const noexcept
+        {
+            return group_size_;
+        }
+
         // ====================================================================
         // Validation
         // ====================================================================
@@ -184,6 +208,29 @@ namespace Mila::Dnn
                     }
                 }
             }
+
+            if ( group_size_ < 0 )
+            {
+                throw std::invalid_argument( "RmsNormConfig: group_size must be >= 0" );
+            }
+
+            // Axis mode learns its extent at build; the operation checks divisibility there.
+            if ( group_size_ > 0 && has_shape )
+            {
+                dim_t extent = 1;
+
+                for ( size_t i = 0; i < normalized_shape_.size(); ++i )
+                {
+                    extent *= normalized_shape_[ i ];
+                }
+
+                if ( extent % group_size_ != 0 )
+                {
+                    throw std::invalid_argument(
+                        "RmsNormConfig: group_size " + std::to_string( group_size_ )
+                        + " does not divide the normalized extent " + std::to_string( extent ) );
+                }
+            }
         }
 
         // ====================================================================
@@ -197,6 +244,11 @@ namespace Mila::Dnn
             meta.set( "has_bias", has_bias_ )
                 .set( "epsilon", epsilon_ )
                 .set( "unit_offset", unit_offset_ );
+
+            if ( group_size_ > 0 )
+            {
+                meta.set( "group_size", static_cast<int64_t>( group_size_ ) );
+            }
 
             if ( !normalized_shape_.empty() )
             {
@@ -251,6 +303,11 @@ namespace Mila::Dnn
             {
                 unit_offset_ = *v;
             }
+
+            if ( auto v = meta.tryGetInt( "group_size" ) )
+            {
+                group_size_ = static_cast<dim_t>( *v );
+            }
         }
 
         std::string toString() const override
@@ -279,6 +336,11 @@ namespace Mila::Dnn
             oss << ", has_bias=" << (has_bias_ ? "true" : "false");
             oss << ", epsilon=" << epsilon_;
             oss << ", unit_offset=" << unit_offset_;
+
+            if ( group_size_ > 0 )
+            {
+                oss << ", group_size=" << group_size_;
+            }
             oss << " )";
 
             return oss.str();
@@ -291,5 +353,6 @@ namespace Mila::Dnn
         bool                 has_bias_{ true };
         float                epsilon_{ 1e-5f };
         float                unit_offset_{ 0.0f };
+        dim_t                group_size_{ 0 };
     };
 }

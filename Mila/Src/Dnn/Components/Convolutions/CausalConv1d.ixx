@@ -4,14 +4,15 @@
  *
  * One length-K filter per channel, no cross-channel mixing:
  *
- *   out[b, t, c] = bias[c] + sum(i = 0 .. K-1) weight[c, i] * x[b, t - (K-1) + i, c]
+ *   out[b, t, c] = bias[c] + sum(i = 0 .. K-1) weight[c, i] * x[b, t - (K-1-i) * D, c]
  *
+ * for dilation D, 1 unless configured.
  * The first component in the tree that carries a convolution, and the first whose memory
  * is a rolling window rather than a growing cache. Qwen 3.8's Gated DeltaNet layers run it
  * over the 10240-wide fused q/k/v stream with K = 4 (`linear_conv_kernel_dim`).
  *
  * PREFILL AND DECODE, like the attention components -- and for the same reason. A causal
- * convolution needs the K-1 positions to its left, which during decode are in the past
+ * convolution needs the (K-1) * D positions to its left, which during decode are in the past
  * rather than in the input. `prefill` convolves a chunk; `decode` convolves one token
  * against the retained rows. Both refresh the state afterwards, so chunked prefill
  * composes: chunk N+1 sees chunk N's tail exactly as if the sequence had arrived whole.
@@ -119,7 +120,7 @@ namespace Mila::Dnn
          * @brief Convolve one token against the retained rows.
          *
          * @p position is unused: unlike RoPE the convolution has no absolute notion of
-         * where it is, only of the K-1 rows behind it. It is in the signature so the call
+         * where it is, only of the retained rows behind it. It is in the signature so the call
          * site reads like every other decode step, and so a caller cannot pass the two
          * paths different notions of position.
          */
@@ -144,13 +145,13 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Where a snapshot of the retained rows lives: host memory, FP32, [B, K-1, C].
+         * @brief Where a snapshot of the retained rows lives: host memory, FP32, [B, (K-1) * D, C].
          *
          * FP32 REGARDLESS OF TPrecision, and still exact. BF16 is not a CPU storage type
          * here, so a same-type host snapshot is not expressible; widening to FP32 is lossless
          * because BF16 is a truncated FP32, and narrowing back returns the identical value
          * because it is one the format holds. The cost is twice the bytes on a window of
-         * `kernel_width - 1` rows, which is the small half of anything that carries one.
+         * `(kernel_width - 1) * dilation` rows, which is the small half of anything that carries one.
          */
         using StateSnapshot = Tensor<TensorDataType::FP32, CpuMemoryResource>;
 
@@ -298,6 +299,7 @@ namespace Mila::Dnn
                 .set( "name", this->getName() )
                 .set( "channels", static_cast<int64_t>( config_.getChannels() ) )
                 .set( "kernel_width", static_cast<int64_t>( config_.getKernelWidth() ) )
+                .set( "dilation", static_cast<int64_t>( config_.getDilation() ) )
                 .set( "has_bias", config_.hasBias() );
 
             archive.writeMetadata( "meta.json", meta );
@@ -408,7 +410,7 @@ namespace Mila::Dnn
                 }
             }
 
-            // The rolling window: batch * (K-1) * channels, independent of context length.
+            // The rolling window: batch * (K-1) * D * channels, independent of context length.
             // That independence is the whole point of the recurrence it serves.
             if ( !state_ )
             {
@@ -432,6 +434,7 @@ namespace Mila::Dnn
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Channels: " << config_.getChannels() << std::endl;
             oss << "Kernel width: " << config_.getKernelWidth()
+                << ", dilation " << config_.getDilation()
                 << " (retains " << config_.getStateRows() << " rows)" << std::endl;
             oss << "Has Bias: " << (config_.hasBias() ? "Yes" : "No") << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
@@ -530,7 +533,7 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };
 
-        // The rolling window of the last K-1 input rows, [B, K-1, C].
+        // The rolling window of the last (K-1) * D input rows, [B, (K-1) * D, C].
         std::shared_ptr<TensorType> state_{ nullptr };
         bool state_primed_{ false };
         dim_t batch_{ 0 };

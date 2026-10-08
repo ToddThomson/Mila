@@ -14,6 +14,7 @@ module;
 #include <istream>
 #include <fstream>
 #include <sstream>
+#include <format>
 
 export module Data.TokenizerTrainer;
 

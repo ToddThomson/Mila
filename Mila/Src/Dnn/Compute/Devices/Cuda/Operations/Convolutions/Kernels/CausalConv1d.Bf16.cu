@@ -14,7 +14,7 @@
 
 namespace Mila::Dnn::Compute::Cuda::Convolution
 {
-    constexpr int kMaxStateRowsBf16 = 7;
+    constexpr int kMaxStateRowsBf16 = 16;
 
     __global__ void causal_conv1d_forward_bf16_kernel(
         __nv_bfloat16* __restrict__       out,
@@ -22,7 +22,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
         const __nv_bfloat16* __restrict__ state,
         const __nv_bfloat16* __restrict__ weight,
         const __nv_bfloat16* __restrict__ bias,
-        int B, int T, int C, int K )
+        int B, int T, int C, int K, int D )
     {
         const int idx = blockIdx.x * blockDim.x + threadIdx.x;
         const int total = B * T * C;
@@ -33,13 +33,13 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
         const int c = idx % C;
         const int t = (idx / C) % T;
         const int b = idx / (C * T);
-        const int state_rows = K - 1;
+        const int state_rows = (K - 1) * D;
 
         float accumulator = bias ? __bfloat162float( bias[ c ] ) : 0.0f;
 
         for ( int i = 0; i < K; ++i )
         {
-            const int source_t = t - state_rows + i;
+            const int source_t = t - state_rows + i * D;
             float value = 0.0f;
 
             if ( source_t >= 0 )
@@ -61,7 +61,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
     __global__ void causal_conv1d_update_state_bf16_kernel(
         __nv_bfloat16* __restrict__       state,
         const __nv_bfloat16* __restrict__ x,
-        int B, int T, int C, int K )
+        int B, int T, int C, int K, int D )
     {
         const int idx = blockIdx.x * blockDim.x + threadIdx.x;
         const int total = B * C;
@@ -71,7 +71,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
 
         const int c = idx % C;
         const int b = idx / C;
-        const int state_rows = K - 1;
+        const int state_rows = (K - 1) * D;
 
         __nv_bfloat16 staged[ kMaxStateRowsBf16 ];
 
@@ -99,7 +99,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
         const __nv_bfloat16* state,
         const __nv_bfloat16* weight,
         const __nv_bfloat16* bias,
-        int B, int T, int C, int K,
+        int B, int T, int C, int K, int D,
         cudaStream_t stream )
     {
         constexpr int block_size = 256;
@@ -107,7 +107,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
         const int grid_size = ceil_div( total, block_size );
 
         causal_conv1d_forward_bf16_kernel << <grid_size, block_size, 0, stream >> > (
-            out, x, state, weight, bias, B, T, C, K );
+            out, x, state, weight, bias, B, T, C, K, D );
 
         cudaCheck( cudaGetLastError() );
     }
@@ -115,7 +115,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
     void cuda_causal_conv1d_update_state_bf16(
         __nv_bfloat16* state,
         const __nv_bfloat16* x,
-        int B, int T, int C, int K,
+        int B, int T, int C, int K, int D,
         cudaStream_t stream )
     {
         constexpr int block_size = 256;
@@ -123,7 +123,7 @@ namespace Mila::Dnn::Compute::Cuda::Convolution
         const int grid_size = ceil_div( total, block_size );
 
         causal_conv1d_update_state_bf16_kernel << <grid_size, block_size, 0, stream >> > (
-            state, x, B, T, C, K );
+            state, x, B, T, C, K, D );
 
         cudaCheck( cudaGetLastError() );
     }

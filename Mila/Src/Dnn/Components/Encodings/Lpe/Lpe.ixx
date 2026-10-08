@@ -19,6 +19,7 @@ module;
 #include <cmath>
 #include <numeric>
 #include <algorithm>
+#include <format>
 
 export module Dnn.Components.Lpe;
 export import Dnn.Components.LpeConfig;

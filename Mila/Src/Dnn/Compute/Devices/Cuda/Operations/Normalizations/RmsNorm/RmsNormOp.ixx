@@ -247,7 +247,23 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             }
 
             const int64_t dim = static_cast<int64_t>( shape[ axis ] );
-            const int64_t num_slices = outer * inner;
+            const int64_t group_size = config_.getGroupSize() > 0 ? static_cast<int64_t>( config_.getGroupSize() ) : dim;
+
+            if ( dim % group_size != 0 )
+            {
+                throw std::invalid_argument( "CudaRmsNormOp::build - group size does not divide the normalized extent" );
+            }
+
+            groups_ = static_cast<int>( dim / group_size );
+
+            // The kernels launch each group as a slice and find its weight span from the slice index,
+            // which holds only while slices are contiguous rows.
+            if ( groups_ > 1 && inner != 1 )
+            {
+                throw std::invalid_argument( "CudaRmsNormOp::build - a grouped norm must normalize the innermost axis" );
+            }
+
+            const int64_t num_slices = outer * groups_ * inner;
 
             outer_size_ = static_cast<int>( outer );
             inner_size_ = static_cast<int>( inner );
@@ -295,7 +311,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 inner *= static_cast<int64_t>( input_shape[ i ] );
             }
 
-            if ( outer * inner > static_cast<int64_t>( rstd_tensor_->size() ) )
+            if ( outer * groups_ * inner > static_cast<int64_t>( rstd_tensor_->size() ) )
             {
                 throw std::runtime_error( "CudaRmsNormOp::forward - runtime slice count exceeds the built maximum" );
             }
@@ -309,8 +325,8 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 Y, X,
                 weight_, bias_,
                 rstd_,
-                static_cast<int>( outer ), static_cast<int>( inner ), norm_dim_,
-                config_.getEpsilon(), config_.getUnitOffset(),
+                static_cast<int>( outer * groups_ ), static_cast<int>( inner ), norm_dim_ / groups_,
+                config_.getEpsilon(), config_.getUnitOffset(), groups_,
                 stream );
         }
 
@@ -335,7 +351,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 dX, weight_grad_, bias_grad_,
                 dY, X, weight_,
                 rstd_,
-                outer_size_, inner_size_, norm_dim_,
+                outer_size_ * groups_, inner_size_, norm_dim_ / groups_, groups_,
                 stream );
         }
 
@@ -371,6 +387,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         int outer_size_{ 0 };
         int inner_size_{ 0 };
         int norm_dim_{ 0 };
+        int groups_{ 1 };
     };
 
 }
