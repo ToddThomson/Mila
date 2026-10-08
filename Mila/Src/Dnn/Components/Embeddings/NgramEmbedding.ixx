@@ -39,6 +39,9 @@ import Compute.ExecutionContextFactory;
 import Compute.OperationTraits;
 import Compute.CpuMemoryResource;
 import Compute.Observation;
+import Serialization.ModelArchive;
+import Serialization.Metadata;
+import Serialization.Mode;
 import Serialization.Tensor;
 import Serialization.SafeTensors;
 
@@ -169,6 +172,21 @@ namespace Mila::Dnn
             if ( table_ )
             {
                 this->saveParameterToWriter( writer, prefix + ".weight", *table_, pass );
+            }
+        }
+
+        void save_( ModelArchive& archive, SerializationMode /*mode*/ ) const override
+        {
+            SerializationMetadata meta;
+            meta.set( "type", "NgramEmbedding" )
+                .set( "version", int64_t( 1 ) )
+                .set( "name", this->getName() );
+
+            archive.writeMetadata( "meta.json", meta );
+
+            if ( table_ )
+            {
+                this->saveParameterToArchive( archive, "weight", *table_ );
             }
         }
 

@@ -71,15 +71,7 @@ namespace Mila::Tests::Dnn::Components::Connections
         template<typename TBlob>
         TensorFp32 tensorFrom( const TBlob& blob )
         {
-            const auto& stored = blob.getMetadata().shape;
-            shape_t shape;
-
-            for ( const auto extent : stored )
-            {
-                shape.push_back( static_cast<dim_t>( extent ) );
-            }
-
-            TensorFp32 tensor( Device::Cpu(), shape );
+            TensorFp32 tensor( Device::Cpu(), blob.getMetadata().shape );
             std::memcpy( tensor.data(), blob.data(), blob.sizeBytes() );
 
             return tensor;
