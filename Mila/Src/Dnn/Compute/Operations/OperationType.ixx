@@ -45,6 +45,8 @@ namespace Mila::Dnn::Compute
 		CausalConv1dOp,				///< Depthwise causal 1-D convolution over the sequence axis
 		GatedDeltaRuleOp,			///< Gated delta rule -- the linear-attention (DeltaNet) mixer
 		ResidualOp,					///< Residual connection operation
+		GatedResidualOp,			///< Hyper-connection residual: n streams read through a learned mix, written back gated
+		NgramEmbeddingOp,			///< Hashed n-gram embedding: token n-grams hashed to table rows, then gathered
 		SoftmaxOp,					///< Softmax activation function
 		DropoutOp,					///< Dropout regularization operation
 		SamplingOp,					///< Device-side token sampling from logits
@@ -75,6 +77,8 @@ namespace Mila::Dnn::Compute
 		constexpr std::string_view CausalConv1d        = "CausalConv1dOp";
 		constexpr std::string_view GatedDeltaRule       = "GatedDeltaRuleOp";
 		constexpr std::string_view Residual             = "ResidualOp";
+		constexpr std::string_view GatedResidual        = "GatedResidualOp";
+		constexpr std::string_view NgramEmbedding       = "NgramEmbeddingOp";
 		constexpr std::string_view Softmax              = "SoftmaxOp";
 		constexpr std::string_view Dropout              = "DropoutOp";
 		constexpr std::string_view Sampling             = "SamplingOp";
@@ -106,6 +110,8 @@ namespace Mila::Dnn::Compute
 			case OperationType::CausalConv1dOp:         return OperationNames::CausalConv1d;
 			case OperationType::GatedDeltaRuleOp:        return OperationNames::GatedDeltaRule;
 			case OperationType::ResidualOp:              return OperationNames::Residual;
+			case OperationType::GatedResidualOp:         return OperationNames::GatedResidual;
+			case OperationType::NgramEmbeddingOp:        return OperationNames::NgramEmbedding;
 			case OperationType::SoftmaxOp:               return OperationNames::Softmax;
 			case OperationType::DropoutOp:               return OperationNames::Dropout;
 			case OperationType::SamplingOp:              return OperationNames::Sampling;

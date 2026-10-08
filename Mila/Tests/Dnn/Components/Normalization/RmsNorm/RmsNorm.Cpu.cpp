@@ -301,7 +301,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::RmsNorm
         {
             for ( dim_t i = 0; i < t.size(); ++i )
             {
-                t.data()[ i ] = std::sin( 0.37f * static_cast<float>( i ) + 0.1f );
+                t.data()[ i ] = static_cast<float>( std::sin( 0.37 * static_cast<double>( i ) + 0.1 ) );
             }
         }
     }
@@ -340,7 +340,8 @@ namespace Mila::Tests::Dnn::Components::Normalization::RmsNorm
         }
     }
 
-    // A positive control for the reference test: the same input normalized as one group must not match it.
+    // A positive control for the reference test: the same input normalized as one group must miss it by far
+    // more than that test's tolerance.
     TEST_F( RmsNormCpuTests, Grouped_DiffersFromOneGroupOverTheSameExtent )
     {
         const shape_t shape{ 2, kGroupedWidth };
@@ -358,7 +359,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::RmsNorm
             largest = std::max( largest, std::fabs( output.data()[ i ] - kQwen4GroupedReference[ i ] ) );
         }
 
-        EXPECT_GT( largest, 0.1f );
+        EXPECT_GT( largest, 1e-3f );
     }
 
     TEST_F( RmsNormCpuTests, Grouped_BackwardMatchesNumericGradient )

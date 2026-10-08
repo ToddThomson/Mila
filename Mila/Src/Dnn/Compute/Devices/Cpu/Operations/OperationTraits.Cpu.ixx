@@ -22,6 +22,8 @@
  *   RmsNormOp             complete (makes Router<Cpu> reachable; Gemma4MoE.md Phase 5)
  *   MoeOp                 complete (registers op_for, not type; the gate is a functor)
  *   CausalConv1dOp        complete (the reference for the CUDA kernels' dilation; Qwen4.md Phase 1)
+ *   GatedResidualOp       complete (Qwen 4's hyper-connection residual; Qwen4.md Phase 2)
+ *   NgramEmbeddingOp      complete (Qwen 4's hashed n-gram embedding; Qwen4.md Phase 2)
  *   CrossEntropyOp        pending (CpuSoftmaxCrossEntropyOp not yet wired into CMake)
  *
  * Not registered at all, by decision rather than oversight: the remaining Llama-lineage
@@ -46,6 +48,8 @@ import Compute.CpuRouterOp;
 import Compute.CpuRmsNormOp;
 import Compute.CpuMoeOp;
 import Compute.CpuCausalConv1dOp;
+import Compute.CpuGatedResidualOp;
+import Compute.CpuNgramEmbeddingOp;
 import Dnn.Quantization.Weight.Policies;
 
 namespace Mila::Dnn::Compute
@@ -195,6 +199,26 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::CausalConv1dOp, DeviceType::Cpu, TensorDataType::FP32, void>
     {
         using type = CpuCausalConv1dOp;
+    };
+
+    // -------------------------------------------------------------------------
+    // GatedResidualOp -- CPU specialization (FP32 only)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::GatedResidualOp, DeviceType::Cpu, TensorDataType::FP32, void>
+    {
+        using type = CpuGatedResidualOp;
+    };
+
+    // -------------------------------------------------------------------------
+    // NgramEmbeddingOp -- CPU specialization (FP32 only)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::NgramEmbeddingOp, DeviceType::Cpu, TensorDataType::FP32, void>
+    {
+        using type = CpuNgramEmbeddingOp;
     };
 
 }  // namespace Mila::Dnn::Compute

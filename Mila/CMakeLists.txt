@@ -220,6 +220,8 @@ PUBLIC
         "Src/Dnn/Components/Connections/ConnectionType.ixx"
         "Src/Dnn/Components/Connections/Residual.ixx"
         "Src/Dnn/Components/Connections/ResidualConfig.ixx"
+        "Src/Dnn/Components/Connections/GatedResidual.Config.ixx"
+        "Src/Dnn/Components/Connections/GatedResidual.ixx"
 
         # Components - Convolutions
         "Src/Dnn/Components/Convolutions/CausalConv1d.Config.ixx"
@@ -238,6 +240,8 @@ PUBLIC
         # Components - Embeddings
         "Src/Dnn/Components/Embeddings/TokenEmbedding.ixx"
         "Src/Dnn/Components/Embeddings/TokenEmbedding.Config.ixx"
+        "Src/Dnn/Components/Embeddings/NgramEmbedding.ixx"
+        "Src/Dnn/Components/Embeddings/NgramEmbedding.Config.ixx"
 
         # Components - Positional Encodings
         "Src/Dnn/Components/Encodings/Lpe/Lpe.ixx"
@@ -602,6 +606,8 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuRmsNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuMoeOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuCausalConv1dOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGatedResidualOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuNgramEmbeddingOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx"
 

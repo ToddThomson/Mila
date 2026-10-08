@@ -91,7 +91,7 @@ namespace Mila::Tests::Dnn::Components::Convolutions
 
             for ( dim_t i = 0; i < input.size(); ++i )
             {
-                input.data()[ i ] = std::sin( 0.37f * static_cast<float>( i ) + 0.1f );
+                input.data()[ i ] = static_cast<float>( std::sin( 0.37 * static_cast<double>( i ) + 0.1 ) );
             }
 
             return input;

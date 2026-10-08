@@ -46,6 +46,7 @@ namespace Mila::Dnn
         GatedDeltaRule,
         Residual,
         TokenEmbedding,
+        NgramEmbedding,
         Lpe,
         Rope,
         SoftmaxCrossEntropy,    ///< WIP: Fused softmax + cross-entropy loss -- targeted for Llama training
@@ -55,6 +56,7 @@ namespace Mila::Dnn
         GatedMlp,
         Router,
         MixtureOfExperts,
+        GatedResidual,
         Transformer,
 
         // Top-level networks
@@ -115,10 +117,14 @@ namespace Mila::Dnn
                 return "Router";
             case ComponentType::MixtureOfExperts:
                 return "MixtureOfExperts";
+            case ComponentType::GatedResidual:
+                return "GatedResidual";
             case ComponentType::Transformer:
                 return "Transformer";
             case ComponentType::TokenEmbedding :
                 return "TokenEmbedding";
+            case ComponentType::NgramEmbedding:
+                return "NgramEmbedding";
             case ComponentType::Lpe:
                 return "Lpe";
             case ComponentType::Rope:
@@ -181,10 +187,14 @@ namespace Mila::Dnn
             return ComponentType::Router;
         if ( low == "mixtureofexperts" )
             return ComponentType::MixtureOfExperts;
+        if ( low == "gatedresidual" )
+            return ComponentType::GatedResidual;
         if ( low == "transformer" )
             return ComponentType::Transformer;
         if ( low == "tokenembedding" )
             return ComponentType::TokenEmbedding;
+        if ( low == "ngramembedding" )
+            return ComponentType::NgramEmbedding;
         if ( low == "lpe" )
             return ComponentType::Lpe;
         if ( low == "rope" )
@@ -245,10 +255,14 @@ namespace Mila::Dnn
                 return "rtr";
             case ComponentType::MixtureOfExperts:
                 return "moe";
+            case ComponentType::GatedResidual:
+                return "gres";
             case ComponentType::Transformer:
                 return "tf";
             case ComponentType::TokenEmbedding:
                 return "temb";
+            case ComponentType::NgramEmbedding:
+                return "nemb";
             case ComponentType::Lpe:
                 return "lpe";
             case ComponentType::Rope:
@@ -309,6 +323,8 @@ namespace Mila::Dnn
             return ComponentType::Router;
         if ( s == "moe" )
             return ComponentType::MixtureOfExperts;
+        if ( s == "gres" )
+            return ComponentType::GatedResidual;
         if ( s == "tf" )
             return ComponentType::Transformer;
         if ( s == "lpe" )

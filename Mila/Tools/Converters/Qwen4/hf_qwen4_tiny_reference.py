@@ -26,6 +26,9 @@
 #   dense    the whole sequence with the indexer's budget lifted past the sequence length: dense causal
 #            attention over the same weights, the Phase 4 gate's reference (Qwen4.md 8.3).
 #
+# Beside the capture, each PLE layer's assembled n-gram table (`weights.layer<i>.ple.ngram_table`) and a text file
+# of its int64 hash constants, which no tensor dtype Mila's tests read can hold.
+#
 #   python hf_qwen4_tiny_reference.py --variant moe --output-dir ../../../../Data/models/qwen4/qwen4_tiny_moe
 #   python hf_qwen4_tiny_reference.py --variant dense --output-dir ../../../../Data/models/qwen4/qwen4_tiny_dense
 
@@ -330,6 +333,25 @@ def main():
 
     tensors = dict( capture.tensors )
     tensors[ 'tokens' ] = torch.tensor( ids, dtype=torch.int32 )
+
+    # Each PLE layer's assembled table, and its int64 hash constants as decimal text: Mila's tests read FP32 and
+    # INT32 tensors only, and a multiplier does not fit either.
+    constants = []
+
+    for index, layer in enumerate( model.model.layers ):
+        if layer.ple is None:
+            continue
+
+        ngram = layer.ple.ple_embedding
+        tensors[ f'weights.layer{index}.ple.ngram_table' ] = ngram.ngram_embedding.weight.detach().to( torch.float32 ).contiguous()
+
+        for key, buffer in ( ( 'multipliers', ngram.layer_multipliers ), ( 'head_vocab_sizes', ngram.ngram_heads_vocab_sizes ),
+                             ( 'head_offsets', ngram.ngram_heads_offsets ) ):
+            constants.append( f'layer{index}.{key}=' + ','.join( str( int( value ) ) for value in buffer.tolist() ) )
+
+        constants.append( f'layer{index}.table_rows={ngram.ngram_embedding.weight.shape[ 0 ]}' )
+
+    ( output / f'qwen4_tiny_{arguments.variant}_ngram_constants.txt' ).write_text( '\n'.join( constants ) + '\n' )
     tensors[ 'full.logits' ] = full_logits.to( torch.float32 ).contiguous()
     tensors[ 'dense.logits' ] = dense_logits.to( torch.float32 ).contiguous()
 

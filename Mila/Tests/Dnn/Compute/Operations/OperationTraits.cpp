@@ -61,6 +61,8 @@ namespace Mila::Tests::Dnn::Compute::Operations
     static_assert( !OperationSupported<OperationType::MoeOp, DeviceType::Cpu, TensorDataType::BF16, void> );
     static_assert( OperationSupported<OperationType::CausalConv1dOp, DeviceType::Cpu, TensorDataType::FP32, void> );
     static_assert( !OperationSupported<OperationType::CausalConv1dOp, DeviceType::Cpu, TensorDataType::BF16, void> );
+    static_assert( OperationSupported<OperationType::GatedResidualOp, DeviceType::Cpu, TensorDataType::FP32, void> );
+    static_assert( OperationSupported<OperationType::NgramEmbeddingOp, DeviceType::Cpu, TensorDataType::FP32, void> );
 
     // A functor-templated op registers `op_for` rather than `type`; OperationSupported
     // is documented to be satisfied by both, so this pins that half of the contract.

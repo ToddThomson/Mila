@@ -214,6 +214,7 @@ export import Dnn.Components.Swiglu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
 export import Dnn.Components.TokenEmbedding;
+export import Dnn.Components.NgramEmbedding;
 
 // Compute.OperationTraits is PUBLIC: component templates name it at instantiation (see the
 // Compute - Base note) -- consumers instantiating any component need it visible.
@@ -255,6 +256,7 @@ export import Dnn.Quantization.Weight.PrecisionPlan;
 export import Dnn.Components.Linear;
 
 export import Dnn.Components.Residual;
+export import Dnn.Components.GatedResidual;
 export import Dnn.Components.CausalConv1d;
 export import Dnn.Components.GatedDeltaRule;
 export import Dnn.Components.Softmax;
