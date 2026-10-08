@@ -59,5 +59,6 @@ build, not the upstream model.
 `Mila/Specifications/Qwen4.md` @ 539396e
 
 Compared Qwen3.8-Flash-Next, the Qwen 4 architecture preview, against the Qwen 3.8 chassis and wrote the
-spec. Its phase 0 (the tiny reference, grouped RmsNorm, dilated CausalConv1d, the DeltaNet gate activation,
-the n-gram hash) needs no 27B checkpoint.
+spec. Its section 9 phases 0 to 2 (the tiny reference, the converter skeleton, grouped RmsNorm, dilated
+CausalConv1d, the DeltaNet gate activation, and the gated residual, n-gram, PLE and QSA indexer components)
+need no 27B checkpoint.

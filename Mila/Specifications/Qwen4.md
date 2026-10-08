@@ -7,8 +7,9 @@ carry over, and what a Qwen 4 27B port has to build.
 (Todd, 2026-10-08). No Qwen 4 27B checkpoint exists yet. Everything here is read from the architecture's one
 open-weights release, `Qwen/Qwen3.8-Flash-Next`, which its model card calls "this experimental preview of the
 architecture that will underpin Qwen4", and from the reference implementation in `transformers` 5.16.0
-(`models/qwen4_exp/modeling_qwen4_exp.py`). Section 10 lists what only the 27B's own `config.json` can settle;
-until it is read, every 27B number here is a placeholder.*
+(`models/qwen4_exp/modeling_qwen4_exp.py`). Section 9 is the implementation plan; its phases 0 to 2 need no
+27B checkpoint. Section 10 lists what only the 27B's own `config.json` can settle; until it is read, every 27B
+number here is a placeholder.*
 
 ---
 
@@ -336,17 +337,147 @@ attention operation with its `OperationTraits` specializations. Extended: `RmsNo
 
 ---
 
-## 9. Phasing
+## 9. Implementation Plan
 
-| Phase | Needs the 27B | Work |
-|---|---|---|
-| 0 | no | This spec. The tiny reference (8.1). Converter skeleton. Family-neutral pieces: grouped `RmsNorm`, dilated `CausalConv1d`, the DeltaNet gate parameter, the n-gram hash kernel. Each `Mila/Src` change needs agreement first |
-| 1 | yes | Read the 27B config and index and close Section 10. Fit analysis. Converter |
-| 2 | yes | Chassis with dense attention, gated residual and PLE. Gates 8.2 and 8.3 |
-| 3 | yes | QSA: indexer, compressed-key cache, top-k, sparse attention. Gates 8.2 and 8.5 |
-| 4 | yes | Precision plan and export, deployment planning, Chat and MIS, model card |
+Six phases. **Phases 0 to 2 need no 27B checkpoint**: they are tested against the tiny reference (8.1),
+which `transformers` 5.16 builds today. Phases 3 to 6 start when the 27B's files appear. Every `Mila/Src`
+change needs agreement before it starts (CLAUDE.md, *Chat Harness*, API boundary), so each phase below is a
+proposal to agree, not a commitment. Whether any of it joins the release in flight is triage's decision; the
+capture is in `Mila/Issues/Untriaged.md`.
 
-Out of scope, as for 3.8: the vision tower and the MTP head.
+**Ordering principle.** Cheap and certain before expensive and conditional. A piece the preview and every
+plausible 27B share comes first. Within that, an extension of an existing component comes before a new
+one, because the existing component's own tests guard it. Everything that depends on the 27B's numbers,
+or on whether it is dense or MoE, waits for its config.
+
+Each phase's gate is written here, before its run, as `Qwen3.8.md`'s phases were; a result that misses it
+is recorded, not re-gated.
+
+### Phase 0 -- Reference and tooling
+
+No `Mila/Src` change.
+
+1. **The tiny reference** (8.1): `Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py`. A dense variant and
+   an MoE variant, so either 27B is covered. It records, per component, the inputs and outputs the Phase 1
+   and 2 gates compare against: n-gram ids, PLE output, each gated residual's `x` and updated `S`, the
+   indexer's selected token sets per query, attention output, and logits at prefill and at each decode
+   step. The capture includes EOS tokens inside the sequence and a prefill split across two chunks.
+2. **The converter skeleton**: `Tools/Converters/Qwen4/convert_weights.py`, reusing the 3.8 converter's
+   split and de-interleave helpers. It converts the tiny reference's checkpoint, and it is written against
+   Flash-Next's tensor names until the 27B's exist. It concatenates the n-gram shards in numeric order and
+   moves the 35 int64 constants into config metadata (Section 7).
+
+**Gate.** The capture is deterministic: two runs with the same seed produce identical files. The converter
+writes every tensor of the tiny checkpoint exactly once and skips nothing but `model.visual.` and `mtp.`. Fed
+the shards in lexical order, it refuses.
+
+### Phase 1 -- Extensions of existing components
+
+Each is small, family-neutral and guarded by the tests that already pass.
+
+1. **The DeltaNet gate activation as a template parameter** of `QwenDeltaNetBlock` (Section 3.2), defaulted
+   to `Silu`.
+2. **A grouped mode for `RmsNorm`**: a group size in `RmsNormConfig`, each group normalized on its own, one
+   weight across the full width, unit offset as configured (Section 3.1). CPU and CUDA.
+3. **Dilation in `CausalConv1d`**: a `withDilation` on `CausalConv1dConfig`; the kernel steps its look-back
+   by the dilation, and the retained state is (kernel - 1) x dilation positions deep. CPU and CUDA.
+
+**Gate.**
+- Qwen 3.8's tests pass unchanged, and its parity test produces bit-identical logits: the defaults are
+  today's behaviour.
+- A grouped `RmsNorm` whose group is the full width is bit-identical to today's. With 4 groups it matches
+  the reference's `Qwen4ExpTextRMSNorm(group_size = H)` within the family's existing norm tolerance.
+- A dilation-1 `CausalConv1d` is bit-identical to today's. At dilation 3 it matches `torch.nn.Conv1d` with
+  that dilation, and a prefill of T tokens followed by decode steps equals one prefill of the whole sequence.
+
+### Phase 2 -- New components
+
+One type per module file, each with its config in its own file, its operations under `OperationTraits`
+with CPU and CUDA specializations; the CPU operation comes first and is the CUDA kernel's reference.
+
+1. **`GatedResidual`**: both modes, *read and inject* and *read only* (Section 3.1).
+2. **`NgramEmbedding`**: the hash as its own operation, the gather, and the 2-id history as device state
+   that the hash kernel reads and updates (Section 3.4). The table is device-resident at test scale; where
+   the real one lives is Phase 6.
+3. **`PerLayerEmbedding`**: composes 2, Phase 1.2 and Phase 1.3 (Section 3.4).
+4. **`QsaIndexer`**: the projection, its two norms and RoPE, the compressed-key cache with its open block,
+   and the block top-k, which reads the block count from the decode position (Section 3.3).
+5. **Sparse decode attention**: gathers the selected KV rows into a dense workspace of at most budget + 3
+   rows and runs the existing decode attention over it. Decode only; sparse prefill is Phase 5.
+
+**Gate.**
+- `GatedResidual`: `x` and `S` match the capture in both modes.
+- `NgramEmbedding`: ids **equal** the capture's, every one, across the EOS tokens and the chunk boundary;
+  embeddings then match exactly, since they are a gather.
+- `PerLayerEmbedding`: output matches the capture, including a decode step after a chunked prefill.
+- `QsaIndexer`: the selected set of every query equals the capture's, except where the reference's scores
+  tie (Section 3.3, *Ties*).
+- Sparse decode attention: output matches dense attention restricted to the captured selection.
+- Under replay, components 2, 4 and 5 each pass a third-decode-step self-check on their own, given the
+  position by `context->setDecodePosition( p )` (CLAUDE.md, *Quantization Pipeline*).
+
+### Phase 3 -- Release day
+
+Starts when `Qwen/Qwen4-27B`, or whatever the 27B is named, appears on the Hub.
+
+1. Read its `config.json`, weight index, chat template and model card. Diff its `modeling_qwen4_exp.py`
+   against 5.16's: a changed formula is a changed component, and a Phase 2 gate catches it once the tiny
+   reference is re-run.
+2. Close Section 10's questions 1 to 4. Add the 27B's column to Section 2 and its numbers to Section 5.
+3. Re-run the tiny reference against the release's `transformers`. Any Phase 1 or 2 gate that fails is the
+   first work of Phase 4.
+4. The fit analysis: the device budget per context length, and the n-gram table's size against host memory.
+   This settles questions 2 and 7.
+
+**Exit.** No question 1 to 4 is open, and the spec says what the 27B is.
+
+### Phase 4 -- The chassis, dense attention
+
+1. `Qwen4Config`, `Qwen4AttentionBlock` and `Qwen4DeltaNetBlock` over the n-stream state, with dense GQA
+   in place of QSA. `Qwen4Transformer`: expands the embedding into the streams, runs the PLE layer and the
+   blocks, collapses through the final mixer into `lm_head`. `Qwen4Model` with `planDeployment` and `load`
+   per the other families.
+2. The feed-forward: the 3.8 SwiGLU if the 27B is dense; if it is MoE, the bare router chain, the shared
+   expert's sigmoid gate, and the bank's expert-count limit raised for the formats the plan uses (Section 3.5).
+3. The converter finished against the 27B's real tensor names and shapes.
+4. A BF16 load first, quantize-on-load where it fits, as the 3.8 bring-up did.
+
+**Gate.**
+- Tiny reference: full logits at prefill and at each decode step match the capture with the indexer
+  bypassed, at a capture length that keeps every query under the budget (8.3).
+- Real checkpoint: layer-stream parity (8.4) at contexts of at most 2051 tokens, where dense attention is
+  exactly QSA.
+
+### Phase 5 -- QSA in the network
+
+1. The indexer in every full-attention layer; decode through Phase 2.5.
+2. Sparse prefill. Decision 5 picks between a per-query gather and a block-sparse flash kernel; the gather
+   is the fallback that is correct first.
+3. Rewind and `savePosition` extended to the compressed-key cache and the PLE state (Section 4).
+
+**Gate.**
+- Tiny reference: logits match the capture with selection active, prefill and decode.
+- Real checkpoint: logits beyond 2051 tokens match the reference within the 3.8 parity tolerance, and the
+  selected sets of a sampled layer and position match it.
+- The replay self-check passes on the full network (8.5).
+- Decode at long context reads at most budget + 3 KV rows per full-attention layer, confirmed by a counter,
+  not inferred from timing.
+
+### Phase 6 -- The product
+
+1. **The n-gram table's residency** as decided in Phase 3: pinned host memory, FP8 storage, or a
+   memory-mapped file. Measure the prefill gather's cost at a 2K chunk.
+2. **The precision plan and export**: the roles of Section 10 question 6, through `Tools/ExportArtifact`.
+3. **Footprint and deployment**: the compressed-key cache, the PLE state and the n-gram table's host bytes
+   in `MemoryStats`, plus the sparse-layer term if the 27B is MoE (`MixtureOfExperts.md` §8). Then
+   `planDeployment`.
+4. **Chat and MIS**: `reasoning_effort` and `preserve_thinking` in the protocol (Section 7).
+5. **Quality and long-context measurements** as for 3.8. The model card, the store name, the package.
+
+**Gate.** The 3.8 publishing bar: quality within the agreed band of the BF16 reference, a footprint report
+that matches what the load allocates, and Chat and MIS running the model by its store name.
+
+Out of scope throughout, as for 3.8: the vision tower and the MTP head.
 
 ---
 
