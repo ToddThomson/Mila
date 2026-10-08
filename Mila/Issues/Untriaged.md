@@ -61,4 +61,5 @@ build, not the upstream model.
 Compared Qwen3.8-Flash-Next, the Qwen 4 architecture preview, against the Qwen 3.8 chassis and wrote the
 spec. Its section 9 phases 0 to 2 (the tiny reference, the converter skeleton, grouped RmsNorm, dilated
 CausalConv1d, the DeltaNet gate activation, and the gated residual, n-gram, PLE and QSA indexer components)
-need no 27B checkpoint. 2026-10-08: Phase 0 is built and its gate passed; phases 1 and 2 are `Mila/Src` work.
+need no 27B checkpoint. 2026-10-08: Phases 0 and 1 are built and their CPU gates passed; Phase 2 has
+`GatedResidual` and `NgramEmbedding` on CPU, gated against the tiny reference.

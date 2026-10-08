@@ -3,7 +3,8 @@
 The Qwen 4 architecture (`qwen4_exp`): what it adds to the Qwen 3.8 hybrid, which of Mila's Qwen 3.8 pieces
 carry over, and what a Qwen 4 27B port has to build.
 
-*Status: draft, 2026-10-08; Phase 0 built and its gate passed (`Tools/Converters/Qwen4/`), no `Mila/Src` code. Written ahead of the Qwen 4 27B release, expected around November 2026
+*Status: draft, 2026-10-08; Phase 0 built and its gate passed (`Tools/Converters/Qwen4/`); Phase 1 built and its
+CPU gate passed; Phase 2's `GatedResidual` and `NgramEmbedding` built on CPU and their gates passed. Written ahead of the Qwen 4 27B release, expected around November 2026
 (Todd, 2026-10-08). No Qwen 4 27B checkpoint exists yet. Everything here is read from the architecture's one
 open-weights release, `Qwen/Qwen3.8-Flash-Next`, which its model card calls "this experimental preview of the
 architecture that will underpin Qwen4", and from the reference implementation in `transformers` 5.16.0
@@ -406,6 +407,21 @@ Each is small, family-neutral and guarded by the tests that already pass.
 - A dilation-1 `CausalConv1d` is bit-identical to today's. At dilation 3 it matches `torch.nn.Conv1d` with
   that dilation, and a prefill of T tokens followed by decode steps equals one prefill of the whole sequence.
 
+**As built (2026-10-08).** The CPU half of the gate passed in a Clang 19 CPU-only build, with the whole CPU suite
+green (1,291 passed, 37 skipped for absent data or device). The CUDA half is written -- the kernels take a weight-group
+count and a dilation that are 1 everywhere today -- but is not yet built, and Qwen 3.8's tests and parity run are
+the user's to run on a CUDA machine. What the build found or decided beyond the gate's lines:
+
+- **`CausalConv1d` had no CPU operation.** `CpuCausalConv1dOp` is new, registered in `OperationTraits:Cpu`, and is
+  the reference the dilated CUDA kernels are tested against. The state bound is now 16 retained rows, where it was
+  a kernel width of 8; Qwen 4 retains 9.
+- **A grouped norm on CUDA must normalize the innermost axis**, since the kernels find a group's weight span from
+  its slice index. The op refuses anything else at build.
+- **`QwenDeltaNetBlockWorkspace` moved to `Qwen.DeltaNetBlock.Workspace.ixx`**: touching the block brought it under
+  the one-type-per-file rule.
+- **Six missing includes and imports** that MSVC resolved transitively (`<format>` in five modules,
+  `Serialization.Tensor` in `Gemma.Drafter`), fixed where found.
+
 ### Phase 2 -- New components
 
 One type per module file, each with its config in its own file, its operations under `OperationTraits`
@@ -431,6 +447,20 @@ with CPU and CUDA specializations; the CPU operation comes first and is the CUDA
 - Sparse decode attention: output matches dense attention restricted to the captured selection.
 - Under replay, components 2, 4 and 5 each pass a third-decode-step self-check on their own, given the
   position by `context->setDecodePosition( p )` (CLAUDE.md, *Quantization Pipeline*).
+
+**Progress (2026-10-08).** Components 1 and 2 are built on CPU and their gates passed:
+
+- `GatedResidual` matches every residual of every layer at every prefill chunk and decode step of the tiny
+  reference, and the final mixer, within 1.7% of a 1e-5 absolute plus 1e-5 relative tolerance.
+- `NgramEmbedding` reproduces every n-gram id exactly and every embedding bit for bit, across the EOS tokens and
+  the chunk boundary. The multipliers exceed 2^53, so the decimal-string encoding of Section 3.4 is needed, not
+  merely careful.
+- The table is the parameter `weight` of the n-gram component; the converter's `ple.ngram_table` is renamed when
+  Phase 4 composes the per-layer embedding.
+- Mila's safetensors reader refuses int64 tensors, so the tiny reference also writes `weights_fp32.safetensors`
+  (every floating weight under its HuggingFace name) and the n-gram constants as text; the gates read those.
+
+Open: their CUDA operations, `PerLayerEmbedding`, `QsaIndexer` and the sparse decode attention.
 
 ### Phase 3 -- Release day
 
