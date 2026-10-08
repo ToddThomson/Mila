@@ -3,7 +3,7 @@
 The Qwen 4 architecture (`qwen4_exp`): what it adds to the Qwen 3.8 hybrid, which of Mila's Qwen 3.8 pieces
 carry over, and what a Qwen 4 27B port has to build.
 
-*Status: draft, 2026-10-08; no code. Written ahead of the Qwen 4 27B release, expected around November 2026
+*Status: draft, 2026-10-08; Phase 0 built and its gate passed (`Tools/Converters/Qwen4/`), no `Mila/Src` code. Written ahead of the Qwen 4 27B release, expected around November 2026
 (Todd, 2026-10-08). No Qwen 4 27B checkpoint exists yet. Everything here is read from the architecture's one
 open-weights release, `Qwen/Qwen3.8-Flash-Next`, which its model card calls "this experimental preview of the
 architecture that will underpin Qwen4", and from the reference implementation in `transformers` 5.16.0
@@ -370,6 +370,22 @@ No `Mila/Src` change.
 **Gate.** The capture is deterministic: two runs with the same seed produce identical files. The converter
 writes every tensor of the tiny checkpoint exactly once and skips nothing but `model.visual.` and `mtp.`. Fed
 the shards in lexical order, it refuses.
+
+**As built (2026-10-08, transformers 5.16.0).** The gate passed, as `Tools/Converters/Qwen4/qwen4_phase0_gate.py`.
+"Identical files" became identical content: safetensors writes metadata keys in no fixed order, so two
+runs differ in bytes while every tensor is bit-equal. What the gate learned beyond its own lines:
+
+- **`transformers` saves the expert bank one tensor per expert; Flash-Next ships it stacked.** The tiny
+  checkpoint therefore tests the converter's stacking path, and the gate rewrites it stacked to test the
+  pass-through path: both convert to the same file.
+- **The name map was run over Flash-Next's own index** (`--flash-next`, config and index only): all 1,658
+  tensors accounted for, 1,294 consumed or moved to metadata and 364 skipped, with no missing source.
+- **The capture also carries a dense run**, the same weights with the indexer's budget lifted past the
+  sequence, which is Phase 4's gate reference. Selection changes no logit through position 10 (budget plus
+  ratio minus one) and changes later ones by up to 0.19, so the capture exercises QSA.
+- **The capture does not carry the indexer's scores.** The *Ties* rule of Section 3.3 cannot be applied
+  from it; with random FP32 weights a tie is improbable, and Phase 2's indexer gate computes its own.
+- **The Mila tensor names the converter writes are proposals** until Phase 4 reads them.
 
 ### Phase 1 -- Extensions of existing components
 

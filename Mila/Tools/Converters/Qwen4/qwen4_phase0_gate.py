@@ -1,19 +1,27 @@
 # The Phase 0 gate of Specifications/Qwen4.md section 9, run end to end on the tiny reference.
 #
-#   1. The capture is deterministic: two runs with the same seed write byte-identical captures and checkpoints.
+#   1. The capture is deterministic: two runs with the same seed write identical captures and checkpoints --
+#      every tensor bit-equal and the same metadata.
 #   2. The converter writes every tensor of the tiny checkpoint exactly once and skips nothing but
 #      model.visual. and mtp. -- convert_qwen4 refuses otherwise, so a conversion that completes passes. The
 #      written index is then read back: names unique, and every tensor equal to the one the reference loads,
 #      which is what catches a permuted n-gram table or a mis-stacked expert bank.
 #   3. Fed the n-gram shards in lexical order, the converter refuses.
 #
-# Both variants by default. No network, no GPU.
+# Two checks the spec's gate does not name, because the tiny checkpoint alone would leave them open:
+#   - transformers saves the expert bank one tensor per expert, while Flash-Next ships it stacked. The MoE
+#     checkpoint is rewritten stacked and converted again; both conversions must be identical.
+#   - --flash-next reads Qwen/Qwen3.8-Flash-Next's config.json and weight index (two small files, no
+#     weights) and runs the converter's name map over them: every one of its tensors consumed, moved to
+#     metadata or skipped, and every source the map names present.
 #
-#   python qwen4_phase0_gate.py --work-dir ../../../../Data/models/qwen4/phase0_gate
+# Both variants by default. No GPU; network only with --flash-next.
+#
+#   python qwen4_phase0_gate.py --work-dir ../../../../Data/models/qwen4/phase0_gate --flash-next
 
 import argparse
-import hashlib
 import json
+import re
 import struct
 import subprocess
 import sys
@@ -27,7 +35,7 @@ import torch
 from transformers.models.qwen4_exp.modeling_qwen4_exp import Qwen4ExpForCausalLM
 
 from common import TensorMapping
-from convert_weights import ngram_shard_names, transform
+from convert_weights import convert_qwen4, ngram_shard_names, transform
 
 
 SCRIPT = Path( __file__ ).resolve().parent / 'hf_qwen4_tiny_reference.py'
@@ -35,8 +43,15 @@ SCRIPT = Path( __file__ ).resolve().parent / 'hf_qwen4_tiny_reference.py'
 DTYPE_CODES = { 0: np.float32, 2: np.uint16, 3: np.int32 }
 
 
-def digest( path: Path ) -> str:
-    return hashlib.sha256( path.read_bytes() ).hexdigest()
+def same_content( first: Path, second: Path ) -> bool:
+    """Equal tensors and equal metadata. Not bytes: safetensors writes the metadata's keys in no fixed order."""
+    from safetensors import safe_open
+
+    with safe_open( str( first ), 'pt' ) as a, safe_open( str( second ), 'pt' ) as b:
+        if a.metadata() != b.metadata() or set( a.keys() ) != set( b.keys() ):
+            return False
+
+        return all( torch.equal( a.get_tensor( key ), b.get_tensor( key ) ) for key in a.keys() )
 
 
 def read_mila( path: Path ):
@@ -244,10 +259,111 @@ def check_lexical_refusal( directory: Path ):
     raise AssertionError( 'the converter concatenated n-gram shards in lexical order' )
 
 
+def check_stacked_passthrough( directory: Path ):
+    """A stacked copy of the per-expert MoE checkpoint converts to the same file."""
+    import shutil
+    from safetensors.torch import load_file, save_file
+
+    source = directory / 'hf_checkpoint'
+    stacked = directory / 'hf_checkpoint_stacked'
+    stacked.mkdir( exist_ok=True )
+    shutil.copy( source / 'config.json', stacked / 'config.json' )
+
+    state = load_file( str( source / 'model.safetensors' ) )
+    per_expert = {}
+    rewritten = {}
+
+    for name, tensor in state.items():
+        match = re.match( r'(.*\.mlp\.experts)\.(\d+)\.(gate_proj|up_proj|down_proj)\.weight$', name )
+
+        if match is None:
+            rewritten[ name ] = tensor
+            continue
+
+        per_expert.setdefault( match.group( 1 ), {} ).setdefault( int( match.group( 2 ) ), {} )[ match.group( 3 ) ] = tensor
+
+    if not per_expert:
+        raise AssertionError( 'the MoE checkpoint has no per-expert tensors; the stacking path went untested' )
+
+    for bank, experts in per_expert.items():
+        order = range( len( experts ) )
+        rewritten[ f'{bank}.gate_up_proj' ] = torch.stack(
+            [ torch.cat( [ experts[ e ][ 'gate_proj' ], experts[ e ][ 'up_proj' ] ] ) for e in order ] )
+        rewritten[ f'{bank}.down_proj' ] = torch.stack( [ experts[ e ][ 'down_proj' ] for e in order ] )
+
+    save_file( rewritten, str( stacked / 'model.safetensors' ), metadata={ 'format': 'pt' } )
+
+    output = directory / 'qwen4_tiny_moe_stacked_fp32.bin'
+    convert_qwen4( stacked.as_posix(), str( output ), 'float32' )
+
+    _, from_stacked = read_mila( output )
+    _, from_per_expert = read_mila( directory / 'qwen4_tiny_moe_fp32.bin' )
+
+    if set( from_stacked ) != set( from_per_expert ):
+        raise AssertionError( 'stacked and per-expert conversions write different tensor sets' )
+
+    for name, tensor in from_per_expert.items():
+        if not torch.equal( tensor, from_stacked[ name ] ):
+            raise AssertionError( f'{name}: stacked and per-expert conversions differ' )
+
+    print( f'  stacked expert bank: converts to the same {len( from_stacked )} tensors as the per-expert one' )
+
+
+class IndexOnlyCheckpoint:
+    """The names of a checkpoint known only by its weight index."""
+
+    def __init__( self, names ):
+        self._names = set( names )
+
+    def names( self ):
+        return self._names
+
+
+def check_flash_next_names():
+    from huggingface_hub import hf_hub_download
+
+    from convert_weights import NGRAM_CONSTANTS, SKIPPED_PREFIXES, expand_qwen4_tensor_map, resolve_qwen4_geometry
+
+    repository = 'Qwen/Qwen3.8-Flash-Next'
+    config = json.loads( Path( hf_hub_download( repository, 'config.json' ) ).read_text() )
+    index = json.loads( Path( hf_hub_download( repository, 'model.safetensors.index.json' ) ).read_text() )
+    names = set( index[ 'weight_map' ] )
+
+    prefix = 'model.language_model.'
+    checkpoint = IndexOnlyCheckpoint( names )
+    geometry = resolve_qwen4_geometry( config, checkpoint, prefix )
+    mappings = expand_qwen4_tensor_map( geometry, prefix, names )
+
+    sources = [ source for mapping in mappings for source in mapping.sources ]
+    missing = [ source for source in sources if source not in names ]
+
+    if missing:
+        raise AssertionError( f'{len( missing )} mapped sources absent from Flash-Next: {missing[ :5 ]}' )
+
+    consumed = set( sources )
+
+    for layer_id in geometry[ 'ple_layer_ids' ]:
+        source = f'{prefix}layers.{layer_id - 1}.ple.ple_embedding'
+        consumed.update( f'{source}.{buffer}' for buffer in NGRAM_CONSTANTS.values() )
+
+    skipped = { name for name in names if name.startswith( SKIPPED_PREFIXES ) }
+    unaccounted = names - consumed - skipped
+
+    if unaccounted:
+        raise AssertionError( f'{len( unaccounted )} Flash-Next tensors unaccounted for: {sorted( unaccounted )[ :5 ]}' )
+
+    tables = sum( 1 for mapping in mappings if mapping.transform == 'ngram_shards' )
+    print( f'  Flash-Next: {len( names )} tensors -- {len( consumed )} consumed or moved to metadata, '
+           f'{len( skipped )} skipped -- into {len( mappings )} Mila tensors, {tables} n-gram table of '
+           f'{geometry[ "split_ngram_parts" ]} shards' )
+
+
 def main():
     parser = argparse.ArgumentParser( description=__doc__ )
     parser.add_argument( '--work-dir', type=Path, required=True )
     parser.add_argument( '--variants', nargs='+', choices=[ 'moe', 'dense' ], default=[ 'moe', 'dense' ] )
+    parser.add_argument( '--flash-next', action='store_true',
+        help="Also run the name map over Qwen/Qwen3.8-Flash-Next's config and weight index (network)" )
     arguments = parser.parse_args()
 
     work = arguments.work_dir.resolve()
@@ -266,13 +382,20 @@ def main():
         compared += sorted( str( path.relative_to( first ) ) for path in ( first / 'hf_checkpoint' ).glob( '*.safetensors' ) )
 
         for relative in compared:
-            if digest( first / relative ) != digest( second / relative ):
+            if not same_content( first / relative, second / relative ):
                 raise AssertionError( f'{relative} differs between two runs with the same seed' )
 
-        print( f'  deterministic: {len( compared )} files byte-identical across two runs' )
+        print( f'  deterministic: {len( compared )} files identical in content across two runs' )
 
         check_conversion( first, variant )
         check_lexical_refusal( first )
+
+        if variant == 'moe':
+            check_stacked_passthrough( first )
+
+    if arguments.flash_next:
+        print( '\nPhase 0 gate, Flash-Next names:' )
+        check_flash_next_names()
 
     print( '\nPhase 0 gate passed.' )
 
