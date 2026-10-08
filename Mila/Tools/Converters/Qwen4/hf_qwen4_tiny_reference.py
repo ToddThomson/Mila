@@ -29,8 +29,8 @@
 # Beside the capture, each PLE layer's assembled n-gram table (`weights.layer<i>.ple.ngram_table`) and a text file
 # of its int64 hash constants, which no tensor dtype Mila's tests read can hold.
 #
-#   python hf_qwen4_tiny_reference.py --variant moe --output-dir ../../../../Data/models/qwen4/qwen4_tiny_moe
-#   python hf_qwen4_tiny_reference.py --variant dense --output-dir ../../../../Data/models/qwen4/qwen4_tiny_dense
+#   python hf_qwen4_tiny_reference.py --variant moe --output-dir ../../../../Data/Models/Qwen4/qwen4_tiny_moe
+#   python hf_qwen4_tiny_reference.py --variant dense --output-dir ../../../../Data/Models/Qwen4/qwen4_tiny_dense
 
 import argparse
 import sys

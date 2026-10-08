@@ -52,7 +52,7 @@ namespace Mila::Tests::Dnn::Components::Connections
 
         fs::path captureDirectory()
         {
-            return fs::path( TEST_DATA_DIR ) / "models" / "qwen4" / "qwen4_tiny_moe";
+            return fs::path( TEST_DATA_DIR ) / "Models" / "Qwen4" / "qwen4_tiny_moe";
         }
 
         GatedResidualConfig config( bool has_injection = true )

@@ -317,13 +317,13 @@ a reference and a converter that need none.
 
 ```powershell
 # The tiny reference: a random qwen4_exp model, its capture, and its conversion at FP32 and BF16
-python Qwen4/hf_qwen4_tiny_reference.py --variant moe --output-dir <data-dir>/models/qwen4/qwen4_tiny_moe
-python Qwen4/hf_qwen4_tiny_reference.py --variant dense --output-dir <data-dir>/models/qwen4/qwen4_tiny_dense
+python Qwen4/hf_qwen4_tiny_reference.py --variant moe --output-dir <data-dir>/Models/Qwen4/qwen4_tiny_moe
+python Qwen4/hf_qwen4_tiny_reference.py --variant dense --output-dir <data-dir>/Models/Qwen4/qwen4_tiny_dense
 
 # The Phase 0 gate: deterministic capture, every converted tensor equal to the reference's, lexical shards
 # refused, a stacked expert bank converted like a per-expert one; --flash-next also runs the name map over
 # Qwen/Qwen3.8-Flash-Next's config and weight index (two small downloads, no weights)
-python Qwen4/qwen4_phase0_gate.py --work-dir <data-dir>/models/qwen4/phase0_gate --flash-next
+python Qwen4/qwen4_phase0_gate.py --work-dir <data-dir>/Models/Qwen4/phase0_gate --flash-next
 ```
 
 **The tiny reference** has two variants, so either 27B is covered: `moe` is `qwen4_exp` as written, `dense`

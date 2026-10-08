@@ -45,7 +45,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
 
         fs::path captureDirectory()
         {
-            return fs::path( TEST_DATA_DIR ) / "models" / "qwen4" / "qwen4_tiny_moe";
+            return fs::path( TEST_DATA_DIR ) / "Models" / "Qwen4" / "qwen4_tiny_moe";
         }
 
         /// key=value lines of the reference's constants file.

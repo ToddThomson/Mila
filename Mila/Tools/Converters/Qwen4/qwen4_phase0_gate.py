@@ -17,7 +17,7 @@
 #
 # Both variants by default. No GPU; network only with --flash-next.
 #
-#   python qwen4_phase0_gate.py --work-dir ../../../../Data/models/qwen4/phase0_gate --flash-next
+#   python qwen4_phase0_gate.py --work-dir ../../../../Data/Models/Qwen4/phase0_gate --flash-next
 
 import argparse
 import json
