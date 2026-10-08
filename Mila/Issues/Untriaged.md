@@ -53,3 +53,11 @@ nothing imports these two, and `chat.py` carries its own request schema and prom
 Found 2026-10-07 reading the cards' quality sections for the evaluation discussion. "The cost of the smaller
 residency" -- a term `CLAUDE.md` lists as one only Mila uses. The section's numbers are also against Mila's own FP4
 build, not the upstream model.
+
+## Qwen 4 27B is expected around November 2026 and Mila has no Qwen 4 chassis
+
+`Mila/Specifications/Qwen4.md` @ 539396e
+
+Compared Qwen3.8-Flash-Next, the Qwen 4 architecture preview, against the Qwen 3.8 chassis and wrote the
+spec. Its phase 0 (the tiny reference, grouped RmsNorm, dilated CausalConv1d, the DeltaNet gate activation,
+the n-gram hash) needs no 27B checkpoint.
