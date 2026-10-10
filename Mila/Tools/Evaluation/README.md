@@ -48,18 +48,23 @@ An arm is an engine serving a model. Every arm is given the same token ids for e
   server cut the reply at the first one. lm-eval leaves this to the server.
 - **The same day.** Llama 3's chat template writes today's date into the system header.
   `compare_arms.py` checks that every prompt matches and refuses a pair that does not.
+- **The same card.** Any CUDA card will do, but both arms of a comparison run on the same one: two
+  GPU architectures differ in the last digits of the same arithmetic. `compare_arms.py` refuses a
+  pair whose arms name different cards.
 
 Before a served arm starts, it checks that the server answers, names the model it serves, and sends
 a token-id prompt to confirm the server reads it as sent -- not as text, and without adding a BOS
-token of its own. Each arm writes `environment.json` beside its results: versions, device, seed, the
-selection, and what the server reports of itself.
+token of its own. Each arm writes `environment.json` beside its results: versions, the card, seed, the
+selection, and what the server reports of itself. The `mila` arm's version is the one MIS reports, the
+library its binding was built with.
 
 ## Setup
 
-One virtual environment, on the machine with the GPU:
+One virtual environment, on the machine with the GPU, on Python 3.12: `bfcl-eval` pins NumPy 1.26,
+which does not run on 3.13.
 
 ```
-python -m venv .venv
+py -3.12 -m venv .venv
 .venv\Scripts\activate
 pip install torch --index-url https://download.pytorch.org/whl/cu128   # the build for your CUDA
 pip install -r requirements.txt
@@ -88,15 +93,30 @@ The `llamacpp` arm needs a `llama-server` build and a GGUF of the same model.
 
 ## Starting the servers
 
-Each served arm talks to its own server; give them different ports and run one at a time on a 16 GB
-card. The context length is the longest prompt and reply together: 8192 for IFEval, GSM8K and BFCL,
-and RULER's largest band plus 256 for RULER.
+Each served arm talks to its own server; give them different ports, and run one at a time unless
+the card holds both. The context length is the longest prompt and reply together: 8192 for IFEval,
+GSM8K and BFCL, and RULER's largest band plus 256 for RULER.
+
+Choose the card once and give it to every arm. MIS takes it as `MILA_DEVICE_INDEX`, the `hf` arm and
+the reference server as `--device cuda:<index>`, and both count as CUDA does, which can differ from
+`nvidia-smi`'s numbering. List the cards by the index they take, with the PCI address that `nvidia-smi`
+shows beside each:
+
+```
+python -c "import mila; mila.initialize(); print(*mila.cuda_devices(), sep='
+')"
+```
+
+The `llamacpp` arm records no card: `llama-server`'s own report is not read for one. On a machine with
+several cards, start it on the chosen card alone (`llama-server --list-devices` names them), and check
+that both arms used the same one.
 
 ```
 rem MIS
 set MILA_PROTOCOL=openai
 set MILA_MODEL=Llama-3.2-3B-Instruct-bf16
 set MILA_CONTEXT_LENGTH=8192
+set MILA_DEVICE_INDEX=0
 mila-server                                                     (port 8000)
 
 rem llama-server: one slot, so no request is batched with another

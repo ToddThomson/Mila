@@ -2,8 +2,9 @@
 
 **Status:** Draft, 2026-10-07. Agreed in discussion with Todd the same day: start with BF16 parity on Llama 3.2 3B
 over IFEval and GSM8K, then add BFCL, RULER and a llama.cpp arm. The tools for Phases 1 to 4 are built
-(`Mila/Tools/Evaluation`, `0.21.0-dev+41` and `+42`) and rehearsed end to end on a stand-in model; none has run on
-real weights. No release admits this work; section 10 holds the decisions that would. Added 2026-10-08: scores
+(`Mila/Tools/Evaluation`, `0.21.0-dev+41` and `+42`) and rehearsed end to end on a stand-in model. 2026-10-10
+(`+55`): Phase 1's two arms ran on real weights on CUDA for the first time, a 20-document smoke run per task on one
+card, which checks the setup and is not a result. No release admits this work; section 10 holds the decisions that would. Added 2026-10-08: scores
 for the Hugging Face Hub's benchmark leaderboards (section 11, Phase 7), built at `0.21.0-dev+43` and rehearsed
 against a stand-in server on MMLU-Pro's own definition.
 
@@ -92,8 +93,13 @@ Each control removes one variable that is not the engine. All are enforced by `r
   same day.
 - **The same length budget.** `max_length` 8192 on every arm by default, raised past RULER's largest band for
   RULER; lm-eval left-truncates a context past it identically.
+- **The same card.** Any CUDA card, the same one for both arms: Ada and Blackwell differ in the last digits of the
+  same arithmetic, so a pair across cards adds the card to the engine difference. Each arm records its card by name
+  and PCI address -- an index alone is not one, since CUDA's numbering and `nvidia-smi`'s differ -- and
+  `compare_arms.py` refuses arms that name different cards. MIS reports its card and the version of the library its
+  binding was built with on `/v1/models` (`0.21.0-dev+55`), from `mila.cuda_devices()` and `mila.version()`.
 - **A recorded environment.** Each arm writes `environment.json`: Mila version, harness and transformers versions,
-  torch and device for `hf`, what the server reports of itself for a served arm -- `llama-server`'s `/props` gives
+  torch and the card for `hf`, what the server reports of itself for a served arm -- `llama-server`'s `/props` gives
   its build, weights file, context and KV-cache settings -- and the seed, tasks and selection.
 
 One difference is not controlled. MIS's Llama model and `llama-server` each reuse the KV state of a prompt prefix

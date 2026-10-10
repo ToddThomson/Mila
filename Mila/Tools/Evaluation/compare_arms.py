@@ -195,6 +195,48 @@ def check_pairing(reference, candidate):
     return shared, unpaired
 
 
+def arm_device(directory):
+    """The card an arm ran on, from its environment.json; None when the arm could not name it."""
+    path = directory / "environment.json"
+
+    if not path.exists():
+        return None
+
+    return json.loads(path.read_text(encoding="utf-8")).get("device")
+
+
+def device_label(device):
+    if not device:
+        return "an unrecorded device"
+
+    return f"{device.get('name', 'unnamed')} ({device.get('pci_bus_id', 'no PCI address')})"
+
+
+def check_devices(reference_directory, candidate_directory):
+    """
+    Refuse arms that ran on different cards. Two architectures differ in the last digits of the same
+    arithmetic, so a pair across cards adds the card to the engine difference. A card is its PCI address
+    where both arms recorded one, and its name otherwise.
+    """
+    reference = arm_device(reference_directory)
+    candidate = arm_device(candidate_directory)
+
+    if not reference or not candidate:
+        unrecorded = reference_directory if not reference else candidate_directory
+        print(f"{unrecorded} does not record the card it ran on; check that both arms used the same one.",
+              file=sys.stderr)
+
+        return reference, candidate
+
+    key = "pci_bus_id" if "pci_bus_id" in reference and "pci_bus_id" in candidate else "name"
+
+    if reference.get(key) != candidate.get(key):
+        sys.exit(f"The reference ran on {device_label(reference)} and the candidate on {device_label(candidate)}. "
+                 "Run both arms on one card.")
+
+    return reference, candidate
+
+
 def mcnemar_p(reference_only, candidate_only):
     """Exact two-sided McNemar test: the discordant pairs against a fair coin."""
     discordant = reference_only + candidate_only
@@ -346,9 +388,18 @@ def signed_points(value):
     return f"{100 * value:+.1f}"
 
 
-def render(reference_name, candidate_name, scores, replies, unpaired):
+def devices_sentence(reference, candidate):
+    if reference and candidate:
+        return f"Both arms ran on {device_label(reference)}."
+
+    return f"The reference ran on {device_label(reference)}, the candidate on {device_label(candidate)}."
+
+
+def render(reference_name, candidate_name, devices, scores, replies, unpaired):
     lines = [
         f"# {candidate_name} against {reference_name}",
+        "",
+        devices_sentence(*devices),
         "",
         "Scores are percentages. The difference is candidate minus reference, in points, with its 95% interval.",
         "Lost and gained count the documents only the reference, or only the candidate, answered correctly.",
@@ -399,9 +450,10 @@ def main():
     reference = load_arm(arguments.reference)
     candidate = load_arm(arguments.candidate)
     keys, unpaired = check_pairing(reference, candidate)
+    reference_device, candidate_device = check_devices(arguments.reference, arguments.candidate)
     scores = score_pairs(reference, candidate, keys)
     replies = compare_replies(reference, candidate, keys)
-    report = render(arguments.reference.name, arguments.candidate.name, scores, replies, unpaired)
+    report = render(arguments.reference.name, arguments.candidate.name, (reference_device, candidate_device), scores, replies, unpaired)
     print(report)
 
     if arguments.report:
@@ -411,6 +463,7 @@ def main():
                        for (task, filter_name, metric), result in sorted(scores.items(), key=metric_order)],
             "replies": replies,
             "unpaired": unpaired,
+            "devices": {"reference": reference_device, "candidate": candidate_device},
         }
         arguments.report.with_suffix(".json").write_text(json.dumps(numbers, indent=2) + "\n", encoding="utf-8")
 

@@ -109,14 +109,6 @@ def lm_eval_arguments(arm, arguments, served_name, output):
     return command
 
 
-def hf_device_record(device):
-    import torch
-
-    name = torch.cuda.get_device_name(device) if device.startswith("cuda") else device
-
-    return {"torch": torch.__version__, "device": name}
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("arm", choices=["hf", *SERVED_ARMS])
@@ -169,17 +161,22 @@ def main():
         "seed": SEED,
     }
 
-    if arguments.arm == "hf":
-        settings.update(hf_device_record(arguments.device))
+    device = None
 
-    record = servers.environment(arguments.arm, "lm_eval", served, settings)
+    if arguments.arm == "hf":
+        import torch
+
+        settings["torch"] = torch.__version__
+        device = servers.torch_device_record(arguments.device)
+
+    record = servers.environment(arguments.arm, "lm_eval", served, settings, device)
     servers.write_environment(output, record)
 
     served_name = served["model"]["id"] if served else None
     command = lm_eval_arguments(arguments.arm, arguments, served_name, output)
     print(" ".join(command), flush=True)
 
-    sys.exit(subprocess.call(command))
+    sys.exit(subprocess.call(command, env=servers.harness_environment()))
 
 
 if __name__ == "__main__":

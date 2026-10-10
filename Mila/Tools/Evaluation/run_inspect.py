@@ -12,7 +12,6 @@ which is what a user of either meets. eval_results.py turns an arm's run into th
 """
 
 import argparse
-import os
 import pathlib
 import subprocess
 import sys
@@ -182,7 +181,8 @@ def main():
         "limit": arguments.limit,
         "seed": SEED,
     }
-    record = servers.environment(arguments.arm, "inspect_ai", served, settings)
+    device = servers.torch_device_record(arguments.device) if arguments.arm == "hf" else None
+    record = servers.environment(arguments.arm, "inspect_ai", served, settings, device)
     servers.write_environment(output, record)
 
     served_name = served["model"]["id"] if served else None
@@ -190,7 +190,7 @@ def main():
     command = inspect_arguments(arguments, spec, model, native, output)
     print(" ".join(command), flush=True)
 
-    sys.exit(subprocess.call(command, env={**os.environ, **variables}))
+    sys.exit(subprocess.call(command, env=servers.harness_environment(variables)))
 
 
 if __name__ == "__main__":

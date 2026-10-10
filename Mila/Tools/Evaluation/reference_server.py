@@ -19,6 +19,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+import servers
+
 
 def invalid_request(message):
     content = {"type": "error", "error": {"type": "invalid_request_error", "message": message}}
@@ -69,6 +71,7 @@ class Reference:
     def __init__(self, model_id, device, context_length):
         self.name = model_id
         self.device = device
+        self.device_record = servers.torch_device_record(device)
         self.context_length = context_length
         self.tokenizer = AutoTokenizer.from_pretrained(model_id)
         self.model = AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16).to(device).eval()
@@ -113,7 +116,13 @@ def build_app(reference):
 
     @app.get("/v1/models")
     async def models():
-        card = {"id": reference.name, "object": "model", "owned_by": "reference", "context_window": reference.context_length}
+        card = {
+            "id": reference.name,
+            "object": "model",
+            "owned_by": "reference",
+            "context_window": reference.context_length,
+            "device": reference.device_record,
+        }
 
         return {"object": "list", "data": [card]}
 

@@ -9,6 +9,7 @@ from the other arms' without saying so, so the arm refuses to start until a prob
 import datetime
 import importlib.metadata
 import json
+import os
 import pathlib
 import sys
 import urllib.error
@@ -21,6 +22,14 @@ SERVER_NAMES = {
     "llamacpp": "llama-server",
     "hf": "the reference server",
 }
+
+
+def harness_environment(variables=None):
+    """
+    The environment a harness runs in: UTF-8 for its console, which on Windows is cp1252 otherwise, and
+    lm-eval's summary table holds characters cp1252 cannot write -- it fails after the run, results saved.
+    """
+    return {**os.environ, "PYTHONUTF8": "1", **(variables or {})}
 
 
 def request_json(url, payload=None):
@@ -95,12 +104,45 @@ def llama_server_props(url):
     return props
 
 
-def environment(arm, harness, served, settings):
-    """What produced an arm's numbers, written beside them as environment.json."""
+def torch_device_record(device):
+    """
+    A torch device in the form MIS reports its own: the card by name, capability and PCI address.
+    The PCI address is what identifies it, since torch's index, like MIS's, is CUDA's and not nvidia-smi's.
+    """
+    import torch
+
+    if not device.startswith("cuda"):
+        return {"name": device}
+
+    properties = torch.cuda.get_device_properties(device)
+    record = {
+        "index": torch.device(device).index or 0,
+        "name": properties.name,
+        "compute_capability": f"{properties.major}.{properties.minor}",
+        "total_memory_bytes": properties.total_memory,
+    }
+
+    if hasattr(properties, "pci_bus_id"):
+        record["pci_bus_id"] = (f"{properties.pci_domain_id:08x}:{properties.pci_bus_id:02x}:"
+                                f"{properties.pci_device_id:02x}.0")
+
+    return record
+
+
+def environment(arm, harness, served, settings, device=None):
+    """
+    What produced an arm's numbers, written beside them as environment.json. `device` is the card the
+    hf arm ran on; a served arm's is the one its server reports. `mila_version` is the library that served
+    the mila arm, read from MIS, and the checkout's for the others.
+    """
+    repository_version = (REPOSITORY_ROOT / "Version.txt").read_text().strip()
+    card = served["model"] if served else {}
     record = {
         "arm": arm,
         "started": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
-        "mila_version": (REPOSITORY_ROOT / "Version.txt").read_text().strip(),
+        "mila_version": card.get("mila_version") or repository_version,
+        "repository_version": repository_version,
+        "device": device or card.get("device"),
         harness: importlib.metadata.version(harness),
         "transformers": importlib.metadata.version("transformers"),
         **settings,

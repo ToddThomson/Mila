@@ -38,6 +38,10 @@ from pathlib import Path as _Path
 
 __all__ = [
     "initialize",
+    # Runtime: the library in this extension, and the devices it can run on.
+    "version",
+    "cuda_devices",
+    "CudaDevice",
     "BpeTokenizer",
     "GemmaModel",
     "LlamaModel",
@@ -203,6 +207,7 @@ cuda_library_directories = _register_cuda_libraries()
 try:
     from ._mila import (
         BpeTokenizer,
+        CudaDevice,
         GemmaModel,
         HttpResponse,
         HubModel,
@@ -213,6 +218,7 @@ try:
         StopController,
         StoredModel,
         StoreUsage,
+        cuda_devices,
         default_hub_owner,
         gemma_extract_answer,
         gemma_format_prompt,
@@ -226,6 +232,7 @@ try:
         qwen_format_prompt,
         qwen_parse_tool_call,
         qwen_protocol_tokens,
+        version,
     )
 except ImportError as error:
     raise ImportError(

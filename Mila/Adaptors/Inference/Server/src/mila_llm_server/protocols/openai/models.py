@@ -53,6 +53,11 @@ class OpenAIModelsAdapter(ModelsCapable):
             "base_model": loaded.base_model,
             "license": loaded.license,
             "attribution": loaded.attribution,
+            # What served it, for a client that records where a measurement came from. The PCI
+            # address is written as nvidia-smi writes it, so the card can be found in either
+            # tool's numbering.
+            "mila_version": loaded.mila_version,
+            "device": loaded.device,
         }
 
         return {

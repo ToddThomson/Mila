@@ -12,9 +12,9 @@
 
 #include <gtest/gtest.h>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -49,20 +49,48 @@ namespace Mila::Tests::Dnn::Components::Embeddings
         }
 
         /// key=value lines of the reference's constants file.
+        /// C stdio, not std::getline: stream input beside import Mila; fails to compile on MSVC (GitHub issue #30).
         std::map<std::string, std::string> readConstants( const fs::path& path )
         {
             std::map<std::string, std::string> values;
-            std::ifstream stream( path );
-            std::string line;
+            std::string text;
+            std::FILE* file = std::fopen( path.string().c_str(), "r" );
 
-            while ( std::getline( stream, line ) )
+            if ( file == nullptr )
             {
+                return values;
+            }
+
+            char buffer[ 4096 ];
+            size_t read = 0;
+
+            while ( (read = std::fread( buffer, 1, sizeof( buffer ), file )) > 0 )
+            {
+                text.append( buffer, read );
+            }
+
+            std::fclose( file );
+
+            size_t start = 0;
+
+            while ( start < text.size() )
+            {
+                auto end = text.find( '\n', start );
+
+                if ( end == std::string::npos )
+                {
+                    end = text.size();
+                }
+
+                const std::string line = text.substr( start, end - start );
                 const auto equals = line.find( '=' );
 
                 if ( equals != std::string::npos )
                 {
                     values[ line.substr( 0, equals ) ] = line.substr( equals + 1 );
                 }
+
+                start = end + 1;
             }
 
             return values;

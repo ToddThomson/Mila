@@ -23,6 +23,7 @@
 #include <vector>
 
 import Mila.Bindings;
+import Mila.Bindings.Runtime;
 
 namespace py = pybind11;
 
@@ -392,6 +393,41 @@ static void bind_distribution( py::module_& m )
 
     m.def( "default_hub_owner", &Mila::Bindings::defaultHubOwner,
         "The hub owner Mila publishes under." );
+}
+
+// ============================================================================
+// Runtime — the library this extension carries, and the devices it can run on
+// ============================================================================
+
+static void bind_runtime( py::module_& m )
+{
+    py::class_<Mila::Bindings::CudaDeviceInfo>( m, "CudaDevice" )
+        .def_readonly( "index", &Mila::Bindings::CudaDeviceInfo::index,
+            "The device_index that from_store() takes. Not the index nvidia-smi prints." )
+        .def_readonly( "name", &Mila::Bindings::CudaDeviceInfo::name )
+        .def_property_readonly( "compute_capability",
+            []( const Mila::Bindings::CudaDeviceInfo& self ) {
+                return py::make_tuple( self.compute_capability_major, self.compute_capability_minor );
+            },
+            "(major, minor), e.g. (8, 9)." )
+        .def_readonly( "total_memory_bytes", &Mila::Bindings::CudaDeviceInfo::total_memory_bytes )
+        .def_readonly( "pci_domain", &Mila::Bindings::CudaDeviceInfo::pci_domain )
+        .def_readonly( "pci_bus", &Mila::Bindings::CudaDeviceInfo::pci_bus )
+        .def_readonly( "pci_device", &Mila::Bindings::CudaDeviceInfo::pci_device )
+        .def( "__repr__",
+            []( const Mila::Bindings::CudaDeviceInfo& self ) {
+                return "<CudaDevice " + std::to_string( self.index ) + ": " + self.name + ">";
+            } );
+
+    m.def( "cuda_devices", &Mila::Bindings::cudaDevices,
+        "The CUDA devices Mila can run on, in device_index order. Call initialize() first.\n\n"
+        "The index is CUDA's, which can differ from the one nvidia-smi prints; the PCI\n"
+        "domain, bus and device identify the same card in both." );
+
+    m.def( "version", &Mila::Bindings::version,
+        "The version of the Mila library in this extension, e.g. '0.21.0-dev+54'.\n\n"
+        "__version__ is the version pip installed. After a rebuild without a reinstall,\n"
+        "the two differ, and version() is the one that ran." );
 }
 
 // ============================================================================
@@ -1037,7 +1073,10 @@ PYBIND11_MODULE( _mila, m )
         "    ModelStore  The local store Chat and the Mila Inference Server share:\n"
         "                list, locate, remove, usage, install, pull.\n\n"
         "Pull and load are separate verbs and only the store is loadable. pull() takes the\n"
-        "transport as an argument, so this build needs no HTTP client of its own.";
+        "transport as an argument, so this build needs no HTTP client of its own.\n\n"
+        "Runtime:\n"
+        "    version()       The Mila library in this extension.\n"
+        "    cuda_devices()  The CUDA devices it can run on, by the device_index loads take.";
 
     m.def( "initialize",
         []( const std::string& level ) {
@@ -1046,6 +1085,7 @@ PYBIND11_MODULE( _mila, m )
         py::arg( "log_level" ) = "warning",
         "Initialize the Mila framework. log_level: trace | info | warning | error." );
 
+    bind_runtime( m );
     bind_stop_controller( m );
     bind_chat_protocol( m );
     bind_distribution( m );

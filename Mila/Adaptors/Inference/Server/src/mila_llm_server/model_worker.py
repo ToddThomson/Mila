@@ -80,6 +80,23 @@ def _family_of(record: "mila.StoredModel") -> ModelFamily:
         ) from None
 
 
+def _device_record(device_index: int) -> dict | None:
+    """The card the model loaded onto, as /v1/models reports it; None if the runtime does not list it."""
+    for device in mila.cuda_devices():
+        if device.index == device_index:
+            major, minor = device.compute_capability
+
+            return {
+                "index": device.index,
+                "name": device.name,
+                "compute_capability": f"{major}.{minor}",
+                "total_memory_bytes": device.total_memory_bytes,
+                "pci_bus_id": f"{device.pci_domain:08x}:{device.pci_bus:02x}:{device.pci_device:02x}.0",
+            }
+
+    return None
+
+
 class ModelWorker:
     """
     Wraps the loaded model and its BpeTokenizer behind a single-thread executor so
@@ -165,6 +182,15 @@ class ModelWorker:
 
         loaded.context_length = self._model.context_length
         _log.info("Context length %d (configured %s)", loaded.context_length, settings.context_length)
+
+        loaded.mila_version = mila.version()
+        loaded.device = _device_record(settings.device_index)
+        _log.info(
+            "Mila %s on CUDA device %d: %s",
+            loaded.mila_version,
+            settings.device_index,
+            loaded.device["name"] if loaded.device else "unknown",
+        )
 
     @property
     def _is_gemma(self) -> bool:

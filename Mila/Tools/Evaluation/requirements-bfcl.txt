@@ -3,3 +3,6 @@
 bfcl-eval==2026.3.23
 # Imported by bfcl-eval's qwen_agent dependency without being declared by it.
 soundfile
+# bfcl-eval pins NumPy 1.26.4, and pyarrow 26, which datasets would otherwise take, needs NumPy 2:
+# without this, lm-eval fails to import in the same environment.
+pyarrow>=24,<26

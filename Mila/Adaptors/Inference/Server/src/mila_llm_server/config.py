@@ -116,6 +116,12 @@ class LoadedModel:
     # be "auto", so this is the number every prompt is bounded by and every model card reports.
     context_length: int = 0
 
+    # What ran it: the library compiled into the binding, which a rebuild changes without a
+    # reinstall, and the card, named by more than its CUDA ordinal -- that ordinal is not
+    # nvidia-smi's, and two cards of one model differ only in their PCI address.
+    mila_version: str = ""
+    device: dict | None = None
+
     @property
     def attribution(self) -> str:
         return required_attribution_for(self.license)
