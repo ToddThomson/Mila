@@ -6,7 +6,7 @@
 # is needed for the interactive Chat workflow. A slim multi-stage runtime image for
 # headless deployment is a separate, later deliverable (see ROADMAP).
 #
-# Toolchain is pinned to the validated CI/WSL matrix: Ubuntu 26.04 + CUDA 13.3
+# Toolchain is pinned to the validated CI/WSL matrix: Ubuntu 26.04 + CUDA 13.4
 # (glibc 2.43 -- the path that broke under CUDA 13.0's rsqrt declarations), clang-21
 # for the C++23 module units, gcc-15 as nvcc's (module-free) host compiler. No cuDNN
 # variant exists for 26.04 and none is needed while USE_CUDNN is unset, so the plain
@@ -15,7 +15,7 @@
 # Model weights are converted offline (Mila/Tools/Converters) and bind-mounted at
 # run time under Data/Models -- never baked into the image (they are gigabytes and
 # separately licensed). See Docker/README.md.
-FROM nvidia/cuda:13.3.0-devel-ubuntu26.04
+FROM nvidia/cuda:13.4.2-devel-ubuntu26.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 

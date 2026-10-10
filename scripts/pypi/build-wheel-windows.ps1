@@ -56,7 +56,7 @@ Enter-VsDevShell -VsInstallPath $vsPath -DevCmdArguments "-arch=x64 -host_arch=x
 # That is asserted below; the minor version is a declaration a maintainer may override.
 #
 # Set after Enter-VsDevShell so this PATH entry wins over anything the dev shell prepends.
-$cudaVersion = if ($env:MILA_WHEEL_CUDA_VERSION) { $env:MILA_WHEEL_CUDA_VERSION } else { "13.3" }
+$cudaVersion = if ($env:MILA_WHEEL_CUDA_VERSION) { $env:MILA_WHEEL_CUDA_VERSION } else { "13.4" }
 $cudaBase = Join-Path ${env:ProgramFiles} "NVIDIA GPU Computing Toolkit\CUDA"
 $cudaRoot = Join-Path $cudaBase "v$cudaVersion"
 

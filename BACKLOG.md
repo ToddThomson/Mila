@@ -92,6 +92,9 @@ tentative and drains first.
 Scope grew on 2026-10-10 (Todd), the date held: under Internal fixes, the move to CUDA 13.4.2 for the images,
 the wheels and CI. No removal.
 
+Scope grew again on 2026-10-10 (Todd), the date held: under Internal fixes, the release script finished through
+publishing. No removal.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -715,7 +718,7 @@ Gate: a model installed under a store path with characters outside the code page
 
 #### The published binaries and images are built on CUDA 13.3 while 13.4 is current
 
-`open` · `build` · `ci` · `distribution`
+`in progress` · `build` · `ci` · `distribution`
 
 Move the declared toolkit to 13.4.2, between pieces of native work. Docker Hub has carried
 `nvidia/cuda:13.4.2-{base,runtime,devel}-ubuntu{22,24,26}.04` since 2026-09-29 (read on Docker Hub that
@@ -753,6 +756,30 @@ Gate: every image `publish-image.sh` pushes is built `FROM` `nvidia/cuda:13.4.2-
 wheels are built on 13.4.2 and pass the clean room; no document names 13.3 except `RELEASING.md:529`'s record.
 
 `RELEASING.md`, the toolkit paragraph · `Docker/Dockerfile.runtime:21`
+
+#### Releasing Mila is still a day of manual steps, and the release script stops before anything is published
+
+`open` · `ci` · `build` · `distribution`
+
+`scripts/release/release.py` (`+2`) builds and verifies a release locally from a `git archive` export — the
+Windows and Linux wheels, their install tests, both images and their checks, nine stages unattended in about an
+hour — and `prepare` / `finish` set the version, merge `dev` into `master` and tag, all in the local repository.
+What it does not do is everything a publish is (`RELEASING.md`, steps 1 and 8 to 11), and what has changed since:
+
+- The server's wheel, a fifth file since `+56`, and the CUDA 13.4.2 base images are not in its stages.
+- No Linux clang build and full suite from the export (ReleaseAutomation.md ring 2), so a patch tag builds nothing.
+- Publishing: the TestPyPI upload and the wait for the index before the clean room is dispatched, the PyPI
+  upload, the Docker Hub push behind a real approval rather than a piped prompt, the Hub overview through its
+  API, the tag push, the GitHub Release and Discussion at step 11, and the site's publish dispatch.
+- The release still validates a `.devN` snapshot at step 1 and ships a different build at step 8; staging the
+  exact files, verifying them, then promoting them closes that.
+
+`ReleaseAutomation.md` is still marked Draft, with its section 8 decisions open. Admitted 2026-10-10 (Todd), to
+be finished in this release.
+
+Gate: v0.21.0 is released by the script, from one command, with Todd's approvals the only manual steps.
+
+`scripts/release/release.py` · `Mila/Specifications/ReleaseAutomation.md` · `RELEASING.md`
 
 #### The deployment types repeat their namespace in their names
 

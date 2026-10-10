@@ -273,7 +273,7 @@ current API as part of v0.20 Training Revival.
 | Requirement | Version |
 |---|---|
 | C++ compiler | MSVC (Visual Studio 2026 18.6.2+) on Windows; Clang 19+ on Linux |
-| CUDA Toolkit | 13.3 |
+| CUDA Toolkit | 13.4 |
 | CMake | 4.0 or newer |
 | Git | 2.x or newer (validated on 2.54.0) |
 | GTest | 1.17.0 |
@@ -283,7 +283,7 @@ current API as part of v0.20 Training Revival.
 Ninja is the recommended generator — significantly faster than MSBuild for
 incremental C++23 module builds.
 
-Mila builds against CUDA 13.3, the version its CI builds with, and moves to each new CUDA
+Mila builds against CUDA 13.4, the version its CI builds with, and moves to each new CUDA
 release once NVIDIA publishes its Ubuntu 26.04 build image.
 
 On Windows, use Visual Studio 2026 18.6.2 or newer — earlier 2026 builds have a regression
@@ -324,7 +324,7 @@ Select the Ninja generator and Release configuration. Build with F7.
 ### Linux (native / WSL)
 
 On Linux — including WSL 2 — build with Clang against the bundled CMake presets. Requires
-Clang 19+ and CUDA 13.3:
+Clang 19+ and CUDA 13.4:
 
 ```bash
 cmake --preset linux-clang-release
@@ -338,7 +338,7 @@ exercises, requiring no CUDA toolkit.
 
 ### Docker
 
-A development container provides a reproducible Linux build toolchain (CUDA 13.3,
+A development container provides a reproducible Linux build toolchain (CUDA 13.4,
 Clang 21 with a gcc-15 nvcc host, CMake 4.x, Ninja) — the simplest way to build Mila without
 installing the toolchain locally, for example from WSL. It mounts the repo at `/mila` with GPU access.
 

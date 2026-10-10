@@ -18,7 +18,7 @@
 # Weights are NEVER baked in. They are gigabytes, separately licensed, and installed by
 # name at first run into the store volume declared below.
 
-ARG CUDA_VERSION=13.3.0
+ARG CUDA_VERSION=13.4.2
 ARG UBUNTU_VERSION=ubuntu26.04
 
 # =============================================================================

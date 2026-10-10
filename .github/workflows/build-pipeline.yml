@@ -51,10 +51,10 @@ jobs:
     # already burned it twice in one day. A bound above any real run and far below the default
     # turns a repeat into a legible failure instead of an afternoon.
     timeout-minutes: 100
-    # Mirrors the validated WSL toolchain: Ubuntu 26.04 + CUDA 13.3 (glibc 2.43 --
+    # Mirrors the validated WSL toolchain: Ubuntu 26.04 + CUDA 13.4 (glibc 2.43 --
     # the path that broke under CUDA 13.0). No cuDNN variant exists for 26.04, and
     # none is needed while USE_CUDNN is unset, so the plain devel image is correct.
-    container: nvidia/cuda:13.3.0-devel-ubuntu26.04
+    container: nvidia/cuda:13.4.2-devel-ubuntu26.04
     env:
       CUDA_PATH: /usr/local/cuda
       CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache

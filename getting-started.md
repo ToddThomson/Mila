@@ -22,7 +22,7 @@ Mila is pre-1.0, and breaking changes are expected between releases.
 | VS Code | 1.122 or newer | Linux / WSL path — with the WSL, C/C++, and CMake Tools extensions |
 | Git | 2.x or newer | Git for Windows (validated on 2.54.0) / distro `git`. Required at configure time — CPM fetches dependencies via `git`. GitHub Desktop is optional |
 | Docker | Docker Desktop (WSL2) or native `docker-ce` in WSL | Optional — only for the Docker dev-container path (Section 4); GPU access also needs the NVIDIA Container Toolkit |
-| CUDA Toolkit | 13.3 | Required for the CUDA backend |
+| CUDA Toolkit | 13.4 | Required for the CUDA backend |
 | CMake | 4.0 or newer | Bundled with recent Visual Studio |
 | Ninja | latest | Required for fast C++23 module incremental builds |
 | GTest | 1.17.0 | Fetched by the build |
@@ -30,7 +30,7 @@ Mila is pre-1.0, and breaking changes are expected between releases.
 | C++ Standard | C++23 | Modules, deducing-this, concepts |
 | Python | 3.10+ | Only needed to convert a checkpoint Mila does not publish (Section 5b); validated on 3.14.5 |
 
-Mila builds against CUDA Toolkit 13.3, the version its CI builds with, and moves to each new
+Mila builds against CUDA Toolkit 13.4, the version its CI builds with, and moves to each new
 CUDA release once NVIDIA publishes its Ubuntu 26.04 build image.
 
 **Supported C++ compilers** — Mila's C++23 modules require a recent compiler:
@@ -112,23 +112,26 @@ The steps below target a recent Ubuntu (24.04 or 26.04) with CUDA through WSL.
    with `lsb_release -a`.
 
 2. **Install the CUDA toolkit inside WSL.** Do **not** install a Linux display driver — the
-   Windows NVIDIA driver provides the GPU through WSL. NVIDIA's `wsl-ubuntu` repo is
-   version-agnostic, so it works regardless of the Ubuntu release. For CUDA 13.3:
+   Windows NVIDIA driver provides the GPU through WSL. Install `cuda-toolkit-13-4`, which is the
+   toolkit alone, and never the `cuda` or `cuda-drivers` packages, which bring a driver with them.
+   For CUDA 13.4 on Ubuntu 26.04:
    ```bash
-   wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-wsl-ubuntu.pin
-   sudo mv cuda-wsl-ubuntu.pin /etc/apt/preferences.d/cuda-repository-pin-600
-   wget https://developer.download.nvidia.com/compute/cuda/13.3.0/local_installers/cuda-repo-wsl-ubuntu-13-3-local_13.3.0-1_amd64.deb
-   sudo dpkg -i cuda-repo-wsl-ubuntu-13-3-local_13.3.0-1_amd64.deb
-   sudo cp /var/cuda-repo-wsl-ubuntu-13-3-local/cuda-*-keyring.gpg /usr/share/keyrings/
+   wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2604/x86_64/cuda-ubuntu2604.pin
+   sudo mv cuda-ubuntu2604.pin /etc/apt/preferences.d/cuda-repository-pin-600
+   wget https://developer.download.nvidia.com/compute/cuda/13.4.2/local_installers/cuda-repo-ubuntu2604-13-4-local_13.4.2-1_amd64.deb
+   sudo dpkg -i cuda-repo-ubuntu2604-13-4-local_13.4.2-1_amd64.deb
+   sudo cp /var/cuda-repo-ubuntu2604-13-4-local/cuda-*-keyring.gpg /usr/share/keyrings/
    sudo apt-get update
-   sudo apt-get -y install cuda-toolkit-13-3
+   sudo apt-get -y install cuda-toolkit-13-4
    ```
+   On Ubuntu 24.04, write `2404` for `2604` in every line.
+
    The toolkit does **not** add itself to `PATH` — that is a manual post-install step:
    ```bash
-   echo 'export PATH=/usr/local/cuda-13.3/bin:$PATH' >> ~/.bashrc
-   echo 'export LD_LIBRARY_PATH=/usr/local/cuda-13.3/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
+   echo 'export PATH=/usr/local/cuda-13.4/bin:$PATH' >> ~/.bashrc
+   echo 'export LD_LIBRARY_PATH=/usr/local/cuda-13.4/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
    source ~/.bashrc
-   nvcc --version | grep release        # expect: release 13.3
+   nvcc --version | grep release        # expect: release 13.4
    ```
 
 3. **Install the build tools and a C++ compiler.**
@@ -180,15 +183,15 @@ own process, so it takes several times longer than the binary above — every GP
 fresh CUDA context and reloads its weights.
 
 On Linux, point CMake at both compilers and the CUDA toolkit explicitly. This is what CI and the
-dev container run — clang-21 for the module units, gcc-15 as nvcc's host, CUDA 13.3:
+dev container run — clang-21 for the module units, gcc-15 as nvcc's host, CUDA 13.4:
 
 ```bash
 cmake -S . -B out/build/linux-release -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
-  -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.3/bin/nvcc \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.4/bin/nvcc \
   -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \
-  -DCUDAToolkit_ROOT=/usr/local/cuda-13.3 \
+  -DCUDAToolkit_ROOT=/usr/local/cuda-13.4 \
   -DCMAKE_CUDA_ARCHITECTURES=89 \
   -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
   -DCMAKE_CXX_STANDARD=23 -DMILA_ENABLE_TESTING=ON
@@ -235,7 +238,7 @@ Available presets, from `CMakePresets.json`:
 ## 4. Build with Docker / dev container
 
 If you do not want to install the CUDA/Clang/CMake toolchain locally, the development
-container provides a reproducible Linux build environment (CUDA 13.3, clang-21, gcc-15 as nvcc's
+container provides a reproducible Linux build environment (CUDA 13.4, clang-21, gcc-15 as nvcc's
 host, CMake 4.2.3, Ninja) — handy from WSL. It mounts the repo at `/mila` with GPU access. Note this **still
 builds Mila from source** inside the container; it removes toolchain setup, not the build.
 (To run a model without building anything, use the published runtime image — see the note at the

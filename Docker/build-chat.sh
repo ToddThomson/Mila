@@ -9,7 +9,7 @@
 # filesystem boundary (the same reason the WSL build uses an ext4 clone, not /mnt).
 #
 # The flag set mirrors the validated CI toolchain path (clang-21 modules, gcc-15
-# nvcc host, CUDA 13.3) and trims the build to the Chat target: no tests, samples,
+# nvcc host, CUDA 13.4) and trims the build to the Chat target: no tests, samples,
 # profiling, docs, or Python binding -- none are on the path to a running Chat.
 set -euo pipefail
 

@@ -508,7 +508,7 @@ in `Dockerfile.runtime`; they are one list and move together. The library defaul
 entry out of step until `rc.1+27`, when Turing was dropped from it — a compile pass for hardware
 the runtime refuses. The toolkit is declared the same way:
 `$cudaVersion` in `scripts/pypi/build-wheel-windows.ps1` for Windows, the base image in
-`Docker/Dockerfile.wheel` and `Docker/Dockerfile.runtime` for Linux — currently **13.3** across all
+`Docker/Dockerfile.wheel` and `Docker/Dockerfile.runtime` for Linux — currently **13.4.2** across all
 four. Before that the Windows wheel took whatever `CUDA_PATH` resolved to, so installing a toolkit
 on the dev box silently changed a published wheel; 13.4 landed mid-cycle and would have split one
 release across two toolchains. **Moving to a new toolkit is an edit to all of those together, and

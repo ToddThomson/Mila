@@ -12,12 +12,12 @@ Mirrors the validated CI / WSL matrix, so the container and CI stay comparable:
 
 | | |
 |---|---|
-| Base image | `nvidia/cuda:13.3.0-devel-ubuntu26.04` |
+| Base image | `nvidia/cuda:13.4.2-devel-ubuntu26.04` |
 | C++23 modules | clang-21 |
 | nvcc host compiler | gcc-15 (module-free `.cu` files) |
 | Build system | CMake 4.2.3 + Ninja + ccache |
 
-CUDA 13.3 (not 13.0) is required on Ubuntu 26.04 / glibc 2.43. No cuDNN is installed —
+CUDA 13.3 or later (not 13.0) is required on Ubuntu 26.04 / glibc 2.43. No cuDNN is installed —
 `USE_CUDNN` is unset and no cuDNN image exists for 26.04.
 
 ## Prerequisites (host)

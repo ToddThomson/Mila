@@ -136,6 +136,7 @@ means a status line or target is out of date and the rest has not been re-read.
 |---|---|---|---|
 | [ChatConfiguration.md](ChatConfiguration.md) | Design | Chat's layered configuration | |
 | [PythonBinding.md](PythonBinding.md) | Design | The Python binding as a product, and its samples | |
+| [Notebooks/MilaCommandLineReview.md](Notebooks/MilaCommandLineReview.md) | Notebook | Review of the `mila` command line utility, 2026-10-10 | Findings, and one decision: a published utility is for the end user only. What else it encompasses is unresolved, and no finding is admitted until it is |
 | [MilaISCodexAgent.md](MilaISCodexAgent.md) | Design | The inference server's bridge from OpenAI Responses tool schemas to Llama's tool format | Describes code that ships: `protocols/openai/tool_bridge.py`, imported by `responses.py`. Written 2026-05-15 against Llama 3.2 3B; not re-read against today's bridge |
 
 ### Release

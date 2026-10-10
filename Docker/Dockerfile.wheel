@@ -20,7 +20,7 @@
 #
 # UNPROVEN: whether clang compiles Mila's C++23 module units against 24.04's libstdc++
 # 14 headers. That is the first thing this image exists to answer.
-FROM nvidia/cuda:13.3.0-devel-ubuntu24.04
+FROM nvidia/cuda:13.4.2-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 

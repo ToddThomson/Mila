@@ -23,7 +23,7 @@
 # across the host->container filesystem boundary (same reason build-chat.sh does it).
 #
 # The flag set mirrors the validated CI/WSL toolchain (clang-21 modules, gcc-15 nvcc
-# host, CUDA 13.3).
+# host, CUDA 13.4).
 set -euo pipefail
 
 # CUDA arch(es) to build for. Default `native`: CMake detects the arch of the GPU(s)

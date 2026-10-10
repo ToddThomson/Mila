@@ -10,6 +10,15 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## An evaluation's two arms cannot run either side of midnight
+
+`Mila/Tools/Evaluation/run_arm.py` `lm_eval_arguments`, `compare_arms.py` `check_pairing` @ `6dcac3b`
+
+Found 2026-10-10 when Todd asked for evaluations to run overnight. Llama 3's chat template writes today's date
+into every prompt (transformers renders it with `strftime_now`), so a pair whose arms start on different days
+has no matching prompts and `compare_arms.py` refuses it. Phase 1 takes about 2.7 hours an arm on the 5060 Ti, so
+an overnight pair crosses midnight. The template takes a `date_string` when one is given.
+
 ## The Qwen 3.8 2.82-bit model card says "residency"
 
 `Mila/Tools/ExportArtifact/ModelCards/Qwen3.8-27B-cb2-3/README.md:53` @ `539396e`

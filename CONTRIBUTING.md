@@ -43,7 +43,7 @@ first PR — see [getting-started.md](getting-started.md).
 ### Required Components
 * A C++23 compiler with module support: **MSVC** (Visual Studio 2026 18.6.2+) or **Clang 19+**. GCC is not supported: 14.2 and 15 fail to compile Mila's C++23 modules, and GCC 16 has not been tried. (In CUDA builds the C++ compiler handles the modules; nvcc uses a separate host compiler for `.cu` files, where an older GCC is acceptable.)
 * Git 2.x or newer, on `PATH` (validated on 2.54.0; used to clone, and required at CMake configure time — CPM fetches dependencies via `git clone`). GitHub Desktop is an optional convenience
-* NVIDIA CUDA Toolkit 13.3 (the version CI builds with) — **only for GPU builds**; see below
+* NVIDIA CUDA Toolkit 13.4 (the version CI builds with) — **only for GPU builds**; see below
 * CMake 4.0 or newer
 * Ninja (required for fast C++23 module incremental builds)
 * GTest 1.17.0 for unit testing
@@ -110,7 +110,7 @@ maintainer what is left to check on real cards.
 
 1. **Prerequisites**
    - Visual Studio 2026 18.6.2 or newer with "Desktop development with C++" workload (earlier 2026 builds have a C++23 module regression that breaks the build)
-   - CUDA Toolkit 13.3
+   - CUDA Toolkit 13.4
    - CMake 4.0 or newer (included with Visual Studio)
 
 2. **Open the Project**
@@ -137,7 +137,7 @@ maintainer what is left to check on real cards.
    - Visual Studio Code 1.122 or newer
    - C/C++ extension
    - CMake Tools extension
-   - CUDA Toolkit 13.3
+   - CUDA Toolkit 13.4
    - CMake 4.0 or newer
 
 2. **Open the Project**
