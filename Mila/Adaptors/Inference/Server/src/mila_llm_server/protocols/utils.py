@@ -17,19 +17,103 @@ def parse_stop(stop: str | list[str] | None) -> list[str]:
     return [sequence for sequence in stop if sequence]
 
 
-def truncate_at_stop(text: str, stop: list[str]) -> tuple[str, bool]:
+def truncate_at_stop(text: str, stop: list[str]) -> tuple[str, str | None]:
     """
     Cut text at the earliest occurrence of any stop sequence. Returns the text before it and
-    whether one was found. Earliest, not first in the list: OpenAI stops generation at the
+    the sequence found, or None. Earliest, not first in the list: OpenAI stops generation at the
     first sequence produced, wherever it sits in the list.
     """
-    positions = [text.find(sequence) for sequence in stop]
-    found = [position for position in positions if position >= 0]
+    found = [(text.find(sequence), sequence) for sequence in stop]
+    found = [(position, sequence) for position, sequence in found if position >= 0]
 
     if not found:
-        return text, False
+        return text, None
 
-    return text[:min(found)], True
+    position, sequence = min(found)
+
+    return text[:position], sequence
+
+
+class StopScanner:
+    """
+    Applies stop sequences to a streamed reply, as truncate_at_stop applies them to a whole one.
+
+    A sequence can arrive split across chunks, so the tail that could still begin one is held back
+    until the next chunk settles it. feed() returns the text that is safe to send; once a sequence
+    is found, `matched` names it and nothing after it is ever returned. flush() releases what is
+    held when the reply ends without one.
+    """
+
+    def __init__(self, stop: list[str]):
+        self._stop = stop
+        self._held = ""
+        self._hold = max((len(sequence) for sequence in stop), default=1) - 1
+        self.matched: str | None = None
+
+    def feed(self, text: str) -> str:
+        if self.matched is not None:
+            return ""
+
+        pending = self._held + text
+        before, matched = truncate_at_stop(pending, self._stop)
+
+        if matched is not None:
+            self.matched = matched
+            self._held = ""
+
+            return before
+
+        cut = max(len(pending) - self._hold, 0)
+
+        while cut < len(pending) and not any(sequence.startswith(pending[cut:]) for sequence in self._stop):
+            cut += 1
+
+        self._held = pending[cut:]
+
+        return pending[:cut]
+
+    def flush(self) -> str:
+        held, self._held = self._held, ""
+
+        return held
+
+
+#: Why a reply ended, as the routes carry it. Each protocol adapter spells these its own way.
+END_TURN = "end_turn"
+STOP_SEQUENCE = "stop_sequence"
+MAX_TOKENS = "max_tokens"
+CONTEXT_LIMIT = "context_limit"
+
+
+def finish_reason_from_status(status: str, requested_tokens: int, allowed_tokens: int) -> str:
+    """
+    The reason a reply ended, from the binding's generate() status. The routes lower a request's
+    max_tokens to what the context has left, so a reply stopped at that lowered budget ran out of
+    context, not of the tokens it asked for. A cancelled generation is the model's turn ending: the
+    worker cancels at a protocol marker, and a route that cancels for a stop sequence or a dropped
+    client sets the reason itself.
+    """
+    if status == "length":
+        return CONTEXT_LIMIT if allowed_tokens < requested_tokens else MAX_TOKENS
+
+    if status == "context_limit":
+        return CONTEXT_LIMIT
+
+    return END_TURN
+
+
+def openai_finish_reason(reason: str) -> str:
+    """OpenAI's spelling. It has no value for a full context, and `length` is the one a client handles."""
+    return "length" if reason in (MAX_TOKENS, CONTEXT_LIMIT) else "stop"
+
+
+def anthropic_stop_reason(reason: str) -> str:
+    return {
+        END_TURN: "end_turn",
+        STOP_SEQUENCE: "stop_sequence",
+        MAX_TOKENS: "max_tokens",
+        CONTEXT_LIMIT: "model_context_window_exceeded",
+    }[reason]
 
 
 def parse_completion_prompt(prompt: str | list) -> tuple[str, list[int]]:

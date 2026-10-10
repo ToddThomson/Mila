@@ -117,7 +117,7 @@ outright is the most any form of fusion could save, so speed cannot carry this p
 ### 4.6 It is past the target
 
 The 26B-A4B fits 65536 on 16 GB with the FP8 global cache, which was the target. 96K is beyond it, and v0.21 is dated
-2026-12-15.
+2026-11-20.
 
 ## 5. What decides it
 

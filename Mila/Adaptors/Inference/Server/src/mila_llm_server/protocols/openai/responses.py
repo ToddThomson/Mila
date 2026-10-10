@@ -8,7 +8,15 @@ import uuid
 
 from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
 from mila_llm_server.protocols.base import ResponsesCapable
-from mila_llm_server.protocols.utils import DEFAULT_SYSTEM_PROMPT, extract_content
+from mila_llm_server.protocols.utils import CONTEXT_LIMIT, DEFAULT_SYSTEM_PROMPT, END_TURN, MAX_TOKENS, extract_content
+
+
+def _completion_status(finish_reason: str) -> tuple[str, dict | None]:
+    """A reply cut at its token budget or the context is `incomplete`, as OpenAI reports one."""
+    if finish_reason in (MAX_TOKENS, CONTEXT_LIMIT):
+        return "incomplete", {"reason": "max_output_tokens"}
+
+    return "completed", None
 from mila_llm_server.protocols.openai.tool_bridge import build_tool_injection, parse_tool_call
 from mila_llm_server.prompt import build_instruct_prompt
 from mila_llm_server.config import settings, loaded, ModelFamily
@@ -416,14 +424,15 @@ class OpenAIResponsesAdapter(ResponsesCapable):
         tool_call_item = self.parse_tool_call_from_text(response.text)
         if tool_call_item:
             output = [tool_call_item]
-            status = "completed"
+            status, incomplete_details = "completed", None
         else:
+            status, incomplete_details = _completion_status(response.finish_reason)
             output = [
                 {
                     "id": f"msg-{uuid.uuid4().hex}",
                     "type": "message",
                     "role": "assistant",
-                    "status": "completed",
+                    "status": status,
                     "content": [
                         {
                             "type": "output_text",
@@ -432,7 +441,6 @@ class OpenAIResponsesAdapter(ResponsesCapable):
                     ],
                 }
             ]
-            status = "completed"
 
         return {
             "id": response_id,
@@ -440,7 +448,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
             "created_at": int(time.time()),
             "model": loaded.name,
             "status": status,
-            "incomplete_details": None,
+            "incomplete_details": incomplete_details,
             "error": None,
             "output": output,
             "usage": {
@@ -556,23 +564,27 @@ class OpenAIResponsesAdapter(ResponsesCapable):
             }
         return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
-    def format_responses_stream_done(self, response_id: str, output_text: str = "") -> str:
+    def format_responses_stream_done(
+        self, response_id: str, output_text: str = "", finish_reason: str = END_TURN
+    ) -> str:
+        status, incomplete_details = _completion_status(finish_reason)
+        event_type = "response.completed" if status == "completed" else "response.incomplete"
         data = {
-            "type": "response.completed",
+            "type": event_type,
             "response": {
                 "id": response_id,
                 "object": "response",
                 "created_at": int(time.time()),
                 "model": loaded.name,
-                "status": "completed",
-                "incomplete_details": None,
+                "status": status,
+                "incomplete_details": incomplete_details,
                 "error": None,
                 "output": [
                     {
                         "id": f"msg-{uuid.uuid4().hex}",
                         "type": "message",
                         "role": "assistant",
-                        "status": "completed",
+                        "status": status,
                         "content": [
                             {
                                 "type": "output_text",
@@ -583,4 +595,4 @@ class OpenAIResponsesAdapter(ResponsesCapable):
                 ],
             },
         }
-        return f"event: response.completed\ndata: {json.dumps(data)}\n\n"
+        return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"

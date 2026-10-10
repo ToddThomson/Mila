@@ -15,7 +15,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from mila_llm_server.model_worker import worker
 from mila_llm_server.protocols.base import ProtocolAdapter, ResponsesCapable, ModelsCapable
-from mila_llm_server.protocols.utils import truncate_at_stop
+from mila_llm_server.protocols.utils import (
+    END_TURN,
+    STOP_SEQUENCE,
+    StopScanner,
+    finish_reason_from_status,
+    truncate_at_stop,
+)
 from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
 from mila_llm_server.config import settings, loaded, ModelFamily
 
@@ -109,6 +115,7 @@ async def _dispatch(
     if remaining <= 0:
         return _prompt_too_long_error(len(prompt_ids), loaded.context_length)
 
+    requested_tokens = inf_req.max_new_tokens
     inf_req.max_new_tokens = min(inf_req.max_new_tokens, remaining)
     inf_req.prompt_ids = prompt_ids
 
@@ -130,13 +137,13 @@ async def _dispatch(
         # Adapters that supply the streaming tool_use formatters take the buffered path;
         # everyone else (tool-blind adapters, Llama) keeps the live token stream.
         if tool_capable and hasattr(adapter, "format_stream_tool_use_block"):
-            stream_gen = _stream_buffered_tool(inf_req, http_req, adapter)
+            stream_gen = _stream_buffered_tool(inf_req, http_req, adapter, requested_tokens)
         else:
-            stream_gen = _stream(inf_req, http_req, adapter)
+            stream_gen = _stream(inf_req, http_req, adapter, requested_tokens)
         return StreamingResponse(stream_gen, media_type="text/event-stream")
 
     if tool_capable:
-        text, completion_count = await worker.generate_collect(
+        text, completion_count, status = await worker.generate_collect(
             inf_req.prompt_ids,
             inf_req.max_new_tokens,
             inf_req.temperature,
@@ -145,12 +152,12 @@ async def _dispatch(
         )
         response = InferenceResponse(
             text=text,
-            finish_reason="stop",
+            finish_reason=finish_reason_from_status(status, requested_tokens, inf_req.max_new_tokens),
             prompt_token_count=len(inf_req.prompt_ids),
             completion_token_count=completion_count,
         )
     else:
-        output_ids = await worker.generate(
+        output_ids, status = await worker.generate(
             inf_req.prompt_ids,
             inf_req.max_new_tokens,
             inf_req.temperature,
@@ -163,14 +170,18 @@ async def _dispatch(
 
         response = InferenceResponse(
             text=text,
-            finish_reason="stop",
+            finish_reason=finish_reason_from_status(status, requested_tokens, inf_req.max_new_tokens),
             prompt_token_count=len(inf_req.prompt_ids),
             completion_token_count=len(new_ids),
         )
 
     # Cut after generation rather than during it: the caller receives the same reply, and
     # stopping early would save only the tokens past the stop.
-    response.text, _ = truncate_at_stop(response.text, inf_req.stop)
+    response.text, matched = truncate_at_stop(response.text, inf_req.stop)
+
+    if matched is not None:
+        response.finish_reason = STOP_SEQUENCE
+        response.stop_sequence = matched
 
     payload = adapter.format_chat_response(response) if is_chat else adapter.format_completions_response(response)
     return JSONResponse(content=payload)
@@ -188,6 +199,7 @@ async def _dispatch_responses(
     if remaining <= 0:
         return _prompt_too_long_error(len(prompt_ids), loaded.context_length)
 
+    requested_tokens = inf_req.max_new_tokens
     inf_req.max_new_tokens = min(inf_req.max_new_tokens, remaining)
     inf_req.prompt_ids = prompt_ids
 
@@ -195,11 +207,11 @@ async def _dispatch_responses(
 
     if inf_req.stream:
         return StreamingResponse(
-            _stream_responses(inf_req, http_req, adapter, response_id),
+            _stream_responses(inf_req, http_req, adapter, response_id, requested_tokens),
             media_type="text/event-stream",
         )
 
-    output_ids = await worker.generate(
+    output_ids, status = await worker.generate(
         inf_req.prompt_ids,
         inf_req.max_new_tokens,
         inf_req.temperature,
@@ -212,7 +224,7 @@ async def _dispatch_responses(
 
     response = InferenceResponse(
         text=text,
-        finish_reason="stop",
+        finish_reason=finish_reason_from_status(status, requested_tokens, inf_req.max_new_tokens),
         prompt_token_count=len(inf_req.prompt_ids),
         completion_token_count=len(new_ids),
     )
@@ -223,10 +235,13 @@ async def _stream(
     inf_req: InferenceRequest,
     http_req: Request,
     adapter: ProtocolAdapter,
+    requested_tokens: int,
 ) -> AsyncIterator[str]:
     queue: asyncio.Queue[str | None] = asyncio.Queue()
     stop_ctrl = mila.StopController()
     loop = asyncio.get_running_loop()
+    # The same stop sequences a buffered reply is cut at, applied as the text arrives.
+    scanner = StopScanner(inf_req.stop)
 
     def on_text(text: str) -> None:
         loop.call_soon_threadsafe(queue.put_nowait, text)
@@ -277,15 +292,35 @@ async def _stream(
 
             first_token = False
             output_token_count += 1
-            yield adapter.format_stream_chunk(text, done=False)
+            safe = scanner.feed(text)
+
+            if safe:
+                yield adapter.format_stream_chunk(safe, done=False)
+
+            if scanner.matched is not None:
+                stop_ctrl.request_stop()
+                break
 
     finally:
         if not generation.done():
             stop_ctrl.request_stop()
             await generation
-        yield adapter.format_stream_chunk("", done=True)
+
+        held = scanner.flush()
+
+        if held:
+            yield adapter.format_stream_chunk(held, done=False)
+
+        if scanner.matched is not None:
+            finish_reason = STOP_SEQUENCE
+        elif generation.cancelled() or generation.exception() is not None:
+            finish_reason = END_TURN
+        else:
+            finish_reason = finish_reason_from_status(generation.result(), requested_tokens, inf_req.max_new_tokens)
+
+        yield adapter.format_stream_chunk("", done=True, finish_reason=finish_reason)
         if hasattr(adapter, "format_stream_message_delta"):
-            yield adapter.format_stream_message_delta(output_token_count)
+            yield adapter.format_stream_message_delta(output_token_count, finish_reason, scanner.matched)
         yield adapter.format_stream_done()
 
 
@@ -293,6 +328,7 @@ async def _stream_buffered_tool(
     inf_req: InferenceRequest,
     http_req: Request,
     adapter: ProtocolAdapter,
+    requested_tokens: int,
 ) -> AsyncIterator[str]:
     """
     Streaming path for native-tool Gemma adapters (Anthropic Messages). The Gemma
@@ -380,8 +416,13 @@ async def _stream_buffered_tool(
             yield adapter.format_stream_message_stop_delta(output_token_count, "tool_use")
         else:
             display_text = adapter.clean_response_text(full_text)
+            finish_reason = END_TURN
+
+            if not generation.cancelled() and generation.exception() is None:
+                finish_reason = finish_reason_from_status(generation.result(), requested_tokens, inf_req.max_new_tokens)
+
             yield adapter.format_stream_text_block(display_text)
-            yield adapter.format_stream_message_stop_delta(output_token_count, "end_turn")
+            yield adapter.format_stream_message_stop_delta(output_token_count, adapter.stop_reason(finish_reason))
 
         yield adapter.format_stream_done()
 
@@ -391,6 +432,7 @@ async def _stream_responses(
     http_req: Request,
     adapter: ResponsesCapable,
     response_id: str,
+    requested_tokens: int,
 ) -> AsyncIterator[str]:
     queue: asyncio.Queue[str | None] = asyncio.Queue()
     stop_ctrl = mila.StopController()
@@ -490,7 +532,12 @@ async def _stream_responses(
             yield adapter.format_responses_stream_chunk(display_text, done=True, response_id=response_id)
             yield adapter.format_responses_stream_content_part_done(response_id, display_text)
             yield adapter.format_responses_stream_output_item_done(response_id, item_id, display_text)
-            yield adapter.format_responses_stream_done(response_id, output_text=display_text)
+            finish_reason = END_TURN
+
+            if not generation.cancelled() and generation.exception() is None:
+                finish_reason = finish_reason_from_status(generation.result(), requested_tokens, inf_req.max_new_tokens)
+
+            yield adapter.format_responses_stream_done(response_id, output_text=display_text, finish_reason=finish_reason)
 
         print(f"[{_elapsed()}] {response_id}: stream closed", flush=True)
 

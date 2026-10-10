@@ -8,7 +8,7 @@ name = "mila-llm-server"
 # binding's hand-maintained copy drifted 18 builds behind before this was fixed, and MIS
 # releases with the runtime it serves. The SemVer -> PEP 440 mapping lives once, in
 # cmake/MilaVersion.cmake; setup.py reads the generated VERSION file.
-dynamic = ["version"]
+dynamic = ["version", "dependencies"]
 description = "Mila Inference Server: OpenAI, Anthropic and Mila chat protocols over the Mila runtime."
 readme = "README.md"
 # Follows mila-llm's range rather than leading it. The old 3.13 floor predated the cp312
@@ -30,17 +30,6 @@ classifiers = [
     "Environment :: GPU :: NVIDIA CUDA :: 13",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
-]
-
-dependencies = [
-    # The runtime, as an ordinary dependency rather than a file the build copies in.
-    # The floor is the first published release carrying from_store(); a development
-    # snapshot satisfies it too, since 0.20.0b3.devN sorts after 0.20.0b2.
-    "mila-llm>=0.20.0b2",
-    "fastapi>=0.136.0",
-    "uvicorn[standard]>=0.44.0",
-    "pydantic>=2.13.3",
-    "pydantic-settings>=2.14.0",
 ]
 
 [project.scripts]

@@ -9,6 +9,7 @@ import uuid
 
 from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
 from mila_llm_server.protocols.base import ProtocolAdapter
+from mila_llm_server.protocols.utils import END_TURN, openai_finish_reason
 from mila_llm_server.prompt import build_instruct_prompt
 
 
@@ -58,7 +59,7 @@ class MilaChatAdapter(ProtocolAdapter):
             "created": int(time.time()),
             "model": "mila",
             "text": response.text,
-            "finish_reason": response.finish_reason,
+            "finish_reason": openai_finish_reason(response.finish_reason),
             "usage": {
                 "prompt_tokens": response.prompt_token_count,
                 "completion_tokens": response.completion_token_count,
@@ -72,18 +73,22 @@ class MilaChatAdapter(ProtocolAdapter):
             "created": int(time.time()),
             "model": "mila",
             "text": response.text,
-            "finish_reason": response.finish_reason,
+            "finish_reason": openai_finish_reason(response.finish_reason),
             "usage": {
                 "prompt_tokens": response.prompt_token_count,
                 "completion_tokens": response.completion_token_count,
             },
         }
 
-    def format_stream_chunk(self, text: str, done: bool) -> str:
+    def format_stream_chunk(self, text: str, done: bool, finish_reason: str = END_TURN) -> str:
         chunk = {
             "text": text,
             "done": done,
         }
+
+        if done:
+            chunk["finish_reason"] = openai_finish_reason(finish_reason)
+
         return f"data: {json.dumps(chunk)}\n\n"
 
     def format_stream_done(self) -> str:

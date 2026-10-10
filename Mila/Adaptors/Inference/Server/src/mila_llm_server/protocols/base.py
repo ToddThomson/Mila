@@ -47,10 +47,11 @@ class ProtocolAdapter(ABC):
         ...
 
     @abstractmethod
-    def format_stream_chunk(self, text: str, done: bool) -> str:
+    def format_stream_chunk(self, text: str, done: bool, finish_reason: str = "end_turn") -> str:
         """
         Format a single token (or the done sentinel) into an SSE line.
         Must return a complete SSE-formatted string including trailing newlines.
+        finish_reason is why the reply ended, in protocols.utils' terms; read only when done.
         """
         ...
 

@@ -58,6 +58,26 @@ static std::optional<int64_t> parseContextLength( const ContextLengthArgument& a
     return length;
 }
 
+/**
+ * @brief Model text as a Python string, decoded from UTF-8 under a Python error handler.
+ *
+ * Ids cut off inside a multi-byte character are ordinary output -- a reply stopped at max_tokens.
+ * "strict" raises UnicodeDecodeError on them, which is how a streaming caller knows to wait for the
+ * next token; "replace" gives U+FFFD, as HuggingFace's decode does for the same bytes.
+ */
+static py::str textFromBytes( const std::string& bytes, const std::string& errors )
+{
+    PyObject* text = PyUnicode_DecodeUTF8(
+        bytes.data(), static_cast<Py_ssize_t>( bytes.size() ), errors.c_str() );
+
+    if ( text == nullptr )
+    {
+        throw py::error_already_set();
+    }
+
+    return py::reinterpret_steal<py::str>( text );
+}
+
 using Mila::Bindings::GemmaConfigInfo;
 using Mila::Bindings::GemmaSession;
 using Mila::Bindings::LlamaConfigInfo;
@@ -130,12 +150,22 @@ static void bind_tokenizer( py::module_& m )
             py::arg( "text" ),
             "Encode UTF-8 text to a list of token IDs." )
         .def( "decode",
-            []( Tokenizer& self, const std::vector<int32_t>& ids ) -> std::string {
-                py::gil_scoped_release _;
-                return self.decode( ids );
+            []( Tokenizer& self, const std::vector<int32_t>& ids, const std::string& errors ) {
+                std::string bytes;
+                {
+                    py::gil_scoped_release _;
+                    bytes = self.decode( ids );
+                }
+
+                return textFromBytes( bytes, errors );
             },
             py::arg( "ids" ),
-            "Decode a list of token IDs to a UTF-8 string." )
+            py::arg( "errors" ) = "strict",
+            "Decode a list of token IDs to text.\n\n"
+            "errors is a Python error handler, as for bytes.decode(). Ids can stop inside\n"
+            "a multi-byte character: 'strict' (the default) raises UnicodeDecodeError, so a\n"
+            "stream can wait for the next token; 'replace' gives U+FFFD, as HuggingFace\n"
+            "decodes a whole reply." )
         .def( "token_to_string",
             []( const Tokenizer& self, int32_t token_id ) {
                 return self.tokenToString( token_id );

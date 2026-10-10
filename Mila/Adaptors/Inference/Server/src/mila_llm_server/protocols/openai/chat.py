@@ -11,7 +11,9 @@ from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
 from mila_llm_server.protocols.base import ProtocolAdapter
 from mila_llm_server.protocols.utils import (
     DEFAULT_SYSTEM_PROMPT,
+    END_TURN,
     extract_content,
+    openai_finish_reason,
     parse_completion_prompt,
     parse_stop,
 )
@@ -84,7 +86,7 @@ class OpenAIChatAdapter(ProtocolAdapter):
                         "role": "assistant",
                         "content": response.text,
                     },
-                    "finish_reason": response.finish_reason,
+                    "finish_reason": openai_finish_reason(response.finish_reason),
                 }
             ],
             "usage": {
@@ -104,7 +106,7 @@ class OpenAIChatAdapter(ProtocolAdapter):
                 {
                     "text": response.text,
                     "index": 0,
-                    "finish_reason": response.finish_reason,
+                    "finish_reason": openai_finish_reason(response.finish_reason),
                 }
             ],
             "usage": {
@@ -114,7 +116,7 @@ class OpenAIChatAdapter(ProtocolAdapter):
             },
         }
 
-    def format_stream_chunk(self, text: str, done: bool) -> str:
+    def format_stream_chunk(self, text: str, done: bool, finish_reason: str = END_TURN) -> str:
         chunk = {
             "id": f"chatcmpl-{uuid.uuid4().hex}",
             "object": "chat.completion.chunk",
@@ -124,7 +126,7 @@ class OpenAIChatAdapter(ProtocolAdapter):
                 {
                     "index": 0,
                     "delta": {"content": text},
-                    "finish_reason": "stop" if done else None,
+                    "finish_reason": openai_finish_reason(finish_reason) if done else None,
                 }
             ],
         }

@@ -414,7 +414,7 @@ there.
 ## 8. Non-Goals
 
 - Choosing a package for a base-model name, or naming an intent (`Direction.md` 6.5).
-- Opening a loose weights file with no store record. `Direction.md` 4.2 rule 7: in v0.21.0 a model is named.
+- Opening a loose weights file with no store record. `Direction.md` 4.2 rule 7: in v0.22.0 a model is named.
 - Erasing device or precision (4).
 - Conversation state, tool dispatch, the splice, and the autonomy policy: `Mila::AI` and the agent core.
 

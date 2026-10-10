@@ -2,7 +2,8 @@ name: Wheel clean room
 
 # Purpose: prove a PUBLISHED mila-llm wheel installs and loads on a machine with no
 # CUDA Toolkit -- the machine a wheel exists to serve, and the one configuration a
-# developer box can never be. GitHub's hosted runners ship no CUDA, which is what makes
+# developer box can never be -- and that mila-llm-server of the same version installs
+# from the index, brings that wheel with it, and starts. GitHub's hosted runners ship no CUDA, which is what makes
 # them the right instrument here; scripts/pypi/verify_wheel_cleanroom.py asserts that
 # absence before it asserts anything else, so a runner image that gained a Toolkit
 # fails loudly instead of quietly reporting a pass it did not earn.
@@ -80,7 +81,10 @@ jobs:
       # hence extra-index-url. But PyPI also carries an older mila-llm that outranks a
       # TestPyPI dev build, so only pinning the exact version guarantees which artifact
       # is under test. The script asserts the version it actually got.
-      - name: Install mila-llm ${{ inputs.version }}
+      #
+      # The server is what is installed, as a user installs it: it pins mila-llm to its
+      # own version, so the runtime under test arrives as its dependency.
+      - name: Install mila-llm-server ${{ inputs.version }}
         shell: bash
         run: |
           python -m pip install --upgrade pip
@@ -89,9 +93,9 @@ jobs:
             python -m pip install \
               --index-url https://test.pypi.org/simple/ \
               --extra-index-url https://pypi.org/simple/ \
-              "mila-llm==${{ inputs.version }}"
+              "mila-llm-server==${{ inputs.version }}"
           else
-            python -m pip install "mila-llm==${{ inputs.version }}"
+            python -m pip install "mila-llm-server==${{ inputs.version }}"
           fi
 
       - name: Show what was installed
@@ -106,3 +110,24 @@ jobs:
         run: |
           python "${GITHUB_WORKSPACE}/scripts/pypi/verify_wheel_cleanroom.py" \
             --expect-version "${{ inputs.version }}"
+
+      # The server on a runner with no model installed and no GPU must refuse to start,
+      # naming what is missing -- not fail to import, and not hang. Its store lookup runs
+      # before any device is touched, so the refusal is the whole startup path short of
+      # loading weights.
+      - name: Verify the server installs and refuses cleanly with no model
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          set +e
+          MILA_MODEL=no-such-model MILA_PORT=8099 timeout 120 mila-server > mila-server.log 2>&1
+          status=$?
+          set -e
+          cat mila-server.log
+
+          if [ "$status" -eq 0 ] || [ "$status" -eq 124 ]; then
+            echo "mila-server exited with $status; expected a refusal"
+            exit 1
+          fi
+
+          grep -q "No model named 'no-such-model' is installed" mila-server.log

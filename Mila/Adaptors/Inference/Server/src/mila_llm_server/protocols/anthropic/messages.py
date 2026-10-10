@@ -22,7 +22,13 @@ import mila
 
 from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
 from mila_llm_server.protocols.base import ProtocolAdapter
-from mila_llm_server.protocols.utils import DEFAULT_SYSTEM_PROMPT, extract_content
+from mila_llm_server.protocols.utils import (
+    DEFAULT_SYSTEM_PROMPT,
+    END_TURN,
+    anthropic_stop_reason,
+    extract_content,
+    parse_stop,
+)
 from mila_llm_server.prompt import build_instruct_prompt
 from mila_llm_server.config import settings, loaded, ModelFamily
 from mila_llm_server import gemma_bridge, qwen_bridge
@@ -127,6 +133,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
             top_k=body.get("top_k", settings.default_top_k),
             top_p=body.get("top_p", settings.default_top_p),
             stream=body.get("stream", False),
+            stop=parse_stop(body.get("stop_sequences")),
         )
         return prompt_str, req
 
@@ -386,6 +393,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
                 }
             ]
             stop_reason = "tool_use"
+            stop_sequence = None
         else:
             content = [
                 {
@@ -393,7 +401,8 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
                     "text": self.clean_response_text(response.text),
                 }
             ]
-            stop_reason = "end_turn"
+            stop_reason = anthropic_stop_reason(response.finish_reason)
+            stop_sequence = response.stop_sequence
 
         return {
             "id": f"msg_{uuid.uuid4().hex}",
@@ -402,7 +411,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
             "content": content,
             "model": loaded.name,
             "stop_reason": stop_reason,
-            "stop_sequence": None,
+            "stop_sequence": stop_sequence,
             "usage": {
                 "input_tokens": response.prompt_token_count,
                 "output_tokens": response.completion_token_count,
@@ -438,7 +447,10 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
             f"event: ping\ndata: {json.dumps(ping)}\n\n"
         )
 
-    def format_stream_chunk(self, text: str, done: bool) -> str:
+    def stop_reason(self, finish_reason: str) -> str:
+        return anthropic_stop_reason(finish_reason)
+
+    def format_stream_chunk(self, text: str, done: bool, finish_reason: str = END_TURN) -> str:
         if done:
             event_type = "content_block_stop"
             data = {"type": "content_block_stop", "index": 0}
@@ -454,10 +466,12 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
             }
         return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
-    def format_stream_message_delta(self, output_token_count: int) -> str:
+    def format_stream_message_delta(
+        self, output_token_count: int, finish_reason: str = END_TURN, stop_sequence: str | None = None
+    ) -> str:
         data = {
             "type": "message_delta",
-            "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+            "delta": {"stop_reason": anthropic_stop_reason(finish_reason), "stop_sequence": stop_sequence},
             "usage": {"output_tokens": output_token_count},
         }
         return f"event: message_delta\ndata: {json.dumps(data)}\n\n"

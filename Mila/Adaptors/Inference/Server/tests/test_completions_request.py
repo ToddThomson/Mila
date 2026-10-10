@@ -29,15 +29,15 @@ def test_stop_accepts_a_string_a_list_or_nothing():
 
 
 def test_truncation_cuts_at_the_earliest_stop_whatever_its_order_in_the_list():
-    text, stopped = truncate_at_stop("The answer is 4.\nQ: next\n</s>", ["</s>", "Q:"])
+    text, matched = truncate_at_stop("The answer is 4.\nQ: next\n</s>", ["</s>", "Q:"])
 
     assert text == "The answer is 4.\n"
-    assert stopped
+    assert matched == "Q:"
 
 
 def test_truncation_without_a_match_returns_the_text_whole():
-    assert truncate_at_stop("The answer is 4.", ["Q:"]) == ("The answer is 4.", False)
-    assert truncate_at_stop("The answer is 4.", []) == ("The answer is 4.", False)
+    assert truncate_at_stop("The answer is 4.", ["Q:"]) == ("The answer is 4.", None)
+    assert truncate_at_stop("The answer is 4.", []) == ("The answer is 4.", None)
 
 
 @pytest.mark.parametrize("prompt", [[128000, 9906, 1917], [[128000, 9906, 1917]]])
@@ -99,7 +99,7 @@ class FakeWorker:
     async def generate(self, prompt_ids, max_new_tokens, temperature, top_k, top_p=1.0):
         self.generated_from = list(prompt_ids)
 
-        return list(prompt_ids) + self.reply_ids
+        return list(prompt_ids) + self.reply_ids, "stop"
 
 
 @pytest.fixture

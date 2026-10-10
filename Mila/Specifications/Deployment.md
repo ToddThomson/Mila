@@ -5,8 +5,8 @@ on the hardware in front of it: which devices, how its blocks are placed across 
 length, and what prefill chunk. The decision is a value, the **plan**, that a load then executes
 without deciding anything again.
 
-Written 2026-09-16. Phases 1 to 4 are committed to v0.21.0 (2026-09-23, `Direction.md` 5.2); Phase 5
-comes after it. Open decisions 1 and 3 were settled on their recommendations the same day.
+Written 2026-09-16. Phases 1 to 4 were committed to v0.21.0 (2026-09-23, `Direction.md` 5.2); on 2026-10-10
+what remains of them moved to v0.22.0 with the rest of section 5 (Todd). Phase 5 comes after it. Open decisions 1 and 3 were settled on their recommendations the same day.
 
 ---
 
@@ -85,7 +85,7 @@ a selection that does not fit is refused naming the feature and what fits withou
 selected allocates nothing. The weight format remains the caller's.
 
 **The bytes a selection spends are recovered first.** One `cudaMalloc` per weight tensor, each rounded to
-the 2 MiB granule, costs a model 64 to 679 MiB (`BACKLOG.md`, Deployment Planning); an arena removes it,
+the 2 MiB granule, costs a model 64 to 679 MiB (`BACKLOG.md`, Internal fixes, in v0.21.0); an arena removes it,
 priced so that what the planner reads stays what the build allocates. Gemma's keys stored once
 (`RopeInAttention.md`) is the family's own lever.
 

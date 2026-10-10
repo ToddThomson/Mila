@@ -197,8 +197,13 @@ MILA_DEVICE_INDEX=0
 
 On the `openai` protocol, `/v1/completions` takes a `prompt` as text or as token ids, one prompt per
 request. Token ids reach the model as sent, which is how an evaluation harness gives two engines the
-same input. `stop` cuts a buffered reply at the first stop sequence, on both Completions and Chat
-Completions. A streamed reply ignores it.
+same input. `stop` cuts a reply at the first stop sequence, streamed or not, on both Completions and
+Chat Completions; on `anthropic`, `stop_sequences` does the same.
+
+Every reply says why it ended. A reply cut off at `max_tokens`, or at the end of the context, reports
+`length` on `openai` and `mila`, and `max_tokens` or `model_context_window_exceeded` on `anthropic`;
+one cut at a stop sequence reports `stop`, or `stop_sequence` with the sequence. On `/v1/responses` a
+cut-off reply is `incomplete`, with `max_output_tokens` as the reason.
 
 `/v1/models` answers in each protocol's own shape — OpenAI's `{"object": "list", "data": [...]}`
 against Anthropic's `{"data": [...], "has_more": false}` envelope — and both carry the same lineage

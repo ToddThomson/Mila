@@ -205,8 +205,13 @@ class ModelWorker:
         return await loop.run_in_executor(self._executor, self._tokenizer.encode, text)
 
     async def decode(self, ids: list[int]) -> str:
+        """
+        A whole reply's text. Its ids may stop inside a multi-byte character -- a reply cut at
+        max_tokens -- and that tail becomes U+FFFD rather than an error, as HuggingFace decodes it.
+        Streaming decodes strictly instead, holding such a tail until its next token arrives.
+        """
         loop = asyncio.get_running_loop()
-        text = await loop.run_in_executor(self._executor, self._tokenizer.decode, ids)
+        text = await loop.run_in_executor(self._executor, self._tokenizer.decode, ids, "replace")
 
         if self._is_gemma:
             text = _strip_gemma_control_tokens(text)
@@ -232,17 +237,18 @@ class ModelWorker:
         temperature: float,
         top_k: int,
         top_p: float = 1.0,
-    ) -> list[int]:
+    ) -> tuple[list[int], str]:
+        """Prompt and completion ids, and the binding's status: stop, length or context_limit."""
         loop = asyncio.get_running_loop()
 
-        def _run() -> list[int]:
+        def _run() -> tuple[list[int], str]:
             # The binding streams tokens and returns why it stopped, so prompt + completion
             # is assembled here -- which is the shape this worker's callers slice.
             output = list(prompt_tokens)
-            self._model.generate(
+            status = self._model.generate(
                 prompt_tokens, output.append, max_new_tokens, temperature, top_k, top_p)
 
-            return output
+            return output, status
 
         return await loop.run_in_executor(self._executor, _run)
 
@@ -253,7 +259,7 @@ class ModelWorker:
         temperature: float,
         top_k: int,
         top_p: float = 1.0,
-    ) -> tuple[str, int]:
+    ) -> tuple[str, int, str]:
         """
         Non-streaming generation that still honors the Gemma <tool_call|> stop and
         the degeneration backstop by driving the streaming primitive to completion
@@ -261,7 +267,7 @@ class ModelWorker:
         path has neither guard and worker.decode() strips the <|tool_call> markers,
         so a non-streaming tool-call turn cannot be detected there; this path is what
         the Anthropic/Responses tool flows need for a single-shot JSON response.
-        Returns (raw_text, decoded_chunk_count). Callers that only want display text
+        Returns (raw_text, decoded_chunk_count, status). Callers that only want display text
         reduce via gemma_bridge.answer_text / strip_control_tokens.
         """
         parts: list[str] = []
@@ -270,7 +276,7 @@ class ModelWorker:
             parts.append(text)
 
         stop_ctrl = mila.StopController()
-        await self.generate_streaming(
+        status = await self.generate_streaming(
             prompt_tokens,
             on_text,
             max_new_tokens,
@@ -280,7 +286,7 @@ class ModelWorker:
             stop_ctrl,
             strip_control_tokens=False,
         )
-        return "".join(parts), len(parts)
+        return "".join(parts), len(parts), status
 
     # ------------------------------------------------------------------
     # Streaming generation
@@ -296,7 +302,7 @@ class ModelWorker:
         top_p: float = 1.0,
         stop_ctrl: mila.StopController | None = None,
         strip_control_tokens: bool = True,
-    ) -> None:
+    ) -> str:
         """
         Runs the binding's generate() on the worker thread. Each token is decoded
         on the worker thread and delivered as a string via on_text, avoiding
@@ -317,10 +323,15 @@ class ModelWorker:
         False the raw decoded text (channel + tool-call markers intact) is delivered
         so the caller can parse the native grammar; the responses/tool path needs
         this, the plain-chat streaming path does not.
+
+        Returns the binding's status. A stop this worker requested at a protocol marker is the
+        model's turn ending, and reads as `stop`; `cancelled` is left only for a stop the caller
+        requested, whose reason the caller knows.
         """
         loop = asyncio.get_running_loop()
         token_buffer: list[int] = []
         guard = {"channels": 0, "last": None, "repeats": 0}
+        ended_by_marker = False
 
         def _degenerating(raw_text: str) -> bool:
             # Runaway reasoning channels: no legitimate answer opens this many.
@@ -364,15 +375,19 @@ class ModelWorker:
 
             on_text(text)
 
-            if stop_now and stop_ctrl is not None:
+            if stop_now and stop_ctrl is not None and not stop_ctrl.stop_requested:
+                nonlocal ended_by_marker
+                ended_by_marker = True
                 stop_ctrl.request_stop()
 
-        def _run() -> None:
-            self._model.generate(
+        def _run() -> str:
+            return self._model.generate(
                 prompt_tokens, _on_token, max_new_tokens, temperature, top_k, top_p, stop_ctrl
             )
 
-        await loop.run_in_executor(self._executor, _run)
+        status = await loop.run_in_executor(self._executor, _run)
+
+        return "stop" if ended_by_marker else status
 
     # ------------------------------------------------------------------
     # Diagnostics

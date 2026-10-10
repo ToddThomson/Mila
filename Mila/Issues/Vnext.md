@@ -323,16 +323,6 @@ the parameter type of the public `TensorOps` transfer functions (`TensorOps.Tran
 `Component::setExecutionContext` (`Component.ixx:896`), and `MnistClassifier.ixx:84` builds a network
 on one.
 
-## `mila-llm-server` is not on PyPI
-
-`binding` · `ci` · `distribution`
-
-MIS is restructured and its version derives from `Version.txt`, so what is left is the release step
-itself: RELEASING covers the four CUDA wheels and says nothing about the server. One `py3-none-any`
-file from `python -m build`, uploaded beside the wheels.
-
-v0.20 ships MIS drivable from source and from the container, which is what the release bar asks for.
-
 ## CI installs the container's toolchain again instead of building `FROM` the image
 
 `ci` · `build`
@@ -552,17 +542,6 @@ crashes. Where GPT-2 crashes, Llama overruns the cache quietly, so absence of re
 evidence. `Tests/Dnn/Models/GptModel.Cuda.cpp` is the template: a weightless checkpoint at a small
 deployment context.
 
-## MIS reports every response as finished naturally, including truncated ones
-
-`adaptors`
-
-Five sites hardcode `finish_reason: "stop"` — `chat.py:66`, `completions.py:49`, `factory.py:137`,
-`:155`, `:200` — and the Anthropic path returns `stop_reason: "end_turn"` the same way, so a client
-is told a reply ended when it was cut off by `max_tokens` or the context. The binding's `generate` now
-returns `GenerateStatus`; `ModelWorker.generate` and `generate_streaming` are where it would be
-threaded to the routes. OpenAI spells the cap `length`, Anthropic `max_tokens`, and neither has a
-spelling for a context overflow — that mapping is the decision owed.
-
 ## A download that fails part-way does not say that running it again resumes
 
 `distribution`
@@ -638,40 +617,6 @@ Phase 6 step 2's negative — scratch summed across the tree instead of taking t
 test passed: predicted equals reported, nothing throws, memory does not grow. A per-model literal of
 the reserved bytes in `ScratchReservation.Cuda.cpp` would fail on it, as the other footprint literals
 do.
-
-## The published binaries are built on CUDA 13.3 while 13.4 is current
-
-`build` · `ci` · `distribution`
-
-Move the declared toolkit to 13.4.2, between pieces of native work. Docker Hub has carried
-`nvidia/cuda:13.4.2-{base,runtime,devel}-ubuntu{22,24,26}.04` since 2026-09-29 (read on Docker Hub that
-day). The move was decided for 13.4.1 on 2026-09-24 (Todd) -- the minor is where behaviour and the driver
-floor move, so it should surface early in the cycle, with 13.4.2 a later patch bump -- but it never
-happened, and 13.4.2 now exists: one move to it replaces both. The local toolkit is 13.4.1 and needs
-13.4.2 installed first.
-
-Moves together (RELEASING.md, toolkit paragraph): `$cudaVersion` in
-`scripts/pypi/build-wheel-windows.ps1:59`, `Docker/Dockerfile.wheel:23`, `Docker/Dockerfile.runtime:21`,
-`Docker/Dockerfile:9`, `:18`, `Docker/build-chat.sh:12`, `Docker/build-all.sh:26`,
-`build-pipeline.yml:54`, `:57`, and the docs naming 13.3 — `README.md:276`, `:286`, `:327`, `:341`,
-`getting-started.md:25`, `:33`, `:116-131` (the WSL installer URL and filename change with the
-patch level), `:183-191`, `:238`, `CONTRIBUTING.md:46`, `:113`, `:140`, `Docker/README.md:15`,
-`:20`, `Web/content/start.md:15`, `RELEASING.md:508`. `RELEASING.md:529` records what the
-`0.20.0b3` wheels were built on and stays.
-
-Consequences to carry into the work. Wheel users see nothing — the `nvidia-*` dependencies and
-minor version compatibility, and this is now checked rather than assumed: a 13.3-built wheel loads
-and generates correctly against the `>=13.0` floor those dependencies declare, on Windows
-empirically and on Linux by symbol (`RELEASING.md`, *What the declared toolkit is not*). Moving the
-build to 13.4 does not disturb that, but re-check the floor if the cuBLASLt surface grows. Image
-users' driver floor rises: the base image's `NVIDIA_REQUIRE_CUDA`
-becomes `cuda>=13.4`, and the container toolkit refuses a GeForce driver below it. Every local build
-directory is configured against v13.3 while `CUDA_PATH` names v13.4 (13.4.1 installed), so a fresh
-configure already drifts — reconfigure all of them deliberately. Published tok/s figures and the
-cuBLASLt findings in the specs are 13.3 measurements; re-measure them once, just before the
-release, on the 13.4.x that ships. CI's first run
-starts with a cold ccache. The patch levels already differ today: Windows pins resolve to 13.3.1,
-the Linux images to 13.3.0.
 
 ## A consumer's path budget is about thirty characters, spent by one seven-level include
 
@@ -1138,3 +1083,244 @@ offline greedy simulation that prices it before anything is built.
 which takes a left-hand operand of type 'nullptr'`; the Release CUDA builds compile the same file, and a Release
 build of the same directory passes. Not isolated: whether Debug or CUDA-off is the variable, and whether it is the
 module/header interaction in "`import Mila;` degrades the standard library" above. Found 2026-09-29.
+
+## Three places turn a model's name into the type that loads it, each its own way
+
+`ai` · `architecture` · `api`
+
+The architecture-to-concrete erasure exists three times in two languages — Chat's `ModelVariant`
+(`Chat.ixx:73`, ten `std::visit` sites), the binding's per-family session classes, and the
+inference server's `ModelFamily` enum (`model_worker.py:38`). Each consumer also writes its own
+bridge from the manifest's architecture string to a family (`familyFromArchitecture` in
+`Chat.ModelCatalog.ixx`, `architecture == "gemma"` in `Mila_py.Wrappers.cpp`).
+
+One handle and one factory in the new `Mila/AI/` library (`Direction.md` §3.2, §8 decision 2). The
+architecture's *identity* — the set of names and the concrete type each resolves to — is the
+library's and lives in `Mila/Src` beside the manifest reader; the handle is its one consumer. The
+factory takes a deployment request rather than a device, so it is built on the planner from the
+start. A network composed from components meets the handle through a C++ concept, with no
+registration (§8 decision 7).
+
+Gate: adding an architecture is an edit in one place, and decode throughput through the handle is
+unchanged against the direct type.
+
+## A model loads with every feature its loader supports, and the caller cannot choose which
+
+`models` · `api` · `mila-src` · `breaking`
+
+A deployment request fixes or leaves to the planner the context, the weight format and the cache format,
+and nothing else. A unified Gemma 4 package can carry image and audio paths, and the 26B-A4B a vision tower
+of about 411 million parameters; Gemma 4 ships a draft model; and today the converter drops every
+modality tensor (`convert_weights.py`, `SKIPPED_PREFIXES`) and the loader builds what the code supports.
+So a use case cannot spend the card's memory on what it needs: on the 26B-A4B, a tower's 410 MB at FP8 is
+about 39K tokens of its context.
+
+Work: the manifest declares the features a package carries (`ModelHandle.md`); the request selects from
+them, each fixed or left to the planner; the planner prices the selection exactly -- `PlanEqualsBuild`
+holds a selection as it holds the rest -- and refuses it naming the feature and what fits without it; a
+feature not selected is not built and allocates nothing. Each feature is a component built or not, never
+a template axis of the core blocks, so a selection is not a new instantiation. Raised by Todd 2026-09-27
+(modality as an axis of the request) and decided 2026-10-04 ("Mila::AI can deploy a model for a specific
+use case; full control of the model features loaded").
+
+Gemma 4's drafter is not part of this: v0.21.0 ships it in each package, on by default where it pays
+(`BACKLOG.md`, Gemma 4 Complete), and choosing it in a request is this entry's.
+
+`ROADMAP.md`, Future, v0.22.0 Deployment Planning · `Mila/Specifications/Deployment.md`
+
+## Running a model from a program means naming its concrete C++ type
+
+`ai` · `api`
+
+Today the entry point is `GemmaModel<Cuda, BF16>::load` or its siblings, so a program that wants to
+change models changes types, and the tool loop, streaming and conversation state are the program's
+to write. The finding is an absence: the application-facing object does not exist.
+
+`Mila::AI` in module `Mila.AI` (`Direction.md` §4, §8 decision 1), a `Mila/AI/` library target that
+the wheel and a `FetchContent` consumer both receive. The contract is `Direction.md` §4.2's seven
+rules: small; never decides a deployment; descent through `plan()` and `model()` is part of the
+contract; one virtual call per `respond`; other languages project it; a composed model is
+first-class; a model is named by its store name. Gate: the ten-line program runs Gemma, Llama and
+Qwen by changing only the name, and a sample creates an `AI` over a network it composed itself.
+
+## The tool loop exists only inside Chat
+
+`ai` · `adaptors`
+
+Parse a call, dispatch it, return the result, continue — written once, informally, in `Chat.ixx`,
+so a developer's program that wants tools rewrites it. It moves into `Mila/AI/` as the agent core
+(`MilaProductFamily.md`, Native Agent Core), and Chat keeps only its human approval gate. Tools are
+compiled-in functions registered on the `AI`, a callable plus a schema (`Direction.md` §8 decision
+6). The autonomy policy is not part of this.
+
+## A tool result is re-rendered and re-tokenized with the whole conversation before generation continues
+
+`ai` · `models` · `mila-src`
+
+Decided in v0.20 and deferred (`MilaProductFamily.md` Decided 1): a tool result's tokens are appended
+to the live KV cache, with no re-render of the conversation and no re-tokenize. Today Gemma recovers
+the prefill through transparent prefix reuse (`GemmaModel.ixx:364`) but still renders and tokenizes
+everything; Qwen prefills from 0 every turn (`QwenModel.ixx:355`). The grammar that frames a tool
+result as tokens is model-intrinsic and belongs in `Mila/Src`; the loop that decides when to splice is
+the agent core's.
+
+Gate: across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
+measured, for every family that permits prefix reuse.
+
+## A conversation that fills its context stops, and nothing carries it forward
+
+`ai` · `adaptors`
+
+Chat ends a reply at the context limit ("finish: context_limit") and nothing shortens the history, so a
+long tool session cannot continue. Admitted 2026-10-03 with a `Mila::AI` success
+criterion added the same day (Todd): scope grown by decision, not found in passing. Two levels, both
+mechanism in `Mila/AI/`: reasoning from earlier turns dropped at turn boundaries -- kept within a turn,
+which is the opposite of the failure in "Gemma loses its own reasoning between tool calls in a turn" --
+and text compaction, the history summarized into a fresh context with instructions kept verbatim,
+reusing the system prompt's cached prefix. It triggers at the configuration's reliable depth, which
+ContextProfile measures, so it needs that tool's first profiles; Qwen resumes from the position it
+saved at the end of each prompt (`savePosition`, `+33`). Compaction in the cache itself (deleting spans in place) is research, outside
+this item (`.internal/Ideas/AgentStreams.md`).
+
+`ROADMAP.md`, Future, v0.22.0 Mila::AI · `Mila/Specifications/ContextProfile.md`
+
+## A program cannot ask for a model set up for its use case
+
+`ai` · `api`
+
+Choosing a model's features -- an image path, a draft model, a context and a cache format -- is a
+decision every program would make again, and the right defaults are measurements, not guesses: what
+context a model is reliable to (its context profile), what a draft model buys (its measured speedup).
+`Mila::AI` names use cases -- a coding agent, a vision assistant, a long-document reader -- as
+selections over the deployment request, each overridable before creation. A preset is a convenience,
+never a second path: it produces an ordinary request, and the plan it produced reads like any other.
+
+The finding is an absence; nothing selects features yet (the entry under Deployment Planning).
+
+`ROADMAP.md`, Future, v0.22.0 Mila::AI
+
+## A program that skips Mila's initialization is told its GPU reports no memory
+
+`ai` · `api` · `mila-src`
+
+`Mila::initialize` (`Mila.ixx:443`) sets the log sink and the random seed, which have defaults, and discovers the
+devices by constructing `DeviceRegistrar`, which nothing else does. A program that skips it fails silently
+everywhere but `DeviceRegistry::getDevice`: `getDeviceCount` is `noexcept` and returns 0, and `DeviceReading::take`
+swallows why it could not read the device, so the planner refuses with `DeviceDoesNotReportMemory`. From Python,
+`mila.GemmaModel.from_store( name, "auto", 1 )` without `mila.initialize()` says the device "does not report its
+free memory" and advises passing a number, on both cards; with `initialize` first the same call opens at 262144.
+Found by `Tools/ContextProfile` (2026-10-03) and through the binding (`Mila_py.Wrappers.cpp:447`).
+
+Discovery is a ceremony because of an import cycle: `CudaDevice` imports `DeviceRegistry` to register into it, so
+the registry cannot import the registrar. The shape discussed with Todd: the registry runs discovery once, on first
+request, through a function the registrar module installs, leaving `initialize` as configuration only. Stale Doxygen
+still names the retired operation registry as part of it (`Gelu.ixx:58`, `Residual.ixx:8`).
+
+Gate: the ten-line program and the Python QuickStart run with no initialization call, and a device that cannot be
+read is refused naming why.
+
+`ROADMAP.md`, Future, v0.22.0 Mila::AI and A Developer Can Start
+
+## Chat and the inference server each hold code that knows which model they are running
+
+`adaptors` · `build` · `breaking`
+
+Rebuilt as consumers of `Mila::AI`, reaching anything beneath it only through `model()`: Chat keeps
+terminal rendering and the approval gate, the server keeps the wire shapes and per-request
+statelessness. Both leave `Mila/Adaptors/` for `Mila/Applications/Chat` and
+`Mila/Applications/Server` (`Direction.md` §8 decision 4), with the CMake option, the wheel and image
+paths, and the `adaptors` tag in `Tags.md` following. Gate: neither contains model-specific code, and
+the Codex CLI and Claude Code CLI tool flows still pass unchanged.
+
+`routes/chat.py` and `routes/completions.py` are not moved:
+nothing registers them, and `chat.py` carries its own request schema and prompt assembly.
+
+## The inference server chooses each model's loader and grammar by a family enum of its own
+
+`adaptors` · `binding`
+
+`model_worker.py` maps `ModelFamily` to a session class (`:38-41`), branches on it for stop markers
+(`:56`, `:59`) and for tool support (`:168`), and `/v1/models` does the same. Three latent `else means
+llama` sites in this shape were fixed at `rc.1+31`, each correct only while there were exactly two
+families. It serves the same three families Chat runs today, so the gap is the second copy of the
+erasure rather than a model it refuses.
+
+GPT-2 is not in it, and not by oversight here: it is a base model, Chat refuses base models by
+decision, and the binding has no GPT-2 session (`model_worker.py:71`). Whether the server serves a
+base model is not this release's question. Gate: the enum is gone and the server reads what it needs
+from the handle.
+
+## The Python binding carries one session class per family
+
+`binding` · `api`
+
+The per-family session types under `Mila/Bindings/` are the second of the three bridges, and the one
+a Python consumer actually meets. They are replaced by `mila.AI`, projecting the same contract and the
+same plan, without the binding gaining a component-level surface — it is consumer-blind by design and
+stays that way.
+
+The gate is that adding a family adds no binding type. The finding is a duplication rather than a
+defect at one line, so it has no single anchor.
+
+## MIS tool calling beyond the three flows the release names
+
+`gemma` · `adaptors`
+
+N sequential distinct tool calls within one turn, and channel-content parser polish. Moved from the
+v0.20 backlog at `rc.1+21`: the release criterion names plain-chat, single-tool and
+tool-result-resume only.
+
+## Neither QuickStart shows a program putting a model to work
+
+`docs` · `binding`
+
+`Samples/QuickStart/Cpp` loads a typed model and `Samples/QuickStart/Python` opens a per-family
+session; neither creates an object, calls a tool or shows what was decided about the deployment. Both
+are published surfaces the website's Get Started tabs link to.
+
+The C++ one becomes a `FetchContent` project that creates an `AI`, calls a tool and prints the plan;
+the Python one moves to `mila.AI`. Each keeps a path that builds a network from components
+(`Direction.md` §7). Gate: both run from a clean machine with only the documented prerequisites.
+
+One risk to the C++ one, not yet reproduced: where CMake's feature table lacks `cxx_std_23` (Clang 21.x), the
+exported `Mila` target falls back to advertising `cxx_std_20` (`Mila/CMakeLists.txt:71-75`), and a consumer
+compiles Mila's module units under it, though they use C++23 library facilities (`std::ranges::fold_left`,
+`Tensor.ixx:806`). A `FetchContent` consumer receives the same interface features, so the QuickStart is checked
+on that compiler before it is declared clean.
+
+## Every public surface describes Mila as a reference implementation first
+
+`docs`
+
+`README.md`, the website under `Web/` and `getting-started.md` lead with the v0.20 message, and
+several use "adaptor". They move to the trait — a library for developers to harness intelligence — in
+this release and not before, which means written against what the tag actually ships
+(`Direction.md` §5.7; `.internal/Marketing/Positioning.md` is superseded by it).
+
+The landing page's four claims -- Explicit, Validated, Fast, and the type is the configuration -- each gain a
+link to a page that explains the claim fully. Each claim's one line still stands without the click, and each
+link names its topic, not "Read more" alone. Explicit and the type is the configuration go to their sections of
+the Design page (`Web/content/docs.md`), expanded: the decode recording explained as a cache of the explicit
+calls, with its off switch (`DecodeGraph.md`), and the typed configuration of components told apart from a load
+mapping a package's declared format to its type -- the section says today that the converter always writes BF16
+and quantization happens on load, which published packages no longer do. Validated gets a page of its own:
+what is checked, against what, at which precision and length, for every model including Qwen 3.8 -- replacing a
+"token-for-token" claim that is wider than what the parity tests check. Fast's page belongs to the llama.cpp
+entry below. `hugo.toml`'s comment that the claims carry no links is replaced with the reason these do. Written
+late in the cycle, on the numbers the tag ships. The blog post `mis-with-claude-code-and-codex.md` (2026-05-14)
+announces under "What's Coming: Tool Calling" a pybind11 `ToolCallParser` and a `MILA_TOOL_CALLING_ENABLED` flag that
+were never built; the same pass gives it a dated note pointing at the tool calling that shipped. Gate: no public surface describes Mila as a reference
+implementation first, or uses "adaptor", and every landing-page claim links to a page that states exactly what
+backs it.
+
+## The smaller dense Qwen members were never built
+
+`qwen` · `mila-src`
+
+The family shipped as the 3.8-27B hybrid alone, so "Qwen 3.8" names one model rather than a family.
+The dense members reuse the Llama blocks rather than the DeltaNet chassis, which is what makes them
+cheap next to everything already landed. Built after the handle, it is the first model added through
+it, and so the first test of "a new architecture is added in one place".
+
+The finding is an absence — there is no partial implementation to point at. Gate: a dense member
+decodes token-for-token against HuggingFace at BF16 and FP8.

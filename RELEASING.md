@@ -284,6 +284,7 @@ on this page.
 |---|---|---|---|---|
 | C++ | `#p-cpp` | the git tag, via FetchContent | pushing the tag | 6, gated at 7 |
 | Python | `#p-python` | `mila-llm` wheels on PyPI | `scripts/pypi/…` + hand upload | 1 validates, 8 publishes |
+| Inference server | — | `mila-llm-server` on PyPI | `python -m build` + hand upload | 1 validates, 8 publishes |
 | Docker — environment | `#p-docker` | `toddthomson/mila-llm:<version>-devel` | `scripts/dockerhub/publish-image.sh` | 9 |
 | Clone | `#p-clone` | the tag, built from source | pushing the tag | 6 |
 | Try it | `#evaluate` | `toddthomson/mila-llm:<version>-runtime` | the same script, the same invocation | 9 |
@@ -489,8 +490,8 @@ failure mode. The devcontainer check is a publish concern and is only owed when 
 
 ## Publishing the wheels
 
-`mila-llm` on PyPI is a published release artifact, built by two scripts and uploaded by hand. The
-wheel version comes from `Version.txt`: a working `0.21.0-dev+38` tree produces the `0.21.0.dev38`
+`mila-llm` on PyPI is a published release artifact, built by two scripts and uploaded by hand, and
+`mila-llm-server` beside it is a third, built by `python -m build`. Every version comes from `Version.txt`: a working `0.21.0-dev+38` tree produces the `0.21.0.dev38`
 snapshot, and the prep commit's stripped `0.21.0` produces the release `0.21.0`.
 
 **This section is run twice, and the two runs differ only in which version they carry.** Steps 1-4
@@ -553,7 +554,8 @@ so a wheel published before it was verified stays wrong until the *next* release
 how the live page came to advertise Linux while shipping only `win_amd64`. That is what the TestPyPI
 step below exists to prevent, and why it is not optional.
 
-1. **Build all four wheels** from the tagged tree — one per interpreter (3.12, 3.13) per platform.
+1. **Build all five wheels** from the tagged tree — one per interpreter (3.12, 3.13) per platform, and
+   the server's.
    Each script clears only its own platform's wheels from `out/wheel`, because all four land there
    and all four are published from one glob.
    - Windows: `scripts/pypi/build-wheel-windows.ps1` — enters the VS developer shell, then configures the
@@ -570,7 +572,11 @@ step below exists to prevent, and why it is not optional.
      It must be the **wheel** container (Ubuntu 24.04), not the dev container: `auditwheel` derives
      the manylinux tag from the build distro, so 26.04 would produce a wheel that locks out the
      current LTS.
-2. **Check what is actually in `out/wheel`** — exactly four files, all carrying the release version
+   - The server: `python -m build --wheel --outdir out/wheel Mila/Adaptors/Inference/Server`, from a
+     configured tree — its version is the `VERSION` file the configure writes. It is pure Python, one
+     `py3-none-any` file, and it requires `mila-llm` at exactly its own version, so it is never
+     uploaded without the four wheels it names.
+2. **Check what is actually in `out/wheel`** — exactly five files, all carrying the release version
    and nothing else. A leftover wheel from an earlier build is published alongside the intended one by
    the same glob, and that cannot be withdrawn. Expect the directory to hold the previous release's
    `.devN` wheels when you arrive here: each script clears only its own platform's, so a stale wheel
@@ -588,7 +594,9 @@ step below exists to prevent, and why it is not optional.
    `ubuntu-latest` x Python 3.12 and 3.13, one leg per published wheel, none of them carrying a CUDA
    Toolkit — and runs `scripts/pypi/verify_wheel_cleanroom.py`, which asserts that absence *before* it
    asserts anything else. A developer machine cannot answer this question, because a wheel quietly
-   leaning on a host Toolkit passes there exactly the way a correct one does.
+   leaning on a host Toolkit passes there exactly the way a correct one does. Each leg installs
+   `mila-llm-server`, which brings that leg's wheel as its pinned dependency, and checks that the
+   server starts and refuses cleanly with no model installed.
    All four legs must be green. The version is pinned exactly because PyPI carries an older
    `mila-llm` that can outrank a TestPyPI build; the script re-asserts the version it actually got.
 5. **Upload to PyPI** with `twine upload out/wheel/*.whl`. Only now, at release step 8, and only if

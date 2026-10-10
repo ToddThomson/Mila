@@ -4,7 +4,8 @@ The positioning, layering and release plan for the releases after v0.20. v0.20 i
 builds on; it is not revised by this document.
 
 Written 2026-09-19; adopted 2026-09-23, when section 5 became v0.21.0 and its open decisions were
-settled (section 8). Supersedes `MilaProductFamily.md` for everything after the v0.20 tag. That spec
+settled (section 8). On 2026-10-10 section 5 became v0.22.0 (Todd): v0.21.0 ships the families finished and
+measured first, and section 5 builds on them. Supersedes `MilaProductFamily.md` for everything after the v0.20 tag. That spec
 remains the definition v0.20 ships under. Releases step by one minor at a time; section 6 is the
 releases after v0.21.0, numbered as each is scheduled.
 
@@ -354,8 +355,8 @@ model name resolves to the same package the objective ranks first.
   path, and the tests for components are not traded for tests of `Mila::AI`.
 - **Autonomy amplifies model weakness.** Carried from `MilaProductFamily.md` unchanged: guardrails and
   loop detection are what make an edge-sized model survivable unsupervised, not polish.
-- **One developer.** Each release is sized to one maintainer. v0.21.0 is the largest yet — section 5
-  and the completion of two families — and it is bounded by a fixed date whose scope drains rather
+- **One developer.** Each release is sized to one maintainer. v0.21.0 completes the families and v0.22.0 is
+  section 5, each bounded by a fixed date whose scope drains rather
   than by its list (`ROADMAP.md`). The releases after it take section 6 a subsection at a time. An
   item that cannot name its success bar in this document does not enter any of them.
 
@@ -374,8 +375,8 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
    and `Mila::AI`'s rule 1 keeps it small enough to be cheap.
 4. **Where Chat and MIS live: `Mila/Applications/Chat` and `Mila/Applications/Server`.** Samples stay
    teaching code; these stay maintained products.
-5. **Sequencing against the ROADMAP: section 5 is v0.21.0,** together with the completion of Qwen 3.8
-   and Gemma 4, before any new chassis — which agrees with the rule that the handle is a precondition
+5. **Sequencing against the ROADMAP: section 5 is v0.22.0,** after v0.21.0 completes Qwen 3.8 and Gemma 4
+   (moved 2026-10-10, Todd; it was v0.21.0 with them), before any new chassis — which agrees with the rule that the handle is a precondition
    for every new model. Muse Glimmer follows in ROADMAP's Future.
 6. **Tool registration: a compiled-in registry** — a callable plus a schema, registered on the `AI`.
    Declarative subprocess tools alongside it remain open for section 6, carried from

@@ -1,5 +1,6 @@
 """
-Supplies the version. Everything else is declarative in pyproject.toml.
+Supplies the version, and the dependencies that carry it. Everything else is declarative in
+pyproject.toml.
 
 The version is derived from the repository's Version.txt by the CMake build (see
 cmake/MilaVersion.cmake and Mila/Adaptors/CMakeLists.txt) into the generated VERSION file
@@ -10,6 +11,10 @@ published version can never be reused.
 
 Unlike the binding's setup.py there is no BinaryDistribution here. MIS is pure Python and
 py3-none-any is the correct tag -- it depends on the binary wheel, it does not contain one.
+
+That dependency is pinned to this same version. MIS releases with the runtime it serves and calls
+what that runtime first exposed (version(), cuda_devices()), so an older mila-llm that a floor would
+accept cannot serve it, and a newer one is a release this MIS was never tested against.
 """
 
 from pathlib import Path
@@ -30,4 +35,15 @@ def read_version() -> str:
     return version_file.read_text(encoding="utf-8").strip()
 
 
-setup(version=read_version())
+version = read_version()
+
+setup(
+    version=version,
+    install_requires=[
+        f"mila-llm=={version}",
+        "fastapi>=0.136.0",
+        "uvicorn[standard]>=0.44.0",
+        "pydantic>=2.13.3",
+        "pydantic-settings>=2.14.0",
+    ],
+)

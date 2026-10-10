@@ -3,7 +3,8 @@
 **Status:** Draft, 2026-10-03. Agreed in discussion with Todd the same day. Section 9 decided the same day. Phase 1 in
 progress from `+34`.
 Admitted to v0.21 the same day for every family in `ModelFamilyParity.md` (Todd): Phases 1 and 2, for every model the
-release publishes (`ROADMAP.md`, Mila::AI success criteria).
+release publishes (`ROADMAP.md`, the family themes' success criteria; `Mila::AI` moved to v0.22.0 on
+2026-10-10, and compaction there reads these profiles).
 
 **Area:** measuring what a model configuration is worth to an agent at each context length it can hold, and what
 it costs there. Its uses: the reliable depth at which `Mila::AI` compacts a conversation; choosing between Gemma 4
@@ -256,7 +257,7 @@ output after every conversation, so a stopped run keeps what it measured.
 
 For K = V (`RopeInAttention.md`): the 26B's reliable depth runs past 80K but not to 128K, so what storing the global
 keys once would buy is 96K with headroom, about 87 MB over the card today; the allocation rounding that costs it
-about 225 MiB (`BACKLOG.md`, Deployment Planning) is the other way to the same band.
+about 225 MiB (`BACKLOG.md`, Internal fixes) is the other way to the same band.
 
 **Phase 2 -- instruction retention and tool-call fidelity**, ported from the existing arms and the families' grammar.
 With it, a **recovery** arm (raised by Todd, 2026-10-04: recall measures one unaided lookup, and an agent can check

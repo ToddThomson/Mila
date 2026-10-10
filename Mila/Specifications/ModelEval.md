@@ -68,7 +68,8 @@ same model behind MIS's real routes, the two wrote byte-identical replies to eve
 Mila reaches the harness through MIS, not the Python binding. MIS is the surface users call, so the measurement
 exercises it, and every capability the harness needs that MIS lacks is a defect in the adaptor, not a feature
 request -- the library already holds it (`CLAUDE.md`: an adaptor adds no capability). The binding stays
-consumer-blind and gains nothing for this spec.
+consumer-blind: what it gains for this spec is what MIS needs from the library and any program could call --
+`version()` and `cuda_devices()` (`+55`), and for Phase 5 the log-likelihood the sessions do not yet expose.
 
 ## 4. Controls
 
@@ -234,7 +235,8 @@ tasks at two short bands.
 
 ### Phase 5 -- Log-likelihood tasks
 
-`logprobs` and `echo` on MIS's `/v1/completions`, projecting `sequenceLogLikelihood`, then the multiple-choice
+`logprobs` and `echo` on MIS's `/v1/completions`, projecting `sequenceLogLikelihood` -- which the binding's
+sessions must expose first, since MIS reaches the library only through them -- then the multiple-choice
 tasks of section 5. Also gives every log-likelihood task a token-exact comparison without generation, which is a
 sharper parity test than Phase 1's.
 
@@ -249,8 +251,8 @@ MMLU-Pro through `run_inspect.py` on the `hf` and `mila` arms of Phase 1's model
 the mila arm's score written to the model repo by `eval_results.py` (section 11). GPQA follows once its definition
 has been read (section 11.3).
 
-**Gate:** none for publishing, which is section 10's decision 5. The comparison against `hf` is read as Phase 1's
-is, knowing it also measures MIS's prompt template (section 9).
+**Gate:** a model's Hub result is published only once its card carries the paired comparison against the original
+(section 10, decision 5). The comparison against `hf` is read as Phase 1's is, knowing it also measures MIS's prompt template (section 9).
 
 **Built:** `run_inspect.py`, `eval_results.py`, and an inspect-ai reader in `compare_arms.py`. Rehearsed against a
 stand-in server on MMLU-Pro's real `eval.yaml`, with stand-in rows in its schema (the container could not fetch
@@ -280,7 +282,8 @@ benchmark's own protocol -- and it is not the card's claim.
 Each was excluded from the comparison on purpose and is worth measuring on its own terms:
 
 - **MIS's prompt template.** Through `/v1/chat/completions`, MIS renders Llama's prompt itself, and differently from
-  Meta's (`Untriaged.md`). The same task through chat completions against Phase 1's run measures what that costs.
+  Meta's (`BACKLOG.md`, *Chat and the inference server each hold code that knows which model they are
+  running*). The same task through chat completions against Phase 1's run measures what that costs.
 - **Mila's tokenizer.** Mila's BPE against HuggingFace's on every Phase 1 prompt: identical ids, or the first
   difference.
 - **MIS's tool path.** BFCL measures tool calling from a prompt it renders itself. A user's agent goes through MIS's
@@ -298,20 +301,22 @@ Each was excluded from the comparison on purpose and is worth measuring on its o
    build, against principle 2.
 2. **The thresholds a published format must meet**, as a difference against the reference beyond the floor. Not
    set until Phases 1 and 2 have produced a floor and a cost to set them against.
-3. **Admission.** Whether any phase is v0.21 work. The nearest criterion is `ROADMAP.md`'s "every model the release
-   publishes is measured for agentic work", which BFCL and RULER would support; Phases 1 and 2 serve the model cards
-   and have no criterion of their own yet.
+3. **Admission. Decided 2026-10-10 (Todd):** evaluation is part of each family's work in v0.21.0, every family
+   (`ROADMAP.md`, the Gemma 4, Qwen 3.8 and Llama 3 criteria; `BACKLOG.md`, *Nobody can say whether a published
+   model scores like its original on standard benchmarks*). Phase 1 on Llama 3.2 3B sets the floor the others are
+   read against.
 4. **Where the run data lives.** `Data/Evaluation/` is gitignored. A number on a card cites a run that should be
    retrievable later -- a release asset, or a committed JSON summary beside the card. A gated benchmark's run (GPQA,
    HLE) cannot be public at all: its logs quote the questions its terms forbid publishing (section 11.3).
-5. **Whether Mila publishes Hub results, and for which models.** Every result on the leaderboards read so far is
-   self-reported under its author's own settings (section 11.2), which is the comparison principle 1 refuses. A
-   Mila result is reproducible and states its settings, but it sits in a table that is not. Options: publish for
-   every model and let the notes carry the settings; publish only where the card's paired comparison already
-   stands beside it; or not at all.
+5. **Whether Mila publishes Hub results, and for which models. Decided 2026-10-10 (Todd): only where the card's
+   paired comparison already stands beside it.** Every result on the leaderboards read so far is self-reported
+   under its author's own settings (section 11.2), which is the comparison principle 1 refuses; a Mila result is
+   reproducible and states its settings, but it sits in a table that is not. So the controlled number is always on
+   the card next to the uncontrolled one, and a model whose card has no comparison yet has no Hub result either.
+   Rejected: every model, with the notes carrying the settings; and none at all.
 6. **Verification.** A verified result needs the run made in HF Jobs (section 11.1), which would need MIS and its
    weights in a Hugging Face job, and Hugging Face's word that a token is issued for an engine it does not host.
-   Not pursued until decision 5 is made.
+   Not pursued; decision 5 no longer blocks it.
 
 ## 11. The Hugging Face Hub
 
@@ -344,8 +349,8 @@ open. Registering a new benchmark is by request, onto an allow-list.
   percentages (one MMLU-Pro row reports a fraction and ranks near the bottom for it).
 - **The prompt is the engine's.** inspect-ai sends chat messages, so each arm renders its own template, and the
   section 4 control of identical token ids does not hold. inspect-ai sends one user message and no system message;
-  MIS then adds "You are a helpful assistant." as the system turn (`Untriaged.md`). The mila arm measures MIS as a
-  user meets it, and its comparison with `hf` measures the engine and the template together.
+  MIS then adds "You are a helpful assistant." as the system turn (`BACKLOG.md`, *Chat and the inference server
+  each hold code that knows which model they are running*). The mila arm measures MIS as a user meets it, and its comparison with `hf` measures the engine and the template together.
 
 ### 11.3 The benchmarks
 
