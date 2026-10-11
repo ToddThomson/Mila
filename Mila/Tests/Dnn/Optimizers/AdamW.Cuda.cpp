@@ -1,13 +1,13 @@
 /**
  * @file AdamW.Cuda.cpp
- * @brief CUDA-specific unit tests for the AdamW optimizer.
- *
- * Tests CUDA backend behavior for the AdamW optimizer including construction,
- * parameter registration, kernel execution, async behavior and numerical stability.
+ * @brief The AdamW optimizer on CUDA, FP32: construction, registration, the update against a host reference,
+ * bias correction, convergence and numerical stability.
  */
 
 #include <gtest/gtest.h>
+#include <cuda_runtime.h>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 #include <string>
 #include <cmath>
@@ -22,16 +22,20 @@ namespace Dnn::Optimizers::Tests
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Optimizers;
 
-    /**
-     * @brief Test fixture for CUDA AdamW optimizer tests.
-     */
+    // The device-agnostic wrapper is what Mila exports; it is the surface a consumer drives.
+    using AdamWCuda = AdamWOptimizer<DeviceType::Cuda, TensorDataType::FP32>;
+
     class AdamWCudaTests : public ::testing::Test
     {
     protected:
         void SetUp() override
         {
-            // Use device 0
-            exec_ctx_ = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
+            if ( getDeviceCount( DeviceType::Cuda ) == 0 )
+            {
+                GTEST_SKIP() << "No CUDA device available";
+            }
+
+            exec_ctx_ = createExecutionContext( Device::Cuda( 0 ) );
 
             small_shape_ = { 2, 3 };
             medium_shape_ = { 10, 20 };
@@ -64,7 +68,7 @@ namespace Dnn::Optimizers::Tests
             float init_value = 1.0f )
         {
             auto param = std::make_shared<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>(
-                exec_ctx_->getDeviceId(), shape );
+                Device::Cuda( 0 ), shape );
 
             // Initialize via host tensor
             Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor( Device::Cpu(), shape );
@@ -90,7 +94,7 @@ namespace Dnn::Optimizers::Tests
             float grad_value = 0.1f )
         {
             auto grad = std::make_shared<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>(
-                exec_ctx_->getDeviceId(), shape );
+                Device::Cuda( 0 ), shape );
 
             // Initialize via host tensor
             Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor( Device::Cpu(), shape );
@@ -162,7 +166,7 @@ namespace Dnn::Optimizers::Tests
             return true;
         }
 
-        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> exec_ctx_;
+        std::unique_ptr<IExecutionContext> exec_ctx_;
         shape_t small_shape_;
         shape_t medium_shape_;
         shape_t large_shape_;
@@ -190,7 +194,7 @@ namespace Dnn::Optimizers::Tests
 
         // Use device-agnostic wrapper with AdamWConfig
         auto optimizer = std::make_shared<AdamWOptimizer<DeviceType::Cuda, TensorDataType::FP32>>(
-            exec_ctx_, config );
+            exec_ctx_.get(), config );
     }
 
     TEST_F( AdamWCudaTests, Construction_DefaultHyperparameters )
@@ -199,7 +203,7 @@ namespace Dnn::Optimizers::Tests
         AdamWConfig config; // default values as in AdamWConfig.ixx
 
         auto optimizer = std::make_shared<AdamWOptimizer<DeviceType::Cuda, TensorDataType::FP32>>(
-            exec_ctx_, config );
+            exec_ctx_.get(), config );
 
         EXPECT_FLOAT_EQ( optimizer->getLearningRate(), default_lr_ );
         EXPECT_FLOAT_EQ( optimizer->getBeta1(), default_beta1_ );
@@ -224,7 +228,7 @@ namespace Dnn::Optimizers::Tests
             .withEpsilon( eps )
             .withWeightDecay( wd );
 
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         EXPECT_FLOAT_EQ( optimizer->getLearningRate(), lr );
         EXPECT_FLOAT_EQ( optimizer->getBeta1(), beta1 );
@@ -235,12 +239,12 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCudaTests, Error_NullExecutionContext )
     {
-        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> null_ctx;
+        IExecutionContext* null_ctx = nullptr;
 
         auto config = AdamWConfig().withLearningRate( default_lr_ );
 
         EXPECT_THROW(
-            (std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( null_ctx, config )),
+            (std::make_shared<AdamWCuda>( null_ctx, config )),
             std::invalid_argument
         );
     }
@@ -250,7 +254,7 @@ namespace Dnn::Optimizers::Tests
         {
             auto config = AdamWConfig().withLearningRate( 0.0f );
             EXPECT_THROW(
-                (std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config )),
+                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -258,7 +262,7 @@ namespace Dnn::Optimizers::Tests
         {
             auto config = AdamWConfig().withLearningRate( -0.001f );
             EXPECT_THROW(
-                (std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config )),
+                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -269,7 +273,7 @@ namespace Dnn::Optimizers::Tests
         {
             auto config = AdamWConfig().withLearningRate( default_lr_ ).withBeta1( 0.0f );
             EXPECT_THROW(
-                (std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config )),
+                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -277,7 +281,7 @@ namespace Dnn::Optimizers::Tests
         {
             auto config = AdamWConfig().withLearningRate( default_lr_ ).withBeta1( 1.0f );
             EXPECT_THROW(
-                (std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config )),
+                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -291,7 +295,7 @@ namespace Dnn::Optimizers::Tests
                 .withBeta1( default_beta1_ )
                 .withBeta2( 0.0f );
             EXPECT_THROW(
-                (std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config )),
+                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -302,7 +306,7 @@ namespace Dnn::Optimizers::Tests
                 .withBeta1( default_beta1_ )
                 .withBeta2( 1.0f );
             EXPECT_THROW(
-                (std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config )),
+                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -317,7 +321,7 @@ namespace Dnn::Optimizers::Tests
                 .withBeta2( default_beta2_ )
                 .withEpsilon( 0.0f );
             EXPECT_THROW(
-                (std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config )),
+                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -329,7 +333,7 @@ namespace Dnn::Optimizers::Tests
                 .withBeta2( default_beta2_ )
                 .withEpsilon( -1e-8f );
             EXPECT_THROW(
-                (std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config )),
+                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -345,7 +349,7 @@ namespace Dnn::Optimizers::Tests
             .withWeightDecay( -0.01f );
 
         EXPECT_THROW(
-            (std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config )),
+            (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
             std::invalid_argument
         );
     }
@@ -357,7 +361,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, AddParameter_SingleParameter )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_ );
         auto grad = createGradient( small_shape_ );
@@ -369,7 +373,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, AddParameter_MultipleParameters )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         for (int i = 0; i < 5; ++i)
         {
@@ -385,7 +389,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, AddParameter_DifferentShapes )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param1 = createParameter( small_shape_ );
         auto grad1 = createGradient( small_shape_ );
@@ -401,7 +405,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Error_AddParameter_NullParameter )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto grad = createGradient( small_shape_ );
 
@@ -414,7 +418,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Error_AddParameter_NullGradient )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_ );
 
@@ -427,7 +431,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Error_AddParameter_ShapeMismatch )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_ );
         auto grad = createGradient( medium_shape_ );
@@ -445,7 +449,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Step_SingleParameter_SingleIteration )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.1f );
@@ -491,7 +495,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Step_MultipleIterations )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.1f );
@@ -521,7 +525,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Step_MultipleParameters )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         std::vector<std::shared_ptr<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>> params;
         std::vector<std::shared_ptr<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>> grads;
@@ -562,7 +566,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Step_LargeParameters )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( large_shape_, 1.0f );
         auto grad = createGradient( large_shape_, 0.01f );
@@ -579,7 +583,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Step_VeryLargeParameters )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( very_large_shape_, 1.0f );
         auto grad = createGradient( very_large_shape_, 0.001f );
@@ -603,7 +607,7 @@ namespace Dnn::Optimizers::Tests
             .withEpsilon( default_epsilon_ )
             .withWeightDecay( 0.1f );
 
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.0f );  // Zero gradient
@@ -626,7 +630,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Error_StepWithoutParameters )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         EXPECT_THROW( optimizer->step(), std::runtime_error );
     }
@@ -638,7 +642,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Async_MultipleStepsWithoutSync )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( medium_shape_, 1.0f );
         auto grad = createGradient( medium_shape_, 0.01f );
@@ -661,7 +665,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Async_StreamOrdering )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.1f );
@@ -688,65 +692,13 @@ namespace Dnn::Optimizers::Tests
     }
 
     // ============================================================================
-    // Gradient Zeroing Tests
-    // ============================================================================
-
-    TEST_F( AdamWCudaTests, ZeroGrad_SingleParameter )
-    {
-        auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
-
-        auto param = createParameter( small_shape_ );
-        auto grad = createGradient( small_shape_, 0.5f );
-
-        optimizer->addParameter( param.get(), grad.get() );
-
-        EXPECT_NO_THROW( optimizer->zeroGrad() );
-        exec_ctx_->synchronize();
-
-        EXPECT_TRUE( allClose( *grad, 0.0f ) ) << "Gradients should be zero after zeroGrad()";
-    }
-
-    TEST_F( AdamWCudaTests, ZeroGrad_MultipleParameters )
-    {
-        auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
-
-        std::vector<std::shared_ptr<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>> grads;
-
-        for (int i = 0; i < 5; ++i)
-        {
-            auto param = createParameter( small_shape_ );
-            auto grad = createGradient( small_shape_, 0.5f );
-            optimizer->addParameter( param.get(), grad.get() );
-            grads.push_back( grad );
-        }
-
-        EXPECT_NO_THROW( optimizer->zeroGrad() );
-        exec_ctx_->synchronize();
-
-        for (const auto& grad : grads)
-        {
-            EXPECT_TRUE( allClose( *grad, 0.0f ) ) << "All gradients should be zero";
-        }
-    }
-
-    TEST_F( AdamWCudaTests, Error_ZeroGradWithoutParameters )
-    {
-        auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
-
-        EXPECT_THROW( optimizer->zeroGrad(), std::runtime_error );
-    }
-
-    // ============================================================================
     // Hyperparameter Update Tests
     // ============================================================================
 
     TEST_F( AdamWCudaTests, SetLearningRate )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         float new_lr = 0.002f;
         EXPECT_NO_THROW( optimizer->setLearningRate( new_lr ) );
@@ -756,7 +708,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Error_SetLearningRate_Invalid )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         EXPECT_THROW( optimizer->setLearningRate( 0.0f ), std::invalid_argument );
         EXPECT_THROW( optimizer->setLearningRate( -0.001f ), std::invalid_argument );
@@ -765,7 +717,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, SetWeightDecay )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         float new_wd = 0.02f;
         EXPECT_NO_THROW( optimizer->setWeightDecay( new_wd ) );
@@ -775,7 +727,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Error_SetWeightDecay_Invalid )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         EXPECT_THROW( optimizer->setWeightDecay( -0.01f ), std::invalid_argument );
     }
@@ -783,7 +735,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, LearningRateSchedule )
     {
         auto config = AdamWConfig().withLearningRate( 0.1f );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.1f );
@@ -816,7 +768,7 @@ namespace Dnn::Optimizers::Tests
             .withEpsilon( default_epsilon_ )
             .withWeightDecay( 0.0f );
 
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.0f );
@@ -834,7 +786,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, EdgeCase_LargeGradients )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 100.0f );  // Very large gradient
@@ -850,7 +802,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, EdgeCase_VerySmallGradients )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 1e-10f );  // Very small gradient
@@ -863,10 +815,186 @@ namespace Dnn::Optimizers::Tests
         EXPECT_FALSE( hasNaNorInf( *param ) );
     }
 
+    TEST_F( AdamWCudaTests, EdgeCase_MixedSignGradientStaysFinite )
+    {
+        auto config = AdamWConfig().withLearningRate( default_lr_ );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
+
+        auto param = createParameter( small_shape_, 0.0f );
+        auto grad = createGradient( small_shape_, 0.0f );
+
+        Tensor<TensorDataType::FP32, CpuMemoryResource> host_grad( Device::Cpu(), small_shape_ );
+
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
+        {
+            host_grad.data()[ i ] = ( i % 2 == 0 ) ? 0.1f : -0.1f;
+        }
+
+        copy( host_grad, *grad );
+        exec_ctx_->synchronize();
+
+        optimizer->addParameter( param.get(), grad.get() );
+
+        EXPECT_NO_THROW( optimizer->step() );
+        exec_ctx_->synchronize();
+
+        EXPECT_FALSE( hasNaNorInf( *param ) );
+    }
+
+    // Three steps against the AdamW update computed on the host, with a distinct gradient per element and weight
+    // decay on, so the moments, both bias corrections and the decay term are each checked rather than assumed.
+    TEST_F( AdamWCudaTests, Step_MatchesTheHostReferenceUpdate )
+    {
+        constexpr float kLearningRate = 0.01f;
+        constexpr float kWeightDecay = 0.1f;
+
+        auto config = AdamWConfig().withLearningRate( kLearningRate ).withWeightDecay( kWeightDecay );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
+
+        const shape_t shape{ 4, 8 };
+        auto param = createParameter( shape, 0.0f );
+        auto grad = createGradient( shape, 0.0f );
+
+        Tensor<TensorDataType::FP32, CpuMemoryResource> host_param( Device::Cpu(), shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> host_grad( Device::Cpu(), shape );
+
+        for ( dim_t i = 0; i < host_param.size(); ++i )
+        {
+            host_param.data()[ i ] = 0.5f - 0.03f * static_cast<float>( i );
+            host_grad.data()[ i ] = 0.2f * std::sin( 0.7f * static_cast<float>( i ) ) + 0.01f;
+        }
+
+        copy( host_param, *param );
+        copy( host_grad, *grad );
+        exec_ctx_->synchronize();
+
+        optimizer->addParameter( param.get(), grad.get() );
+
+        const double beta1 = optimizer->getBeta1();
+        const double beta2 = optimizer->getBeta2();
+        const double epsilon = optimizer->getEpsilon();
+
+        std::vector<double> p( host_param.data(), host_param.data() + host_param.size() );
+        std::vector<double> m( p.size(), 0.0 );
+        std::vector<double> v( p.size(), 0.0 );
+
+        for ( int t = 1; t <= 3; ++t )
+        {
+            optimizer->step();
+            exec_ctx_->synchronize();
+
+            const double beta1_correction = 1.0 - std::pow( beta1, t );
+            const double beta2_correction = 1.0 - std::pow( beta2, t );
+
+            for ( size_t i = 0; i < p.size(); ++i )
+            {
+                const double g = host_grad.data()[ i ];
+                m[ i ] = beta1 * m[ i ] + ( 1.0 - beta1 ) * g;
+                v[ i ] = beta2 * v[ i ] + ( 1.0 - beta2 ) * g * g;
+
+                const double m_hat = m[ i ] / beta1_correction;
+                const double v_hat = v[ i ] / beta2_correction;
+
+                p[ i ] -= kLearningRate * ( m_hat / ( std::sqrt( v_hat ) + epsilon ) + kWeightDecay * p[ i ] );
+            }
+
+            auto updated = copyToHost( *param );
+
+            for ( size_t i = 0; i < p.size(); ++i )
+            {
+                EXPECT_NEAR( updated.data()[ i ], static_cast<float>( p[ i ] ), 1e-5f + 1e-5f * static_cast<float>( std::fabs( p[ i ] ) ) )
+                    << "step " << t << " element " << i;
+            }
+        }
+    }
+
+    TEST_F( AdamWCudaTests, BiasCorrection_EarlyStepsDiffer )
+    {
+        auto config = AdamWConfig().withLearningRate( 0.01f );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
+
+        auto param = createParameter( small_shape_, 1.0f );
+        auto grad = createGradient( small_shape_, 0.1f );
+
+        optimizer->addParameter( param.get(), grad.get() );
+
+        std::vector<float> after_step;
+
+        for ( int step = 0; step < 5; ++step )
+        {
+            optimizer->step();
+            exec_ctx_->synchronize();
+            after_step.push_back( copyToHost( *param ).data()[ 0 ] );
+        }
+
+        for ( size_t i = 1; i < after_step.size(); ++i )
+        {
+            EXPECT_NE( after_step[ i ], after_step[ i - 1 ] )
+                << "bias correction should produce a distinct update at each early step";
+        }
+    }
+
+    // Closed loop: the gradient of a known convex objective is recomputed each step, so the parameter must
+    // reach the minimizer. Weight decay is off, so the target is the unique fixed point.
+    TEST_F( AdamWCudaTests, Convergence_MinimizesQuadraticToTarget )
+    {
+        const shape_t shape{ 4 };
+        const std::vector<float> target{ 0.5f, -1.0f, 2.0f, -0.25f };
+
+        auto config = AdamWConfig().withLearningRate( 0.05f ).withWeightDecay( 0.0f );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
+
+        auto param = createParameter( shape, 0.0f );
+        auto grad = createGradient( shape, 0.0f );
+
+        optimizer->addParameter( param.get(), grad.get() );
+
+        Tensor<TensorDataType::FP32, CpuMemoryResource> host_grad( Device::Cpu(), shape );
+
+        auto loss = [&]( const Tensor<TensorDataType::FP32, CpuMemoryResource>& x ) {
+            float sum = 0.0f;
+
+            for ( size_t i = 0; i < target.size(); ++i )
+            {
+                const float d = x.data()[ i ] - target[ i ];
+                sum += d * d;
+            }
+
+            return sum;
+        };
+
+        const float initial_loss = loss( copyToHost( *param ) );
+
+        for ( int iteration = 0; iteration < 600; ++iteration )
+        {
+            auto x = copyToHost( *param );
+
+            for ( size_t i = 0; i < target.size(); ++i )
+            {
+                host_grad.data()[ i ] = 2.0f * ( x.data()[ i ] - target[ i ] );
+            }
+
+            copy( host_grad, *grad );
+            exec_ctx_->synchronize();
+
+            optimizer->step();
+            exec_ctx_->synchronize();
+        }
+
+        const auto x = copyToHost( *param );
+
+        EXPECT_LT( loss( x ), initial_loss ) << "loss must strictly decrease";
+
+        for ( size_t i = 0; i < target.size(); ++i )
+        {
+            EXPECT_NEAR( x.data()[ i ], target[ i ], 1e-2f ) << "parameter " << i << " should converge to its target";
+        }
+    }
+
     TEST_F( AdamWCudaTests, NumericalStability_ManyIterations )
     {
         auto config = AdamWConfig().withLearningRate( 0.01f );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.01f );
@@ -898,7 +1026,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Cuda_KernelLaunch )
     {
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( medium_shape_, 1.0f );
         auto grad = createGradient( medium_shape_, 0.1f );
@@ -923,7 +1051,7 @@ namespace Dnn::Optimizers::Tests
         // for the same inputs (seed is based on step count + parameter index)
 
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.1f );
@@ -939,7 +1067,7 @@ namespace Dnn::Optimizers::Tests
         auto param2 = createParameter( small_shape_, 1.0f );
         auto grad2 = createGradient( small_shape_, 0.1f );
 
-        auto optimizer2 = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer2 = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         optimizer2->addParameter( param2.get(), grad2.get() );
         optimizer2->step();
@@ -962,7 +1090,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCudaTests, Integration_TrainingLoop )
     {
         auto config = AdamWConfig().withLearningRate( 0.01f );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param1 = createParameter( small_shape_, 1.0f );
         auto grad1 = createGradient( small_shape_, 0.1f );
@@ -994,18 +1122,11 @@ namespace Dnn::Optimizers::Tests
             copy( grad2_host, *grad2 );
             exec_ctx_->synchronize();
 
-            // Optimization step
             optimizer->step();
-
-            // Zero gradients
-            optimizer->zeroGrad();
             exec_ctx_->synchronize();
 
-            // Verify state
             EXPECT_FALSE( hasNaNorInf( *param1 ) );
             EXPECT_FALSE( hasNaNorInf( *param2 ) );
-            EXPECT_TRUE( allClose( *grad1, 0.0f ) );
-            EXPECT_TRUE( allClose( *grad2, 0.0f ) );
         }
 
         EXPECT_EQ( optimizer->getStepCount(), 10u );
@@ -1015,7 +1136,7 @@ namespace Dnn::Optimizers::Tests
     {
         // Verify optimizer works correctly when execution context manages device
         auto config = AdamWConfig().withLearningRate( default_lr_ );
-        auto optimizer = std::make_shared<CudaAdamWOptimizer<TensorDataType::FP32>>( exec_ctx_, config );
+        auto optimizer = std::make_shared<AdamWCuda>( exec_ctx_.get(), config );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.1f );

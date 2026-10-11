@@ -169,6 +169,10 @@ namespace Mila::Dnn
          *
          * Computes gradient: dX = Y * (dY - dot(Y, dY))
          * where Y is the softmax output.
+         *
+         * @param input The forward OUTPUT Y that forward() wrote, not the forward input.
+         * @param output_grad Gradient with respect to Y.
+         * @param input_grad Receives the gradient with respect to the forward input.
          */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {

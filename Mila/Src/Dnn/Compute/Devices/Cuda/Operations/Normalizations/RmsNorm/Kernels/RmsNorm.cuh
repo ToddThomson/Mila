@@ -108,6 +108,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
      * @param outer_size Product of dims before normalization axis
      * @param inner_size Product of dims after normalization axis
      * @param norm_dim Size of the normalized dimension
+     * @param weight_offset As for the forward launcher; the input gradient scales by (weight + weight_offset)
      * @param weight_groups As for the forward launcher
      * @param stream CUDA stream for async execution
      */
@@ -119,6 +120,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* weight,
         const float* rstd,
         int outer_size, int inner_size, int norm_dim,
+        float weight_offset,
         int weight_groups,
         cudaStream_t stream );
 
@@ -153,6 +155,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const __nv_bfloat16* weight,
         const __nv_bfloat16* rstd,
         int outer_size, int inner_size, int norm_dim,
+        float weight_offset,
         int weight_groups,
         cudaStream_t stream );
 }

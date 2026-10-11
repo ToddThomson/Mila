@@ -1622,4 +1622,72 @@ namespace Mila::Tests::Dnn::Components::Linear
         std::error_code ignored;
         std::filesystem::remove( path, ignored );
     }
+
+    // ====================================================================
+    // H. Refusals a caller can reach
+    // ====================================================================
+
+    class LinearCudaRefusalTests : public ::testing::Test
+    {
+    protected:
+        using PlainLinear = Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::FP32>;
+
+        void SetUp() override
+        {
+            if ( getDeviceCount( DeviceType::Cuda ) == 0 )
+            {
+                GTEST_SKIP() << "No CUDA device available";
+            }
+        }
+
+        static std::unique_ptr<PlainLinear> built()
+        {
+            auto linear = std::make_unique<PlainLinear>( "fc", LinearConfig( kInFeatures, kOutFeatures ), Device::Cuda( 0 ) );
+            linear->build( BuildContext( shape_t{ 2, kInFeatures }, RuntimeMode::Inference, false ) );
+
+            return linear;
+        }
+    };
+
+    TEST_F( LinearCudaRefusalTests, Forward_ThrowsOnInputFeatureMismatch )
+    {
+        auto linear = built();
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> wrong_input( Device::Cuda( 0 ), shape_t{ 2, 2 * kInFeatures } );
+
+        EXPECT_THROW( linear->forward( wrong_input ), std::invalid_argument );
+    }
+
+    // A blob declared INT32 is neither the weight's own dtype nor one quantize-on-load converts.
+    TEST_F( LinearCudaRefusalTests, LoadParameter_ThrowsOnDtypeMismatch )
+    {
+        auto linear = built();
+
+        std::vector<std::int32_t> weight( static_cast<size_t>( kOutFeatures * kInFeatures ), 0 );
+        Serialization::TensorMetadata metadata{ TensorDataType::INT32, shape_t{ kOutFeatures, kInFeatures }, weight.size() * sizeof( std::int32_t ) };
+        Serialization::TensorBlobView blob( metadata, weight.data(), weight.size() * sizeof( std::int32_t ) );
+
+        EXPECT_THROW( linear->loadParameter( "weight", blob ), std::invalid_argument );
+    }
+
+    TEST_F( LinearCudaRefusalTests, LoadParameter_ThrowsOnShapeMismatch )
+    {
+        auto linear = built();
+
+        std::vector<float> weight( static_cast<size_t>( ( kOutFeatures + 1 ) * kInFeatures ), 0.0f );
+        Serialization::TensorMetadata metadata{ TensorDataType::FP32, shape_t{ kOutFeatures + 1, kInFeatures }, weight.size() * sizeof( float ) };
+        Serialization::TensorBlobView blob( metadata, weight.data(), weight.size() * sizeof( float ) );
+
+        EXPECT_THROW( linear->loadParameter( "weight", blob ), std::invalid_argument );
+    }
+
+    TEST_F( LinearCudaRefusalTests, LoadParameter_ThrowsOnUnknownName )
+    {
+        auto linear = built();
+
+        std::vector<float> weight( static_cast<size_t>( kOutFeatures * kInFeatures ), 0.0f );
+        Serialization::TensorMetadata metadata{ TensorDataType::FP32, shape_t{ kOutFeatures, kInFeatures }, weight.size() * sizeof( float ) };
+        Serialization::TensorBlobView blob( metadata, weight.data(), weight.size() * sizeof( float ) );
+
+        EXPECT_THROW( linear->loadParameter( "bogus", blob ), std::invalid_argument );
+    }
 }

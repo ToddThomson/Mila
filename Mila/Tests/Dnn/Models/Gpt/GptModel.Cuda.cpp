@@ -1,24 +1,13 @@
 /**
  * @file GptModel.Cuda.cpp
- * @brief The deployment context bound in GptModel::generate().
+ * @brief GptModel's checkpoint round trip and the deployment context bound in generate().
  *
- * decode() reads the learned positional embedding at `position`, and GPT-2 has exactly
- * context_length of them -- so one step past the end is an out-of-bounds read, not a
- * degraded answer. The bound that stops it is what these cases pin.
- *
- * The fixture carries no real weights: the bound is a property of the generation loop,
- * not of the numbers, so a checkpoint written from a 16-position toy config reaches the
- * boundary in single-digit steps where a real GPT-2 needs ~1005. The archive is written
- * by a CPU network because it is device-neutral and the values are then deterministic;
- * the model under test is built on CUDA.
- *
- * CUDA rather than CPU for a specific reason: the CPU operation layer takes its extents
- * from build() rather than from the input (CpuLinearOp, CpuSoftmaxOp and CpuAttentionOp
- * still do), so a CPU model cannot run a prompt shorter than its built context and could
- * never reach the loop this file is about. The CUDA ops derive extents from the input.
+ * The fixture carries no real weights: a checkpoint written from a 16-position toy config reaches the context
+ * bound in single-digit steps, and checkpoint fidelity is asserted by comparing archives blob for blob.
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -39,9 +28,8 @@ namespace Mila::Tests::Dnn::Models
 
     namespace
     {
-        using GptCpu = Mila::Dnn::GptTransformer<DeviceType::Cpu, TensorDataType::FP32>;
+        using GptCuda = Mila::Dnn::GptTransformer<DeviceType::Cuda, TensorDataType::FP32>;
         using GptModelCuda = Mila::Dnn::GptModel<DeviceType::Cuda, TensorDataType::FP32>;
-        using HostTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
 
         constexpr int64_t kEmbedding = 16;
         constexpr int64_t kLayers = 2;
@@ -83,21 +71,42 @@ namespace Mila::Tests::Dnn::Models
                 / std::format( "mila_test_gptmodel_cuda_{}_{}.mila", tag, stamp );
         }
 
+        // A built network with a distinct value per tensor, written straight to an archive -- the same bytes
+        // saveCheckpoint produces, since that is a thin wrapper over Network::save.
         void writeCheckpoint( const std::filesystem::path& path )
         {
-            auto net = std::make_unique<GptCpu>( "gpt", smallConfig(), Device::Cpu() );
+            auto net = std::make_unique<GptCuda>( "gpt", smallConfig(), Device::Cuda( 0 ) );
             net->build( BuildContext( shape_t{ 1, kSeq }, RuntimeMode::Inference ) );
 
             float value = 0.5f;
 
             for ( auto* parameter : net->getParameters() )
             {
-                fill( *static_cast<HostTensor*>( parameter ), value );
+                fill( *static_cast<GptCuda::TensorType*>( parameter ), value );
                 value += 0.25f;
             }
 
+            net->synchronize();
+
             ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
             net->save( archive, SerializationMode::Checkpoint );
+        }
+
+        std::vector<std::string> tensorBlobPaths( const ModelArchive& archive )
+        {
+            std::vector<std::string> blobs;
+
+            for ( const auto& name : archive.listFiles() )
+            {
+                if ( name.ends_with( "/data.bin" ) )
+                {
+                    blobs.push_back( name );
+                }
+            }
+
+            std::sort( blobs.begin(), blobs.end() );
+
+            return blobs;
         }
 
         std::unique_ptr<GptModelCuda> loadBoundedModel( const std::filesystem::path& path )
@@ -111,7 +120,108 @@ namespace Mila::Tests::Dnn::Models
 
     class GptModelCudaGenerateTests : public ::testing::Test
     {
+    protected:
+        void SetUp() override
+        {
+            if ( getDeviceCount( DeviceType::Cuda ) == 0 )
+            {
+                GTEST_SKIP() << "No CUDA device available";
+            }
+        }
     };
+
+    class GptModelCudaCheckpointTests : public GptModelCudaGenerateTests
+    {
+    };
+
+    // No config passed: the archive carries it. That is what separates fromCheckpoint from load.
+    TEST_F( GptModelCudaCheckpointTests, FromCheckpoint_ReconstructsTheModelFromTheArchiveAlone )
+    {
+        const auto path = makeTempArchivePath( "reconstruct" );
+        std::error_code ec;
+        std::filesystem::remove( path, ec );
+
+        writeCheckpoint( path );
+
+        auto model = GptModelCuda::fromCheckpoint( path );
+
+        ASSERT_NE( model, nullptr );
+
+        const auto& config = model->getConfig();
+
+        EXPECT_EQ( config.getVocabSize(), kVocab );
+        EXPECT_EQ( config.getNumLayers(), kLayers );
+        EXPECT_EQ( config.getEmbeddingSize(), kEmbedding );
+        EXPECT_EQ( config.getNumHeads(), kHeads );
+        EXPECT_EQ( config.getHiddenSize(), kHidden );
+        EXPECT_EQ( config.getUseBias(), true );
+
+        std::filesystem::remove( path, ec );
+    }
+
+    TEST_F( GptModelCudaCheckpointTests, FromCheckpoint_ThrowsOnAnArchiveItDidNotWrite )
+    {
+        const auto path = makeTempArchivePath( "foreign" );
+        std::error_code ec;
+        std::filesystem::remove( path, ec );
+
+        {
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+            archive.writeBlob( "unrelated.bin", "x", 1 );
+        }
+
+        EXPECT_THROW( (void)GptModelCuda::fromCheckpoint( path ), std::runtime_error );
+
+        std::filesystem::remove( path, ec );
+    }
+
+    // Load a checkpoint, write one back out, and require the two archives to agree blob for blob: anything the
+    // load leg dropped is absent on the way out, and anything mis-scoped lands under a different name.
+    TEST_F( GptModelCudaCheckpointTests, SaveCheckpoint_RoundTripsEveryBlobUnchanged )
+    {
+        const auto source_path = makeTempArchivePath( "src" );
+        const auto resaved_path = makeTempArchivePath( "resaved" );
+        std::error_code ec;
+        std::filesystem::remove( source_path, ec );
+        std::filesystem::remove( resaved_path, ec );
+
+        writeCheckpoint( source_path );
+
+        auto model = GptModelCuda::fromCheckpoint( source_path );
+        ASSERT_NE( model, nullptr );
+
+        model->saveCheckpoint( resaved_path );
+
+        {
+            ModelArchive source( source_path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+            ModelArchive resaved( resaved_path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+
+            const auto source_blobs = tensorBlobPaths( source );
+            const auto resaved_blobs = tensorBlobPaths( resaved );
+
+            ASSERT_EQ( source_blobs, resaved_blobs );
+            ASSERT_GT( source_blobs.size(), 8u ) << "fixture too small to exercise nesting";
+
+            for ( const auto& blob : source_blobs )
+            {
+                const size_t size = source.getFileSize( blob );
+
+                ASSERT_EQ( resaved.getFileSize( blob ), size ) << blob;
+                ASSERT_GT( size, 0u ) << blob;
+
+                std::vector<std::uint8_t> expected( size );
+                std::vector<std::uint8_t> actual( size );
+
+                ASSERT_EQ( source.readBlobInto( blob, expected.data(), size ), size ) << blob;
+                ASSERT_EQ( resaved.readBlobInto( blob, actual.data(), size ), size ) << blob;
+
+                EXPECT_EQ( expected, actual ) << blob;
+            }
+        }
+
+        std::filesystem::remove( source_path, ec );
+        std::filesystem::remove( resaved_path, ec );
+    }
 
     // The fixture's vocabulary is 32 while eos_token_ is 50256, so no sampled token can
     // end the run early -- the bound is the only exit, which is what makes the emitted

@@ -4,7 +4,8 @@ The Qwen 4 architecture (`qwen4_exp`): what it adds to the Qwen 3.8 hybrid, whic
 carry over, and what a Qwen 4 27B port has to build.
 
 *Status: draft, 2026-10-08; Phase 0 built and its gate passed (`Tools/Converters/Qwen4/`); Phase 1 built and its
-CPU gate passed; Phase 2's `GatedResidual` and `NgramEmbedding` built on CPU and their gates passed. Written ahead of the Qwen 4 27B release, expected around November 2026
+CPU gate passed; Phase 2's `GatedResidual` and `NgramEmbedding` built on CPU and CUDA (FP32 and BF16) and their gates
+passed. Written ahead of the Qwen 4 27B release, expected around November 2026
 (Todd, 2026-10-08). No Qwen 4 27B checkpoint exists yet. Everything here is read from the architecture's one
 open-weights release, `Qwen/Qwen3.8-Flash-Next`, which its model card calls "this experimental preview of the
 architecture that will underpin Qwen4", and from the reference implementation in `transformers` 5.16.0
@@ -460,7 +461,20 @@ with CPU and CUDA specializations; the CPU operation comes first and is the CUDA
 - Mila's safetensors reader refuses int64 tensors, so the tiny reference also writes `weights_fp32.safetensors`
   (every floating weight under its HuggingFace name) and the n-gram constants as text; the gates read those.
 
-Open: their CUDA operations, `PerLayerEmbedding`, `QsaIndexer` and the sparse decode attention.
+**Progress (2026-10-11).** Components 1 and 2 have CUDA operations, FP32 and BF16, and pass the same gates:
+
+- `CudaGatedResidualOp` is four elementwise kernels, one per step, arithmetic in float. Against the capture its worst
+  error is 0.020 of the FP32 tolerance; at BF16, 0.16 of a 3e-2 absolute plus 3e-2 relative tolerance.
+- `CudaNgramEmbeddingOp` hashes and advances the history in one kernel, one block per batch row: the block reads the
+  history into shared memory before any thread writes it. The constants travel by value in the launch, so they hold
+  no device memory and a recorded step replays them. The gather is its own launch, so the table's residency decides
+  only the gather. Every id equals the capture at both precisions, and every embedding is the row its id names.
+- Its decode under replay equals a called decode at every later token (`ReplayedDecodeEqualsCalledDecode`).
+- Mutation-checked: an inject that ignores its gate, a history that never advances, and a truncating `%` in place of
+  the floor mod each fail. The last is caught only by the hand-built test: no product in the tiny reference
+  reaches 2^63, so the capture never produces a negative mixed value (`Mila/Issues/Untriaged.md`).
+
+Open: `PerLayerEmbedding`, `QsaIndexer` and the sparse decode attention.
 
 ### Phase 3 -- Release day
 

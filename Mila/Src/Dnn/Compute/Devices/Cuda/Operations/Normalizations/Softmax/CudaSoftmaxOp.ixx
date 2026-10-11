@@ -66,13 +66,18 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
                 cuda_softmax_forward_general<float>( Y, X, outer_size, dim_size, inner_size, stream );
             }
 
-            static inline void backward(
-                float* /*dX*/, const float* /*dY*/, const float* /*Y*/,
-                int /*N*/, int /*axis*/, cudaStream_t /*stream*/ )
+            static inline void backward_optimized(
+                float* dX, const float* dY, const float* Y, int N, int C, cudaStream_t stream )
             {
-                // REVIEW: Why does the FP32 backward kernel need review?
-                // cuda_softmax_backward<float>( dX, dY, Y, N, axis, stream );
-                throw std::runtime_error( "cuda_softmax_backwards<float>() needs review" );
+                cuda_softmax_backward<float>( dX, dY, Y, N, C, stream );
+            }
+
+            static inline void backward_general(
+                float* dX, const float* dY, const float* Y,
+                int outer_size, int dim_size, int inner_size,
+                cudaStream_t stream )
+            {
+                cuda_softmax_backward_general<float>( dX, dY, Y, outer_size, dim_size, inner_size, stream );
             }
         };
 
@@ -96,13 +101,18 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
                 cuda_softmax_forward_general<half>( Y, X, outer_size, dim_size, inner_size, stream );
             }
 
-            static inline void backward(
-                half* /*dX*/, const half* /*dY*/, const half* /*Y*/,
-                int /*N*/, int /*axis*/, cudaStream_t /*stream*/ )
+            static inline void backward_optimized(
+                half* dX, const half* dY, const half* Y, int N, int C, cudaStream_t stream )
             {
-                // REVIEW: Why was this commented out? the half data type is likely key
-                // cuda_softmax_backward<half>( dX, dY, Y, N, axis, stream );
-                throw std::runtime_error( "cuda_softmax_backwards<half>() needs review" );
+                cuda_softmax_backward<half>( dX, dY, Y, N, C, stream );
+            }
+
+            static inline void backward_general(
+                half* dX, const half* dY, const half* Y,
+                int outer_size, int dim_size, int inner_size,
+                cudaStream_t stream )
+            {
+                cuda_softmax_backward_general<half>( dX, dY, Y, outer_size, dim_size, inner_size, stream );
             }
         };
     }
@@ -256,25 +266,42 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
         /**
          * @brief Backward pass - HOT PATH, pure dispatch to CUDA kernel.
          *
-         * Similar to forward(), this method does minimal work and dispatches
-         * directly to the backward kernel using cached dimensions from build().
+         * Writes dX = Y * (dY - dot(Y, dY)) along the softmax axis, overwriting @p input_grad.
+         *
+         * @param output The forward output Y, not the forward input.
+         * @param output_grad Gradient with respect to Y.
+         * @param input_grad Receives the gradient with respect to the forward input.
          */
         void backward(
-            const ITensor& input,
+            const ITensor& output,
             const ITensor& output_grad,
             ITensor& input_grad ) const
         {
-            const NativeType* Y = static_cast<const NativeType*>(input.rawData());
+            const NativeType* Y = static_cast<const NativeType*>(output.rawData());
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
             NativeType* dX = static_cast<NativeType*>(input_grad.rawData());
 
-            const int N = narrowToKernelIndex( input.size() );
             cudaStream_t stream = context_->getStream();
 
-            Detail::cuda_softmax_impl<NativeType>::backward(
-                dX, dY, Y,
-                N, static_cast<int>(cached_axis_), stream
-            );
+            if (use_optimized_kernel_)
+            {
+                Detail::cuda_softmax_impl<NativeType>::backward_optimized(
+                    dX, dY, Y,
+                    cached_outer_size_,
+                    cached_dim_size_,
+                    stream
+                );
+            }
+            else
+            {
+                Detail::cuda_softmax_impl<NativeType>::backward_general(
+                    dX, dY, Y,
+                    cached_outer_size_,
+                    cached_dim_size_,
+                    cached_inner_size_,
+                    stream
+                );
+            }
         }
 
         OperationType getOperationType() const override

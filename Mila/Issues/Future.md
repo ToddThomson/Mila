@@ -700,11 +700,6 @@ BF16 SwiGLU backward computes FP32 gradients against BF16 tensors, and
 `SwigluCudaTests/Bf16.Backward_MatchesReferenceGradients` skips for it (`Swiglu.Cuda.cpp:358`); the skip message
 still points at a backlog entry that no longer exists.
 
-Qwen training would meet a latent defect first: CUDA RMSNorm's `forward` applies
-`config_.getUnitOffset()` and its `backward` does not (`RmsNormOp.ixx:334`), so every Qwen norm
-differentiates as if the offset were zero. `CpuRmsNormOp`'s backward applies it, so a CPU/CUDA
-gradient comparison on an offset norm would disagree.
-
 ## Performance
 
 `perf` · `mila-src`

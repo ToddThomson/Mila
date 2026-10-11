@@ -2,26 +2,25 @@
  * @file GptTransformer.Cuda.cpp
  * @brief Concrete-network tests for GptTransformer<DeviceType::Cuda, FP32>.
  *
- * The CUDA mirror of GptTransformer.Cpu.cpp. GptTransformer is the GPT-2
- * decoder-only language network:
+ * GptTransformer is the GPT-2 decoder-only language network:
  *   Lpe (token + positional embedding) -> N x GptBlock -> final LayerNorm -> lm_head
- *
- * Covers the GptTransformer DELTA over the LanguageModelNetwork base: construction/
- * validation, the rank-2 [B, T] build contract, the RuntimeMode/TrainingMode axis,
- * forward producing finite logits of shape [B, T, vocab], the component graph, and
- * backward. Unlike the Llama CUDA path, the GPT-2 CUDA forward/backward kernels are
- * exercised by the Bard training sample, so finiteness and training-mode backward
- * are asserted here (not just the contract).
+ * Covers the build contract, the runtime modes, forward and backward, and the save and load round trip across
+ * nested blocks.
  *
  * CUDA device tests -- skipped when no CUDA device is present.
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <format>
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <system_error>
 #include <vector>
 
 import Mila;
@@ -30,6 +29,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Serialization;
 
     namespace
     {
@@ -258,6 +258,16 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
         EXPECT_NO_THROW( net->backward( input, output_grad ) );
     }
 
+    TEST_F( GptTransformerCudaTests, Backward_ThrowsWhenForwardNotCalled )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Training );
+
+        auto input = makeTokens( batch_, seq_ );
+        GptCuda::TensorType output_grad( Device::Cuda( 0 ), shape_t{ batch_, seq_, kVocab } );
+
+        EXPECT_THROW( net->backward( input, output_grad ), std::runtime_error );
+    }
+
     // ====================================================================
     // G. Parameters & Components
     // ====================================================================
@@ -302,5 +312,158 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
         // Structural kind is Network; the GPT-2 architecture identity is ModelType.
         EXPECT_EQ( net.getType(), ComponentType::Network );
         EXPECT_EQ( net.getModelType(), ModelType::Gpt2 );
+    }
+
+    // ====================================================================
+    // K. Serialization round trip
+    // ====================================================================
+
+    namespace
+    {
+        std::filesystem::path makeTempArchivePath( const std::string& tag )
+        {
+            const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
+            return std::filesystem::temp_directory_path()
+                / std::format( "mila_test_gpt_cuda_{}_{}.mila", tag, stamp );
+        }
+
+        void fillParametersDistinctly( GptCuda& net, float first, float step )
+        {
+            float value = first;
+
+            for ( auto* parameter : net.getParameters() )
+            {
+                fill( *static_cast<GptCuda::TensorType*>( parameter ), value );
+                value += step;
+            }
+
+            net.synchronize();
+        }
+
+        HostLogitsTensor parameterOnHost( GptCuda& net, const ITensor* parameter )
+        {
+            const auto& device = *static_cast<const GptCuda::TensorType*>( parameter );
+            HostLogitsTensor host( Device::Cpu(), device.shape() );
+            copy( device, host );
+            net.synchronize();
+
+            return host;
+        }
+    }
+
+    TEST_F( GptTransformerCudaTests, SaveThenLoad_RestoresEveryParameterAcrossNestedBlocks )
+    {
+        const auto path = makeTempArchivePath( "roundtrip" );
+        std::error_code ec;
+        std::filesystem::remove( path, ec );
+
+        auto source = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        // A distinct value per tensor, so a collision or a cross-wired restore shows as one parameter holding
+        // another's value.
+        fillParametersDistinctly( *source, 0.5f, 0.25f );
+
+        const auto parameter_count = source->getParameters().size();
+        ASSERT_GT( parameter_count, 8u ) << "fixture too small to exercise nesting";
+
+        {
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+            source->save( archive, SerializationMode::Checkpoint );
+        }
+
+        ModelArchive reader( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+
+        const auto files = reader.listFiles();
+        const auto blob_count = std::count_if( files.begin(), files.end(),
+            []( const std::string& name )
+            {
+                return name.ends_with( "/data.bin" );
+            } );
+
+        EXPECT_EQ( static_cast<size_t>( blob_count ), parameter_count );
+
+        // Poisoned, so "restored" cannot be confused with "happened to already match".
+        auto target = builtNet( batch_, seq_, RuntimeMode::Inference );
+        fillParametersDistinctly( *target, -1.0f, 0.0f );
+
+        target->load( reader, SerializationMode::Checkpoint );
+
+        const auto source_parameters = source->getParameters();
+        const auto target_parameters = target->getParameters();
+
+        ASSERT_EQ( source_parameters.size(), target_parameters.size() );
+
+        for ( size_t i = 0; i < source_parameters.size(); ++i )
+        {
+            const auto expected = parameterOnHost( *source, source_parameters[ i ] );
+            const auto actual = parameterOnHost( *target, target_parameters[ i ] );
+
+            ASSERT_EQ( expected.size(), actual.size() ) << "parameter " << i;
+
+            for ( dim_t element = 0; element < expected.size(); ++element )
+            {
+                ASSERT_EQ( expected.data()[ element ], actual.data()[ element ] )
+                    << "parameter " << i << " element " << element;
+            }
+        }
+
+        std::filesystem::remove( path, ec );
+    }
+
+    TEST_F( GptTransformerCudaTests, SaveThenLoad_RecoversTheConfigThatWroteIt )
+    {
+        const auto path = makeTempArchivePath( "config" );
+        std::error_code ec;
+        std::filesystem::remove( path, ec );
+
+        auto source = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        {
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+            source->save( archive, SerializationMode::Checkpoint );
+        }
+
+        ModelArchive reader( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+        const GptConfig recovered = GptCuda::configFromArchive( reader );
+        const GptConfig expected = smallConfig();
+
+        EXPECT_EQ( recovered.getVocabSize(), expected.getVocabSize() );
+        EXPECT_EQ( recovered.getNumLayers(), expected.getNumLayers() );
+        EXPECT_EQ( recovered.getEmbeddingSize(), expected.getEmbeddingSize() );
+        EXPECT_EQ( recovered.getNumHeads(), expected.getNumHeads() );
+        EXPECT_EQ( recovered.getMaxSequenceLength(), expected.getMaxSequenceLength() );
+        EXPECT_EQ( recovered.getHiddenSize(), expected.getHiddenSize() );
+        EXPECT_EQ( recovered.getUseBias(), expected.getUseBias() );
+
+        EXPECT_EQ( GptCuda::buildSequenceLengthFromArchive( reader ), seq_ );
+
+        std::filesystem::remove( path, ec );
+    }
+
+    TEST_F( GptTransformerCudaTests, Load_ThrowsWhenTheArchiveDescribesADifferentNetwork )
+    {
+        const auto path = makeTempArchivePath( "mismatch" );
+        std::error_code ec;
+        std::filesystem::remove( path, ec );
+
+        auto source = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        {
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+            source->save( archive, SerializationMode::Checkpoint );
+        }
+
+        GptConfig wider = smallConfig();
+        wider.withVocabSize( kVocab * 2 );
+
+        auto target = std::make_unique<GptCuda>( "gpt", wider, Device::Cuda( 0 ) );
+        target->build( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference ) );
+
+        ModelArchive reader( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+
+        EXPECT_THROW( target->load( reader, SerializationMode::Checkpoint ), std::runtime_error );
+
+        std::filesystem::remove( path, ec );
     }
 }

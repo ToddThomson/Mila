@@ -2,23 +2,11 @@
  * @file GptBlock.Cuda.cpp
  * @brief Concrete-component tests for GptBlock<DeviceType::Cuda, FP32>.
  *
- * The CUDA mirror of GptBlock.Cpu.cpp. GptBlock is the GPT-2 pre-LN transformer
- * block composite:
+ * GptBlock is the GPT-2 pre-LN transformer block composite:
  *   LayerNorm -> QKV(Linear) -> MultiHeadAttention -> out(Linear) -> Residual ->
  *   LayerNorm -> MLP -> Residual
- *
- * Per the concrete-component archetype (Specifications/Testing.md) this tests the
- * GptBlock DELTA over the Component / CompositeComponent base: construction/
- * validation, the build lifecycle and shape contract, the RuntimeMode/TrainingMode
- * axis, forward shape/finiteness, and that gradients FLOW through the whole stack.
- * The leaf numerics are proven in their own suites; here the point is that the
- * composition wires forward and backward together correctly. The GPT-2 CUDA
- * forward/backward kernels are exercised by the Bard training sample, so finiteness
- * and a non-zero composed input gradient are asserted here.
- *
- * The numeric finite-difference gradient probe from the CPU sibling is intentionally
- * NOT mirrored here: it belongs to the net-new gradient-check archetype (BACKLOG),
- * and end-to-end gradient correctness is covered by the GptTransformer oracle.
+ * The leaf numerics are proven in their own suites; here the point is that the composition wires forward and
+ * backward together, checked against a finite difference of the block's own forward.
  *
  * CUDA device tests -- skipped when no CUDA device is present.
  */
@@ -127,6 +115,8 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
         // Device -> host copy for value assertions.
         TensorHost toHost( const TensorCuda& device, GptBlockCuda& block )
         {
+            block.synchronize();
+
             TensorHost host( Device::Cpu(), device.shape() );
             copy( device, host );
             block.synchronize();
@@ -316,6 +306,99 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
         const TensorHost host_input_grad = toHost( input_grad, *block );
         EXPECT_TRUE( allFinite( host_input_grad ) );
         EXPECT_TRUE( anyNonZero( host_input_grad ) ) << "expected non-zero gradient flowing through the stack";
+    }
+
+    // Every parameter tensor receives a gradient: a child left out of the backward chain shows as all zeros.
+    TEST_F( GptBlockCudaTests, Backward_ProducesNonZeroGradientForEveryParameter )
+    {
+        auto block = builtBlock( model_dim_, num_heads_, hidden_, RuntimeMode::Training );
+
+        const shape_t shape{ batch_, seq_, model_dim_ };
+        auto input = spreadInput( shape );
+
+        TensorHost host_grad( Device::Cpu(), shape );
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
+        {
+            host_grad.data()[ i ] = 0.1f * static_cast<float>( i + 1 );
+        }
+
+        TensorCuda output_grad( Device::Cuda( 0 ), shape );
+        copy( host_grad, output_grad );
+
+        block->zeroGradients();
+        block->forward( input );
+        block->backward( input, output_grad );
+
+        auto grads = block->getGradients();
+        ASSERT_FALSE( grads.empty() );
+
+        for ( size_t p = 0; p < grads.size(); ++p )
+        {
+            EXPECT_TRUE( anyNonZero( toHost( *static_cast<const TensorCuda*>( grads[ p ] ), *block ) ) )
+                << "parameter gradient " << p << " is all zeros";
+        }
+    }
+
+    // Backward against a central finite difference of the block's own forward. FP32 GEMMs compute in full FP32,
+    // so the difference is not swamped by reduced-precision accumulation.
+    TEST_F( GptBlockCudaTests, Backward_InputGradientMatchesFiniteDifference )
+    {
+        auto block = builtBlock( model_dim_, num_heads_, hidden_, RuntimeMode::Training );
+
+        const shape_t shape{ batch_, seq_, model_dim_ };
+
+        TensorHost host_in( Device::Cpu(), shape );
+        fillSpread( host_in );
+
+        TensorHost host_grad( Device::Cpu(), shape );
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
+        {
+            host_grad.data()[ i ] = 0.1f * static_cast<float>( i + 1 );
+        }
+
+        TensorCuda input( Device::Cuda( 0 ), shape );
+        TensorCuda output_grad( Device::Cuda( 0 ), shape );
+        copy( host_in, input );
+        copy( host_grad, output_grad );
+
+        block->forward( input );
+        const TensorHost analytic = toHost( block->backward( input, output_grad ), *block );
+
+        TensorCuda probe( Device::Cuda( 0 ), shape );
+
+        auto lossAt = [&]( const TensorHost& x ) -> double {
+            copy( x, probe );
+            const TensorHost out = toHost( block->forward( probe ), *block );
+
+            double loss = 0.0;
+
+            for ( dim_t i = 0; i < out.size(); ++i )
+            {
+                loss += static_cast<double>( out.data()[ i ] ) * host_grad.data()[ i ];
+            }
+
+            return loss;
+        };
+
+        constexpr float kEpsilon = 1e-2f;
+
+        for ( dim_t k = 0; k < host_in.size(); ++k )
+        {
+            const float original = host_in.data()[ k ];
+
+            host_in.data()[ k ] = original + kEpsilon;
+            const double plus = lossAt( host_in );
+
+            host_in.data()[ k ] = original - kEpsilon;
+            const double minus = lossAt( host_in );
+
+            host_in.data()[ k ] = original;
+
+            const float numeric = static_cast<float>( ( plus - minus ) / ( 2.0 * kEpsilon ) );
+
+            EXPECT_NEAR( analytic.data()[ k ], numeric, 1e-2f + 1e-2f * std::fabs( numeric ) )
+                << "input-gradient finite-difference mismatch at index " << k;
+        }
     }
 
     // ====================================================================

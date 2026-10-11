@@ -37,52 +37,97 @@ direction for the CUDA path, not a reason to keep this one.
 ## 3. Method
 
 For each CPU test file that goes, every behaviour it proves is either proven by a CUDA test already, moved to a
-CUDA test, or judged not worth keeping by name. Counts of `backward`/`gradient` references were the first pass
-(section 4); the per-test reading is the next step and replaces them.
+CUDA test, or judged not worth keeping by name. A first pass counted `backward`/`gradient` references per file;
+section 4 is the per-test reading that replaced it.
 
-## 4. Coverage, first pass
+## 4. Coverage, test by test
 
-| CPU test | Tests | Backward refs | CUDA counterpart | Backward refs | First reading |
-|---|---|---|---|---|---|
-| `Activation.Cpu` | 5 | 5 | `Activation.Cuda` | 6 | likely covered |
-| `Gelu.Cpu` | 12 | 24 | `Gelu.Cuda` | 9 | backward thinner on CUDA |
-| `MultiHeadAttention.Cpu` | 12 | 18 | `MultiHeadAttention.Cuda` | 3 | **backward gap** |
-| `Residual.Cpu` | 9 | 22 | `Residual.Cuda` | 4 | **backward gap** |
-| `Lpe.Cpu` | 11 | 11 | `Lpe.Cuda` | 7 | read |
-| `MLP.Cpu` | 31 | 42 | `MLP.Cuda` | 18 | read |
-| `Linear.Cpu` | 27 | 32 | `Linear.Cuda`, `Linear.Decode.Cuda` | 25 | likely covered |
-| `Softmax.Cpu` | 9 | 8 | `Softmax.Cuda` | 3 | read |
-| `LayerNorm.Cpu` | 16 | 24 | `LayerNorm.Cuda` | 6 | **backward gap** |
-| `RmsNorm.Cpu` | 17 | 26 | `RmsNorm.Cuda` | 7 | **backward gap** |
-| `GptBlock.Cpu` | 22 | 31 | `GptBlock.Cuda` | 20 | read |
-| `GptTransformer.Cpu` | 22 | 13 | `GptTransformer.Cuda` | 9 | read |
-| `GptModel.Cpu` | 3 | 0 | `GptModel.Cuda` | 0 | likely covered |
-| `AdamW.Cpu` | 32 | 38 | `AdamW.Cuda`, `AdamW.MixedPrecision.Cuda` | 52 | likely covered |
-| `MixtureOfExperts.Cpu`, `Router.Cpu` | 7, 8 | 1, 1 | both have CUDA tests | 1, 1 | likely covered |
-| `CausalConv1d.Cpu` | 9 | 0 | `CausalConv1d.Cuda` | 0 | likely covered |
-| **`Network.Cpu`** | 12 | 35 | **none** | — | **the training spine is proven only here** |
-| **`Model.Cpu`** | 2 | 0 | **none** | — | read |
-| **`GatedResidual.Cpu`**, **`NgramEmbedding.Cpu`** | 9, 8 | 0 | **none, and no CUDA operation exists** | — | **Qwen 4's only implementation** |
-| `CrossEntropy.Cpu` | 0 | — | — | — | empty file |
+Read 2026-10-11, each CPU test against its CUDA counterpart. Every CPU test not listed below is proven by a
+CUDA test of the same name or the same assertion. Duplicates of `GetType`, `ToString`, accessor and
+parameter-count tests are not carried: the component code they run is the same in the CUDA instantiation, and
+the CUDA files hold their own.
+
+**The finding that matters: on CUDA, backward is mostly checked for shape and finiteness, not against a
+reference.** Where a CUDA test does compare, it often drives backward with an output gradient of all ones, which
+a kernel that ignored the output gradient would pass (`Gelu.Cuda`, `Activation.Cuda`). Linear and Residual are
+the exceptions: both compare against an exact reference with a non-uniform gradient.
+
+### 4.1 Move to CUDA: correctness the CPU alone proves
+
+| CPU test | What only it proves | CUDA test to write |
+|---|---|---|
+| `Network.Cpu` `Forward_MatchesReference`, `Backward_PropagatesGradientsThroughGraph`, `CreateOptimizer_RegistersAllParameters`, `TrainingLoop_ReducesRegressionLoss`, `Backward_ThrowsWhenBuiltForInference`, `GetGradients_EmptyWhenBuiltForInference`, `Build_PropagatesToChildrenAndAggregatesParameters`, `GetParameters_AggregatesChildrenInOrder` | The training spine: a composite's backward chains its children and lands each layer's parameter gradients, the optimizer is wired to all of them, and a loop reduces a loss | `Network.Cuda`. The network under test is already templated on the device; the work is host-device copies |
+| `MultiHeadAttention.Cpu` `Backward_ReturnsInputShapedGradient`, `Backward_MatchesNumericGradient` | Attention backward at all: CUDA only checks that it refuses an inference build | Backward against a numeric gradient (FP32), non-uniform output gradient |
+| `LayerNorm.Cpu` `Backward_MatchesReferenceGradients`, `Backward_MatchesNumericGradient`, `Forward_MatchesReferenceWithoutBias` | LayerNorm backward at all (input, weight and bias gradients), and the no-bias forward | Backward against the reference and a numeric gradient; forward without bias |
+| `RmsNorm.Cpu` `Backward_MatchesNumericGradientWithUnitOffset`, `Grouped_BackwardMatchesNumericGradient`, `Forward_MatchesReferenceWithoutBias`, `Forward_AppliesUnitOffset`, `Forward_NarrowerInputThanBuildMatchesReference`, `Grouped_DiffersFromOneGroupOverTheSameExtent`, `Grouped_GroupSizeThatDoesNotDivideTheExtentIsRefused`, `GetRequiredMemory_MatchesBuiltFootprint` | RmsNorm backward (plain, unit offset, grouped); unit offset forward; narrower input than the build; the grouped refusal; the footprint | One test per row |
+| `Softmax.Cpu` `Backward_MatchesReferenceGradient` | Softmax backward at all | Backward against the reference, non-uniform output gradient |
+| `Lpe.Cpu` `Backward_ScattersGradientIntoTables` | Positional and token tables receive the gradient at the right rows | Same, on CUDA, with repeated tokens so rows must accumulate (the CPU test's tokens never repeat) |
+| `Gelu.Cpu` `Backward_ChainsNonUniformOutputGradient`, `Backward_MatchesNumericGradient` | Backward multiplies by the output gradient | Non-uniform output gradient in `Gelu.Cuda` and `Activation.Cuda`'s backward tests |
+| `MLP.Cpu` `Forward_MatchesComposedReference`, `Forward_MatchesComposedReferenceWithoutBias`, `Backward_InputGradientMatchesFiniteDifference`, `Backward_ProducesNonZeroParameterGradients`, `Backward_MatchesNumericGradient` | MLP output and gradients are right, not only finite | Composed reference forward; backward against finite differences |
+| `GptBlock.Cpu` `Backward_InputGradientMatchesFiniteDifference`, `Backward_ProducesNonZeroParameterGradients` | Block backward is right, not only finite and non-zero | Finite-difference input gradient (FP32); non-zero gradient for every parameter |
+| `GptTransformer.Cpu` `SaveThenLoad_RestoresEveryParameterAcrossNestedBlocks`, `SaveThenLoad_RecoversTheConfigThatWroteIt`, `Load_ThrowsWhenTheArchiveDescribesADifferentNetwork`, `Backward_ThrowsWhenForwardNotCalled` | GPT-2's save and load round trip, and the refusals | Same, on CUDA, like Llama's `SaveThenLoad_RestoresEveryParameterAcrossBlocks` |
+| `GptModel.Cpu` `SaveCheckpoint_RoundTripsEveryBlobUnchanged`, `FromCheckpoint_ThrowsOnAnArchiveItDidNotWrite` | The checkpoint round trip and its refusal (`GptModel.Cuda` loads from a checkpoint but never writes one) | Same, on CUDA |
+| `AdamW.Cpu` `Convergence_MinimizesQuadraticToTarget`, `BiasCorrection_EarlyStepsDiffer`, `EdgeCase_MixedSignGradientStaysFinite` | AdamW reaches a minimum, and early steps are bias-corrected. `AdamW.Cuda` checks only the direction of each update | Same, on CUDA, plus one step checked against the AdamW update computed on the host |
+| `CausalConv1d.Cpu` `RestoredSnapshotContinuesTheSequence`, `StateDepthIsKernelMinusOneTimesDilation`, `DilationOneDiffersFromTheTorchDilatedReference` | The conv's state snapshot and restore, alone (CUDA reaches it only through `Qwen.DeltaNetBlock`), its depth under dilation, and that dilation is applied | Same, on CUDA |
+
+Writing these tests found two CUDA defects the CPU tests had hidden, both fixed 2026-10-11: RmsNorm backward
+ignored the unit offset (every Qwen norm's gradient was wrong), and Softmax backward threw instead of calling its
+kernels, which existed but took rows and a row width where the operation passed an element count and an axis.
+
+### 4.2 Move to CUDA: refusals a user can reach
+
+These are component code shared by both devices, but only the CPU instantiation exercises them. They guard
+errors a caller sees, so they move.
+
+| CPU test | CUDA test to write |
+|---|---|
+| `Linear.Cpu` `LoadParameter_ThrowsOnDtypeMismatch`, `LoadParameter_ThrowsOnShapeMismatch`, `LoadParameter_ThrowsOnUnknownName`, `Forward_ThrowsOnInputFeatureMismatch` | Same |
+| `LayerNorm.Cpu` `LoadParameter_SetsWeightAndBias`, `LoadParameter_ThrowsOnShapeMismatch`, `Build_ThrowsOnTrailingDimMismatch`, `Forward_ThrowsBeforeBuild` | Same |
+| `MultiHeadAttention.Cpu` `Build_ThrowsOnWrongTrailingDim`, `Build_ThrowsOnNonRank3`, `Forward_ThrowsBeforeBuild` | Same |
+| `Softmax.Cpu` `Build_ThrowsOnAxisOutOfBounds`, `Forward_ThrowsBeforeBuild` | Same |
+| `Lpe.Cpu` `Build_ThrowsOnNonRank2Input`, `Build_ThrowsWhenSeqExceedsMax`, `Forward_ThrowsBeforeBuild` | Same |
+| `MixtureOfExperts.Cpu` `Build_ThrowsOnHiddenSizeMismatch`, `FlatNames_AreTheCheckpointVocabulary` | Same |
+| `Router.Cpu` `Build_ThrowsOnHiddenSizeMismatch`, `Forward_ThrowsBeforeBuild`, `ParameterCount_ExcludesDerivedNormWeight`, `FlatNames_AreTheCheckpointVocabulary` | Same |
+
+### 4.3 Covered, or not kept
+
+- **Covered on CUDA:** `Activation.Cpu` (apart from the output gradient above), `Residual.Cpu` (the CUDA
+  backward test is exact, with a non-uniform gradient; the CPU numeric gradient adds nothing for a sum),
+  `Linear.Cpu`'s forward and backward, `MixtureOfExperts.Cpu` and `Router.Cpu`'s references, `GptModel.Cpu`'s
+  reconstruction, and the rest of `AdamW.Cpu`.
+- **Not built, deleted:** `Model.Cpu` (its `CMakeLists.txt` line is commented out, its mocks stub the training
+  loop, and one assertion is a `FIXME`) and `CrossEntropy.Cpu` (empty, commented out).
+- **Qwen 4:** `GatedResidual.Cpu` and `NgramEmbedding.Cpu` move with their CUDA operations, gated against the
+  same captured reference (`EveryResidualOfEveryStepMatchesTheCapture`, `EveryIdAndEveryEmbeddingEqualsTheCapture`).
+  Their validation and metadata tests carry over unchanged.
 
 Two findings change the order of work:
 
 1. **The training spine is proven only on CPU.** `Network.Cpu` holds the network-level training tests — build for
    training, backward through the graph, optimizer registration, and a training loop that reduces a regression
-   loss — and nothing on CUDA proves the same. Several components' backward passes (multi-head attention,
-   residual, LayerNorm, RmsNorm) are also tested more heavily on CPU. With training returning, these move to CUDA
-   before the CPU path goes.
+   loss — and nothing on CUDA proves the same. Multi-head attention, LayerNorm, RmsNorm and Softmax backward are
+   checked against a reference only on CPU (4.1). With training returning, these move to CUDA before the CPU
+   path goes.
 2. **Qwen 4 is mid-flight on CPU.** `GatedResidual` and `NgramEmbedding` exist only as CPU operations; Qwen 4's
    Phase 2 gated them on CPU against the tiny reference (`Qwen4.md` section 9). Retiring them now deletes the only
    implementation. Their CUDA operations — which Qwen 4 needs anyway — come first, gated against the same reference.
 
 ## 5. Next
 
-1. Read each "read" and "gap" row test by test, and write the CUDA test list this retirement needs.
-2. The CUDA tests for the training spine, then the CUDA operations for `GatedResidual` and `NgramEmbedding`.
+1. **Done 2026-10-11:** every test in 4.1 and 4.2 is on CUDA and passes. Each new reference test was
+   mutation-checked: a GELU backward that ignores its output gradient, a LayerNorm backward missing its mean
+   term, an AdamW update without its second-moment bias correction, and a Softmax backward that ignores its
+   output gradient each fail the tests that should catch them. `AdamW.Cuda.cpp` had never been built (it sat
+   disabled in `Tests/CMakeLists.txt`); it is revived on the exported `AdamWOptimizer`, and of its 41 tests only
+   the new host-reference step caught the bias-correction mutation.
+2. **Done 2026-10-11:** the CUDA operations for `GatedResidual` and `NgramEmbedding`, FP32 and BF16, gated against
+   the same capture (`Qwen4.md` Phase 2 progress). The CPU gates had been skipping on the development machine,
+   since the capture had only been made in a cloud session; it now exists there and both CPU and CUDA gates run.
 3. The retirement change: delete the operations, their `OperationTraits.Cpu` entries, the CPU instantiations and
    the retired tests; reword "CPU-practical" text in specs and comments; the CPU-only CI job then proves the build
-   and the device-independent tests, and says so.
+   and the device-independent tests, and says so. Outside the `.Cpu.cpp` files the change also reaches the CPU
+   `static_assert`s in `Tests/Dnn/Compute/Operations/OperationTraits.cpp` and the `--device cpu` option of the
+   MNIST and Bard samples. (`GptModel.Cuda.cpp` wrote its checkpoint with a CPU network; it now uses CUDA.)
 
 The CPU device's memory reading (`Untriaged.md`, 2026-10-11) goes at triage: with no CPU compute backend, the
 planner never offers the CPU.

@@ -170,10 +170,11 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
 
         auto host_in = makeSpreadHost( shape );
 
+        // Non-uniform and signed, so a kernel that ignored its output gradient fails.
         HostTensor host_grad( cpu_context_->getDeviceId(), shape );
         for ( dim_t i = 0; i < host_grad.size(); ++i )
         {
-            host_grad.data()[ i ] = 1.0f;
+            host_grad.data()[ i ] = 0.3f * static_cast<float>( ( i % 7 ) - 3 ) + 0.1f;
         }
 
         auto device_in = toDevice( host_in, shape );

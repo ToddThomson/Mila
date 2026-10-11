@@ -1825,4 +1825,48 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
             EXPECT_TRUE( std::isnan( output[ static_cast<std::size_t>( kPackedHidden + column ) ] ) ) << "poisoned token, column " << column;
         }
     }
+
+    // ====================================================================
+    // Refusals and the checkpoint vocabulary
+    // ====================================================================
+
+    TEST_F( MixtureOfExpertsCudaTests, Fp32_Build_ThrowsOnHiddenSizeMismatch )
+    {
+        CudaExperts<TensorDataType::FP32> experts(
+            "experts", MixtureOfExpertsConfig( kHidden, kIntermediate, kExperts, kTopK ), Device::Cuda( 0 ) );
+
+        EXPECT_THROW( experts.build( BuildContext( shape_t{ 3, kHidden + 1 }, RuntimeMode::Inference, false ) ),
+            std::invalid_argument );
+    }
+
+    TEST_F( MixtureOfExpertsCudaTests, Fp32_FlatNames_AreTheCheckpointVocabulary )
+    {
+        CudaExperts<TensorDataType::FP32> experts(
+            "experts", MixtureOfExpertsConfig( kHidden, kIntermediate, kExperts, kTopK ), Device::Cuda( 0 ) );
+        experts.build( BuildContext( shape_t{ 1, kHidden }, RuntimeMode::Inference, false ) );
+
+        const fs::path path = fs::temp_directory_path() / "mila_experts_cuda_flat_names.safetensors";
+
+        {
+            Serialization::SafeTensorsWriter writer( path );
+            experts.saveFlatTensors( writer, "experts", Serialization::TensorSavePass::Declare );
+            writer.beginData();
+            experts.saveFlatTensors( writer, "experts", Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        std::vector<std::string> names;
+        {
+            Serialization::WeightsReader reader( path );
+            names = reader.getTensorNames();
+        }
+
+        std::error_code ignored;
+        fs::remove( path, ignored );
+
+        std::sort( names.begin(), names.end() );
+
+        EXPECT_EQ( names, ( std::vector<std::string>{ "experts.down_proj", "experts.gate_up_proj" } ) );
+        EXPECT_EQ( experts.parameterCount(), kExperts * 3 * kIntermediate * kHidden );
+    }
 }

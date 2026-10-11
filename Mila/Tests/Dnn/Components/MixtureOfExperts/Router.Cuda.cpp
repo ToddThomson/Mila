@@ -26,7 +26,9 @@
 #include <iostream>
 #include <memory>
 #include <set>
+#include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
 
 import Mila;
@@ -411,5 +413,63 @@ namespace Mila::Tests::Dnn::Components::MixtureOfExperts
         EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes ) << "parameters";
         EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes ) << "state";
         EXPECT_EQ( predicted.device_gradient_bytes, actual.device_gradient_bytes ) << "gradients";
+    }
+
+    // ====================================================================
+    // Refusals and the checkpoint vocabulary
+    // ====================================================================
+
+    TEST_F( RouterCudaTests, Fp32_Build_ThrowsOnHiddenSizeMismatch )
+    {
+        Router<DeviceType::Cuda, TensorDataType::FP32> router( "router", RouterConfig( kHidden, kExperts, kTopK ), Device::Cuda( 0 ) );
+
+        EXPECT_THROW( router.build( BuildContext( shape_t{ 3, kHidden + 1 }, RuntimeMode::Inference, false ) ),
+            std::invalid_argument );
+    }
+
+    TEST_F( RouterCudaTests, Fp32_Forward_ThrowsBeforeBuild )
+    {
+        Router<DeviceType::Cuda, TensorDataType::FP32> router( "router", RouterConfig( kHidden, kExperts, kTopK ), Device::Cuda( 0 ) );
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> input( Device::Cuda( 0 ), shape_t{ 3, kHidden } );
+
+        EXPECT_THROW( (void)router.forward( input ), std::runtime_error );
+    }
+
+    TEST_F( RouterCudaTests, Fp32_ParameterCount_ExcludesDerivedNormWeight )
+    {
+        Router<DeviceType::Cuda, TensorDataType::FP32> router( "router", RouterConfig( kHidden, kExperts, kTopK ), Device::Cuda( 0 ) );
+        router.build( BuildContext( shape_t{ 3, kHidden }, RuntimeMode::Inference, false ) );
+
+        // proj [experts x hidden] + scale [hidden] + per_expert_scale [experts]; the norm child's weight is derived.
+        EXPECT_EQ( router.parameterCount(), kExperts * kHidden + kHidden + kExperts );
+    }
+
+    TEST_F( RouterCudaTests, Fp32_FlatNames_AreTheCheckpointVocabulary )
+    {
+        Router<DeviceType::Cuda, TensorDataType::FP32> router( "router", RouterConfig( kHidden, kExperts, kTopK ), Device::Cuda( 0 ) );
+        router.build( BuildContext( shape_t{ 3, kHidden }, RuntimeMode::Inference, false ) );
+
+        const fs::path path = fs::temp_directory_path() / "mila_router_cuda_flat_names.safetensors";
+
+        {
+            Serialization::SafeTensorsWriter writer( path );
+            router.saveFlatTensors( writer, "router", Serialization::TensorSavePass::Declare );
+            writer.beginData();
+            router.saveFlatTensors( writer, "router", Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        std::vector<std::string> names;
+        {
+            Serialization::WeightsReader reader( path );
+            names = reader.getTensorNames();
+        }
+
+        std::error_code ignored;
+        fs::remove( path, ignored );
+
+        std::sort( names.begin(), names.end() );
+
+        EXPECT_EQ( names, ( std::vector<std::string>{ "router.per_expert_scale", "router.proj.weight", "router.scale" } ) );
     }
 }

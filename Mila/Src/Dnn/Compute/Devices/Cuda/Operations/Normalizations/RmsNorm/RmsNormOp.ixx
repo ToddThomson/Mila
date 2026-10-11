@@ -351,7 +351,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 dX, weight_grad_, bias_grad_,
                 dY, X, weight_,
                 rstd_,
-                outer_size_ * groups_, inner_size_, norm_dim_ / groups_, groups_,
+                outer_size_ * groups_, inner_size_, norm_dim_ / groups_, config_.getUnitOffset(), groups_,
                 stream );
         }
 

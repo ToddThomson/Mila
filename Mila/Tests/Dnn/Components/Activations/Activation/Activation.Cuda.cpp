@@ -190,10 +190,11 @@ namespace Mila::Tests::Dnn::Components::Activations::Activation
 
         auto host_in = this->spreadHost( shape );
 
+        // Non-uniform and signed, so a kernel that ignored its output gradient fails.
         typename TestFixture::HostFp32 host_grad( Device::Cpu(), shape );
         for ( dim_t i = 0; i < host_grad.size(); ++i )
         {
-            host_grad.data()[ i ] = 1.0f;
+            host_grad.data()[ i ] = 0.3f * static_cast<float>( ( i % 7 ) - 3 ) + 0.1f;
         }
 
         auto device_in = this->toDevice( host_in );

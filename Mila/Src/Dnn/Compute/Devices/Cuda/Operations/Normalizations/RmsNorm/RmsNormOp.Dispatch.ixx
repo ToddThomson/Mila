@@ -47,10 +47,10 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 float* dX, float* dweight, float* dbias,
                 const float* dY, const float* X, const float* weight,
                 const float* rstd,
-                int outer_size, int inner_size, int norm_dim, int weight_groups,
+                int outer_size, int inner_size, int norm_dim, float weight_offset, int weight_groups,
                 cudaStream_t stream )
             {
-                cuda_rmsnorm_backward_fp32( dX, dweight, dbias, dY, X, weight, rstd, outer_size, inner_size, norm_dim, weight_groups, stream );
+                cuda_rmsnorm_backward_fp32( dX, dweight, dbias, dY, X, weight, rstd, outer_size, inner_size, norm_dim, weight_offset, weight_groups, stream );
             }
         };
 
@@ -74,10 +74,10 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 nv_bfloat16* dX, nv_bfloat16* dweight, nv_bfloat16* dbias,
                 const nv_bfloat16* dY, const nv_bfloat16* X, const nv_bfloat16* weight,
                 const nv_bfloat16* rstd,
-                int outer_size, int inner_size, int norm_dim, int weight_groups,
+                int outer_size, int inner_size, int norm_dim, float weight_offset, int weight_groups,
                 cudaStream_t stream )
             {
-                cuda_rmsnorm_backward_bf16( dX, dweight, dbias, dY, X, weight, rstd, outer_size, inner_size, norm_dim, weight_groups, stream );
+                cuda_rmsnorm_backward_bf16( dX, dweight, dbias, dY, X, weight, rstd, outer_size, inner_size, norm_dim, weight_offset, weight_groups, stream );
             }
         };
     }

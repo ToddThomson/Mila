@@ -228,6 +228,8 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Models/LlaMa/Llama.InstructionRetention.Cuda.cpp"
         "Dnn/Components/Attention/MHA/MultiHeadAttention.Cuda.cpp"
         "Dnn/Components/Connections/Residual.Cuda.cpp"
+        "Dnn/Components/Connections/GatedResidual.Cuda.cpp"
+        "Dnn/Components/Embeddings/NgramEmbedding.Cuda.cpp"
         "Dnn/Components/Convolutions/CausalConv1d.Cuda.cpp"
         "Dnn/Components/DeltaNet/GatedDeltaRule.Cuda.cpp"
         "Dnn/Components/Embeddings/TokenEmbedding.Cuda.cpp"
@@ -268,6 +270,7 @@ if(MILA_ENABLE_CUDA)
         # The saveParameterToArchive staging branch needs a device-only dtype (BF16),
         # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
         "Dnn/Core/Component.Cuda.cpp"
+        "Dnn/Modeling/Network.Cuda.cpp"
         "Dnn/Models/Gemma/GemmaModel.Parity.Cuda.cpp"
         # Gemma 4 26B-A4B against a layer-streamed HuggingFace reference: 47 GiB of BF16 weights fit no card,
         # so one block is resident at a time. Skips without the weights and both references.
@@ -313,11 +316,9 @@ if(MILA_ENABLE_CUDA)
         # Component facility, so the two chassis it runs on are two samples of one
         # measurement. DISABLED, and skips without a real checkpoint.
         "Dnn/Observation/ObservationCost.Cuda.cpp"
-        # The generation context bound. CUDA rather than CPU because the CPU operation
-        # layer takes its extents from build(), so a CPU model cannot run a prompt
-        # shorter than its built context and never reaches the loop under test.
         "Dnn/Models/Gpt/GptModel.Cuda.cpp"
-        # Net-new: the FP32 master-parameter path has no coverage in AdamW.Cuda.cpp.
+        "Dnn/Optimizers/AdamW.Cuda.cpp"
+        # The FP32 master-parameter path, which AdamW.Cuda.cpp does not reach.
         "Dnn/Optimizers/AdamW.MixedPrecision.Cuda.cpp"
         "Dnn/Samplers/Sampling.Cuda.cpp"
         "Dnn/Core/SequenceLogLikelihood.Cuda.cpp"
@@ -349,10 +350,6 @@ if(MILA_ENABLE_CUDA)
         #    exist is a newly-written CudaLinearOp quantization white-box (FP8/FP4
         #    scales + nibble packing), tracked as the quantization backfill BACKLOG
         #    item -- not a revival of these.
-        #
-        # -- REVIVE later (MNIST/training spine GPU companions):
-        #"Dnn/Modeling/Network.Cuda.cpp"
-        #"Dnn/Optimizers/AdamW.Cuda.cpp"
         #
         # -- PARK (loss-on-device milestone):
         #"Dnn/Components/Losses/SoftmaxCrossEntropy.Cuda.cpp"

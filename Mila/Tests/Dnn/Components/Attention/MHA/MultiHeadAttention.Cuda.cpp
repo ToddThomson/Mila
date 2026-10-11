@@ -29,6 +29,8 @@
 #include <string>
 #include <vector>
 
+#include "Common/GradientCheck.h"
+
 import Mila;
 
 namespace Mila::Tests::Dnn::Components::Attention::MHA
@@ -214,6 +216,37 @@ namespace Mila::Tests::Dnn::Components::Attention::MHA
     }
 
     // ====================================================================
+    // B. Build Lifecycle (preconditions)
+    // ====================================================================
+
+    TYPED_TEST( MhaCudaTests, Forward_ThrowsBeforeBuild )
+    {
+        typename TestFixture::MhaType mha( "mha", this->config(), Device::Cuda( 0 ) );
+        typename TestFixture::DeviceTensor input( Device::Cuda( 0 ), shape_t{ 2, 3, 3 * kModelDim } );
+
+        EXPECT_THROW( mha.forward( input ), std::runtime_error );
+    }
+
+    TYPED_TEST( MhaCudaTests, Build_ThrowsOnWrongTrailingDim )
+    {
+        typename TestFixture::MhaType mha( "mha", this->config(), Device::Cuda( 0 ) );
+
+        // Trailing must be 3 * model_dim; model_dim alone is wrong.
+        EXPECT_THROW(
+            mha.build( BuildContext( shape_t{ 2, 3, kModelDim }, RuntimeMode::Inference, false ) ),
+            std::invalid_argument );
+    }
+
+    TYPED_TEST( MhaCudaTests, Build_ThrowsOnNonRank3 )
+    {
+        typename TestFixture::MhaType mha( "mha", this->config(), Device::Cuda( 0 ) );
+
+        EXPECT_THROW(
+            mha.build( BuildContext( shape_t{ 2, 3 * kModelDim }, RuntimeMode::Inference, false ) ),
+            std::invalid_argument );
+    }
+
+    // ====================================================================
     // C. Capability resolution
     // ====================================================================
 
@@ -327,6 +360,47 @@ namespace Mila::Tests::Dnn::Components::Attention::MHA
         mha->forward( device_in );
 
         EXPECT_THROW( mha->backward( device_in, output_grad ), std::runtime_error );
+    }
+
+    // ====================================================================
+    // F. Backward (numeric vs analytic gradient)
+    // ====================================================================
+
+    // The numeric gradient is taken of the host reference, which Forward_MatchesCausalReference ties to the
+    // kernel. Perturbing the whole concatenated QKV input covers the Q, K and V contributions in one check.
+    TYPED_TEST( MhaCudaTests, Backward_MatchesNumericGradient )
+    {
+        const int64_t B = 2;
+        const int64_t T = 3;
+        const shape_t input_shape{ B, T, 3 * kModelDim };
+        const shape_t output_shape{ B, T, kModelDim };
+
+        auto mha = this->builtMha( input_shape, RuntimeMode::Training );
+
+        auto device_in = this->toDevice( this->spreadHost( input_shape, 0.0f ) );
+        auto device_grad = this->toDevice( this->spreadHost( output_shape, 1.3f ) );
+
+        mha->forward( device_in );
+        auto& device_in_grad = mha->backward( device_in, device_grad );
+        mha->synchronize();
+
+        auto analytic = this->toFloat( device_in_grad );
+        auto in = this->toFloat( device_in );
+        auto grad = this->toFloat( device_grad );
+
+        ASSERT_EQ( analytic.shape(), input_shape );
+
+        std::vector<float> reference_out;
+
+        const auto numeric = Mila::Tests::Common::centralDifferenceGradient(
+            in.data(), in.size(), grad.data(), grad.size(),
+            [&]() -> const float* {
+                referenceAttention( in.data(), B, T, kModelDim, kNumHeads, reference_out );
+                return reference_out.data();
+            },
+            1e-2f );
+
+        Mila::Tests::Common::expectGradientsClose( analytic.data(), numeric, 1e-2f, 1e-2f, "MHA dX" );
     }
 
     // ====================================================================

@@ -2,19 +2,9 @@
  * @file MLP.Cuda.cpp
  * @brief Concrete-component tests for MLP<DeviceType::Cuda, FP32>.
  *
- * The CUDA mirror of MLP.Cpu.cpp. MLP is a COMPOSITE: fc1 (Linear) -> Gelu -> fc2
- * (Linear), mapping in_features -> hidden_size -> in_features. Per the concrete-
- * component archetype (Specifications/Testing.md) this tests the MLP DELTA over the
- * Component / CompositeComponent base: construction/validation, the build lifecycle
- * and shape contract, the RuntimeMode/TrainingMode axis, forward shape/finiteness,
- * that gradients FLOW through the stack, and parameter/gradient aggregation.
- *
- * The composed forward NUMERIC reference is owned by MLP.Cpu.cpp; the leaf numerics
- * are owned by Linear.Cuda.cpp / Gelu.Cuda.cpp. Here the CUDA point is the wiring:
- * the GPT-2 MLP runs on CUDA in the Bard training sample (batch GEMM via cuBLASLt,
- * the BACKLOG:83 bias-epilogue path), so realistic feature sizes are used (cuBLASLt
- * has no algorithm for toy dims) and known small weights are uploaded so the forward
- * is finite and the gradient is non-zero.
+ * MLP is a composite: fc1 (Linear) -> Gelu -> fc2 (Linear), mapping in_features -> hidden_size -> in_features.
+ * Forward and backward are checked against a double-precision host reference built from known parameters;
+ * feature sizes are realistic because cuBLASLt has no algorithm for toy GEMM shapes.
  *
  * CUDA device tests -- skipped when no CUDA device is present.
  */
@@ -25,6 +15,7 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <vector>
 
 import Mila;
 
@@ -75,6 +66,83 @@ namespace Mila::Tests::Dnn::Components::FFN
 
         static_assert( MlpCuda::getDeviceType() == DeviceType::Cuda );
         static_assert( MlpCuda::getPrecision() == TensorDataType::FP32 );
+
+        // Known parameter values; fc1 and fc2 use distinct generators so swapped layers change the output.
+        float weight1Value( int64_t out_index, int64_t in_index )
+        {
+            return 0.1f * ( static_cast<float>( ( out_index * 13 + in_index * 7 ) % 17 ) - 8.0f ) / 17.0f;
+        }
+
+        float bias1Value( int64_t out_index )
+        {
+            return 0.02f * ( static_cast<float>( out_index % 5 ) - 2.0f );
+        }
+
+        float weight2Value( int64_t out_index, int64_t in_index )
+        {
+            return 0.1f * ( static_cast<float>( ( out_index * 11 + in_index * 5 ) % 19 ) - 9.0f ) / 19.0f;
+        }
+
+        float bias2Value( int64_t out_index )
+        {
+            return 0.05f * ( static_cast<float>( out_index % 3 ) - 1.0f );
+        }
+
+        constexpr double kSqrt2OverPi = 0.7978845608;
+        constexpr double kGeluCoefficient = 0.044715;
+
+        double geluReference( double x )
+        {
+            return 0.5 * x * ( 1.0 + std::tanh( kSqrt2OverPi * ( x + kGeluCoefficient * x * x * x ) ) );
+        }
+
+        double geluGradientReference( double x )
+        {
+            const double x_squared = x * x;
+            const double tanh_value = std::tanh( kSqrt2OverPi * ( x + kGeluCoefficient * x * x_squared ) );
+            const double sech_squared = 1.0 - tanh_value * tanh_value;
+
+            return 0.5 * ( 1.0 + tanh_value ) + 0.5 * x * sech_squared * kSqrt2OverPi * ( 1.0 + 3.0 * kGeluCoefficient * x_squared );
+        }
+
+        // out = fc2( gelu( fc1( x ) ) ). Fills H (pre-activation) and A (post-activation); returns Y.
+        std::vector<double> referenceForward(
+            const float* x, int64_t rows, bool has_bias, std::vector<double>& h, std::vector<double>& a )
+        {
+            h.assign( static_cast<size_t>( rows * kHidden ), 0.0 );
+            a.assign( static_cast<size_t>( rows * kHidden ), 0.0 );
+            std::vector<double> y( static_cast<size_t>( rows * kInFeatures ), 0.0 );
+
+            for ( int64_t r = 0; r < rows; ++r )
+            {
+                for ( int64_t j = 0; j < kHidden; ++j )
+                {
+                    double accumulator = has_bias ? bias1Value( j ) : 0.0;
+
+                    for ( int64_t i = 0; i < kInFeatures; ++i )
+                    {
+                        accumulator += static_cast<double>( x[ r * kInFeatures + i ] ) * weight1Value( j, i );
+                    }
+
+                    h[ r * kHidden + j ] = accumulator;
+                    a[ r * kHidden + j ] = geluReference( accumulator );
+                }
+
+                for ( int64_t k = 0; k < kInFeatures; ++k )
+                {
+                    double accumulator = has_bias ? bias2Value( k ) : 0.0;
+
+                    for ( int64_t j = 0; j < kHidden; ++j )
+                    {
+                        accumulator += a[ r * kHidden + j ] * weight2Value( k, j );
+                    }
+
+                    y[ r * kInFeatures + k ] = accumulator;
+                }
+            }
+
+            return y;
+        }
     }
 
     class MLPCudaTests : public ::testing::Test
@@ -121,6 +189,90 @@ namespace Mila::Tests::Dnn::Components::FFN
             }
 
             mlp.synchronize();
+        }
+
+        // Upload the known parameters the host reference uses.
+        void setKnownParameters( MlpCuda& mlp, bool has_bias )
+        {
+            auto children = mlp.getComponents();
+            ASSERT_GE( children.size(), 3u );
+
+            auto fc1 = children[ 0 ]->getParameters();
+            auto fc2 = children[ 2 ]->getParameters();
+
+            HostTensor w1( Device::Cpu(), shape_t{ kHidden, kInFeatures } );
+            HostTensor b1( Device::Cpu(), shape_t{ kHidden } );
+            HostTensor w2( Device::Cpu(), shape_t{ kInFeatures, kHidden } );
+            HostTensor b2( Device::Cpu(), shape_t{ kInFeatures } );
+
+            for ( int64_t j = 0; j < kHidden; ++j )
+            {
+                for ( int64_t i = 0; i < kInFeatures; ++i )
+                {
+                    w1.data()[ j * kInFeatures + i ] = weight1Value( j, i );
+                    w2.data()[ i * kHidden + j ] = weight2Value( i, j );
+                }
+
+                b1.data()[ j ] = bias1Value( j );
+            }
+
+            for ( int64_t k = 0; k < kInFeatures; ++k )
+            {
+                b2.data()[ k ] = bias2Value( k );
+            }
+
+            copy( w1, *static_cast<DeviceTensor*>( fc1[ 0 ] ) );
+            copy( w2, *static_cast<DeviceTensor*>( fc2[ 0 ] ) );
+
+            if ( has_bias )
+            {
+                copy( b1, *static_cast<DeviceTensor*>( fc1[ 1 ] ) );
+                copy( b2, *static_cast<DeviceTensor*>( fc2[ 1 ] ) );
+            }
+
+            mlp.synchronize();
+        }
+
+        HostTensor spreadHost( const shape_t& shape )
+        {
+            HostTensor host( Device::Cpu(), shape );
+
+            for ( dim_t i = 0; i < host.size(); ++i )
+            {
+                host.data()[ i ] = static_cast<float>( i ) / host.size() * 2.0f - 1.0f;
+            }
+
+            return host;
+        }
+
+        HostTensor toHost( const ITensor* device, MlpCuda& mlp )
+        {
+            return toHost( *static_cast<const DeviceTensor*>( device ), mlp );
+        }
+
+        // Forward against the host reference, with or without biases.
+        void expectForwardMatchesReference( bool has_bias )
+        {
+            const shape_t shape{ 2, 4, kInFeatures };
+            auto mlp = builtMlp( shape, kInFeatures, kHidden, has_bias, RuntimeMode::Inference );
+            setKnownParameters( *mlp, has_bias );
+
+            auto host_in = spreadHost( shape );
+            DeviceTensor input( Device::Cuda( 0 ), shape );
+            copy( host_in, input );
+
+            auto output = toHost( mlp->forward( input ), *mlp );
+
+            std::vector<double> h, a;
+            const auto expected = referenceForward( host_in.data(), 2 * 4, has_bias, h, a );
+
+            ASSERT_EQ( output.size(), static_cast<dim_t>( expected.size() ) );
+
+            for ( dim_t i = 0; i < output.size(); ++i )
+            {
+                EXPECT_NEAR( output.data()[ i ], static_cast<float>( expected[ i ] ), 1e-3f )
+                    << "forward mismatch at index " << i;
+            }
         }
 
         // Spread-filled device tensor (host-staged then copied).
@@ -389,6 +541,145 @@ namespace Mila::Tests::Dnn::Components::FFN
         const HostTensor host_input_grad = toHost( input_grad, *mlp );
         EXPECT_TRUE( allFinite( host_input_grad ) );
         EXPECT_TRUE( anyNonZero( host_input_grad ) ) << "expected non-zero gradient flowing through the stack";
+    }
+
+    TEST_F( MLPCudaTests, Forward_MatchesComposedReference )
+    {
+        expectForwardMatchesReference( true );
+    }
+
+    TEST_F( MLPCudaTests, Forward_MatchesComposedReferenceWithoutBias )
+    {
+        expectForwardMatchesReference( false );
+    }
+
+    // The input gradient and all four parameter gradients against the chain rule on the host.
+    TEST_F( MLPCudaTests, Backward_MatchesReferenceGradients )
+    {
+        constexpr int64_t kRows = 4;
+        const shape_t shape{ kRows, kInFeatures };
+
+        auto mlp = builtMlp( shape, kInFeatures, kHidden, true, RuntimeMode::Training );
+        setKnownParameters( *mlp, true );
+
+        auto host_in = spreadHost( shape );
+
+        // Non-uniform and signed, so a layer that ignored its output gradient fails.
+        HostTensor host_grad( Device::Cpu(), shape );
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
+        {
+            host_grad.data()[ i ] = 0.05f * static_cast<float>( ( i % 7 ) + 1 ) - 0.15f;
+        }
+
+        DeviceTensor input( Device::Cuda( 0 ), shape );
+        DeviceTensor output_grad( Device::Cuda( 0 ), shape );
+        copy( host_in, input );
+        copy( host_grad, output_grad );
+
+        mlp->zeroGradients();
+        mlp->forward( input );
+        auto input_grad = toHost( mlp->backward( input, output_grad ), *mlp );
+
+        std::vector<double> h, a;
+        referenceForward( host_in.data(), kRows, true, h, a );
+
+        const float* x = host_in.data();
+        const float* dy = host_grad.data();
+
+        // dA = dY W2 ; dH = dA * gelu'(H)
+        std::vector<double> dh( static_cast<size_t>( kRows * kHidden ), 0.0 );
+
+        for ( int64_t r = 0; r < kRows; ++r )
+        {
+            for ( int64_t j = 0; j < kHidden; ++j )
+            {
+                double da = 0.0;
+
+                for ( int64_t k = 0; k < kInFeatures; ++k )
+                {
+                    da += static_cast<double>( dy[ r * kInFeatures + k ] ) * weight2Value( k, j );
+                }
+
+                dh[ r * kHidden + j ] = da * geluGradientReference( h[ r * kHidden + j ] );
+            }
+        }
+
+        auto tolerance = []( double expected ) { return 1e-3f + 1e-3f * static_cast<float>( std::fabs( expected ) ); };
+
+        for ( int64_t r = 0; r < kRows; ++r )
+        {
+            for ( int64_t i = 0; i < kInFeatures; ++i )
+            {
+                double expected = 0.0;
+
+                for ( int64_t j = 0; j < kHidden; ++j )
+                {
+                    expected += dh[ r * kHidden + j ] * weight1Value( j, i );
+                }
+
+                EXPECT_NEAR( input_grad.data()[ r * kInFeatures + i ], static_cast<float>( expected ), tolerance( expected ) )
+                    << "dX mismatch at row " << r << " feature " << i;
+            }
+        }
+
+        // getGradients() is [fc1 weight, fc1 bias, fc2 weight, fc2 bias].
+        auto grads = mlp->getGradients();
+        ASSERT_EQ( grads.size(), 4u );
+
+        auto dw1 = toHost( grads[ 0 ], *mlp );
+        auto db1 = toHost( grads[ 1 ], *mlp );
+        auto dw2 = toHost( grads[ 2 ], *mlp );
+        auto db2 = toHost( grads[ 3 ], *mlp );
+
+        for ( int64_t j = 0; j < kHidden; ++j )
+        {
+            double expected_bias = 0.0;
+
+            for ( int64_t r = 0; r < kRows; ++r )
+            {
+                expected_bias += dh[ r * kHidden + j ];
+            }
+
+            EXPECT_NEAR( db1.data()[ j ], static_cast<float>( expected_bias ), tolerance( expected_bias ) ) << "fc1 dB at " << j;
+
+            for ( int64_t i = 0; i < kInFeatures; ++i )
+            {
+                double expected_weight = 0.0;
+
+                for ( int64_t r = 0; r < kRows; ++r )
+                {
+                    expected_weight += dh[ r * kHidden + j ] * static_cast<double>( x[ r * kInFeatures + i ] );
+                }
+
+                EXPECT_NEAR( dw1.data()[ j * kInFeatures + i ], static_cast<float>( expected_weight ), tolerance( expected_weight ) )
+                    << "fc1 dW at " << j << ", " << i;
+            }
+        }
+
+        for ( int64_t k = 0; k < kInFeatures; ++k )
+        {
+            double expected_bias = 0.0;
+
+            for ( int64_t r = 0; r < kRows; ++r )
+            {
+                expected_bias += static_cast<double>( dy[ r * kInFeatures + k ] );
+            }
+
+            EXPECT_NEAR( db2.data()[ k ], static_cast<float>( expected_bias ), tolerance( expected_bias ) ) << "fc2 dB at " << k;
+
+            for ( int64_t j = 0; j < kHidden; ++j )
+            {
+                double expected_weight = 0.0;
+
+                for ( int64_t r = 0; r < kRows; ++r )
+                {
+                    expected_weight += static_cast<double>( dy[ r * kInFeatures + k ] ) * a[ r * kHidden + j ];
+                }
+
+                EXPECT_NEAR( dw2.data()[ k * kHidden + j ], static_cast<float>( expected_weight ), tolerance( expected_weight ) )
+                    << "fc2 dW at " << k << ", " << j;
+            }
+        }
     }
 
     // ====================================================================

@@ -4,9 +4,7 @@
  *
  * CUDA companion to LayerNorm.Cpu.cpp. The CUDA LayerNormOp is specialized for
  * FP32 and FP16 (no BF16 -- GPT-2 lineage); FP16 is not used elsewhere in Mila,
- * so this file tests the validated FP32 path explicitly (no precision sweep). The
- * backward numeric oracle lives in the CPU companion; here we cover the CUDA
- * forward numerics and the structural surface.
+ * so this file tests the validated FP32 path explicitly (no precision sweep).
  *
  * Compiled only under MILA_ENABLE_CUDA; SetUp() skips if no device at runtime.
  */
@@ -16,15 +14,19 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 import Mila;
+import Serialization.Tensor;
 
 namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using Mila::Dnn::Serialization::TensorMetadata;
+    using Mila::Dnn::Serialization::TensorBlobView;
 
     namespace
     {
@@ -66,7 +68,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
 
                 for ( int64_t i = 0; i < channels; ++i )
                 {
-                    Y[ r * channels + i ] = static_cast<float>( ( x[ i ] - mean ) * rstd * W[ i ] + B[ i ] );
+                    Y[ r * channels + i ] = static_cast<float>( ( x[ i ] - mean ) * rstd * W[ i ] + ( B ? B[ i ] : 0.0f ) );
                 }
             }
         }
@@ -78,9 +80,9 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
     class LayerNormCudaTests : public ::testing::Test
     {
     protected:
-        static LayerNormConfig config()
+        static LayerNormConfig config( bool has_bias = true )
         {
-            return LayerNormConfig( shape_t{ kChannels } ).withEpsilon( kEpsilon );
+            return LayerNormConfig( shape_t{ kChannels } ).withEpsilon( kEpsilon ).withBias( has_bias );
         }
 
         void SetUp() override
@@ -100,15 +102,15 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
             }
         }
 
-        std::unique_ptr<LayerNormCuda> builtLayerNorm( const shape_t& shape, RuntimeMode mode )
+        std::unique_ptr<LayerNormCuda> builtLayerNorm( const shape_t& shape, RuntimeMode mode, bool has_bias = true )
         {
-            auto norm = std::make_unique<LayerNormCuda>( "layernorm", config(), Device::Cuda( 0 ) );
+            auto norm = std::make_unique<LayerNormCuda>( "layernorm", config( has_bias ), Device::Cuda( 0 ) );
             norm->build( BuildContext( shape, mode, false ) );
 
             return norm;
         }
 
-        void setKnownParameters( LayerNormCuda& norm )
+        void setKnownParameters( LayerNormCuda& norm, bool has_bias = true )
         {
             auto params = norm.getParameters();
 
@@ -121,8 +123,21 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
             }
 
             copy( host_weight, *static_cast<DeviceTensor*>( params[ 0 ] ), cuda_context_.get() );
-            copy( host_bias, *static_cast<DeviceTensor*>( params[ 1 ] ), cuda_context_.get() );
+
+            if ( has_bias )
+            {
+                copy( host_bias, *static_cast<DeviceTensor*>( params[ 1 ] ), cuda_context_.get() );
+            }
+
             cuda_context_->synchronize();
+        }
+
+        HostTensor toFloat( const DeviceTensor& device )
+        {
+            auto host = toHost<TensorDataType::FP32>( device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return host;
         }
 
         HostTensor spreadHost( const shape_t& shape )
@@ -157,6 +172,45 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
         LayerNormCuda norm( "layernorm", config(), Device::Cuda( 0 ) );
 
         EXPECT_EQ( norm.getDeviceId().type, DeviceType::Cuda );
+    }
+
+    // ====================================================================
+    // B. Build Lifecycle
+    // ====================================================================
+
+    TEST_F( LayerNormCudaTests, Forward_ThrowsBeforeBuild )
+    {
+        LayerNormCuda norm( "layernorm", config(), Device::Cuda( 0 ) );
+        DeviceTensor input( Device::Cuda( 0 ), shape_t{ 2, 3, kChannels } );
+
+        EXPECT_THROW( norm.forward( input ), std::runtime_error );
+    }
+
+    TEST_F( LayerNormCudaTests, Build_ThrowsOnTrailingDimMismatch )
+    {
+        LayerNormCuda norm( "layernorm", config(), Device::Cuda( 0 ) );
+
+        EXPECT_THROW(
+            norm.build( BuildContext( shape_t{ 2, 3, kChannels + 1 }, RuntimeMode::Inference, false ) ),
+            std::invalid_argument );
+    }
+
+    // ====================================================================
+    // D. Runtime mode
+    // ====================================================================
+
+    TEST_F( LayerNormCudaTests, Backward_ThrowsWhenBuiltForInference )
+    {
+        const shape_t shape{ 2, 3, kChannels };
+        auto norm = builtLayerNorm( shape, RuntimeMode::Inference );
+        setKnownParameters( *norm );
+
+        auto device_in = toDevice( spreadHost( shape ) );
+        DeviceTensor output_grad( Device::Cuda( 0 ), shape );
+
+        norm->forward( device_in );
+
+        EXPECT_THROW( norm->backward( device_in, output_grad ), std::runtime_error );
     }
 
     // ====================================================================
@@ -197,6 +251,128 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
         }
     }
 
+    TEST_F( LayerNormCudaTests, Forward_MatchesReferenceWithoutBias )
+    {
+        const shape_t shape{ 2, 3, kChannels };
+
+        auto norm = builtLayerNorm( shape, RuntimeMode::Inference, false );
+        setKnownParameters( *norm, false );
+
+        auto host_in = spreadHost( shape );
+        auto& device_out = norm->forward( toDevice( host_in ) );
+        norm->synchronize();
+
+        auto out = toFloat( device_out );
+
+        std::vector<float> weight( kChannels );
+        for ( int64_t i = 0; i < kChannels; ++i )
+        {
+            weight[ i ] = weightValue( i );
+        }
+
+        std::vector<float> expected;
+        referenceForward( host_in.data(), weight.data(), nullptr, 2 * 3, kChannels, kEpsilon, expected );
+
+        ASSERT_EQ( out.size(), expected.size() );
+
+        for ( dim_t i = 0; i < out.size(); ++i )
+        {
+            EXPECT_NEAR( out.data()[ i ], expected[ i ], 1e-3f ) << "no-bias forward mismatch at index " << i;
+        }
+    }
+
+    // ====================================================================
+    // F. Backward (analytic reference)
+    // ====================================================================
+
+    TEST_F( LayerNormCudaTests, Backward_MatchesReferenceGradients )
+    {
+        const int64_t outer = 2 * 3;
+        const shape_t shape{ 2, 3, kChannels };
+
+        auto norm = builtLayerNorm( shape, RuntimeMode::Training );
+        setKnownParameters( *norm );
+
+        auto host_in = spreadHost( shape );
+
+        // Non-uniform, so a kernel that ignored its output gradient fails.
+        HostTensor host_grad( Device::Cpu(), shape );
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
+        {
+            host_grad.data()[ i ] = 0.1f * static_cast<float>( ( i % 7 ) + 1 );
+        }
+
+        auto device_in = toDevice( host_in );
+        auto device_grad = toDevice( host_grad );
+
+        norm->zeroGradients();
+        norm->forward( device_in );
+        auto& device_in_grad = norm->backward( device_in, device_grad );
+        norm->synchronize();
+
+        auto input_grad = toFloat( device_in_grad );
+
+        std::vector<double> expected_dx( static_cast<size_t>( outer * kChannels ), 0.0 );
+        std::vector<double> expected_dweight( kChannels, 0.0 ), expected_dbias( kChannels, 0.0 );
+
+        for ( int64_t r = 0; r < outer; ++r )
+        {
+            const float* x = host_in.data() + r * kChannels;
+            const float* dy = host_grad.data() + r * kChannels;
+
+            double mean = 0.0;
+            for ( int64_t i = 0; i < kChannels; ++i ) mean += x[ i ];
+            mean /= kChannels;
+
+            double var = 0.0;
+            for ( int64_t i = 0; i < kChannels; ++i ) { double d = x[ i ] - mean; var += d * d; }
+            var /= kChannels;
+            const double rstd = 1.0 / std::sqrt( var + kEpsilon );
+
+            double dnorm_mean = 0.0;
+            double dnorm_norm_mean = 0.0;
+
+            for ( int64_t i = 0; i < kChannels; ++i )
+            {
+                const double norm_value = ( x[ i ] - mean ) * rstd;
+                const double dnorm = weightValue( i ) * dy[ i ];
+                dnorm_mean += dnorm;
+                dnorm_norm_mean += dnorm * norm_value;
+            }
+
+            dnorm_mean /= kChannels;
+            dnorm_norm_mean /= kChannels;
+
+            for ( int64_t i = 0; i < kChannels; ++i )
+            {
+                const double norm_value = ( x[ i ] - mean ) * rstd;
+                const double dnorm = weightValue( i ) * dy[ i ];
+                expected_dx[ r * kChannels + i ] = ( dnorm - dnorm_mean - norm_value * dnorm_norm_mean ) * rstd;
+                expected_dweight[ i ] += dy[ i ] * norm_value;
+                expected_dbias[ i ] += dy[ i ];
+            }
+        }
+
+        ASSERT_EQ( input_grad.size(), static_cast<dim_t>( expected_dx.size() ) );
+
+        for ( dim_t i = 0; i < input_grad.size(); ++i )
+        {
+            EXPECT_NEAR( input_grad.data()[ i ], static_cast<float>( expected_dx[ i ] ), 1e-3f ) << "dX mismatch at index " << i;
+        }
+
+        auto grads = norm->getGradients();
+        ASSERT_EQ( grads.size(), 2u );
+
+        auto weight_grad = toFloat( *static_cast<DeviceTensor*>( grads[ 0 ] ) );
+        auto bias_grad = toFloat( *static_cast<DeviceTensor*>( grads[ 1 ] ) );
+
+        for ( int64_t i = 0; i < kChannels; ++i )
+        {
+            EXPECT_NEAR( weight_grad.data()[ i ], static_cast<float>( expected_dweight[ i ] ), 1e-3f ) << "dW mismatch at " << i;
+            EXPECT_NEAR( bias_grad.data()[ i ], static_cast<float>( expected_dbias[ i ] ), 1e-3f ) << "dB mismatch at " << i;
+        }
+    }
+
     // ====================================================================
     // G. Parameters & Gradients
     // ====================================================================
@@ -221,6 +397,55 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
         auto norm = builtLayerNorm( shape_t{ 2, 3, kChannels }, RuntimeMode::Training );
 
         EXPECT_EQ( norm->getGradients().size(), 2u );
+    }
+
+    // ====================================================================
+    // H. Parameter load
+    // ====================================================================
+
+    TEST_F( LayerNormCudaTests, LoadParameter_SetsWeightAndBias )
+    {
+        const shape_t shape{ 2, kChannels };
+        auto norm = builtLayerNorm( shape, RuntimeMode::Inference );
+
+        std::vector<float> weight( kChannels ), bias( kChannels );
+        for ( int64_t i = 0; i < kChannels; ++i )
+        {
+            weight[ i ] = weightValue( i );
+            bias[ i ] = biasValue( i );
+        }
+
+        TensorMetadata weight_metadata{ TensorDataType::FP32, shape_t{ kChannels }, weight.size() * sizeof( float ) };
+        norm->loadParameter( "weight", TensorBlobView( weight_metadata, weight.data(), weight.size() * sizeof( float ) ) );
+
+        TensorMetadata bias_metadata{ TensorDataType::FP32, shape_t{ kChannels }, bias.size() * sizeof( float ) };
+        norm->loadParameter( "bias", TensorBlobView( bias_metadata, bias.data(), bias.size() * sizeof( float ) ) );
+
+        auto host_in = spreadHost( shape );
+        auto& device_out = norm->forward( toDevice( host_in ) );
+        norm->synchronize();
+
+        auto out = toFloat( device_out );
+
+        std::vector<float> expected;
+        referenceForward( host_in.data(), weight.data(), bias.data(), 2, kChannels, kEpsilon, expected );
+
+        for ( dim_t i = 0; i < out.size(); ++i )
+        {
+            EXPECT_NEAR( out.data()[ i ], expected[ i ], 1e-3f ) << "loaded-weight forward mismatch at index " << i;
+        }
+    }
+
+    TEST_F( LayerNormCudaTests, LoadParameter_ThrowsOnShapeMismatch )
+    {
+        auto norm = builtLayerNorm( shape_t{ 2, kChannels }, RuntimeMode::Inference );
+
+        std::vector<float> weight( kChannels + 1, 0.0f );
+        TensorMetadata metadata{ TensorDataType::FP32, shape_t{ kChannels + 1 }, weight.size() * sizeof( float ) };
+
+        EXPECT_THROW(
+            norm->loadParameter( "weight", TensorBlobView( metadata, weight.data(), weight.size() * sizeof( float ) ) ),
+            std::invalid_argument );
     }
 
     // ====================================================================

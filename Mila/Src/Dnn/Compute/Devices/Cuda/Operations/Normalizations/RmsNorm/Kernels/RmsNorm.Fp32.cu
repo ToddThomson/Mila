@@ -97,7 +97,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* __restrict__ inp,
         const float* __restrict__ weight,
         const float* __restrict__ rstd,
-        int num_slices, int norm_dim, int inner_size, int weight_groups )
+        int num_slices, int norm_dim, int inner_size, float weight_offset, int weight_groups )
     {
         int lane_id = threadIdx.x % WARP_SIZE;
         int warp_id = threadIdx.x / WARP_SIZE;
@@ -129,7 +129,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             size_t offset = static_cast<size_t>( i ) * static_cast<size_t>( inner_size );
             float x_val = x[ offset ];
             float dy_val = dy[ offset ];
-            float w_val = weight ? weight[ weight_base + i ] : 1.0f;
+            float w_val = weight ? (weight[ weight_base + i ] + weight_offset) : 1.0f;
 
             float g = dy_val * w_val;
             sum_gx += g * x_val;
@@ -165,7 +165,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             size_t offset = static_cast<size_t>( i ) * static_cast<size_t>( inner_size );
             float x_val = x[ offset ];
             float dy_val = dy[ offset ];
-            float w_val = weight ? weight[ weight_base + i ] : 1.0f;
+            float w_val = weight ? (weight[ weight_base + i ] + weight_offset) : 1.0f;
 
             float g = dy_val * w_val;
             float out_dx = rstd_val * g - x_val * correction;
@@ -203,6 +203,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* dY, const float* X, const float* weight,
         const float* rstd,
         int outer_size, int inner_size, int norm_dim,
+        float weight_offset,
         int weight_groups,
         cudaStream_t stream )
     {
@@ -213,7 +214,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
 
         // Note: dweight and dbias must be zeroed by caller before this call
         rmsnorm_backward_fp32_kernel << <grid_size, block_size, 0, stream >> > (
-            dX, dweight, dbias, dY, X, weight, rstd, num_slices, norm_dim, inner_size, weight_groups);
+            dX, dweight, dbias, dY, X, weight, rstd, num_slices, norm_dim, inner_size, weight_offset, weight_groups);
 
         cudaCheck( cudaGetLastError() );
     }

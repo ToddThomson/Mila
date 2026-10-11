@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -206,6 +207,36 @@ namespace Mila::Tests::Dnn::Components::Encodings::Lpe
     }
 
     // ====================================================================
+    // B. Build Lifecycle (preconditions)
+    // ====================================================================
+
+    TYPED_TEST( LpeCudaTests, Forward_ThrowsBeforeBuild )
+    {
+        typename TestFixture::LpeType lpe( "lpe", this->config(), Device::Cuda( 0 ) );
+        typename TestFixture::IndexDeviceTensor input( Device::Cuda( 0 ), shape_t{ 2, 3 } );
+
+        EXPECT_THROW( lpe.forward( input ), std::runtime_error );
+    }
+
+    TYPED_TEST( LpeCudaTests, Build_ThrowsOnNonRank2Input )
+    {
+        typename TestFixture::LpeType lpe( "lpe", this->config(), Device::Cuda( 0 ) );
+
+        EXPECT_THROW(
+            lpe.build( BuildContext( shape_t{ 2, 3, kEmbed }, RuntimeMode::Inference, false ) ),
+            std::invalid_argument );
+    }
+
+    TYPED_TEST( LpeCudaTests, Build_ThrowsWhenSeqExceedsMax )
+    {
+        typename TestFixture::LpeType lpe( "lpe", this->config(), Device::Cuda( 0 ) );
+
+        EXPECT_THROW(
+            lpe.build( BuildContext( shape_t{ 2, kMaxSeq + 1 }, RuntimeMode::Inference, false ) ),
+            std::invalid_argument );
+    }
+
+    // ====================================================================
     // E. Forward (numeric vs reference)
     // ====================================================================
 
@@ -298,6 +329,81 @@ namespace Mila::Tests::Dnn::Components::Encodings::Lpe
         typename TestFixture::DeviceTensor output_grad( Device::Cuda( 0 ), shape_t{ 2, 3, kEmbed } );
 
         EXPECT_THROW( lpe->backward( device_tokens, output_grad ), std::runtime_error );
+    }
+
+    // ====================================================================
+    // F. Backward (gradient scatter)
+    // ====================================================================
+
+    // Tokens repeat within and across sequences, so rows that receive several contributions must accumulate them.
+    TYPED_TEST( LpeCudaTests, Backward_ScattersGradientIntoTables )
+    {
+        const int64_t B = 2;
+        const int64_t T = 3;
+        const shape_t token_shape{ B, T };
+
+        auto lpe = this->builtLpe( token_shape, RuntimeMode::Training );
+        this->setKnownTables( *lpe );
+
+        typename TestFixture::HostIndex host_tokens( Device::Cpu(), token_shape );
+        const int32_t token_values[] = { 1, 4, 1, 4, 2, 4 };
+
+        for ( dim_t i = 0; i < host_tokens.size(); ++i )
+        {
+            host_tokens.data()[ i ] = token_values[ i ];
+        }
+
+        auto device_tokens = this->toDevice( host_tokens );
+
+        typename TestFixture::HostFp32 host_grad( Device::Cpu(), shape_t{ B, T, kEmbed } );
+
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
+        {
+            host_grad.data()[ i ] = 0.01f * static_cast<float>( i % 7 ) + 0.1f;
+        }
+
+        typename TestFixture::DeviceTensor device_grad( Device::Cuda( 0 ), host_grad.shape() );
+        copy( host_grad, device_grad, this->cuda_context_.get() );
+
+        lpe->zeroGradients();
+        lpe->forward( device_tokens );
+        lpe->backward( device_tokens, device_grad );
+        lpe->synchronize();
+
+        // dWte[v, c] = sum over (b, t) with X[b, t] == v of dY[b, t, c] ; dWpe[p, c] = sum over b of dY[b, p, c].
+        std::vector<double> expected_wte( static_cast<size_t>( kVocab * kEmbed ), 0.0 );
+        std::vector<double> expected_wpe( static_cast<size_t>( kMaxSeq * kEmbed ), 0.0 );
+
+        for ( int64_t b = 0; b < B; ++b )
+        {
+            for ( int64_t t = 0; t < T; ++t )
+            {
+                const int32_t token = host_tokens.data()[ b * T + t ];
+
+                for ( int64_t c = 0; c < kEmbed; ++c )
+                {
+                    const double g = host_grad.data()[ ( b * T + t ) * kEmbed + c ];
+                    expected_wte[ token * kEmbed + c ] += g;
+                    expected_wpe[ t * kEmbed + c ] += g;
+                }
+            }
+        }
+
+        auto grads = lpe->getGradients();
+        ASSERT_EQ( grads.size(), 2u );
+
+        auto wte_grad = this->toFloat( *static_cast<typename TestFixture::DeviceTensor*>( grads[ 0 ] ) );
+        auto wpe_grad = this->toFloat( *static_cast<typename TestFixture::DeviceTensor*>( grads[ 1 ] ) );
+
+        for ( size_t i = 0; i < expected_wte.size(); ++i )
+        {
+            EXPECT_NEAR( wte_grad.data()[ i ], static_cast<float>( expected_wte[ i ] ), TypeParam::atol ) << "wte gradient mismatch at " << i;
+        }
+
+        for ( size_t i = 0; i < expected_wpe.size(); ++i )
+        {
+            EXPECT_NEAR( wpe_grad.data()[ i ], static_cast<float>( expected_wpe[ i ] ), TypeParam::atol ) << "wpe gradient mismatch at " << i;
+        }
     }
 
     // ====================================================================

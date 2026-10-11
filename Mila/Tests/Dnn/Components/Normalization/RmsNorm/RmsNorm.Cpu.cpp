@@ -10,8 +10,7 @@
  *   rstd = 1 / sqrt( mean(x^2) + eps )
  *   y_i  = x_i * rstd * ( weight_i + unit_offset ) + bias_i
  *
- * The unit offset is exercised explicitly: Qwen configures every norm with 1.0, and it is the term
- * the CUDA backward does not apply (Mila/Issues/Future.md, "Training (advanced)").
+ * The unit offset is exercised explicitly: Qwen configures every norm with 1.0.
  *
  * CPU device, so this rides the MILA_ENABLE_CUDA=OFF CI gate.
  */

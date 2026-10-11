@@ -597,9 +597,9 @@ namespace Mila::Tests::Dnn::Components::Convolutions
     protected:
         using Base = CausalConv1dCudaTests<TPrecisionTag>;
 
-        std::unique_ptr<typename Base::ConvType> builtDilatedConv( dim_t batch, dim_t seq_len )
+        std::unique_ptr<typename Base::ConvType> builtDilatedConv( dim_t batch, dim_t seq_len, dim_t dilation = kDilation )
         {
-            auto config = CausalConv1dConfig( Base::kChannels, Base::kKernelWidth ).withDilation( kDilation );
+            auto config = CausalConv1dConfig( Base::kChannels, Base::kKernelWidth ).withDilation( dilation );
             auto conv = std::make_unique<typename Base::ConvType>( "conv", config, Device::Cuda( 0 ) );
             conv->build( BuildContext( shape_t{ batch, seq_len, Base::kChannels }, RuntimeMode::Inference, false ) );
 
@@ -685,6 +685,69 @@ namespace Mila::Tests::Dnn::Components::Convolutions
         for ( dim_t t = kPrompt; t < kReferenceLength; ++t )
         {
             this->expectRowsMatch( *stepped, host_x, whole_out, t, 1 );
+        }
+    }
+
+    // A positive control for DilationThreeMatchesTorchConv1d: the same weights and input without dilation must
+    // miss the reference by far more than that test's tolerance.
+    TYPED_TEST( CausalConv1dDilatedCudaTests, DilationOneDiffersFromTheTorchDilatedReference )
+    {
+        const shape_t shape{ 1, kReferenceLength, TestFixture::kChannels };
+        auto conv = this->builtDilatedConv( 1, kReferenceLength, 1 );
+        auto device_x = this->toDevice( this->sineHost( shape ) );
+
+        auto& device_out = conv->prefill( device_x, 0 );
+        conv->synchronize();
+        auto out = this->toFloat( device_out );
+
+        float largest = 0.0f;
+
+        for ( dim_t i = 0; i < out.size(); ++i )
+        {
+            largest = std::max( largest, std::fabs( out.data()[ i ] - kTorchDilatedReference[ i ] ) );
+        }
+
+        EXPECT_GT( largest, 0.1f );
+    }
+
+    TYPED_TEST( CausalConv1dDilatedCudaTests, StateDepthIsKernelMinusOneTimesDilation )
+    {
+        for ( const dim_t dilation : { dim_t{ 1 }, kDilation } )
+        {
+            auto conv = this->builtDilatedConv( 1, 4, dilation );
+
+            EXPECT_EQ( conv->makeStateSnapshot().shape(),
+                ( shape_t{ 1, ( TestFixture::kKernelWidth - 1 ) * dilation, TestFixture::kChannels } ) )
+                << "dilation " << dilation;
+        }
+    }
+
+    // A snapshot taken after a prompt and restored into a fresh component continues the sequence exactly; the
+    // prompt is longer than the 9-row dilated window, so the snapshot must carry the whole window.
+    TYPED_TEST( CausalConv1dDilatedCudaTests, RestoredSnapshotContinuesTheSequence )
+    {
+        constexpr dim_t kPrompt = 10;
+        const shape_t whole_shape{ 1, kReferenceLength, TestFixture::kChannels };
+        auto host_x = this->sineHost( whole_shape );
+
+        auto whole_conv = this->builtDilatedConv( 1, kReferenceLength );
+        auto device_whole = this->toDevice( host_x );
+        auto& whole_out_device = whole_conv->prefill( device_whole, 0 );
+        whole_conv->synchronize();
+        auto whole_out = this->toFloat( whole_out_device );
+
+        auto source = this->builtDilatedConv( 1, kPrompt );
+        this->expectRowsMatch( *source, host_x, whole_out, 0, kPrompt );
+
+        auto snapshot = source->makeStateSnapshot();
+        source->snapshotState( snapshot );
+
+        auto restored = this->builtDilatedConv( 1, kPrompt );
+        restored->restoreState( snapshot );
+
+        for ( dim_t t = kPrompt; t < kReferenceLength; ++t )
+        {
+            this->expectRowsMatch( *restored, host_x, whole_out, t, 1 );
         }
     }
 }

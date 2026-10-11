@@ -10,6 +10,52 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## The Qwen 4 tiny reference never reaches the n-gram hash's negative branch
+
+`Mila/Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py` @ `44778cd`
+
+Found 2026-10-11 mutation-checking the CUDA n-gram hash: a truncating `%` in place of the floor mod passed the capture
+gate, and only the hand-built `Hash_NegativeMixedValueMapsIntoTheHead` caught it. The capture's largest token id is 239
+and its largest multiplier 3.5e16, so every product stays below 2^63 and no mixed value is negative. Qwen 4's real
+vocabulary (about 250K ids) wraps them. The header says the n-gram base near 1,000 exercises the floor mod; it
+exercises collisions, not the negative branch. Token ids above about 2^63 / max(multiplier), 260 here, would.
+
+## The Qwen 4 tiny reference generator refuses its own capture under transformers 5.19
+
+`Mila/Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py:392` @ `44778cd`
+
+Found 2026-10-11 regenerating the capture locally (it had only been made in a cloud session, so the CPU gates had been
+skipping here). With transformers 5.19.0 the dense-exact prefix check requires the selected and dense passes to agree
+exactly and they differ by 1.192e-7, one float ulp; every file is written before the check raises. The capture used
+5.16. Whether the check is too strict for a different version or machine, or 5.19 changed the indexer, is not known.
+5.19 did change `qwen4_exp`: its config names the sparse layer type `indexed_attention` where 5.16 wrote
+`qwen_sparse_attention` (`convert_weights.py` treats every non-linear type as full attention, so the converter is
+unaffected). The tracked `hf_checkpoint/*.json` were left at their 5.16 contents; the local capture is 5.19's.
+
+## The loss GPT-2 and MNIST train with has no test that runs
+
+`Mila/Tests/CMakeLists.txt` (the parked `SoftmaxCrossEntropy.Cuda.cpp` line) @ `44778cd`
+
+Found 2026-10-11 moving the CPU tests to CUDA. `SoftmaxCrossEntropy.Cuda.cpp` sits in the CMake list's parked
+section ("loss-on-device milestone"), and `CrossEntropy.Cpu.cpp` is empty and also commented out, so no built test
+reaches the softmax cross-entropy component or its CUDA operation. `AdamW.Cuda.cpp` sat in the same section until
+2026-10-11 and no longer compiled against the optimizer it tested.
+
+## No model Mila runs can be post-trained, even with LoRA on a 16 GB card
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx:366` @ `44778cd`
+
+Found 2026-10-11 when Todd asked about post-training on 16 GB. Todd's intent: triage this into a full
+specification, written from the discussions still to come. Training runs only along the GPT-2 line (MHA,
+LayerNorm, GELU, AdamW). A full AdamW fine-tune costs about 16 bytes a parameter, which caps 16 GB below 1B
+parameters. LoRA over a frozen base fits: Llama 3.2 3B with a BF16 base (~6.4 GB), and Llama 3.1 8B (~4.5 GB) or
+Gemma 4 12B (Q4_0 QAT, ~7 GB) with a 4-bit base (QLoRA). The two ~27B models leave no room for activations.
+Missing pieces: GQA backward (it throws; the retired expanded-layout sketch in that file is the cheap way back),
+BF16 training (SwiGLU's BF16 backward is a known skip, `Future.md` "Training (advanced)"), LoRA adapters on
+`Linear`, and the input gradient through quantized weights for a QLoRA base. DPO with reference log-probs
+computed offline adds no memory; GRPO also needs generation. A LoRA trained over Gemma's Q4_0 QAT base fits the
+"run in the format it was trained for" direction.
+
 ## CI never compiles the CUDA build, so Clang portability defects in the code users run go unseen
 
 `.github/workflows/build-pipeline.yml:198` @ `98ac393`

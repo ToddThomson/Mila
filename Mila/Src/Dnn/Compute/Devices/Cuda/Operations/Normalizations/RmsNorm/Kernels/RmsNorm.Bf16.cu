@@ -207,7 +207,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const __nv_bfloat16* __restrict__ inp,
         const __nv_bfloat16* __restrict__ weight,
         const __nv_bfloat16* __restrict__ rstd,
-        int num_slices, int norm_dim, int inner_size, int weight_groups )
+        int num_slices, int norm_dim, int inner_size, float weight_offset, int weight_groups )
     {
         int lane_id = threadIdx.x % WARP_SIZE;
         int warp_id = threadIdx.x / WARP_SIZE;
@@ -241,7 +241,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             size_t stride = static_cast<size_t>( i ) * static_cast<size_t>( inner_size );
             float x_val = __bfloat162float( x[ stride ] );
             float dy_val = __bfloat162float( dy[ stride ] );
-            float w_val = weight ? __bfloat162float( weight[ weight_base + i ] ) : 1.0f;
+            float w_val = weight ? (__bfloat162float( weight[ weight_base + i ] ) + weight_offset) : 1.0f;
 
             float g = dy_val * w_val;
             sum_gx += g * x_val;
@@ -266,7 +266,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             size_t stride = static_cast<size_t>( i ) * static_cast<size_t>( inner_size );
             float x_val = __bfloat162float( x[ stride ] );
             float dy_val = __bfloat162float( dy[ stride ] );
-            float w_val = weight ? __bfloat162float( weight[ weight_base + i ] ) : 1.0f;
+            float w_val = weight ? (__bfloat162float( weight[ weight_base + i ] ) + weight_offset) : 1.0f;
 
             dx[ stride ] = __float2bfloat16( rstd_val * (dy_val * w_val) - x_val * correction );
         }
@@ -319,6 +319,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const __nv_bfloat16* dY, const __nv_bfloat16* X, const __nv_bfloat16* weight,
         const __nv_bfloat16* rstd,
         int outer_size, int inner_size, int norm_dim,
+        float weight_offset,
         int weight_groups,
         cudaStream_t stream )
     {
@@ -328,7 +329,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const int grid_size = (num_slices + warps_per_block - 1) / warps_per_block;
 
         rmsnorm_backward_bf16_kernel <<< grid_size, block_size, 0, stream >>> (
-            dX, dweight, dbias, dY, X, weight, rstd, num_slices, norm_dim, inner_size, weight_groups);
+            dX, dweight, dbias, dY, X, weight, rstd, num_slices, norm_dim, inner_size, weight_offset, weight_groups);
 
         cudaCheck( cudaGetLastError() );
     }

@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -169,6 +170,29 @@ namespace Mila::Tests::Dnn::Components::Normalization
     }
 
     // ====================================================================
+    // B. Build Lifecycle (preconditions)
+    // ====================================================================
+
+    TYPED_TEST( SoftmaxCudaTests, Forward_ThrowsBeforeBuild )
+    {
+        typename TestFixture::SoftmaxType softmax( "softmax", SoftmaxConfig(), Device::Cuda( 0 ) );
+        typename TestFixture::DeviceTensor input( Device::Cuda( 0 ), shape_t{ kRows, kChannels } );
+        typename TestFixture::DeviceTensor output( Device::Cuda( 0 ), shape_t{ kRows, kChannels } );
+
+        EXPECT_THROW( softmax.forward( input, output ), std::runtime_error );
+    }
+
+    TYPED_TEST( SoftmaxCudaTests, Build_ThrowsOnAxisOutOfBounds )
+    {
+        typename TestFixture::SoftmaxType softmax( "softmax", SoftmaxConfig().withAxis( 5 ), Device::Cuda( 0 ) );
+
+        // Axis 5 is out of bounds for a rank-2 input.
+        EXPECT_THROW(
+            softmax.build( BuildContext( shape_t{ kRows, kChannels }, RuntimeMode::Inference, false ) ),
+            std::invalid_argument );
+    }
+
+    // ====================================================================
     // E. Forward (numeric vs reference)
     // ====================================================================
 
@@ -213,6 +237,128 @@ namespace Mila::Tests::Dnn::Components::Normalization
         typename TestFixture::DeviceTensor device_in_grad( Device::Cuda( 0 ), shape );
 
         EXPECT_THROW( softmax->backward( device_in, device_grad, device_in_grad ), std::runtime_error );
+    }
+
+    // ====================================================================
+    // F. Backward (analytic reference)
+    // ====================================================================
+
+    TYPED_TEST( SoftmaxCudaTests, Backward_MatchesReferenceGradient )
+    {
+        const shape_t shape{ kRows, kChannels };
+        auto softmax = this->builtSoftmax( shape, RuntimeMode::Training );
+
+        auto device_in = this->toDevice( this->spreadHost( shape ) );
+        typename TestFixture::DeviceTensor device_out( Device::Cuda( 0 ), shape );
+
+        // Non-uniform, so a kernel that ignored its output gradient fails.
+        typename TestFixture::HostFp32 host_grad( Device::Cpu(), shape );
+        typename TestFixture::HostFp32 host_zero( Device::Cpu(), shape );
+
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
+        {
+            host_grad.data()[ i ] = 0.1f * static_cast<float>( ( i % 7 ) + 1 );
+            host_zero.data()[ i ] = 0.0f;
+        }
+
+        auto device_grad = this->toDevice( host_grad );
+
+        // Backward consumes the forward output Y and accumulates into the input gradient.
+        auto device_in_grad = this->toDevice( host_zero );
+
+        softmax->forward( device_in, device_out );
+        softmax->backward( device_out, device_grad, device_in_grad );
+        softmax->synchronize();
+
+        auto input_grad = this->toFloat( device_in_grad );
+        auto in = this->toFloat( device_in );
+
+        std::vector<float> y;
+        referenceSoftmax( in.data(), kRows, kChannels, y );
+
+        // dX_i = Y_i * ( dY_i - sum_j Y_j dY_j ), per row.
+        for ( int64_t r = 0; r < kRows; ++r )
+        {
+            double dot = 0.0;
+
+            for ( int64_t c = 0; c < kChannels; ++c )
+            {
+                dot += static_cast<double>( y[ r * kChannels + c ] ) * host_grad.data()[ r * kChannels + c ];
+            }
+
+            for ( int64_t c = 0; c < kChannels; ++c )
+            {
+                const double expected = y[ r * kChannels + c ] * ( host_grad.data()[ r * kChannels + c ] - dot );
+                const float tolerance = TypeParam::atol + TypeParam::rtol * static_cast<float>( std::fabs( expected ) );
+
+                EXPECT_NEAR( input_grad.data()[ r * kChannels + c ], static_cast<float>( expected ), tolerance )
+                    << "dX mismatch at row " << r << " channel " << c;
+            }
+        }
+    }
+
+    // A middle axis takes the strided kernels rather than the row kernels.
+    TYPED_TEST( SoftmaxCudaTests, Backward_AlongAMiddleAxisMatchesReferenceGradient )
+    {
+        constexpr int64_t kOuter = 2;
+        constexpr int64_t kInner = 3;
+        const shape_t shape{ kOuter, kChannels, kInner };
+
+        typename TestFixture::SoftmaxType softmax( "softmax", SoftmaxConfig().withAxis( 1 ), Device::Cuda( 0 ) );
+        softmax.build( BuildContext( shape, RuntimeMode::Training, false ) );
+
+        typename TestFixture::HostFp32 host_grad( Device::Cpu(), shape );
+
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
+        {
+            host_grad.data()[ i ] = 0.1f * static_cast<float>( ( i % 7 ) + 1 );
+        }
+
+        auto device_in = this->toDevice( this->spreadHost( shape ) );
+        auto device_grad = this->toDevice( host_grad );
+        typename TestFixture::DeviceTensor device_out( Device::Cuda( 0 ), shape );
+        typename TestFixture::DeviceTensor device_in_grad( Device::Cuda( 0 ), shape );
+
+        softmax.forward( device_in, device_out );
+        softmax.backward( device_out, device_grad, device_in_grad );
+        softmax.synchronize();
+
+        auto in = this->toFloat( device_in );
+        auto input_grad = this->toFloat( device_in_grad );
+
+        for ( int64_t o = 0; o < kOuter; ++o )
+        {
+            for ( int64_t k = 0; k < kInner; ++k )
+            {
+                auto at = [&]( int64_t c ) { return ( o * kChannels + c ) * kInner + k; };
+
+                std::vector<float> column( kChannels );
+
+                for ( int64_t c = 0; c < kChannels; ++c )
+                {
+                    column[ c ] = in.data()[ at( c ) ];
+                }
+
+                std::vector<float> y;
+                referenceSoftmax( column.data(), 1, kChannels, y );
+
+                double dot = 0.0;
+
+                for ( int64_t c = 0; c < kChannels; ++c )
+                {
+                    dot += static_cast<double>( y[ c ] ) * host_grad.data()[ at( c ) ];
+                }
+
+                for ( int64_t c = 0; c < kChannels; ++c )
+                {
+                    const double expected = y[ c ] * ( host_grad.data()[ at( c ) ] - dot );
+                    const float tolerance = TypeParam::atol + TypeParam::rtol * static_cast<float>( std::fabs( expected ) );
+
+                    EXPECT_NEAR( input_grad.data()[ at( c ) ], static_cast<float>( expected ), tolerance )
+                        << "dX mismatch at outer " << o << " channel " << c << " inner " << k;
+                }
+            }
+        }
     }
 
     // ====================================================================

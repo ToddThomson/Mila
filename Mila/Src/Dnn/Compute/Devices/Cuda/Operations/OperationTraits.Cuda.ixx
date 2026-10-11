@@ -22,6 +22,8 @@ import Compute.CudaSharedKvAttentionOp;
 import Compute.CudaGeluOp;
 import Compute.CudaElementwiseActivationOp;
 import Compute.CudaResidualOp;
+import Compute.CudaGatedResidualOp;
+import Compute.CudaNgramEmbeddingOp;
 import Compute.CudaCausalConv1dOp;
 import Compute.CudaGatedDeltaRuleOp;
 import Compute.CudaRmsNormOp;
@@ -282,6 +284,38 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::ResidualOp, DeviceType::Cuda, TensorDataType::BF16, void>
     {
         using type = Cuda::Residual::CudaResidualOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // GatedResidualOp -- CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::GatedResidualOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Residual::CudaGatedResidualOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::GatedResidualOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Residual::CudaGatedResidualOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // NgramEmbeddingOp -- CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::NgramEmbeddingOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Embedding::CudaNgramEmbeddingOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::NgramEmbeddingOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Embedding::CudaNgramEmbeddingOp<TensorDataType::BF16>;
     };
 
     // -------------------------------------------------------------------------
