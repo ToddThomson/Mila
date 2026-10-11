@@ -47,8 +47,8 @@ Models are not included, and you do not convert anything — Mila publishes mode
 installs them by name:
 
 ```bash
-mila install Llama-3.2-3B-Instruct-fp4
-mila models --online
+mila-store install Llama-3.2-3B-Instruct-fp4
+mila-store models --online
 ```
 
 That first one is the smallest instruct model published and needs no HuggingFace account, so it is

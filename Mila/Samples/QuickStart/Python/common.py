@@ -131,7 +131,7 @@ def _search_dirs():
     yield from build_dirs
 
     # The Inference Server's convenience copy.
-    yield REPO_ROOT / "Mila" / "Adaptors" / "Inference" / "Server"
+    yield REPO_ROOT / "Mila" / "Apps" / "Server"
 
 
 def _find_extension_dir():

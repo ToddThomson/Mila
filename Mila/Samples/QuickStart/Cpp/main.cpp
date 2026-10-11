@@ -5,7 +5,7 @@
  * The smallest complete program that runs a local LLM with Mila -- load a model from the
  * store, encode a prompt, and stream the reply as it is produced. Single-shot by design:
  * there is no conversation history and no REPL, because neither teaches anything about
- * Mila. The chat harness (Mila/Adaptors/Chat) is where multi-turn, channel routing and
+ * Mila. The chat harness (Mila/Apps/Chat) is where multi-turn, channel routing and
  * tool calls live.
  *
  * The Python counterpart at ../Python/generate.py does the same thing, with the same
@@ -157,14 +157,13 @@ int main( int argc, char** argv )
         if ( !installed.has_value() || !installed->complete )
         {
             // Which of these is reachable depends on how the reader got here, and none of
-            // the three covers the other two: the container and a clone build put the CLI
-            // on PATH, while a FetchContent consumer builds no tools at all
-            // (MILA_ENABLE_TOOLS is off unless Mila is the top-level project) and has only
-            // the wheel.
+            // the three covers the other two: the container and a clone build have mila-store,
+            // while a FetchContent consumer builds no apps at all (MILA_ENABLE_APPS is off
+            // unless Mila is the top-level project) and has only the wheel.
             std::cerr << "'" << kModelName << "' is not installed.\n"
                       << "\n"
-                      << "Install it with the Mila CLI:\n"
-                      << "  mila install " << kModelName << "\n"
+                      << "Install it with mila-store:\n"
+                      << "  mila-store install " << kModelName << "\n"
                       << "\n"
                       << "Or from Python, after pip install mila-llm:\n"
                       << "  import mila\n"

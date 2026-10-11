@@ -7,8 +7,10 @@ From v0.21.0 on, `Direction.md` replaces its layering and positioning; its Agent
 forward by reference. **That includes the word "adaptor" itself** — this document's organizing
 noun. `Direction.md` §10 retires it in favour of "application", which answers the standing concern
 that "adaptor" is a GoF pattern name fitting MIS and not Chat: the axis was sound, the word was
-not, and it goes at v0.21.0 rather than being renamed inside v0.20.
-**Component:** whole-project positioning (`Mila/Src`, `Mila/Adaptors/Inference`, `Mila/Adaptors/Chat`, future agent)
+not, and it goes at v0.21.0 rather than being renamed inside v0.20. It went on 2026-10-11: the
+directory is `Mila/Apps/`, the gate `MILA_ENABLE_APPS`, and the paths below were updated with it
+(`Notebooks/MilaCommandLineReview.md` section 4.1); the text that uses the word stands as written.
+**Component:** whole-project positioning (`Mila/Src`, `Mila/Apps/Server`, `Mila/Apps/Chat`, future agent)
 
 ## Definition
 
@@ -151,7 +153,7 @@ which is why it is not owned by either: the MIS server imports it, and the Huggi
 converter tooling imports it directly (it is `GemmaSession`'s primary consumer). Decided
 2026-07-07 to promote it out of `Adaptors/Inference` to a first-class `Mila/Bindings`.
 
-### MIS — wire adaptor (`Mila/Adaptors/Inference`)
+### MIS — wire adaptor (`Mila/Apps/Server`)
 
 Owns only what is genuinely wire-specific: HTTP/SSE transport, OpenAI/Anthropic block shapes
 (Responses items, Anthropic `tool_use`/`tool_result`), per-request statelessness, protocol
@@ -169,7 +171,7 @@ and prefills only the delta — O(new tokens) per turn, not O(context). This is 
 quantifiable advantage the wire cannot match, and it is structurally unavailable to a stateless
 protocol.
 
-### Chat — human adaptor (`Mila/Adaptors/Chat`)
+### Chat — human adaptor (`Mila/Apps/Chat`)
 
 Native agent core + human gate (tool approval) + TUI (`ConsoleRenderer`, channel-aware streaming).
 Supervised: a person judges done-ness and catches thrash.

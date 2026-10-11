@@ -80,7 +80,7 @@ library rather than here.
 `layout`
 
 Nothing in the chat harness carries a compiled-in default model: a search of
-`Mila/Adaptors/Chat/Src/` for `default_model`, `defaultModel` and `DEFAULT_MODEL` finds nothing, and
+`Mila/Apps/Chat/Src/` for `default_model`, `defaultModel` and `DEFAULT_MODEL` finds nothing, and
 `CLAUDE.md:14` says so outright. Confirmed against the published runtime image — bare `chat` refuses
 and names the flag that fixes it. So a reader who installs Gemma, types `chat`, and expects it to be
 picked up gets a refusal instead.

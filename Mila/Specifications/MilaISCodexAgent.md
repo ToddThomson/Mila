@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-15
 **Status:** Proven / Experimental
-**Component:** `Mila/Adaptors/Inference/Server`
+**Component:** `Mila/Apps/Server`
 
 ## Overview
 

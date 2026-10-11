@@ -572,7 +572,7 @@ step below exists to prevent, and why it is not optional.
      It must be the **wheel** container (Ubuntu 24.04), not the dev container: `auditwheel` derives
      the manylinux tag from the build distro, so 26.04 would produce a wheel that locks out the
      current LTS.
-   - The server: `python -m build --wheel --outdir out/wheel Mila/Adaptors/Inference/Server`, from a
+   - The server: `python -m build --wheel --outdir out/wheel Mila/Apps/Server`, from a
      configured tree — its version is the `VERSION` file the configure writes. It is pure Python, one
      `py3-none-any` file, and it requires `mila-llm` at exactly its own version, so it is never
      uploaded without the four wheels it names.
@@ -674,7 +674,7 @@ it came from anywhere but a public tag there is nothing for them to reproduce ag
    coupling is the point.** CI cannot stand in for this: a hosted runner has no GPU, so nothing in
    the image has been executed until you run this.
 5. **Walk the `-devel` tab by hand.** No script covers it, and its three steps are a different
-   claim from `-runtime`'s: land in a shell in a built tree, `mila install` a model, then build and
+   claim from `-runtime`'s: land in a shell in a built tree, `mila-store install` a model, then build and
    run `~/myapp` against the compiled library. The tab's whole promise is that the first build takes
    seconds, so an image that builds but carries a cold or missing build tree passes steps 3 and 4 —
    neither of which touches `-devel` — and fails the reader.

@@ -36,7 +36,7 @@ own build produced.
 
 ### 1. Create and activate a virtual environment
 
-**Do this from this directory** (`Mila/Adaptors/Inference/Server`). A virtual environment is
+**Do this from this directory** (`Mila/Apps/Server`). A virtual environment is
 required, not optional: a bare `python`/`pip` on your PATH may resolve to an interpreter with no
 matching binding wheel (a uv-, conda-, or Store-managed Python). The version-pinned launcher
 guarantees which one you get.
@@ -68,7 +68,7 @@ rather than PyPI. The Mila build stages the freshly built extension into the pac
 (`Mila/Bindings/CMakeLists.txt`), so a later rebuild of `MilaPy` is picked up with no reinstall.
 
 ```
-pip install -e ../../../Bindings/Package
+pip install -e ../../Bindings/Package
 pip install -e ".[dev]"
 ```
 

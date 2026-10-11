@@ -6,7 +6,7 @@ designed to serve as a drop-in backend for AI coding agents such as the OpenAI C
 and the Anthropic Claude Code CLI.
 
 **This page covers the harnesses.** Installing and running the server itself lives in
-[`Server/README.md`](Server/README.md) — one copy, so the two cannot disagree.
+[the server's README](../README.md) — one copy, so the two cannot disagree.
 
 The short version: `pip install mila-llm-server`, install a model into the local Mila store,
 then

@@ -11,9 +11,9 @@ else()
     message(STATUS "MILA_ENABLE_CUDA is OFF - skipping MNIST and Bard (CUDA-only build today)")
 endif()
 
-# Chat is no longer a sample: it graduated to a first-class adaptor under
-# Mila/Adaptors/Chat (see MilaProductFamily.md). Its build wiring lives in
-# Mila/Adaptors/CMakeLists.txt.
+# Chat is no longer a sample: it graduated to a first-class app under
+# Mila/Apps/Chat (see MilaProductFamily.md). Its build wiring lives in
+# Mila/Apps/CMakeLists.txt.
 
 # Nothing under QuickStart/ is add_subdirectory()'d. It is the onboarding set -- one
 # directory per path a newcomer can take to a first run -- and none of it builds here:

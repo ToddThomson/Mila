@@ -19,4 +19,4 @@ Both are C++ and both build with Mila (`MILA_ENABLE_SAMPLES`, CUDA-only today). 
 `QuickStart/` builds with Mila — see [QuickStart's note in CMakeLists.txt](CMakeLists.txt).
 
 The chat harness is not a sample: it graduated to a first-class adaptor at
-`Mila/Adaptors/Chat`. See `Mila/Specifications/MilaProductFamily.md`.
+`Mila/Apps/Chat`. See `Mila/Specifications/MilaProductFamily.md`.

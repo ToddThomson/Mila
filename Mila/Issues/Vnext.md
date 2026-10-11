@@ -216,7 +216,7 @@ Scope stays FP32 GPT-2 / MLP. BF16 and GQA training are a later release entirely
 
 ## Chat configuration phase 7 — the two `ModelRecord` fields
 
-`adaptors` · `distribution`
+`apps` · `distribution`
 
 Phases 1 through 5 of the layered resolution have landed and Chat's configuration works. What is
 left is the last phase, which reaches into Model Distribution for two fields on `ModelRecord`.
@@ -275,17 +275,6 @@ freeze-boundary table still lists it out of bounds.
 A specification is the design of record, so a stale one misleads whoever reads it next. Deferred
 because no user meets this file.
 
-## The `mila` tool has no `pull` verb
-
-`distribution`
-
-Every other store verb is on the tool; the cold download is not, so it cannot be exercised from a
-C++-only machine without a human sitting at Chat's `/install` prompt. Python is covered —
-`ModelStore.pull` is bound at `Mila_py.cpp:309` and is what pulled 6.33 GB in the Linux clean room.
-
-A missing verb rather than a broken path, which is why it waits. It lands on `mila` beside the other
-store verbs, and is **not** `ExportArtifact --fetch`.
-
 ## `gpt2-small`'s installed record predates the licence role
 
 `gpt` · `distribution`
@@ -331,16 +320,6 @@ on one.
 CMake and the rest on every run — the same set `Docker/Dockerfile` already bakes into the dev image.
 Two definitions of one toolchain that can drift. Moved from the v0.20 backlog at `rc.1+21`.
 
-## `mila serve <args>` loses every argument on Windows
-
-`adaptors` · `build`
-
-`runProgram` (`Cli.ixx:100`) hands a concatenated string to `std::system`, so `cmd.exe` strips the
-outer quotes of the whole command line and nothing survives; the code returned is the shell's rather
-than the server's. Launch with an argument vector — `CreateProcessW` or `posix_spawn` — behind a
-CMake-selected module partition, since module code carries no `#ifdef`. Moved from the v0.20
-backlog at `rc.1+21`: `Mila/Tools` does not ship, and the runtime image is Linux.
-
 ## The samples are not built in CI
 
 `ci` · `build`
@@ -385,12 +364,12 @@ reader with no context. No anchor: the finding is an absence.
 `api` · `tokenizer`
 
 A C++ user asking whether a prompt fits the context has no command for it. `Mila/Tools/Tokenize`
-trains and applies its own `--vocab` file and cannot take a store name; the `mila` CLI has
-`install`, `models`, `serve` and `help`. The binding answers it in one line --
-`BpeTokenizer.from_store( name ).encode( text )` -- so the library already carries the capability
-and only the C++ surface lacks it. A `mila tokens <name> <file>` verb in `Mila/Tools/Cli`, printing
-the count, is the shape. Found while measuring prefill rates, where the prompt length had to be
-established before any rate meant anything.
+trains and applies its own `--vocab` file and cannot take a store name. The binding answers it in
+one line -- `BpeTokenizer.from_store( name ).encode( text )` -- so the library already carries the
+capability and only the C++ surface lacks it. Found while measuring prefill rates, where the prompt
+length had to be established before any rate meant anything. The verb once proposed on the `mila`
+CLI is out: that tool is `mila-store`, and counting tokens is not a store task
+(`Specifications/Notebooks/MilaCommandLineReview.md` section 4) -- where the command lives is open.
 
 ## One template parameter, two spellings
 
@@ -408,7 +387,7 @@ both. Same files throughout, so it is one pass.
 
 ## Forty-five module files export more than one type
 
-`architecture` · `adaptors` · `binding` · `mila-src`
+`architecture` · `apps` · `binding` · `mila-src`
 
 CLAUDE.md requires one exported type per module file, and 46 of 367 `.ixx` files predated the rule
 — about 105 new files to split fully (2026-09-19): `Mila/Src` 33 files (~60), Chat 8 (25), Bindings
@@ -470,7 +449,7 @@ so this needs its own pass or a new pairing.
 
 ## Tool calling has never been driven end to end on Llama
 
-`llama` · `adaptors`
+`llama` · `apps`
 
 Gemma 4 is validated through both adaptors across plain-chat, single-tool and tool-result-resume
 flows. Llama 3.2 3B and 3.1 8B are the primary validated inference lineage in the product definition
@@ -666,7 +645,7 @@ a unit test. `MemoryFootprint.md` 11.5 carries the superseding note.
 
 ## A model listing that cannot price a row gives no reason for it
 
-`adaptors`
+`apps`
 
 `verdictFor` (`Chat.ModelCatalog.ixx:768`) distinguishes measured-and-too-big from
 could-not-predict, but `RowVerdict` (`:596`) carries only the cell text and a tint, so the reason
@@ -680,7 +659,7 @@ receive the detail level, so that has to be threaded through first.
 
 ## Sampling knobs are reachable in a session but not from the command line
 
-`adaptors`
+`apps`
 
 `temperature`, `top_k` and `top_p` are settable with `/set` and readable from `session.json`, so a
 `-p` one-shot — the invocation most likely to want a fixed temperature — cannot vary them at all.
@@ -706,7 +685,7 @@ is an accident rather than a decision.
 
 ## Any response containing a bracket enters the tool-call parser
 
-`adaptors`
+`apps`
 
 `Chat.ToolCallParser.ixx:60` uses `response.find( '[' )` where the class's own doc comment at `:34`
 says "Leading `[`", and the nested `parseTagged` path tests it correctly.
@@ -717,7 +696,7 @@ the malformed-Gemma-call entry above, in the adaptor rather than the library.
 
 ## `ModelSize` is declared and read nowhere
 
-`adaptors`
+`apps`
 
 Four values in `Chat.Config.ixx:31`, plus a mention in the file-level Doxygen at `:5`, and no
 reader anywhere in the tree — the model's identity is its store name, which is what replaced it.
@@ -725,7 +704,7 @@ Left in place it invites the next family to add a fifth value that nothing will 
 
 ## A wrapped list item reads as a new paragraph
 
-`adaptors`
+`apps`
 
 A continuation line starts at the bullet's own indent rather than under the item text.
 `wordWrap` (`Chat.RichText.ixx:192`) preserves a line's leading indent but has no notion of a
@@ -733,9 +712,9 @@ continuation indent, so the hanging indent a list needs cannot be expressed.
 
 ## Chat carries its own copy of the `nlohmann.json` module
 
-`adaptors` · `build`
+`apps` · `build`
 
-`Mila/Adaptors/Chat/Src/Json.ixx` duplicates `Mila/Src/Utils/json.ixx`, both including the same
+`Mila/Apps/Chat/Src/Json.ixx` duplicates `Mila/Src/Utils/json.ixx`, both including the same
 header from their global module fragment. Chat then imports one in four translation units
 (`Chat.ixx`, `Chat.MessageFormatter.ixx`, `Chat.SystemPrompt.ixx`, `Chat.ToolCallParser.ixx`) and
 the other in two (`Chat.ModelCatalog.ixx`, `Chat.Settings.ixx`), so the same types arrive under two
@@ -981,7 +960,7 @@ deleted. Gemma's 12B leaves the path for Q4_0 in v0.21; Llama's FP4 packages sta
 
 ## What a plan was decided against is called a `DeviceReading`, and the model list prices against total memory
 
-`api` · `adaptors` · `mila-src`
+`api` · `apps` · `mila-src`
 
 Todd, 2026-09-23: `DeviceReading` is a poor name, kept for Phase 3. It carries one device's identity, free and
 total memory and allocation granularity, taken once after the graph is built; every plan and refusal holds one,
@@ -1023,7 +1002,7 @@ prefill, not per token on the device.
 
 ## A multi-line paste into Chat becomes one turn per line
 
-`adaptors`
+`apps`
 
 Raised by Todd 2026-10-01. The loop reads input with `std::getline` (`Chat.ixx:242`), so a pasted block arrives as
 one turn per line: the model answers each line before the next is read, empty lines are skipped, and a pasted line
@@ -1145,7 +1124,7 @@ Qwen by changing only the name, and a sample creates an `AI` over a network it c
 
 ## The tool loop exists only inside Chat
 
-`ai` · `adaptors`
+`ai` · `apps`
 
 Parse a call, dispatch it, return the result, continue — written once, informally, in `Chat.ixx`,
 so a developer's program that wants tools rewrites it. It moves into `Mila/AI/` as the agent core
@@ -1169,7 +1148,7 @@ measured, for every family that permits prefix reuse.
 
 ## A conversation that fills its context stops, and nothing carries it forward
 
-`ai` · `adaptors`
+`ai` · `apps`
 
 Chat ends a reply at the context limit ("finish: context_limit") and nothing shortens the history, so a
 long tool session cannot continue. Admitted 2026-10-03 with a `Mila::AI` success
@@ -1223,21 +1202,20 @@ read is refused naming why.
 
 ## Chat and the inference server each hold code that knows which model they are running
 
-`adaptors` · `build` · `breaking`
+`apps` · `build` · `breaking`
 
 Rebuilt as consumers of `Mila::AI`, reaching anything beneath it only through `model()`: Chat keeps
 terminal rendering and the approval gate, the server keeps the wire shapes and per-request
-statelessness. Both leave `Mila/Adaptors/` for `Mila/Applications/Chat` and
-`Mila/Applications/Server` (`Direction.md` §8 decision 4), with the CMake option, the wheel and image
-paths, and the `adaptors` tag in `Tags.md` following. Gate: neither contains model-specific code, and
-the Codex CLI and Claude Code CLI tool flows still pass unchanged.
+statelessness. The move to `Mila/Apps/` is not part of this: it is v0.21.0 work (`BACKLOG.md`,
+Internal fixes). Gate: neither contains model-specific code, and the Codex CLI and Claude Code CLI tool
+flows still pass unchanged.
 
 `routes/chat.py` and `routes/completions.py` are not moved:
 nothing registers them, and `chat.py` carries its own request schema and prompt assembly.
 
 ## The inference server chooses each model's loader and grammar by a family enum of its own
 
-`adaptors` · `binding`
+`apps` · `binding`
 
 `model_worker.py` maps `ModelFamily` to a session class (`:38-41`), branches on it for stop markers
 (`:56`, `:59`) and for tool support (`:168`), and `/v1/models` does the same. Three latent `else means
@@ -1264,7 +1242,7 @@ defect at one line, so it has no single anchor.
 
 ## MIS tool calling beyond the three flows the release names
 
-`gemma` · `adaptors`
+`gemma` · `apps`
 
 N sequential distinct tool calls within one turn, and channel-content parser polish. Moved from the
 v0.20 backlog at `rc.1+21`: the release criterion names plain-chat, single-tool and

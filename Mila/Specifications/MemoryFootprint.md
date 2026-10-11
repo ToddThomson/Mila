@@ -712,7 +712,7 @@ Two corrections that fell out of seeing it run:
 
 Free VRAM reaches the adaptor through `Device::getMemoryInfo()` rather than
 `cudaMemGetInfo` in Chat: `mila-chat uses no CUDA APIs directly` is a stated property of
-that target, and the same accessor is what MIS and the `mila` CLI will need.
+that target, and the same accessor is what MIS and `mila-store` will need.
 
 **Phase 6 -- prefill chunk rule. DRAFT, section 11.** Each step is separately verifiable.
 

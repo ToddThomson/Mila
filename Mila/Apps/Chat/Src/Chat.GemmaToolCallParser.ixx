@@ -14,6 +14,6 @@
  *   GemmaToolCallParser::parse            -> Mila::Dnn::Gemma::parseToolCall
  *   GemmaToolCallParser::formatToolResponse -> Mila::Dnn::Gemma::formatToolResponse
  *
- * This file is out of the ChatApp module set (Mila/Adaptors/Chat/CMakeLists.txt)
+ * This file is out of the ChatApp module set (Mila/Apps/Chat/CMakeLists.txt)
  * and is retained only as a retirement marker; it is not compiled.
  */

@@ -12,7 +12,7 @@ The roadmap shows the **release in flight**, plus a **Future** tail. A release i
 
 ---
 
-## v0.21.0 — The Families, Finished and Measured
+## v0.21.0 — The Model Families, Finished and Measured
 
 **Release Date:** _Target — 2026-11-20_
 
@@ -280,9 +280,9 @@ context would move twice with them. Together, each moves once.
 4. **The applications.** Chat, the inference server and the binding rebuilt on `Mila::AI`, the
    QuickStarts rewritten, and the public message moved.
 
-It breaks the API in several places — the per-family session classes, the `Mila/Adaptors/` directory,
-and Chat refusing an explicit context length that does not fit where today it warns and tries — and
-reads every model format v0.21.0 publishes.
+It breaks the API in several places — the per-family session classes and Chat refusing an explicit
+context length that does not fit where today it warns and tries — and reads every model format
+v0.21.0 publishes.
 
 #### Model Handle
 
@@ -420,9 +420,9 @@ Chat. When those are gone, what makes each application distinct is its own conce
 terminal rendering and the human approval gate for Chat, the HTTP wire shapes and per-request
 statelessness for the server. The server keeps its second job as the conformance oracle.
 
-"Adaptor" is retired with the move. It named Chat and the server by what they were not, and it is a
-pattern name that fits one of them. Both leave `Mila/Adaptors/` for `Mila/Applications/Chat` and
-`Mila/Applications/Server`. The standing rule carries over with a new subject: a gap between what
+"Adaptor" is retired before the rebuild: v0.21.0 moves Chat and the server to `Mila/Apps/Chat` and
+`Mila/Apps/Server`. It named them by what they were not, and it is a pattern name that fits one of
+them. The standing rule carries over with a new subject: a gap between what
 `Mila::AI` can do and what an application reaches is a defect in the application.
 
 **Success criteria:** neither Chat nor the server contains model-specific code; the server serves

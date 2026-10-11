@@ -3,7 +3,7 @@
 Authoritative source:
 [ai.google.dev/gemma/docs/core/prompt-formatting-gemma4](https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4).
 This document records the protocol and how the Mila chat harness
-(`Mila/Adaptors/Chat/Src/`) implements it.
+(`Mila/Apps/Chat/Src/`) implements it.
 
 ## Control tokens
 

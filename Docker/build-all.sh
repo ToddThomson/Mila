@@ -7,7 +7,7 @@
 # Chat), this builds the whole set a user might want from the known-good environment:
 #   - the Mila library
 #   - the samples (MNIST, Bard) -- read and run them to learn the API
-#   - the Chat adaptor (mila-chat)
+#   - the apps: mila-chat, and mila-store for the model store
 #   - the Python binding (mila.pyd / Mila.Bindings) -- stand up the Inference Server
 #
 # PURPOSE: end-user convenience -- a completely known build environment that produces
@@ -63,7 +63,7 @@ cmake -S "${SRC}" -B "${BUILD}" -G Ninja \
     -DMILA_LIBRARY_CUDA_ARCHITECTURES="${MILA_CUDA_ARCH}" \
     -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
     -DMILA_ENABLE_CUDA=ON \
-    -DMILA_ENABLE_ADAPTORS=ON \
+    -DMILA_ENABLE_APPS=ON \
     -DMILA_ENABLE_SAMPLES=ON \
     -DMILA_ENABLE_PYTHON_BINDINGS="${MILA_ENABLE_PYTHON_BINDINGS}" \
     -DMILA_ENABLE_TESTING="${MILA_ENABLE_TESTING}" \

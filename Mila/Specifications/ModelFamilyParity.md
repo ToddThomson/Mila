@@ -251,7 +251,7 @@ quality cannot be measured". With it go "The Gemma parity script compares two di
 parity script tells the reader to diff against a debug flag that no longer exists", which are the same
 validation tooling.
 
-The log-likelihood a model assigns to a given text is a measurement, and no user surface calls it. Adaptors,
+The log-likelihood a model assigns to a given text is a measurement, and no user surface calls it. Apps,
 Bindings, Samples and Tools hold no reference to either `scoreTokens` or `withLanguageModelHeadPositions`. So
 Gemma gains it where the measurement lives, and Qwen's public copy is taken back in the same stage (8.1's
 audit):

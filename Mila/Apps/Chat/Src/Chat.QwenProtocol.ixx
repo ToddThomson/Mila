@@ -19,6 +19,6 @@
  *   Mila::ChatApp::Qwen::reasoningEffortFromScale  -> Mila::Dnn::Qwen::reasoningEffortFromScale
  *   Chat::serializeQwenToolSignatures              -> Mila::Dnn::Qwen::serializeToolSignatures
  *
- * This file is out of the ChatApp module set (Mila/Adaptors/Chat/CMakeLists.txt) and is retained
+ * This file is out of the ChatApp module set (Mila/Apps/Chat/CMakeLists.txt) and is retained
  * only as a retirement marker; it is not compiled.
  */

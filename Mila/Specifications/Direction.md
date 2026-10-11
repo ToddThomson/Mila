@@ -248,8 +248,8 @@ calling a tool; `plan()` and `model()` reach the objects that actually ran; and 
 
 ### 5.5 Chat and MIS rebuilt as applications
 
-Both consume `Mila::AI` and nothing beneath it except through `model()`. Their directories leave
-`Mila/Adaptors/` for `Mila/Applications/Chat` and `Mila/Applications/Server`.
+Both consume `Mila::AI` and nothing beneath it except through `model()`. Their directories are
+`Mila/Apps/Chat` and `Mila/Apps/Server`, moved there from `Mila/Adaptors/` in v0.21.0.
 
 *Success:* neither contains model-specific code; MIS's tool flows (the v0.20 foreign-harness criteria)
 still pass unchanged against Codex and Claude Code.
@@ -373,8 +373,9 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
 3. **A C ABI at the `AI` boundary: decided during v0.21.0** against the QuickStart experience, shipped
    no earlier than the release after it. It would make .NET and other compilers' C++ straightforward,
    and `Mila::AI`'s rule 1 keeps it small enough to be cheap.
-4. **Where Chat and MIS live: `Mila/Applications/Chat` and `Mila/Applications/Server`.** Samples stay
-   teaching code; these stay maintained products.
+4. **Where Chat and MIS live: `Mila/Apps/Chat` and `Mila/Apps/Server`.** Samples stay
+   teaching code; these stay maintained products. Renamed from `Applications` and brought forward to v0.21.0 on
+   2026-10-11 (Todd), with the shipped utilities under `Mila/Apps/Tools/` (`Notebooks/MilaCommandLineReview.md` 4.1).
 5. **Sequencing against the ROADMAP: section 5 is v0.22.0,** after v0.21.0 completes Qwen 3.8 and Gemma 4
    (moved 2026-10-10, Todd; it was v0.21.0 with them), before any new chassis — which agrees with the rule that the handle is a precondition
    for every new model. Muse Glimmer follows in ROADMAP's Future.

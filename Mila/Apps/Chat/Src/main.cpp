@@ -402,7 +402,7 @@ static void printUsage( const char* prog_name )
         << "                         too long to pass as an argument. Not with -p.\n"
         << "  -p <prompt>            Answer one prompt and exit. The answer is the whole of\n"
         << "                         standard output, so it can be piped or redirected.\n"
-        << "  --model <name>         Load this model, as 'mila models' lists it.\n"
+        << "  --model <name>         Load this model, as 'mila-store models' lists it.\n"
         << "  --context-length <n>   Maximum sequence length to build for, or auto to take the\n"
         << "                         largest that fits this device with room to spare.\n"
         << "  --device <n>           Which CUDA device to run on. This is the CUDA ordinal,\n"

@@ -19,7 +19,7 @@ loading never downloads" beside it, and no step anywhere in the panel that insta
 path carries an explicit install step of its own: Python `pull`s in step 2, both Docker panels and
 Clone each run an install verb. So the tab whose reader has the longest build ahead of them is the
 one that reaches a runtime refusal, and the refusal it reaches names REPL commands
-(`Mila/Adaptors/Chat/Src/Chat.ModelCatalog.ixx:485`) that a C++ consumer has no session to type
+(`Mila/Apps/Chat/Src/Chat.ModelCatalog.ixx:485`) that a C++ consumer has no session to type
 into. Found mapping the five onboarding paths against RELEASING.md.
 
 ## The site's crawl signals lag the site

@@ -34,7 +34,7 @@ is a statement about where the work is, not a tag that needs retiring.
 | `ci` | Workflows, gates, runners, release mechanics. |
 | `docs` | Doxygen, README, specs, the website, model cards. |
 | `ai` | `Mila/AI/` — the model handle, `Mila::AI`, and the agent core. |
-| `adaptors` | Chat and MIS. Renamed with the directory when they move to `Mila/Applications/`. |
+| `apps` | `Mila/Apps/` — Chat, the inference server and `mila-store`. Was `adaptors` until 2026-10-11. |
 | `binding` | The Python projection. |
 | `perf` | Throughput, bandwidth, memory residency. |
 | `observability` | View and Observe. |

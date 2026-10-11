@@ -12,7 +12,7 @@ v0.20 ran under one, scoped to `Mila/Src` and lifted when that release shipped. 
 
 What can still close the tree is a **release-window hold**: during a release the user may close `dev` to *all* commits so that built artifacts (wheels, tagged trees) stay valid. It is temporary, covers the whole tree regardless of scope, and lifts when step 12 commits — not when the tag is pushed, which is two steps earlier and is where this has been got wrong before. Say which one is blocking a change; "the tree is frozen" is ambiguous and has caused this exact error more than once.
 
-One rule outlives the freeze, because it was never really about it: **an adaptor adds no capability to the library**, it only exposes what the library already has. So a gap between what Mila can do and what Chat or MIS reaches is a defect in the demonstration, not a feature request.
+One rule outlives the freeze, because it was never really about it: **an app adds no capability to the library**, it only exposes what the library already has. So a gap between what Mila can do and what Chat or MIS reaches is a defect in the demonstration, not a feature request.
 
 Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4), Llama 3.1 8B Instruct (FP4 default, FP8 alternative), Gemma 4 12B Instruct (FP4), and Qwen 3.8 27B (FP4, and a mixed 2/3-bit codebook build averaging 2.82 bits). The chat harness has **no compiled-in default model** — a fresh store has none, and one is installed by name.
 
@@ -34,7 +34,7 @@ Browse the tree for what is where. What the tree does not tell you:
 
 - **`Mila/Src/`** is the runtime. `Components/`, `Compute/`, `Models/`, `Quantization/`, `Tensors/`, `Serialization/`. `Models/` and `Components/Transformers/` are split per family (`Gemma`, `Gpt`, `LlaMa`, `Qwen`) — a family owns its model, config and chat protocol together.
 - **`Mila/Bindings/`** is the Python projection, and is **consumer-blind**: it knows nothing about Chat or MIS. Session depth only, never components.
-- **`Mila/Adaptors/`** are first-class consumers, not samples — `Chat/` (human gate) and `Inference/Server/` (MIS, the wire adaptor, which imports the binding). See `Specifications/MilaProductFamily.md`.
+- **`Mila/Apps/`** are first-class consumers, not samples — `Chat/` (`mila-chat`, human gate), `Server/` (MIS, `mila-server`, which imports the binding) and `Tools/Store/` (`mila-store`, the model store from the shell). Everything under it ships; every command a user types is lowercase-hyphenated with the `mila-` prefix. See `Specifications/MilaProductFamily.md` and `Specifications/Notebooks/MilaCommandLineReview.md`.
 - **`Mila/Samples/`** is teaching code and must run in any user's environment. `QuickStart/Cpp` and `QuickStart/Python` are the paths the website's Get Started tabs link to, so they are a published surface.
 - **`Mila/Tools/`** is developer tooling and **none of it ships** — the wheel excludes it and a FetchContent consumer never configures it. `Tools/README.md` is the index.
 - **`Data/`** holds weights, packages and corpora, all gitignored; only directory READMEs are tracked.
@@ -77,7 +77,7 @@ Direction of travel, so new code moves with it rather than against it: the `Unar
 ### Model Entry Points
 
 - `<Family>Model::planDeployment(path, request)` decides how the model runs on a device -- context length, prefill chunk -- from one reading of it, returning ranked plans or a refusal; `load(path, plan)` executes exactly that plan, and `load(path, config, device_id)` is the fully fixed request, refused when it does not fit. The planner lives in `Mila/Src/Deployment/` (`Mila::Deployment`), beside `Dnn/` rather than in it: a deployment is not a model. See `Specifications/Deployment.md`. One per family: Gemma, Llama, Qwen (Gpt keeps its own `load`).
-- The dispatch is `Models/QuantizationDispatch.ixx`. It keys on `LanguageModelConfig`'s own enum — **never on an adaptor's type.** `ChatConfig` lives in Chat and `Mila/Src` must not know it exists.
+- The dispatch is `Models/QuantizationDispatch.ixx`. It keys on `LanguageModelConfig`'s own enum — **never on an app's type.** `ChatConfig` lives in Chat and `Mila/Src` must not know it exists.
 - All use a two-phase KV-cache: prefill (full sequence) + decode (one token at a time, outer_size == 1).
 
 ### Quantization Pipeline
@@ -92,12 +92,12 @@ Quantize-on-load is a **supported user path** for FP8 and FP4 (decided 2026-09-1
 
 ---
 
-## Chat Harness (`Mila/Adaptors/Chat/Src/`)
+## Chat Harness (`Mila/Apps/Chat/Src/`)
 
-Chat is a first-class adaptor (peer of MIS under `Mila/Adaptors/`), not a throwaway sample — a
+Chat is a first-class app (peer of MIS under `Mila/Apps/`), not a throwaway sample — a
 maintained surface that gains tests and rigor over time.
 
-**API Boundary:** Files under `Mila/Adaptors/Chat/Src/` are application code and may be edited
+**API Boundary:** Files under `Mila/Apps/Chat/Src/` are application code and may be edited
 without prior agreement (they consume the runtime; they are not the runtime's public API). Any
 change to the core Mila library (`Mila/Src/`) still requires explicit agreement first.
 

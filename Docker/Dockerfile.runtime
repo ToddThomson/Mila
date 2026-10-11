@@ -102,7 +102,7 @@ COPY CMakeLists.txt Version.txt License.md /src/
 COPY cmake /src/cmake
 COPY Mila /src/Mila
 
-# ADAPTORS on for mila-chat, PYTHON_BINDINGS on for MilaPy (which MIS imports). Samples,
+# APPS on for mila-chat and mila-store, PYTHON_BINDINGS on for MilaPy (which MIS imports). Samples,
 # tests, profiling and docs are off: none of them ship, and each is build time a user
 # pays for in the image they pull.
 #
@@ -123,17 +123,17 @@ RUN --mount=type=cache,target=/build,sharing=locked \
         -DCMAKE_CUDA_ARCHITECTURES="${MILA_IMAGE_CUDA_ARCHITECTURES}" \
         -DMILA_LIBRARY_CUDA_ARCHITECTURES="${MILA_IMAGE_CUDA_ARCHITECTURES}" \
         -DMILA_ENABLE_CUDA=ON \
-        -DMILA_ENABLE_ADAPTORS=ON \
+        -DMILA_ENABLE_APPS=ON \
         -DMILA_ENABLE_PYTHON_BINDINGS=ON \
         -DMILA_ENABLE_SAMPLES=OFF \
         -DMILA_ENABLE_TESTING=OFF \
         -DMILA_ENABLE_PROFILING=OFF \
         -DMILA_ENABLE_DOCS=OFF \
         -DMILA_INSTALL=OFF \
-    && cmake --build /build --target mila-chat MilaPy mila -- -j "${MILA_BUILD_JOBS}" \
+    && cmake --build /build --target mila-chat MilaPy mila-store -- -j "${MILA_BUILD_JOBS}" \
     && mkdir -p /out \
     && cp /build/mila-chat /out/mila-chat \
-    && cp /build/bin/mila /out/mila \
+    && cp /build/mila-store /out/mila-store \
     && cp -r /build/Prompts /out/Prompts \
     && cp /build/python/mila/_mila*.so /out/ \
     && mkdir -p /out/licenses/pybind11 /out/licenses/nlohmann_json /out/licenses/miniz /out/licenses/curl \
@@ -172,11 +172,11 @@ COPY --from=builder /out/Prompts ./Prompts
 # what gives `install` a progress indicator: it reaches Distribution directly and passes the
 # (received, total) callback that makeDefaultModelHub takes, while the binding's pull() exposes
 # no such parameter -- so the Python route printed one line and then nothing for several GB.
-COPY --from=builder /out/mila ./mila
-RUN ln -sf /opt/mila/mila /usr/local/bin/mila
+COPY --from=builder /out/mila-store ./mila-store
+RUN ln -sf /opt/mila/mila-store /usr/local/bin/mila-store
 
 # Mila's licence and the licence of every third-party library linked into the binaries above
-# (curl by mila-chat and mila; pybind11, nlohmann/json and miniz by the binding and the library),
+# (curl by mila-chat and mila-store; pybind11, nlohmann/json and miniz by the binding and the library),
 # which a binary redistribution owes. Taken from the fetched sources in the builder RUN, so each
 # text matches the version compiled.
 COPY --from=builder /out/licenses /usr/share/doc/mila
@@ -184,7 +184,7 @@ COPY --from=builder /out/licenses /usr/share/doc/mila
 # The binding package tree carries the extension MilaPy's POST_BUILD staged into it, so
 # an editable install here points at a real .so rather than fetching one from PyPI.
 COPY --from=builder /src/Mila/Bindings/Package /opt/mila/binding-package
-COPY --from=builder /src/Mila/Adaptors/Inference/Server /opt/mila/server-package
+COPY --from=builder /src/Mila/Apps/Server /opt/mila/server-package
 
 # THE EXTENSION COMES FROM THE BUILD, NOT FROM THE SOURCE TREE. MilaPy's POST_BUILD stages a
 # copy into Mila/Bindings/Package/src/mila, but that is a side-effect a cache-warm compile
@@ -246,7 +246,7 @@ RUN extension="$(ls /opt/mila/venv/lib/python3*/site-packages/mila/_mila*.so 2>/
         exit 1; \
     fi \
     && ldd /opt/mila/mila-chat > /tmp/ldd.txt 2>&1 \
-    && ldd /opt/mila/mila >> /tmp/ldd.txt 2>&1 \
+    && ldd /opt/mila/mila-store >> /tmp/ldd.txt 2>&1 \
     && ldd "${extension}" >> /tmp/ldd.txt 2>&1 \
     ; if grep -q "not found" /tmp/ldd.txt; then \
         echo "FATAL: unresolved shared libraries in the runtime stage:" >&2; \
@@ -312,8 +312,8 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# The same venv the runtime tag builds, for the same reasons -- `mila install` reaches the
-# store through the binding, and `mila serve` needs MIS on a console script. The binding
+# The same venv the runtime tag builds, for the same reason -- the entrypoint's `serve` needs
+# MIS on a console script. The binding
 # package tree already carries the extension MilaPy staged into it during the build, so
 # this installs what was just compiled rather than fetching from PyPI. See the runtime
 # stage for why --ignore-requires-python is correct and not a workaround.
@@ -327,24 +327,19 @@ RUN cp /opt/mila/build/python/mila/_mila*.so /src/Mila/Bindings/Package/src/mila
     && /opt/mila/venv/bin/pip install --no-cache-dir --no-deps --ignore-requires-python \
         /src/Mila/Bindings/Package \
     && /opt/mila/venv/bin/pip install --no-cache-dir --no-deps --ignore-requires-python \
-        /src/Mila/Adaptors/Inference/Server \
+        /src/Mila/Apps/Server \
     && /opt/mila/venv/bin/python -c "import mila"
 
-# `mila` is a real binary here (Mila/Tools/Cli), not the entrypoint script: it reaches the
-# store through Distribution directly, so `install` needs no Python and cannot be broken by
-# a binding that failed to stage.
-#
-# The path is <build>/bin/mila, NOT <build>/mila. The CLI was moved into bin/ because linking
-# it beside CMake's `Mila/` directory fails on a case-insensitive bind mount ("cannot open
-# output file mila: Is a directory"); this symlink kept the old path and so pointed at nothing,
-# which made the website's #p-docker step 2 -- `mila install <model>` -- a command-not-found for
-# every reader. The image built and the runtime checks passed either way, because nothing but
-# that tab exercises it.
+# `mila-store` is a real binary here (Mila/Apps/Tools/Store), not the entrypoint script: it
+# reaches the store through Distribution directly, so `install` needs no Python and cannot be
+# broken by a binding that failed to stage.
 #
 # The `test -x` is what makes this self-checking: `ln -sf` succeeds against a target that does
-# not exist, so a stale path here produces an image that builds clean and fails the reader.
-RUN ln -sf /opt/mila/build/bin/mila /usr/local/bin/mila \
-    && test -x /usr/local/bin/mila
+# not exist, so a stale path here produces an image that builds clean and fails the reader --
+# which happened once, when the binary moved and the website's `install` step became a
+# command-not-found that no image check exercised.
+RUN ln -sf /opt/mila/build/mila-store /usr/local/bin/mila-store \
+    && test -x /usr/local/bin/mila-store
 
 # mila-chat and its Data/ live in the build tree here, not at /opt/mila as they do in the
 # runtime tag. The venv is addressed separately for that reason.

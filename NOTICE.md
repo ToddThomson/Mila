@@ -15,10 +15,10 @@ so in the Modified column and in the file itself.
 | Path | Origin | License | Modified |
 |---|---|---|---|
 | `Cmake/CPM.cmake` | [CPM.cmake](https://github.com/cpm-cmake/CPM.cmake) — Lars Melchior and contributors | MIT — full text in the file's own header | No |
-| `Mila/Adaptors/Inference/Server/tests/reference/gemma4_12b_chat_template.jinja` | [google/gemma-4-12B-it](https://huggingface.co/google/gemma-4-12B-it) — retrieved 2026-07-16, SHA-256 `ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4` | Distributed under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) | No |
+| `Mila/Apps/Server/tests/reference/gemma4_12b_chat_template.jinja` | [google/gemma-4-12B-it](https://huggingface.co/google/gemma-4-12B-it) — retrieved 2026-07-16, SHA-256 `ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4` | Distributed under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) | No |
 
 The Gemma chat template is **test-only**: it is the oracle for Mila's Gemma 4 prompt construction
-(`Mila/Adaptors/Inference/Server/tests/test_reference_parity.py`, which documents why it exists and
+(`Mila/Apps/Server/tests/test_reference_parity.py`, which documents why it exists and
 how to refresh it). The Mila Inference Server builds prompts natively and never runs Jinja at
 serving time.
 

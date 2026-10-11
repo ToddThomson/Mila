@@ -171,7 +171,7 @@ namespace Mila::Tests::Dnn::Models
     // ---- Argument-order parity with gemma_protocol.py -----------------------
 
     // The golden strings below are asserted verbatim by the Python twin in
-    // Mila/Adaptors/Inference/Server/tests/test_gemma_protocol.py -- the two suites
+    // Mila/Apps/Server/tests/test_gemma_protocol.py -- the two suites
     // agreeing on the same literals is what makes "parity" mean something. Change a
     // golden here and the Python counterpart must change in the same commit.
     //
@@ -407,7 +407,7 @@ namespace Mila::Tests::Dnn::Models
 
     // ---- Tool declarations ---------------------------------------------------
     // The golden strings here are asserted verbatim by the Python suite in
-    // Mila/Adaptors/Inference/Server/tests/test_gemma_protocol.py, which now drives the same
+    // Mila/Apps/Server/tests/test_gemma_protocol.py, which now drives the same
     // renderer through the binding. Change one and the other must change in the same commit.
 
     TEST( GemmaProtocolDeclaration, RendersTrainedGrammarWithSortedPropertiesAndUppercasedTypes )

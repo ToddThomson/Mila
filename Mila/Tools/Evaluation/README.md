@@ -76,7 +76,7 @@ hf auth login                                                          # Llama i
 Accept Meta's licence for `meta-llama/Llama-3.2-3B-Instruct` on HuggingFace first. The `hf` arm
 loads the reference weights from it, and every arm uses its tokenizer.
 
-The `mila` arm needs MIS (`Mila/Adaptors/Inference/Server`) serving the same model. For BF16, convert
+The `mila` arm needs MIS (`Mila/Apps/Server`) serving the same model. For BF16, convert
 it with `Tools/Converters/Llama`, then package and install it unquantized:
 
 ```

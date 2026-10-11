@@ -267,7 +267,7 @@ one member, one factory call, two accounting lines.
 
 ## `FamilyTraits::default_context` is a compiled-in guess
 
-`adaptors`
+`apps`
 
 `Chat.FamilyTraits.ixx:61` hard-codes 512 for Gemma, 4096 for Llama and 1024 for GPT-2, while
 `resolveAutomaticContext()` derives the answer in milliseconds and no VRAM.
@@ -277,7 +277,7 @@ in.
 
 ## Chat's model-and-session commands have no tests
 
-`adaptors`
+`apps`
 
 `/context`, `/set`, `/thinking` and the `/model` subcommands are the first Chat commands that
 rebuild a model, refuse an input on derived arithmetic, or resolve a name case-insensitively.
@@ -292,7 +292,7 @@ and the break is silent.
 
 ## `/models` measures a per-model context and throws it away
 
-`adaptors`
+`apps`
 
 `LadderFit::context_length` holds the largest fitting rung and the column does not print it, because
 the ladder tests memory alone — its top rung claimed `128K` for Gemma where the session runs 56320.
@@ -427,7 +427,7 @@ an every-100-merges elapsed-time print asking to become an async callback.
 
 ## The BPE ASCII-fallback warning fires for every Llama and GPT-2 session
 
-`tokenizer` · `adaptors` · `mila-src`
+`tokenizer` · `apps` · `mila-src`
 
 `BpeTokenizer.ixx:378` warns at construction under `std::call_once`, so an evaluator typing English
 is told about a path they never take, as the first thing after the welcome box.
@@ -463,7 +463,7 @@ is no catalogue and no filename construction — `/model` takes a store name.
 Agent-facing rather than user-facing, which is why it rotted unnoticed, but it actively misdirects
 work.
 
-## `ExportArtifact` needs a name, subcommands, and its store verbs handed back to `mila`
+## `ExportArtifact` needs a name, subcommands, and its store verbs handed back to `mila-store`
 
 `distribution` · `build`
 
@@ -471,9 +471,9 @@ Its install/rename/validate verbs duplicate the store tool, and Chat (`Chat.Mode
 and MIS (`model_worker.py:90`) point users at the wrong one. The nine modes should be subcommands,
 since `--package` is both a mode and an option of one (`ExportArtifact.cpp:212`). Seven touch no GPU,
 yet `Tools/CMakeLists.txt:10` gates the whole binary behind `MILA_ENABLE_CUDA`. **Names decided
-2026-09-27 (Todd):** this tool is `mila-package`, the store tool `mila-cli`, and the chat app
-`MilaChat.exe`. One rename change of its own, after the Q4_0 work lands -- `mila-chat` is named on the
-website, the container image, the release scripts and the model cards.
+2026-10-11 (Todd), replacing those of 2026-09-27:** this tool is `mila-package`, the store tool
+`mila-store`, and the chat app keeps `mila-chat` -- lowercase with hyphens on every platform. Layout
+and the rest of the decision: `Specifications/Notebooks/MilaCommandLineReview.md` section 4.1.
 
 Naming drift inside the tool travels with the rename: `--emit-manifest` is a synonym for
 `--package <dir>` differing only in its default directory (`:394`);
@@ -552,13 +552,13 @@ them, and deletes one only when the user names it, is the shape; a sweep is not
 
 ## Buffer Gemma Anthropic streaming only when tools are present
 
-`adaptors`
+`apps`
 
 Today it buffers unconditionally.
 
 ## Qwen tool results are not merged into one user turn
 
-`adaptors` · `mila-src`
+`apps` · `mila-src`
 
 The checkpoint's template folds consecutive `tool` messages into a single `<|im_start|>user` turn
 holding several `<tool_response>` spans; `Qwen.Protocol.ixx` emits one turn each.
@@ -568,7 +568,7 @@ parallel calls land.
 
 ## A session cannot move cards without restarting
 
-`adaptors`
+`apps`
 
 `--device N` and the `device` key choose the card at startup and every device question follows it,
 but there is no `/device` command — `/set` is sampling knobs only, by its own contract. `/context`
@@ -576,7 +576,7 @@ shows the shape a reload-on-change command takes (`Chat.ixx`).
 
 ## Chat's console output has two rough edges
 
-`adaptors`
+`apps`
 
 **Library log output collides with the spinner**, so the first thing an evaluator reads is a
 corrupted line: the spinner is mid-line when the BPE warning fires and the warning is spliced into
@@ -591,21 +591,21 @@ attributes — which is how a second convention starts.
 
 ## Chat and the quick starts have no test path
 
-`adaptors` · `ci`
+`apps` · `ci`
 
 **No test model.** `gpt2-small` loaded in seconds and surfaced both the `context_length` crash and
 the thinking-row defect; every remaining model is multi-gigabyte, and Chat now refuses base models.
 A single-shot sample — prompt in, tokens out, exit code — is CI-shaped given a model in the store.
 Both Chat and the quick starts need one fixture that requires no download.
 
-**`Chat.StreamingDisplay` has no tests.** `RichText` now has 18 (`Mila/Tests/Adaptors/Chat/`), but
+**`Chat.StreamingDisplay` has no tests.** `RichText` now has 18 (`Mila/Tests/Apps/Chat/`), but
 `holdPoint` and the chunk-boundary behaviour that produced the nested-bullet defect are unpinned.
 Harder than RichText: the module imports `Chat.Renderer` and `Chat.Config`, so it needs either a
 seam or those modules in the test target.
 
 ## Where Chat's configuration lives, and what `context_length: auto` means
 
-`adaptors`
+`apps`
 
 **One session config serves every model a session loads**, so `context_length` is either too small
 for a 12B or fatal for GPT-2's 1024-row learned positions; today it is clamped by `maxContextFor`
@@ -621,7 +621,7 @@ settle together, because `context_length: auto` wants the same home.
 
 ## A non-interactive `chat` must name its model
 
-`adaptors` · `docs`
+`apps` · `docs`
 
 Inferring one from a single-model store changes the command's meaning once a second is installed,
 and persisting the choice would put it in `chat-state.json`, which lives in a cache directory — so
@@ -639,11 +639,11 @@ distinguishing the runs. `ProgressCallback` is `(received, total)` only (`HttpCl
 CLI cannot label what it is drawing.
 
 Adding the file name, or an (index, count) pair, is a library signature change. The sub-megabyte
-manifest is already suppressed in `Mila/Tools/Cli/Cli.ixx`.
+manifest is already suppressed in `Mila/Apps/Tools/Store/Store.ixx`.
 
 ## `main.cpp` re-checks what the store already guarantees
 
-`adaptors`
+`apps`
 
 After `resolveModel` succeeds it tests `exists()` on both paths, but `locate()` refuses an incomplete
 record. Harmless duplication — except `/model` has no equivalent check, so if the guarantee is
@@ -720,7 +720,7 @@ layers. [[project_w4a16_prefill_gemm]]
 
 ## Whole-model prefix caching for Qwen
 
-`perf` · `adaptors` · `mila-src`
+`perf` · `apps` · `mila-src`
 
 The 48 DeltaNet layers need the snapshot/restore copy and the 16 attention layers the positional
 rewind, and nothing combines them. Deferred as a policy question: how many prefixes to hold in host
@@ -882,7 +882,7 @@ format at equal or fewer bytes serves them better is unmeasured. `Quantization.m
 
 ## A desktop app with a window
 
-`adaptors` · `architecture`
+`apps` · `architecture`
 
 Raised by Todd 2026-09-27: a Windows GUI, `MilaStudio.exe`, whose core comes from Chat. Chat's session logic --
 model resolution, the deployment request, the turn loop, tool dispatch and the streaming display's channel routing

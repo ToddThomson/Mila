@@ -136,7 +136,7 @@ namespace Mila::ChatApp
             if ( config_.model_name.empty() )
             {
                 std::cerr << "No model is loaded. Name one with --model, "
-                             "or install one with 'mila install <name>'.\n";
+                             "or install one with 'mila-store install <name>'.\n";
 
                 return 4;
             }

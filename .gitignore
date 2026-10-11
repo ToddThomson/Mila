@@ -456,7 +456,7 @@ FodyWeavers.xsd
 # The licence texts of the code linked into the wheel, staged by the same configure from
 # the fetched sources at their pinned versions.
 /Mila/Bindings/Package/third_party_licenses/
-/Mila/Adaptors/Inference/Server/VERSION
+/Mila/Apps/Server/VERSION
 /.claude/settings.local.json
 
 # Design scratch served by `hugo server` for side-by-side iteration against the real

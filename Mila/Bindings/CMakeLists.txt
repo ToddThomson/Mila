@@ -133,4 +133,4 @@ add_custom_command(TARGET MilaPy POST_BUILD
 # MIS now declares mila-llm as an ordinary dependency and ships as an src-layout package
 # of its own, so nothing it owns sits on sys.path ahead of site-packages; a development
 # checkout satisfies the dependency with an editable install of Package above, which
-# picks up destination 1 on every build. See Mila/Adaptors/Inference/Server/README.md.
+# picks up destination 1 on every build. See Mila/Apps/Server/README.md.

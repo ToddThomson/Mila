@@ -19,8 +19,8 @@
 set -euo pipefail
 
 # The ENTRYPOINT of the `runtime` tag, installed as /usr/local/bin/mila-entrypoint. It is NOT
-# the `mila` command: that name belongs to the Mila/Tools/Cli binary in both tags, which reaches
-# the store directly and carries no chat verb. The verbs here are the IMAGE's interface, and the
+# the `mila-store` command: that is the Mila/Apps/Tools/Store binary in both tags, which reaches
+# the store directly and starts nothing. The verbs here are the IMAGE's interface, and the
 # image is where they belong -- it knows where it put the binaries, so it needs none of the
 # discovery a native front door would. MILA_APP_DIR lets the devel tag point at its build tree,
 # and the venv is addressed separately because devel's lives beside that tree, not inside it.
@@ -57,7 +57,7 @@ case "${1:-chat}" in
         # "Installing <name> ..." and then nothing at all for several GB, which on the first
         # command of the published quick start reads as a hang. It also takes Python out of the
         # install path entirely, which is what this CLI was built for.
-        exec "${APP_DIR}/mila" install "$@"
+        exec "${APP_DIR}/mila-store" install "$@"
         ;;
     *)
         exec "$@"

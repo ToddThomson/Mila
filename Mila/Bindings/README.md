@@ -4,11 +4,11 @@ The `mila` pybind11 extension: a **runtime-adjacent** binding surface that proje
 Mila C++ runtime into Python. Module `Mila.Bindings`; built target `MilaPy` → `_mila`,
 the private half of the `mila` package published to PyPI as `mila-llm`.
 
-It is a peer of the runtime, **not an adaptor**. It is consumer-blind: everything it
+It is a peer of the runtime, **not an app**. It is consumer-blind: everything it
 exposes is model-intrinsic (`Tokenizer`, `LlamaSession` / `GemmaSession`: load, `generate`,
 `generateStreaming`, `getConfig`) or store-intrinsic (`ModelStoreHandle`), and none of it
 knows about chat, agents, or any wire protocol. That is why it lives here beside `Src`
-rather than under `Adaptors/`.
+rather than under `Apps/`.
 
 It does carry HTTP *types* — `HttpResponseInfo`, `HttpFetchDelegate` — and that is not a
 contradiction: the delegate exists so a build with no HTTP client at all can still pull,
@@ -17,7 +17,7 @@ token, which digest); the binding projects a byte pipe, not a protocol.
 
 Two consumers today, which is the point:
 
-- **MIS** (`Mila/Adaptors/Inference/Server`) — the wire adaptor imports `mila` to serve the
+- **MIS** (`Mila/Apps/Server`) — the inference server imports `mila` to serve the
   model over an OpenAI/Anthropic-compatible API.
 - **Parity / converter tooling** (`Mila/Tools/Converters/...`) — the HuggingFace token-for-token
   parity harness imports `mila` directly; it is in fact `GemmaSession`'s primary consumer.

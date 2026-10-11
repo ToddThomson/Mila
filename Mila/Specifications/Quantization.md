@@ -536,13 +536,16 @@ suffixes and are the one part that knows which family it is looking at.
 
 `Tools/ExportArtifact` becomes **`mila-compress`** and narrows to the artifact: export,
 fingerprint, transcode, package. The local-store verbs it accumulated — install, rename,
-validate — move to `mila`, which owns the store. `ExportArtifact --install` and `mila install`
-are today the same word for two different operations (adopt a local package; download a
-published model), and the split resolves that.
+validate — move to `mila-store`, which owns the store. `ExportArtifact --install` and
+`mila-store install` were the same word for two different operations (adopt a local package;
+download a published model); `mila-store install <directory>` now does both, which resolves it.
 
 The end state has one producer per stage: Python fits and encodes, `mila-compress` packages,
-`mila` installs and serves. Whether `mila-compress` then merges into `mila` is deferred — it
-is only a clean question once the fitter has left C++ and the two share a build gate.
+`mila-store` installs. Whether `mila-compress` then merges into the store tool is deferred — it
+is only a clean question once the fitter has left C++ and the two share a build gate. The
+tool's shipped name and what of it ships were decided later, on 2026-10-11
+(`Notebooks/MilaCommandLineReview.md` sections 4.1 and 4.2): `mila-package`, shipping only the
+part a user who produces their own model needs, and not in v0.21.0.
 
 ### Where the quantizer lives — and where it does not
 

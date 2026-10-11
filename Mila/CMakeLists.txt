@@ -1146,9 +1146,9 @@ if(MILA_ENABLE_PYTHON_BINDINGS)
     add_subdirectory( Bindings )
 endif()
 
-# First-class adaptors over the runtime. Chat is gated inside Adaptors/CMakeLists.txt
-# (by MILA_ENABLE_ADAPTORS+CUDA); MIS's Python server is not a CMake target.
-add_subdirectory( Adaptors )
+# The apps over the library. Each is gated inside Apps/CMakeLists.txt (MILA_ENABLE_APPS, and
+# CUDA for Chat); the inference server is Python and not a CMake target.
+add_subdirectory( Apps )
 
 if(MILA_ENABLE_PROFILING)
     add_subdirectory(Profiling)

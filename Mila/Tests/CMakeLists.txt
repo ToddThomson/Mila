@@ -425,29 +425,29 @@ gtest_discover_tests(MilaTests
 )
 
 # ---------------------------------------------------------------------------
-# Chat adaptor: the rich-text formatter.
+# Chat: the rich-text formatter.
 #
 # Its own executable rather than a file in MilaTests, because Chat.RichText imports
 # nothing -- no Mila, no CUDA -- and linking it against the library would give the
 # cheapest test surface in the tree the slowest build in the tree. It runs anywhere,
 # including a CPU-only configure.
 #
-# The target lives here rather than under Adaptors/Chat because add_subdirectory(Tests)
-# runs after Adaptors, so the GoogleTest targets do not exist yet at that point.
+# The target lives here rather than under Apps/Chat because add_subdirectory(Tests)
+# runs after Apps, so the GoogleTest targets do not exist yet at that point.
 # ---------------------------------------------------------------------------
 add_executable( ChatRichTextTests
-    "Adaptors/Chat/RichText.Cpu.cpp"
+    "Apps/Chat/RichText.Cpu.cpp"
 )
 
 # BASE_DIRS is explicit because a module file set otherwise roots itself at this
-# directory, and the module being tested lives in the adaptor it belongs to.
+# directory, and the module being tested lives in the app it belongs to.
 target_sources( ChatRichTextTests
 PUBLIC
     FILE_SET module_files
     TYPE CXX_MODULES
-    BASE_DIRS "${CMAKE_SOURCE_DIR}/Mila/Adaptors/Chat/Src"
+    BASE_DIRS "${CMAKE_SOURCE_DIR}/Mila/Apps/Chat/Src"
     FILES
-        "${CMAKE_SOURCE_DIR}/Mila/Adaptors/Chat/Src/Chat.RichText.ixx"
+        "${CMAKE_SOURCE_DIR}/Mila/Apps/Chat/Src/Chat.RichText.ixx"
 )
 
 set_target_properties( ChatRichTextTests PROPERTIES

@@ -25,7 +25,7 @@ This is Mila's own FP4 format, so `transformers` and vLLM cannot load it.
 Install it with the Mila command line, then run it in the Mila chat app:
 
 ```
-mila install Qwen3.8-27B-fp4
+mila-store install Qwen3.8-27B-fp4
 mila-chat --model Qwen3.8-27B-fp4
 ```
 

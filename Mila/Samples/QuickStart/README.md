@@ -16,7 +16,7 @@ Models are not in git and nothing downloads one behind your back — installing 
 step, and pull and load are separate verbs.
 
 **Single-shot on purpose.** Neither has a conversation loop: history and a REPL teach nothing
-about Mila and are most of what makes a chat harness large. `Mila/Adaptors/Chat` is where
+about Mila and are most of what makes a chat harness large. `Mila/Apps/Chat` is where
 multi-turn, channel routing and tool calls live — it is the payoff for going deeper, not the
 thing to read first.
 
@@ -41,7 +41,7 @@ to take one. Published today: `gemma-4-12b-it-fp4` (~6.8 GB), `Llama-3.2-3B-Inst
 
 `Python/chat.py` is the multi-turn version — streaming with the reasoning channels filtered out.
 `Python/generate.py` covers the sampling knobs, `Python/store.py` the model store. In C++, the
-chat harness at `Mila/Adaptors/Chat` is the complete article: streaming channels, tool calls and
+chat harness at `Mila/Apps/Chat` is the complete article: streaming channels, tool calls and
 model switching.
 
 `Samples/Bard` and `Samples/MNIST` are the training samples — a full forward, backward and AdamW

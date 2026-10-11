@@ -3,7 +3,7 @@ Supplies the version, and the dependencies that carry it. Everything else is dec
 pyproject.toml.
 
 The version is derived from the repository's Version.txt by the CMake build (see
-cmake/MilaVersion.cmake and Mila/Adaptors/CMakeLists.txt) into the generated VERSION file
+cmake/MilaVersion.cmake and Mila/Apps/CMakeLists.txt) into the generated VERSION file
 beside this one, rather than hand-copied into pyproject.toml -- where the binding's copy
 silently drifted 18 builds behind. A missing VERSION means this tree was never configured,
 which is an error rather than a default: guessing here would publish a wrong number, and a

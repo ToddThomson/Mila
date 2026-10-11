@@ -63,7 +63,7 @@ card. Cases self-skip with `CUDA device not available`, so the same suite stays 
 contributors without a GPU.
 
 **Model-level parity tests need weights**, which are a download rather than a barrier:
-`mila models --online` lists what is published and `mila install <name>` fetches one.
+`mila-store models --online` lists what is published and `mila-store install <name>` fetches one.
 
 **Architectures.** Mila supports **SM 8.0 and newer — Ampere onward**. The library builds for
 `80;86;89;90;120`, and the published wheels and images carry the same list. That floor is drawn by

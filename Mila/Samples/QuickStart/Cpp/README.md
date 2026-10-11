@@ -22,7 +22,7 @@ its `CMakeLists.txt` the worked example of how to depend on Mila, referenced fro
 `getting-started.md` §7.
 
 **Single-shot by design.** No conversation history, no REPL — neither teaches anything about
-Mila, and both are what make a chat harness large. [`Mila/Adaptors/Chat`](../../../Adaptors/Chat)
+Mila, and both are what make a chat harness large. [`Mila/Apps/Chat`](../../../Apps/Chat)
 is where multi-turn, channel routing and tool calls live. The
 [Python quick start](../Python/quickstart.py) does the same thing with the same model, the same
 template and the same defaults, so the two read side by side.

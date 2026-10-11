@@ -206,10 +206,11 @@ the precision at load.
 
 ---
 
-## Adaptors
+## Apps
 
-The runtime plus a small family of adaptors, each closing the generation loop for a
-different consumer. See [Mila/Adaptors/README.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Adaptors/README.md) and the full
+The library plus a small family of apps, each closing the generation loop for a different
+consumer, and `mila-store`, which installs and removes the models they run. See
+[Mila/Apps/README.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Apps/README.md) and the full
 positioning in [MilaProductFamily.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Specifications/MilaProductFamily.md).
 
 ### Chat — a human at a prompt
@@ -220,7 +221,7 @@ Mila: It stores the key and value tensors from earlier tokens so each new token 
       over them instead of recomputing the whole sequence each step.
 ```
 
-Located under `Mila/Adaptors/Chat`. An instruction-following chat harness that closes the
+Located under `Mila/Apps/Chat`. An instruction-following chat harness that closes the
 loop in-process with a human in the gate — models load through the two-phase (prefill + decode)
 KV-cache pipeline, with model hot-switching (`/model load <name> [quant]`) and tool calling. Models
 come from the local store, and a fresh store has none: `/model list --online` lists what Mila
@@ -231,7 +232,7 @@ in the alpha.6 line.
 
 ### Mila Inference Server (MIS) — a foreign harness over the wire
 
-Located under `Mila/Adaptors/Inference`. Exports the generation loop over an
+Located under `Mila/Apps/Server`. Exports the generation loop over an
 OpenAI/Anthropic-compatible wire (a pybind11 bridge plus a Python server) so a best-in-class
 harness you did not write — Codex, Claude Code — can drive Mila from another process, and
 double as a ruthless validation oracle.

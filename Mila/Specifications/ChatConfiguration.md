@@ -36,7 +36,7 @@ a script can do and check.
 
 ## 2. Root Cause of the Container Failures
 
-`Mila/Adaptors/Chat/Src/main.cpp:112` resolves the default config next to the executable when
+`Mila/Apps/Chat/Src/main.cpp:112` resolves the default config next to the executable when
 it is not present relative to the working directory. Its comment states the intent: this
 "makes the default model independent of the process working directory."
 
@@ -549,7 +549,7 @@ makes macOS a real target.
 
 ## 8. Prompt Files, and the End of `Data/`
 
-`Mila/Adaptors/Chat/Data/` is a relic of Chat's first weeks and holds two unrelated kinds of
+`Mila/Apps/Chat/Data/` is a relic of Chat's first weeks and holds two unrelated kinds of
 file: four `session*.json` configurations, which §3 through §7 replace outright, and four
 `assistant*.json` system prompts, which are **content** and survive. Once the configurations
 leave, `Data/` is a directory named after nothing.
@@ -610,7 +610,8 @@ override belongs to a user. `Data/` is removed rather than emptied.
 This also finishes what §2 starts. After phase 1, Chat no longer needs the working directory to
 find its configuration; after this section it no longer needs it to find its prompts either. The
 runtime image's `WORKDIR` and the entrypoint's `cd` are both ordinary tidiness now, and were
-relaxed with this phase; `Mila/Tools/Cli` still changes directory and no longer needs to.
+relaxed with this phase. The CLI's launcher that changed directory is gone: the store tool,
+`mila-store` since 2026-10-11, starts nothing (`Notebooks/MilaCommandLineReview.md` section 4).
 
 ---
 
@@ -620,10 +621,10 @@ Chat accepted two flags before this work, `--config` and `--help`; every other s
 reachable only by writing a file. This is not an extension of a flag set, it is the creation of
 one, so the surface is decided whole rather than grown.
 
-The harness is invoked directly rather than through the `mila` CLI, which carries no `chat`
-verb: `mila-chat` is a binary beside `mila` and needs no front door, while the server is a
-console script inside a virtual environment and does. That is also why the binary is named for
-what a user types rather than for its build target.
+The harness is invoked directly: `mila-chat` is a command of its own and needs no front door.
+Since 2026-10-11 no app has one — the store tool, `mila-store`, starts nothing
+(`Notebooks/MilaCommandLineReview.md` section 4). That is also why the binary is named for what a
+user types rather than for its build target.
 
 | Flag | Value | Notes |
 |---|---|---|
@@ -683,7 +684,9 @@ successful run that was cut short; giving it one would make every caller special
 It is reported through `finish_reason` under `--output-format json`, and on standard error
 otherwise.
 
-This contract cannot be honoured through `Mila/Tools/Cli` as it stands. `runProgram`
+**Resolved 2026-10-11 by removal:** the launcher below was deleted with `serve`, and Chat is run
+directly, so the contract is Chat's own (`Notebooks/MilaCommandLineReview.md` section 4). As
+written: this contract could not be honoured through `Mila/Tools/Cli`. `runProgram`
 (`Cli.ixx:72`) builds a command string and hands it to `std::system`, so the code observed is
 the shell's rather than Chat's — and the same construction concatenates arguments into that
 string with no escaping (`Cli.ixx:86`). That is survivable for `install gpt2-small` and is not
@@ -705,7 +708,7 @@ it rather than held until they all exist.
 |---|---|---|
 | 1 | `executable_directory()` on Linux | removes the cause of four symptoms, and retires the WORKDIR requirement and the CLI's `chdir` |
 | 2 | Validate before construction; reject `context_length <= 0` by name; no path from a config file reaches `std::terminate` | makes a bad value legible instead of an abort, and is what the exit codes of phase 3 report |
-| 3 | Argument-vector launch in `Mila/Tools/Cli`; `--model`, `-p`, `--output-format`, `--version`, `--settings`; the exit-code contract | fixes live defects without waiting for the merge; the launch fix is a prerequisite for `-p` and for any exit code at all |
+| 3 | Argument-vector launch in `Mila/Tools/Cli` (moot: the launcher was removed 2026-10-11); `--model`, `-p`, `--output-format`, `--version`, `--settings`; the exit-code contract | fixes live defects without waiting for the merge; the launch fix is a prerequisite for `-p` and for any exit code at all |
 | 4 | Family invariants table; layered merge with `merge_patch`, recording origins; `--system-prompt` and `--context-length` join as patch producers | layer 1 becomes a working configuration; origins are what §6 and §8 both resolve against, and what the remaining flags plug into |
 | 5 | Give `predictFootprint` a failure reason; close the Gemma precision guard | auto has to report what it fell back to and why, which a predictor that discards its reason cannot support |
 | 6 | `context_length: "auto"` (§6), as the layer 1 default and a `--context-length` value | the constant that caused the truncation defect stops existing |
@@ -722,7 +725,7 @@ Until phase 7 lands, auto's upper bound is the family ceiling alone, which overs
 checkpoint trained shorter. That is acceptable in the interim — the models in the store are
 long-context — but it is the reason 7 does not drift.
 
-**One dependency lies outside this specification.** `mila install <name> && mila chat -p "..."`
+**One dependency lies outside this specification.** `mila-store install <name> && mila-chat -p "..."`
 reaches an answer only if a store holding exactly one model loads it. That defect is filed
 separately; phase 3 delivers `-p` either way, but the one-command evaluation path needs
 `--model` on every invocation until it is settled.

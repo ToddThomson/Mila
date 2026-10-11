@@ -95,6 +95,12 @@ the wheels and CI. No removal.
 Scope grew again on 2026-10-10 (Todd), the date held: under Internal fixes, the release script finished through
 publishing. No removal.
 
+Scope grew on 2026-10-11 (Todd), the date held: under Internal fixes, `Mila/Adaptors/` becomes `Mila/Apps/` and
+the user's commands take one naming form, brought forward from v0.22.0's rebuild (`Vnext.md`). No removal.
+
+Scope grew again on 2026-10-11 (Todd), the date held: under Internal fixes, the CPU compute operations are
+retired, after the training path's tests move to CUDA. No removal.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -110,7 +116,7 @@ wait in [`Vnext.md`](Mila/Issues/Vnext.md).
 
 #### Gemma 4 12B is multimodal and Mila drops its image and audio weights
 
-`in progress` · `gemma` · `mila-src` · `adaptors`
+`in progress` · `gemma` · `mila-src` · `apps`
 
 The 12B is **encoder-free** (`Gemma4UnifiedForConditionalGeneration`): no vision tower and no audio
 encoder. An image is resized and cut into 48-pixel patches, at most 280 soft tokens, each through a
@@ -205,7 +211,7 @@ package, its card and the capability row. A first publish, so it is not held for
 
 #### Gemma loses its own reasoning between tool calls in a turn
 
-`open` · `gemma` · `adaptors`
+`open` · `gemma` · `apps`
 
 Google's multi-turn rule is to strip thoughts from *prior* turns and keep the current turn's.
 `extractAnswer` (`Gemma.Protocol.ixx:1288`) removes every channel span from a response rather than a
@@ -315,7 +321,7 @@ application.
 
 #### Chat renders Gemma's prompt itself, and its template and the library's have drifted apart
 
-`open` · `gemma` · `mila-src` · `adaptors`
+`open` · `gemma` · `mila-src` · `apps`
 
 `formatGemmaPrompt` (`Chat.ixx:1359`) renders thinking on — the `<|think|>` trigger in the system
 turn — and the library's `Gemma::formatPrompt` (`Gemma.Protocol.ixx:1132`), which the inference
@@ -380,7 +386,7 @@ this work rather than a consequence of it. The compressed cache has to be priced
 
 #### Qwen answers in one block after a long silence
 
-`open` · `qwen` · `adaptors`
+`open` · `qwen` · `apps`
 
 `FamilyTraits::streaming_capable` is false for Qwen (`Chat.FamilyTraits.ixx`), because the harness
 routes tokens by Gemma's four control-token ids and nothing else has them. Qwen has one marker pair,
@@ -395,7 +401,7 @@ on screen.
 
 #### Llama's prompt and tool grammar live in Chat and the inference server, not the library
 
-`open` · `llama` · `mila-src` · `adaptors`
+`open` · `llama` · `mila-src` · `apps`
 
 Gemma's and Qwen's templates and tool grammars are the library's, and both applications render through them;
 Llama's are written out twice instead — in Chat (`Chat.MessageFormatter.ixx`, `Chat.SystemPrompt.ixx`) and in the
@@ -412,7 +418,7 @@ Gate: the library renders Meta's template exactly, against its own Jinja renderi
 turns; Chat and the server render through it; and a Llama tool call parses through the library as Gemma's and
 Qwen's do.
 
-`Mila/Adaptors/Inference/Server/src/mila_llm_server/prompt.py` `_build_llama_prompt` · `Mila/Adaptors/Chat/Src/Chat.MessageFormatter.ixx`
+`Mila/Apps/Server/src/mila_llm_server/prompt.py` `_build_llama_prompt` · `Mila/Apps/Chat/Src/Chat.MessageFormatter.ixx`
 
 #### Nobody can say whether a published model scores like its original on standard benchmarks
 
@@ -481,7 +487,7 @@ loses it the same way (`Quantization.md` Part III, decision 6's behavioral arm),
 
 #### The inference server's README says `pip install mila-llm-server`, and no such package is published
 
-`in progress` · `adaptors` · `ci` · `distribution`
+`in progress` · `apps` · `ci` · `distribution`
 
 RELEASING publishes the `mila-llm` wheels and nothing else: no step builds or uploads MIS, and it reaches users only
 from a checkout or inside the runtime image (`Docker/build-mis.sh`). Its version already derives from `Version.txt`,
@@ -496,11 +502,11 @@ so what is missing is the release path itself:
 
 Gate: the clean-room install passes from TestPyPI on the release-step-1 snapshot.
 
-`Mila/Adaptors/Inference/Server/pyproject.toml` · `RELEASING.md` *Publishing the wheels*
+`Mila/Apps/Server/pyproject.toml` · `RELEASING.md` *Publishing the wheels*
 
 #### What a model can do is inferred from its family name, not read from its manifest
 
-`open` · `distribution` · `adaptors`
+`open` · `distribution` · `apps`
 
 `Chat.FamilyTraits.ixx:55` answers "does this model have a reasoning channel" and "how much context
 can it address" with a switch on the family, so two models of one family cannot differ and a new
@@ -518,7 +524,7 @@ validated flows pass regardless, so that is a symptom of this gap rather than se
 
 #### Chat samples every model at one fixed setting, not at the one its publisher recommends
 
-`open` · `distribution` · `adaptors` · `binding`
+`open` · `distribution` · `apps` · `binding`
 
 Chat samples every model at temperature 0.8, top-k 40 and no top-p (`Chat.Config.ixx:104`), MIS at
 temperature 0.6 (`config.py:55`). No family's publisher recommends either. Their `generation_config.json`
@@ -536,7 +542,7 @@ not to an adaptor's constant; the adaptor-wide 0.8 / 40 and 0.6 are removed.
 Gate: a Gemma 4 package exported on this tree carries 1.0, 64 and 0.95, and Chat, MIS and the binding open
 at them; an installed package without the fields loads and opens at its family's settings.
 
-`Mila/Adaptors/Chat/Src/Chat.Config.ixx:104` · `Mila/Specifications/ChatConfiguration.md` section 5
+`Mila/Apps/Chat/Src/Chat.Config.ixx:104` · `Mila/Specifications/ChatConfiguration.md` section 5
 
 ### Upgrades Keep Your Models
 
@@ -794,3 +800,42 @@ migration. `DeviceReading` is not part of this: its replacement name waits on `D
 Gate: the types, the binding's projection and `Deployment.md` use the short names.
 
 `Mila/Src/Deployment/`
+
+#### Chat and the inference server live under a directory named for what they are not, and Mila's commands follow three naming styles
+
+`in progress` · `apps` · `build` · `breaking`
+
+`Mila/Adaptors/` held Chat and the inference server, which are applications. The commands a user types are
+`mila-chat`, `mila-server`, `mila` and `ExportArtifact`. Decided 2026-10-11 (`MilaCommandLineReview.md` 4.1):
+
+- `Mila/Adaptors/Chat` to `Mila/Apps/Chat`, `Mila/Adaptors/Inference/Server` to `Mila/Apps/Server`, with the CMake
+  option, the wheel and image paths, `CLAUDE.md`, and the area tag in `Tags.md` (now `apps`) following.
+- The store tool leaves `Mila/Tools/Cli` for `Mila/Apps/Tools/Store` and is renamed `mila-store`: the website's Get
+  Started, Chat's shell hints, the image's link and `install` verb, and the image checks.
+- Every command a user types is lowercase with hyphens and the `mila-` prefix, the same on every platform.
+  `ExportArtifact` keeps its name and place: it does not ship in v0.21.0 (notebook section 4.2).
+
+Gate: a clean configure of every preset, the full suite, the runtime image's checks, and no tracked file naming
+`Mila/Adaptors/` or the `mila` command except where it records the move.
+
+`Mila/Specifications/Notebooks/MilaCommandLineReview.md` 4.1 and 6 · `Mila/Apps/`
+
+#### The library carries a CPU compute backend that no user runs and only its own tests exercise
+
+`open` · `architecture` · `training` · `mila-src` · `breaking`
+
+Fifteen FP32 CPU operations, the components' and GPT-2's CPU instantiations and CPU AdamW are maintained through
+every change to the `Operation` interface, yet no published model runs on them and no CUDA test uses them as a
+reference. Decided 2026-10-11: they are retired by deletion; the CPU device, the CUDA-off build and the
+`TDeviceType` axis stay. Two things only the CPU path holds come first:
+
+- The training path's proof moves to CUDA: `Network.Cpu` (build for training, backward through the graph,
+  optimizer registration, a training loop that reduces its loss), and the backward tests that are heavier on CPU
+  than on CUDA -- multi-head attention, residual, LayerNorm, RmsNorm, and whatever the per-test reading adds.
+- `GatedResidual` and `NgramEmbedding` exist only on CPU, as Qwen 4's components. They gain CUDA operations gated
+  against the same tiny reference before their CPU ones go.
+
+Gate: every behaviour a retired CPU test proved is proven on CUDA or dropped by name in the notebook; the CPU-only
+preset and CI job build and pass with no CPU compute operation in the tree; the full suite passes.
+
+`Mila/Specifications/Notebooks/CpuOperationsRetirement.md` · `Mila/Src/Dnn/Compute/Devices/Cpu/Operations/`

@@ -415,7 +415,7 @@ namespace Mila::ChatApp
         RefusalAudience audience = RefusalAudience::Session )
     {
         const bool at_shell = ( audience == RefusalAudience::Shell );
-        const std::string_view install_command = at_shell ? "mila install" : "/model install";
+        const std::string_view install_command = at_shell ? "mila-store install" : "/model install";
 
         Mila::Distribution::ModelStore store;
 
@@ -461,7 +461,7 @@ namespace Mila::ChatApp
             throw std::runtime_error( std::format(
                 "No model named '{}' is installed.\nInstalled: {}\n"
                 "{} shows what can be installed.", name, available,
-                at_shell ? "mila models --online" : "/model list --online" ) );
+                at_shell ? "mila-store models --online" : "/model list --online" ) );
         }
 
         const auto& record = installed->record;

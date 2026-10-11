@@ -6,14 +6,14 @@
 # the tab's step 2 was a command-not-found for every reader. This walks the tab's three steps:
 #
 #   1. land in a shell in a built tree
-#   2. mila install gemma-4-12b-it-fp4
+#   2. mila-store install gemma-4-12b-it-fp4
 #   3. cd ~/myapp && cmake --build build && ./build/myapp "Why is the sky blue?"
 #
 # When the #p-docker copy in Web/layouts/index.html changes, this script changes with it.
 #
 # THE STORE IS KEPT BETWEEN RUNS, unlike verify-image.sh's. The tab installs Gemma 4 12B, 6.8 GB,
 # and a fresh download per run would dominate a release. A fresh-volume download through the same
-# `mila install` code is already proven by verify-image.sh; what only this image can get wrong is
+# `mila-store install` code is already proven by verify-image.sh; what only this image can get wrong is
 # that the command exists and runs, and a store that already holds the model still exercises that.
 #
 #   MILA_IMAGE=mila-release:<commit>-devel scripts/dockerhub/verify-devel-image.sh
@@ -40,7 +40,7 @@ echo "Store  : ${MILA_VERIFY_STORE} (kept between runs)"
 echo
 
 # ---------------------------------------------------------------------------
-# Step 1 -- the shell the tab promises, in a built tree, with `mila` on PATH resolving to a real
+# Step 1 -- the shell the tab promises, in a built tree, with `mila-store` on PATH resolving to a real
 # executable. `ln -sf` succeeds against a missing target, so a dangling symlink passes `command -v`;
 # resolving it is the part that has failed before.
 # ---------------------------------------------------------------------------
@@ -48,12 +48,12 @@ echo "== 1. a shell in a built tree ============================================
 docker run --rm "${MILA_IMAGE}" bash -lc '
     set -e
     test "$(pwd)" = /src || { echo "landed in $(pwd), not /src"; exit 1; }
-    command -v mila >/dev/null || { echo "mila is not on PATH"; exit 1; }
-    target="$(readlink -f "$(command -v mila)")"
-    test -x "${target}" || { echo "mila resolves to ${target}, which is not an executable"; exit 1; }
+    command -v mila-store >/dev/null || { echo "mila-store is not on PATH"; exit 1; }
+    target="$(readlink -f "$(command -v mila-store)")"
+    test -x "${target}" || { echo "mila-store resolves to ${target}, which is not an executable"; exit 1; }
     test -x /opt/mila/build/mila-chat || { echo "no built mila-chat in /opt/mila/build"; exit 1; }
     test -f /root/myapp/build/build.ninja || { echo "~/myapp is not configured"; exit 1; }
-    echo "ok -- /src, mila -> ${target}, built tree and configured ~/myapp present"
+    echo "ok -- /src, mila-store -> ${target}, built tree and configured ~/myapp present"
 ' || fail "the image is not the environment the tab describes"
 echo
 
@@ -61,11 +61,11 @@ echo
 # Steps 2 and 3 in ONE container, because the tab runs them in one: myapp's build output lives in
 # the container's filesystem and would not survive into a second `docker run`.
 # ---------------------------------------------------------------------------
-echo "== 2. mila install ${MODEL} ============================================="
+echo "== 2. mila-store install ${MODEL} ======================================="
 echo "== 3. build and run ~/myapp (the first build compiles Mila; expect ~10 min) =="
 output="$( docker run --rm --gpus all -v "${MILA_VERIFY_STORE}:/models" "${MILA_IMAGE}" bash -lc "
     set -e
-    mila install ${MODEL}
+    mila-store install ${MODEL}
     cd ~/myapp
     cmake --build build
     ./build/myapp '${PROMPT}'

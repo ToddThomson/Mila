@@ -5,7 +5,6 @@ FetchContent never configures it.
 
 | Directory | Language | What it does |
 |---|---|---|
-| `Cli/` | C++ | The `mila` command: the local model store and the server front door |
 | `ContextProfile/` | C++ | What a model configuration is worth to an agent at each context length it fits |
 | `Converters/` | Python | HuggingFace weights and tokenizers to Mila format, per family |
 | `Drafting/` | C++ | Whether a draft model pays on its target: what a verify costs, and how many drafts are accepted |

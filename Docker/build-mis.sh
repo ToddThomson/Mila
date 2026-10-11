@@ -44,7 +44,7 @@ cmake -S "${SRC}" -B "${BUILD}" -G Ninja \
     -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
     -DMILA_ENABLE_CUDA=ON \
     -DMILA_ENABLE_PYTHON_BINDINGS=ON \
-    -DMILA_ENABLE_ADAPTORS=OFF \
+    -DMILA_ENABLE_APPS=OFF \
     -DMILA_ENABLE_SAMPLES=OFF \
     -DMILA_ENABLE_TESTING=OFF \
     -DMILA_ENABLE_PROFILING=OFF \
@@ -73,7 +73,7 @@ fi
 # --ignore-requires-python for the reason above: the pin bounds the interpreters wheels
 # are built for, and this container's binding was compiled against its own python3.
 "${VENV}/bin/pip" install --no-deps --ignore-requires-python \
-    -e "${SRC}/Mila/Adaptors/Inference/Server"
+    -e "${SRC}/Mila/Apps/Server"
 
 # The runtime, editable off the package tree MilaPy stages into -- NOT from PyPI. A
 # published wheel is cp313/x86_64 and would not match this container's interpreter, and

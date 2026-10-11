@@ -350,7 +350,7 @@ continues, deciding again at execution. Recorded in `Mila/Issues/Vnext.md`.
 
 ---
 
-## 8. Entry Points And Adaptors
+## 8. Entry Points And Apps
 
 - **Library.** `planDeployment( path, request )` per family, beside `load` and
   `getDeploymentFootprint`. The family comes from the package; a family-neutral entry point that reads
@@ -533,7 +533,7 @@ here as a new dimension of the planner, not beside it.
    a warning if it will not fit" (Chat's `--help`, `ChatConfiguration.md` §6); from Phase 3 it is refused,
    naming the reason.
 6. **The library's default request. DECIDED 2026-09-16:** every plannable knob `auto`, weight format the
-   package's own, headroom zero. Adaptors may pin any of it — Chat's device default is `LayerSplit.md` 12.3.
+   package's own, headroom zero. Apps may pin any of it — Chat's device default is `LayerSplit.md` 12.3.
 7. **Names and the result shape. DECIDED 2026-09-23** (Todd), as the shape to start from and expected to
    move once real callers use it: `planDeployment` returns `std::expected<DeploymentPlans, DeploymentRefusal>`
    (section 3.3). Replaced: an always-returned plan marked `feasible` (it let `load` be handed a plan it
