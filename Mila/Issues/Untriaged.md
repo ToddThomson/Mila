@@ -10,6 +10,16 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Gelu and Residual zero a gradient buffer the CUDA kernels overwrite
+
+`Mila/Src/Dnn/Components/Activations/Gelu/Gelu.ixx` and `Connections/Residual.ixx`, `backward` @ `4db0309`
+
+Found 2026-10-11 retiring the CPU operations. Both components `zero()` their input gradient before calling the
+operation, for the CPU operations that accumulated into it. The CUDA kernels assign every element in range
+(`Gelu.Fp32.cu`, `Residual.Fp32.cu` / `.Bf16.cu`), so the zeroing is a memset per backward that nothing reads.
+Not checked: whether any caller reads past the range a narrower-than-built input writes, which the zeroing keeps
+at zero today.
+
 ## The Qwen 4 tiny reference never reaches the n-gram hash's negative branch
 
 `Mila/Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py` @ `44778cd`
@@ -37,8 +47,8 @@ unaffected). The tracked `hf_checkpoint/*.json` were left at their 5.16 contents
 `Mila/Tests/CMakeLists.txt` (the parked `SoftmaxCrossEntropy.Cuda.cpp` line) @ `44778cd`
 
 Found 2026-10-11 moving the CPU tests to CUDA. `SoftmaxCrossEntropy.Cuda.cpp` sits in the CMake list's parked
-section ("loss-on-device milestone"), and `CrossEntropy.Cpu.cpp` is empty and also commented out, so no built test
-reaches the softmax cross-entropy component or its CUDA operation. `AdamW.Cuda.cpp` sat in the same section until
+section ("loss-on-device milestone"), and the empty `CrossEntropy.Cpu.cpp` went with the CPU operations, so no
+built test reaches the softmax cross-entropy component or its CUDA operation. `AdamW.Cuda.cpp` sat in the same section until
 2026-10-11 and no longer compiled against the optimizer it tested.
 
 ## No model Mila runs can be post-trained, even with LoRA on a 16 GB card

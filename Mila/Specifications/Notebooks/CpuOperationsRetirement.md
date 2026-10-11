@@ -1,9 +1,8 @@
 # Retiring the CPU Compute Operations
 
 **Status:** Decided 2026-10-11 (Todd): the CPU compute operations are retired. Retirement is deletion; git history
-is the archive. **Blocked on coverage** (section 4): nothing is deleted until every behaviour only a CPU test proves
-is proven on CUDA, and two of the operations are Qwen 4's only implementation today. **Admitted to v0.21.0**
-2026-10-11 (Todd) as an internal fix (`BACKLOG.md`).
+is the archive. **Done 2026-10-11** (`0.21.0-dev+60`), after every behaviour only a CPU test proved was moved to
+CUDA (section 4) and Qwen 4's two CPU-only operations gained CUDA ones. Admitted to v0.21.0 as an internal fix.
 
 ## 1. What is retired, and what is not
 
@@ -123,11 +122,20 @@ Two findings change the order of work:
 2. **Done 2026-10-11:** the CUDA operations for `GatedResidual` and `NgramEmbedding`, FP32 and BF16, gated against
    the same capture (`Qwen4.md` Phase 2 progress). The CPU gates had been skipping on the development machine,
    since the capture had only been made in a cloud session; it now exists there and both CPU and CUDA gates run.
-3. The retirement change: delete the operations, their `OperationTraits.Cpu` entries, the CPU instantiations and
-   the retired tests; reword "CPU-practical" text in specs and comments; the CPU-only CI job then proves the build
-   and the device-independent tests, and says so. Outside the `.Cpu.cpp` files the change also reaches the CPU
-   `static_assert`s in `Tests/Dnn/Compute/Operations/OperationTraits.cpp` and the `--device cpu` option of the
-   MNIST and Bard samples. (`GptModel.Cuda.cpp` wrote its checkpoint with a CPU network; it now uses CUDA.)
+3. **Done 2026-10-11:** the operations, the `:Cpu` traits partition, `CpuAdamWOptimizer` and the retired tests
+   are deleted, with the unbuilt `Model.Cpu` and `CrossEntropy.Cpu`. `OperationTraits.cpp` now pins that every
+   CPU tuple probes false; its policy-axis checks moved to `OperationTraits.Cuda.cpp`. MNIST and Bard lost
+   `--device`. Specs, comments and the CPU-only CI job's description say what that build now proves. One
+   residue: `Gelu` and `Residual` still zero their input gradient before backward, which only the accumulating
+   CPU operations needed (`Untriaged.md`).
+
+   Step 1 had moved LayerNorm and MLP backward against an analytic reference only, where 4.1 asked for a numeric
+   gradient too; a hand-derived reference can share the kernel's derivation. Both now also check against central
+   differences of a host forward, input and every parameter gradient (`Backward_MatchesNumericGradient`). A 5%
+   error in LayerNorm's weight gradient and in GELU's backward each fail them; the MLP test needed a 1e-4 floor
+   to see the second, since its gradients are near 1e-2. The same change found `GptBlock`'s finite-difference
+   test passing by luck of the global seed: at width 4 a 1e-2 step misses the gradient for some weights, and
+   `RandomCpuTests` pins one of them. It now pins that seed itself and steps 1e-3.
 
 The CPU device's memory reading (`Untriaged.md`, 2026-10-11) goes at triage: with no CPU compute backend, the
 planner never offers the CPU.

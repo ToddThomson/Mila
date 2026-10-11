@@ -2,7 +2,7 @@
  * @file Gelu.Cuda.cpp
  * @brief Concrete-component tests for Gelu<DeviceType::Cuda, FP32>.
  *
- * The CUDA companion to Gelu.Cpu.cpp (see Specifications/Testing.md). CUDA GeluOp
+ * See Specifications/Testing.md. CUDA GeluOp
  * has a single working precision today -- the kernel dispatch (cuda_gelu_impl)
  * supports only float/half, so FP32 is the one precision the component can
  * instantiate -- so by the methodology this file is explicit (pragmatic), not

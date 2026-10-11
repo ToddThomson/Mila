@@ -57,7 +57,7 @@ namespace Mila::Dnn
      *
      * Construction Pattern (Concrete Subclass):
      * @code
-     * class MnistClassifier : public Network<DeviceType::Cpu, TensorDataType::FP32>
+     * class MnistClassifier : public Network<DeviceType::Cuda, TensorDataType::FP32>
      * {
      * public:
      *     explicit MnistClassifier(const std::string& name, int64_t batch_size, DeviceId device_id)

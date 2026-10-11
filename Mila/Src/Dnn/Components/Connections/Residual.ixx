@@ -66,7 +66,7 @@ namespace Mila::Dnn
      *   The component also owns the gradient for the second input which can be
      *   accessed via `getInputBGrad()`.
      *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda).
+     * @tparam TDeviceType Device type (DeviceType::Cuda).
      * @tparam TPrecision  Abstract tensor precision (TensorDataType).
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
@@ -187,17 +187,12 @@ namespace Mila::Dnn
 
             // Zero BOTH owned input gradient buffers before backward pass.
             //
-            // The reason is CpuResidualOp, which accumulates (dX1[i] += dY[i]) and so
-            // needs a clean buffer; CudaResidualOp assigns (dA[idx] = grad) and does not.
-            // It is NOT to combine gradients arriving from several paths: each of these
-            // buffers has exactly one producer, and where the residual stream forks the
-            // summation is explicit in the owning block -- see GptBlock::backward, which
-            // does `zero(d_res1_accum_); add(d_res1_from_res2, d_res1_from_ln2, ...)`.
-            //
-            // Assign and accumulate-into-zero are therefore equivalent here, which is why
-            // the two backends disagree without any observable difference. Reconciling
-            // them (and dropping the zeroing for a full-overwrite op) is an API Coherence
-            // question parked in BACKLOG, not a defect.
+            // Redundant today: CudaResidualOp assigns (dA[idx] = grad). The zeroing served
+            // the retired CPU operation, which accumulated. It is NOT to combine gradients
+            // arriving from several paths: each of these buffers has exactly one producer,
+            // and where the residual stream forks the summation is explicit in the owning
+            // block -- see GptBlock::backward, which does
+            // `zero(d_res1_accum_); add(d_res1_from_res2, d_res1_from_ln2, ...)`.
             zero( *input_a_grad_ /*, this->getExecutionContext() */);
             zero( *input_b_grad_ /*, this->getExecutionContext() */);
 

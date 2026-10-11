@@ -39,8 +39,8 @@ namespace Mila::Dnn
     /**
      * @brief The standard token sampler: temperature / top-k / top-p multinomial.
      *
-     * Dispatches to the device SamplingOp resolved by OperationTraits (CudaSamplingOp /
-     * CpuSamplingOp). Shares the model's ExecutionContext so the op runs on the decode
+     * Dispatches to the device SamplingOp resolved by OperationTraits (CudaSamplingOp).
+     * Shares the model's ExecutionContext so the op runs on the decode
      * stream and writes the token in place. The host-drawn uniform is generated here so
      * the op stays pure and deterministic (Phase A: greedy only).
      *

@@ -2,8 +2,7 @@
  * @file Softmax.Cuda.cpp
  * @brief Concrete-component tests for Softmax<DeviceType::Cuda, {FP32}>.
  *
- * CUDA companion to Softmax.Cpu.cpp, written as a precision sweep (TYPED_TEST) per
- * the methodology default. The supported-precision list holds FP32 only: the CUDA
+ * Written as a precision sweep (TYPED_TEST) per the methodology default. The supported-precision list holds FP32 only: the CUDA
  * SoftmaxOp kernel dispatch is constrained to float/half (CudaSoftmaxOp.ixx /
  * Softmax.cuh: `float || half`), there is no BF16 path -- the Llama inference path
  * fuses its attention softmax inside the GQA kernel. Add a Bf16Precision tag to

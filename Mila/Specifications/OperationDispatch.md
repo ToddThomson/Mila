@@ -44,8 +44,8 @@ Every operation is parameterized by two independent type axes:
 Operations handle internal accumulation precision as an implementation detail —
 this is unchanged from the previous design.
 
-**Consequence:** every existing instantiation `Linear<Cpu, FP32>` and
-`Linear<Cuda, FP32>` is unaffected. `TWeight` defaults to `TPrecision` and
+**Consequence:** every existing instantiation such as `Linear<Cuda, FP32>` is
+unaffected. `TWeight` defaults to `TPrecision` and
 is invisible to existing code.
 
 ---
@@ -98,13 +98,14 @@ Each concrete op:
 - Accepts `IExecutionContext*` and the component config at construction.
 
 ```cpp
-class CpuLinearOp : public Operation<DeviceType::Cpu, TensorDataType::FP32>
+template<TensorDataType TComputePrecision, typename TWeightQuantization>
+class CudaLinearOp : public Operation<DeviceType::Cuda, TComputePrecision>
 {
 public:
-    using MR = CpuMemoryResource;
-    using TensorType = Tensor<TensorDataType::FP32, MR>;
+    using MR = CudaDeviceMemoryResource;
+    using TensorType = Tensor<TComputePrecision, MR>;
 
-    CpuLinearOp( IExecutionContext* context, const LinearConfig& config );
+    CudaLinearOp( IExecutionContext* context, const LinearConfig& config );
 
     void forward( const TensorType& input, TensorType& output ) const;
     void backward( const TensorType& input, const TensorType& output_grad,
@@ -116,7 +117,7 @@ public:
 };
 ```
 
-`CpuEncoderOp` previously used `TInput=INT32` on the intermediate base to vary
+The LPE operation previously used `TInput=INT32` on the intermediate base to vary
 the input tensor element type. With concrete ownership this distinction moves
 directly into the method signature — the type mismatch between `INT32` tokens
 and `FP32` output is expressed in the method parameter types, not via a base
@@ -298,10 +299,9 @@ are deleted once all components are migrated.
 
 ```
 Compute/Operations/
-  OperationTraits.ixx              aggregator — export import Template + :Cuda + :Cpu
+  OperationTraits.ixx              aggregator — export import Template + :Cuda
   OperationTraits.Template.ixx     unified primary template; concepts
   OperationTraits.Cuda.ixx         :Cuda partition — all CUDA specializations
-  OperationTraits.Cpu.ixx          :Cpu partition — all CPU specializations (pending)
 
 Components/Linear/
   Linear.ixx                       component — import Compute.OperationTraits
@@ -311,8 +311,8 @@ Devices/Cuda/Operations/Linear/
   CudaLinearOp.ixx                 concrete op — derives from Operation<Cuda, P> only
 ```
 
-Adding a new weight format or backend: one new specialization block in
-`OperationTraits.Cuda.ixx` or `OperationTraits.Cpu.ixx`. No shared file is
+Adding a new weight format: one new specialization block in
+`OperationTraits.Cuda.ixx`; a new backend adds its own partition. No shared file is
 modified. No registrar file is created.
 
 ---

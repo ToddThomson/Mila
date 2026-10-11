@@ -31,7 +31,7 @@ namespace Mila::Dnn
      * - Performs parameter updates via step()
      *
      * Template Parameters:
-     * @tparam TDeviceType Device where optimization occurs (DeviceType::Cpu or DeviceType::Cuda)
+     * @tparam TDeviceType Device where optimization occurs (DeviceType::Cuda)
      * @tparam TPrecision Abstract tensor precision (TensorDataType::FP32, FP16, BF16)
      *
      * Typical usage pattern:

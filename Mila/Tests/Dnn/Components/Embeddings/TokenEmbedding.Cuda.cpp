@@ -2,8 +2,7 @@
  * @file TokenEmbedding.Cuda.cpp
  * @brief Concrete-component tests for TokenEmbedding<DeviceType::Cuda, INT32, {FP32, BF16}>.
  *
- * TokenEmbedding is CUDA-only (no CPU TokenEmbeddingOp), so there is no
- * TokenEmbedding.Cpu.cpp -- this is the whole concrete surface, a TYPED_TEST
+ * This is the whole concrete surface, a TYPED_TEST
  * sweep over FP32 and BF16 (see Linear.Cuda.cpp / RmsNorm.Cuda.cpp for the
  * precision-sweep reference). The input is a rank-2 [B, T] INT32 token-index
  * tensor; forward is a pure vocabulary gather:

@@ -5,7 +5,7 @@
  * Reference for the config test archetype (see Specifications/Testing.md):
  * construction defaults, fluent setters, validation throws, and the metadata
  * round-trip. No forward/backward -- that is the concrete-component archetype
- * (MLP.Cpu.cpp / MLP.Cuda.cpp).
+ * (MLP.Cuda.cpp).
  */
 
 #include <gtest/gtest.h>

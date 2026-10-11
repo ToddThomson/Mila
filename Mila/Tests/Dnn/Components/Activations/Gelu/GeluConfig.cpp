@@ -4,7 +4,7 @@
  *
  * Reference instance of the config test archetype (see Specifications/Testing.md):
  * defaults, fluent setters, validation, and the metadata round-trip. No
- * forward/backward — that is the concrete-component archetype (Gelu.Cpu.cpp).
+ * forward/backward — that is the concrete-component archetype (Gelu.Cuda.cpp).
  */
 
 #include <gtest/gtest.h>

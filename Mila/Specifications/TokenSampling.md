@@ -14,8 +14,8 @@ top-k sort, and weighted sampling. The transfer is vocab-dependent: ~512 KB for 
 (~128 K vocab × FP32), ~1 MB for Gemma 4 (~256 K vocab) — the default chat model.
 
 This specification introduces a `TokenSampler` **orchestrator tool** (owned by the
-`LanguageModel` base, not a graph `Component`) and corresponding backend operations
-(`CudaSamplingOp`, `CpuSamplingOp`) that move sampling to the compute device, reducing the
+`LanguageModel` base, not a graph `Component`) and a corresponding backend operation
+(`CudaSamplingOp`) that moves sampling to the compute device, reducing the
 per-step D2H transfer from the full logits tensor to 4 bytes (single int32 token).
 
 The sampled token is written directly into the decode input buffer (`decode_token_device_`)
@@ -95,7 +95,7 @@ using SamplingOpType = typename OperationTraits<
 - `OperationType::SamplingOp` is the dispatch key (policy-free; `TPolicy = void`). Already in
   the enum.
 - `SamplingOpConcept` (in `OperationTraits.Template.ixx`) enforces the op's method contract.
-- Specializations live in the `:Cuda` / `:Cpu` partitions:
+- Specializations live in the `:Cuda` partition:
   `OperationTraits<SamplingOp, Cuda, BF16>::type = CudaSamplingOp<BF16>`, etc.
 - A missing specialization is a hard compile error.
 
@@ -134,7 +134,6 @@ Mirrors the `Optimizer` / `AdamW` file structure, dispatched through `OperationT
 | Facade (owned by model) | `TokenSampler<Device,Precision>` | `Dnn.Samplers.TokenSampler` | `Samplers/TokenSampler.ixx` |
 | Construction-time config | `SamplingConfig` | `Dnn.Samplers.SamplingConfig` | `Samplers/SamplingConfig.ixx` |
 | Device op (CUDA) | `CudaSamplingOp<Precision>` | `Compute.CudaSamplingOp` | `Compute/Devices/Cuda/Operations/Sampling/` |
-| Device op (CPU) | `CpuSamplingOp<Precision>` | `Compute.CpuSamplingOp` | `Compute/Devices/Cpu/Operations/Sampling/` |
 
 This **retires the skeleton's `Dnn/Decoders/` naming**: `Decoder` base → `Sampler`,
 `TopKDecoder` → `TokenSampler`, `TopKConfig` → `SamplingConfig`. ("Decoder" collides with the
@@ -173,8 +172,7 @@ op.forward( const TLogits& logits, TToken& token_out,
   to host).
 - `token_out` — device INT32 `[1, 1]`, written in place (the model's `decode_token_device_`).
 - `random_uniform` — a single host-drawn uniform in `[0, 1)`; see 4.3.
-- Non-const `op` is permitted (`CpuSamplingOp` may hold scratch); the CUDA op is effectively
-  stateless.
+- Non-const `op` is permitted (an op may hold scratch); the CUDA op is effectively stateless.
 
 The op writes the device token only. The 4-byte D2H readback and the per-step `synchronize()`
 are the `TokenSampler` facade's responsibility, keeping sync placement in the orchestrator's
@@ -340,7 +338,8 @@ buffers.
 - **Per-call params:** extend `GenerateParams` (add `top_p`, `seed`) and pass it as `SamplingParams`
   — no parallel struct.
 - **`CpuSamplingOp`** is included from Phase A (nearly free — it is the existing host `sampleToken`)
-  so the base-class wiring is device-agnostic for Phase D.
+  so the base-class wiring is device-agnostic for Phase D. Retired with the CPU compute operations
+  (2026-10-11, `Notebooks/CpuOperationsRetirement.md`).
 - **Op signature:** `forward(const TLogits& logits, TToken& token_out, const SamplingParams&, float r)`
   — widening the current scalar `SamplingOpConcept`; op writes the device token only, facade owns the
   D2H readback + the per-step `synchronize()`.

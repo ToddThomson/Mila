@@ -34,7 +34,7 @@ namespace Mila::Tests::Dnn::Optimizers
 
     namespace
     {
-        // The device-agnostic wrapper, as AdamW.Cpu.cpp uses: it is what the umbrella
+        // The device-agnostic wrapper, as AdamW.Cuda.cpp uses: it is what the umbrella
         // exports (Compute.CudaAdamWOptimizer is not public) and it takes IExecutionContext*,
         // so the test drives the same surface a consumer would.
         using AdamWBf16Cuda = AdamWOptimizer<DeviceType::Cuda, TensorDataType::BF16>;

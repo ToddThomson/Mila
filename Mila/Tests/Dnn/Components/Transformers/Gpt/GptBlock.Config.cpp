@@ -4,7 +4,7 @@
  *
  * Construction defaults, fluent setters, validation throws (constructor-eager and
  * via validate()), and the metadata round-trip. No forward/backward -- that is the
- * concrete-component archetype (GptBlock.Cpu.cpp / GptBlock.Cuda.cpp).
+ * concrete-component archetype (GptBlock.Cuda.cpp).
  */
 
 #include <gtest/gtest.h>

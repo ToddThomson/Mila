@@ -30,7 +30,6 @@ namespace Bard
         float beta2 = 0.999f;
         float epsilon = 1e-8f;
         float weight_decay = 0.01f;
-        DeviceType compute_device = DeviceType::Cuda;
         TensorDataType precision = TensorDataType::FP32;
 
         int64_t embedding_dim = 384;

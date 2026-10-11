@@ -17,6 +17,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include "Common/GradientCheck.h"
+
 import Mila;
 
 namespace Mila::Tests::Dnn::Components::FFN
@@ -680,6 +682,121 @@ namespace Mila::Tests::Dnn::Components::FFN
                     << "fc2 dW at " << k << ", " << j;
             }
         }
+    }
+
+    // The chain rule above is derived by hand, as the kernels are; this differentiates a host forward over the
+    // same parameters instead, so a derivation both share cannot pass.
+    TEST_F( MLPCudaTests, Backward_MatchesNumericGradient )
+    {
+        constexpr int64_t kRows = 4;
+        const shape_t shape{ kRows, kInFeatures };
+
+        auto mlp = builtMlp( shape, kInFeatures, kHidden, true, RuntimeMode::Training );
+        setKnownParameters( *mlp, true );
+
+        auto host_in = spreadHost( shape );
+
+        HostTensor host_grad( Device::Cpu(), shape );
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
+        {
+            host_grad.data()[ i ] = 0.05f * static_cast<float>( ( i % 7 ) + 1 ) - 0.15f;
+        }
+
+        DeviceTensor input( Device::Cuda( 0 ), shape );
+        DeviceTensor output_grad( Device::Cuda( 0 ), shape );
+        copy( host_in, input );
+        copy( host_grad, output_grad );
+
+        mlp->zeroGradients();
+        mlp->forward( input );
+        auto analytic_dx = toHost( mlp->backward( input, output_grad ), *mlp );
+
+        // getGradients() is [fc1 weight, fc1 bias, fc2 weight, fc2 bias].
+        auto grads = mlp->getGradients();
+        ASSERT_EQ( grads.size(), 4u );
+
+        auto analytic_dw1 = toHost( grads[ 0 ], *mlp );
+        auto analytic_db1 = toHost( grads[ 1 ], *mlp );
+        auto analytic_dw2 = toHost( grads[ 2 ], *mlp );
+        auto analytic_db2 = toHost( grads[ 3 ], *mlp );
+
+        std::vector<float> w1( kHidden * kInFeatures ), b1( kHidden ), w2( kInFeatures * kHidden ), b2( kInFeatures );
+
+        for ( int64_t j = 0; j < kHidden; ++j )
+        {
+            for ( int64_t i = 0; i < kInFeatures; ++i )
+            {
+                w1[ j * kInFeatures + i ] = weight1Value( j, i );
+                w2[ i * kHidden + j ] = weight2Value( i, j );
+            }
+
+            b1[ j ] = bias1Value( j );
+        }
+
+        for ( int64_t k = 0; k < kInFeatures; ++k )
+        {
+            b2[ k ] = bias2Value( k );
+        }
+
+        std::vector<double> hidden( kHidden );
+        std::vector<float> out( kRows * kInFeatures );
+
+        auto evaluate = [&]() -> const float* {
+            for ( int64_t r = 0; r < kRows; ++r )
+            {
+                for ( int64_t j = 0; j < kHidden; ++j )
+                {
+                    double accumulator = b1[ j ];
+
+                    for ( int64_t i = 0; i < kInFeatures; ++i )
+                    {
+                        accumulator += static_cast<double>( host_in.data()[ r * kInFeatures + i ] ) * w1[ j * kInFeatures + i ];
+                    }
+
+                    hidden[ j ] = geluReference( accumulator );
+                }
+
+                for ( int64_t k = 0; k < kInFeatures; ++k )
+                {
+                    double accumulator = b2[ k ];
+
+                    for ( int64_t j = 0; j < kHidden; ++j )
+                    {
+                        accumulator += hidden[ j ] * w2[ k * kHidden + j ];
+                    }
+
+                    out[ r * kInFeatures + k ] = static_cast<float>( accumulator );
+                }
+            }
+
+            return out.data();
+        };
+
+        // This MLP's gradients are around 1e-2, so the helper's usual 1e-2 floor would pass a 5% error.
+        constexpr float kStep = 1e-3f;
+        constexpr float kAbsolute = 1e-4f;
+        constexpr float kRelative = 1e-3f;
+        const size_t output_size = out.size();
+
+        const auto numeric_dx = Mila::Tests::Common::centralDifferenceGradient(
+            host_in.data(), host_in.size(), host_grad.data(), output_size, evaluate, kStep );
+        Mila::Tests::Common::expectGradientsClose( analytic_dx.data(), numeric_dx, kAbsolute, kRelative, "MLP dX" );
+
+        const auto numeric_dw1 = Mila::Tests::Common::centralDifferenceGradient(
+            w1.data(), w1.size(), host_grad.data(), output_size, evaluate, kStep );
+        Mila::Tests::Common::expectGradientsClose( analytic_dw1.data(), numeric_dw1, kAbsolute, kRelative, "MLP fc1 dW" );
+
+        const auto numeric_db1 = Mila::Tests::Common::centralDifferenceGradient(
+            b1.data(), b1.size(), host_grad.data(), output_size, evaluate, kStep );
+        Mila::Tests::Common::expectGradientsClose( analytic_db1.data(), numeric_db1, kAbsolute, kRelative, "MLP fc1 dB" );
+
+        const auto numeric_dw2 = Mila::Tests::Common::centralDifferenceGradient(
+            w2.data(), w2.size(), host_grad.data(), output_size, evaluate, kStep );
+        Mila::Tests::Common::expectGradientsClose( analytic_dw2.data(), numeric_dw2, kAbsolute, kRelative, "MLP fc2 dW" );
+
+        const auto numeric_db2 = Mila::Tests::Common::centralDifferenceGradient(
+            b2.data(), b2.size(), host_grad.data(), output_size, evaluate, kStep );
+        Mila::Tests::Common::expectGradientsClose( analytic_db2.data(), numeric_db2, kAbsolute, kRelative, "MLP fc2 dB" );
     }
 
     // ====================================================================

@@ -657,19 +657,6 @@ doubted the check belongs in the store rather than in one caller.
 GPT-2 itself — `LlamaModel`, `GemmaModel` and `QwenModel` are the sessions the binding exposes, which
 is also why MIS refuses the architecture. A binding decision, not a sample one.
 
-## The GPT-2 CPU path treats build-time extents as runtime extents
-
-`mila-src`
-
-CPU inference has never run a prompt shorter than its built context. Remaining after the encoder and
-LayerNorm fixes: `CpuLinearOp:259,264`, `CpuSoftmaxOp`, `CpuSoftmaxCrossEntropyOp` and
-`CpuAttentionOp` — the last not mechanical, since `B_`/`T_` size its `{B,NH,T,T}` buffer at `:269`.
-Pattern to follow: `CudaLpeOp:192-196`.
-
-Here because the release criteria say "GPU-first: full CPU op parity is not a gate". **Contested** —
-it reproduces as a crash, and if the QuickStart samples reach this path on a CPU-only machine it is
-an onboarding failure and belongs back in the release.
-
 ## Revive the loss + backward path
 
 `training` · `mila-src`

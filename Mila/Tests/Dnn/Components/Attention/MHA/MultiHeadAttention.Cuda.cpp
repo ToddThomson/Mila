@@ -2,8 +2,7 @@
  * @file MultiHeadAttention.Cuda.cpp
  * @brief Concrete-component tests for MultiHeadAttention<DeviceType::Cuda, {FP32}>.
  *
- * CUDA companion to MultiHeadAttention.Cpu.cpp, written as a precision sweep
- * (TYPED_TEST) per the methodology default: every component is potentially
+ * Written as a precision sweep (TYPED_TEST) per the methodology default: every component is potentially
  * multi-precision, so the supported-precision list is the single point of change.
  * Today the list holds FP32 only -- the CUDA MhaOp kernel dispatch is constrained
  * to float/half (CudaMhaOp.Dispatch.ixx: `float || half`), there is no BF16 path,

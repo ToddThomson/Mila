@@ -114,16 +114,6 @@ export import Compute.CudaPinnedMemoryResource;
 // from the build; they are no longer re-exported from the public umbrella.
 
 // ====================================================================
-// Compute - CPU Operations ( internal )
-// ====================================================================
-//export import Compute.CpuEncoderOp;
-//export import Compute.CpuGeluOp;
-//export import Compute.CpuLayerNormOp;
-//export import Compute.CpuLinearOp;
-//export import Compute.CpuResidualOp;
-//export import Compute.CpuSoftmaxOp;
-
-// ====================================================================
 // Compute - CUDA Operations ( internal )
 // ====================================================================
 //export import Compute.CudaEncoderOp;

@@ -18,7 +18,6 @@ import Dnn.TensorDataTypeTraits;
 import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-import Compute.CpuAdamWOptimizer;
 #ifdef MILA_HAS_CUDA
 import Compute.CudaAdamWOptimizer;
 #endif
@@ -32,27 +31,11 @@ namespace Mila::Dnn::Optimizers
         /**
          * @brief Selects the device-specific AdamW implementation for (device, precision).
          *
-         * Deliberately NOT std::conditional_t. That names both branches, so selecting the
-         * CUDA implementation still required CpuAdamWOptimizer<TPrecision> to be a valid
-         * template-id -- and CpuAdamWOptimizer is constrained by
-         * PrecisionSupportedOnDevice<TPrecision, Cpu>, which BF16 and FP16 do not satisfy
-         * (BF16 has supported_on_cpu == false). The unselected branch therefore failed its
-         * own constraints and AdamWOptimizer<Cuda, BF16> could not be instantiated at all:
-         * the device-agnostic wrapper was unusable for exactly the mixed-precision case its
-         * master-parameter path exists to serve.
-         *
-         * A trait specialized per device names only the branch actually chosen. A missing
-         * specialization is a hard compile error naming the pair, matching the
+         * A missing specialization is a hard compile error naming the pair, matching the
          * OperationTraits convention used elsewhere.
          */
         template<DeviceType TDeviceType, TensorDataType TPrecision>
         struct AdamWImplFor;
-
-        template<TensorDataType TPrecision>
-        struct AdamWImplFor<DeviceType::Cpu, TPrecision>
-        {
-            using type = CpuAdamWOptimizer<TPrecision>;
-        };
 
 #ifdef MILA_HAS_CUDA
         template<TensorDataType TPrecision>
@@ -66,11 +49,10 @@ namespace Mila::Dnn::Optimizers
     /**
      * @brief Device-agnostic AdamW optimizer.
      *
-     * Dispatches to the appropriate device-specific implementation (CPU or CUDA)
-     * based on the `TDeviceType` template parameter. Uses `AdamWConfig` for
-     * fluent configuration of hyperparameters.
+     * Dispatches to the device-specific implementation selected by `TDeviceType`;
+     * CUDA is the only one. Uses `AdamWConfig` for fluent configuration of hyperparameters.
      *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
+     * @tparam TDeviceType Device type (DeviceType::Cuda)
      * @tparam TPrecision Tensor precision (TensorDataType::FP32, FP16, BF16)
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>

@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. Its first production release was `0.20.0`; `0.21.0` is the cycle in flight (see `Version.txt`). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes to the API are acceptable — backward compatibility is not a goal there. **Weights on a user's disk are the exception:** a format a published minor wrote is read by the next minor, and an older Mila can still install a model it can run (`ModelDistribution.md` *Compatibility*, decided 2026-10-03).
+Mila is a C++23 module-based library for open LLMs on CUDA — inference and training, built from explicit neural-network components. Its first production release was `0.20.0`; `0.21.0` is the cycle in flight (see `Version.txt`). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes to the API are acceptable — backward compatibility is not a goal there. **Weights on a user's disk are the exception:** a format a published minor wrote is read by the next minor, and an older Mila can still install a model it can run (`ModelDistribution.md` *Compatibility*, decided 2026-10-03).
 
 ### There is no feature freeze right now
 
@@ -50,7 +50,7 @@ Browse the tree for what is where. What the tree does not tell you:
 
 Every component and operation is templated on independent axes:
 
-- **`TDeviceType`** (`DeviceType::Cpu` or `DeviceType::Cuda`) — determines memory resource and kernel dispatch.
+- **`TDeviceType`** (`DeviceType::Cuda`; `DeviceType::Cpu` is the host, with memory and tensor ops but no compute operations since 2026-10-11) — determines memory resource and kernel dispatch.
 - **`TPrecision`** (`TensorDataType::FP32`, `BF16`, etc.) — activation input and compute type. BF16 is the primary reduced-precision target; FP16 is not used.
 - **`TWeightQuantization`** (on `Linear` only) — compile-time weight quantization policy. Defaults to `NoWeightQuant`. Setting `PerChannelFp8<>`, `PerGroupFp4<128>` or a codebook policy selects the storage format the weights must already carry — no runtime config object.
 
@@ -64,7 +64,7 @@ using OpType = typename Compute::OperationTraits<
     TDeviceType, TComputePrecision, TWeightQuantization>::type;
 ```
 
-The `OperationTraits` primary template is in `Compute/Operations/OperationTraits.Template.ixx`. Specializations live in `OperationTraits.Cuda.ixx` (`:Cuda` partition) and `OperationTraits.Cpu.ixx` (`:Cpu` partition). A missing specialization is a **hard compile error**, not a runtime miss. The old `OperationRegistry` string-keyed runtime dispatch is being phased out — do not add new `*Registrar` classes.
+The `OperationTraits` primary template is in `Compute/Operations/OperationTraits.Template.ixx`. Specializations live in `OperationTraits.Cuda.ixx` (`:Cuda` partition); CUDA is the only compute backend. A missing specialization is a **hard compile error**, not a runtime miss. The old `OperationRegistry` string-keyed runtime dispatch is being phased out — do not add new `*Registrar` classes.
 
 `Linear` is the canonical reference implementation of the full dispatch pattern.
 
@@ -121,7 +121,7 @@ Gemma streams live token-by-token through `Chat.StreamingDisplay` (channel-aware
 
 Source files use `.ixx` for C++23 module interface units and module partitions. The module naming convention mirrors the directory structure (e.g., `Compute.OperationTraits`, `Dnn.Components.Linear`).
 
-Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend specializations while keeping a single aggregator module. Example: `OperationTraits.ixx` re-exports `OperationTraits.Template.ixx` + `:Cuda` + `:Cpu`.
+Module partition files (such as `:Cuda`) are used to separate backend specializations while keeping a single aggregator module. Example: `OperationTraits.ixx` re-exports `OperationTraits.Template.ixx` + `:Cuda`.
 
 **One module per file, one type per module.** A type other modules must name is exported from its own module file: exactly one class, struct, enum, union or concept per file. A type only its own file uses is not exported. A nested type is part of its owner only when it is never used apart from it — nesting is not a way to keep two separately used types in one file. Internal detail that needs its own impl-only module is a partition (such as `Gemma.Block.Workspace.ixx`), and it follows the same rule. Free functions and constants beside their type do not count, nor does an `export using` alias of a type another module defines. Two types are two `.ixx` files in the same directory, two `FILE_SET` entries, and two `export import` lines in `Mila.ixx`; never a combined file to keep the diff small. Files that predate the rule are tracked in `Mila/Issues/Vnext.md`, and **any module a change touches is brought under the rule in that same change**; every new file follows it.
 

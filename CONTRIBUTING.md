@@ -55,9 +55,9 @@ This is where Mila most needs help, and where a contribution moves the library f
 operations, faster kernels, a quantization format, an attention variant, support for an
 architecture nobody here owns — all welcome.
 
-**What you can check yourself, without model weights.** Every component has CPU/CUDA equivalence
-tests named `*_MatchesReference` (see `Mila/Tests/Dnn/Components/`). They build a small tensor,
-run both paths and compare. A new kernel should arrive with one, and that test is the single most
+**What you can check yourself, without model weights.** Every component has reference tests named
+`*_MatchesReference` (see `Mila/Tests/Dnn/Components/`). They build a small tensor, run the CUDA
+path and compare it against an exact reference computed on the host. A new kernel should arrive with one, and that test is the single most
 useful thing in a kernel PR — it is what lets someone else trust the change without owning your
 card. Cases self-skip with `CUDA device not available`, so the same suite stays green for
 contributors without a GPU.
@@ -91,9 +91,9 @@ Mila builds without CUDA. Configure with `MILA_ENABLE_CUDA=OFF` — preset **`x6
 on Windows, **`linux-clang-cpu-release`** on Linux — and you get the library, the unit tests and a
 working `ctest` run with no Toolkit and no card installed.
 
-There is real work there too. The CPU operations in `OperationTraits.Cpu.ixx` are the clearest
-example: self-contained, with CUDA counterparts to check against, and their absence is what stops
-Mila running anywhere but an NVIDIA machine.
+There is real work there too: the model store, the tokenizers, the chat protocols and the
+quantization packing all build and test without a card. Compute runs on CUDA only, so testing kernel
+work needs an NVIDIA GPU.
 
 Run the CPU-only build and its tests before you open a pull request, exactly as a contributor with
 a card runs `x64-validate` — the expectation is the fullest validation your hardware allows, not a
@@ -199,7 +199,7 @@ enforce (notably full-word identifiers and the blank-line placement rules):
 * Use modern C++23 features where appropriate
 * Source files use `.ixx` for module interface units and module partitions. Module names
   mirror the directory structure (e.g., `Dnn.Components.Linear`). Backend specializations
-  live in `:Cuda` / `:Cpu` partitions. There are no header guards or `#pragma once` — this
+  live in a `:Cuda` partition. There are no header guards or `#pragma once` — this
   is a module-based codebase.
 * Resolve operations at compile time via `OperationTraits` rather than runtime registries.
   See [Mila/Specifications/OperationDispatch.md](Mila/Specifications/OperationDispatch.md).
@@ -260,7 +260,7 @@ the maintainer knows what is already covered and what is not.
 ### Unit Tests
 * All new features must have corresponding unit tests
 * Follow existing test patterns in the codebase (see the `Mila/Tests/Dnn/` directory, which mirrors the `Mila/Src/Dnn/` tree)
-* Include tests for both CPU and CUDA implementations where applicable
+* Check device results against an exact reference computed on the host
 * Include tests for edge cases and error conditions
 * Test numerical stability for floating-point operations
 
@@ -269,7 +269,7 @@ For modules, include tests for:
 1. Basic functionality (forward pass, parameter counts)
 2. Edge cases (minimal dimensions, boundary conditions)
 3. Numerical stability (large and small input values)
-4. CPU/CUDA equivalence where applicable
+4. Agreement with a host-computed reference
 5. Training/inference mode behavior
 
 ### Running the tests

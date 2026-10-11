@@ -5,7 +5,8 @@ carry over, and what a Qwen 4 27B port has to build.
 
 *Status: draft, 2026-10-08; Phase 0 built and its gate passed (`Tools/Converters/Qwen4/`); Phase 1 built and its
 CPU gate passed; Phase 2's `GatedResidual` and `NgramEmbedding` built on CPU and CUDA (FP32 and BF16) and their gates
-passed. Written ahead of the Qwen 4 27B release, expected around November 2026
+passed. The CPU operations were retired 2026-10-11 (`Notebooks/CpuOperationsRetirement.md`); every gate now runs
+on CUDA. Written ahead of the Qwen 4 27B release, expected around November 2026
 (Todd, 2026-10-08). No Qwen 4 27B checkpoint exists yet. Everything here is read from the architecture's one
 open-weights release, `Qwen/Qwen3.8-Flash-Next`, which its model card calls "this experimental preview of the
 architecture that will underpin Qwen4", and from the reference implementation in `transformers` 5.16.0
@@ -426,7 +427,8 @@ the user's to run on a CUDA machine. What the build found or decided beyond the 
 ### Phase 2 -- New components
 
 One type per module file, each with its config in its own file, its operations under `OperationTraits`
-with CPU and CUDA specializations; the CPU operation comes first and is the CUDA kernel's reference.
+as CUDA specializations, gated against the tiny reference's capture. (The first two were built CPU-first; the
+CPU operations were retired 2026-10-11.)
 
 1. **`GatedResidual`**: both modes, *read and inject* and *read only* (Section 3.1).
 2. **`NgramEmbedding`**: the hash as its own operation, the gather, and the 2-id history as device state

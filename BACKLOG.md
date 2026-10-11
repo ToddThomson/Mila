@@ -819,25 +819,3 @@ Gate: a clean configure of every preset, the full suite, the runtime image's che
 `Mila/Adaptors/` or the `mila` command except where it records the move.
 
 `Mila/Specifications/Notebooks/MilaCommandLineReview.md` 4.1 and 6 · `Mila/Apps/`
-
-#### The library carries a CPU compute backend that no user runs and only its own tests exercise
-
-`in progress` · `architecture` · `training` · `mila-src` · `breaking`
-
-Fifteen FP32 CPU operations, the components' and GPT-2's CPU instantiations and CPU AdamW are maintained through
-every change to the `Operation` interface, yet no published model runs on them and no CUDA test uses them as a
-reference. Decided 2026-10-11: they are retired by deletion; the CPU device, the CUDA-off build and the
-`TDeviceType` axis stay. Two things only the CPU path holds come first:
-
-- The training path's proof moves to CUDA: `Network.Cpu` (build for training, backward through the graph,
-  optimizer registration, a training loop that reduces its loss), and every backward the CUDA tests check only
-  for shape and finiteness -- multi-head attention, LayerNorm, RmsNorm, Softmax, MLP, the GPT block -- plus
-  GPT-2's save and load, AdamW's convergence and the refusals only the CPU instantiations reach. The test list
-  is the notebook's section 4.
-- `GatedResidual` and `NgramEmbedding` exist only on CPU, as Qwen 4's components. They gain CUDA operations gated
-  against the same tiny reference before their CPU ones go.
-
-Gate: every behaviour a retired CPU test proved is proven on CUDA or dropped by name in the notebook; the CPU-only
-preset and CI job build and pass with no CPU compute operation in the tree; the full suite passes.
-
-`Mila/Specifications/Notebooks/CpuOperationsRetirement.md` · `Mila/Src/Dnn/Compute/Devices/Cpu/Operations/`

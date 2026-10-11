@@ -2,7 +2,7 @@
  * @file Linear.Cuda.cpp
  * @brief Concrete-component tests for Linear<DeviceType::Cuda, {FP32, BF16}>.
  *
- * The CUDA companion to Linear.Cpu.cpp (see Specifications/Testing.md). Unlike
+ * See Specifications/Testing.md. Unlike
  * Gelu (single CUDA precision), the CUDA LinearOp supports BOTH FP32 and BF16 in
  * the unquantized path, so this is the reference instance of the precision-sweep
  * mechanism the methodology describes: a TYPED_TEST runs the same bodies over
@@ -351,7 +351,7 @@ namespace Mila::Tests::Dnn::Components::Linear
         // Re-enabled 2026-06-17: backward shares the non-quantized cuBLASLt plans with
         // the batch forward; the CUBLAS_STATUS_NOT_SUPPORTED was the bias epilogue,
         // fixed 2026-06-16 (backward plans carry no bias epilogue, so once forward
-        // builds, use_cublaslt_ stays true). CPU backward numerics: Linear.Cpu.cpp.
+        // builds, use_cublaslt_ stays true).
         const shape_t input_shape{ 2, 4, kInFeatures };
         const shape_t output_shape{ 2, 4, kOutFeatures };
 

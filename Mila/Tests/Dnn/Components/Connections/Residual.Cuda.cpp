@@ -2,7 +2,7 @@
  * @file Residual.Cuda.cpp
  * @brief Concrete-component tests for Residual<DeviceType::Cuda, {FP32, BF16}>.
  *
- * CUDA companion to Residual.Cpu.cpp: a TYPED_TEST sweep over FP32 and BF16
+ * A TYPED_TEST sweep over FP32 and BF16
  * (see Linear.Cuda.cpp for the precision-sweep reference). Residual computes
  * out = a + b; backward routes the upstream gradient to both inputs.
  *

@@ -48,44 +48,27 @@ add_executable( MilaTests
     # Section 1 - Current test methodology (Specifications/Testing.md)
     # ==============================================================
     "Data/Loaders/DataLoader.cpp"
-    "Dnn/Components/Activations/Activation/Activation.Cpu.cpp"
     "Dnn/Components/Activations/Activation/ActivationConfig.cpp"
-    "Dnn/Components/Activations/Gelu/Gelu.Cpu.cpp"
     "Dnn/Components/Activations/Gelu/GeluConfig.cpp"
     "Dnn/Components/Attention/GQA/GqaConfig.cpp"
-    "Dnn/Components/Attention/MHA/MultiHeadAttention.Cpu.cpp"
     "Dnn/Components/Attention/MHA/MultiHeadAttentionConfig.cpp"
-    "Dnn/Components/Connections/Residual.Cpu.cpp"
-    "Dnn/Components/Connections/GatedResidual.Cpu.cpp"
     "Dnn/Components/Connections/GatedResidualConfig.cpp"
     "Dnn/Components/Connections/ResidualConfig.cpp"
-    "Dnn/Components/Convolutions/CausalConv1d.Cpu.cpp"
     "Dnn/Components/Convolutions/CausalConv1dConfig.cpp"
-    "Dnn/Components/Embeddings/NgramEmbedding.Cpu.cpp"
     "Dnn/Components/Embeddings/TokenEmbeddingConfig.cpp"
-    "Dnn/Components/Encodings/Lpe/Lpe.Cpu.cpp"
     "Dnn/Components/Encodings/Lpe/LpeConfig.cpp"
     "Dnn/Components/Encodings/Rope/RopeConfig.cpp"
     "Dnn/Components/FFN/GatedMLP/GatedMLPConfig.cpp"
-    "Dnn/Components/FFN/MLP/MLP.Cpu.cpp"
     "Dnn/Components/FFN/MLP/MLPConfig.cpp"
     "Dnn/Components/FFN/Swiglu/SwigluConfig.cpp"
-    "Dnn/Components/Linear/Linear.Cpu.cpp"
     "Dnn/Components/Linear/LinearConfig.cpp"
-    "Dnn/Components/MixtureOfExperts/MixtureOfExperts.Cpu.cpp"
     "Dnn/Components/MixtureOfExperts/MixtureOfExpertsConfig.cpp"
-    "Dnn/Components/MixtureOfExperts/Router.Cpu.cpp"
     "Dnn/Components/MixtureOfExperts/RouterConfig.cpp"
-    "Dnn/Components/Normalization/LayerNorm/LayerNorm.Cpu.cpp"
     "Dnn/Components/Normalization/LayerNorm/LayerNormConfig.cpp"
-    "Dnn/Components/Normalization/RmsNorm/RmsNorm.Cpu.cpp"
     "Dnn/Components/Normalization/RmsNorm/RmsNormConfig.cpp"
-    "Dnn/Components/Normalization/Softmax.Cpu.cpp"
     "Dnn/Components/Normalization/SoftmaxConfig.cpp"
     "Dnn/Components/Transformers/Gpt/Gpt.Presets.cpp"
     "Dnn/Components/Transformers/Gpt/GptBlock.Config.cpp"
-    "Dnn/Components/Transformers/Gpt/GptBlock.Cpu.cpp"
-    "Dnn/Components/Transformers/Gpt/GptTransformer.Cpu.cpp"
     "Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
     "Dnn/Components/Transformers/Gemma/Gemma.Config.cpp"
     "Dnn/Components/Transformers/Qwen/Qwen.Config.cpp"
@@ -97,13 +80,8 @@ add_executable( MilaTests
     # The stored-weights quantization rule: one shared refusal, four families, and a
     # failure mode that loads and runs rather than erroring.
     "Dnn/Core/LanguageModelConfig.cpp"
-    # The only GptModel factory reachable without a converted .bin: a checkpoint
-    # carries its own config, so fromCheckpoint needs nothing but an archive.
-    "Dnn/Models/Gpt/GptModel.Cpu.cpp"
     "Dnn/Models/Gemma/Gemma.Protocol.cpp"
     "Dnn/Models/Qwen/Qwen.Protocol.cpp"
-    "Dnn/Modeling/Network.Cpu.cpp"
-    "Dnn/Optimizers/AdamW.Cpu.cpp"
     # Covers both containers WeightsReader accepts, including a hand-built
     # MILA file that guards the legacy .bin path no fixture-free test could reach.
     "Dnn/Serialization/SafeTensors.Cpu.cpp"
@@ -168,11 +146,9 @@ add_executable( MilaTests
     #
     # -- PARK (loss-on-device milestone): both samples compute loss host-side.
     #"Dnn/Components/Losses/CrossEntropy.Config.cpp"
-    #"Dnn/Components/Losses/CrossEntropy.Cpu.cpp"
     #
     # -- PARK (serialization WIP; Model-abstraction target source not current):
     #"Dnn/Model.cpp"
-    #"Dnn/Modeling/Model.Cpu.cpp"
     #"Dnn/Serialization/ModelArchive.cpp"
     #"Dnn/Serialization/ZipSerializer.cpp"
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"

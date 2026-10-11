@@ -244,7 +244,7 @@ namespace Dnn::Optimizers::Tests
         auto config = AdamWConfig().withLearningRate( default_lr_ );
 
         EXPECT_THROW(
-            (std::make_shared<AdamWCuda>( null_ctx, config )),
+            (void)(std::make_shared<AdamWCuda>( null_ctx, config )),
             std::invalid_argument
         );
     }
@@ -254,7 +254,7 @@ namespace Dnn::Optimizers::Tests
         {
             auto config = AdamWConfig().withLearningRate( 0.0f );
             EXPECT_THROW(
-                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
+                (void)(std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -262,7 +262,7 @@ namespace Dnn::Optimizers::Tests
         {
             auto config = AdamWConfig().withLearningRate( -0.001f );
             EXPECT_THROW(
-                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
+                (void)(std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -273,7 +273,7 @@ namespace Dnn::Optimizers::Tests
         {
             auto config = AdamWConfig().withLearningRate( default_lr_ ).withBeta1( 0.0f );
             EXPECT_THROW(
-                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
+                (void)(std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -281,7 +281,7 @@ namespace Dnn::Optimizers::Tests
         {
             auto config = AdamWConfig().withLearningRate( default_lr_ ).withBeta1( 1.0f );
             EXPECT_THROW(
-                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
+                (void)(std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -295,7 +295,7 @@ namespace Dnn::Optimizers::Tests
                 .withBeta1( default_beta1_ )
                 .withBeta2( 0.0f );
             EXPECT_THROW(
-                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
+                (void)(std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -306,7 +306,7 @@ namespace Dnn::Optimizers::Tests
                 .withBeta1( default_beta1_ )
                 .withBeta2( 1.0f );
             EXPECT_THROW(
-                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
+                (void)(std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -321,7 +321,7 @@ namespace Dnn::Optimizers::Tests
                 .withBeta2( default_beta2_ )
                 .withEpsilon( 0.0f );
             EXPECT_THROW(
-                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
+                (void)(std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -333,7 +333,7 @@ namespace Dnn::Optimizers::Tests
                 .withBeta2( default_beta2_ )
                 .withEpsilon( -1e-8f );
             EXPECT_THROW(
-                (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
+                (void)(std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
                 std::invalid_argument
             );
         }
@@ -349,7 +349,7 @@ namespace Dnn::Optimizers::Tests
             .withWeightDecay( -0.01f );
 
         EXPECT_THROW(
-            (std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
+            (void)(std::make_shared<AdamWCuda>( exec_ctx_.get(), config )),
             std::invalid_argument
         );
     }

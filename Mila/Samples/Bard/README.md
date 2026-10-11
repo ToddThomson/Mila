@@ -18,7 +18,7 @@ Token Embedding -> Positional Encoding -> N x Transformer Blocks -> LayerNorm ->
 
 ## Features
 
-- **Device-agnostic**: Supports CPU and CUDA execution
+- **CUDA training**: Runs on an NVIDIA GPU
 - **Transformer architecture**: Multi-head self-attention with causal masking
 - **Character-level**: Learns directly from raw text without tokenization
 - **Preprocessing pipeline**: Efficient vocabulary building and data caching
@@ -94,7 +94,6 @@ Options:
   --embedding-dim <int>   Embedding dimension (default: 256)
   --num-heads <int>       Number of attention heads (default: 4)
   --num-layers <int>      Number of transformer layers (default: 4)
-  --device <string>       cpu or cuda (default: cuda)
   --help                  Show help message
 ```
 

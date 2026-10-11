@@ -2,9 +2,9 @@
  * @file OperationTraits.Cuda.cpp
  * @brief Contract tests for the CUDA half of the OperationTraits dispatch table.
  *
- * Device companion to OperationTraits.cpp. Compile-time only: these are
- * static_asserts and need no GPU at runtime, but they need the CUDA
- * specializations to exist, so the file is gated on MILA_ENABLE_CUDA.
+ * Compile-time only: these are static_asserts and need no GPU at runtime, but they
+ * need the CUDA specializations to exist, so the file is gated on MILA_ENABLE_CUDA.
+ * OperationTraits.cpp holds the half that compiles without CUDA.
  *
  * The quantization rows here are the load-time-quantization half of the
  * inference-drought backfill: they pin which (precision, weight policy) pairs
@@ -183,6 +183,21 @@ namespace Mila::Tests::Dnn::Compute::Operations
     static_assert( OperationSupported<OperationType::LayerNormOp, DeviceType::Cuda, TensorDataType::FP32, void> );
     static_assert( OperationSupported<OperationType::LayerNormOp, DeviceType::Cuda, TensorDataType::FP16, void> );
     static_assert( !OperationSupported<OperationType::LayerNormOp, DeviceType::Cuda, TensorDataType::BF16, void> );
+
+    // ====================================================================
+    // E. The policy axis is part of the key, not decoration
+    // ====================================================================
+
+    // LinearOp registers under NoWeightQuant, so the default void policy must NOT
+    // resolve. This is the contract that gives a caller who omits the policy a clean
+    // "undefined type" naming the tuple, instead of a silent match.
+    static_assert( !OperationSupported<OperationType::LinearOp, DeviceType::Cuda,
+        TensorDataType::BF16, void> );
+
+    // Conversely a policy-free op keys on void and must not resolve under a weight
+    // policy -- the two policy families are not interchangeable.
+    static_assert( !OperationSupported<OperationType::RmsNormOp, DeviceType::Cuda,
+        TensorDataType::BF16, NoWeightQuant> );
 
     TEST( OperationTraitsCudaTests, DispatchTableContractsHoldAtCompileTime )
     {

@@ -2,9 +2,7 @@
  * @file Swiglu.Cuda.cpp
  * @brief Concrete-component tests for Swiglu<DeviceType::Cuda, {FP32, BF16}>.
  *
- * SwiGLU is CUDA-only (no CPU SwigluOp specialization), so there is no
- * Swiglu.Cpu.cpp companion -- this file is the whole concrete-component surface.
- * It is a TYPED_TEST precision sweep (see Specifications/Testing.md and the
+ * This file is the whole concrete-component surface. It is a TYPED_TEST precision sweep (see Specifications/Testing.md and the
  * Linear.Cuda.cpp reference) over the two CUDA precisions FP32 and BF16.
  *
  * SwiGLU is a split-and-combine stateless activation: a rank-3 input

@@ -35,14 +35,14 @@ namespace Mila::Dnn
      * Usage:
      * @code
      * // Registration (typically in network implementation file)
-     * NetworkFactory::registerNetwork<DeviceType::Cpu, TensorDataType::FP32>(
+     * NetworkFactory::registerNetwork<DeviceType::Cuda, TensorDataType::FP32>(
      *     "MnistClassifier",
      *     [](ModelArchive& archive, auto exec_ctx) {
      *         return MnistClassifier::Load(archive, exec_ctx->getDeviceId());
      *     });
      *
      * // Deserialization
-     * auto network = NetworkFactory::create<DeviceType::Cpu, TensorDataType::FP32>(
+     * auto network = NetworkFactory::create<DeviceType::Cuda, TensorDataType::FP32>(
      *     archive, exec_context);
      * @endcode
      */
@@ -71,7 +71,7 @@ namespace Mila::Dnn
          * @note Multiple registrations for the same type will overwrite previous entries
          *
          * @example
-         * NetworkFactory::registerNetwork<DeviceType::Cpu, TensorDataType::FP32>(
+         * NetworkFactory::registerNetwork<DeviceType::Cuda, TensorDataType::FP32>(
          *     "MnistClassifier",
          *     [](ModelArchive& archive, auto ctx) {
          *         return MnistClassifier::Load(archive, ctx->getDeviceId());
@@ -108,8 +108,8 @@ namespace Mila::Dnn
          * @throws std::runtime_error if network reconstruction fails
          *
          * @code{.cpp}
-         * auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>(...);
-         * auto network = NetworkFactory::create<DeviceType::Cpu, TensorDataType::FP32>(
+         * auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>(...);
+         * auto network = NetworkFactory::create<DeviceType::Cuda, TensorDataType::FP32>(
          *     archive, exec_ctx);
          * @endcode
          */

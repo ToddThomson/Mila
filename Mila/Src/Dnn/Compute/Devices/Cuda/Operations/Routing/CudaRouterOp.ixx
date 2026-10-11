@@ -2,7 +2,7 @@
  * @file CudaRouterOp.ixx
  * @brief CUDA mixture-of-experts selection: router logits to top-k experts and combine weights.
  *
- * Same contract as CpuRouterOp, which it is gated against through Router (Gemma4MoE.md Phase 5).
+ * Gated against HuggingFace through Router (Gemma4MoE.md Phase 5).
  */
 
 module;

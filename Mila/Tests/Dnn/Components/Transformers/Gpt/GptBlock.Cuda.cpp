@@ -341,9 +341,19 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
 
     // Backward against a central finite difference of the block's own forward. FP32 GEMMs compute in full FP32,
     // so the difference is not swamped by reduced-precision accumulation.
+    //
+    // The weights are pinned: at width 4 some draws curve sharply enough that a 1e-2 step misses the gradient by 0.3
+    // while the step converges on it, and seed 12345 is one of them. Pinning it keeps the hard case and makes the test
+    // independent of which test last seeded the global generator.
     TEST_F( GptBlockCudaTests, Backward_InputGradientMatchesFiniteDifference )
     {
+        auto& generator = Mila::Core::RandomGenerator::getInstance();
+        const unsigned int previous = generator.getSeed();
+        generator.setSeed( 12345 );
+
         auto block = builtBlock( model_dim_, num_heads_, hidden_, RuntimeMode::Training );
+
+        generator.setSeed( previous );
 
         const shape_t shape{ batch_, seq_, model_dim_ };
 
@@ -380,7 +390,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
             return loss;
         };
 
-        constexpr float kEpsilon = 1e-2f;
+        constexpr float kEpsilon = 1e-3f;
 
         for ( dim_t k = 0; k < host_in.size(); ++k )
         {

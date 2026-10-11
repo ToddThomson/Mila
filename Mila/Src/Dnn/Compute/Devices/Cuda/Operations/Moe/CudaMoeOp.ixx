@@ -2,7 +2,7 @@
  * @file CudaMoeOp.ixx
  * @brief CUDA mixture-of-experts bank: the two-pass kernel over the stacked expert tensors.
  *
- * Same contract as CpuMoeOp, gated against HuggingFace through MixtureOfExperts (Gemma4MoE.md Phase 6).
+ * Gated against HuggingFace through MixtureOfExperts (Gemma4MoE.md Phase 6).
  * Under per-group FP4 the passes read packed codes and their group scales in place. A Q4_0 bank has its own
  * kernels: the gather-matvec pair for a decode of one token or a few, the grouped INT8 GEMMs for a prefill.
  */

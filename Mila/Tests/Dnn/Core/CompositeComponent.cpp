@@ -7,7 +7,7 @@
  * GptBlock, and the MNIST MnistClassifier) inherits exactly once -- child
  * management, execution-context propagation to children, parameter/gradient
  * aggregation, build propagation, and training-mode propagation. Concrete
- * composites (e.g. the MLP in Modeling/Network.Cpu.cpp) inherit this guarantee
+ * composites (e.g. the MLP in Modeling/Network.Cuda.cpp) inherit this guarantee
  * and assert only their own forward/backward delta.
  *
  * CompositeComponent is abstract, so the mock IS the surface: TestComposite

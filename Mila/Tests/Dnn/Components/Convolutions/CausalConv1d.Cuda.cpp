@@ -580,7 +580,6 @@ namespace Mila::Tests::Dnn::Components::Convolutions
 
         // torch.nn.Conv1d( 3, 3, 4, groups = 3, dilation = 3, bias = False ) over 9 zero rows of left padding,
         // weight 0.25 * ( k + 1 ) - 0.1 * c, input x[ t, c ] = sin( 0.37 * ( t * 3 + c ) + 0.1 ), T = 13.
-        // CausalConv1d.Cpu.cpp holds the same table.
         constexpr float kTorchDilatedReference[ kReferenceLength * 3 ] = {
             9.98334140e-02f, 4.07597631e-01f, 5.95714509e-01f, 9.35616016e-01f, 8.99961829e-01f, 7.43167818e-01f,
             7.32231438e-01f, 3.92759144e-01f, 6.52017221e-02f, -2.09550649e-01f, -2.56296009e-01f, -2.75628686e-01f,

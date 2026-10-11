@@ -6,7 +6,7 @@
  * Specifications/Testing.md). Exercises the inherited lifecycle, the
  * execution-context state machine, the runtime/training-mode rules, name
  * validation, and the introspection surface ONCE, through a spy-capable harness
- * subclass. Concrete component tests (e.g. Gelu.Cpu.cpp) inherit this guarantee
+ * subclass. Concrete component tests (e.g. Gelu.Cuda.cpp) inherit this guarantee
  * and assert only their own delta.
  *
  * Device-agnostic base logic is tested on DeviceType::Cpu so it runs under the

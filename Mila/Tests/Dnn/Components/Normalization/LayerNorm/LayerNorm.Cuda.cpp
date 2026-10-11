@@ -2,7 +2,7 @@
  * @file LayerNorm.Cuda.cpp
  * @brief Concrete-component tests for LayerNorm<DeviceType::Cuda, FP32>.
  *
- * CUDA companion to LayerNorm.Cpu.cpp. The CUDA LayerNormOp is specialized for
+ * The CUDA LayerNormOp is specialized for
  * FP32 and FP16 (no BF16 -- GPT-2 lineage); FP16 is not used elsewhere in Mila,
  * so this file tests the validated FP32 path explicitly (no precision sweep).
  *
@@ -17,6 +17,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "Common/GradientCheck.h"
 
 import Mila;
 import Serialization.Tensor;
@@ -282,7 +284,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
     }
 
     // ====================================================================
-    // F. Backward (analytic reference)
+    // F. Backward
     // ====================================================================
 
     TEST_F( LayerNormCudaTests, Backward_MatchesReferenceGradients )
@@ -371,6 +373,67 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
             EXPECT_NEAR( weight_grad.data()[ i ], static_cast<float>( expected_dweight[ i ] ), 1e-3f ) << "dW mismatch at " << i;
             EXPECT_NEAR( bias_grad.data()[ i ], static_cast<float>( expected_dbias[ i ] ), 1e-3f ) << "dB mismatch at " << i;
         }
+    }
+
+    // The analytic reference above derives the gradient by hand, as the kernel does; this differentiates the
+    // reference forward instead, so a derivation both share cannot pass.
+    TEST_F( LayerNormCudaTests, Backward_MatchesNumericGradient )
+    {
+        const shape_t shape{ 2, 3, kChannels };
+
+        auto norm = builtLayerNorm( shape, RuntimeMode::Training );
+        setKnownParameters( *norm );
+
+        auto host_in = spreadHost( shape );
+
+        HostTensor host_grad( Device::Cpu(), shape );
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
+        {
+            host_grad.data()[ i ] = 0.1f * static_cast<float>( ( i % 7 ) + 1 );
+        }
+
+        auto device_in = toDevice( host_in );
+        auto device_grad = toDevice( host_grad );
+
+        norm->zeroGradients();
+        norm->forward( device_in );
+        auto& device_in_grad = norm->backward( device_in, device_grad );
+        norm->synchronize();
+
+        auto analytic_dx = toFloat( device_in_grad );
+        auto grads = norm->getGradients();
+        ASSERT_EQ( grads.size(), 2u );
+        auto analytic_dw = toFloat( *static_cast<DeviceTensor*>( grads[ 0 ] ) );
+        auto analytic_db = toFloat( *static_cast<DeviceTensor*>( grads[ 1 ] ) );
+
+        std::vector<float> weight( kChannels ), bias( kChannels );
+        for ( int64_t i = 0; i < kChannels; ++i )
+        {
+            weight[ i ] = weightValue( i );
+            bias[ i ] = biasValue( i );
+        }
+
+        const int64_t outer = host_in.size() / kChannels;
+        std::vector<float> reference_out;
+
+        auto evaluate = [&]() -> const float* {
+            referenceForward( host_in.data(), weight.data(), bias.data(), outer, kChannels, kEpsilon, reference_out );
+            return reference_out.data();
+        };
+
+        constexpr float kStep = 1e-3f;
+
+        const auto numeric_dx = Mila::Tests::Common::centralDifferenceGradient(
+            host_in.data(), host_in.size(), host_grad.data(), host_grad.size(), evaluate, kStep );
+        Mila::Tests::Common::expectGradientsClose( analytic_dx.data(), numeric_dx, 1e-2f, 1e-2f, "LayerNorm dX" );
+
+        const auto numeric_dw = Mila::Tests::Common::centralDifferenceGradient(
+            weight.data(), kChannels, host_grad.data(), host_grad.size(), evaluate, kStep );
+        Mila::Tests::Common::expectGradientsClose( analytic_dw.data(), numeric_dw, 1e-2f, 1e-2f, "LayerNorm dW" );
+
+        const auto numeric_db = Mila::Tests::Common::centralDifferenceGradient(
+            bias.data(), kChannels, host_grad.data(), host_grad.size(), evaluate, kStep );
+        Mila::Tests::Common::expectGradientsClose( analytic_db.data(), numeric_db, 1e-2f, 1e-2f, "LayerNorm dB" );
     }
 
     // ====================================================================

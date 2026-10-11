@@ -43,7 +43,6 @@ struct MnistConfig
     float beta2 = 0.999f;
     float epsilon = 1e-8f;
     float weight_decay = 0.01f;
-    DeviceType compute_device = DeviceType::Cuda;
 	TensorDataType precision = TensorDataType::FP32;
 };
 
@@ -58,7 +57,6 @@ void printUsage()
     std::cout << "  --beta1 <float>              Adam beta1 parameter (default: 0.9)\n";
     std::cout << "  --beta2 <float>              Adam beta2 parameter (default: 0.999)\n";
     std::cout << "  --weight-decay <float>       Weight decay (default: 0.01)\n";
-    std::cout << "  --device <string>            Compute device (cpu or cuda, default: cuda)\n";
 	std::cout << "  --precision <string>         Precision ( FP32, FP16, etc.)\n";
     std::cout << "  --help                       Show this help message\n";
 }
@@ -102,22 +100,6 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config )
         {
             config.weight_decay = std::stof( argv[++i] );
         }
-        else if (arg == "--device" && i + 1 < argc)
-        {
-            std::string device = argv[++i];
-            if (device == "CPU" )
-            {
-                config.compute_device = DeviceType::Cpu;
-            }
-            else if (device == "cuda")
-            {
-                config.compute_device = DeviceType::Cuda;
-            }
-            else
-            {
-                std::cerr << "Unknown device type: " << device << ". Using default: cuda" << std::endl;
-            }
-        }
         else if (arg.substr( 0, 2 ) == "--")
         {
             std::cerr << "Unknown option: " << arg << std::endl;
@@ -134,7 +116,6 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config )
     std::cout << "  Beta1: " << config.beta1 << std::endl;
     std::cout << "  Beta2: " << config.beta2 << std::endl;
     std::cout << "  Weight decay: " << config.weight_decay << std::endl;
-    std::cout << "  Device: " << (config.compute_device == DeviceType::Cuda ? "CUDA" : "CPU") << std::endl;
 
     if (!fs::exists( config.data_directory ))
     {
@@ -428,27 +409,8 @@ int main( int argc, char** argv )
             return 1;
         }
 
-        if (config.compute_device == DeviceType::Cuda)
-        {
-            try
-            {
-                std::cout << "Using CUDA device" << std::endl;
-
-                // FUTURE: Add a BF16 Configurable dtype_t rather than just FP32
-                trainMnist<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>( config );
-            }
-            catch (const std::exception& e)
-            {
-                std::cerr << "CUDA error: " << e.what() << std::endl;
-                throw;
-            }
-        }
-
-        if (config.compute_device == DeviceType::Cpu)
-        {
-            std::cout << "Using CPU device" << std::endl;
-            trainMnist<DeviceType::Cpu, TensorDataType::FP32, CpuMemoryResource>( config );
-        }
+        // FUTURE: Add a BF16 Configurable dtype_t rather than just FP32
+        trainMnist<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>( config );
 
         std::cout << "Training complete!" << std::endl;
     }

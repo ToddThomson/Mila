@@ -76,7 +76,7 @@ namespace Mila::Dnn
      * - Standalone: provide a DeviceId to create and own an ExecutionContext.
      * - Deferred/shared: omit DeviceId and caller must call setExecutionContext() before build().
      *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
+     * @tparam TDeviceType Device type (DeviceType::Cuda)
      * @tparam TIndex Data type for token indices (typically INT32)
      * @tparam TPrecision Abstract tensor precision (TensorDataType) for embeddings
      */

@@ -4,8 +4,8 @@ name: Mila CI
 # cross-compiler portability (clang on Linux), clean-room dependency hygiene, and
 # packaging consumability. Two surfaces: compile-and-gate COMPILES the whole tree
 # (lib + tests + samples) under clang with CUDA on -- the portability check; and
-# cpu-only-tests RUNS the CPU unit suite (MILA_ENABLE_CUDA=OFF) -- the anti-rot
-# ratchet. GPU correctness tests are NOT run: hosted runners have no GPU, so device
+# cpu-only-tests RUNS the device-independent unit suite (MILA_ENABLE_CUDA=OFF) -- the
+# anti-rot ratchet. GPU correctness tests are NOT run: hosted runners have no GPU, so device
 # tests would be theater. Those run locally on real hardware.
 #
 # The offline sub-minute checks are NOT here -- they are gates.yml, so that narrowing
@@ -16,9 +16,8 @@ name: Mila CI
 #
 #   pull_request dev   A contributor's branch lives on a fork and has never been built on a
 #                      machine the maintainer controls. CONTRIBUTING.md asks for PRs against
-#                      `dev`, and the work offered to contributors is CPU-operation work
-#                      (issue #22) -- which means an author who has no CUDA Toolkit, and
-#                      therefore no way to discover that they broke the CUDA tree. This run
+#                      `dev`, and CONTRIBUTING.md invites authors without a CUDA Toolkit,
+#                      who therefore have no way to discover that they broke the CUDA tree. This run
 #                      is the only thing that can
 #                      tell them. It is also their first impression, so a red X here has to
 #                      mean their code, never ours.
@@ -145,8 +144,9 @@ jobs:
 
   cpu-only-tests:
     name: CPU-only suite (clang-21, MILA_ENABLE_CUDA=OFF)
-    # The only CI job that RUNS tests. The CPU-only build needs no GPU, so the CPU
-    # unit suite executes here -- the anti-rot ratchet that keeps the revived tests
+    # The only CI job that RUNS tests. The CPU-only build needs no GPU, so the
+    # device-independent suite (store, tokenizers, protocols, quantization packing,
+    # host tensors -- there are no CPU compute operations) executes here -- the anti-rot ratchet that keeps the revived tests
     # green (compile-and-gate above only COMPILES; device tests stay local). GPU- and
     # data-dependent cases self-skip (GTEST_SKIP), so the absence of a GPU or model
     # weights is green, not red.

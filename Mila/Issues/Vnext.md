@@ -191,14 +191,11 @@ The suite underneath is what closes that, and it is the whole of what was deferr
 - **Data-loader contracts.** `TokenSequenceLoader` is done. `MnistDataLoader` is not — normalization,
   one-hot targets, shuffle-on-reset, and the IDX magic number. Pin the TokenId signedness contract
   in the same pass (`TokenSequenceLoader.ixx:44`).
-- **The AdamW CUDA path.** `AdamW.Cpu.cpp` is active with a convergence case; the `AdamW.Cuda.cpp`
-  companion is not written. Strip or gate the debug `printf`s in `CudaAdamW.cu` and
-  `CudaAdamWOptimizer.ixx:270` while there — a shipped optimizer should not print to stdout.
-- **A step-convergence test.** Minimize a known convex objective in N steps, so the update direction
-  and the bias correction are proven rather than just that `step()` returns.
+- **The AdamW debug output.** Strip or gate the debug `printf`s in `CudaAdamW.cu` — a shipped
+  optimizer should not print to stdout.
 - **A sample-independent training-loop integration test.** The MNIST spine is covered by
-  `Network.Cpu.cpp`; a GPT-2-stack analogue for the Bard spine is not, nor is the
-  `Core/Network.cpp` delta or the `Network.Cuda` companion.
+  `Network.Cuda.cpp`; a GPT-2-stack analogue for the Bard spine is not, nor is the
+  `Core/Network.cpp` delta.
 - **Mode-transition coverage.** Assert that moving between training and runtime mode allocates and
   skips gradient buffers correctly. Three `REVIEW:` markers are the invariant, each guarding a state
   believed unreachable: `TokenEmbedding.ixx:221`, `Lpe.ixx:187`, `Lpe.ixx:495`.
@@ -208,9 +205,8 @@ The suite underneath is what closes that, and it is the whole of what was deferr
 Scope stays FP32 GPT-2 / MLP. BF16 and GQA training are a later release entirely — see
 [`Future.md`](Future.md).
 
-- **The backward kernels the samples do not reach.** `CudaSoftmaxOp.ixx:73` and `:103` throw "needs
-  review" with the real calls commented out, and `Gelu.Fp32.cu:65` records that the shipped backward
-  is not the numerically stable `sech^2` form. Sweep the *unmarked* kernels precision twin by
+- **The backward kernels the samples do not reach.** `Gelu.Fp32.cu:65` records that the shipped
+  backward is not the numerically stable `sech^2` form. Sweep the *unmarked* kernels precision twin by
   precision twin too — the RoPE FP32 backward was wrong while its BF16 sibling was correct, in a file
   carrying no marker at all.
 
@@ -489,17 +485,15 @@ files covering the dispatch mechanism itself, and the CPU arm running in CI as a
 (`build-pipeline.yml`, clang-21, `MILA_ENABLE_CUDA=OFF`). That is the claim, and it stops at what is
 compiled.
 
-What is left is the tail that was never re-enabled — ten CPU-side and four CUDA-side entries still
-commented out in `Mila/Tests/CMakeLists.txt:154-166` and `:283-290`: `Network.cpp`,
-`CrossEntropy.Config.cpp` and `.Cpu.cpp`, `Model.cpp`, `Model.Cpu.cpp`, `ModelArchive.cpp`,
-`ZipSerializer.cpp`, `TensorBuffer.Tracking.cpp`, `Network.Cuda.cpp`, `AdamW.Cuda.cpp`,
-`SoftmaxCrossEntropy.Cuda.cpp`, `CudaDevice.cpp`.
+What is left is the tail that was never re-enabled — the entries still commented out in
+`Mila/Tests/CMakeLists.txt`'s disabled section and its CUDA block: `Network.cpp`,
+`CrossEntropy.Config.cpp`, `Model.cpp`, `ModelArchive.cpp`, `ZipSerializer.cpp`,
+`TensorBuffer.Tracking.cpp`, `SoftmaxCrossEntropy.Cuda.cpp`, `CudaDevice.cpp`.
 
 Several are not simply switch-on work and should not be estimated as if they were.
-`SoftmaxCrossEntropy` waits on loss moving onto the device, and the `AdamW.Cuda` and `Network.Cuda`
-entries belong with the training primitive suite rather than here — see "Nothing pins the training
-primitives independently of the samples", which owns the backward-numeric cases skipped for the same
-reason.
+`SoftmaxCrossEntropy` waits on loss moving onto the device, and `Network.cpp` belongs with the
+training primitive suite rather than here — see "Nothing pins the training primitives independently
+of the samples", which owns the backward-numeric cases skipped for the same reason.
 
 ## The quantization and Llama inference paths have no coverage
 

@@ -2,7 +2,7 @@
  * @file Activation.Cuda.cpp
  * @brief Concrete-component tests for Activation<DeviceType::Cuda, {FP32, BF16}, TFn>.
  *
- * CUDA companion to Activation.Cpu.cpp. Two complementary sweeps:
+ * Two complementary sweeps:
  *  - A precision sweep (FP32, BF16) over SiLU exercising the functor-templated
  *    kernel through both native element types (Specifications/Testing.md, mirroring
  *    Swiglu.Cuda.cpp: device input is read back to float so the reference sees the

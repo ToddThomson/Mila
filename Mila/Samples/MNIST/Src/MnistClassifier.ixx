@@ -48,7 +48,7 @@ namespace Mila::Mnist
      * - Provides static Load() factory method for type-safe deserialization
      * - Base Network class handles component graph topology serialization
      *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
+     * @tparam TDeviceType Device type (DeviceType::Cuda)
      * @tparam TPrecision Abstract tensor precision (TensorDataType)
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>

@@ -107,7 +107,7 @@ namespace Mila::Dnn
      * - Child/deferred: omit DeviceId; caller must call setExecutionContext()
      *   before build().
      *
-     * @tparam TDeviceType        Device type (DeviceType::Cpu or DeviceType::Cuda).
+     * @tparam TDeviceType        Device type (DeviceType::Cuda).
      * @tparam TIndex             Data type for token indices (typically INT32).
      * @tparam TPrecision         Tensor precision for embeddings (FP32 or BF16).
      * @tparam TTableQuantization Table quantization policy. Must satisfy

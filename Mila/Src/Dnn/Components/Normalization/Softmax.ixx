@@ -65,7 +65,7 @@ namespace Mila::Dnn
      * - Standalone mode: Component owns its ExecutionContext (stored in owned_exec_context_).
      * - Shared mode: Component borrows ExecutionContext from parent; lifecycle managed externally.
      *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
+     * @tparam TDeviceType Device type (DeviceType::Cuda)
      * @tparam TPrecision Abstract tensor precision (TensorDataType)
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
@@ -112,12 +112,12 @@ namespace Mila::Dnn
          * // Standalone mode (owns context)
          * SoftmaxConfig config;
          * config.withAxis(-1);
-         * Softmax<DeviceType::Cpu, TensorDataType::FP32> softmax(config, Device::Cpu());
+         * Softmax<DeviceType::Cuda, TensorDataType::FP32> softmax(config, Device::Cuda( 0 ));
          * @endcode
          *
          * @code{.cpp}
          * // Shared mode (borrows parent's context)
-         * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
+         * Network<DeviceType::Cuda, TensorDataType::FP32> net(Device::Cuda( 0 ), "my_net");
          * net.addComponent<Softmax>("softmax", SoftmaxConfig().withAxis(-1));
          * @endcode
          */

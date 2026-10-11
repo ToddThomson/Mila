@@ -4,7 +4,7 @@
  *
  * Defaults, fluent setters, the elementwise-only validation gate, and the
  * metadata round-trip (Specifications/Testing.md config archetype). No
- * forward/backward -- that is Activation.Cpu.cpp.
+ * forward/backward -- that is Activation.Cuda.cpp.
  */
 
 #include <gtest/gtest.h>

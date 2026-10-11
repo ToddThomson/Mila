@@ -8,11 +8,9 @@
  * softmax + cross-entropy for numerical stability and performance.
  *
  * STATUS: Component modernized to the current Component lifecycle and migrated off the
- * legacy OperationRegistry. CUDA dispatch is wired (FP32/BF16); the CPU path is not yet
- * provided (CpuSoftmaxCrossEntropyOp is excluded from the build), so a Cpu instantiation
- * is a deliberate hard compile error. Targeted for Llama training support; the component
- * has no live instantiation site yet, so its template body is not exercised by the build
- * until one exists (e.g. a unit test).
+ * legacy OperationRegistry. CUDA dispatch is wired (FP32/BF16). Targeted for Llama training
+ * support; the component has no live instantiation site yet, so its template body is not
+ * exercised by the build until one exists (e.g. a unit test).
  */
 
 module;

@@ -4,10 +4,10 @@
  *
  * Each activation is a small POD functor exposing fwd(x) and df(x). The functors
  * are annotated MILA_HD so the identical definitions compile for the MSVC-built
- * CPU operation and the nvcc-built CUDA kernels. This is the one sanctioned
- * preprocessor use, confined to this header's global module fragment, and is the
- * single math source consumed by both CpuElementwiseActivationOp and
- * CudaElementwiseActivationOp (see Specifications/FfnAndMoE.md section 5.1).
+ * module units that include this header and the nvcc-built CUDA kernels. This is the
+ * one sanctioned preprocessor use, confined to this header's global module fragment,
+ * and is the single math source of CudaElementwiseActivationOp (see
+ * Specifications/FfnAndMoE.md section 5.1).
  *
  * Design contract:
  *   - POD only: no dependency on Dnn.ActivationType, Tensor, or any module. The

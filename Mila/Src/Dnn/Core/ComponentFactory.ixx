@@ -181,7 +181,7 @@ namespace Mila::Dnn
          *
          * Future usage pattern:
          * @code{.cpp}
-         * auto component = ComponentFactory::createFromArchive<DeviceType::Cpu>(
+         * auto component = ComponentFactory::createFromArchive<DeviceType::Cuda>(
          *     archive, "fc1", exec_context);
          * @endcode
          */

@@ -201,8 +201,8 @@ namespace Mila::Dnn
          *
          * When the backend implements IPositionalUnaryOp and the cache has been
          * populated by a prior forward() call, uses the fast O(n) KV cache
-         * path. When the backend does not support positional dispatch
-         * (CpuMultiHeadAttentionOp), falls back to forward(). The caller never
+         * path. When the backend does not support positional dispatch, falls
+         * back to forward(). The caller never
          * needs to know which path was taken.
          *
          * Precondition: forward() must have been called at least once to
@@ -230,7 +230,7 @@ namespace Mila::Dnn
                 return *owned_decode_output_;
             }
 
-            // Fallback -- CpuMultiHeadAttentionOp or cache not yet initialized.
+            // Fallback -- no positional backend, or cache not yet initialized.
             operation_->forward( input, *owned_output_ );
 
             auto& output = resolveOutputView( input.shape() );

@@ -2,8 +2,7 @@
  * @file Lpe.Cuda.cpp
  * @brief Concrete-component tests for Lpe<DeviceType::Cuda, INT32, {FP32}>.
  *
- * CUDA companion to Lpe.Cpu.cpp, written as a precision sweep (TYPED_TEST) per the
- * methodology default. The supported-precision list holds FP32 only: the CUDA LpeOp
+ * Written as a precision sweep (TYPED_TEST) per the methodology default. The supported-precision list holds FP32 only: the CUDA LpeOp
  * kernel dispatch is constrained to float/half (CudaLpeOp.Dispatch.ixx: `float ||
  * half`), there is no BF16 path, and LPE is GPT-2 lineage (Llama uses RoPE, not
  * learned positional encoding). Add a Bf16Precision tag to LpePrecisions once a BF16

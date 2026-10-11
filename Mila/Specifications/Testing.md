@@ -19,15 +19,15 @@ tree mirrors `Mila/Src` exactly:
 
 ```
 Src/Dnn/Core/Component.ixx                       -> Tests/Dnn/Core/Component.cpp
-Src/Dnn/Components/Activations/Gelu/Gelu.ixx     -> Tests/Dnn/Components/Activations/Gelu/Gelu.Cpu.cpp
+Src/Dnn/Components/Activations/Gelu/Gelu.ixx     -> Tests/Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp
 ```
 
 The **test namespace mirrors the physical path** under `Tests/`, rooted at
 `Mila::Tests`:
 
 ```
-Tests/Dnn/Core/Component.cpp                      -> namespace Mila::Tests::Dnn::Core
-Tests/Dnn/Components/Activations/Gelu/Gelu.Cpu.cpp -> namespace Mila::Tests::Dnn::Components::Activations::Gelu
+Tests/Dnn/Core/Component.cpp                       -> namespace Mila::Tests::Dnn::Core
+Tests/Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp -> namespace Mila::Tests::Dnn::Components::Activations::Gelu
 ```
 
 This makes location self-describing and gives every file's helper types a unique
@@ -39,7 +39,7 @@ enclosing namespace. Note two distinct uniqueness rules:
 - **GTest suite names** (the fixture class name in `TEST_F`) are **not** scoped by
   C++ namespace — GTest registers them globally. So fixture names must be unique
   across the whole binary regardless of namespace (`ComponentTests`,
-  `ComponentConfigTests`, `GeluCpuTests`, ...).
+  `ComponentConfigTests`, `GeluCudaTests`, ...).
 
 ---
 
@@ -49,7 +49,7 @@ enclosing namespace. Note two distinct uniqueness rules:
 |---|---|---|---|
 | **Base contract** | `Core/Component.cpp`, `Core/ComponentConfig.cpp` | the inherited lifecycle / state machine, via a spy-capable harness | anything component-specific |
 | **Config** | `*Config.cpp` (e.g. `GeluConfig.cpp`) | fluent setters, `validate()`, metadata round-trip | forward / backward |
-| **Concrete component** | `*.Cpu.cpp` / `*.Cuda.cpp` (e.g. `Gelu.Cpu.cpp`) | the *delta*: construction, build, forward/backward numerics, component-specific accessors, parameter load | the base machinery (already guaranteed by `Component.cpp`) |
+| **Concrete component** | `*.Cuda.cpp` (e.g. `Gelu.Cuda.cpp`) | the *delta*: construction, build, forward/backward numerics, component-specific accessors, parameter load | the base machinery (already guaranteed by `Component.cpp`) |
 | **Operation** | `<Op>.Cuda.cpp` under `Tests/Dnn/Compute/.../Operations/` (e.g. `CudaLinearOp.Cuda.cpp`) | ONLY the residue **unreachable** through the public component API — in practice the weight-quantization white-box (per-channel/per-group absmax scales, FP4 nibble packing, exactly-representable round-trip). See the reachability rule below | kernel forward/backward numerics and the prefill/decode path split — both reachable through the component, so re-checking them at the op layer is a redundant mirror; all component orchestration |
 | **Value type / god-module** | `<Subject>.<Area>.cpp` / `.Cuda.cpp` (e.g. `Tensor.Constructors.cpp`) | a large non-component module (no Component/Operation lifecycle) split by API *area*, each area file exhaustive against the source surface; throws as negative tests; dtype as a typed sweep only where behavior varies by dtype | the component/operation machinery (there is none) |
 
@@ -89,9 +89,6 @@ quantization backfill item in BACKLOG, *not* a revival of the old op tests.
 
 Consequences of the boundary:
 
-- **CPU op tests have no residue.** CPU has no quantization and its kernels are
-  plain reference loops fully exercised by the component, so the authored
-  `Cpu*OpTests` are pure mirrors — **delete, do not revive.**
 - **CUDA op tests that re-check GEMM / attention numerics** (`CudaMatMulBiasOpTests`,
   `CudaMultHeadAttentionOpTests`, ...) are reachable via `Linear.Cuda` /
   `MultiHeadAttention.Cuda` — **delete.** The only CUDA op test that should *exist*
@@ -127,7 +124,7 @@ far too big for the "one test file per module" rule of §0. For these:
   `Tensor.ShapeTransform.cpp`, ...), and the split must be *exhaustive* — every
   public member maps to exactly one area file, audited against a per-subject
   coverage matrix (e.g. `Specifications/Testing.Tensors.md`).
-- **The device axis is still a file split.** `<Area>.cpp` (CPU, always compiled)
+- **The device axis is still a file split.** `<Area>.cpp` (host, always compiled)
   plus `<Area>.Cuda.cpp` (device instantiations), never an inline `#ifdef
   MILA_HAS_CUDA`. The host-only contract — accessors constrained by `requires
   is_host_accessible` — is asserted in the `.Cuda.cpp` companion with a
@@ -178,8 +175,8 @@ Conventions for a `Backward_MatchesNumericGradient` case:
   cancellation roundoff below the `O(eps^2)` truncation error.
 - This is the **precondition for Training Revival's convergence oracle** — a
   per-component numeric gradient check is what makes "the sample converges" a test
-  result rather than an eyeball. Reference applications: `Gelu.Cpu.cpp` (stateless
-  input grad) and `LayerNorm.Cpu.cpp` (input + parameter grads).
+  result rather than an eyeball. Reference applications: `MultiHeadAttention.Cuda.cpp`
+  and `RmsNorm.Cuda.cpp`.
 
 The earlier ad-hoc analytic backward cases (`LayerNorm`, `Softmax`, `Lpe`) stay as
 a second, independent oracle — an analytic reference and a finite-difference probe
@@ -205,7 +202,7 @@ E. Forward (numeric vs reference)  J. Static traits (getDeviceType/getPrecision)
 - **Base contract** (`Component.cpp`): A–D, G, I, J are live. E/F are absent by
   design — the base has no `forward`/`backward`; those are a concrete-component
   concern. That absence is itself a clarifying boundary.
-- **Concrete leaf without parameters** (`Gelu.Cpu.cpp`): A–F, I, J light up; G is
+- **Concrete leaf without parameters** (`Gelu.Cuda.cpp`): A–F, I, J light up; G is
   the "no parameters" contract (counts are zero, vectors empty); H is minimal.
 - **Concrete leaf with parameters** (`Linear`): adds the substance of G and H.
 
@@ -261,14 +258,14 @@ be compiled — it pulls the CUDA operation and `OperationTraits<..., Cuda, ...>
 which do not compile without CUDA. So the device axis *cannot* live inside one
 translation unit; it has to be the file boundary:
 
-- `Component.Cpu.cpp` (and device-agnostic base logic) goes in the always-compiled
+- Device-agnostic base logic (`Component.cpp`) goes in the always-compiled
   `add_executable` list so it rides the `MILA_ENABLE_CUDA=OFF` CI gate.
 - `Component.Cuda.cpp` goes in the `if(MILA_ENABLE_CUDA)` `target_sources(...)`
   block in `Tests/CMakeLists.txt`. New `*.Cuda.cpp` / `Cuda*.cpp` files belong in
   that block, never in the always-compiled list.
 
 This is the structural reason the ratchet stays green: a CPU-only build compiles
-and runs the CPU set without ever instantiating the CUDA path.
+and runs the device-independent set without ever instantiating the CUDA path.
 
 ### Precision lives *inside* the device file
 
@@ -300,7 +297,7 @@ The supported-precision list is the **single point of change**: the day a device
 gains a precision, add one tag and the suite re-runs every body for it — no
 structural edit.
 
-(A handful of early revival tests — e.g. `Gelu.Cpu.cpp`, `LayerNorm.Cuda.cpp` —
+(A handful of early revival tests — e.g. `Gelu.Cuda.cpp`, `LayerNorm.Cuda.cpp` —
 were written as plain single-precision `TEST_F`s before this rule settled. They are
 correct as-is; migrate them to the one-entry sweep opportunistically when next
 touched, not as a dedicated pass. The base-contract and config archetypes are not
@@ -315,9 +312,8 @@ for comparing a reduced-precision tensor element against the float reference.
 
 `TWeightQuantization` (on `Linear`, e.g. `PerChannelFp8<>`, `PerGroupFp4<128>`) is
 a compile-time type like precision, but it is **not** a symmetric precision-style
-sweep, for three reasons: it is **CUDA-only** (no CPU specialization),
-**inference-only** (`backward` throws `std::logic_error`), and it **changes the
-testable surface** — the weight tensor is a packed reduced-precision dtype (FP4 /
+sweep, for two reasons: it is **inference-only** (`backward` throws
+`std::logic_error`), and it **changes the testable surface** — the weight tensor is a packed reduced-precision dtype (FP4 /
 INT4 store two nibbles per byte, so the column count is `input_features/2`), a
 `weight_scales_` tensor appears, and loading runs `quantize()` rather than a plain
 copy. Same bodies do not fit.
@@ -363,7 +359,7 @@ shape behavior (section B). It has three dimensions:
 
 - **File:** `<Component>.<Device>.cpp` — device is the only discriminator in the
   name; **precision never appears in the filename**.
-- **GTest suite:** `<Component><Device>Tests` (`GeluCpuTests`, `GeluCudaTests`).
+- **GTest suite:** `<Component><Device>Tests` (`GeluCudaTests`, `LinearCudaTests`).
   Typed-test instances suffix the precision via a type-name generator
   (`GeluCudaTests/Fp32`, `GeluCudaTests/Bf16`) rather than `/0`, `/1`.
 
@@ -398,7 +394,7 @@ is deliberately not a prerequisite for the revival.
 
 ## 8. Adding a test for a new component (the checklist)
 
-1. Start from `Gelu.Cpu.cpp` (leaf without parameters) or `Linear.*.cpp` (leaf
+1. Start from `Gelu.Cuda.cpp` (leaf without parameters) or `Linear.*.cpp` (leaf
    with parameters), whichever the new component resembles.
 2. Keep the section banners; delete only the sections that genuinely do not apply.
 3. Replace the numeric reference (E/F) with the component's spec.
@@ -410,7 +406,7 @@ is deliberately not a prerequisite for the revival.
    backward legality, `setTrainingMode` transitions), the prefill->decode shape
    regime, and the `initialize_parameters=false` path.
 7. If the component has a quantization axis or non-trivial kernels, add the
-   **operation** test (`<Op>.Cuda.cpp` / `.Cpu.cpp`) for the internal surface — the
+   **operation** test (`<Op>.Cuda.cpp`) for the internal surface — the
    quantization sweep and the prefill/decode path split — keeping the
    component/operation division of labor from §1.
 8. Put CUDA-instantiation tests in the `*.Cuda.cpp` companion.

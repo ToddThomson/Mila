@@ -36,7 +36,6 @@ void printUsage()
     std::cout << "  --beta1 <float>          Adam beta1 parameter (default: 0.9)\n";
     std::cout << "  --beta2 <float>          Adam beta2 parameter (default: 0.999)\n";
     std::cout << "  --weight-decay <float>   Weight decay (default: 0.01)\n";
-    std::cout << "  --device <string>        Compute device (cpu or cuda, default: cuda)\n";
     std::cout << "  --embedding-dim <int>    Embedding dimension (default: 256)\n";
     std::cout << "  --num-heads <int>        Number of attention heads (default: 4)\n";
     std::cout << "  --num-layers <int>       Number of transformer layers (default: 4)\n";
@@ -106,24 +105,6 @@ bool parseCommandLine( int argc, char** argv, BardConfig& config )
         if ( arg == "--weight-decay" && i + 1 < argc )
         {
             config.weight_decay = std::stof( argv[ ++i ] );
-            continue;
-        }
-
-        if ( arg == "--device" && i + 1 < argc )
-        {
-            std::string device = argv[ ++i ];
-            if ( device == "CPU" )
-            {
-                config.compute_device = DeviceType::Cpu;
-            }
-            else if ( device == "cuda" )
-            {
-                config.compute_device = DeviceType::Cuda;
-            }
-            else
-            {
-                std::cerr << "Unknown device type: " << device << ". Using default: cuda" << std::endl;
-            }
             continue;
         }
 
@@ -210,7 +191,6 @@ bool parseCommandLine( int argc, char** argv, BardConfig& config )
     std::cout << "  Beta1: " << config.beta1 << std::endl;
     std::cout << "  Beta2: " << config.beta2 << std::endl;
     std::cout << "  Weight decay: " << config.weight_decay << std::endl;
-    std::cout << "  Device: " << (config.compute_device == DeviceType::Cuda ? "CUDA" : "CPU") << std::endl;
     std::cout << "  Embedding dimension: " << config.embedding_dim << std::endl;
     std::cout << "  Number of heads: " << config.num_heads << std::endl;
     std::cout << "  Number of layers: " << config.num_layers << std::endl;
@@ -253,21 +233,12 @@ int main( int argc, char** argv )
             return 1;
         }
 
-        if ( config.compute_device == DeviceType::Cuda )
-        {
-            std::cout << "Using CUDA device" << std::endl;
-            train<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>( config );
-        }
-        else if ( config.compute_device == DeviceType::Cpu )
-        {
-            std::cout << "Using CPU device" << std::endl;
-            train<DeviceType::Cpu, TensorDataType::FP32, CpuMemoryResource>( config );
-        }
+        train<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>( config );
     }
     catch ( const std::exception& e )
     {
         std::cerr << "Bard training error: " << e.what() << std::endl;
-        return 0;
+        return 1;
     }
 
     return 0;

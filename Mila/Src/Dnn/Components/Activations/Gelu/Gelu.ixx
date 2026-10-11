@@ -57,7 +57,7 @@ namespace Mila::Dnn
      * backward) computation by delegating to a registered device-specific
      * UnaryOperation implementation found via the OperationRegistry.
      *
-     * @tparam TDeviceType Compile-time device identifier (DeviceType::Cpu or DeviceType::Cuda).
+     * @tparam TDeviceType Compile-time device identifier (DeviceType::Cuda).
      * @tparam TPrecision  Tensor data precision used by this component.
      *
      * Construction Modes:
@@ -130,12 +130,12 @@ namespace Mila::Dnn
          * @code{.cpp}
          * // Standalone mode (owns context)
          * GeluConfig config;
-         * Gelu<DeviceType::Cpu, TensorDataType::FP32> gelu("gelu", config, Device::Cpu());
+         * Gelu<DeviceType::Cuda, TensorDataType::FP32> gelu("gelu", config, Device::Cuda( 0 ));
          * @endcode
          *
          * @code{.cpp}
          * // Shared mode (borrows parent's context)
-         * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
+         * Network<DeviceType::Cuda, TensorDataType::FP32> net(Device::Cuda( 0 ), "my_net");
          * net.addComponent<Gelu>("gelu", GeluConfig());
          * @endcode
          */
@@ -233,12 +233,8 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Gelu::backward: component must be in training mode" );
             }
 
-            // Zero the input gradient buffer before the backward pass, for CpuGeluOp,
-            // which accumulates (dinp[i] += local_grad * dout[i]) and would otherwise grow
-            // its gradient with every call. The CUDA kernel assigns
-            // (dX[i] = local_grad * dY[i]) and does not need this; the two backends
-            // disagree, with no observable difference while the buffer is pre-zeroed and
-            // has a single producer. Tracked as an API Coherence question in BACKLOG.
+            // Redundant today: the CUDA kernel assigns (dX[i] = local_grad * dY[i]). The
+            // zeroing served the retired CPU operation, which accumulated.
             zero( *input_grad_ );
 
             operation_->backward( input, output_grad, *input_grad_ );

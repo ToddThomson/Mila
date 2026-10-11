@@ -14,7 +14,7 @@ The model classifies 28�28 grayscale images of handwritten digits (0-9) into t
 
 ## Features
 
-- **Device-agnostic training**: Supports both CPU and CUDA execution
+- **CUDA training**: Runs on an NVIDIA GPU
 - **Mixed precision**: Configurable tensor precision (FP32, FP16, BF16)
 - **AdamW optimizer**: Modern optimization with weight decay
 - **Data augmentation**: Built-in shuffling for training data
@@ -35,7 +35,7 @@ The model classifies 28�28 grayscale images of handwritten digits (0-9) into t
 - **Test Set**: 10,000 images
 - **Normalization**: Pixel values scaled to [0, 1]
 - **Label Encoding**: One-hot encoding for classification
-- **Memory**: Supports both CPU and CUDA pinned memory for efficient transfers
+- **Memory**: Batches staged in CUDA pinned host memory for efficient transfers
 
 ## Prerequisites
 
@@ -109,7 +109,6 @@ Options:
   --beta1 <float>         Adam beta1 parameter (default: 0.9)
   --beta2 <float>         Adam beta2 parameter (default: 0.999)
   --weight-decay <float>  Weight decay (default: 0.01)
-  --device <string>       Compute device: cpu or cuda (default: cuda)
   --precision <string>    Precision policy: auto, performance, accuracy, disabled
                           (default: auto)
   --help                  Show this help message
@@ -118,8 +117,8 @@ Options:
 ### Training Examples
 
 ```bash
-# Train on CPU with higher learning rate
-./MnistApp --device cpu --learning-rate 0.005
+# Train with a higher learning rate
+./MnistApp --learning-rate 0.005
 
 # Train for 10 epochs with larger batch size
 ./MnistApp --epochs 10 --batch-size 256
@@ -188,7 +187,7 @@ Samples/MNIST/
 
 #### MnistClassifier (`MnistClassifier.ixx`)
 - Composite module implementing the 3-layer network
-- Device-templated for CPU/CUDA execution
+- Device-templated; CUDA is the compute device
 - Precision-templated for FP32/FP16/BF16
 - Manages forward/backward passes and intermediate buffers
 
