@@ -141,6 +141,7 @@ namespace Mila::Dnn
         TDerived& withWeightQuantization( WeightQuantization wq )
         {
             weight_quantization_ = wq;
+            weight_quantization_named_ = true;
             return static_cast<TDerived&>(*this);
         }
 
@@ -171,8 +172,9 @@ namespace Mila::Dnn
         TDerived& withFullPrecision()
         {
             weight_quantization_ = WeightQuantization::None;
+            weight_quantization_named_ = true;
             kv_cache_compression_ = KvCacheCompression::None;
-            
+
             return static_cast<TDerived&>(*this);
         }
 
@@ -184,6 +186,7 @@ namespace Mila::Dnn
         TDerived& withFP8Quantization()
         {
             weight_quantization_ = WeightQuantization::FP8;
+            weight_quantization_named_ = true;
 
             return static_cast<TDerived&>(*this);
         }
@@ -196,6 +199,7 @@ namespace Mila::Dnn
         TDerived& withFP4Quantization()
         {
             weight_quantization_ = WeightQuantization::FP4;
+            weight_quantization_named_ = true;
 
             return static_cast<TDerived&>(*this);
         }
@@ -209,6 +213,7 @@ namespace Mila::Dnn
         TDerived& withQ4_0Quantization()
         {
             weight_quantization_ = WeightQuantization::Q4_0;
+            weight_quantization_named_ = true;
 
             return static_cast<TDerived&>(*this);
         }
@@ -225,6 +230,7 @@ namespace Mila::Dnn
         TDerived& withPrecisionPlan()
         {
             weight_quantization_ = WeightQuantization::Plan;
+            weight_quantization_named_ = true;
 
             return static_cast<TDerived&>(*this);
         }
@@ -241,6 +247,17 @@ namespace Mila::Dnn
         WeightQuantization getWeightQuantization() const noexcept
         {
             return weight_quantization_;
+        }
+
+        /**
+         * @brief Whether a setter named the weight format.
+         *
+         * A deployment request that names none loads the format the weights are stored in (Deployment.md 12.6),
+         * so None from the getter alone cannot say whether reference weights were asked for.
+         */
+        bool isWeightQuantizationNamed() const noexcept
+        {
+            return weight_quantization_named_;
         }
 
         KvCacheCompression getKvCacheCompression() const noexcept
@@ -299,6 +316,7 @@ namespace Mila::Dnn
 
         dim_t              context_length_{ 0 };
         WeightQuantization weight_quantization_{ WeightQuantization::None };
+        bool               weight_quantization_named_{ false };
         KvCacheCompression kv_cache_compression_{ KvCacheCompression::None };
     };
 }

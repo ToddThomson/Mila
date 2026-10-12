@@ -118,13 +118,17 @@ namespace Mila::Dnn
          */
         static std::expected<DeploymentPlans, DeploymentRefusal> planDeployment(
             const std::filesystem::path& path,
-            const DeploymentRequest& request )
+            const DeploymentRequest& requested )
         {
             const DeviceId device = requireDevice( "LlamaModel::planDeployment",
-                request.getDevice().value_or( DeviceId{ TDeviceType, 0 } ) );
+                requested.getDevice().value_or( DeviceId{ TDeviceType, 0 } ) );
 
-            if ( request.getSpeculativeDecode() )
+            if ( requested.getSpeculativeDecode() )
                 throw std::invalid_argument( "LlamaModel::planDeployment: Llama has no draft model to decode with" );
+
+            // After the checks the request answers alone, so a malformed one is refused before the package is read.
+            const DeploymentRequest request =
+                requested.resolveWeightQuantization( WeightsReader( path ).getWeightQuantization() );
 
             return dispatchChassis<std::expected<DeploymentPlans, DeploymentRefusal>>(
                 request.getWeightQuantization(), request.getKvCacheCompression(), "LlamaModel::planDeployment",

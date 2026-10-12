@@ -105,7 +105,7 @@ namespace Mila::Distribution
             record.minimum_mila_version = manifest.minimum_mila_version;
             record.base_model = manifest.base_model;
             record.license = manifest.license;
-            record.instruct = manifest.instruct;
+            record.capabilities = manifest.capabilities;
             record.hub = hub_.name();
             record.owner = coordinate.organization;
             record.repository = coordinate.repository;

@@ -134,7 +134,7 @@ namespace Mila::Tests::Distribution
             request.variant = "fp4";
             request.weight_quantization = "per_group_fp4_128";
             request.minimum_mila_version = "0.20.0";
-            request.instruct = true;
+            request.capabilities.instruct = true;
             request.weights = directory / "sources" / "model.safetensors";
             request.tokenizer = directory / "sources" / "tokenizer.bin";
 
@@ -519,8 +519,8 @@ namespace Mila::Tests::Distribution
 
         // Pinned because it was silently wrong on three real models: the flag decides the
         // prompt template, and nothing downstream can tell that it was dropped.
-        EXPECT_TRUE( installed.record.instruct );
-        EXPECT_TRUE( store.locate( "gemma-4-12b-it-fp4" )->record.instruct );
+        EXPECT_TRUE( installed.record.capabilities.instruct );
+        EXPECT_TRUE( store.locate( "gemma-4-12b-it-fp4" )->record.capabilities.instruct );
 
         // Nothing served this, so it is local -- a field on the record, not a namespace.
         EXPECT_TRUE( installed.record.isLocal() );

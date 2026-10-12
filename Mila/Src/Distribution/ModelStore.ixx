@@ -31,6 +31,14 @@ module;
 
 export module Distribution.ModelStore;
 
+export import Distribution.FetchReport;
+export import Distribution.ModelRecord;
+export import Distribution.StoredModel;
+export import Distribution.RemovalReport;
+export import Distribution.StoreUsage;
+export import Distribution.InstallOptions;
+export import Distribution.CleanOptions;
+
 import nlohmann.json;
 import Distribution.Sha256;
 import Distribution.Environment;
@@ -39,42 +47,6 @@ import Distribution.ModelPackage;
 
 namespace Mila::Distribution
 {
-    /**
-     * @brief What a fetch attempt reported back to the store.
-     *
-     * Deliberately narrower than HttpResult: the store cares about four outcomes, and keeping it
-     * decoupled from the HTTP client is what makes it testable offline.
-     */
-    export enum class FetchOutcome
-    {
-        Complete,      ///< The requested byte range arrived in full.
-        RangeIgnored,  ///< A resume was requested and the server sent the whole file.
-
-        /// A resume was requested from at or past the end, so nothing was sent and the partial
-        /// already holds every byte there is. Whether they are the right bytes is the digest's
-        /// question, not the transport's.
-        RangeNotSatisfiable,
-
-        Failed         ///< Anything else; message carries the detail.
-    };
-
-    export struct FetchReport
-    {
-        FetchOutcome outcome{ FetchOutcome::Failed };
-        std::string message;
-    };
-
-    /**
-     * @brief Fetches one blob from resume_from, handing each chunk to sink.
-     *
-     * The store supplies the sink so it can hash and write in one pass. What is being fetched
-     * is the fetcher's business: the store deals in digests, and a URL scheme belongs to
-     * whichever hub produced the fetcher.
-     */
-    export using BlobFetcher = std::function<FetchReport(
-        uint64_t resume_from,
-        const std::function<bool( const char*, size_t )>& sink )>;
-
     /**
      * @brief Resolve the store root, first match wins.
      *
@@ -108,169 +80,6 @@ namespace Mila::Distribution
 
         return std::filesystem::temp_directory_path() / "mila";
     }
-
-    /**
-     * @brief An installed model: what the manifest published, plus how this copy came to be here.
-     *
-     * The name is the key and the only thing in the path. Everything about origin is a field, so
-     * a record copied out of the store still says what it describes and where it came from.
-     */
-    export struct ModelRecord
-    {
-        /// The store's key, and the only name a user types. Unique across the store.
-        std::string name;
-
-        std::string architecture;
-
-        /// Descriptive. The name carries the precision; this says what the bytes actually are.
-        std::string variant;
-
-        std::string weight_quantization;
-        std::string minimum_mila_version;
-
-        std::string base_model;
-        std::string license;
-
-        /// Instruction-tuned. Decides the prompt template a consumer applies.
-        bool instruct{ false };
-
-        /**
-         * @brief Where this copy came from. Never published, and never part of the path.
-         *
-         * A model published from this machine leaves hub empty. Origin is mutable -- a locally
-         * published model may be pushed to a hub later -- which is the reason it is a field
-         * rather than a directory: changing it must not move files.
-         */
-        std::string hub;
-        std::string owner;
-        std::string repository;
-
-        /// The resolved commit, not the ref that was asked for. Empty for a local install.
-        std::string revision;
-
-        std::string installed_at;
-
-        std::vector<ModelFile> files;
-
-        /// True when nothing served this: it was published from this machine.
-        bool isLocal() const noexcept { return hub.empty(); }
-
-        /// Where it came from, for display. Never a key.
-        std::string origin() const
-        {
-            if ( hub.empty() )
-            {
-                return "local";
-            }
-
-            return owner.empty() ? hub : hub + ":" + owner + "/" + repository;
-        }
-
-        const ModelFile* file( std::string_view role ) const
-        {
-            for ( const auto& entry : files )
-            {
-                if ( entry.role == role )
-                {
-                    return &entry;
-                }
-            }
-
-            return nullptr;
-        }
-    };
-
-    /**
-     * @brief A record together with where its bytes actually are.
-     *
-     * `bytes_on_disk` sums the model's own files. A blob shared between variants is counted in
-     * each, so the per-model figures deliberately do not sum to the store total.
-     */
-    export struct StoredModel
-    {
-        ModelRecord record;
-
-        std::filesystem::path weights_path;
-        std::filesystem::path tokenizer_path;
-
-        /// False when a declared file is missing from blobs/, which makes the model unloadable.
-        bool complete{ false };
-
-        uint64_t bytes_on_disk{ 0 };
-    };
-
-    export struct RemovalReport
-    {
-        /// Records unlinked.
-        int records_removed{ 0 };
-
-        /// Blobs the removed model named and no other record does.
-        int blobs_removed{ 0 };
-
-        /// Rejected transfers and abandoned locks, which belong to no record at all.
-        int files_removed{ 0 };
-
-        uint64_t bytes_reclaimed{ 0 };
-
-        /// Paths the platform refused to delete, most often a blob still mapped by a live process.
-        std::vector<std::string> retained;
-
-        /// Record files that could not be read. While any exist no blob is deleted, since one of
-        /// them may name it.
-        std::vector<std::string> unreadable_records;
-    };
-
-    export struct StoreUsage
-    {
-        uint64_t blob_bytes{ 0 };
-
-        /// What clean() would free: rejected transfers and abandoned locks.
-        uint64_t reclaimable_bytes{ 0 };
-        uint64_t partial_bytes{ 0 };
-        int model_count{ 0 };
-        int blob_count{ 0 };
-    };
-
-    /**
-     * @brief How a package is to be installed.
-     *
-     * A package carries its own name; these are the overrides. Nothing here names an origin,
-     * because installing from a package is what "published from this machine" means.
-     */
-    export struct InstallOptions
-    {
-        /// Empty takes the manifest's name, then the package directory's name.
-        std::string name;
-
-        /**
-         * @brief Replace an existing record of the same name.
-         *
-         * Off by default. A name is unique across the store, so installing over one is either a
-         * refresh the caller meant or a collision they need to know about, and the store cannot
-         * tell which.
-         */
-        bool replace{ false };
-
-        /**
-         * @brief Move the package's files into the store rather than copying them.
-         *
-         * On by default. A move is free on one volume, and it keeps a single integrity model in
-         * which the path is the digest -- a copy leaves a second, unmanaged copy of a file that
-         * may be several gigabytes. Turn it off to keep the package for a hub upload.
-         */
-        bool move_files{ true };
-    };
-
-    export struct CleanOptions
-    {
-        /**
-         * @brief Also discard in-flight partials.
-         *
-         * Off by default: a partial left by a failed transfer is good bytes that the next attempt
-         * resumes onto, so deleting it silently converts a cheap retry into a full re-download.
-         */
-        bool discard_partials{ false };
-    };
 
     /**
      * @brief The local store of installed models.
@@ -666,7 +475,7 @@ namespace Mila::Distribution
             record.minimum_mila_version = manifest.minimum_mila_version;
             record.base_model = manifest.base_model;
             record.license = manifest.license;
-            record.instruct = manifest.instruct;
+            record.capabilities = manifest.capabilities;
 
             // hub, owner, repository and revision stay empty: nothing served this, and a record
             // naming a hub it did not come from would make a local build look published.
@@ -882,6 +691,10 @@ namespace Mila::Distribution
                 else if ( file.role == kTokenizerRole )
                 {
                     model.tokenizer_path = path;
+                }
+                else if ( file.role == kDrafterRole )
+                {
+                    model.drafter_path = path;
                 }
             }
 
@@ -1417,7 +1230,7 @@ namespace Mila::Distribution
 
             // The published half of the record is the manifest verbatim; `installed` is the half
             // the store writes and never publishes.
-            return {
+            nlohmann::json document = {
                 { "manifest_version", 1 },
                 { "name", record.name },
                 { "architecture", record.architecture },
@@ -1425,15 +1238,19 @@ namespace Mila::Distribution
                 { "weight_quantization", record.weight_quantization },
                 { "minimum_mila_version", record.minimum_mila_version },
                 { "base_model", record.base_model },
-                { "license", record.license },
-                { "instruct", record.instruct },
-                { "files", files },
-                { "installed", {
-                    { "hub", record.hub },
-                    { "owner", record.owner },
-                    { "repository", record.repository },
-                    { "revision", record.revision },
-                    { "installed_at", record.installed_at } } } };
+                { "license", record.license } };
+
+            writeCapabilities( document, record.capabilities );
+
+            document[ "files" ] = files;
+            document[ "installed" ] = {
+                { "hub", record.hub },
+                { "owner", record.owner },
+                { "repository", record.repository },
+                { "revision", record.revision },
+                { "installed_at", record.installed_at } };
+
+            return document;
         }
 
         static std::optional<ModelRecord> fromJson( const nlohmann::json& json )
@@ -1447,7 +1264,7 @@ namespace Mila::Distribution
             record.minimum_mila_version = json.value( "minimum_mila_version", std::string{} );
             record.base_model = json.value( "base_model", std::string{} );
             record.license = json.value( "license", std::string{} );
-            record.instruct = json.value( "instruct", false );
+            record.capabilities = readCapabilities( json );
 
             if ( json.contains( "installed" ) && json[ "installed" ].is_object() )
             {

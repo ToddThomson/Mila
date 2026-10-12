@@ -65,14 +65,14 @@ def _stop_markers_for(family: ModelFamily) -> tuple[str, ...]:
 
 def _family_of(record: "mila.StoredModel") -> ModelFamily:
     """
-    The architecture the record declares, as the family the protocol layer branches on.
+    The family the library loads the model as, for the protocol layer to branch on.
 
-    An architecture MIS cannot serve is refused at load rather than at the first request:
-    the store's vocabulary is wider than the binding's (gpt2 has a record shape and no
-    session), and a server that started on one would fail every request instead.
+    A model MIS cannot serve is refused at load rather than at the first request: the store
+    holds families no session loads (gpt2 has a record and no session), and a server that
+    started on one would fail every request instead.
     """
     try:
-        return ModelFamily(record.architecture)
+        return ModelFamily(record.family)
     except ValueError:
         raise RuntimeError(
             f"'{record.name}' has architecture '{record.architecture}', which MIS does not "

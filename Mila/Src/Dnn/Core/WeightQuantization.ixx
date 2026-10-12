@@ -5,6 +5,7 @@
 
 module;
 #include <format>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -81,6 +82,34 @@ namespace Mila::Dnn
             default:
                 return "none";
         }
+    }
+
+    /**
+     * @brief The format a recorded scheme name declares: the inverse of weightQuantizationName.
+     *
+     * Every FP4 group reads as FP4, since the group is the model's geometry rather than a choice. Empty and
+     * "none" are reference weights.
+     *
+     * @return Nothing when the name is not one this build writes.
+     */
+    export inline std::optional<WeightQuantization> parseWeightQuantization( std::string_view scheme )
+    {
+        if ( scheme.empty() || scheme == "none" )
+            return WeightQuantization::None;
+
+        if ( scheme == weightQuantizationName( WeightQuantization::FP8 ) )
+            return WeightQuantization::FP8;
+
+        if ( scheme.starts_with( "per_group_fp4_" ) )
+            return WeightQuantization::FP4;
+
+        if ( scheme == weightQuantizationName( WeightQuantization::Q4_0 ) )
+            return WeightQuantization::Q4_0;
+
+        if ( scheme == weightQuantizationName( WeightQuantization::Plan ) )
+            return WeightQuantization::Plan;
+
+        return std::nullopt;
     }
 
     /**

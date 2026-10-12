@@ -506,7 +506,7 @@ Gate: the clean-room install passes from TestPyPI on the release-step-1 snapshot
 
 #### What a model can do is inferred from its family name, not read from its manifest
 
-`open` · `distribution` · `apps`
+`in progress` · `distribution` · `apps` · `mila-src`
 
 `Chat.FamilyTraits.ixx:55` answers "does this model have a reasoning channel" and "how much context
 can it address" with a switch on the family, so two models of one family cannot differ and a new
@@ -514,10 +514,14 @@ reasoning model of another family reads as having no channel. `instruct` is alre
 record and proves the pattern, and the manifest tolerates unknown fields, so adding fields is
 additive.
 
-Moves to the manifest: `thinking_capable`, `max_context`, and a new modality field that Gemma's image
-path declares. **Stays in Chat:** `streaming_capable`, which the file's own comment (`:32`) records as
-a fact about the display rather than the weights, and `default_context`, layer 1 of Chat's own
-configuration. Gate: a manifest omitting every new field still loads.
+Decided 2026-10-12 (Todd), `ModelDistribution.md` *Capabilities and modalities*: the manifest declares
+capabilities (`instruct`, `thinking`, `tools` from the checkpoint, and `agentic`, Mila's measured verdict) and
+modalities (text, image, video,
+audio -- only those Mila supports); MTP is reported where the package carries a drafter Mila supports; each can be
+turned off. Read through the installed-model path (Internal fixes, below). The context the model addresses comes
+from its weights, not the manifest. **Stays in Chat:** `streaming_capable`, a fact about the display rather than
+the weights, and `default_context`, layer 1 of Chat's own configuration. Gate: a manifest omitting every new field
+still loads; every published model republished with them.
 
 Also the root of Codex's "Model metadata not found" warning against `/v1/models` — all three
 validated flows pass regardless, so that is a symptom of this gap rather than separate work.
@@ -800,6 +804,30 @@ migration. `DeviceReading` is not part of this: its replacement name waits on `D
 Gate: the types, the binding's projection and `Deployment.md` use the short names.
 
 `Mila/Src/Deployment/`
+
+#### The same installed model loads through one app and is refused through another, because each app decides for itself how to load it
+
+`in progress` · `api` · `distribution` · `apps` · `binding` · `mila-src`
+
+The library stores and fetches models, but nothing in it loads one by its store name. Chat
+(`Chat.ModelCatalog.ixx:130-260`), the binding (`Mila_py.Wrappers.cpp:296-381`, two parsers) and the inference
+server (`model_worker.py:66`) each map a record's `architecture` to a family and its `variant` to a weight format,
+and the copies disagree: Chat loads `cb2-3` and `q4_0` where the binding's shared parser refuses both and its Qwen
+parser refuses `q4_0`. All of them key on `variant`, which the record calls descriptive, rather than
+`weight_quantization`. The quantize-on-load rules exist only in Chat, and so does "will it fit": a context ladder
+of Chat's own beside the planner, which it has been seen to disagree with. Root causes: `Deployment.md` 12.6 (the
+request's weight format defaults to the package's own) was decided and never built, so every caller must restate
+what the weights already are; and 12.4 left the family switch to every caller.
+
+Decided 2026-10-12 (Todd): settled now, in `Mila::Deployment` -- an installed model is looked up and planned by
+name through the library (`Deployment.md` 8.1), each app loading it through its family's own type, and an FP32
+package is refused, since FP32 is GPT-2's precision and no instruct model has one. Absorbs `Vnext.md`'s "the model list prices against total memory" (12.5).
+
+Gate: no app or the binding parses `architecture` or `variant`; a model loads or is refused identically through
+Chat, the binding and the inference server; `/model list` and `mila-store` report the planner's answer; a request
+naming no weight format loads every published variant.
+
+`Mila/Specifications/Deployment.md` 8.1 · `Mila/Apps/Chat/Src/Chat.ModelCatalog.ixx`
 
 #### Chat and the inference server live under a directory named for what they are not, and Mila's commands follow three naming styles
 

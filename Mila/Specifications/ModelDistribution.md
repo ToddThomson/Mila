@@ -168,6 +168,33 @@ the bytes actually are, so a name that lies is visible rather than load-bearing.
 `base_model` and `license` are **lineage**, and they are published on purpose: every license Mila
 redistributes under requires attribution to travel with the weights.
 
+### Capabilities and modalities
+
+*Decided 2026-10-12 (Todd).* What a model can do is declared by the manifest, never inferred from its family:
+
+```json
+"capabilities": { "instruct": true, "thinking": true, "tools": true, "agentic": true },
+"modalities": [ "text", "image", "audio" ],
+"files": { ..., "drafter": { "path": "...", "sha256": "...", "bytes": ... } }
+```
+
+- **Capabilities** are what the model was trained for: `instruct` (instruction-tuned), `thinking` (a reasoning
+  channel), `tools` (trained for tool calls). The exporter copies them from the source checkpoint.
+- **`agentic` is Mila's verdict, not the checkpoint's:** the model still finds facts, obeys its instructions and
+  calls tools correctly deep into a conversation, as its context profile measures (`ContextProfile.md`). It is
+  written only for a measured model, so a model can have `tools` and not be `agentic` -- Llama 3.2 3B is one.
+- **Modalities** are always the ones Mila supports: the exporter writes a modality only when this Mila runs it, and
+  a reader reports only those its own build runs, so a manifest from a newer Mila never claims a path an older one
+  lacks. `text` is every model's. Image, video and audio are each a modality.
+- **MTP** is a capability only where the package carries a `drafter` file and this Mila supports drafting for that
+  model. It is not a separate flag, so the file and the claim cannot disagree.
+- **Each one a model has can be turned off.** Modalities and the drafter cost device memory, so they are
+  deployment knobs, priced by the planner (`Deployment.md` 2.1). Thinking and tool calls are generation
+  settings. `instruct` is what the model is, not a setting.
+- **Older manifests keep loading.** A manifest without these fields reads as text only with no capabilities but
+  its top-level `instruct`, which writers keep emitting so an older Mila still reads it. A published model is
+  republished with the fields where that loses something it had.
+
 `minimum_mila_version` is the version-skew guard. A newer artifact loaded by an older Mila fails with
 a version comparison rather than a parse error somewhere inside the tensor index.
 

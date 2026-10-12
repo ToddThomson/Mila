@@ -13,7 +13,6 @@ export module Chat.Config;
 
 export import Chat.ModelType;
 export import Chat.ModelSize;
-export import Chat.ModelPrecision;
 export import Chat.QuantizationMode;
 export import Chat.DetailLevel;
 
@@ -22,17 +21,14 @@ namespace Mila::ChatApp
     /**
      * @brief Runtime configuration for a Chat session.
      *
-     * Holds the model backend selection, size, precision, file paths, and
-     * generation hyper-parameters. All fields are plain value types so the
-     * struct is cheap to copy and requires no JSON dependency.
+     * Holds the model selection, file paths, and generation hyper-parameters. All fields are plain value types
+     * so the struct is cheap to copy and requires no JSON dependency.
      *
      * ## model selection
      *
-     * model_type / precision / is_instruct / quantization_mode /
-     * model_path / tokenizer_path are all resolved from a single model alias via
-     * the ModelEntry catalog (see Chat.ModelCatalog), either at startup (the
-     * session config "model" key) or by the /model command. They are not set
-     * field-by-field and are never inferred from the weight filename.
+     * model_type / is_instruct / quantization_mode / model_path / tokenizer_path are all resolved from one
+     * installed model's name (see Chat.ModelCatalog), either at startup (the session config "model" key) or by
+     * the /model command. They are not set field-by-field and are never inferred from the weight filename.
      *
      * ## context_length
      *
@@ -50,7 +46,6 @@ namespace Mila::ChatApp
     export struct ChatConfig
     {
         ModelType             model_type{ ModelType::Llama };
-        ModelPrecision        precision{ ModelPrecision::BF16 };
         QuantizationMode      quantization_mode{ QuantizationMode::None };
 
         /// True when quantization_mode is a load-time choice rather than what the weights

@@ -322,6 +322,10 @@ export import Dnn.Models.QwenModel;
 export import Dnn.Models.QwenModelConfig;
 export import Dnn.Models.QwenProtocol;
 
+// An installed model by its store name, and the family switch that plans it (Deployment.md 8.1).
+export import Deployment.InstalledModel;
+export import Deployment.InstalledModelPlanner;
+
 // ============================================================================
 // Dnn - Optimizers
 // ============================================================================
@@ -363,8 +367,20 @@ export import Serialization.WeightsReader;
 export import Distribution.Sha256;
 export import Distribution.Environment;
 export import Distribution.ModelCoordinate;
+export import Distribution.ModelFile;
+export import Distribution.ModelCapabilities;
 export import Distribution.ModelManifest;
+export import Distribution.PackageValidation;
+export import Distribution.PackageRequest;
 export import Distribution.ModelPackage;
+export import Distribution.FetchOutcome;
+export import Distribution.FetchReport;
+export import Distribution.ModelRecord;
+export import Distribution.StoredModel;
+export import Distribution.RemovalReport;
+export import Distribution.StoreUsage;
+export import Distribution.InstallOptions;
+export import Distribution.CleanOptions;
 export import Distribution.ModelStore;
 export import Distribution.ModelHub;
 export import Distribution.ModelResolver;

@@ -16,8 +16,8 @@ namespace Mila::ChatApp
     /**
      * @brief Everything Chat needs to load a model, resolved from its store record.
      *
-     * Assembled rather than looked up. Architecture and variant come from the record; the rest
-     * are deployment decisions Chat owns, keyed on architecture.
+     * The family, the stored format and the capabilities are the library's answer (InstalledModel); the rest
+     * are Chat's own: whether it streams, and a quantization asked for on load.
      */
     export struct ResolvedModel
     {
@@ -27,7 +27,6 @@ namespace Mila::ChatApp
         std::filesystem::path tokenizer;
 
         ModelType family{ ModelType::Gemma };
-        ModelPrecision precision{ ModelPrecision::BF16 };
         QuantizationMode quantization{ QuantizationMode::None };
 
         /// Lineage from the record. Carried because a license that requires attribution requires
@@ -38,9 +37,13 @@ namespace Mila::ChatApp
         bool instruct{ false };
         bool streaming_capable{ false };
 
-        /// Whether the model has a reasoning channel at all. Read as a capability so the session
-        /// never offers a thinking mode the weights cannot produce.
+        /// Whether the model has a reasoning channel at all, as its manifest declares. Read as a capability so
+        /// the session never offers a thinking mode the weights cannot produce.
         bool thinking_capable{ false };
+
+        /// Trained for tool calls, and Mila's measured verdict that it works as an agent, as the manifest declares.
+        bool tools_capable{ false };
+        bool agentic{ false };
 
         /// True when the quantization is a load-time choice rather than what the weights already
         /// are. Both land in the same field, but only this one is a fact the model's name omits.

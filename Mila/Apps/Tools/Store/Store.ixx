@@ -11,6 +11,7 @@ module;
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -222,9 +223,69 @@ namespace Mila::StoreApp
             return failures == 0 ? 0 : 1;
         }
 
+        /**
+         * Whether the model runs on the card, as the planner answers against the card's whole memory: so a model
+         * already loaded elsewhere does not count against it. Empty when there is no card to ask.
+         */
+        std::string fitOn( const Mila::Deployment::InstalledModel& model, bool has_device )
+        {
+            using Mila::Dnn::WeightQuantization;
+
+            if ( !has_device )
+            {
+                return {};
+            }
+
+            if ( !model.isComplete() )
+            {
+                return "-";
+            }
+
+            Mila::Deployment::DeploymentRequest request;
+            request.withWholeDeviceMemory();
+
+            const auto fitting =
+                Mila::Deployment::fittingWeightQuantizations<Mila::Dnn::Compute::DeviceType::Cuda>( model, request );
+
+            if ( !fitting.has_value() )
+            {
+                return "unknown";
+            }
+
+            if ( fitting->empty() )
+            {
+                return "no";
+            }
+
+            if ( fitting->front() == *model.storedWeightQuantization() )
+            {
+                return "yes";
+            }
+
+            // The quantized forms the weights can be loaded at, named so the cell is also the argument to pass.
+            std::string forms;
+
+            for ( const WeightQuantization format : *fitting )
+            {
+                forms += forms.empty() ? "" : " or ";
+                forms += format == WeightQuantization::FP8 ? "fp8" : "fp4";
+            }
+
+            return "yes, at " + forms;
+        }
+
+        /// Whether CUDA device 0 is present, reading the runtime's devices once.
+        bool hasDevice()
+        {
+            Mila::initialize();
+
+            return Mila::Dnn::Compute::DeviceRegistry::instance().getDeviceCount(
+                Mila::Dnn::Compute::DeviceType::Cuda ) > 0;
+        }
+
         int listInstalled()
         {
-            const auto models = Mila::Distribution::ModelStore{}.list();
+            const auto models = Mila::Deployment::InstalledModel::list();
 
             if ( models.empty() )
             {
@@ -234,12 +295,79 @@ namespace Mila::StoreApp
                 return 0;
             }
 
+            const bool has_device = hasDevice();
+
+            std::cout << std::format( "{:<36}  {:>10}  {}\n", "MODEL", "ON DISK", has_device ? "GPU FIT" : "" );
+
             for ( const auto& model : models )
             {
-                std::cout << std::format( "{:<28}  {:>10}{}\n",
-                    model.record.name,
-                    formatBytes( model.bytes_on_disk ),
-                    model.complete ? "" : "  (incomplete)" );
+                std::cout << std::format( "{:<36}  {:>10}  {}{}\n",
+                    model.name(),
+                    formatBytes( model.stored().bytes_on_disk ),
+                    fitOn( model, has_device ),
+                    model.isComplete() ? "" : "  (incomplete)" );
+            }
+
+            return 0;
+        }
+
+        /// What one installed model is: lineage, capabilities, files, and whether it runs on this card.
+        int showInstalled( std::string_view name )
+        {
+            const auto model = Mila::Deployment::InstalledModel::find( name );
+
+            if ( !model.has_value() )
+            {
+                std::cerr << std::format( "{} is not installed. 'mila-store models' lists what is.\n", name );
+
+                return 1;
+            }
+
+            const auto& record = model->stored().record;
+            const auto capabilities = model->capabilities();
+
+            std::string can;
+
+            const auto add = [&can]( bool present, std::string_view word )
+                {
+                    if ( present )
+                    {
+                        can += can.empty() ? "" : ", ";
+                        can += word;
+                    }
+                };
+
+            add( capabilities.instruct, "instruct" );
+            add( capabilities.thinking, "thinking" );
+            add( capabilities.tools, "tools" );
+            add( capabilities.agentic, "agentic" );
+            add( model->drafter().has_value(), "MTP" );
+
+            for ( const auto& modality : capabilities.modalities )
+            {
+                add( true, modality );
+            }
+
+            const auto field = []( std::string_view label, std::string_view value )
+                {
+                    std::cout << std::format( "{:<16}{}\n", label, value.empty() ? "-" : value );
+                };
+
+            field( "Model", model->name() );
+            field( "Base model", record.base_model );
+            field( "License", record.license );
+            field( "Attribution", model->attribution() );
+            field( "Architecture", record.architecture );
+            field( "Variant", record.variant );
+            field( "Capabilities", can.empty() ? "base model" : can );
+            field( "On disk", formatBytes( model->stored().bytes_on_disk ) );
+            field( "Origin", record.origin() );
+
+            const bool has_device = hasDevice();
+
+            if ( has_device )
+            {
+                field( "GPU fit", fitOn( *model, has_device ) );
             }
 
             return 0;
@@ -398,6 +526,7 @@ namespace Mila::StoreApp
                 "  mila-store install <directory>    install a model package from disk (copied, not moved)\n"
                 "  mila-store models                 list what is installed\n"
                 "  mila-store models --online        list what is published\n"
+                "  mila-store show <name>            describe an installed model\n"
                 "  mila-store remove <name>...       remove an installed model\n"
                 "  mila-store usage [--clean]        show disk use; --clean frees interrupted downloads\n"
                 "  mila-store --version              show the version\n"
@@ -459,6 +588,18 @@ namespace Mila::StoreApp
                 }
 
                 return refuseOperands( verb, rest.front() == "--online" ? rest.subspan( 1 ) : rest );
+            }
+
+            if ( verb == "show" )
+            {
+                if ( rest.size() != 1 )
+                {
+                    std::cerr << "usage: mila-store show <name>\n";
+
+                    return 2;
+                }
+
+                return showInstalled( rest.front() );
             }
 
             if ( verb == "remove" )

@@ -905,7 +905,6 @@ static StartupConfig buildConfig( const CommandLine& line )
     {
         config.model_name        = resolved->name;
         config.model_type        = resolved->family;
-        config.precision         = resolved->precision;
         config.is_instruct       = resolved->instruct;
         config.base_model        = resolved->base_model;
         config.license           = resolved->license;

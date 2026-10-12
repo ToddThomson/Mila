@@ -2,7 +2,7 @@
  * @file Chat.ixx
  * @brief Mila chat application.
  *
- * Supports the instruct families -- Llama (FP32 or BF16), Gemma and Qwen (BF16) --
+ * Supports the instruct families -- Llama, Gemma and Qwen, at BF16 compute --
  * selected at construction via ChatConfig. The active model is stored
  * as a std::variant so each template instantiation retains its full
  * static type through the generate path. Llama instruct models use
@@ -65,13 +65,11 @@ namespace Mila::ChatApp
     using namespace Mila::Deployment;
     using namespace Mila::Data;
 
-    using LlamaModelFP32Type = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
     using LlamaModelBF16Type = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
     using GemmaModelBF16Type = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
     using QwenModelBF16Type  = QwenModel<DeviceType::Cuda, TensorDataType::BF16>;
 
     using ModelVariant = std::variant<
-        std::unique_ptr<LlamaModelFP32Type>,
         std::unique_ptr<LlamaModelBF16Type>,
         std::unique_ptr<GemmaModelBF16Type>,
         std::unique_ptr<QwenModelBF16Type>
@@ -1476,7 +1474,6 @@ namespace Mila::ChatApp
 
             config_.model_name        = resolved.name;
             config_.model_type        = resolved.family;
-            config_.precision         = resolved.precision;
             config_.is_instruct       = resolved.instruct;
             config_.base_model        = resolved.base_model;
             config_.license           = resolved.license;
@@ -1682,7 +1679,7 @@ namespace Mila::ChatApp
             // Folded before the comparison below, so `/model load LLAMA-3.2-3B-INSTRUCT-FP4`
             // against that same model resident is recognised rather than reloaded.
             const std::string name =
-                resolveStoredName( std::string( args.front() ) )
+                InstalledModel::find( args.front() ).transform( []( const InstalledModel& model ) { return model.name(); } )
                     .value_or( std::string( args.front() ) );
 
             if ( isCurrentModel( name, requested_quantization ) )
@@ -1788,7 +1785,7 @@ namespace Mila::ChatApp
             }
 
             const std::string name =
-                resolveStoredName( std::string( args.front() ) )
+                InstalledModel::find( args.front() ).transform( []( const InstalledModel& model ) { return model.name(); } )
                     .value_or( std::string( args.front() ) );
 
             // The resident model answers from the session instead, because the live deployment --
@@ -2392,7 +2389,7 @@ namespace Mila::ChatApp
                 std::cout << std::format( "  License:        {}\n", config_.license );
             }
 
-            const std::string_view attribution = requiredAttributionFor( config_.license );
+            const std::string_view attribution = requiredAttribution( config_.license );
 
             if ( !attribution.empty() )
             {
@@ -2408,11 +2405,9 @@ namespace Mila::ChatApp
                 : std::format( "{}", config_.context_length );
 
             std::cout << std::format(
-                "  Precision:      {}\n"
                 "  Quantization:   {}\n"
                 "  Context window: {}\n"
                 "  Instruct:       {}\n",
-                (config_.precision == ModelPrecision::BF16) ? "bf16" : "fp32",
                 quantizationName( config_.quantization_mode ),
                 context_line,
                 config_.is_instruct ? "yes" : "no" );
@@ -2449,20 +2444,14 @@ namespace Mila::ChatApp
             {
                 Logging::Logger::info( std::format( "Loading tokenizer from: {}", config_.tokenizer_path.string() ) );
 
-                switch ( config_.model_type )
+                const std::optional<InstalledModel> installed = InstalledModel::find( config_.model_name );
+
+                if ( !installed )
                 {
-                    case ModelType::Llama:
-                        tokenizer_ = BpeTokenizer::loadLlama32( config_.tokenizer_path );
-                        break;
-
-                    case ModelType::Gemma:
-                        tokenizer_ = BpeTokenizer::loadGemma( config_.tokenizer_path );
-                        break;
-
-                    case ModelType::Qwen:
-                        tokenizer_ = BpeTokenizer::loadQwen( config_.tokenizer_path );
-                        break;
+                    throw std::runtime_error( std::format( "'{}' is no longer installed", config_.model_name ) );
                 }
+
+                tokenizer_ = installed->loadTokenizer();
 
                 Logging::Logger::info( std::format( "Tokenizer loaded. Vocab size: {}", tokenizer_->getVocabSize() ) );
 
@@ -2548,7 +2537,7 @@ namespace Mila::ChatApp
         DeploymentRequest activeDeploymentRequest() const
         {
             DeploymentRequest request =
-                deploymentRequestFor( config_.model_type, config_.quantization_mode, config_.device_index );
+                deploymentRequestFor( config_.quantization_mode, config_.quantization_applied_at_load, config_.device_index );
 
             if ( config_.context_is_automatic )
             {
@@ -2623,11 +2612,7 @@ namespace Mila::ChatApp
                 switch ( config_.model_type )
                 {
                     case ModelType::Llama:
-                        if ( config_.precision == ModelPrecision::BF16 )
-                            adopt( LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::load( config_.model_path, request ) );
-                        else
-                            adopt( LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::load( config_.model_path, request ) );
-
+                        adopt( LlamaModelBF16Type::load( config_.model_path, request ) );
                         break;
 
                     case ModelType::Gemma:
@@ -2637,6 +2622,9 @@ namespace Mila::ChatApp
                     case ModelType::Qwen:
                         adopt( QwenModelBF16Type::load( config_.model_path, request ) );
                         break;
+
+                    default:
+                        throw std::runtime_error( std::format( "'{}' is not a family Chat runs", config_.model_name ) );
                 }
             }
             catch ( const DeploymentRefusedError& error )

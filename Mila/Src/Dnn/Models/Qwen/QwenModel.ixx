@@ -146,14 +146,18 @@ namespace Mila::Dnn
          */
         static std::expected<DeploymentPlans, DeploymentRefusal> planDeployment(
             const std::filesystem::path& path,
-            const DeploymentRequest& request )
+            const DeploymentRequest& requested )
         {
-            const DeviceId device = request.getDevice().value_or( DeviceId{ TDeviceType, 0 } );
+            const DeviceId device = requested.getDevice().value_or( DeviceId{ TDeviceType, 0 } );
 
-            validateDeployment( "QwenModel::planDeployment", request.getKvCacheCompression(), device );
+            validateDeployment( "QwenModel::planDeployment", requested.getKvCacheCompression(), device );
 
-            if ( request.getSpeculativeDecode() )
+            if ( requested.getSpeculativeDecode() )
                 throw std::invalid_argument( "QwenModel::planDeployment: Qwen has no draft model to decode with" );
+
+            // After the checks the request answers alone, so a malformed one is refused before the package is read.
+            const DeploymentRequest request =
+                requested.resolveWeightQuantization( WeightsReader( path ).getWeightQuantization() );
 
             return dispatchQwenWeightPlan<std::expected<DeploymentPlans, DeploymentRefusal>>(
                 request.getWeightQuantization(), "QwenModel::planDeployment",

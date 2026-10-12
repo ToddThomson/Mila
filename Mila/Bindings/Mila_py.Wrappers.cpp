@@ -228,14 +228,35 @@ namespace Mila::Bindings
 
     namespace
     {
+        /// The family as Python reads it, the spelling a manifest's architecture uses; empty for none this build loads.
+        std::string familyName( ModelType family )
+        {
+            switch ( family )
+            {
+                case ModelType::Gemma: return "gemma";
+                case ModelType::Llama: return "llama";
+                case ModelType::Qwen: return "qwen";
+                default: return {};
+            }
+        }
+
         StoredModelInfo describeStoredModel( const Mila::Distribution::StoredModel& model )
         {
             StoredModelInfo info;
             info.name = model.record.name;
+            const Mila::Deployment::InstalledModel installed( model );
+            const auto capabilities = installed.capabilities();
+
             info.architecture = model.record.architecture;
+            info.family = familyName( installed.family() );
             info.variant = model.record.variant;
             info.weight_quantization = model.record.weight_quantization;
-            info.instruct = model.record.instruct;
+            info.instruct = capabilities.instruct;
+            info.thinking = capabilities.thinking;
+            info.tools = capabilities.tools;
+            info.agentic = capabilities.agentic;
+            info.mtp = installed.drafter().has_value();
+            info.modalities = capabilities.modalities;
             info.base_model = model.record.base_model;
             info.license = model.record.license;
             info.hub = model.record.hub;
@@ -252,133 +273,80 @@ namespace Mila::Bindings
         }
 
         /**
-         * @brief The record for an installed model, or a failure that names the alternatives.
+         * @brief An installed model a session can load, or a failure that names the alternatives.
          *
          * The store is the only source consulted. A name that is not installed is an error
          * rather than a download: pull and load are separate verbs, and a load that reached
          * the network would turn an ordinary call into a multi-gigabyte transfer.
+         *
+         * @param family The family the calling session loads; a model of another is refused, naming its own.
          */
-        Mila::Distribution::StoredModel requireInstalledModel( const std::string& name )
+        Mila::Deployment::InstalledModel requireInstalledModel( const std::string& name, ModelType family )
         {
-            Mila::Distribution::ModelStore store;
+            const auto installed = Mila::Deployment::InstalledModel::find( name );
 
-            const auto installed = store.locate( name );
-
-            if ( installed.has_value() )
+            if ( !installed.has_value() )
             {
-                return *installed;
-            }
+                std::string available;
 
-            // locate() refuses a record whose blobs are gone, so a name that is listed and
-            // still not loadable needs its own message -- otherwise this would report a
-            // model as absent while the store's own listing shows it.
-            std::string available;
-
-            for ( const auto& model : store.list() )
-            {
-                if ( model.record.name == name && !model.complete )
+                for ( const auto& model : Mila::Deployment::InstalledModel::list() )
                 {
-                    throw std::runtime_error( std::format(
-                        "'{}' is installed but its files are missing, so it cannot be loaded.",
-                        name ) );
+                    available += available.empty() ? "" : ", ";
+                    available += model.name();
                 }
 
-                available += available.empty() ? "" : ", ";
-                available += model.record.name;
+                throw std::runtime_error( std::format(
+                    "No model named '{}' is installed. Installed: {}",
+                    name, available.empty() ? "nothing" : available ) );
             }
 
-            throw std::runtime_error( std::format(
-                "No model named '{}' is installed. Installed: {}",
-                name, available.empty() ? "nothing" : available ) );
+            // The library's refusal: missing files, or a family this build cannot deploy.
+            Mila::Deployment::requirePlannable( *installed );
+
+            if ( installed->family() != family )
+            {
+                throw std::runtime_error( std::format(
+                    "'{}' is a {} model, which this session does not load. "
+                    "Read ModelStore.locate(name).family and pick the matching session.",
+                    installed->name(), familyName( installed->family() ) ) );
+            }
+
+            return *installed;
         }
 
         /**
-         * @brief Settle a model config's quantization axes from a variant name.
+         * @brief Settle the weight format a caller names for a load from a file, in the store's words.
          *
-         * One mapping for both entry points, so "fp4" means the same thing whether it came
-         * from a store record or from a caller. The presets are used rather than the
-         * individual setters, matching what the chat harness loads.
+         * Only load() takes one: a store load takes the format the weights are stored in. A format the weights
+         * cannot serve is refused by the library's own rule when the load plans.
          */
-        template<typename TModelConfig>
-        void applyQuantizationVariant(
-            TModelConfig& model_config, const std::string& variant, const std::string& subject )
+        void applyQuantizationName( DeploymentRequest& request, const std::string& name, const std::string& subject )
         {
-            if ( variant == "fp4" )
+            if ( name == "bf16" || name == "none" )
             {
-                model_config.withFP4Quantization();
+                request.withFullPrecision();
             }
-            else if ( variant == "fp8" )
+            else if ( name == "fp8" )
             {
-                model_config.withFP8Quantization();
+                request.withFP8Quantization();
             }
-            else if ( variant == "q4_0" )
+            else if ( name == "fp4" )
             {
-                model_config.withQ4_0Quantization();
+                request.withFP4Quantization();
             }
-            else if ( variant == "bf16" || variant == "none" )
+            else if ( name == "q4_0" )
             {
-                model_config.withFullPrecision();
+                request.withQ4_0Quantization();
+            }
+            else if ( name == "cb2-3" )
+            {
+                request.withPrecisionPlan();
             }
             else
             {
                 throw std::runtime_error( std::format(
-                    "{}: '{}' is not a variant this binding can load. Expected bf16, fp8, fp4 or q4_0."
-                    "{}",
-                    subject, variant,
-                    variant == "fp32" ? " These sessions are BF16 instantiations." : "" ) );
-            }
-        }
-
-        /**
-         * @brief Settle a Qwen config's quantization axes from a variant name.
-         *
-         * Qwen does not share applyQuantizationVariant: the codebook build is a variant no other
-         * family has.
-         *
-         * Same shape as the chat harness's applyQwenQuantization, deliberately: two adaptors
-         * loading one set of weights differently is two models wearing one name.
-         */
-        template<typename TModelConfig>
-        void applyQwenQuantizationVariant(
-            TModelConfig& model_config, const std::string& variant, const std::string& subject )
-        {
-            if ( variant == "fp4" )
-            {
-                model_config.withWeightQuantization( WeightQuantization::FP4 );
-            }
-            else if ( variant == "fp8" )
-            {
-                model_config.withWeightQuantization( WeightQuantization::FP8 );
-            }
-            else if ( variant == "cb2-3" )
-            {
-                model_config.withPrecisionPlan();
-            }
-            else if ( variant == "bf16" || variant == "none" )
-            {
-                model_config.withFullPrecision();
-            }
-            else
-            {
-                throw std::runtime_error( std::format(
-                    "{}: '{}' is not a variant this binding can load. Expected bf16, fp8, fp4 "
-                    "or cb2-3.{}",
-                    subject, variant,
-                    variant == "fp32" ? " These sessions are BF16 instantiations." : "" ) );
-            }
-        }
-
-        /// The record's architecture, checked against the session class loading it.
-        void requireArchitecture(
-            const Mila::Distribution::StoredModel& model, const std::string& expected )
-        {
-            if ( model.record.architecture != expected )
-            {
-                throw std::runtime_error( std::format(
-                    "'{}' has architecture '{}', which this session does not load. "
-                    "Read ModelStore.locate(name).architecture and pick the matching session.",
-                    model.record.name,
-                    model.record.architecture.empty() ? "unknown" : model.record.architecture ) );
+                    "{}: '{}' is not a weight format. Expected bf16, fp8, fp4, q4_0 or cb2-3.{}",
+                    subject, name, name == "fp32" ? " These sessions are BF16 instantiations." : "" ) );
             }
         }
 
@@ -708,29 +676,17 @@ namespace Mila::Bindings
 
     std::shared_ptr<Tokenizer> Tokenizer::fromStore( const std::string& name )
     {
-        const auto model = requireInstalledModel( name );
+        const auto installed = Mila::Deployment::InstalledModel::find( name );
 
-        const std::string& architecture = model.record.architecture;
-        const std::string path = model.tokenizer_path.string();
-
-        if ( architecture == "gemma" )
+        if ( !installed.has_value() )
         {
-            return loadGemma( path );
+            throw std::runtime_error( std::format( "No model named '{}' is installed.", name ) );
         }
 
-        if ( architecture == "llama" )
-        {
-            return loadLlama32( path );
-        }
+        auto impl = std::make_unique<Impl>();
+        impl->tokenizer = installed->loadTokenizer();
 
-        if ( architecture == "qwen" )
-        {
-            return loadQwen( path );
-        }
-
-        throw std::runtime_error( std::format(
-            "'{}' has architecture '{}', which has no tokenizer in this binding.",
-            name, architecture.empty() ? "unknown" : architecture ) );
+        return std::shared_ptr<Tokenizer>( new Tokenizer( std::move( impl ) ) );
     }
 
     std::vector<int32_t> Tokenizer::encode( const std::string& text )
@@ -796,7 +752,7 @@ namespace Mila::Bindings
         const std::filesystem::path weights( path );
         DeploymentRequest request = sessionRequest( context_length, device_index );
 
-        applyQuantizationVariant( request, quantization, "LlamaModel.load" );
+        applyQuantizationName( request, quantization, "LlamaModel.load" );
 
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<LlamaCudaBf16>(
@@ -808,17 +764,14 @@ namespace Mila::Bindings
     std::unique_ptr<LlamaSession> LlamaSession::fromStore(
         const std::string& name, std::optional<int64_t> context_length, int device_index )
     {
-        const auto model = requireInstalledModel( name );
+        const auto model = requireInstalledModel( name, ModelType::Llama );
 
-        requireArchitecture( model, "llama" );
-
-        DeploymentRequest request = sessionRequest( context_length, device_index );
-
-        applyQuantizationVariant( request, model.record.variant, name );
+        // Names no weight format, so the library loads the one the weights are stored in.
+        const DeploymentRequest request = sessionRequest( context_length, device_index );
 
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<LlamaCudaBf16>(
-            model.weights_path, request, model.record.name, device_index );
+            model.weightsPath(), request, model.name(), device_index );
 
         return std::unique_ptr<LlamaSession>( new LlamaSession( std::move( impl ) ) );
     }
@@ -884,7 +837,7 @@ namespace Mila::Bindings
         const std::filesystem::path weights( path );
         DeploymentRequest request = sessionRequest( context_length, device_index );
 
-        applyQuantizationVariant( request, quantization, "GemmaModel.load" );
+        applyQuantizationName( request, quantization, "GemmaModel.load" );
 
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<GemmaCudaBf16>(
@@ -896,17 +849,14 @@ namespace Mila::Bindings
     std::unique_ptr<GemmaSession> GemmaSession::fromStore(
         const std::string& name, std::optional<int64_t> context_length, int device_index )
     {
-        const auto model = requireInstalledModel( name );
+        const auto model = requireInstalledModel( name, ModelType::Gemma );
 
-        requireArchitecture( model, "gemma" );
-
-        DeploymentRequest request = sessionRequest( context_length, device_index );
-
-        applyQuantizationVariant( request, model.record.variant, name );
+        // Names no weight format, so the library loads the one the weights are stored in.
+        const DeploymentRequest request = sessionRequest( context_length, device_index );
 
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<GemmaCudaBf16>(
-            model.weights_path, request, model.record.name, device_index );
+            model.weightsPath(), request, model.name(), device_index );
 
         return std::unique_ptr<GemmaSession>( new GemmaSession( std::move( impl ) ) );
     }
@@ -977,7 +927,7 @@ namespace Mila::Bindings
         const std::filesystem::path weights( path );
         DeploymentRequest request = sessionRequest( context_length, device_index );
 
-        applyQwenQuantizationVariant( request, quantization, "QwenModel.load" );
+        applyQuantizationName( request, quantization, "QwenModel.load" );
 
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<QwenCudaBf16>(
@@ -989,17 +939,14 @@ namespace Mila::Bindings
     std::unique_ptr<QwenSession> QwenSession::fromStore(
         const std::string& name, std::optional<int64_t> context_length, int device_index )
     {
-        const auto model = requireInstalledModel( name );
+        const auto model = requireInstalledModel( name, ModelType::Qwen );
 
-        requireArchitecture( model, "qwen" );
-
-        DeploymentRequest request = sessionRequest( context_length, device_index );
-
-        applyQwenQuantizationVariant( request, model.record.variant, name );
+        // Names no weight format, so the library loads the one the weights are stored in.
+        const DeploymentRequest request = sessionRequest( context_length, device_index );
 
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<QwenCudaBf16>(
-            model.weights_path, request, model.record.name, device_index );
+            model.weightsPath(), request, model.name(), device_index );
 
         return std::unique_ptr<QwenSession>( new QwenSession( std::move( impl ) ) );
     }

@@ -12,6 +12,7 @@ module;
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 export module Deployment.DeploymentRequest;
 
@@ -28,8 +29,9 @@ namespace Mila::Deployment
     /**
      * @brief A deployment request: the context length fixed or automatic, the device, and the headroom.
      *
-     * The weight format, KV-cache compression and head width are inherited from LanguageModelConfig and
-     * are always the caller's; the planner never chooses them (Deployment.md 12.1), as is a draft model. The
+     * The weight format and KV-cache compression are inherited from LanguageModelConfig and are always the
+     * caller's; the planner never chooses them (Deployment.md 12.1), as is a draft model. A request that names no
+     * weight format takes the one the weights are stored in (12.6). The
      * context length is automatic until withContextLength() fixes it. The library default is every plannable value automatic
      * and zero headroom (12.6).
      */
@@ -92,6 +94,20 @@ namespace Mila::Deployment
             return *this;
         }
 
+        /**
+         * @brief Plan against the device's whole memory rather than what is free now.
+         *
+         * What a listing asks: whether a model runs on this card at all, so that a model already loaded does not
+         * count against the others (Deployment.md 8.1). A plan made this way says what fits an empty card, and a
+         * load still plans against free memory.
+         */
+        DeploymentRequest& withWholeDeviceMemory()
+        {
+            whole_device_memory_ = true;
+
+            return *this;
+        }
+
         /// The one device to plan on (Phase 3). Unset means the family's device type at ordinal 0.
         DeploymentRequest& withDevice( DeviceId device )
         {
@@ -145,6 +161,41 @@ namespace Mila::Deployment
             return headroom_bytes_;
         }
 
+        [[nodiscard]] bool plansAgainstWholeDeviceMemory() const noexcept
+        {
+            return whole_device_memory_;
+        }
+
+        /**
+         * @brief This request with the weight format settled: the one it names, or the one the weights are stored in.
+         *
+         * A request that names no format loads the package's own (Deployment.md 12.6). A format it does name is
+         * checked against the stored one by the load, which owns the quantize-on-load rules.
+         *
+         * @param stored_scheme The scheme the weights header records; empty for reference weights.
+         * @throws std::runtime_error when the weights record a scheme this build does not know.
+         */
+        [[nodiscard]] DeploymentRequest resolveWeightQuantization( std::string_view stored_scheme ) const
+        {
+            DeploymentRequest resolved = *this;
+
+            if ( isWeightQuantizationNamed() )
+                return resolved;
+
+            const std::optional<WeightQuantization> stored = parseWeightQuantization( stored_scheme );
+
+            if ( !stored )
+            {
+                throw std::runtime_error( std::format(
+                    "DeploymentRequest: the weights are stored as '{}', which this build of Mila does not read",
+                    stored_scheme ) );
+            }
+
+            resolved.withWeightQuantization( *stored );
+
+            return resolved;
+        }
+
         [[nodiscard]] const std::optional<DeviceId>& getDevice() const noexcept
         {
             return device_;
@@ -174,6 +225,7 @@ namespace Mila::Deployment
         dim_t context_floor_{ kContextStep };
         dim_t context_ceiling_{ 0 };
         std::size_t headroom_bytes_{ 0 };
+        bool whole_device_memory_{ false };
         std::optional<DeviceId> device_;
         std::optional<SpeculativeDecode> speculative_decode_;
     };

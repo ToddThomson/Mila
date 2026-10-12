@@ -21,6 +21,7 @@ module;
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 export module Chat.ModelCatalog;
@@ -39,6 +40,11 @@ import nlohmann.json;
 
 namespace Mila::ChatApp
 {
+    using namespace Mila::Dnn;
+    using namespace Mila::Dnn::Compute;
+    using namespace Mila::Deployment;
+    using Mila::Distribution::ModelCapabilities;
+
     /**
      * @brief Where the session remembers the model it was last told to use.
      *
@@ -104,159 +110,6 @@ namespace Mila::ChatApp
         catch ( const std::exception& )
         {
         }
-    }
-
-    /**
-     * @brief The attribution a license requires be displayed wherever the model is presented.
-     *
-     * Llama 3.1 and 3.2 sections 1.b.i require "Built with Llama" on a related website, user
-     * interface, blogpost, about page or product documentation. A user interface is named there,
-     * so a session that identifies the model owes the line -- the model card on the hub discharges
-     * the same duty for the download, not for the running product.
-     *
-     * Empty for licenses that impose no display duty. Apache 2.0 requires the notice travel with
-     * the model; it does not require a UI to render one.
-     */
-    export std::string_view requiredAttributionFor( std::string_view license )
-    {
-        return license.starts_with( "llama" )
-            ? std::string_view{ "Built with Llama" }
-            : std::string_view{};
-    }
-
-    /**
-     * @brief Architecture string from the record to the family Chat dispatches on.
-     */
-    export ModelType familyFromArchitecture( std::string_view architecture )
-    {
-        if ( architecture == "gemma" )
-        {
-            return ModelType::Gemma;
-        }
-
-        if ( architecture == "llama" )
-        {
-            return ModelType::Llama;
-        }
-
-        if ( architecture == "qwen" )
-        {
-            return ModelType::Qwen;
-        }
-
-        throw std::runtime_error( std::format(
-            "Architecture '{}' is not one this build can load.", architecture ) );
-    }
-
-    /**
-     * @brief Compute precision and weight quantization, from the variant the record declares.
-     *
-     * The quantized paths run BF16 activations -- the model classes refuse anything else -- so
-     * the variant settles both axes.
-     */
-    export void axesFromVariant(
-        std::string_view variant, ModelPrecision& precision, QuantizationMode& quantization )
-    {
-        if ( variant == "fp4" )
-        {
-            precision = ModelPrecision::BF16;
-            quantization = QuantizationMode::FP4;
-        }
-        else if ( variant == "fp8" )
-        {
-            precision = ModelPrecision::BF16;
-            quantization = QuantizationMode::FP8;
-        }
-        else if ( variant == "fp32" )
-        {
-            precision = ModelPrecision::FP32;
-            quantization = QuantizationMode::None;
-        }
-        else if ( variant == "bf16" )
-        {
-            precision = ModelPrecision::BF16;
-            quantization = QuantizationMode::None;
-        }
-        else if ( variant == "cb2-3" )
-        {
-            precision = ModelPrecision::BF16;
-            quantization = QuantizationMode::Codebook;
-        }
-        else if ( variant == "q4_0" )
-        {
-            precision = ModelPrecision::BF16;
-            quantization = QuantizationMode::Q4_0;
-        }
-        else
-        {
-            throw std::runtime_error( std::format(
-                "Variant '{}' is not one this build can load. Expected bf16, fp32, fp8, fp4, "
-                "q4_0 or cb2-3.", variant ) );
-        }
-    }
-
-    /**
-     * @brief Apply a requested load-time quantization to unquantized weights.
-     *
-     * Quantizing on load is a deployment choice, like context length -- not an identity.
-     * Pre-quantized weights are a *different model*: different bytes, its own name. The same
-     * BF16 weights run at FP4 are one model deployed two ways, which is what lets an 8B whose
-     * weights are 15 GB run on a card that cannot hold them.
-     *
-     * The cost is paid at load: the full BF16 file is still read, and quantization happens on
-     * the way to the device. Pre-quantized weights avoid that read entirely, which is why they
-     * are worth producing for a model used often.
-     *
-     * @throws std::runtime_error when the weights are already quantized, since their bytes
-     *         cannot be turned back into something else.
-     */
-    void applyRequestedQuantization(
-        const std::string& name,
-        std::string_view variant,
-        QuantizationMode requested,
-        ResolvedModel& resolved )
-    {
-        const bool weights_are_quantized =
-            ( resolved.quantization != QuantizationMode::None );
-
-        if ( weights_are_quantized )
-        {
-            if ( requested != resolved.quantization )
-            {
-                throw std::runtime_error( std::format(
-                    "'{}' is already quantized as {}; its weights cannot be loaded as "
-                    "something else. Install the variant you want as its own model.",
-                    name, variant ) );
-            }
-
-            return;
-        }
-
-        if ( requested == QuantizationMode::None )
-        {
-            return;
-        }
-
-        // A codebook is fitted offline against calibration data, so there is no pass over BF16
-        // weights that produces one. Every other refusal here is about what the weights ARE;
-        // this one is about what no load path can do to them.
-        if ( requested == QuantizationMode::Codebook )
-        {
-            throw std::runtime_error( std::format(
-                "'{}' cannot be quantized to cb2-3 on the way in -- the codes are "
-                "fitted offline, so the weights either carry them or do not. Install the "
-                "codebook build as its own model.", name ) );
-        }
-
-        if ( resolved.precision != ModelPrecision::BF16 )
-        {
-            throw std::runtime_error( std::format(
-                "'{}' is an FP32 model, and quantized weights require BF16 compute.",
-                name ) );
-        }
-
-        resolved.quantization = requested;
-        resolved.quantization_applied_at_load = true;
     }
 
     /**
@@ -327,72 +180,45 @@ namespace Mila::ChatApp
         return std::format( "{}s", total );
     }
 
-    /// ASCII case folding, which is all a store name needs: names are repository names, and a
-    /// repository name is ASCII by the hub's own rules.
-    inline bool equalsIgnoringAsciiCase( std::string_view left, std::string_view right )
-    {
-        if ( left.size() != right.size() )
-        {
-            return false;
-        }
-
-        for ( std::size_t index = 0; index < left.size(); ++index )
-        {
-            const auto fold = []( char c )
-                {
-                    return ( c >= 'A' && c <= 'Z' ) ? static_cast<char>( c - 'A' + 'a' ) : c;
-                };
-
-            if ( fold( left[ index ] ) != fold( right[ index ] ) )
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     /**
-     * @brief The store's own spelling of a name, or nullopt when nothing matches.
+     * @brief What a model can do, as one line: its capabilities, MTP, then any modality besides text this build runs.
      *
-     * Exact first, then a single case-insensitive match. The fallback is a correctness fix rather
-     * than a convenience: `ModelStore::locate` resolves through `recordPath`, a filesystem path, so
-     * matching inherits the filesystem's case rules -- insensitive on Windows, sensitive on Linux.
-     * Without this the same command works on one platform and fails on the other, and the published
-     * names mix conventions (`gemma-4-12b-it-fp4` beside `Llama-3.1-8B-Instruct-fp4`), so it is
-     * reached often rather than rarely.
-     *
-     * Ambiguity resolves to nothing. Two records differing only by case is a store its owner needs
-     * to look at, and guessing between them would pick differently on the two platforms -- which is
-     * the defect this exists to remove.
+     * "base model" when it declares nothing, which is what a model published before capabilities existed reads as.
      */
-    export std::optional<std::string> resolveStoredName( const std::string& name )
+    std::string describeCapabilities( const ModelCapabilities& capabilities, bool drafts )
     {
-        Mila::Distribution::ModelStore store;
+        const std::pair<bool, std::string_view> declared[] = {
+            { capabilities.instruct, "instruct" },
+            { capabilities.thinking, "thinking" },
+            { capabilities.tools, "tools" },
+            { capabilities.agentic, "agentic" },
+            { drafts, "MTP" } };
 
-        std::optional<std::string> match;
+        std::string line;
 
-        for ( const auto& model : store.list() )
+        const auto append = [&line]( std::string_view word )
+            {
+                line += line.empty() ? "" : ", ";
+                line += word;
+            };
+
+        for ( const auto& [present, word] : declared )
         {
-            if ( model.record.name == name )
+            if ( present )
             {
-                return name;
+                append( word );
             }
-
-            if ( !equalsIgnoringAsciiCase( model.record.name, name ) )
-            {
-                continue;
-            }
-
-            if ( match.has_value() )
-            {
-                return std::nullopt;
-            }
-
-            match = model.record.name;
         }
 
-        return match;
+        for ( const auto& modality : capabilities.modalities )
+        {
+            if ( isSupportedModality( modality ) )
+            {
+                append( modality );
+            }
+        }
+
+        return line.empty() ? std::string( "base model" ) : line;
     }
 
     /**
@@ -400,8 +226,11 @@ namespace Mila::ChatApp
      *
      * The store is the only source. Nothing here consults a hub, reads a models directory or
      * accepts a path -- a load is not a deliberate act the way an install is, so it must never
-     * become a multi-gigabyte transfer.
+     * become a multi-gigabyte transfer. What the name means -- its family, its stored format, its
+     * capabilities -- is the library's answer (InstalledModel); what Chat adds is its own refusal of a
+     * base model and its own words.
      *
+     * @param requested_name The name as typed; the store folds its case.
      * @param requested_quantization Quantize unquantized weights on the way in. Empty loads
      *        the weights as they are.
      * @param audience Whether a refusal is read inside a session or at the shell.
@@ -417,13 +246,7 @@ namespace Mila::ChatApp
         const bool at_shell = ( audience == RefusalAudience::Shell );
         const std::string_view install_command = at_shell ? "mila-store install" : "/model install";
 
-        Mila::Distribution::ModelStore store;
-
-        // Folded to the store's own spelling before anything else, so every message below names
-        // the model as the store holds it rather than as it was typed.
-        const std::string name = resolveStoredName( requested_name ).value_or( requested_name );
-
-        const auto installed = store.locate( name );
+        const std::optional<InstalledModel> installed = InstalledModel::find( requested_name );
 
         if ( !installed.has_value() )
         {
@@ -431,21 +254,10 @@ namespace Mila::ChatApp
             // also fires at startup, where the session never opens and no command can be run.
             std::string available;
 
-            for ( const auto& model : store.list() )
+            for ( const auto& model : InstalledModel::list() )
             {
-                // locate() refuses a record whose blobs are gone, and the listing shows that same
-                // record -- so without this the message would name the model in its own list
-                // of what is installed while claiming it is not.
-                if ( model.record.name == name && !model.complete )
-                {
-                    throw std::runtime_error( std::format(
-                        "'{}' is installed but its files are missing, so it cannot be loaded.\n"
-                        "Reinstall it with {} {}, or drop the record with /model remove {}{}.",
-                        name, install_command, name, name, at_shell ? " inside mila-chat" : "" ) );
-                }
-
                 available += available.empty() ? "" : ", ";
-                available += model.record.name;
+                available += model.name();
             }
 
             if ( available.empty() )
@@ -453,82 +265,84 @@ namespace Mila::ChatApp
                 throw std::runtime_error( std::format(
                     "No model named '{}' is installed, and neither is anything else.\n"
                     "Install one with {} <name>, or from a package you built with "
-                    "ExportArtifact --install.", name, install_command ) );
+                    "ExportArtifact --install.", requested_name, install_command ) );
             }
 
             // Deliberately does not ask the publisher whether the name exists there. A load is the
             // offline command, and a typo must not become a network wait.
             throw std::runtime_error( std::format(
                 "No model named '{}' is installed.\nInstalled: {}\n"
-                "{} shows what can be installed.", name, available,
+                "{} shows what can be installed.", requested_name, available,
                 at_shell ? "mila-store models --online" : "/model list --online" ) );
         }
 
-        const auto& record = installed->record;
+        // Every message below names the model as the store holds it rather than as it was typed.
+        const std::string& name = installed->name();
+
+        if ( !installed->isComplete() )
+        {
+            throw std::runtime_error( std::format(
+                "'{}' is installed but its files are missing, so it cannot be loaded.\n"
+                "Reinstall it with {} {}, or drop the record with /model remove {}{}.",
+                name, install_command, name, name, at_shell ? " inside mila-chat" : "" ) );
+        }
+
+        const ModelCapabilities capabilities = installed->capabilities();
 
         // Chat is an INSTRUCT harness -- turns, templates, a system prompt, history, tool calls.
         // A base model uses none of them, and accommodating one meant switching all four off and
         // explaining why the harness was not behaving like itself. That is a second convention
         // inside one surface, so the model is refused here rather than special-cased throughout.
-        //
-        // Keyed on `instruct`, not on the architecture: a base Llama is as wrong here as GPT-2,
-        // and the store already records the answer.
-        if ( !record.instruct )
+        if ( !capabilities.instruct )
         {
             throw std::runtime_error( std::format(
                 "'{}' is a base model, and Chat is an instruct harness -- it renders turns, "
                 "applies a chat template and keeps history, none of which a base model reads.\n"
                 "Base models generate by continuing a prompt; that is what the completion sample "
-                "is for.", record.name ) );
+                "is for.", name ) );
+        }
+
+        // The library's own refusal of a family it cannot deploy, before the resident model is released.
+        requirePlannable( *installed );
+
+        const std::optional<QuantizationMode> stored = installed->storedWeightQuantization();
+
+        if ( !stored.has_value() )
+        {
+            throw std::runtime_error( std::format(
+                "'{}' stores its weights as '{}', which this build of Mila does not read.",
+                name, installed->stored().record.weight_quantization ) );
         }
 
         ResolvedModel resolved;
-        resolved.name = record.name;
-        resolved.weights = installed->weights_path;
-        resolved.tokenizer = installed->tokenizer_path;
-        resolved.family = familyFromArchitecture( record.architecture );
-        resolved.instruct = record.instruct;
-        resolved.base_model = record.base_model;
-        resolved.license = record.license;
+        resolved.name = name;
+        resolved.weights = installed->weightsPath();
+        resolved.tokenizer = installed->tokenizerPath();
+        resolved.family = installed->family();
+        resolved.instruct = capabilities.instruct;
+        resolved.base_model = installed->stored().record.base_model;
+        resolved.license = installed->license();
+        resolved.quantization = *stored;
 
-        axesFromVariant( record.variant, resolved.precision, resolved.quantization );
-
-        if ( requested_quantization.has_value() )
+        // A format other than the stored one is a quantize-on-load request, checked by the library's own rule
+        // while the resident model is still loaded, so a refusal leaves the session on its working model.
+        if ( requested_quantization.has_value() && *requested_quantization != *stored )
         {
-            applyRequestedQuantization(
-                record.name, record.variant, *requested_quantization, resolved );
+            requireStoredQuantizationMatches( name, installed->weightsPath().string(),
+                *stored == QuantizationMode::None ? std::string{} : weightQuantizationName( *stored ),
+                *requested_quantization );
+
+            resolved.quantization = *requested_quantization;
+            resolved.quantization_applied_at_load = true;
         }
 
-        // Both from the family table, where they sit in one row: streaming is a harness
-        // capability and thinking is a model one, they agree today, and reading them from
-        // adjacent fields is what makes a future disagreement visible.
-        const FamilyTraits traits = familyTraits( resolved.family );
-
-        resolved.streaming_capable = traits.streaming_capable;
-        resolved.thinking_capable = traits.thinking_capable;
+        resolved.streaming_capable = familyTraits( resolved.family ).streaming_capable;
+        resolved.thinking_capable = capabilities.thinking;
+        resolved.tools_capable = capabilities.tools;
+        resolved.agentic = capabilities.agentic;
 
         return resolved;
     }
-
-    /**
-     * @brief The contexts a row is tested at, largest first.
-     *
-     * The question a row answers is whether the model runs here AT ALL, so what the ladder
-     * establishes is that some context fits -- `/context auto` is what answers "how long", against
-     * the full 1024-step grid rather than these rungs.
-     *
-     * Every rung is tried rather than stopping at the first miss, because the footprint curve is
-     * NOT monotonic in context: it drops where prefill chunking caps the activation buffers (see
-     * Deployment.md section 5), so a rung that does not fit does not prove the ones below it will not.
-     * Measured 2026-08-17 a probe is 1-2 ms, which is what makes trying all of them affordable.
-     *
-     * The bottom rungs exist for a card with little room rather than for a family with a low
-     * ceiling: every instruct family Chat runs addresses far more than 1024 positions, so what
-     * drives a row down the ladder is the VRAM available, not the architecture.
-     */
-    inline constexpr Mila::Dnn::dim_t kContextLadder[] = {
-        131072, 65536, 32768, 16384, 8192, 4096, 2048, 1024 };
-
 
     /**
      * @brief Cell tints for a row that runs and one that does not.
@@ -549,14 +363,11 @@ namespace Mila::ChatApp
      * Three states, and the third exists because two of the ways a model can be unusable are not
      * about the GPU at all: a base model and an architecture this build lacks would fail on any
      * card. Answering those with `no` under a heading that says GPU would blame the hardware for a
-     * harness limitation, which is the mirror of the defect that retired the word SUPPORTED --
-     * that one blamed the library for a hardware limitation. So `no` means measured and too big,
-     * and `not supported` means the question does not arise.
+     * harness limitation. So `no` means planned and too big, and `not supported` means the question
+     * does not arise.
      *
      * A caveat names the quantization argument that makes the answer yes, so the cell is also the
-     * command. No context length: what fits is a range, `/context auto` reports it against the full
-     * grid, and a single rung quoted here read as a promise the table could not keep -- the ladder's
-     * top rung claimed 128K for Gemma where the session actually runs 56320.
+     * command. No context length: what fits is a range, and `/context auto` reports it.
      */
     struct RowVerdict
     {
@@ -565,101 +376,6 @@ namespace Mila::ChatApp
         /// Whether it fits, for the tint. Unknown leaves the cell uncoloured.
         FootprintVerdict verdict{ FootprintVerdict::Unknown };
     };
-
-    /// The largest ladder rung a deployment fits, or nothing and why.
-    struct LadderFit
-    {
-        /// Measured but not displayed. A single rung quoted in the table read as a promise it could
-        /// not keep -- the top rung claimed 128K for Gemma where the session runs 56320, because the
-        /// ladder tests memory alone where the library's planner also requires an unconstrained
-        /// prefill chunk. Kept because it is what the search actually found, and because a CONTEXT
-        /// column would need exactly this and the chunk test alongside it.
-        Mila::Dnn::dim_t context_length{ 0 };
-
-        bool fits{ false };
-        std::string unavailable_reason;
-    };
-
-    /**
-     * @brief The largest context this deployment fits in, or nothing and why not.
-     *
-     * @param fixed_context_length When the session names its own context, the only length worth
-     *        asking about -- "does it run at MY context" has one answer, not a largest. Zero when
-     *        context is automatic, where the ladder is walked.
-     */
-    LadderFit largestFittingContext(
-        const std::filesystem::path& weights,
-        ModelType family,
-        ModelPrecision precision,
-        QuantizationMode quantization,
-        Mila::Dnn::dim_t fixed_context_length,
-        std::size_t available_bytes,
-        int device_index )
-    {
-        LadderFit fit;
-
-        if ( fixed_context_length > 0 )
-        {
-            const FootprintPrediction prediction = predictFootprint(
-                weights, family, precision, quantization, fixed_context_length, device_index );
-
-            if ( !prediction.required )
-            {
-                fit.unavailable_reason = prediction.unavailable_reason;
-
-                return fit;
-            }
-
-            fit.context_length = fixed_context_length;
-            fit.fits = !isOverBudget( gradeFootprint( prediction.required, available_bytes ) );
-
-            return fit;
-        }
-
-        const std::size_t ceiling = familyTraits( family ).max_context;
-
-        for ( const Mila::Dnn::dim_t candidate : kContextLadder )
-        {
-            // A rung past what the architecture can address is not a shorter context to fall back
-            // to -- the load would fail on the position table, not on memory.
-            if ( static_cast<std::size_t>( candidate ) > ceiling )
-            {
-                continue;
-            }
-
-            const FootprintPrediction prediction = predictFootprint(
-                weights, family, precision, quantization, candidate, device_index );
-
-            if ( !prediction.required )
-            {
-                fit.unavailable_reason = prediction.unavailable_reason;
-
-                continue;
-            }
-
-            // Weights do not shrink with context, so once they alone are over, no shorter rung can
-            // help and every remaining probe is wasted. Same short-circuit the auto scan uses, and
-            // it turns the worst case -- a card that cannot hold the model at any length -- into
-            // the fastest. The reason is cleared because this is a measured answer, not a failure.
-            if ( prediction.required->device_parameter_bytes > available_bytes )
-            {
-                fit.unavailable_reason.clear();
-
-                return fit;
-            }
-
-            if ( !isOverBudget( gradeFootprint( prediction.required, available_bytes ) ) )
-            {
-                fit.context_length = candidate;
-                fit.fits = true;
-                fit.unavailable_reason.clear();
-
-                return fit;
-            }
-        }
-
-        return fit;
-    }
 
     /**
      * @brief The card a listing's verdicts were measured against, named once beneath the table.
@@ -679,118 +395,83 @@ namespace Mila::ChatApp
     /**
      * @brief Whether this row runs here, and what it takes.
      *
-     * Asked through the same predictor and grader the load pre-flight uses, so a row that says it
-     * runs and a load that then warns cannot disagree about anything but the machine's state.
+     * The planner's answer against the card's whole memory (Deployment.md 8.1), so the row and the load it
+     * describes are one decision -- the context ladder this replaced claimed 128K for Gemma where the session
+     * ran 56320.
      */
     RowVerdict verdictFor(
-        const Mila::Distribution::StoredModel& model,
+        const InstalledModel& model,
         Mila::Dnn::dim_t fixed_context_length,
-        std::size_t available_bytes,
         int device_index )
     {
         RowVerdict row;
 
         // The INCOMPLETE marker on the row already says what happened, so this does not repeat it.
-        if ( !model.complete )
+        if ( !model.isComplete() )
         {
             row.text = "-";
 
             return row;
         }
 
-        // Chat refuses a base model at load, so probing one would price a load that cannot happen.
-        // Said in the column the reader is already looking at rather than left for them to discover
-        // by typing /model and getting an essay.
-        if ( !model.record.instruct )
+        // Chat refuses a base model and a family it does not run at load, so planning one would price a load
+        // that cannot happen.
+        const ModelType family = model.family();
+
+        if ( !model.capabilities().instruct
+            || ( family != ModelType::Gemma && family != ModelType::Llama && family != ModelType::Qwen ) )
         {
             row.text = "not supported";
 
             return row;
         }
 
-        ModelPrecision precision{ ModelPrecision::BF16 };
-        QuantizationMode stored_quantization{ QuantizationMode::None };
-        ModelType family{ ModelType::Gemma };
+        DeploymentRequest request;
+        request.withDevice( DeviceId{ DeviceType::Cuda, device_index } ).withWholeDeviceMemory();
 
-        try
+        if ( fixed_context_length > 0 )
         {
-            axesFromVariant( model.record.variant, precision, stored_quantization );
-            family = familyFromArchitecture( model.record.architecture );
-        }
-        catch ( const std::exception& error )
-        {
-            row.text = "not supported";
-
-            return row;
+            request.withContextLength( fixed_context_length );
+        } else {
+            request.withAutomaticContextLength( DeploymentRequest::kContextStep,
+                static_cast<Mila::Dnn::dim_t>( familyTraits( family ).max_context ) );
         }
 
-        // As the weights are. A pre-quantized model offers only this, so `stored_quantization`
-        // rather than None -- for those two are different things, and it is the former /model
-        // with no argument loads.
-        const LadderFit native = largestFittingContext( model.weights_path, family, precision,
-            stored_quantization, fixed_context_length, available_bytes, device_index );
+        const std::optional<std::vector<QuantizationMode>> fitting =
+            fittingWeightQuantizations<DeviceType::Cuda>( model, request );
 
-        if ( native.fits )
-        {
-            row.verdict = FootprintVerdict::Fits;
-            row.text = "yes";
-
-            return row;
-        }
-
-        std::string reason = native.unavailable_reason;
-
-        // Quantizing on load needs BF16 compute and bytes that are not already quantized, so a
-        // pre-quantized or FP32 model has nothing further to offer.
-        if ( precision == ModelPrecision::BF16
-            && stored_quantization == QuantizationMode::None )
-        {
-            // BOTH are tried rather than stopping at the first that works, because they are not
-            // interchangeable: fp8 costs less accuracy and fp4 less memory, and which to reach for
-            // is the reader's call. A cell naming only the first would make it ours.
-            std::vector<std::string_view> forms;
-
-            for ( const QuantizationMode mode : { QuantizationMode::FP8, QuantizationMode::FP4 } )
-            {
-                const LadderFit fit = largestFittingContext( model.weights_path, family, precision,
-                    mode, fixed_context_length, available_bytes, device_index );
-
-                if ( fit.fits )
-                {
-                    forms.push_back( quantizationName( mode ) );
-                }
-                else if ( reason.empty() )
-                {
-                    reason = fit.unavailable_reason;
-                }
-            }
-
-            if ( !forms.empty() )
-            {
-                row.verdict = FootprintVerdict::Fits;
-
-                row.text = forms.size() == 1
-                    ? std::format( "yes, at {}", forms.front() )
-                    : std::format( "yes, at {} or {}", forms.front(), forms.back() );
-
-                return row;
-            }
-        }
-
-        // Nothing fit, and the two reasons for that are not the same answer: measured-and-too-big is
-        // a fact about the card, where a prediction that could not be made is one about this build.
-        // Conflating them is what the old single dash did.
-        if ( !reason.empty() )
+        // Nothing fit, and the two reasons for that are not the same answer: planned-and-too-big is
+        // a fact about the card, where a plan that could not be made is one about this build.
+        if ( !fitting.has_value() )
         {
             row.text = "unknown";
 
             return row;
         }
 
-        // Plain, with no figure: the card's capacity is named once beneath the table, so repeating
-        // it on every row that misses would be the same number several times.
-        row.verdict = FootprintVerdict::DoesNotFit;
-        row.text = "no";
+        if ( fitting->empty() )
+        {
+            // Plain, with no figure: the card's capacity is named once beneath the table, so repeating
+            // it on every row that misses would be the same number several times.
+            row.verdict = FootprintVerdict::DoesNotFit;
+            row.text = "no";
+
+            return row;
+        }
+
+        row.verdict = FootprintVerdict::Fits;
+
+        // The stored format leads, so a model that runs as it is reads "yes". Otherwise BOTH quantized forms are
+        // named, because fp8 costs less accuracy and fp4 less memory, and which to reach for is the reader's call.
+        if ( fitting->front() == *model.storedWeightQuantization() )
+        {
+            row.text = "yes";
+        } else {
+            row.text = fitting->size() == 1
+                ? std::format( "yes, at {}", quantizationName( fitting->front() ) )
+                : std::format( "yes, at {} or {}", quantizationName( fitting->front() ),
+                    quantizationName( fitting->back() ) );
+        }
 
         return row;
     }
@@ -802,16 +483,16 @@ namespace Mila::ChatApp
      * no device, and in a build with no hub at all. That default matters beyond speed: this
      * also renders --help, which runs before the runtime is initialized.
      *
-     * @param budget Engaged adds the fit column, at the price of a weights-header read and up
-     *        to a ladder of constructed graphs per row. No device memory is committed by it. The
-     *        session assembles it, because both figures in it are facts about the live session.
+     * @param budget Engaged adds the fit column, at the price of a weights-header read and a few
+     *        planned deployments per row. No device memory is committed by it. The session assembles
+     *        it, because both figures in it are facts about the live session.
      */
     export ModelListing describeInstalledModels(
         std::optional<FootprintBudget> budget = std::nullopt )
     {
         Mila::Distribution::ModelStore store;
 
-        const auto models = store.list();
+        const std::vector<InstalledModel> models = InstalledModel::list( store );
 
         ModelListing listing;
 
@@ -848,8 +529,7 @@ namespace Mila::ChatApp
             if ( budget.has_value() )
             {
                 const RowVerdict row = verdictFor(
-                    model, budget->fixed_context_length, budget->available_bytes,
-                    budget->device_index );
+                    model, budget->fixed_context_length, budget->device_index );
 
                 // Tinted after formatting and last in the row, so no width calculation has to
                 // account for the escape bytes -- which is what the memory columns had to. Colour
@@ -862,16 +542,16 @@ namespace Mila::ChatApp
             }
 
             const std::string marker =
-                ( budget.has_value() && budget->resident_model == model.record.name )
+                ( budget.has_value() && budget->resident_model == model.name() )
                     ? "* " : "  ";
 
             // A record whose blobs went missing is shown rather than hidden: a store that
             // silently omits a broken entry cannot be repaired by the person who owns it.
             listing.table.push_back( budget.has_value()
-                ? std::format( "{}{:<30}{}{}", marker, model.record.name, runs,
-                    model.complete ? "" : "  [INCOMPLETE - blobs missing]" )
-                : std::format( "{}{}{}", marker, model.record.name,
-                    model.complete ? "" : "  [INCOMPLETE - blobs missing]" ) );
+                ? std::format( "{}{:<30}{}{}", marker, model.name(), runs,
+                    model.isComplete() ? "" : "  [INCOMPLETE - blobs missing]" )
+                : std::format( "{}{}{}", marker, model.name(),
+                    model.isComplete() ? "" : "  [INCOMPLETE - blobs missing]" ) );
         }
 
         const auto usage = store.usage();
@@ -976,7 +656,7 @@ namespace Mila::ChatApp
          * `not supported` for a base model or an architecture this build lacks, which no card would
          * change; `no` and `yes` for the card.
          *
-         * Architecture, variant and instruct are decided here with certainty, which is most of why
+         * Architecture, weight format and instruct are decided here with certainty, which is most of why
          * a first install fails. Memory is not: the manifest has no geometry, so there is no
          * footprint to predict, and the download size is a LOWER bound on the device weights rather
          * than an estimate of them -- FP4 unpacks, and the unquantized tables ride along. That
@@ -987,20 +667,11 @@ namespace Mila::ChatApp
             const Mila::Distribution::ModelManifest& manifest,
             std::uint64_t bytes ) -> std::string_view
             {
-                if ( !manifest.instruct )
-                {
-                    return "not supported";
-                }
+                const ModelType family = modelTypeFromString( manifest.architecture );
 
-                try
-                {
-                    ModelPrecision precision{ ModelPrecision::BF16 };
-                    QuantizationMode quantization{ QuantizationMode::None };
-
-                    axesFromVariant( manifest.variant, precision, quantization );
-                    familyFromArchitecture( manifest.architecture );
-                }
-                catch ( const std::exception& )
+                if ( !manifest.capabilities.instruct
+                    || ( family != ModelType::Gemma && family != ModelType::Llama && family != ModelType::Qwen )
+                    || !parseWeightQuantization( manifest.weight_quantization ).has_value() )
                 {
                     return "not supported";
                 }
@@ -1124,57 +795,47 @@ namespace Mila::ChatApp
                 return std::format( "  {:<16}{}", label, value );
             };
 
-        Mila::Distribution::ModelStore store;
-
-        if ( const auto canonical = resolveStoredName( name ) )
+        if ( const std::optional<InstalledModel> model = InstalledModel::find( name ) )
         {
-            for ( const auto& model : store.list() )
+            const auto& record = model->stored().record;
+
+            std::uint64_t bytes = 0;
+
+            for ( const auto& file : record.files )
             {
-                if ( model.record.name != *canonical )
-                {
-                    continue;
-                }
-
-                const auto& record = model.record;
-
-                std::uint64_t bytes = 0;
-
-                for ( const auto& file : record.files )
-                {
-                    bytes += file.bytes;
-                }
-
-                lines.push_back( field( "Model:", record.name ) );
-
-                if ( !record.base_model.empty() )
-                {
-                    lines.push_back( field( "Base model:", record.base_model ) );
-                }
-
-                if ( !record.license.empty() )
-                {
-                    lines.push_back( field( "License:", record.license ) );
-                }
-
-                // The duty a license can impose, discharged wherever the model is presented --
-                // which this is, as much as the session status line is.
-                if ( const auto attribution = requiredAttributionFor( record.license );
-                    !attribution.empty() )
-                {
-                    lines.push_back( field( "Attribution:", attribution ) );
-                }
-
-                lines.push_back( field( "Architecture:",
-                    record.architecture.empty() ? "-" : record.architecture ) );
-                lines.push_back( field( "Variant:",
-                    record.variant.empty() ? "-" : record.variant ) );
-                lines.push_back( field( "Instruct:", record.instruct ? "yes" : "no" ) );
-                lines.push_back( field( "Installed:", model.complete
-                    ? formatBytes( bytes ) : "yes, but its files are missing" ) );
-                lines.push_back( field( "Origin:", record.origin() ) );
-
-                return lines;
+                bytes += file.bytes;
             }
+
+            lines.push_back( field( "Model:", model->name() ) );
+
+            if ( !record.base_model.empty() )
+            {
+                lines.push_back( field( "Base model:", record.base_model ) );
+            }
+
+            if ( !record.license.empty() )
+            {
+                lines.push_back( field( "License:", record.license ) );
+            }
+
+            // The duty a license can impose, discharged wherever the model is presented --
+            // which this is, as much as the session status line is.
+            if ( const auto attribution = model->attribution(); !attribution.empty() )
+            {
+                lines.push_back( field( "Attribution:", attribution ) );
+            }
+
+            lines.push_back( field( "Architecture:",
+                record.architecture.empty() ? "-" : record.architecture ) );
+            lines.push_back( field( "Variant:",
+                record.variant.empty() ? "-" : record.variant ) );
+            lines.push_back( field( "Capabilities:",
+                describeCapabilities( model->capabilities(), model->drafter().has_value() ) ) );
+            lines.push_back( field( "Installed:", model->isComplete()
+                ? formatBytes( bytes ) : "yes, but its files are missing" ) );
+            lines.push_back( field( "Origin:", record.origin() ) );
+
+            return lines;
         }
 
         // Not here, so ask the publisher. A name that is neither installed nor published costs one
@@ -1227,7 +888,7 @@ namespace Mila::ChatApp
             lines.push_back( field( "License:", manifest.license ) );
         }
 
-        if ( const auto attribution = requiredAttributionFor( manifest.license );
+        if ( const auto attribution = requiredAttribution( manifest.license );
             !attribution.empty() )
         {
             lines.push_back( field( "Attribution:", attribution ) );
@@ -1237,7 +898,9 @@ namespace Mila::ChatApp
             manifest.architecture.empty() ? "-" : manifest.architecture ) );
         lines.push_back( field( "Variant:",
             manifest.variant.empty() ? "-" : manifest.variant ) );
-        lines.push_back( field( "Instruct:", manifest.instruct ? "yes" : "no" ) );
+        // MTP needs the installed drafter and this build's support for it, so a published model reports only what
+        // its manifest declares.
+        lines.push_back( field( "Capabilities:", describeCapabilities( manifest.capabilities, false ) ) );
         lines.push_back( field( "Installed:", "no" ) );
         lines.push_back( field( "Download:", formatBytes( bytes ) ) );
 
@@ -1375,9 +1038,9 @@ namespace Mila::ChatApp
 
         Mila::Distribution::ModelStore store;
 
-        // Folded to the store's own spelling, so a name that lists and a name that removes are the
-        // same name on both platforms. See resolveStoredName.
-        const std::string name = resolveStoredName( requested_name ).value_or( requested_name );
+        // The store's own spelling, for the messages: the store folds case, so any spelling removes it.
+        const std::optional<InstalledModel> installed = InstalledModel::find( requested_name, store );
+        const std::string name = installed ? installed->name() : requested_name;
 
         const auto report = store.remove( name );
 

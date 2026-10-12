@@ -29,6 +29,8 @@ class FakeRecord:
     ):
         self.name = name
         self.architecture = architecture
+        # As the binding reports it: the library's family, empty for one no session loads.
+        self.family = architecture if architecture in ("gemma", "llama", "qwen") else ""
         self.variant = variant
         self.instruct = instruct
         self.base_model = base_model

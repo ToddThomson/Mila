@@ -142,6 +142,28 @@ namespace Mila::Tests::Deployment
 
     // Quantization.md KV decision 5: the request chooses an FP8 cache, and the planner prices exactly what the load
     // builds. Gemma's global layers take it; its sliding ring stays BF16.
+    // Deployment.md 12.6: a request that names no weight format plans the one the weights are stored in, so a caller
+    // never restates what a pre-quantized package already is. Naming another is still refused.
+    TEST_F( DeploymentLoadCudaTests, ARequestNamingNoFormatPlansTheStoredOne )
+    {
+        if ( !fs::exists( gemmaWeights() ) )
+            GTEST_SKIP() << "Not present: " << gemmaWeights().string();
+
+        const Common::ScopedCurrentCudaDevice current( ordinal_ );
+
+        const auto planned = GemmaCudaModel::planDeployment( gemmaWeights(),
+            DeploymentRequest{}.withContextLength( 4096 ).withDevice( device_ ) );
+
+        if ( !planned )
+            GTEST_SKIP() << "does not fit CUDA device " << ordinal_ << ": " << planned.error().toString();
+
+        EXPECT_EQ( planned->best().weightQuantization(), WeightQuantization::FP4 );
+
+        EXPECT_THROW( (void)GemmaCudaModel::planDeployment( gemmaWeights(),
+            DeploymentRequest{}.withFullPrecision().withContextLength( 4096 ).withDevice( device_ ) ),
+            std::exception );
+    }
+
     TEST_F( DeploymentLoadCudaTests, AnFp8KvCacheRequestIsBuiltAsPriced_Gemma )
     {
         if ( !fs::exists( gemmaWeights() ) )

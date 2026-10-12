@@ -361,13 +361,50 @@ continues, deciding again at execution. Recorded in `Mila/Issues/Vnext.md`.
   and the fit grading in `Chat.ModelCatalog.ixx` are replaced by reading the plans. `/models` renders the
   best plan's limits, or the refusal's reason. **Open at Phase 3:** the `/model list` column deliberately
   prices against the card's *capacity* (total memory), so a resident model does not count against the
-  others. Planning it needs a described reading rather than a live one, which is decision 12.5; until that
-  is decided the listing keeps its capacity pricing through `getDeploymentFootprint`, and only the load
-  path and `/context` read plans.
+  others. Planning it needs a described reading rather than a live one, which is decision 12.5; section 8.1
+  decides it for a present device, and the listing renders plans made against the device's whole memory.
 - **Python binding.** `from_store( name, context_length="auto", devices="auto" )`: the same request.
   The QuickStart samples and `getting-started.md` change with it.
 - **MIS.** Its settings (`config.py`) take `auto` for context and devices and pass them through the
   binding. MIS gains the automatic context it has never had.
+
+### 8.1 Installed models
+
+**Decided 2026-10-12 (Todd): an installed model is looked up, planned and loaded by its store name through one
+library path, in `Mila::Deployment`.** Every app must give its user model access, so what a name means is the
+library's answer, not each app's. Before this, Chat, the binding and MIS each mapped a record's `architecture` to a
+family and its `variant` to a weight format, and the three copies disagreed about which variants load.
+
+- **`InstalledModel`** looks a name up in the store (case-folded, as the store keys it) and returns the typed facts
+  an app needs before it loads anything: the name as the store spells it, the family, the stored weight format,
+  whether it is an instruct model, its licence and the attribution that licence requires, its weights and
+  tokenizer paths, and whether every file it names is present. An unknown name is no value; a model whose files are
+  missing is returned with that said, so the app that owns the message can tell its user how to repair it.
+- **The weights are the authority.** The family and the stored format a load uses are read from the weights header,
+  as every family's load already does; the record's `weight_quantization` is parsed (the inverse of
+  `weightQuantizationName`) only to answer before the header is opened -- in a listing. `variant` is display text:
+  nothing keys on it. It stays in the manifest and the record, because weights a user already has must keep
+  installing (`ModelDistribution.md` *Compatibility*).
+- **A request that names no weight format loads the package's own** (12.6, built here). A format the caller names
+  is checked against the stored one by `requireStoredQuantizationMatches`, which is the only statement of the
+  quantize-on-load rules.
+- **A family-neutral `planDeployment( installed, request )`** dispatches on the family (12.4: added beside the
+  per-family entry points, which stay). The load stays per family: every app that loads holds the family's own
+  type -- Chat for Gemma's drafter and streaming, the binding for each family's protocol -- so a load returning
+  the shared base would have no caller. An app switches on `InstalledModel::family()`, the library's enum, and
+  passes the plan.
+- **The tokenizer** is loaded through the same dispatch.
+- **Capabilities and modalities** come from the manifest (`ModelDistribution.md` *Capabilities and modalities*),
+  reported by `InstalledModel`, and each can be turned off: modalities and the drafter by the request (section
+  2.1), thinking and tool calls by the generation settings.
+- **FP32 is refused.** FP32 is GPT-2's precision; no instruct or agentic model is published at it, and an
+  installed-model load is a BF16 instantiation.
+- **A listing asks the planner** (12.5): a request may plan against the device's whole memory rather than its free
+  memory, so a model already resident does not count against the others. `/model list`, `mila-store` and MIS all
+  render that answer, and Chat's own context ladder is deleted.
+
+What stays with each app: its own refusals of models it does not serve (Chat and MIS serve instruct models only),
+its wording, and its own state, such as the model Chat last loaded.
 
 ---
 
@@ -534,6 +571,8 @@ here as a new dimension of the planner, not beside it.
    naming the reason.
 6. **The library's default request. DECIDED 2026-09-16:** every plannable knob `auto`, weight format the
    package's own, headroom zero. Apps may pin any of it — Chat's device default is `LayerSplit.md` 12.3.
+   The package's own weight format was not built until `0.21.0-dev+61` (section 8.1): until then the request
+   defaulted to reference weights, so every caller restated the stored format.
 7. **Names and the result shape. DECIDED 2026-09-23** (Todd), as the shape to start from and expected to
    move once real callers use it: `planDeployment` returns `std::expected<DeploymentPlans, DeploymentRefusal>`
    (section 3.3). Replaced: an always-returned plan marked `feasible` (it let `load` be handed a plan it
@@ -548,8 +587,12 @@ here as a new dimension of the planner, not beside it.
 4. **A family-neutral `planDeployment`. DECIDED 2026-09-23 (Todd): one per family, for now.** Chat's
    catalog already dispatches on family, and so does the binding. A family-neutral entry point reading the
    family from the package can be added later beside the per-family ones without changing them.
+   **Added 2026-10-12 (Todd), section 8.1:** every app loading by store name re-derived the family switch, and
+   the copies drifted.
 5. **Planning for hardware that is not present.** Section 4 makes it possible. Whether the request can
-   carry described devices instead of readings is a later decision.
+   carry described devices instead of readings is a later decision. **Partly decided 2026-10-12 (section 8.1):**
+   a request may plan against a present device's whole memory instead of its free memory, which is what a model
+   listing needs. Hardware that is not present stays open, and so does `DeviceReading`'s name.
 
 ---
 

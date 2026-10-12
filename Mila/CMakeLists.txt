@@ -493,6 +493,11 @@ PUBLIC
         "Src/Dnn/Models/Qwen/QwenModel.ixx"
         "Src/Dnn/Models/Qwen/Qwen.Protocol.ixx"
 
+        # An installed model by its store name, and the family switch that plans it: above the families, which it
+        # imports (Deployment.md 8.1).
+        "Src/Deployment/InstalledModel.ixx"
+        "Src/Deployment/InstalledModelPlanner.ixx"
+
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.Workspace.ixx"
 
@@ -953,8 +958,20 @@ target_sources(Mila
             "Src/Distribution/Sha256.ixx"
             "Src/Distribution/Environment.ixx"
             "Src/Distribution/ModelCoordinate.ixx"
+            "Src/Distribution/ModelFile.ixx"
+            "Src/Distribution/ModelCapabilities.ixx"
             "Src/Distribution/ModelManifest.ixx"
+            "Src/Distribution/PackageValidation.ixx"
+            "Src/Distribution/PackageRequest.ixx"
             "Src/Distribution/ModelPackage.ixx"
+            "Src/Distribution/FetchOutcome.ixx"
+            "Src/Distribution/FetchReport.ixx"
+            "Src/Distribution/ModelRecord.ixx"
+            "Src/Distribution/StoredModel.ixx"
+            "Src/Distribution/RemovalReport.ixx"
+            "Src/Distribution/StoreUsage.ixx"
+            "Src/Distribution/InstallOptions.ixx"
+            "Src/Distribution/CleanOptions.ixx"
             "Src/Distribution/ModelStore.ixx"
             "Src/Distribution/ModelHub.ixx"
             "Src/Distribution/ModelResolver.ixx"

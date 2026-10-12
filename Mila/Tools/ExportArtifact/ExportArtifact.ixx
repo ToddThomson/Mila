@@ -32,64 +32,16 @@ module;
 
 export module Tools.ExportArtifact;
 
+export import Tools.ExportArtifact.ExportOptions;
+export import Tools.ExportArtifact.InstallRequest;
+export import Tools.ExportArtifact.PackageArtifactRequest;
+
 import Mila;
 
 namespace Mila::Tools
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
-
-    export struct ExportOptions
-    {
-        std::filesystem::path source;
-        std::filesystem::path destination;
-        WeightQuantization quantization{ WeightQuantization::FP4 };
-
-        /// Load only, print a logits fingerprint, and write nothing.
-        bool fingerprint_only{ false };
-
-        /**
-         * @brief Where to assemble the package. Empty means none.
-         *
-         * Packaging hashes every file it declares, so exporting straight into the package
-         * directory is the cheap arrangement: a file already there is described in place rather
-         * than copied.
-         */
-        std::filesystem::path package_directory;
-
-        /// Tokenizer to record in the manifest. Optional.
-        std::filesystem::path tokenizer;
-
-        /// Source model's license text, required by every license Mila republishes.
-        std::filesystem::path license;
-
-        /// Attribution the source license requires be carried in a file of its own -- Llama
-        /// names a "Notice" file specifically. Optional; most licenses ask for nothing here.
-        std::filesystem::path notice;
-
-        /// Model card, carrying the statement that the weights were modified.
-        std::filesystem::path model_card;
-
-        /// Build over a package directory that already describes a model.
-        bool replace_package{ false };
-    };
-
-    /**
-     * @brief Where a package is going: the local store, with a coordinate to go under.
-     */
-    export struct InstallRequest
-    {
-        std::filesystem::path package_directory;
-
-        /// Empty takes the manifest's name, then the package directory's name.
-        std::string name;
-
-        /// Replace an existing record of the same name rather than refusing the collision.
-        bool replace{ false };
-
-        /// Copy into the store rather than moving, leaving the package intact for a hub upload.
-        bool keep_package{ false };
-    };
 
     /**
      * @brief The variant tag a plan's artifact carries, in a coordinate and in a manifest.
@@ -846,39 +798,6 @@ namespace Mila::Tools
     }
 
     /**
-     * @brief Package an artifact that already exists on disk.
-     *
-     * The counterpart to --package after an export: it takes a finished artifact rather than
-     * producing one, so migrating a file, adding a licence, or fixing a model card costs a
-     * manifest write instead of a multi-gigabyte reload on the GPU.
-     */
-    export struct PackageArtifactRequest
-    {
-        std::filesystem::path directory;
-        std::filesystem::path weights;
-        std::filesystem::path tokenizer;
-        std::filesystem::path license;
-        std::filesystem::path notice;
-        std::filesystem::path model_card;
-
-        /// Empty takes the package directory's name.
-        std::string name;
-
-        /// Empty derives the variant from the artifact itself.
-        std::string variant;
-
-        /// Lineage, published with the model.
-        std::string base_model;
-        std::string license_id;
-
-        /// Instruction-tuned. Decides the prompt template a consumer applies.
-        bool instruct{ false };
-
-        /// Build over a package directory that already describes a model.
-        bool replace{ false };
-    };
-
-    /**
      * @brief The variant an artifact is, according to the artifact.
      *
      * A pre-quantized file names its policy in metadata, which is decisive. An unquantized one
@@ -945,6 +864,17 @@ namespace Mila::Tools
             return 2;
         }
 
+        // A manifest names only the modalities Mila runs, so one this build does not run is refused at the source.
+        for ( const auto& modality : request.capabilities.modalities )
+        {
+            if ( !Mila::Deployment::isSupportedModality( modality ) )
+            {
+                std::cerr << std::format( "This build of Mila does not run the '{}' modality.\n", modality );
+
+                return 2;
+            }
+        }
+
         try
         {
             Serialization::WeightsReader reader( request.weights );
@@ -970,7 +900,8 @@ namespace Mila::Tools
             package_request.minimum_mila_version = kArtifactMinimumMilaVersion;
             package_request.base_model = request.base_model;
             package_request.license_id = request.license_id;
-            package_request.instruct = request.instruct;
+            package_request.capabilities = request.capabilities;
+            package_request.drafter = request.drafter;
             package_request.weights = request.weights;
             package_request.tokenizer = request.tokenizer;
             package_request.license = request.license;

@@ -66,7 +66,8 @@ namespace Mila::Deployment
     {
         const bool reports_memory = reading.reportsMemory();
         const std::size_t headroom = request.getHeadroom();
-        const std::size_t budget = reading.free_bytes > headroom ? reading.free_bytes - headroom : 0;
+        const std::size_t available = request.plansAgainstWholeDeviceMemory() ? reading.total_bytes : reading.free_bytes;
+        const std::size_t budget = available > headroom ? available - headroom : 0;
 
         struct Priced
         {

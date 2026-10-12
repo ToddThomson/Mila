@@ -345,11 +345,26 @@ namespace Mila::Bindings
     {
         std::string name;
         std::string architecture;
+
+        /// The family the library loads it as -- "gemma", "llama" or "qwen" -- or empty when this build has none.
+        std::string family;
+
         std::string variant;
         std::string weight_quantization;
 
         /// Instruction-tuned. Decides the prompt template a consumer applies.
         bool instruct{ false };
+
+        /// A reasoning channel; trained for tool calls; Mila's measured verdict that it works as an agent.
+        bool thinking{ false };
+        bool tools{ false };
+        bool agentic{ false };
+
+        /// It carries a draft model this build decodes with.
+        bool mtp{ false };
+
+        /// Inputs besides text this build runs for it.
+        std::vector<std::string> modalities;
 
         std::string base_model;
         std::string license;

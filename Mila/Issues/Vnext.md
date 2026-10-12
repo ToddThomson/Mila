@@ -952,17 +952,15 @@ W4A16 is what decode computes -- a probable defect, in a path no shipped build t
 build. One decision covers all three: which prefill arithmetic each 4-bit policy keeps, measured, and the rest
 deleted. Gemma's 12B leaves the path for Q4_0 in v0.21; Llama's FP4 packages stay on it.
 
-## What a plan was decided against is called a `DeviceReading`, and the model list prices against total memory
+## What a plan was decided against is called a `DeviceReading`
 
-`api` · `apps` · `mila-src`
+`api` · `mila-src`
 
 Todd, 2026-09-23: `DeviceReading` is a poor name, kept for Phase 3. It carries one device's identity, free and
 total memory and allocation granularity, taken once after the graph is built; every plan and refusal holds one,
-Chat's `-p` JSON reports its fields, and `Deployment.md` 3.3 and 9 use the word. Chat's `/model` GPU FIT column
-(`Chat.ModelCatalog.ixx`, `largestFittingContext`) still walks its own context ladder against TOTAL memory,
-deliberately, while a plan reads FREE memory; `Deployment.md` section 8 says the column renders plans. Both wait on
-`Deployment.md` 12.5, planning for a device that is described rather than read: a described device is not a
-reading, and the column needs one.
+Chat's `-p` JSON reports its fields, and `Deployment.md` 3.3 and 9 use the word. The name waits on the rest of
+`Deployment.md` 12.5, planning for hardware that is not present: a described device is not a reading. (The model
+list's pricing against whole memory, once part of this entry, moved to `BACKLOG.md` with `Deployment.md` 8.1.)
 
 ## A process's second automatic load chooses a shorter context than its first
 
@@ -1063,9 +1061,9 @@ module/header interaction in "`import Mila;` degrades the standard library" abov
 
 The architecture-to-concrete erasure exists three times in two languages — Chat's `ModelVariant`
 (`Chat.ixx:73`, ten `std::visit` sites), the binding's per-family session classes, and the
-inference server's `ModelFamily` enum (`model_worker.py:38`). Each consumer also writes its own
-bridge from the manifest's architecture string to a family (`familyFromArchitecture` in
-`Chat.ModelCatalog.ixx`, `architecture == "gemma"` in `Mila_py.Wrappers.cpp`).
+inference server's `ModelFamily` enum (`model_worker.py:38`). The bridge from a store name to a family, a
+weight format and capabilities is the library's since `0.21.0-dev+61` (`InstalledModel`, `Deployment.md` 8.1);
+what remains is the erasure itself, which every app still switches on `InstalledModel::family()` to do.
 
 One handle and one factory in the new `Mila/AI/` library (`Direction.md` §3.2, §8 decision 2). The
 architecture's *identity* — the set of names and the concrete type each resolves to — is the

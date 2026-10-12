@@ -25,14 +25,10 @@ namespace Mila::ChatApp
      */
     export struct FamilyTraits
     {
-        /// Whether the architecture has a reasoning channel at all. A property of the weights: no
-        /// configuration key can give a family a channel it was not trained with.
-        bool thinking_capable;
-
-        /// Whether the display can route this family's output token by token. A harness
-        /// capability, unlike the line above -- only Gemma's channels and tool calls are protocol
-        /// tokens a per-token router can see -- so it moves when a family's streaming path is
-        /// written, not when a checkpoint is published.
+        /// Whether the display can route this family's output token by token. A harness capability, not a
+        /// model's -- only Gemma's channels and tool calls are protocol tokens a per-token router can see -- so it
+        /// moves when a family's streaming path is written. What the model can do is its manifest's, read
+        /// through InstalledModel.
         bool streaming_capable;
 
         /// The largest context the architecture can ADDRESS, not the one it opens at. Every family
@@ -55,29 +51,23 @@ namespace Mila::ChatApp
     export constexpr FamilyTraits familyTraits( ModelType family )
     {
         constexpr FamilyTraits gemma{
-            .thinking_capable = true,
             .streaming_capable = true,
             .max_context = 131072,
             .default_context = 4096 };
 
         constexpr FamilyTraits llama{
-            .thinking_capable = false,
             .streaming_capable = false,
             .max_context = 131072,
             .default_context = 4096 };
 
-        // Thinking is native -- <think>/</think> are registered from the checkpoint vocabulary
-        // (BpeVocabulary::loadQwen) -- while streaming is not, and the two disagreeing here is
-        // exactly what the adjacent fields exist to show. Gemma's router keys on four control
-        // token ids that delimit every channel; Qwen has one pair, gating reasoning only, so a
-        // per-token router for it is a display that has not been written rather than one the
-        // weights cannot feed.
+        // Gemma's router keys on four control token ids that delimit every channel; Qwen has one
+        // pair, gating reasoning only, so a per-token router for it is a display that has not been
+        // written rather than one the weights cannot feed.
         //
         // 262144 is the checkpoint's own max_seq_length. It is far past what any card here
-        // holds, which is the footprint pre-flight's problem and not this row's: the ceiling
-        // says what the architecture can address.
+        // holds, which is the planner's problem and not this row's: the ceiling says what the
+        // architecture can address.
         constexpr FamilyTraits qwen{
-            .thinking_capable = true,
             .streaming_capable = false,
             .max_context = 262144,
             .default_context = 4096 };
@@ -85,10 +75,8 @@ namespace Mila::ChatApp
         switch ( family )
         {
             case ModelType::Gemma: return gemma;
-            case ModelType::Llama: return llama;
             case ModelType::Qwen:  return qwen;
+            default:               return llama;
         }
-
-        return llama;
     }
 }

@@ -13,6 +13,9 @@ target_sources( ExportArtifact
 PUBLIC
     FILE_SET module_files
     TYPE CXX_MODULES FILES
+        "ExportOptions.ixx"
+        "InstallRequest.ixx"
+        "PackageArtifactRequest.ixx"
         "ExportArtifact.ixx"
 )
 

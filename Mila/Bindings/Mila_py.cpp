@@ -314,11 +314,24 @@ static void bind_distribution( py::module_& m )
     py::class_<Mila::Bindings::StoredModelInfo>( m, "StoredModel" )
         .def_readonly( "name", &Mila::Bindings::StoredModelInfo::name )
         .def_readonly( "architecture", &Mila::Bindings::StoredModelInfo::architecture )
+        .def_readonly( "family", &Mila::Bindings::StoredModelInfo::family,
+            "The session that loads it: 'gemma', 'llama' or 'qwen'. Empty when this build loads none." )
         .def_readonly( "variant", &Mila::Bindings::StoredModelInfo::variant )
         .def_readonly( "weight_quantization",
             &Mila::Bindings::StoredModelInfo::weight_quantization )
         .def_readonly( "instruct", &Mila::Bindings::StoredModelInfo::instruct,
             "Instruction-tuned. Decides the prompt template a consumer applies." )
+        .def_readonly( "thinking", &Mila::Bindings::StoredModelInfo::thinking,
+            "The model has a reasoning channel." )
+        .def_readonly( "tools", &Mila::Bindings::StoredModelInfo::tools,
+            "The model was trained to call tools." )
+        .def_readonly( "agentic", &Mila::Bindings::StoredModelInfo::agentic,
+            "Measured by Mila to keep finding facts, following instructions and calling tools "
+            "correctly deep into a conversation." )
+        .def_readonly( "mtp", &Mila::Bindings::StoredModelInfo::mtp,
+            "The model carries a draft model that speeds up generation." )
+        .def_readonly( "modalities", &Mila::Bindings::StoredModelInfo::modalities,
+            "Inputs besides text the model accepts in this version of Mila." )
         .def_readonly( "base_model", &Mila::Bindings::StoredModelInfo::base_model )
         .def_readonly( "license", &Mila::Bindings::StoredModelInfo::license )
         .def_readonly( "hub", &Mila::Bindings::StoredModelInfo::hub,

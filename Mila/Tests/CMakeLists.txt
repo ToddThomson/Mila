@@ -164,6 +164,8 @@ target_sources( MilaTests PRIVATE
     "Distribution/ModelResolver.Cpu.cpp"
     "Distribution/ModelHub.Cpu.cpp"
     "Distribution/HttpClient.Cpu.cpp"
+    # An installed model by name and the manifest fields it answers from (Deployment.md 8.1). Offline.
+    "Deployment/InstalledModel.Cpu.cpp"
 )
 
 # Nothing under Distribution is gated any more. HttpClient's policy -- redirect hops, the

@@ -20,25 +20,14 @@ module;
 
 export module Distribution.ModelManifest;
 
+export import Distribution.ModelFile;
+export import Distribution.ModelCapabilities;
+
 import nlohmann.json;
 import Mila.Version;
 
 namespace Mila::Distribution
 {
-    /**
-     * @brief One file composing a model, as the manifest declares it.
-     *
-     * `path` is the name the file has at its origin, kept for diagnostics and for republishing; the
-     * bytes live at the digest.
-     */
-    export struct ModelFile
-    {
-        std::string role;
-        std::string path;
-        std::string sha256;
-        uint64_t bytes{ 0 };
-    };
-
     /**
      * @brief A model's published description.
      *
@@ -65,8 +54,8 @@ namespace Mila::Distribution
         std::string base_model;
         std::string license;
 
-        /// Instruction-tuned. Decides the prompt template, which nothing else can infer.
-        bool instruct{ false };
+        /// What the model was trained to do. `instruct` decides the prompt template, which nothing else can infer.
+        ModelCapabilities capabilities;
 
         std::vector<ModelFile> files;
 
@@ -103,6 +92,72 @@ namespace Mila::Distribution
     export inline constexpr std::string_view kLicenseRole = "license";
     export inline constexpr std::string_view kNoticeRole = "notice";
 
+    /// The draft model a package carries for speculative decoding. Its presence is the MTP claim.
+    export inline constexpr std::string_view kDrafterRole = "drafter";
+
+    /// Every model reads text, so a manifest names it for the reader and no reader needs it named.
+    export inline constexpr std::string_view kTextModality = "text";
+
+    /**
+     * @brief Read the capabilities and modalities a manifest or a store record declares.
+     *
+     * A document written before they existed carries only the top-level `instruct`, which writers keep emitting
+     * so an older Mila still reads it; `capabilities.instruct` wins where both are present.
+     */
+    export template<typename TJson>
+    ModelCapabilities readCapabilities( const TJson& json )
+    {
+        ModelCapabilities capabilities;
+        capabilities.instruct = json.value( "instruct", false );
+
+        if ( json.contains( "capabilities" ) && json[ "capabilities" ].is_object() )
+        {
+            const auto& declared = json[ "capabilities" ];
+
+            capabilities.instruct = declared.value( "instruct", capabilities.instruct );
+            capabilities.thinking = declared.value( "thinking", false );
+            capabilities.tools = declared.value( "tools", false );
+            capabilities.agentic = declared.value( "agentic", false );
+        }
+
+        if ( json.contains( "modalities" ) && json[ "modalities" ].is_array() )
+        {
+            for ( const auto& modality : json[ "modalities" ] )
+            {
+                if ( modality.is_string() && modality.template get<std::string>() != kTextModality )
+                {
+                    capabilities.modalities.push_back( modality.template get<std::string>() );
+                }
+            }
+        }
+
+        return capabilities;
+    }
+
+    /**
+     * @brief Write the capabilities and modalities into a manifest or a store record.
+     */
+    export template<typename TJson>
+    void writeCapabilities( TJson& json, const ModelCapabilities& capabilities )
+    {
+        json[ "instruct" ] = capabilities.instruct;
+        json[ "capabilities" ] = {
+            { "instruct", capabilities.instruct },
+            { "thinking", capabilities.thinking },
+            { "tools", capabilities.tools },
+            { "agentic", capabilities.agentic } };
+
+        TJson modalities = TJson::array();
+        modalities.push_back( std::string( kTextModality ) );
+
+        for ( const auto& modality : capabilities.modalities )
+        {
+            modalities.push_back( modality );
+        }
+
+        json[ "modalities" ] = modalities;
+    }
+
     /**
      * @brief Parse a manifest, refusing anything a consumer would have to guess about.
      *
@@ -129,7 +184,7 @@ namespace Mila::Distribution
         manifest.minimum_mila_version = json.value( "minimum_mila_version", std::string{} );
         manifest.base_model = json.value( "base_model", std::string{} );
         manifest.license = json.value( "license", std::string{} );
-        manifest.instruct = json.value( "instruct", false );
+        manifest.capabilities = readCapabilities( json );
 
         if ( !json.contains( "files" ) || !json[ "files" ].is_object() )
         {
@@ -203,9 +258,10 @@ namespace Mila::Distribution
             { "weight_quantization", manifest.weight_quantization },
             { "minimum_mila_version", manifest.minimum_mila_version },
             { "base_model", manifest.base_model },
-            { "license", manifest.license },
-            { "instruct", manifest.instruct },
-            { "files", files } };
+            { "license", manifest.license } };
+
+        writeCapabilities( document, manifest.capabilities );
+        document[ "files" ] = files;
 
         return document.dump( 2 ) + "\n";
     }

@@ -1,6 +1,6 @@
 /**
  * @file Chat.QuantizationMode.ixx
- * @brief The weight format a Chat session loads, and its keyword.
+ * @brief The weight format a Chat session loads, as the library names it, and Chat's keyword for each.
  */
 
 module;
@@ -9,26 +9,12 @@ module;
 
 export module Chat.QuantizationMode;
 
+import Mila;
+
 namespace Mila::ChatApp
 {
-    export enum class QuantizationMode
-    {
-        None,  ///< BF16 weights -- default.
-        FP8,   ///< FP8 weights, one scale per output channel (PerChannelFp8).
-        FP4,   ///< FP4 E2M1 weights (PerGroupFp4).
-        Q4_0,  ///< Q4_0 weights (PerGroupInt4<32>).
-
-        /**
-         * The family's own per-role bit allocation, from pre-quantized weights
-         * (WeightQuantization::Plan). Qwen 3.8 spends 2 and 3 bits per weight across the body
-         * against 4.125 on full attention, which averages 2.82.
-         *
-         * Unlike the formats above this can never be a load-time choice: a codebook is fitted
-         * offline against calibration data, so the weights either carry the codes or cannot
-         * be built this way at all.
-         */
-        Codebook,
-    };
+    /// The library's weight format, so the one an installed model reports is the one Chat loads.
+    export using QuantizationMode = Mila::Dnn::WeightQuantization;
 
     /**
      * @brief Parse a quantization keyword ("none"/"fp8"/"fp4"/"q4_0"/"cb2-3").
@@ -47,7 +33,7 @@ namespace Mila::ChatApp
         // variant a model already IS gets the load they asked for rather than a vocabulary
         // error. Naming it for a model that is not one is refused where the weights are
         // known, which is the only place the difference can be seen.
-        if ( s == "cb2-3" )              return QuantizationMode::Codebook;
+        if ( s == "cb2-3" )              return QuantizationMode::Plan;
 
         return std::nullopt;
     }
@@ -62,7 +48,7 @@ namespace Mila::ChatApp
             case QuantizationMode::FP8: return "fp8";
             case QuantizationMode::FP4: return "fp4";
             case QuantizationMode::Q4_0: return "q4_0";
-            case QuantizationMode::Codebook: return "cb2-3";
+            case QuantizationMode::Plan: return "cb2-3";
             case QuantizationMode::None: return "none";
         }
 

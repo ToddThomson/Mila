@@ -58,6 +58,13 @@ namespace
             "      --instruct                 The model is instruction-tuned. Without it the\n"
             "                                 manifest says it is not, and consumers treat it\n"
             "                                 as a base model.\n"
+            "      --thinking                 It has a reasoning channel.\n"
+            "      --tools                    It was trained for tool calls.\n"
+            "      --agentic                  Its context profile measured it working as an\n"
+            "                                 agent (ContextProfile.md). Mila's verdict, not\n"
+            "                                 the checkpoint's.\n"
+            "      --modality <name>          An input besides text this Mila runs for it.\n"
+            "      --drafter <path>           The draft model to carry for speculative decoding.\n"
             "      --base-model <id>          Lineage, published with the model.\n"
             "      --license-id <id>          License identifier, e.g. llama3.2.\n"
             "      --replace                  Build over a directory that already describes a\n"
@@ -151,7 +158,27 @@ namespace
             }
             else if ( argument == "--instruct" )
             {
-                request.instruct = true;
+                request.capabilities.instruct = true;
+            }
+            else if ( argument == "--thinking" )
+            {
+                request.capabilities.thinking = true;
+            }
+            else if ( argument == "--tools" )
+            {
+                request.capabilities.tools = true;
+            }
+            else if ( argument == "--agentic" )
+            {
+                request.capabilities.agentic = true;
+            }
+            else if ( argument == "--modality" && index + 1 < argc )
+            {
+                request.capabilities.modalities.emplace_back( argv[ ++index ] );
+            }
+            else if ( argument == "--drafter" && index + 1 < argc )
+            {
+                request.drafter = argv[ ++index ];
             }
             else if ( argument == "--replace" )
             {

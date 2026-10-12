@@ -21,6 +21,9 @@ module;
 
 export module Distribution.ModelPackage;
 
+export import Distribution.PackageValidation;
+export import Distribution.PackageRequest;
+
 import Distribution.Sha256;
 import Distribution.ModelManifest;
 
@@ -65,33 +68,12 @@ namespace Mila::Distribution
     }
 
     /**
-     * @brief What validation found.
-     *
-     * Problems and warnings are separate because they have different consequences: a problem
-     * means the bytes do not match what the manifest claims, and nothing may be emitted or
-     * installed; a warning means the package would ship without a license or a model card, which
-     * is a publishing decision rather than a corruption.
-     */
-    export struct PackageValidation
-    {
-        std::vector<std::string> problems;
-        std::vector<std::string> warnings;
-
-        /// Bytes actually read and digested.
-        uint64_t bytes_verified{ 0 };
-
-        int files_verified{ 0 };
-
-        bool ok() const noexcept { return problems.empty(); }
-    };
-
-    /**
      * @brief Everything a published or installable model is, as a directory.
      *
      * ```
      * <package>/
      *   mila.json              the manifest
-     *   <weights>.safetensors  the artifact
+     *   <weights>.safetensors  the weights
      *   <tokenizer>.bin
      *   LICENSE                the source model's license text
      *   NOTICE                 attribution the source license requires be carried verbatim
@@ -298,53 +280,6 @@ namespace Mila::Distribution
         ModelManifest manifest_;
     };
 
-    /**
-     * @brief One model's files, as a caller hands them to the packager.
-     *
-     * Paths outside the package directory are brought in; paths already inside it are left where
-     * they are. A 6.8 GB artifact exported straight into the package therefore costs no copy.
-     */
-    export struct PackageRequest
-    {
-        std::filesystem::path directory;
-
-        /// Empty takes the package directory's name.
-        std::string name;
-
-        std::string architecture;
-        std::string variant;
-        std::string weight_quantization;
-        std::string minimum_mila_version;
-
-        /// Lineage, published with the model because attribution has to travel with the weights.
-        std::string base_model;
-        std::string license_id;
-
-        /// Instruction-tuned. Decides the prompt template a consumer applies.
-        bool instruct{ false };
-
-        std::filesystem::path weights;
-        std::filesystem::path tokenizer;
-
-        std::filesystem::path license;
-
-        /// Some licenses require their attribution to travel in a file of its own rather than
-        /// inside the license text -- Llama names a "Notice" file specifically. Empty when the
-        /// source license asks for nothing beyond LICENSE.
-        std::filesystem::path notice;
-
-        std::filesystem::path model_card;
-
-        /**
-         * @brief Build over a directory that already describes a model.
-         *
-         * Off by default. One package is one model, so a manifest already there is either a
-         * rebuild the caller meant or a directory they have forgotten holds something else, and
-         * buildPackage cannot tell which -- the same reason InstallOptions::replace exists.
-         */
-        bool replace{ false };
-    };
-
     namespace
     {
         /**
@@ -526,7 +461,7 @@ namespace Mila::Distribution
         manifest.minimum_mila_version = request.minimum_mila_version;
         manifest.base_model = request.base_model;
         manifest.license = request.license_id;
-        manifest.instruct = request.instruct;
+        manifest.capabilities = request.capabilities;
 
         manifest.files.push_back(
             adoptIntoPackage( request.directory, request.weights, std::string( kWeightsRole ) ) );
@@ -541,6 +476,18 @@ namespace Mila::Distribution
 
             manifest.files.push_back( adoptIntoPackage(
                 request.directory, request.tokenizer, std::string( kTokenizerRole ) ) );
+        }
+
+        if ( !request.drafter.empty() )
+        {
+            if ( !std::filesystem::exists( request.drafter, ignored ) )
+            {
+                throw std::runtime_error( std::format(
+                    "drafter not found: {}", request.drafter.string() ) );
+            }
+
+            manifest.files.push_back( adoptIntoPackage(
+                request.directory, request.drafter, std::string( kDrafterRole ) ) );
         }
 
         // Declared, not merely copied. A pull fetches what the manifest declares and nothing
