@@ -3,11 +3,9 @@
  * @brief One file composing a model, as its manifest declares it.
  */
 
-module;
-#include <cstdint>
-#include <string>
-
 export module Distribution.ModelFile;
+
+import std.compat;
 
 namespace Mila::Distribution
 {

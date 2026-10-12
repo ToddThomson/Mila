@@ -8,6 +8,12 @@ set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 # longer drags in CUDA sources.
 add_library( Mila STATIC )
 
+# `import std;` is served by Mila's own module library, linked PUBLIC so every target that links Mila can import
+# it too. A consumer that adds Mila through FetchContent needs no `import std` setting of its own.
+include("${PROJECT_SOURCE_DIR}/cmake/StdModule.cmake")
+mila_add_std_module_library( MilaStd )
+target_link_libraries( Mila PUBLIC MilaStd )
+
 # CUDA architectures the Mila library target is compiled for. The default is a
 # portable fat binary spanning every supported arch, so a find_package consumer's
 # Mila.lib runs on any of them. This is a target property, so it overrides any global
