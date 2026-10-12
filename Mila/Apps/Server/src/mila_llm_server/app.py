@@ -56,8 +56,8 @@ register_routes(app, adapter)
 app.include_router(health_router)
 
 
-def main() -> None:
-    """The mila-server console script. Serving is configuration, so it takes no arguments."""
+def serve() -> None:
+    """Run the server, as mila-server does when given no command. Serving is configuration, so it takes none."""
     uvicorn.run(
         "mila_llm_server.app:app",
         host=settings.host,
@@ -67,4 +67,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    serve()

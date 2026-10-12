@@ -3,8 +3,8 @@
 **Status:** Review, opened 2026-10-10 at `0.21.0-dev+57`; scope decided 2026-10-11 (section 4). The utility is
 `mila-store`, a model-store tool and nothing else; MIS and Chat are applications that need no front door. **Built
 at `0.21.0-dev+58`** (section 6): the move to `Mila/Apps/`, the rename, `serve` removed, and every verb of section 4
-except `show` and the fit column. **Open:** how a user who installed only MIS gets a model, and the rest of
-section 5.
+except `show` and the fit column. **Built at `0.21.0-dev+62`** (section 7): MIS's own `models` and `install`.
+**Open:** the rest of section 5.
 
 **Why now.** Todd asked, while settling how the inference server is published (`BACKLOG.md`, Applications Ship),
 whether `mila serve` is the right way to start it, and asked for the utility to be reviewed for v0.21.0.
@@ -196,12 +196,8 @@ The `mila-package` that ships is therefore smaller than ExportArtifact, and the 
 
 ## 5. To be resolved
 
-- **How a user who installed only MIS gets a model.** MIS never downloads, and its README points at three tools
-  that are not MIS's: Chat's `/model install`, `ExportArtifact --install`, and a Python snippet. A native
-  `mila-store` is not there after a pip install. Either MIS carries its own model verbs, as Chat does with
-  `/model` — `mila-server install <name>`, `mila-server models`, thin calls into the store through the binding;
-  loading still never pulls — or section 3's shape (a) puts `mila-store` in the `mila-llm` wheel. Recommended: MIS
-  carries its own, which is what an application is.
+- **How a user who installed only MIS gets a model. Decided 2026-10-12 (Todd): MIS carries its own model
+  verbs**, as Chat does with `/model`; section 3's shape (a) is not taken. Built at `+62` (section 7).
 - **Whether the native side needs `mila-store` at all**, once each application carries its own model verbs. The
   image does: its `install` verb exists because a quick start, a Dockerfile or a CI job cannot type at Chat's prompt
   (`Docker/entrypoint-runtime.sh`).
@@ -239,3 +235,15 @@ part.
 - **Renamed in place:** the website's Get Started and Docker tab, Chat's shell hints and `--help`, the C++ quick
   start's refusal, the runtime and devel images (`/usr/local/bin/mila-store`), the devel image check, the Qwen FP4
   card in the tree (the published card changes with its next upload).
+
+## 7. As built, `0.21.0-dev+62`
+
+- **`mila-server models [--online]` and `mila-server install <name>...`**, in `cli.py`; the bare command still
+  serves and now refuses an argument it does not read, rather than dropping it. Loading still never pulls; the
+  refusal names `mila-server install <name>`.
+- **The fit verdict is the library's.** `models` asks the planner about the card `MILA_DEVICE_INDEX` names, the
+  one the server would serve on, through two binding functions over `Mila::Deployment`:
+  `stored_weight_quantization` and `fitting_weight_quantizations`. The words are `mila-store`'s.
+- **`list_hub_models` returns only repositories with a manifest**, as its documentation said and `mila-store`
+  already did; it returned every repository the owner publishes.
+- **Not built:** `show` and `remove`.

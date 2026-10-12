@@ -107,6 +107,8 @@ def test_missing_model_names_what_is_installed(store, monkeypatch):
     assert "Llama-3.2-3B-Instruct-fp4" in message
     # The refusal has to say a download is not coming, or the reading is "it failed".
     assert "loads only what is already installed" in message
+    # And name the command that installs it, from the same program.
+    assert "mila-server install gemma-4-12b-it-fp4" in message
 
 
 def test_empty_store_says_nothing_rather_than_an_empty_list(store, monkeypatch):

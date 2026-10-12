@@ -65,6 +65,7 @@ smaller first run.
 | `mila.qwen_parse_tool_call` | `(response)` → `{call id, name, arguments}` or `None` |
 | `mila.qwen_protocol_tokens` | Qwen's control tokens, for a caller that streams |
 | `mila.ModelStore` | `root`, `list`, `locate`, `remove`, `usage`, `install`, `pull`, `list_hub_models` |
+| `mila.fitting_weight_quantizations` | `(name, device_index=0)` → the weight formats an installed model runs at on the card, stored format first; `[]` when none fits. `mila.stored_weight_quantization(name)` names the stored one |
 | `mila.StopController` | `request_stop`, `stop_requested` |
 
 The store is shared with Mila's chat harness and inference server, so a model

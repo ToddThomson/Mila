@@ -101,6 +101,9 @@ the user's commands take one naming form, brought forward from v0.22.0's rebuild
 Scope grew again on 2026-10-11 (Todd), the date held: under Internal fixes, the CPU compute operations are
 retired, after the training path's tests move to CUDA. No removal.
 
+Scope grew again on 2026-10-12 (Todd), the date held: under Internal fixes, the library imports the standard
+library as a module, since Clang can no longer compile Chat and no image can be built. No removal.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -847,3 +850,40 @@ Gate: a clean configure of every preset, the full suite, the runtime image's che
 `Mila/Adaptors/` or the `mila` command except where it records the move.
 
 `Mila/Specifications/Notebooks/MilaCommandLineReview.md` 4.1 and 6 · `Mila/Apps/`
+
+#### Clang can no longer compile Chat, because every Mila module repeats the standard library's text
+
+`in progress` · `build` · `mila-src` · `api` · `ci`
+
+The runtime image build of 2026-10-12 (`0.21.0-dev+61`, Clang 21.1.8) stops at `mila-chat`'s `main.cpp`: "ran out of
+source locations". Clang addresses everything a translation unit reads in a 32-bit space, and `main.cpp` used 99%
+of it, 2.13 GB of that loaded from module files, because every module's global module fragment includes the
+standard headers again (libstdc++'s `version.h` entered 7,820 times). `Chat.ixx` compiled just under. Every module
+added moves the next importer closer, so no image, and no Linux build of the apps, can be made until it is fixed.
+
+The fix is `import std;` in the library: measured on a 60-module probe with CUDA headers in a quarter of them,
+the space one importer loads falls from 609 MB to 113 MB, and the remainder is mostly CUDA headers, about 6 MB
+per module that includes them (`D:\Claude\import-std-probe`, 2026-10-12). It also clears GitHub #30's two
+failures on MSVC, which Microsoft has fixed in a release not yet out. Settled by the probe: modules that keep
+CUDA headers in their global module fragment still work, though on MSVC an importer keeps its `#include`s before
+`import Mila;`; and CMake's `import std` support is still experimental through 4.4.4, so a library using it forces
+every FetchContent consumer to set the gate itself. Decided 2026-10-12 (Todd): Mila builds its own `std` and
+`std.compat` modules from the source the toolchain ships, found through the manifest each one publishes, until
+CMake's support is no longer experimental; a consumer that sets no gate built and ran on MSVC with CMake 4.0.1 and
+4.3.1 and on Clang with 4.2.3, and gets `import std;` through Mila. Clang's floor becomes a standard library that ships a `std`
+module (libstdc++ 15, libc++ 17).
+
+Work, each step leaving the tree building on MSVC and Clang:
+
+1. The `std` module target in the tree, as the probe built it.
+2. The plumbing in the tree and one converted module; a WSL Clang build of `mila-chat` reports its source
+   location use (`-Xclang -print-stats`), and that number is the measure for every step after.
+3. The modules in batches, by directory, the heaviest importers first, until `mila-chat` and the images build.
+4. The rest of the modules, Chat, `mila-store`, the binding, the tests and the samples, then GitHub #30's
+   workarounds deleted where the conversion removes their cause.
+
+Gate: both images build and pass their checks; every target builds on MSVC and Clang with the full suite
+passing; `QuickStart/Cpp` builds through FetchContent with no `import std` setting of its own; `CLAUDE.md` states
+the new Clang floor.
+
+`Mila/CMakeLists.txt` · GitHub #30

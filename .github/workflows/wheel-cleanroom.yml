@@ -131,3 +131,13 @@ jobs:
           fi
 
           grep -q "No model named 'no-such-model' is installed" mila-server.log
+          grep -q "mila-server install no-such-model" mila-server.log
+
+      # The model commands reach the store through the installed binding; an empty store
+      # answers before any device is asked about.
+      - name: Verify the server lists the empty store
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          mila-server models | tee mila-server-models.log
+          grep -q "mila-server install <name>" mila-server-models.log

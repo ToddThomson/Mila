@@ -2,7 +2,7 @@
 #
 # Configure + build the Mila Inference Server (MIS) inside the build container.
 #
-# MIS is the Python "wire adaptor": a FastAPI server that imports the `mila` CPython
+# MIS is a Python application: a FastAPI server that imports the `mila` CPython
 # binding and exposes it over HTTP under an OpenAI / Anthropic / Mila-native protocol,
 # so a foreign harness (Codex CLI, Claude Code CLI, ...) can drive Mila as its brain.
 #

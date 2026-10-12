@@ -24,6 +24,7 @@
 
 import Mila.Bindings;
 import Mila.Bindings.Runtime;
+import Mila.Bindings.Deployment;
 
 namespace py = pybind11;
 
@@ -436,6 +437,26 @@ static void bind_distribution( py::module_& m )
 
     m.def( "default_hub_owner", &Mila::Bindings::defaultHubOwner,
         "The hub owner Mila publishes under." );
+
+    m.def( "stored_weight_quantization", &Mila::Bindings::storedWeightQuantization, py::arg( "name" ),
+        "The weight format an installed model is stored in: 'bf16', 'fp8', 'fp4', 'q4_0' or 'cb2-3'.\n\n"
+        "Raises RuntimeError if no model of that name is installed." );
+
+    m.def( "fitting_weight_quantizations",
+        []( const std::string& name, int device_index ) {
+            py::gil_scoped_release _;
+
+            return Mila::Bindings::fittingWeightQuantizations( name, device_index );
+        },
+        py::arg( "name" ),
+        py::arg( "device_index" ) = 0,
+        "The weight formats an installed model runs at on the device, as the planner\n"
+        "answers it against the device's whole memory. Call initialize() first.\n\n"
+        "The stored format comes first when it fits. Unquantized weights also list\n"
+        "'fp8' and 'fp4' when those fit, which quantize as the model loads. An empty list\n"
+        "means nothing fits; None means the planner could not answer, as for a model\n"
+        "whose files are missing.\n\n"
+        "Raises RuntimeError if no model of that name is installed." );
 }
 
 // ============================================================================

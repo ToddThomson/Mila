@@ -126,8 +126,8 @@ class ModelWorker:
         """
         Resolve the configured name against the local store and load what it names.
 
-        MIS never pulls. A model arrives in the store through a deliberate act -- Chat's
-        /model install, or ExportArtifact --install -- and a server that downloaded 6 GB because
+        Loading never pulls. A model arrives in the store through a deliberate act --
+        mila-server install, or Chat's /model install -- and a server that downloaded 6 GB because
         a name was misspelled would be a worse failure than refusing to start.
         """
         store = mila.ModelStore()
@@ -139,10 +139,9 @@ class ModelWorker:
             raise RuntimeError(
                 f"No model named '{settings.model}' is installed in the Mila store "
                 f"({store.root}). Installed: {installed or 'nothing'}.\n"
-                "MIS loads only what is already installed. Install one with the chat "
-                "harness (/model install <name>), or with ExportArtifact --install from a "
-                "source build, then start again. In a container, chat is a second "
-                "entrypoint of this same image and shares this store."
+                "MIS loads only what is already installed. Install it with "
+                f"'mila-server install {settings.model}', then start again. "
+                "'mila-server models --online' lists what is published."
             )
 
         loaded.name = record.name

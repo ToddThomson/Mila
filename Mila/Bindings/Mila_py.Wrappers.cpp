@@ -624,6 +624,12 @@ namespace Mila::Bindings
 
         for ( const auto& entry : hub.listModels( owner ) )
         {
+            // A repository without a manifest is not something this runtime can load.
+            if ( !entry.hasManifest() )
+            {
+                continue;
+            }
+
             HubModelInfo model;
             model.owner = entry.owner;
             model.repository = entry.repository;

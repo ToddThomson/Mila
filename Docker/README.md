@@ -79,7 +79,7 @@ docker compose -f Docker/docker-compose.yml run --rm mila-dev mila-build-all
 
 ## Driving Mila from a harness (MIS)
 
-The **Mila Inference Server** is the HTTP *wire adaptor*: it serves the `mila` binding under
+The **Mila Inference Server** is an HTTP server application: it serves the `mila` binding under
 an OpenAI / Anthropic / Mila-native protocol, so a foreign harness (Codex CLI, Claude Code
 CLI, …) can use Mila as its model brain. The container is the easy path — on the host, MIS
 means reconciling a version-locked binding against an isolated venv; in the container

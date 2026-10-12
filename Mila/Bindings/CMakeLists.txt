@@ -15,6 +15,7 @@ pybind11_add_module(MilaPy
     Mila_py.cpp
     Mila_py.Wrappers.cpp
     Mila_py.Runtime.cpp
+    Mila_py.Deployment.cpp
 )
 
 # All Mila access is confined to this module interface unit; Mila_py.cpp binds
@@ -27,6 +28,7 @@ PUBLIC
     TYPE CXX_MODULES FILES
         "Mila_py.Wrappers.ixx"
         "Mila_py.Runtime.ixx"
+        "Mila_py.Deployment.ixx"
 )
 
 set_target_properties(MilaPy PROPERTIES

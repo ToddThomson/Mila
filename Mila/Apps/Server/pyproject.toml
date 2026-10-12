@@ -33,9 +33,9 @@ classifiers = [
 ]
 
 [project.scripts]
-# The whole command line: serving is configured through MILA_* environment variables
-# (or a .env beside the working directory), so there are no flags to parse.
-mila-server = "mila_llm_server.app:main"
+# With no command it serves, configured through MILA_* environment variables (or a .env
+# beside the working directory); `models` and `install` reach the store it serves from.
+mila-server = "mila_llm_server.cli:main"
 
 [project.urls]
 Homepage = "https://mila.toddt.me"

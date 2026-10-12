@@ -33,6 +33,7 @@ Complete as of `0.20.0-beta.2+45`. Source: `Mila/Bindings/Mila_py.cpp`.
 | `mila.GemmaModel` | `from_store(name, context_length="auto", device_index=0)`, `load(path, context_length="auto", device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config`, `__repr__` |
 | `mila.QwenModel` | as `GemmaModel`; `load` also takes `quantization="cb2-3"` |
 | `mila.ModelStore` | `root`, `list`, `locate`, `remove`, `usage`, `install`, `pull`, `list_hub_models` |
+| `mila.fitting_weight_quantizations` | `(name, device_index=0)` → the weight formats an installed model runs at on the card, stored format first; `[]` when none fits. `mila.stored_weight_quantization(name)` names the stored one |
 | `mila.StopController` | `request_stop`, `stop_requested` |
 
 **`generate` is the shape `LanguageModel::generate` already has** — prompt and callback in, a

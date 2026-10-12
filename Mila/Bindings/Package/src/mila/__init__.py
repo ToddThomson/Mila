@@ -70,6 +70,9 @@ __all__ = [
     "HttpResponse",
     "default_hub_owner",
     "http_transport",
+    # Deployment: whether an installed model runs on a device, as the planner answers.
+    "stored_weight_quantization",
+    "fitting_weight_quantizations",
 ]
 
 
@@ -220,6 +223,7 @@ try:
         StoreUsage,
         cuda_devices,
         default_hub_owner,
+        fitting_weight_quantizations,
         gemma_extract_answer,
         gemma_format_prompt,
         gemma_format_tool_call,
@@ -232,6 +236,7 @@ try:
         qwen_format_prompt,
         qwen_parse_tool_call,
         qwen_protocol_tokens,
+        stored_weight_quantization,
         version,
     )
 except ImportError as error:

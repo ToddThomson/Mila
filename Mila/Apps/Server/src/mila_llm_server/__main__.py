@@ -1,4 +1,6 @@
 """Makes `python -m mila_llm_server` equivalent to the mila-server console script."""
-from mila_llm_server.app import main
+import sys
 
-main()
+from mila_llm_server.cli import main
+
+sys.exit(main())

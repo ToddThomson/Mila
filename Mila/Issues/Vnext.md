@@ -413,15 +413,6 @@ the old suite never covered at all — `TensorBuffer`, the `TensorDataType*` map
 Eight `REVIEW:` markers already name the exact contracts to pin; `Specifications/Testing.Tensors.md`
 carries them.
 
-## `import Mila;` degrades the standard library in a consumer translation unit
-
-`api` · `build` · `mila-src` · `blocked`
-
-[#30](https://github.com/ToddThomson/Mila/issues/30) is the record: the three failures, the
-workarounds, the measured fix (`import std;` in the library) and its open unknowns. Standalone
-repro for the Microsoft report:
-[msvc-module-std-repro](https://github.com/ToddThomson/msvc-module-std-repro).
-
 ## A dispatch row that lies still fails as a constraint cascade
 
 `architecture` · `api` · `mila-src`
@@ -1053,7 +1044,7 @@ offline greedy simulation that prices it before anything is built.
 `WeightsMetadata.ixx` (`import nlohmann.json;`) with `json.hpp(20512): error C2678: binary '!=': no operator found
 which takes a left-hand operand of type 'nullptr'`; the Release CUDA builds compile the same file, and a Release
 build of the same directory passes. Not isolated: whether Debug or CUDA-off is the variable, and whether it is the
-module/header interaction in "`import Mila;` degrades the standard library" above. Found 2026-09-29.
+module/header interaction of GitHub #30, whose fix BACKLOG.md carries. Found 2026-09-29.
 
 ## Three places turn a model's name into the type that loads it, each its own way
 

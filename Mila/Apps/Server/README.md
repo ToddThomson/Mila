@@ -1,8 +1,8 @@
 # Mila Inference Server (MIS)
 
-A FastAPI-based HTTP inference server for [Mila](https://github.com/ToddT/Mila). MIS is the
-*wire adaptor* over the Mila runtime: it imports the `mila` Python binding and exposes it over
-HTTP under a selectable API protocol (Mila native, OpenAI, or Anthropic Messages).
+A FastAPI-based HTTP inference server for [Mila](https://github.com/ToddT/Mila). It imports the
+`mila` Python binding and serves a model over HTTP under a selectable API protocol (Mila native,
+OpenAI, or Anthropic Messages).
 
 The default model is **`gemma-4-12b-it-fp4`**; any installed Llama 3.x or Qwen 3.8 model is served
 too. MIS loads by store name, so what it can serve is whatever is installed — not a list compiled
@@ -95,22 +95,18 @@ CUDA Toolkit.
 
 ### Getting a model
 
-MIS loads a model **by name** out of the local Mila store, the same store the chat harness uses. It
-never downloads: pull and load are separate verbs, and a server that fetched 6 GB because a name was
-misspelled would be a worse failure than refusing to start. If the name is not installed, startup
-fails with a message listing what is.
+MIS serves a model **by name** out of the local Mila store, the same store Chat uses. Starting the
+server never downloads: if the name is not installed, startup fails with a message listing what is.
 
-Install one with the chat harness (`/model install gemma-4-12b-it-fp4`), with `ExportArtifact --install`
-from a package you built, or from Python:
-
-```python
-import mila
-store = mila.ModelStore()
-store.pull("gemma-4-12b-it-fp4", mila.default_hub_owner())
-print([model.name for model in store.list()])
+```
+mila-server models --online
+mila-server install gemma-4-12b-it-fp4
+mila-server models
 ```
 
-`Mila/Samples/QuickStart/Python/store.py` does the same from the command line.
+`models --online` lists what is published, `install` downloads into the store, and `models` lists
+what is installed and whether each one runs on the card `MILA_DEVICE_INDEX` names: `yes`, `no`, or
+`yes, at fp8 or fp4` for unquantized weights that fit once quantized as they load.
 
 ---
 
@@ -120,8 +116,8 @@ print([model.name for model in store.list()])
 mila-server
 ```
 
-The console script is the whole command line: serving is configured through `MILA_*` environment
-variables, or a `.env` in the working directory. `python -m mila_llm_server` is equivalent, and
+With no command it serves, configured through `MILA_*` environment variables or a `.env` in the
+working directory; it takes no flags. `python -m mila_llm_server` is equivalent, and
 `uvicorn mila_llm_server.app:app --host 0.0.0.0 --port 8000` runs the same app under your own
 uvicorn invocation.
 
