@@ -18,7 +18,7 @@ module;
 
 export module Compute.CudaDeviceProps;
 
-import std.compat;
+import std;
 import Cuda.Helpers;
 import Cuda.Error;
 
@@ -90,8 +90,8 @@ namespace Mila::Dnn::Compute
         std::string name;
         int major{ 0 };
         int minor{ 0 };
-        size_t totalGlobalMem{ 0 };
-        size_t sharedMemPerBlock{ 0 };
+        std::size_t totalGlobalMem{ 0 };
+        std::size_t sharedMemPerBlock{ 0 };
         int maxThreadsPerBlock{ 0 };
         int maxThreadsDim[3]{ 0, 0, 0 };
         int maxGridSize[3]{ 0, 0, 0 };

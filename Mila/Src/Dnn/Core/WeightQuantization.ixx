@@ -3,14 +3,9 @@
  * @brief The weight storage format a deployment asks for, and the rule a load applies to stored weights.
  */
 
-module;
-#include <format>
-#include <optional>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-
 export module Dnn.WeightQuantization;
+
+import std;
 
 namespace Mila::Dnn
 {

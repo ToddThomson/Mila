@@ -5,7 +5,7 @@
 
 export module Compute.CpuMemoryResourceTraits;
 
-import std.compat;
+import std;
 import Compute.CpuMemoryResource;
 import Compute.MemoryResourceTraits;
 
@@ -31,8 +31,8 @@ namespace Mila::Dnn::Compute
         static constexpr bool supports_aligned_allocation = true;
 
         // Memory characteristics
-        static constexpr size_t preferred_alignment = 64;  // AVX-512 alignment
-        static constexpr size_t cache_line_size = 64;
+        static constexpr std::size_t preferred_alignment = 64;  // AVX-512 alignment
+        static constexpr std::size_t cache_line_size = 64;
         static constexpr bool requires_host_synchronization = false;
         static constexpr bool supports_zero_copy = false;
 

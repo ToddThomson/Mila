@@ -7,15 +7,9 @@
  * processing, and training checkpointing.
  */
 
-module;
-#include <string>
-#include <stdexcept>
-#include <istream>
-#include <fstream>
-#include <filesystem>
-
 export module Data.BpeTrainer;
 
+import std;
 import Data.BpeVocabularyConfig;
 import Data.BpeVocabulary;
 import Data.TokenizerTrainer;
@@ -76,7 +70,7 @@ namespace Mila::Data
             while ( stream.read( buffer.data(), static_cast<std::streamsize>(buffer.size()) )
                 || stream.gcount() > 0 )
             {
-                corpus_.append( buffer.data(), static_cast<size_t>(stream.gcount()) );
+                corpus_.append( buffer.data(), static_cast<std::size_t>(stream.gcount()) );
             }
         }
 
@@ -131,7 +125,7 @@ namespace Mila::Data
         // Accessors
         // ====================================================================
 
-        size_t getCorpusSize() const
+        std::size_t getCorpusSize() const
         {
             return corpus_.size();
         }

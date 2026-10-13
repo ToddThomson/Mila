@@ -3,11 +3,9 @@
  * @brief Llama 3's rotary frequency scaling: how a checkpoint trained at a short context reads a longer one.
  */
 
-module;
-#include <stdexcept>
-
 export module Dnn.Components.RopeFrequencyScaling;
 
+import std;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn

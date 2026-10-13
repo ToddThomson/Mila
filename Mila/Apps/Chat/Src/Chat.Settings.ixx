@@ -8,16 +8,9 @@
  * have to know which layer wrote the key.
  */
 
-module;
-#include <filesystem>
-#include <map>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
-
 export module Chat.Settings;
 
+import std;
 import nlohmann.json;
 
 namespace Mila::ChatApp

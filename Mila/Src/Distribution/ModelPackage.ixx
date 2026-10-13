@@ -6,21 +6,9 @@
  * self-consistent must never be emitted. See Specifications/ModelDistribution.md.
  */
 
-module;
-#include <cstdint>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <ios>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <utility>
-#include <vector>
-
 export module Distribution.ModelPackage;
 
+import std;
 export import Distribution.PackageValidation;
 export import Distribution.PackageRequest;
 
@@ -54,7 +42,7 @@ namespace Mila::Distribution
         {
             input.read( buffer.data(), static_cast<std::streamsize>( buffer.size() ) );
 
-            const auto read = static_cast<size_t>( input.gcount() );
+            const auto read = static_cast<std::size_t>( input.gcount() );
 
             if ( read == 0 )
             {
@@ -222,7 +210,7 @@ namespace Mila::Distribution
                 return;
             }
 
-            const uint64_t bytes = std::filesystem::file_size( path, ignored );
+            const std::uint64_t bytes = std::filesystem::file_size( path, ignored );
 
             if ( file.bytes != 0 && bytes != file.bytes )
             {
@@ -263,7 +251,7 @@ namespace Mila::Distribution
             {
                 input.read( buffer, sizeof( buffer ) );
 
-                const auto read = static_cast<size_t>( input.gcount() );
+                const auto read = static_cast<std::size_t>( input.gcount() );
 
                 if ( read == 0 )
                 {

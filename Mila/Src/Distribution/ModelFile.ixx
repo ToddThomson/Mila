@@ -5,7 +5,7 @@
 
 export module Distribution.ModelFile;
 
-import std.compat;
+import std;
 
 namespace Mila::Distribution
 {
@@ -20,6 +20,6 @@ namespace Mila::Distribution
         std::string role;
         std::string path;
         std::string sha256;
-        uint64_t bytes{ 0 };
+        std::uint64_t bytes{ 0 };
     };
 }

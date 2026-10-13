@@ -1,8 +1,9 @@
 module;
-#include <memory>
 #include "../../Deps/nlohmann/json.hpp"
 
 export module nlohmann.json;
+
+import std;
 
 export namespace nlohmann
 {

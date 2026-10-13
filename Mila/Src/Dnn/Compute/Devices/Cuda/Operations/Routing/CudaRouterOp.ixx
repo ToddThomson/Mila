@@ -11,7 +11,7 @@ module;
 
 export module Compute.CudaRouterOp;
 
-import std.compat;
+import std;
 import :Dispatch;
 
 import Dnn.Components.RouterConfig;
@@ -118,7 +118,7 @@ namespace Mila::Dnn::Compute::Cuda::Routing
                 static_cast<const NativeType*>( logits.rawData() ),
                 static_cast<const NativeType*>( per_expert_scale_->rawData() ),
                 static_cast<NativeType*>( weights.rawData() ),
-                static_cast<int32_t*>( indices.rawData() ),
+                static_cast<std::int32_t*>( indices.rawData() ),
                 narrowToKernelIndex( rows ), narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ),
                 context_->getStream() );
         }

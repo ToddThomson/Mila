@@ -33,13 +33,9 @@
  * are never the same object.
  */
 
-module;
-#include <string>
-#include <cstdint>
-#include <stdexcept>
-
 export module Dnn.ModelConfig;
 
+import std;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn

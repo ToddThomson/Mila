@@ -8,14 +8,14 @@
 
 export module Dnn.TensorTypes;
 
-import std.compat;
+import std;
 
 namespace Mila::Dnn
 {
     /**
      * @brief Integer type used for tensor dimensions and indices.
      */
-    export using dim_t = int64_t;
+    export using dim_t = std::int64_t;
 
     /**
      * @brief Narrow a dim_t to the 32-bit index type used inside device kernels.
@@ -67,10 +67,10 @@ namespace Mila::Dnn
      */
     export struct TensorShape
     {
-        static constexpr uint8_t MaxRank = 6;
+        static constexpr std::uint8_t MaxRank = 6;
 
         std::array<dim_t, MaxRank> dims{};
-        uint8_t ndim{ 0 };
+        std::uint8_t ndim{ 0 };
 
         TensorShape() = default;
 
@@ -87,7 +87,7 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "TensorShape: rank exceeds MaxRank (6)" );
             }
 
-            ndim = static_cast<uint8_t>( il.size() );
+            ndim = static_cast<std::uint8_t>( il.size() );
             std::copy( il.begin(), il.end(), dims.begin() );
         }
 
@@ -104,19 +104,19 @@ namespace Mila::Dnn
          */
         TensorShape( const dim_t* first, const dim_t* last )
         {
-            const auto count = static_cast<size_t>( last - first );
+            const auto count = static_cast<std::size_t>( last - first );
 
             if ( count > MaxRank )
             {
                 throw std::invalid_argument( "TensorShape: rank exceeds MaxRank (6)" );
             }
 
-            ndim = static_cast<uint8_t>( count );
+            ndim = static_cast<std::uint8_t>( count );
             std::copy( first, last, dims.begin() );
         }
 
-        dim_t  operator[]( size_t i ) const { return dims[i]; }
-        dim_t& operator[]( size_t i ) { return dims[i]; }
+        dim_t  operator[]( std::size_t i ) const { return dims[i]; }
+        dim_t& operator[]( std::size_t i ) { return dims[i]; }
 
         const dim_t* begin() const { return dims.data(); }
         const dim_t* end() const { return dims.data() + ndim; }
@@ -129,7 +129,7 @@ namespace Mila::Dnn
         dim_t  back() const { return dims[ndim - 1]; }
         dim_t& back() { return dims[ndim - 1]; }
 
-        size_t size() const { return ndim; }
+        std::size_t size() const { return ndim; }
         bool empty() const { return ndim == 0; }
 
         /**
@@ -142,7 +142,7 @@ namespace Mila::Dnn
             if ( ndim != other.ndim ) 
                 return false;
 
-            for ( uint8_t i = 0; i < ndim; ++i )
+            for ( std::uint8_t i = 0; i < ndim; ++i )
             {
                 if ( dims[i] != other.dims[i] )
                     return false;
@@ -204,7 +204,7 @@ namespace Mila::Dnn
 
         std::string result = "[";
 
-        for ( uint8_t i = 0; i < shape.ndim; ++i )
+        for ( std::uint8_t i = 0; i < shape.ndim; ++i )
         {
             if ( i > 0 ) result += ", ";
             result += std::to_string( shape[i] );

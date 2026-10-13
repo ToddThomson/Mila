@@ -3,10 +3,9 @@
  * @brief Detects a per-group weight format whose codes are unsigned 6-bit integers offset by 32.
  */
 
-module;
-#include <concepts>
-
 export module Dnn.Quantization.Weight.HasInt6Codes;
+
+import std;
 
 namespace Mila::Dnn::Quant::Weight
 {

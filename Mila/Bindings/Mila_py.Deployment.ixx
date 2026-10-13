@@ -5,13 +5,9 @@
  * Kept apart from Mila.Bindings for the reason Mila.Bindings.Runtime is: Mila_py.cpp must not import Mila.
  */
 
-module;
-
-#include <optional>
-#include <string>
-#include <vector>
-
 export module Mila.Bindings.Deployment;
+
+import std;
 
 namespace Mila::Bindings
 {

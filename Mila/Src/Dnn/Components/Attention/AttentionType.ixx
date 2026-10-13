@@ -3,11 +3,9 @@
  * @brief Defines attention mechanism types used by transformer components.
  */
 
-module;
-#include <string>
-#include <stdexcept>
-
 export module Dnn.AttentionType;
+
+import std;
 
 namespace Mila::Dnn
 {

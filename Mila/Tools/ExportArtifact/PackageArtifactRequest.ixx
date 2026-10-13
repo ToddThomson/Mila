@@ -3,12 +3,9 @@
  * @brief A package to assemble around weights that already exist.
  */
 
-module;
-#include <filesystem>
-#include <string>
-
 export module Tools.ExportArtifact.PackageArtifactRequest;
 
+import std;
 import Mila;
 
 namespace Mila::Tools

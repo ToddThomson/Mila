@@ -11,7 +11,7 @@
 
 export module Dnn.TensorDataTypeTraits;
 
-import std.compat;
+import std;
 import Dnn.TensorDataType;
 import Compute.DeviceType;
 import Compute.MemoryResource;
@@ -51,7 +51,7 @@ namespace Mila::Dnn
      * @tparam TDataType Abstract tensor data type from `TensorDataType` enum.
      */
     export template<TensorDataType TDataType>
-        using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
+        using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, std::int32_t, float>;
 
     /**
      * @brief Traits specialization for 32-bit IEEE 754 floating point
@@ -64,8 +64,8 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = true;     ///< Floating-point type classification
         static constexpr bool is_integer_type = false;  ///< Not an integer type
         static constexpr bool is_device_only = false;   ///< Compatible with host environments
-        static constexpr size_t size_in_bytes = 4;      ///< Memory footprint per element
-        static constexpr size_t alignment = 4;          ///< Required memory alignment
+        static constexpr std::size_t size_in_bytes = 4;      ///< Memory footprint per element
+        static constexpr std::size_t alignment = 4;          ///< Required memory alignment
         static constexpr const char* type_name = "FP32"; ///< Human-readable type identifier
         static constexpr bool supported_on_cpu = true;
         static constexpr bool supported_on_cuda = true;
@@ -83,8 +83,8 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = true;     ///< Floating-point type classification
         static constexpr bool is_integer_type = false;  ///< Not an integer type
         static constexpr bool is_device_only = true;    ///< Requires device-accessible memory
-        static constexpr size_t size_in_bytes = 2;      ///< Memory footprint per element
-        static constexpr size_t alignment = 2;          ///< Required memory alignment
+        static constexpr std::size_t size_in_bytes = 2;      ///< Memory footprint per element
+        static constexpr std::size_t alignment = 2;          ///< Required memory alignment
         static constexpr const char* type_name = "FP16"; ///< Human-readable type identifier
         static constexpr bool supported_on_cpu = false;
         static constexpr bool supported_on_cuda = true;
@@ -103,8 +103,8 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = true;     ///< Floating-point type classification
         static constexpr bool is_integer_type = false;  ///< Not an integer type
         static constexpr bool is_device_only = true;    ///< Requires device-accessible memory
-        static constexpr size_t size_in_bytes = 2;      ///< Memory footprint per element
-        static constexpr size_t alignment = 2;          ///< Required memory alignment
+        static constexpr std::size_t size_in_bytes = 2;      ///< Memory footprint per element
+        static constexpr std::size_t alignment = 2;          ///< Required memory alignment
         static constexpr const char* type_name = "BF16"; ///< Human-readable type identifier
         static constexpr bool supported_on_cpu = false;
         static constexpr bool supported_on_cuda = true;
@@ -123,8 +123,8 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = true;      ///< Floating-point type classification
         static constexpr bool is_integer_type = false;   ///< Not an integer type
         static constexpr bool is_device_only = true;     ///< Requires device-accessible memory
-        static constexpr size_t size_in_bytes = 1;       ///< Memory footprint per element
-        static constexpr size_t alignment = 1;           ///< Required memory alignment
+        static constexpr std::size_t size_in_bytes = 1;       ///< Memory footprint per element
+        static constexpr std::size_t alignment = 1;           ///< Required memory alignment
         static constexpr const char* type_name = "FP8_E4M3"; ///< Human-readable type identifier
         static constexpr bool supported_on_cpu = false;
         static constexpr bool supported_on_cuda = true;
@@ -142,8 +142,8 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = true;          ///< Floating-point type classification
         static constexpr bool is_integer_type = false;       ///< Not an integer type
         static constexpr bool is_device_only = true;         ///< Requires device-accessible memory
-        static constexpr size_t size_in_bytes = 1;           ///< Memory footprint per element
-        static constexpr size_t alignment = 1;               ///< Required memory alignment
+        static constexpr std::size_t size_in_bytes = 1;           ///< Memory footprint per element
+        static constexpr std::size_t alignment = 1;               ///< Required memory alignment
         static constexpr const char* type_name = "FP8_E5M2"; ///< Human-readable type identifier
         static constexpr bool supported_on_cpu = false;
         static constexpr bool supported_on_cuda = true;
@@ -163,9 +163,9 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = true;
         static constexpr bool is_integer_type = false;
         static constexpr bool is_device_only = true;
-        static constexpr size_t bits_per_element = 4;        ///< Logical element width in bits
-        static constexpr size_t size_in_bytes = 1;           ///< Two FP4 values packed per byte
-        static constexpr size_t alignment = 1;
+        static constexpr std::size_t bits_per_element = 4;        ///< Logical element width in bits
+        static constexpr std::size_t size_in_bytes = 1;           ///< Two FP4 values packed per byte
+        static constexpr std::size_t alignment = 1;
         static constexpr const char* type_name = "FP4_E2M1";
         static constexpr bool supported_on_cpu = false;
         static constexpr bool supported_on_cuda = true;
@@ -185,9 +185,9 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = true;
         static constexpr bool is_integer_type = false;
         static constexpr bool is_device_only = true;
-        static constexpr size_t bits_per_element = 4;        ///< Logical element width in bits
-        static constexpr size_t size_in_bytes = 1;           ///< Two FP4 values packed per byte
-        static constexpr size_t alignment = 1;
+        static constexpr std::size_t bits_per_element = 4;        ///< Logical element width in bits
+        static constexpr std::size_t size_in_bytes = 1;           ///< Two FP4 values packed per byte
+        static constexpr std::size_t alignment = 1;
         static constexpr const char* type_name = "FP4_E3M0";
         static constexpr bool supported_on_cpu = false;
         static constexpr bool supported_on_cuda = true;
@@ -205,8 +205,8 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = false;     ///< Not a floating-point type
         static constexpr bool is_integer_type = true;    ///< Integer type classification
         static constexpr bool is_device_only = false;    ///< Compatible with host environments
-        static constexpr size_t size_in_bytes = 2;       ///< Memory footprint per element
-        static constexpr size_t alignment = 2;           ///< Required memory alignment
+        static constexpr std::size_t size_in_bytes = 2;       ///< Memory footprint per element
+        static constexpr std::size_t alignment = 2;           ///< Required memory alignment
         static constexpr const char* type_name = "INT16"; ///< Human-readable type identifier
     };
 
@@ -221,8 +221,8 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = false;     ///< Not a floating-point type
         static constexpr bool is_integer_type = true;    ///< Integer type classification
         static constexpr bool is_device_only = false;    ///< Compatible with host environments
-        static constexpr size_t size_in_bytes = 4;       ///< Memory footprint per element
-        static constexpr size_t alignment = 4;           ///< Required memory alignment
+        static constexpr std::size_t size_in_bytes = 4;       ///< Memory footprint per element
+        static constexpr std::size_t alignment = 4;           ///< Required memory alignment
         static constexpr const char* type_name = "INT32"; ///< Human-readable type identifier
     };
 
@@ -237,8 +237,8 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = false;     ///< Not a floating-point type
         static constexpr bool is_integer_type = true;    ///< Integer type classification
         static constexpr bool is_device_only = false;    ///< Compatible with host environments
-        static constexpr size_t size_in_bytes = 1;       ///< Memory footprint per element
-        static constexpr size_t alignment = 1;           ///< Required memory alignment
+        static constexpr std::size_t size_in_bytes = 1;       ///< Memory footprint per element
+        static constexpr std::size_t alignment = 1;           ///< Required memory alignment
         static constexpr const char* type_name = "INT8"; ///< Human-readable type identifier
     };
 
@@ -253,8 +253,8 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = false;     ///< Not a floating-point type
         static constexpr bool is_integer_type = true;    ///< Integer type classification
         static constexpr bool is_device_only = false;    ///< Compatible with host environments
-        static constexpr size_t size_in_bytes = 1;       ///< Memory footprint per element
-        static constexpr size_t alignment = 1;           ///< Required memory alignment
+        static constexpr std::size_t size_in_bytes = 1;       ///< Memory footprint per element
+        static constexpr std::size_t alignment = 1;           ///< Required memory alignment
         static constexpr const char* type_name = "UINT8"; ///< Human-readable type identifier
     };
 
@@ -269,8 +269,8 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = false;     ///< Not a floating-point type
         static constexpr bool is_integer_type = true;    ///< Integer type classification
         static constexpr bool is_device_only = false;    ///< Compatible with host environments
-        static constexpr size_t size_in_bytes = 2;       ///< Memory footprint per element
-        static constexpr size_t alignment = 2;           ///< Required memory alignment
+        static constexpr std::size_t size_in_bytes = 2;       ///< Memory footprint per element
+        static constexpr std::size_t alignment = 2;           ///< Required memory alignment
         static constexpr const char* type_name = "UINT16"; ///< Human-readable type identifier
     };
 
@@ -285,8 +285,8 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = false;     ///< Not a floating-point type
         static constexpr bool is_integer_type = true;    ///< Integer type classification
         static constexpr bool is_device_only = false;    ///< Compatible with host environments
-        static constexpr size_t size_in_bytes = 4;       ///< Memory footprint per element
-        static constexpr size_t alignment = 4;           ///< Required memory alignment
+        static constexpr std::size_t size_in_bytes = 4;       ///< Memory footprint per element
+        static constexpr std::size_t alignment = 4;           ///< Required memory alignment
         static constexpr const char* type_name = "UINT32"; ///< Human-readable type identifier
     };
 

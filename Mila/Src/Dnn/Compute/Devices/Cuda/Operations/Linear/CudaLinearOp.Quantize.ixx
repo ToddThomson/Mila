@@ -25,7 +25,7 @@ module;
 
 export module Compute.CudaLinearOp:Quantize;
 
-import std.compat;
+import std;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Serialization.Tensor;
@@ -75,8 +75,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     meta.shape[ 0 ],     meta.shape[ 1 ] ) );
             }
 
-            const int64_t out_features = static_cast<int64_t>( expected_shape[ 0 ] );
-            const int64_t in_features  = static_cast<int64_t>( expected_shape[ 1 ] );
+            const std::int64_t out_features = static_cast<std::int64_t>( expected_shape[ 0 ] );
+            const std::int64_t in_features  = static_cast<std::int64_t>( expected_shape[ 1 ] );
 
             cuda_quantize_fp8_per_channel(
                 blob.data(),
@@ -125,8 +125,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     meta.shape[ 0 ],     meta.shape[ 1 ] ) );
             }
 
-            const int64_t out_features = static_cast<int64_t>( expected_shape[ 0 ] );
-            const int64_t in_features  = static_cast<int64_t>( expected_shape[ 1 ] );
+            const std::int64_t out_features = static_cast<std::int64_t>( expected_shape[ 0 ] );
+            const std::int64_t in_features  = static_cast<std::int64_t>( expected_shape[ 1 ] );
 
             cuda_quantize_fp8_per_tensor(
                 blob.data(),
@@ -179,8 +179,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     meta.shape[ 0 ],     meta.shape[ 1 ] ) );
             }
 
-            const int64_t out_features = static_cast<int64_t>( expected_shape[ 0 ] );
-            const int64_t in_features  = static_cast<int64_t>( expected_shape[ 1 ] );
+            const std::int64_t out_features = static_cast<std::int64_t>( expected_shape[ 0 ] );
+            const std::int64_t in_features  = static_cast<std::int64_t>( expected_shape[ 1 ] );
 
             cuda_quantize_fp4_per_group(
                 blob.data(),
@@ -230,8 +230,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 blob.data(),
                 weight_out.rawData(),
                 scales_out.rawData(),
-                static_cast<int64_t>( expected_shape[ 0 ] ),
-                static_cast<int64_t>( expected_shape[ 1 ] ),
+                static_cast<std::int64_t>( expected_shape[ 0 ] ),
+                static_cast<std::int64_t>( expected_shape[ 1 ] ),
                 group_size,
                 dev_staging,
                 staging_bytes,
@@ -274,8 +274,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 blob.data(),
                 weight_out.rawData(),
                 scales_out.rawData(),
-                static_cast<int64_t>( expected_shape[ 0 ] ),
-                static_cast<int64_t>( expected_shape[ 1 ] ),
+                static_cast<std::int64_t>( expected_shape[ 0 ] ),
+                static_cast<std::int64_t>( expected_shape[ 1 ] ),
                 group_size,
                 dev_staging,
                 staging_bytes,

@@ -20,7 +20,7 @@ module;
 
 export module Compute.CudaTokenEmbeddingOp:Quantize;
 
-import std.compat;
+import std;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Serialization.Tensor;
@@ -65,7 +65,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             Mila::Dnn::ITensor&                          scales_out,
             const Mila::Dnn::shape_t&                    expected_shape,
             void*                                        dev_staging,
-            size_t                                       staging_bytes,
+            std::size_t                                       staging_bytes,
             cudaStream_t                                 stream )
         {
             const auto& meta = blob.getMetadata();
@@ -78,11 +78,11 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
                     meta.shape[ 0 ],     meta.shape[ 1 ] ) );
             }
 
-            const int64_t vocab_size = static_cast<int64_t>( expected_shape[ 0 ] );
-            const int64_t embedding_dim = static_cast<int64_t>( expected_shape[ 1 ] );
+            const std::int64_t vocab_size = static_cast<std::int64_t>( expected_shape[ 0 ] );
+            const std::int64_t embedding_dim = static_cast<std::int64_t>( expected_shape[ 1 ] );
 
-            const int64_t source_row_bytes = embedding_dim * static_cast<int64_t>( sizeof( uint16_t ) );
-            const int64_t rows_per_chunk = static_cast<int64_t>( staging_bytes ) / source_row_bytes;
+            const std::int64_t source_row_bytes = embedding_dim * static_cast<std::int64_t>( sizeof( std::uint16_t ) );
+            const std::int64_t rows_per_chunk = static_cast<std::int64_t>( staging_bytes ) / source_row_bytes;
 
             if ( rows_per_chunk < 1 )
             {
@@ -95,9 +95,9 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             auto* table = static_cast<char*>( table_out.rawData() );
             auto* scales = static_cast<float*>( scales_out.rawData() );
 
-            for ( int64_t row = 0; row < vocab_size; row += rows_per_chunk )
+            for ( std::int64_t row = 0; row < vocab_size; row += rows_per_chunk )
             {
-                const int64_t chunk_rows = std::min( rows_per_chunk, vocab_size - row );
+                const std::int64_t chunk_rows = std::min( rows_per_chunk, vocab_size - row );
 
                 Mila::Dnn::Compute::Cuda::Linear::cuda_quantize_fp8_per_channel(
                     source + row * source_row_bytes,
@@ -137,7 +137,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             const Mila::Dnn::shape_t&                    expected_shape,
             int                                          group_size,
             void*                                        dev_staging,
-            size_t                                       staging_bytes,
+            std::size_t                                       staging_bytes,
             cudaStream_t                                 stream )
         {
             const auto& meta = blob.getMetadata();
@@ -154,8 +154,8 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
                 blob.data(),
                 table_out.rawData(),
                 scales_out.rawData(),
-                static_cast<int64_t>( expected_shape[ 0 ] ),
-                static_cast<int64_t>( expected_shape[ 1 ] ),
+                static_cast<std::int64_t>( expected_shape[ 0 ] ),
+                static_cast<std::int64_t>( expected_shape[ 1 ] ),
                 group_size,
                 dev_staging,
                 staging_bytes,

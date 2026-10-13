@@ -5,13 +5,9 @@
  * Minimal, canonical GPT network settings used to construct the model.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-
 export module Dnn.Components.GptTransformer:Config;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
@@ -139,12 +135,12 @@ namespace Mila::Dnn
         SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
-            meta.set( "vocab_size", static_cast<int64_t>(vocab_size_) )
-                .set( "num_layers", static_cast<int64_t>(num_layers_) )
-                .set( "embedding_dim", static_cast<int64_t>(embedding_size_) )
-                .set( "num_heads", static_cast<int64_t>(num_heads_) )
-                .set( "max_seq_len", static_cast<int64_t>(max_seq_len_) )
-                .set( "hidden_dim", static_cast<int64_t>(hidden_size_) )
+            meta.set( "vocab_size", static_cast<std::int64_t>(vocab_size_) )
+                .set( "num_layers", static_cast<std::int64_t>(num_layers_) )
+                .set( "embedding_dim", static_cast<std::int64_t>(embedding_size_) )
+                .set( "num_heads", static_cast<std::int64_t>(num_heads_) )
+                .set( "max_seq_len", static_cast<std::int64_t>(max_seq_len_) )
+                .set( "hidden_dim", static_cast<std::int64_t>(hidden_size_) )
                 .set( "use_bias", static_cast<bool>(use_bias_) );
 
             return meta;

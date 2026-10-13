@@ -3,18 +3,9 @@
  * @brief Grouped-Query Attention module (concatenated QKV input).
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <sstream>
-#include <type_traits>
-#include <stdexcept>
-#include <cstdint>
-#include <optional>
-#include <format>
-
 export module Dnn.Components.Gqa;
+
+import std;
 export import Dnn.Components.GqaConfig;
 
 import Dnn.Component;

@@ -6,22 +6,9 @@
  * positional (wpe) embedding parameters and exposes them to callers.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <iostream>
-#include <sstream>
-#include <type_traits>
-#include <stdexcept>
-#include <cstdint>
-#include <optional>
-#include <cmath>
-#include <numeric>
-#include <algorithm>
-#include <format>
-
 export module Dnn.Components.Lpe;
+
+import std;
 export import Dnn.Components.LpeConfig;
 
 import Dnn.Component;
@@ -142,8 +129,8 @@ namespace Mila::Dnn
 
             // Get dimensions from input
             auto actual_shape = input.shape();
-            int64_t B = actual_shape[ 0 ];
-            int64_t T = actual_shape[ 1 ];
+            std::int64_t B = actual_shape[ 0 ];
+            std::int64_t T = actual_shape[ 1 ];
 
             // REVIEW: Validation() only in backend operation?
             // Validate actual dimensions fit within max
@@ -306,7 +293,7 @@ namespace Mila::Dnn
 
             SerializationMetadata meta;
             meta.set( "type", "Lpe" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() );
 
             archive.writeMetadata( "meta.json", meta );
@@ -426,17 +413,17 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-        int64_t getVocabularyLength() const noexcept
+        std::int64_t getVocabularyLength() const noexcept
         {
             return config_.getVocabularyLength();
         }
 
-        int64_t getMaxSequenceLength() const noexcept
+        std::int64_t getMaxSequenceLength() const noexcept
         {
             return config_.getMaxSequenceLength();
         }
 
-        int64_t getEmbeddingDim() const noexcept
+        std::int64_t getEmbeddingDim() const noexcept
         {
             return config_.getEmbeddingDim();
         }
@@ -579,8 +566,8 @@ namespace Mila::Dnn
     private:
         LpeConfig config_;
 
-        int64_t max_batch_size_{ 0 };
-        int64_t max_seq_len_{ 0 };
+        std::int64_t max_batch_size_{ 0 };
+        std::int64_t max_seq_len_{ 0 };
 
         std::unique_ptr<EmbeddingsTensorType> wte_{ nullptr };  // Token embeddings (V, C)
         std::unique_ptr<EmbeddingsTensorType> wpe_{ nullptr };  // Position embeddings (maxT, C)
@@ -612,7 +599,7 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "Encoder: input must have rank 2 (batch_size, sequence_length)" );
             }
 
-            int64_t seq_length = input_shape[1];
+            std::int64_t seq_length = input_shape[1];
 
             if ( seq_length > config_.getMaxSequenceLength() )
             {
@@ -644,9 +631,9 @@ namespace Mila::Dnn
 
         void initializeParameters()
         {
-            int64_t vocab_size = config_.getVocabularyLength();
-            int64_t max_seq_len = config_.getMaxSequenceLength();
-            int64_t embedding_dim = config_.getEmbeddingDim();
+            std::int64_t vocab_size = config_.getVocabularyLength();
+            std::int64_t max_seq_len = config_.getMaxSequenceLength();
+            std::int64_t embedding_dim = config_.getEmbeddingDim();
 
             auto device_id = this->getExecutionContext()->getDeviceId();
 

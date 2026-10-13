@@ -5,14 +5,9 @@
  * Provides fluent setters and serialization/validation hooks for GELU-specific options.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-#include <string_view>
-
 export module Dnn.Components.GeluConfig;
 
+import std;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.ApproximationMethod;

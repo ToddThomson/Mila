@@ -1,13 +1,3 @@
-module;
-#include <iostream>
-#include <string>
-#include <source_location>
-#include <format>
-#include <chrono>
-#include <mutex>
-#include <ctime>
-#include <iomanip>
-
 /**
  * @file ConsoleSink.ixx
  * @brief Console-based logging sink for the Mila logging infrastructure.
@@ -17,8 +7,14 @@ module;
  * Intended for interactive CLI use and development. For server deployments
  * use FileSink instead, as this sink writes to the process standard streams.
  */
+
+module;
+// localtime_s and localtime_r are platform C library functions, which the std module does not export.
+#include <ctime>
+
 export module Logging.ConsoleSink;
 
+import std;
 import Logging.Logger;
 
 namespace Mila::Logging

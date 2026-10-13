@@ -5,12 +5,9 @@
  * a disagreement between them is resolved in favor of this file.
  */
 
-module;
-#include <bit>
-#include <cstdint>
-
 export module Dnn.Quantization.Weight.CodebookPacking;
 
+import std;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn::Quant::Weight

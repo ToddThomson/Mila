@@ -5,20 +5,9 @@
  * Mila usage lives here rather than in main.cpp, matching ExportArtifact and ProfileModel.
  */
 
-module;
-#include <cstdint>
-#include <exception>
-#include <filesystem>
-#include <format>
-#include <iostream>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <system_error>
-
 export module Mila.Store;
 
+import std;
 import Mila;
 
 namespace Mila::StoreApp

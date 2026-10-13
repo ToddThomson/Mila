@@ -15,7 +15,7 @@ module;
 
 export module Compute.CudaExecutionContext;
 
-import std.compat;
+import std;
 import Compute.IExecutionContext;
 import Compute.IDecodeRecording;
 import Compute.CudaDecodeGraph;
@@ -199,7 +199,7 @@ namespace Mila::Dnn::Compute
          *
          * @return size_t Workspace size in bytes.
          */
-        [[nodiscard]] size_t getCublasLtWorkspaceSize() const noexcept
+        [[nodiscard]] std::size_t getCublasLtWorkspaceSize() const noexcept
         {
             return cublaslt_workspace_size_;
         }
@@ -255,7 +255,7 @@ namespace Mila::Dnn::Compute
          * @throws std::logic_error If the request exceeds a reservation.
          * @throws std::runtime_error If allocation fails.
          */
-        [[nodiscard]] void* getDeviceScratchBuffer( size_t required_bytes ) const
+        [[nodiscard]] void* getDeviceScratchBuffer( std::size_t required_bytes ) const
         {
             if ( required_bytes <= device_scratch_size_ )
                 return device_scratch_buf_;
@@ -297,7 +297,7 @@ namespace Mila::Dnn::Compute
          * A tensor larger than this is fitted in row blocks that fit, which costs more copies
          * and no more memory.
          */
-        [[nodiscard]] static constexpr size_t getLoadStagingLimitBytes() noexcept
+        [[nodiscard]] static constexpr std::size_t getLoadStagingLimitBytes() noexcept
         {
             return kLoadStagingLimitBytes;
         }
@@ -313,7 +313,7 @@ namespace Mila::Dnn::Compute
          * @return void* Device buffer of at least required_bytes.
          * @throws std::runtime_error If allocation fails.
          */
-        [[nodiscard]] void* getLoadStagingBuffer( size_t required_bytes ) const
+        [[nodiscard]] void* getLoadStagingBuffer( std::size_t required_bytes ) const
         {
             if ( required_bytes <= load_staging_size_ )
                 return load_staging_buf_;
@@ -510,7 +510,7 @@ namespace Mila::Dnn::Compute
          * @return void* Pinned host buffer of at least required_bytes.
          * @throws std::runtime_error If allocation fails.
          */
-        [[nodiscard]] void* getPinnedStagingBuffer( size_t required_bytes ) const
+        [[nodiscard]] void* getPinnedStagingBuffer( std::size_t required_bytes ) const
         {
             if ( required_bytes <= pinned_staging_size_ )
                 return pinned_staging_buf_;
@@ -572,15 +572,15 @@ namespace Mila::Dnn::Compute
         DeviceId device_id_;
 
         mutable void* device_scratch_buf_{ nullptr };
-        mutable size_t device_scratch_size_{ 0 };
+        mutable std::size_t device_scratch_size_{ 0 };
         bool scratch_reserved_{ false };
 
         mutable void* load_staging_buf_{ nullptr };
-        mutable size_t load_staging_size_{ 0 };
-        static constexpr size_t kLoadStagingLimitBytes = size_t{ 256 } * 1024 * 1024;
+        mutable std::size_t load_staging_size_{ 0 };
+        static constexpr std::size_t kLoadStagingLimitBytes = std::size_t{ 256 } * 1024 * 1024;
 
         mutable void* pinned_staging_buf_{ nullptr };
-        mutable size_t pinned_staging_size_{ 0 };
+        mutable std::size_t pinned_staging_size_{ 0 };
 
         int* decode_position_{ nullptr };
 
@@ -593,8 +593,8 @@ namespace Mila::Dnn::Compute
         bool key_bounds_set_{ false };
 
         mutable void* cublaslt_workspace_{ nullptr };
-        mutable size_t cublaslt_workspace_size_{ 0 };
-        static constexpr size_t kCublasLtWorkspaceSize = 4ull * 1024 * 1024;
+        mutable std::size_t cublaslt_workspace_size_{ 0 };
+        static constexpr std::size_t kCublasLtWorkspaceSize = 4ull * 1024 * 1024;
 
         cudaStream_t stream_{ nullptr };
         bool stream_created_{ false };

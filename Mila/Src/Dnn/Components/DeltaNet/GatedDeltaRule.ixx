@@ -31,18 +31,9 @@
  * Inference-only: no backward.
  */
 
-module;
-#include <memory>
-#include <string>
-#include <vector>
-#include <sstream>
-#include <format>
-#include <stdexcept>
-#include <optional>
-#include <cstdint>
-
 export module Dnn.Components.GatedDeltaRule;
 
+import std;
 export import Dnn.Components.GatedDeltaRuleConfig;
 
 import Dnn.Component;
@@ -290,12 +281,12 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
             meta.set( "type", "GatedDeltaRule" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() )
-                .set( "num_key_heads", static_cast<int64_t>( config_.getNumKeyHeads() ) )
-                .set( "num_value_heads", static_cast<int64_t>( config_.getNumValueHeads() ) )
-                .set( "head_key_dim", static_cast<int64_t>( config_.getHeadKeyDim() ) )
-                .set( "head_value_dim", static_cast<int64_t>( config_.getHeadValueDim() ) );
+                .set( "num_key_heads", static_cast<std::int64_t>( config_.getNumKeyHeads() ) )
+                .set( "num_value_heads", static_cast<std::int64_t>( config_.getNumValueHeads() ) )
+                .set( "head_key_dim", static_cast<std::int64_t>( config_.getHeadKeyDim() ) )
+                .set( "head_value_dim", static_cast<std::int64_t>( config_.getHeadValueDim() ) );
 
             archive.writeMetadata( "meta.json", meta );
 

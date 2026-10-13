@@ -3,14 +3,9 @@
  * @brief Configuration interface for the Attention module.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <utility>
-#include <sstream>
-
 export module Dnn.Components.MultiHeadAttentionConfig;
 
+import std;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.TensorTypes;
@@ -114,8 +109,8 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
             
-            meta.set( "model_dim", static_cast<int64_t>(model_dim_) )
-                .set( "num_heads", static_cast<int64_t>(num_heads_) );
+            meta.set( "model_dim", static_cast<std::int64_t>(model_dim_) )
+                .set( "num_heads", static_cast<std::int64_t>(num_heads_) );
 
             return meta;
         }

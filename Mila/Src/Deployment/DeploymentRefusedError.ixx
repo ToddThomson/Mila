@@ -6,13 +6,9 @@
  * std::bad_expected_access names no reason, so a load that has nothing to return throws this instead.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <string_view>
-
 export module Deployment.DeploymentRefusedError;
 
+import std;
 export import Deployment.DeploymentRefusal;
 
 namespace Mila::Deployment

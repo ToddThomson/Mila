@@ -5,13 +5,10 @@
  * Provides TokenStreamer (per-token callback), TokenSink (batched span callback),
  * and BufferedTokenStreamer (batches tokens before forwarding to a TokenSink).
  */
-module;
-#include <span>
-#include <cstdint>
-#include <concepts>
-#include <array>
 
 export module Dnn.TokenStreamer;
+
+import std;
 
 namespace Mila::Dnn
 {
@@ -21,7 +18,7 @@ namespace Mila::Dnn
      * Used as the callback type in LanguageModel::generate().
      */
     export template<class T>
-        concept TokenStreamer = requires(T && t, int32_t tok)
+        concept TokenStreamer = requires(T && t, std::int32_t tok)
     {
         t( tok );
     };
@@ -32,7 +29,7 @@ namespace Mila::Dnn
      * Used as the sink type for BufferedTokenStreamer.
      */
     export template<class T>
-        concept TokenSink = requires(T && t, std::span<const int32_t> s)
+        concept TokenSink = requires(T && t, std::span<const std::int32_t> s)
     {
         t( s );
     };
@@ -50,7 +47,7 @@ namespace Mila::Dnn
      * @tparam BufSize Tokens to buffer before each flush. Defaults to 8.
      * @tparam Sink    A TokenSink callable.
      */
-    export template<class Sink, size_t BufSize = 8>
+    export template<class Sink, std::size_t BufSize = 8>
         requires TokenSink<Sink>
     class BufferedTokenStreamer
     {
@@ -60,7 +57,7 @@ namespace Mila::Dnn
         {
         }
 
-        void operator()( int32_t tok )
+        void operator()( std::int32_t tok )
         {
             buf_[ count_++ ] = tok;
 
@@ -71,7 +68,7 @@ namespace Mila::Dnn
         void flush()
         {
             if ( count_ == 0 ) return;
-            sink_( std::span<const int32_t>( buf_.data(), count_ ) );
+            sink_( std::span<const std::int32_t>( buf_.data(), count_ ) );
             count_ = 0;
         }
 
@@ -88,7 +85,7 @@ namespace Mila::Dnn
 
     private:
         Sink& sink_;
-        std::array<int32_t, BufSize> buf_{};
-        size_t count_ = 0;
+        std::array<std::int32_t, BufSize> buf_{};
+        std::size_t count_ = 0;
     };
 }

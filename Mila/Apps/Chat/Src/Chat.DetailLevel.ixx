@@ -3,11 +3,9 @@
  * @brief How much of a turn's internal activity Chat shows, and its keyword.
  */
 
-module;
-#include <optional>
-#include <string_view>
-
 export module Chat.DetailLevel;
+
+import std;
 
 namespace Mila::ChatApp
 {

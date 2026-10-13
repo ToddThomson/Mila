@@ -7,12 +7,9 @@
  * carries for its gate function. The default constructor is correct.
  */
 
-module;
-#include <string>
-#include <sstream>
-
 export module Dnn.Components.AttentionOutputGateConfig;
 
+import std;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
 

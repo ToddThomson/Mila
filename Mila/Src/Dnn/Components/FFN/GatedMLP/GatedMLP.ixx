@@ -3,17 +3,9 @@
  * @brief Gated feed-forward (GatedMLP) block: fused gate+up -> Swiglu gate -> down.
  */
 
-module;
-#include <iostream>
-#include <sstream>
-#include <memory>
-#include <string>
-#include <vector>
-#include <stdexcept>
-#include <cstdint>
-#include <optional>
-
 export module Dnn.Components.GatedMLP;
+
+import std;
 export import :Config;
 
 import Dnn.ITensor;
@@ -416,7 +408,7 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "GatedMLP: input must have rank >= 1" );
             }
 
-            int64_t input_features = input_shape.back();
+            std::int64_t input_features = input_shape.back();
 
             if ( input_features != config_.getInputFeatures() )
             {

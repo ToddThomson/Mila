@@ -1,13 +1,11 @@
-module;
-#include <optional>
-#include <string_view>
-#include <cstdint>
 
 export module Dnn.GenerateStatus;
 
+import std;
+
 namespace Mila::Dnn
 {
-    export enum class [[nodiscard]] GenerateStatus : int32_t
+    export enum class [[nodiscard]] GenerateStatus : std::int32_t
     {
         Success = 0,
         MaxNewTokensReached,

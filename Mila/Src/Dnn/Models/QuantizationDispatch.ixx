@@ -7,13 +7,9 @@
  * entry point. See Specifications/MemoryFootprint.md.
  */
 
-module;
-#include <format>
-#include <stdexcept>
-#include <string_view>
-
 export module Dnn.Models.QuantizationDispatch;
 
+import std;
 import Dnn.LanguageModelConfig;
 import Dnn.TensorDataType;
 import Dnn.Quantization.Weight.Policies;

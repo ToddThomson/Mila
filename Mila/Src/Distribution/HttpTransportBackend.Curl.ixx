@@ -7,11 +7,9 @@
  * both alternatives compiled code and keeps `import Mila;` free of an `#ifdef`.
  */
 
-module;
-#include <memory>
-
 export module Distribution.HttpTransportBackend;
 
+import std;
 import Distribution.HttpTransport;
 
 export import Distribution.CurlHttpTransport;

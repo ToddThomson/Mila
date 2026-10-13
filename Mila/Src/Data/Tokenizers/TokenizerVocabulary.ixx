@@ -6,15 +6,9 @@
  * and for persisting/loading vocabulary contents.
  */
 
-module;
-#include <string>
-#include <vector>
-#include <unordered_map>
-#include <optional>
-#include <filesystem>
-
 export module Data.TokenizerVocabulary;
 
+import std;
 import Data.Tokenizer;
 
 namespace Mila::Data
@@ -50,7 +44,7 @@ namespace Mila::Data
          *
          * @return size_t Number of entries (tokens) present in the vocabulary.
          */
-        virtual size_t getSize() const = 0;
+        virtual std::size_t getSize() const = 0;
 
         /**
          * @brief Map a token string to its numeric id.

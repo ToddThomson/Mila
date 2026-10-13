@@ -17,7 +17,7 @@ module;
 
 export module Compute.CudaResidualOp;
 
-import std.compat;
+import std;
 import :Dispatch;
 
 import Dnn.Components.ResidualConfig;
@@ -87,7 +87,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
                 throw std::runtime_error( "CudaResidualOp::forward - null tensor data pointer" );
             }
 
-            const int64_t actual_size = input_A.size();
+            const std::int64_t actual_size = input_A.size();
 
             if ( input_B.size() != actual_size )
             {
@@ -130,7 +130,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
                 throw std::runtime_error( "CudaResidualOp::backward - null gradient tensor data pointer" );
             }
 
-            const int64_t actual_size = output_grad.size();
+            const std::int64_t actual_size = output_grad.size();
 
             if ( A_grad.size() != actual_size || B_grad.size() != actual_size )
             {
@@ -174,7 +174,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         
         CudaExecutionContext* context_{ nullptr };
         ResidualConfig config_;
-        int64_t max_size_{ 0 };
+        std::int64_t max_size_{ 0 };
         float scale_{ 1.0f };
     };
 

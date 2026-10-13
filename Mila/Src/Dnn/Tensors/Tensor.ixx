@@ -8,7 +8,7 @@
 
 export module Dnn.Tensor;
 
-import std.compat;
+import std;
 import Dnn.TensorBuffer;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -35,7 +35,7 @@ namespace Mila::Dnn
 {
     namespace detail
     {
-        inline std::string formatBytes( size_t bytes )
+        inline std::string formatBytes( std::size_t bytes )
         {
             if ( bytes < 1024 )
                 return std::format( "{} B", bytes );
@@ -59,19 +59,19 @@ namespace Mila::Dnn
          * @throws std::overflow_error If calculation would overflow
          */
         template<TensorDataType TDataType>
-        constexpr size_t getStorageSize( size_t logical_size )
+        constexpr std::size_t getStorageSize( std::size_t logical_size )
         {
             // REVIEW: Why is this function duplicated here instead of using the one in TensorBuffer?
 
             // For sub-byte packed types use bits_per_element; all other types use size_in_bytes * 8.
-            constexpr size_t bits = []() constexpr {
+            constexpr std::size_t bits = []() constexpr {
                 if constexpr ( requires { TensorDataTypeTraits<TDataType>::bits_per_element; } )
                     return TensorDataTypeTraits<TDataType>::bits_per_element;
                 else
-                    return TensorDataTypeTraits<TDataType>::size_in_bytes * size_t( 8 );
+                    return TensorDataTypeTraits<TDataType>::size_in_bytes * std::size_t( 8 );
                 }();
 
-            if ( logical_size > (std::numeric_limits<size_t>::max() - 7) / bits )
+            if ( logical_size > (std::numeric_limits<std::size_t>::max() - 7) / bits )
             {
                 throw std::overflow_error( "Storage size calculation would overflow." );
             }
@@ -97,15 +97,15 @@ namespace Mila::Dnn
          *
          * @return Unique size_t identifier
          */
-        static size_t getNextId() {
+        static std::size_t getNextId() {
             return counter_.fetch_add( 1, std::memory_order_relaxed );
         }
 
     private:
-        static std::atomic<size_t> counter_; ///< Thread-safe counter for unique ID generation
+        static std::atomic<std::size_t> counter_; ///< Thread-safe counter for unique ID generation
     };
 
-    std::atomic<size_t> UniqueIdGenerator::counter_{ 0 };
+    std::atomic<std::size_t> UniqueIdGenerator::counter_{ 0 };
 
     /**
      * @brief Device-aware N-dimensional tensor
@@ -125,7 +125,7 @@ namespace Mila::Dnn
         using DataType = TensorDataType;                                           ///< Abstract data type enumeration
         using MemoryResource = TMemoryResource;                                    ///< Memory resource type for this tensor
         using DataTypeTraits = TensorDataTypeTraits<TDataType>;                   ///< Compile-time data type characteristics
-        using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>; ///< Host value type for scalars
+        using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, std::int32_t, float>; ///< Host value type for scalars
 
         // ====================================================================
         // Construction, Assignment, and Destruction
@@ -243,7 +243,7 @@ namespace Mila::Dnn
         /**
          * @brief Returns the size in bytes of a single tensor element
          */
-        size_t elementSize() const override
+        std::size_t elementSize() const override
         {
             // REVIEW:  How should we handle sub-byte types here by returning bits instead of bytes?
             // For now we return the size in bytes, and the caller can use getStorageSize() for the actual storage size.
@@ -257,7 +257,7 @@ namespace Mila::Dnn
          * Forwards to the authoritative TensorBuffer::storageBytes() value and
          * returns 0 when no buffer is allocated.
          */
-        size_t getStorageSize() const override
+        std::size_t getStorageSize() const override
         {
             if ( !buffer_ )
             {
@@ -358,7 +358,7 @@ namespace Mila::Dnn
 
             validateIndices( indices, "operator[]" );
 
-            int64_t flat_index = computeFlatIndex( indices );
+            std::int64_t flat_index = computeFlatIndex( indices );
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
 
             return static_cast<HostType*>(buffer_->data())[flat_index];
@@ -376,7 +376,7 @@ namespace Mila::Dnn
 
             validateIndices( indices, "operator[] const" );
 
-            int64_t flat_index = computeFlatIndex( indices );
+            std::int64_t flat_index = computeFlatIndex( indices );
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
 
             return static_cast<const HostType*>(buffer_->data())[flat_index];
@@ -387,9 +387,9 @@ namespace Mila::Dnn
          */
         template<typename... Indices>
         auto& operator[]( Indices... indices )
-            requires TMemoryResource::is_host_accessible && (std::convertible_to<Indices, int64_t> && ...) 
+            requires TMemoryResource::is_host_accessible && (std::convertible_to<Indices, std::int64_t> && ...) 
         {
-            index_t idx{ static_cast<int64_t>(indices)... };
+            index_t idx{ static_cast<std::int64_t>(indices)... };
             
             return this->operator[]( idx );
         }
@@ -399,9 +399,9 @@ namespace Mila::Dnn
          */
         template<typename... Indices>
         const auto& operator[]( Indices... indices ) const
-            requires TMemoryResource::is_host_accessible && (std::convertible_to<Indices, int64_t> && ...)
+            requires TMemoryResource::is_host_accessible && (std::convertible_to<Indices, std::int64_t> && ...)
         {
-            index_t idx{ static_cast<int64_t>(indices)... };
+            index_t idx{ static_cast<std::int64_t>(indices)... };
 
             return this->operator[]( idx );
         }
@@ -448,7 +448,7 @@ namespace Mila::Dnn
         /**
          * @brief Returns the number of dimensions in the tensor
          */
-        size_t rank() const {
+        std::size_t rank() const {
             return shape_.size();
         }
 
@@ -516,7 +516,7 @@ namespace Mila::Dnn
          * unless the tensor is empty.
          */
         void reshape( const shape_t& new_shape ) {
-            int64_t new_size = computeSize( new_shape );
+            std::int64_t new_size = computeSize( new_shape );
             if (!empty() && (new_size != size_)) {
                 throw std::runtime_error( "The new shape must match the size of the tensor or the tensor must be empty." );
             }
@@ -543,14 +543,14 @@ namespace Mila::Dnn
                 return *this;
             }
 
-            int64_t first = 1;
+            std::int64_t first = 1;
             
-            for (int64_t i = 0; i + 1 < shape_.size(); ++i)
+            for (std::int64_t i = 0; i + 1 < shape_.size(); ++i)
             {
                 first *= shape_[i];
             }
             
-            int64_t last = shape_.back();
+            std::int64_t last = shape_.back();
 
             this->reshape( shape_t{ first, last } );
 
@@ -723,7 +723,7 @@ namespace Mila::Dnn
         void allocateBuffer() {
             if (size_ > 0)
             {
-                buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>( device_id_.index, static_cast<size_t>( size_ ) );
+                buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>( device_id_.index, static_cast<std::size_t>( size_ ) );
             }
         }
 
@@ -734,7 +734,7 @@ namespace Mila::Dnn
             if (indices.size() != shape_.size()) {
                 throw std::runtime_error( std::string( fn ) + ": number of indices must match tensor rank" );
             }
-            for (size_t i = 0; i < indices.size(); ++i) {
+            for (std::size_t i = 0; i < indices.size(); ++i) {
                 if (indices[i] >= shape_[i]) {
                     throw std::out_of_range( std::string( fn ) + ": index " + std::to_string( indices[i] ) +
                         " is out of range for dim " + std::to_string( i ) + " size " + std::to_string( shape_[i] ) );
@@ -745,10 +745,10 @@ namespace Mila::Dnn
         /**
          * @brief Computes flat memory index from multi-dimensional indices
          */
-        int64_t computeFlatIndex( const index_t& indices ) const {
-            int64_t idx = 0;
+        std::int64_t computeFlatIndex( const index_t& indices ) const {
+            std::int64_t idx = 0;
 
-            for (size_t d = 0; d < indices.size(); ++d) {
+            for (std::size_t d = 0; d < indices.size(); ++d) {
                 idx += indices[d] * strides_[d];
             }
             
@@ -761,14 +761,14 @@ namespace Mila::Dnn
         std::string outputLayout() const {
             std::string result = "TensorData(shape=[";
 
-            for (size_t i = 0; i < shape_.size(); ++i) {
+            for (std::size_t i = 0; i < shape_.size(); ++i) {
                 result += std::to_string( shape_[i] );
                 if (i < shape_.size() - 1) result += ",";
             }
 
             result += "], strides=[";
 
-            for (size_t i = 0; i < strides_.size(); ++i) {
+            for (std::size_t i = 0; i < strides_.size(); ++i) {
                 result += std::to_string( strides_[i] );
                 if (i < strides_.size() - 1) result += ",";
             }
@@ -782,9 +782,9 @@ namespace Mila::Dnn
         /**
          * @brief Computes total element count from shape vector
          */
-        int64_t computeSize( const shape_t& shape ) const
+        std::int64_t computeSize( const shape_t& shape ) const
         {
-            return std::ranges::fold_left( shape, int64_t{ 1 }, std::multiplies{} );
+            return std::ranges::fold_left( shape, std::int64_t{ 1 }, std::multiplies{} );
         }
 
         /**
@@ -795,7 +795,7 @@ namespace Mila::Dnn
             stride_t strides;
             strides.ndim = shape.ndim;
 
-            for ( uint8_t i = 0; i < shape.ndim; ++i )
+            for ( std::uint8_t i = 0; i < shape.ndim; ++i )
             {
                 strides[ i ] = 1;
             }
@@ -805,7 +805,7 @@ namespace Mila::Dnn
                 return strides;
             }
 
-            for ( int64_t i = static_cast<int64_t>( shape.ndim ) - 1; i > 0; --i )
+            for ( std::int64_t i = static_cast<std::int64_t>( shape.ndim ) - 1; i > 0; --i )
             {
                 strides[ i - 1 ] = strides[ i ] * shape[ i ];
             }
@@ -837,16 +837,16 @@ namespace Mila::Dnn
             }
         }
 
-        std::string outputBuffer( size_t index, size_t depth ) const {
+        std::string outputBuffer( std::size_t index, std::size_t depth ) const {
             using TElementType = typename TensorHostTypeMap<TDataType>::host_type;
             std::ostringstream oss;
 
             // Configuration: adjust these values to control output display
-            constexpr size_t show_rows = 3;  // Number of rows to show at start/end of each dimension
-            constexpr size_t show_cols = 5;  // Number of columns to show at start/end (innermost dimension)
+            constexpr std::size_t show_rows = 3;  // Number of rows to show at start/end of each dimension
+            constexpr std::size_t show_cols = 5;  // Number of columns to show at start/end (innermost dimension)
 
             // Indentation per nesting level (2 spaces requested)
-            constexpr size_t indent_size = 2;
+            constexpr std::size_t indent_size = 2;
 
             // Handle scalar (empty shape)
 
@@ -859,16 +859,16 @@ namespace Mila::Dnn
                 return oss.str();
             }
 
-            const size_t last_depth = shape_.size() - 1;
+            const std::size_t last_depth = shape_.size() - 1;
 
             // Innermost dimension: format columns with fixed precision and column alignment
 
             if ( depth == last_depth ) {
                 std::vector<std::string> parts;
                 parts.reserve( shape_[ depth ] );
-                size_t max_width = 0;
+                std::size_t max_width = 0;
 
-                for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
+                for ( std::size_t i = 0; i < shape_[ depth ]; ++i ) {
                     if ( i < show_cols || i >= shape_[ depth ] - show_cols ) {
                         TElementType value = static_cast<TElementType*>( buffer_->data() )[ index + i ];
                         std::ostringstream vs;
@@ -883,7 +883,7 @@ namespace Mila::Dnn
                     }
                 }
 
-                for ( size_t p = 0; p < parts.size(); ++p ) {
+                for ( std::size_t p = 0; p < parts.size(); ++p ) {
                     if ( p ) oss << ' ';
                     oss << std::setw( static_cast<int>( max_width ) ) << parts[ p ];
                 }
@@ -896,9 +896,9 @@ namespace Mila::Dnn
             const std::string indent( depth * indent_size, ' ' );
             const std::string child_indent( (depth + 1) * indent_size, ' ' );
 
-            for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
+            for ( std::size_t i = 0; i < shape_[ depth ]; ++i ) {
                 if ( i < show_rows || i >= shape_[ depth ] - show_rows ) {
-                    size_t offset = static_cast<size_t>( i * static_cast<size_t>( strides_[ depth ] ) );
+                    std::size_t offset = static_cast<std::size_t>( i * static_cast<std::size_t>( strides_[ depth ] ) );
 
                     // If the child is the innermost dimension, print the bracket and content on one line.
                     if ( depth + 1 == last_depth ) {
@@ -915,9 +915,9 @@ namespace Mila::Dnn
                         // std::istringstream: instantiating getline inside this module trips an MSVC
                         // bug (C2079: basic_istream::sentry undefined) even with <sstream> in the
                         // global module fragment.
-                        size_t line_start = 0;
+                        std::size_t line_start = 0;
                         while ( line_start <= inner.size() ) {
-                            size_t newline = inner.find( '\n', line_start );
+                            std::size_t newline = inner.find( '\n', line_start );
 
                             if ( newline == std::string::npos ) {
                                 if ( line_start < inner.size() ) {

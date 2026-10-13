@@ -23,14 +23,9 @@
  * @endcode
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <sstream>
-
 export module Dnn.Components.SwigluConfig;
 
+import std;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.ApproximationMethod;

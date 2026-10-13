@@ -3,7 +3,7 @@ module;
 
 export module CublasLt.Error;
 
-import std.compat;
+import std;
 
 namespace Mila::Dnn::Compute
 {
@@ -28,7 +28,7 @@ namespace Mila::Dnn::Compute
             return file_;
         }
 
-        uint32_t getLine() const noexcept
+        std::uint32_t getLine() const noexcept
         {
             return line_;
         }
@@ -41,7 +41,7 @@ namespace Mila::Dnn::Compute
     private:
         cublasStatus_t cublas_error_; ///< The cuBLAS error code
         const char* file_;            ///< Source file where the error occurred
-        uint32_t line_;               ///< Line number where the error occurred
+        std::uint32_t line_;               ///< Line number where the error occurred
         const char* function_;        ///< Function name where the error occurred
 
         static std::string getMessage(

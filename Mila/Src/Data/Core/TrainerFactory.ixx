@@ -7,15 +7,9 @@
  * TokenizerType. Currently supports `char` and BPE tokenizers
  */
 
-module;
-#include <memory>
-#include <filesystem>
-#include <string>
-#include <span>
-#include <stdexcept>
-
 export module Data.TrainerFactory;
 
+import std;
 import Data.Tokenizer;
 import Data.TokenizerType;
 import Data.TokenizerTrainer;

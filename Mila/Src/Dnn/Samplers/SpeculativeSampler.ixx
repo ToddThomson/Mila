@@ -5,14 +5,9 @@
  * See Specifications/Gemma4Mtp.md section 4.8.
  */
 
-module;
-#include <memory>
-#include <span>
-#include <cstdint>
-#include <stdexcept>
-
 export module Dnn.Samplers.SpeculativeSampler;
 
+import std;
 import Dnn.Samplers.SamplingConfig;
 import Dnn.SamplingParams;
 import Compute.OperationTraits;
@@ -109,7 +104,7 @@ namespace Mila::Dnn
          *
          * @return The m kept drafts followed by the next token: m + 1 tokens. Valid until the next enqueueRound().
          */
-        std::span<const int32_t> awaitRound()
+        std::span<const std::int32_t> awaitRound()
         {
             if ( !pending_ )
             {
@@ -119,10 +114,10 @@ namespace Mila::Dnn
             context_->synchronize();
             pending_ = false;
 
-            const int32_t* result = host_result_.data();
+            const std::int32_t* result = host_result_.data();
             const dim_t accepted = result[ 0 ];
 
-            return std::span<const int32_t>( result + 1, static_cast<size_t>( accepted + 1 ) );
+            return std::span<const std::int32_t>( result + 1, static_cast<std::size_t>( accepted + 1 ) );
         }
 
     private:

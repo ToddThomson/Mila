@@ -5,14 +5,10 @@
  * BuildContext carries the build-time concerns down the Component
  * hierarchy during build().
  */
-module;
-#include <cstddef>
-#include <optional>
-#include <stdexcept>
-#include <format>
 
 export module Dnn.Component:BuildContext;
 
+import std;
 import Dnn.RuntimeMode;
 import Dnn.TensorTypes;
 
@@ -163,7 +159,7 @@ namespace Mila::Dnn
          * @param prefill_size  Tokens per prefill pass.
          * @return New BuildContext with prefill_size and all other fields unchanged.
          */
-        [[nodiscard]] BuildContext withPrefillSize( int64_t prefill_size ) const
+        [[nodiscard]] BuildContext withPrefillSize( std::int64_t prefill_size ) const
         {
             BuildContext copy( *this );
             copy.prefill_size_ = prefill_size;
@@ -320,7 +316,7 @@ namespace Mila::Dnn
          * scratch -- so the prediction and the network's one scratch reservation hold them, and a
          * recorded decode step never sees the shared buffer grow under it.
          */
-        [[nodiscard]] BuildContext withDecodeTokens( int64_t tokens ) const
+        [[nodiscard]] BuildContext withDecodeTokens( std::int64_t tokens ) const
         {
             if ( tokens < 1 )
             {
@@ -337,7 +333,7 @@ namespace Mila::Dnn
         /**
          * @brief The most tokens one decode call takes. Default 1.
          */
-        int64_t getDecodeTokens() const noexcept
+        std::int64_t getDecodeTokens() const noexcept
         {
             return decode_tokens_;
         }
@@ -349,7 +345,7 @@ namespace Mila::Dnn
          * threaded down to every component that sizes prefill buffers or attention
          * scratch. Zero on training-mode contexts (no chunking).
          */
-        int64_t getPrefillSize() const noexcept
+        std::int64_t getPrefillSize() const noexcept
         {
             return prefill_size_;
         }
@@ -411,11 +407,11 @@ namespace Mila::Dnn
 
         shape_t                  input_shape_;
         RuntimeMode              runtime_mode_;
-        int64_t                  prefill_size_{ 0 };
+        std::int64_t                  prefill_size_{ 0 };
         bool                     initialize_parameters_{ true };
         bool                     installed_output_{ false };
         bool                     fused_decode_{ false };
-        int64_t                  decode_tokens_{ 1 };
+        std::int64_t                  decode_tokens_{ 1 };
         std::optional<std::size_t> allocation_granularity_;
     };
 }

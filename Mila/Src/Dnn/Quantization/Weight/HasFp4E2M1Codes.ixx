@@ -3,10 +3,9 @@
  * @brief Detects a per-group weight format whose codes are FP4 E2M1 nibbles.
  */
 
-module;
-#include <concepts>
-
 export module Dnn.Quantization.Weight.HasFp4E2M1Codes;
+
+import std;
 
 namespace Mila::Dnn::Quant::Weight
 {

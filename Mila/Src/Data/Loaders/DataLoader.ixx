@@ -16,17 +16,9 @@
  * - Extensible design for various data sources and formats
  */
 
-module;
-#include <type_traits>
-#include <cstddef>
-#include <memory>
-#include <stdexcept>
-#include <cstdint>
-#include <string>
-#include <sstream>
-
 export module Data.DataLoader;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
@@ -124,7 +116,7 @@ namespace Mila::Data
              * @note Larger batches generally improve throughput but require more memory
              * @note Consider GPU memory constraints when selecting batch size for device training
              */
-            explicit DataLoader( int64_t batch_size )
+            explicit DataLoader( std::int64_t batch_size )
                 : batch_size_( batch_size ), current_batch_( 0 ) {
                 if ( batch_size == 0 ) {
                     throw std::invalid_argument( "Batch size must be greater than zero" );
@@ -174,7 +166,7 @@ namespace Mila::Data
              * @note Value may change if dataset is modified or resampled
              * @note Used for training progress reporting and epoch boundary detection
              */
-            virtual int64_t numBatches() const = 0;
+            virtual std::int64_t numBatches() const = 0;
 
             /**
              * @brief Returns the configured batch size
@@ -188,7 +180,7 @@ namespace Mila::Data
              * @note Final batch may contain fewer samples if dataset size is not divisible by batch size
              * @note Batch size affects memory requirements and processing efficiency
              */
-            int64_t batchSize() const noexcept {
+            std::int64_t batchSize() const noexcept {
                 return batch_size_;
             }
 
@@ -205,7 +197,7 @@ namespace Mila::Data
              * @note Index increments with each successful nextBatch() call
              * @note Reset to 0 when reset() method is called
              */
-            int64_t currentBatch() const noexcept {
+            std::int64_t currentBatch() const noexcept {
                 return current_batch_;
             }
 
@@ -414,7 +406,7 @@ namespace Mila::Data
              * @note Should be called by derived classes after successful batch loading
              * @note Enables consistent progress tracking across all loader types
              */
-            void setCurrentBatch( int64_t batch_index ) noexcept {
+            void setCurrentBatch( std::int64_t batch_index ) noexcept {
                 current_batch_ = batch_index;
             }
 
@@ -434,8 +426,8 @@ namespace Mila::Data
 
 	    private:
 
-            int64_t batch_size_;     ///< Number of samples in each batch (immutable after construction)
-            int64_t current_batch_;  ///< Zero-based index of currently loaded batch
+            std::int64_t batch_size_;     ///< Number of samples in each batch (immutable after construction)
+            std::int64_t current_batch_;  ///< Zero-based index of currently loaded batch
     };
 
     // ====================================================================

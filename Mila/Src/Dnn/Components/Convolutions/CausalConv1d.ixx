@@ -26,19 +26,9 @@
  * backward that exists but has never been exercised is worse than one that does not.
  */
 
-module;
-#include <cmath>
-#include <memory>
-#include <string>
-#include <vector>
-#include <sstream>
-#include <format>
-#include <stdexcept>
-#include <optional>
-#include <cstdint>
-
 export module Dnn.Components.CausalConv1d;
 
+import std;
 export import Dnn.Components.CausalConv1dConfig;
 
 import Dnn.Component;
@@ -295,11 +285,11 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
             meta.set( "type", "CausalConv1d" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() )
-                .set( "channels", static_cast<int64_t>( config_.getChannels() ) )
-                .set( "kernel_width", static_cast<int64_t>( config_.getKernelWidth() ) )
-                .set( "dilation", static_cast<int64_t>( config_.getDilation() ) )
+                .set( "channels", static_cast<std::int64_t>( config_.getChannels() ) )
+                .set( "kernel_width", static_cast<std::int64_t>( config_.getKernelWidth() ) )
+                .set( "dilation", static_cast<std::int64_t>( config_.getDilation() ) )
                 .set( "has_bias", config_.hasBias() );
 
             archive.writeMetadata( "meta.json", meta );

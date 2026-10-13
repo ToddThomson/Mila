@@ -16,45 +16,36 @@
  * [[feedback-build-in-vs]].
  */
 
-module;
-
-#include <cstddef>
-#include <cstdint>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <stop_token>
-#include <string>
-#include <vector>
-
 export module Mila.Bindings;
+
+import std;
 
 namespace Mila::Bindings
 {
     export struct LlamaConfigInfo
     {
-        int64_t vocab_size;
-        int64_t max_sequence_length;
-        int64_t model_dim;
-        int64_t num_layers;
-        int64_t num_heads;
-        int64_t num_kv_heads;
-        int64_t hidden_dim;
+        std::int64_t vocab_size;
+        std::int64_t max_sequence_length;
+        std::int64_t model_dim;
+        std::int64_t num_layers;
+        std::int64_t num_heads;
+        std::int64_t num_kv_heads;
+        std::int64_t hidden_dim;
         double rope_theta;
     };
 
     export struct GemmaConfigInfo
     {
-        int64_t vocab_size;
-        int64_t max_sequence_length;
-        int64_t model_dim;
-        int64_t num_layers;
-        int64_t num_heads;
-        int64_t num_kv_heads;
-        int64_t head_dim;
-        int64_t global_head_dim;
-        int64_t hidden_dim;
-        int64_t window;
+        std::int64_t vocab_size;
+        std::int64_t max_sequence_length;
+        std::int64_t model_dim;
+        std::int64_t num_layers;
+        std::int64_t num_heads;
+        std::int64_t num_kv_heads;
+        std::int64_t head_dim;
+        std::int64_t global_head_dim;
+        std::int64_t hidden_dim;
+        std::int64_t window;
         double rope_theta_local;
         double rope_theta_global;
         double final_logit_softcapping;
@@ -69,22 +60,22 @@ namespace Mila::Bindings
      */
     export struct QwenConfigInfo
     {
-        int64_t vocab_size;
-        int64_t max_sequence_length;
-        int64_t model_dim;
-        int64_t num_layers;
-        int64_t num_heads;
-        int64_t num_kv_heads;
-        int64_t head_dim;
-        int64_t hidden_dim;
+        std::int64_t vocab_size;
+        std::int64_t max_sequence_length;
+        std::int64_t model_dim;
+        std::int64_t num_layers;
+        std::int64_t num_heads;
+        std::int64_t num_kv_heads;
+        std::int64_t head_dim;
+        std::int64_t hidden_dim;
         double rope_theta;
         double partial_rotary_factor;
         bool attention_output_gate;
-        int64_t full_attention_interval;
-        int64_t linear_num_key_heads;
-        int64_t linear_num_value_heads;
-        int64_t linear_head_dim;
-        int64_t linear_conv_kernel_dim;
+        std::int64_t full_attention_interval;
+        std::int64_t linear_num_key_heads;
+        std::int64_t linear_num_value_heads;
+        std::int64_t linear_head_dim;
+        std::int64_t linear_conv_kernel_dim;
     };
 
     export void initialize( const std::string& log_level );
@@ -245,14 +236,14 @@ namespace Mila::Bindings
          */
         static std::shared_ptr<Tokenizer> fromStore( const std::string& name );
 
-        std::vector<int32_t> encode( const std::string& text );
-        std::string decode( const std::vector<int32_t>& ids );
-        std::string tokenToString( int32_t token_id ) const;
-        bool isValidToken( int32_t token_id ) const;
-        int64_t vocabSize() const;
-        std::optional<int32_t> bosTokenId() const;
-        std::optional<int32_t> eosTokenId() const;
-        std::optional<int32_t> padTokenId() const;
+        std::vector<std::int32_t> encode( const std::string& text );
+        std::string decode( const std::vector<std::int32_t>& ids );
+        std::string tokenToString( std::int32_t token_id ) const;
+        bool isValidToken( std::int32_t token_id ) const;
+        std::int64_t vocabSize() const;
+        std::optional<std::int32_t> bosTokenId() const;
+        std::optional<std::int32_t> eosTokenId() const;
+        std::optional<std::int32_t> padTokenId() const;
 
         ~Tokenizer();
 
@@ -282,7 +273,7 @@ namespace Mila::Bindings
          *        their bytes already are.
          */
         static std::unique_ptr<LlamaSession> load(
-            const std::string& path, std::optional<int64_t> context_length, int device_index,
+            const std::string& path, std::optional<std::int64_t> context_length, int device_index,
             const std::string& quantization );
 
         /**
@@ -298,7 +289,7 @@ namespace Mila::Bindings
          *         not fit the device at the context length asked for.
          */
         static std::unique_ptr<LlamaSession> fromStore(
-            const std::string& name, std::optional<int64_t> context_length, int device_index );
+            const std::string& name, std::optional<std::int64_t> context_length, int device_index );
 
         /**
          * @brief Generate from a prompt, streaming each token through on_token.
@@ -310,15 +301,15 @@ namespace Mila::Bindings
          * "cancelled" -- so no enum has to cross with it.
          */
         std::string generate(
-            const std::vector<int32_t>& prompt_tokens,
-            const std::function<void( int32_t )>& on_token,
+            const std::vector<std::int32_t>& prompt_tokens,
+            const std::function<void( std::int32_t )>& on_token,
             std::size_t max_new_tokens, float temperature, int top_k, float top_p,
             std::stop_token stop );
 
         LlamaConfigInfo getConfig() const;
 
         /// The context length this session was built for: the caller's, or the one the planner chose.
-        int64_t contextLength() const;
+        std::int64_t contextLength() const;
 
         std::string repr() const;
 
@@ -382,14 +373,14 @@ namespace Mila::Bindings
         /// False when a declared blob is missing, which makes the model unloadable.
         bool complete{ false };
 
-        uint64_t bytes_on_disk{ 0 };
+        std::uint64_t bytes_on_disk{ 0 };
     };
 
     export struct StoreUsageInfo
     {
-        uint64_t blob_bytes{ 0 };
-        uint64_t reclaimable_bytes{ 0 };
-        uint64_t partial_bytes{ 0 };
+        std::uint64_t blob_bytes{ 0 };
+        std::uint64_t reclaimable_bytes{ 0 };
+        std::uint64_t partial_bytes{ 0 };
         int model_count{ 0 };
         int blob_count{ 0 };
     };
@@ -399,7 +390,7 @@ namespace Mila::Bindings
         int records_removed{ 0 };
         int blobs_removed{ 0 };
         int files_removed{ 0 };
-        uint64_t bytes_reclaimed{ 0 };
+        std::uint64_t bytes_reclaimed{ 0 };
 
         /// Paths the platform refused to delete, most often a blob a live process still maps.
         std::vector<std::string> retained;
@@ -435,17 +426,17 @@ namespace Mila::Bindings
     {
         long http_code{ 0 };
         std::string location;
-        uint64_t content_length{ 0 };
+        std::uint64_t content_length{ 0 };
         bool transport_failed{ false };
         std::string message;
     };
 
     /// Receives body bytes. Return false to abort the transfer.
-    export using ChunkSink = std::function<bool( const char* data, size_t length )>;
+    export using ChunkSink = std::function<bool( const char* data, std::size_t length )>;
 
     /// Called once when the status and headers are known, before any body.
     export using HeadersInfoCallback =
-        std::function<void( long http_code, uint64_t content_length )>;
+        std::function<void( long http_code, std::uint64_t content_length )>;
 
     /**
      * @brief One HTTP GET, supplied by the caller.
@@ -548,24 +539,24 @@ namespace Mila::Bindings
          *        12B needs ~24 GB and would OOM at load on the cards this targets.
          */
         static std::unique_ptr<GemmaSession> load(
-            const std::string& path, std::optional<int64_t> context_length, int device_index,
+            const std::string& path, std::optional<std::int64_t> context_length, int device_index,
             const std::string& quantization );
 
         /// As LlamaSession::fromStore -- the record decides the quantization.
         static std::unique_ptr<GemmaSession> fromStore(
-            const std::string& name, std::optional<int64_t> context_length, int device_index );
+            const std::string& name, std::optional<std::int64_t> context_length, int device_index );
 
         /// As LlamaSession::generate -- tokens through the callback, why it stopped returned.
         std::string generate(
-            const std::vector<int32_t>& prompt_tokens,
-            const std::function<void( int32_t )>& on_token,
+            const std::vector<std::int32_t>& prompt_tokens,
+            const std::function<void( std::int32_t )>& on_token,
             std::size_t max_new_tokens, float temperature, int top_k, float top_p,
             std::stop_token stop );
 
         GemmaConfigInfo getConfig() const;
 
         /// As LlamaSession::contextLength.
-        int64_t contextLength() const;
+        std::int64_t contextLength() const;
 
         std::string repr() const;
 
@@ -595,24 +586,24 @@ namespace Mila::Bindings
          *        weights' format rather than applying anything on the way in.
          */
         static std::unique_ptr<QwenSession> load(
-            const std::string& path, std::optional<int64_t> context_length, int device_index,
+            const std::string& path, std::optional<std::int64_t> context_length, int device_index,
             const std::string& quantization );
 
         /// As GemmaSession::fromStore -- the record decides the quantization.
         static std::unique_ptr<QwenSession> fromStore(
-            const std::string& name, std::optional<int64_t> context_length, int device_index );
+            const std::string& name, std::optional<std::int64_t> context_length, int device_index );
 
         /// As LlamaSession::generate -- tokens through the callback, why it stopped returned.
         std::string generate(
-            const std::vector<int32_t>& prompt_tokens,
-            const std::function<void( int32_t )>& on_token,
+            const std::vector<std::int32_t>& prompt_tokens,
+            const std::function<void( std::int32_t )>& on_token,
             std::size_t max_new_tokens, float temperature, int top_k, float top_p,
             std::stop_token stop );
 
         QwenConfigInfo getConfig() const;
 
         /// As LlamaSession::contextLength.
-        int64_t contextLength() const;
+        std::int64_t contextLength() const;
 
         std::string repr() const;
 

@@ -6,14 +6,9 @@
  * Specifications/Deployment.md sections 3.3 and 6.
  */
 
-module;
-#include <cstddef>
-#include <format>
-#include <string>
-#include <string_view>
-
 export module Deployment.DeploymentRefusal;
 
+import std;
 import Dnn.Component;
 import Dnn.TensorTypes;
 import Deployment.DeviceReading;

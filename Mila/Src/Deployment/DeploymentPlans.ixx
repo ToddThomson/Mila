@@ -6,14 +6,9 @@
  * carry plans it is not running. See Specifications/Deployment.md section 3.3.
  */
 
-module;
-#include <span>
-#include <stdexcept>
-#include <utility>
-#include <vector>
-
 export module Deployment.DeploymentPlans;
 
+import std;
 export import Deployment.DeploymentPlan;
 
 namespace Mila::Deployment

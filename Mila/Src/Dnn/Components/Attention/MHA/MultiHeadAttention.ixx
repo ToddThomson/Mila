@@ -3,17 +3,9 @@
  * @brief Multi-Head Attention module (concatenated QKV input).
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <sstream>
-#include <type_traits>
-#include <stdexcept>
-#include <cstdint>
-#include <optional>
-
 export module Dnn.Components.MultiHeadAttention;
+
+import std;
 export import Dnn.Components.MultiHeadAttentionConfig;
 
 import Dnn.Component;
@@ -360,11 +352,11 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-        int64_t getModelDim()  const noexcept
+        std::int64_t getModelDim()  const noexcept
         {
             return config_.getModelDim();
         }
-        int64_t getNumHeads()  const noexcept
+        std::int64_t getNumHeads()  const noexcept
         {
             return config_.getNumHeads();
         }
@@ -468,8 +460,8 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "MultiHeadAttention: expected 3D model-layout shape" );
             }
 
-            const int64_t trailing = shape.back();
-            const int64_t expected = config_.getModelDim() * 3;
+            const std::int64_t trailing = shape.back();
+            const std::int64_t expected = config_.getModelDim() * 3;
 
             if ( trailing != expected )
             {

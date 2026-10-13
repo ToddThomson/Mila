@@ -8,14 +8,9 @@
  * to call the appropriate component fromArchive_() factory methods.
  */
 
-module;
-#include <string>
-#include <memory>
-#include <stdexcept>
-#include <format>
-
 export module Dnn.ComponentFactory;
 
+import std;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Serialization.ModelArchive;
@@ -111,7 +106,7 @@ namespace Mila::Dnn
          *
          * @throws std::runtime_error if version field is missing
          */
-        static int64_t getComponentVersion( const SerializationMetadata& meta )
+        static std::int64_t getComponentVersion( const SerializationMetadata& meta )
         {
             if ( !meta.has( "version" ) )
             {

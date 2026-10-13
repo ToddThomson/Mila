@@ -6,17 +6,9 @@
  * to token ids via a TokenizerVocabulary.
  */
 
-module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <span>
-#include <memory>
-#include <optional>
-#include <filesystem>
-
 export module Data.CharTokenizer;
 
+import std;
 import Data.CharVocabulary;
 import Data.Tokenizer;
 import Data.TokenizerVocabulary;
@@ -129,7 +121,7 @@ namespace Mila::Data
         /**
          * @brief Number of tokens in the underlying vocabulary.
          */
-        size_t getVocabSize() const override
+        std::size_t getVocabSize() const override
         {
             return vocab_.getSize();
         }

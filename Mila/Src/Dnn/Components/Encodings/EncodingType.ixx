@@ -3,11 +3,9 @@
  * @brief Positional encoding strategy selection used by Transformer components.
  */
 
-    module;
-#include <string>
-#include <stdexcept>
-
 export module Dnn.EncodingType;
+
+import std;
 
 namespace Mila::Dnn
 {

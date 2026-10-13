@@ -16,10 +16,9 @@
  * beyond the base.
  */
 
-module;
-#include <string>
-
 export module Dnn.Models.QwenModelConfig;
+
+import std;
 
 // Re-exported, not merely imported: this config's own setters take WeightQuantization
 // and KvCacheCompression, so a consumer that cannot name them cannot call them.

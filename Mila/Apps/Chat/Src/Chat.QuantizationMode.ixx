@@ -3,12 +3,9 @@
  * @brief The weight format a Chat session loads, as the library names it, and Chat's keyword for each.
  */
 
-module;
-#include <optional>
-#include <string_view>
-
 export module Chat.QuantizationMode;
 
+import std;
 import Mila;
 
 namespace Mila::ChatApp

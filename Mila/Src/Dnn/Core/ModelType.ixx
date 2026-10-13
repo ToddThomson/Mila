@@ -9,12 +9,9 @@
  * separate is why the per-architecture values were removed from ComponentType.
  */
 
-module;
-#include <string>
-#include <string_view>
-#include <cctype>
-
 export module Dnn.ModelType;
+
+import std;
 
 namespace Mila::Dnn
 {

@@ -8,19 +8,9 @@
  * graph creation (createGraph()).
  */
 
-module;
-#include <vector>
-#include <string>
-#include <memory>
-#include <unordered_map>
-#include <stdexcept>
-#include <sstream>
-#include <algorithm>
-#include <format>
-#include <string_view>
-
 export module Dnn.CompositeComponent;
 
+import std;
 import Dnn.Component;
 import Dnn.ComponentFactory;
 import Dnn.ITensor;
@@ -223,8 +213,8 @@ namespace Mila::Dnn
                 return nullptr;
             }
 
-            size_t pos = 0;
-            size_t next = path.find( '.' );
+            std::size_t pos = 0;
+            std::size_t next = path.find( '.' );
             std::string segment = path.substr( 0, next );
 
             auto it = child_component_map_.find( segment );
@@ -300,7 +290,7 @@ namespace Mila::Dnn
             }
 
             // Now proceed with normal resolution
-            size_t next = search_path.find( '.' );
+            std::size_t next = search_path.find( '.' );
             std::string first_segment = search_path.substr( 0, next );
 
             // Look for child with full name (e.g., "gpt2.lenc")
@@ -424,7 +414,7 @@ namespace Mila::Dnn
          *         from a model that produced nothing worth reporting, and that false negative
          *         is exactly what a NaN hunt must not have.
          */
-        size_t observe( std::string_view pattern,
+        std::size_t observe( std::string_view pattern,
             Compute::ComputePassMask passes,
             Compute::ActivationObserver sink )
         {
@@ -538,7 +528,7 @@ namespace Mila::Dnn
          *
          * @return Number of child components
          */
-        size_t childCount() const noexcept
+        std::size_t childCount() const noexcept
         {
             return child_components_.size();
         }
@@ -671,7 +661,7 @@ namespace Mila::Dnn
             }
 
             std::vector<ITensor*> params;
-            params.reserve( static_cast<size_t>( total_count ) );
+            params.reserve( static_cast<std::size_t>( total_count ) );
 
             for ( const auto& component : child_components_ )
             {
@@ -714,7 +704,7 @@ namespace Mila::Dnn
             }
 
             std::vector<ITensor*> grads;
-            grads.reserve( static_cast<size_t>( total_count ) );
+            grads.reserve( static_cast<std::size_t>( total_count ) );
 
             for ( const auto& component : child_components_ )
             {
@@ -895,8 +885,8 @@ namespace Mila::Dnn
 
             SerializationMetadata meta;
             meta.set( "type", this->getName() )
-                .set( "version", int64_t( 1 ) )
-                .set( "child_count", static_cast<int64_t>( child_components_.size() ) )
+                .set( "version", std::int64_t( 1 ) )
+                .set( "child_count", static_cast<std::int64_t>( child_components_.size() ) )
                 .set( "child_names", child_names );
 
             archive.writeMetadata( "meta.json", meta );
@@ -960,10 +950,10 @@ namespace Mila::Dnn
          */
         static bool matchesPath( std::string_view pattern, std::string_view path ) noexcept
         {
-            size_t pattern_index = 0;
-            size_t path_index = 0;
-            size_t star_index = std::string_view::npos;
-            size_t path_resume = 0;
+            std::size_t pattern_index = 0;
+            std::size_t path_index = 0;
+            std::size_t star_index = std::string_view::npos;
+            std::size_t path_resume = 0;
 
             while ( path_index < path.size() )
             {
@@ -1007,10 +997,10 @@ namespace Mila::Dnn
          * own output, and a pattern naming a block should observe that block rather than only
          * the leaves inside it.
          */
-        static size_t applyObservedPasses( const CompositeComponent& root,
+        static std::size_t applyObservedPasses( const CompositeComponent& root,
             std::string_view pattern, Compute::ComputePassMask passes )
         {
-            size_t matched = 0;
+            std::size_t matched = 0;
 
             if ( matchesPath( pattern, root.getName() ) )
             {

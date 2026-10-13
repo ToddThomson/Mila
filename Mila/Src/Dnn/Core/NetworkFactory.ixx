@@ -1,13 +1,7 @@
-module;
-#include <string>
-#include <unordered_map>
-#include <functional>
-#include <memory>
-#include <stdexcept>
-#include <format>
 
 export module Dnn.NetworkFactory;
 
+import std;
 import Dnn.Network;
 import Dnn.TensorDataType;
 import Compute.DeviceType;

@@ -11,11 +11,9 @@
  * the escapes. Colour must therefore never be the only signal a line is carrying.
  */
 
-module;
-#include <format>
-#include <string>
-
 export module Chat.Ansi;
+
+import std;
 
 namespace Mila::ChatApp
 {

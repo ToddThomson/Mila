@@ -30,15 +30,9 @@
  * @endcode
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-#include <optional>
-#include <utility>
-
 export module Dnn.Components.RmsNormConfig;
 
+import std;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.TensorTypes;
@@ -70,7 +64,7 @@ namespace Mila::Dnn
          *
          * @param axis  Axis along which to normalize (negative indexing supported).
          */
-        explicit RmsNormConfig( int64_t axis )
+        explicit RmsNormConfig( std::int64_t axis )
             : axis_( axis )
         {}
 
@@ -150,7 +144,7 @@ namespace Mila::Dnn
             return !normalized_shape_.empty();
         }
 
-        std::optional<int64_t> getAxis() const noexcept
+        std::optional<std::int64_t> getAxis() const noexcept
         {
             return axis_;
         }
@@ -198,7 +192,7 @@ namespace Mila::Dnn
 
             if ( has_shape )
             {
-                for ( size_t i = 0; i < normalized_shape_.size(); ++i )
+                for ( std::size_t i = 0; i < normalized_shape_.size(); ++i )
                 {
                     if ( normalized_shape_[ i ] <= 0 )
                     {
@@ -219,7 +213,7 @@ namespace Mila::Dnn
             {
                 dim_t extent = 1;
 
-                for ( size_t i = 0; i < normalized_shape_.size(); ++i )
+                for ( std::size_t i = 0; i < normalized_shape_.size(); ++i )
                 {
                     extent *= normalized_shape_[ i ];
                 }
@@ -247,7 +241,7 @@ namespace Mila::Dnn
 
             if ( group_size_ > 0 )
             {
-                meta.set( "group_size", static_cast<int64_t>( group_size_ ) );
+                meta.set( "group_size", static_cast<std::int64_t>( group_size_ ) );
             }
 
             if ( !normalized_shape_.empty() )
@@ -318,7 +312,7 @@ namespace Mila::Dnn
             if ( !normalized_shape_.empty() )
             {
                 oss << "normalized_shape=[ ";
-                for ( size_t i = 0; i < normalized_shape_.size(); ++i )
+                for ( std::size_t i = 0; i < normalized_shape_.size(); ++i )
                 {
                     oss << normalized_shape_[ i ];
                     if ( i < normalized_shape_.size() - 1 )

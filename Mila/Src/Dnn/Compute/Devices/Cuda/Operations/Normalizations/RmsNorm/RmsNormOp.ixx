@@ -11,7 +11,7 @@ module;
 
 export module Compute.CudaRmsNormOp;
 
-import std.compat;
+import std;
 import :Dispatch;
 
 import Dnn.Components.RmsNormConfig;
@@ -187,9 +187,9 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                     throw std::invalid_argument( "CudaRmsNormOp::build - input rank is less than normalized_shape rank" );
                 }
 
-                size_t offset = input_shape.size() - config_.getNormalizedShape().size();
+                std::size_t offset = input_shape.size() - config_.getNormalizedShape().size();
 
-                for ( size_t i = 0; i < config_.getNormalizedShape().size(); ++i )
+                for ( std::size_t i = 0; i < config_.getNormalizedShape().size(); ++i )
                 {
                     if ( input_shape[ offset + i ] != config_.getNormalizedShape()[ i ] )
                     {
@@ -203,9 +203,9 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             }
 
             const auto& shape = input_shape;
-            const int64_t ndim = static_cast<int64_t>(shape.size());
+            const std::int64_t ndim = static_cast<std::int64_t>(shape.size());
 
-            int64_t axis = -1;
+            std::int64_t axis = -1;
 
             if ( config_.getAxis().has_value() )
             {
@@ -213,7 +213,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             }
             else
             {
-                axis = static_cast<int64_t>(shape.size()) - static_cast<int64_t>(config_.getNormalizedShape().size());
+                axis = static_cast<std::int64_t>(shape.size()) - static_cast<std::int64_t>(config_.getNormalizedShape().size());
             }
 
             if ( axis < 0 )
@@ -228,20 +228,20 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
 
             norm_axis_ = axis;
 
-            int64_t outer = 1;
-            for ( int64_t i = 0; i < axis; ++i )
+            std::int64_t outer = 1;
+            for ( std::int64_t i = 0; i < axis; ++i )
             {
-                outer *= static_cast<int64_t>( shape[ i ] );
+                outer *= static_cast<std::int64_t>( shape[ i ] );
             }
 
-            int64_t inner = 1;
-            for ( int64_t i = axis + 1; i < ndim; ++i )
+            std::int64_t inner = 1;
+            for ( std::int64_t i = axis + 1; i < ndim; ++i )
             {
-                inner *= static_cast<int64_t>( shape[ i ] );
+                inner *= static_cast<std::int64_t>( shape[ i ] );
             }
 
-            const int64_t dim = static_cast<int64_t>( shape[ axis ] );
-            const int64_t group_size = config_.getGroupSize() > 0 ? static_cast<int64_t>( config_.getGroupSize() ) : dim;
+            const std::int64_t dim = static_cast<std::int64_t>( shape[ axis ] );
+            const std::int64_t group_size = config_.getGroupSize() > 0 ? static_cast<std::int64_t>( config_.getGroupSize() ) : dim;
 
             if ( dim % group_size != 0 )
             {
@@ -257,7 +257,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 throw std::invalid_argument( "CudaRmsNormOp::build - a grouped norm must normalize the innermost axis" );
             }
 
-            const int64_t num_slices = outer * groups_ * inner;
+            const std::int64_t num_slices = outer * groups_ * inner;
 
             outer_size_ = static_cast<int>( outer );
             inner_size_ = static_cast<int>( inner );
@@ -281,31 +281,31 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         void forward( const ITensor& input, ITensor& output ) const
         {
             const auto& input_shape = input.shape();
-            const int64_t ndim = static_cast<int64_t>( input_shape.size() );
+            const std::int64_t ndim = static_cast<std::int64_t>( input_shape.size() );
 
             // Launch geometry follows the runtime tensor, not the build shape: components
             // are built once at the widest (prefill chunk) shape but decode calls arrive
             // with a single row. Mirrors CudaLayerNormOp::forward.
-            if ( norm_axis_ >= ndim || static_cast<int64_t>( input_shape[ norm_axis_ ] ) != norm_dim_ )
+            if ( norm_axis_ >= ndim || static_cast<std::int64_t>( input_shape[ norm_axis_ ] ) != norm_dim_ )
             {
                 throw std::runtime_error( "CudaRmsNormOp::forward - input shape is incompatible with the built normalization axis" );
             }
 
-            int64_t outer = 1;
+            std::int64_t outer = 1;
 
-            for ( int64_t i = 0; i < norm_axis_; ++i )
+            for ( std::int64_t i = 0; i < norm_axis_; ++i )
             {
-                outer *= static_cast<int64_t>( input_shape[ i ] );
+                outer *= static_cast<std::int64_t>( input_shape[ i ] );
             }
 
-            int64_t inner = 1;
+            std::int64_t inner = 1;
 
-            for ( int64_t i = norm_axis_ + 1; i < ndim; ++i )
+            for ( std::int64_t i = norm_axis_ + 1; i < ndim; ++i )
             {
-                inner *= static_cast<int64_t>( input_shape[ i ] );
+                inner *= static_cast<std::int64_t>( input_shape[ i ] );
             }
 
-            if ( outer * groups_ * inner > static_cast<int64_t>( rstd_tensor_->size() ) )
+            if ( outer * groups_ * inner > static_cast<std::int64_t>( rstd_tensor_->size() ) )
             {
                 throw std::runtime_error( "CudaRmsNormOp::forward - runtime slice count exceeds the built maximum" );
             }
@@ -377,7 +377,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         std::shared_ptr<TensorType> rstd_tensor_;
         NativeType* rstd_{ nullptr };
 
-        int64_t norm_axis_{ -1 };
+        std::int64_t norm_axis_{ -1 };
         int outer_size_{ 0 };
         int inner_size_{ 0 };
         int norm_dim_{ 0 };

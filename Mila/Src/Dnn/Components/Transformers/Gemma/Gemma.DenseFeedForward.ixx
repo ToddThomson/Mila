@@ -3,14 +3,9 @@
  * @brief Gemma 4's dense feed-forward sublayer: pre_norm -> GeGLU mlp -> post_norm, as one component named ffn.
  */
 
-module;
-#include <memory>
-#include <optional>
-#include <stdexcept>
-#include <string>
-
 export module Dnn.Components.GemmaDenseFeedForward;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;

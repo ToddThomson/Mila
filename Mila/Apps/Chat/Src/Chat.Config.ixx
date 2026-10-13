@@ -3,14 +3,9 @@
  * @brief Runtime configuration for a Chat session; re-exports the enums it is built from.
  */
 
-module;
-#include <filesystem>
-#include <optional>
-#include <string>
-#include <cstddef>
-
 export module Chat.Config;
 
+import std;
 export import Chat.ModelType;
 export import Chat.ModelSize;
 export import Chat.QuantizationMode;
@@ -95,20 +90,20 @@ namespace Mila::ChatApp
 
         std::filesystem::path model_path;
         std::filesystem::path tokenizer_path;
-        size_t                max_new_tokens{ 2048 };
+        std::size_t                max_new_tokens{ 2048 };
         float                 temperature{ 0.8f };
         int                   top_k{ 40 };
 
         /// Nucleus truncation. 1.0 disables it, matching the runtime's own default -- Chat was the
         /// only consumer of the sampler not passing this knob through.
         float                 top_p{ 1.0f };
-        size_t                context_length{ 0 };
+        std::size_t                context_length{ 0 };
 
         /// What was asked for, kept apart from the live value because a model switch rewrites the
         /// latter. 0 means no layer above the compiled defaults named a context, so the new
         /// family's own default stands. Without this a switch dropped to a family default -- 512
         /// for Gemma -- silently discarding the number the user actually configured.
-        size_t                configured_context_length{ 0 };
+        std::size_t                configured_context_length{ 0 };
 
         /// Which layer named the context, for /context to report. Carried as the rendered string
         /// rather than the layer, because the merged settings know the FILE a layer wrote from and

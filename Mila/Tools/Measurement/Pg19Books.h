@@ -5,10 +5,9 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cstdio>
-#include <filesystem>
-#include <string>
+// The standard library comes from the module: this header is included after `import Mila;`, where on MSVC a
+// standard header redefines what the module already declared.
+import std;
 
 namespace Mila::Measurement
 {

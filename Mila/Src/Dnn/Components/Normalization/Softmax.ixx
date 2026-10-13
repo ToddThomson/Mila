@@ -6,17 +6,9 @@
  * parameters) and exposes configuration to callers.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <sstream>
-#include <stdexcept>
-#include <cstdint>
-#include <type_traits>
-#include <optional>
-
 export module Dnn.Components.Softmax;
+
+import std;
 export import Dnn.Components.SoftmaxConfig;
 
 import Dnn.Component;
@@ -328,7 +320,7 @@ namespace Mila::Dnn
          *
          * @return The axis along which softmax is computed.
          */
-        int64_t getAxis() const noexcept
+        std::int64_t getAxis() const noexcept
         {
             return config_.getAxis();
         }
@@ -433,8 +425,8 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "Softmax: input must have rank >= 1" );
             }
 
-            int64_t axis = config_.getAxis();
-            const int64_t ndim = static_cast<int64_t>(input_shape.size());
+            std::int64_t axis = config_.getAxis();
+            const std::int64_t ndim = static_cast<std::int64_t>(input_shape.size());
 
             if (axis < 0)
             {

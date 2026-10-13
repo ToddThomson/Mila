@@ -3,11 +3,9 @@
  * @brief What one export loads, at which weight format, and where its package goes.
  */
 
-module;
-#include <filesystem>
-
 export module Tools.ExportArtifact.ExportOptions;
 
+import std;
 import Mila;
 
 namespace Mila::Tools

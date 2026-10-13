@@ -12,7 +12,7 @@ module;
 
 export module Compute.CudaGqaOp;
 
-import std.compat;
+import std;
 import :Dispatch;
 import :Plans;
 
@@ -283,7 +283,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // Tuned prefill chunk size, threaded down from LlamaTransformer via BuildContext.
             // Training-mode contexts carry no prefill size; fall back to the full sequence
             // length so the (vestigial) prefill plans are still built with a valid row count.
-            const int64_t prefill_size = context.getPrefillSize();
+            const std::int64_t prefill_size = context.getPrefillSize();
             prefill_chunk_size_ = static_cast<int>( prefill_size > 0 ? prefill_size : T_ );
 
             cache_capacity_ = resolveCacheCapacity( context );
@@ -603,8 +603,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // Keyed on makePlanKey(chunk_len, attended_len). Holds the unbounded causal-
         // triangular prefill plans (attended_len < capacity) and the bounded partial-chunk
         // plans (attended_len == capacity). See GqaAttentionExtent.md.
-        std::unordered_map<int64_t, Detail::CublasLtMatMulPlan<NativeType>> qk_prefill_plan_cache_optimized_;
-        std::unordered_map<int64_t, Detail::CublasLtMatMulPlan<NativeType>> att_value_prefill_plan_cache_optimized_;
+        std::unordered_map<std::int64_t, Detail::CublasLtMatMulPlan<NativeType>> qk_prefill_plan_cache_optimized_;
+        std::unordered_map<std::int64_t, Detail::CublasLtMatMulPlan<NativeType>> att_value_prefill_plan_cache_optimized_;
 
         // ====================================================================
         // State tensors -- KV cache (compact NKV layout, retained across calls)
@@ -645,7 +645,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 throw std::invalid_argument(
                     "CudaGroupedQueryAttentionOp: input must be rank 3 [B, T, QKV_dim]" );
 
-            const int64_t expected =
+            const std::int64_t expected =
                 (config_.getNumHeads() + 2 * config_.getNumKvHeads()) * config_.getHeadDim();
 
             if ( s[ 2 ] != expected )
@@ -690,7 +690,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int resolveCacheCapacity( const BuildContext& context ) const
         {
             const int sequence_length = static_cast<int>( context.inputShape()[ 1 ] );
-            const int64_t prefill_size = context.getPrefillSize();
+            const std::int64_t prefill_size = context.getPrefillSize();
             const int prefill_chunk =
                 static_cast<int>( prefill_size > 0 ? prefill_size : sequence_length );
 
@@ -1192,14 +1192,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // partial final chunk holds attended_len == cache_capacity_ with a per-prefill
         // chunk_len, so both fields are needed to key uniquely. Distinct plans ~= seq/chunk
         // for a full prefill; built once and reused across prefills. See GqaAttentionExtent.md.
-        static int64_t makePlanKey( int chunk_len, int attended_len ) noexcept
+        static std::int64_t makePlanKey( int chunk_len, int attended_len ) noexcept
         {
-            return ( static_cast<int64_t>( chunk_len ) << 32 ) | static_cast<uint32_t>( attended_len );
+            return ( static_cast<std::int64_t>( chunk_len ) << 32 ) | static_cast<std::uint32_t>( attended_len );
         }
 
         const Detail::CublasLtMatMulPlan<NativeType>& getOrBuildPrefillQKPlan_optimized( int chunk_len, int attended_len )
         {
-            const int64_t key = makePlanKey( chunk_len, attended_len );
+            const std::int64_t key = makePlanKey( chunk_len, attended_len );
             auto it = qk_prefill_plan_cache_optimized_.find( key );
 
             if ( it == qk_prefill_plan_cache_optimized_.end() )
@@ -1223,7 +1223,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
         const Detail::CublasLtMatMulPlan<NativeType>& getOrBuildPrefillAVPlan_optimized( int chunk_len, int attended_len )
         {
-            const int64_t key = makePlanKey( chunk_len, attended_len );
+            const std::int64_t key = makePlanKey( chunk_len, attended_len );
             auto it = att_value_prefill_plan_cache_optimized_.find( key );
 
             if ( it == att_value_prefill_plan_cache_optimized_.end() )

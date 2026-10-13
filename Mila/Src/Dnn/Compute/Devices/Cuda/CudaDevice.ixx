@@ -8,7 +8,7 @@ module;
 
 export module Compute.CudaDevice;
 
-import std.compat;
+import std;
 import Compute.Device;
 import Compute.DeviceAllocation;
 import Compute.DeviceId;
@@ -193,7 +193,7 @@ namespace Mila::Dnn::Compute
          *
          * @return size_t Total global memory in bytes.
          */
-        size_t getTotalGlobalMemory() const
+        std::size_t getTotalGlobalMemory() const
         {
             return props_.totalGlobalMem;
         }
@@ -251,7 +251,7 @@ namespace Mila::Dnn::Compute
          *
          * @return size_t Shared memory per block in bytes.
          */
-        size_t getSharedMemoryPerBlock() const
+        std::size_t getSharedMemoryPerBlock() const
         {
             return props_.sharedMemPerBlock;
         }

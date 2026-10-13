@@ -8,17 +8,10 @@
 
 module;
 #include <miniz.h>
-#include <string>
-#include <string_view>
-#include <cstring>
-#include <vector>
-#include <span>
-#include <algorithm>
-#include <format>
-#include <cassert>
 
 export module Serialization.ZipSerializer;
 
+import std;
 import Serialization.ArchiveSerializer;
 import Serialization.OpenMode;
 import Logging.Logger;
@@ -259,7 +252,7 @@ namespace Mila::Dnn::Serialization
          * @param size Number of bytes to write.
          * @return true on success, false on failure.
          */
-        [[nodiscard]] bool addData( const std::string& path, const void* data, size_t size ) override
+        [[nodiscard]] bool addData( const std::string& path, const void* data, std::size_t size ) override
         {
             if (!isOpenForWrite())
             {
@@ -302,7 +295,7 @@ namespace Mila::Dnn::Serialization
          * @param size Size of the provided buffer in bytes.
          * @return Number of bytes written into the buffer, or 0 on error.
          */
-        [[nodiscard]] size_t extractData( const std::string& path, void* data, size_t size ) override
+        [[nodiscard]] std::size_t extractData( const std::string& path, void* data, std::size_t size ) override
         {
             if (!isOpenForRead())
             {
@@ -329,7 +322,7 @@ namespace Mila::Dnn::Serialization
             if (stat.m_uncomp_size > size)
             {
                 Logging::Logger::error( std::format( "ZipSerializer: buffer too small for '{}' (need {}, have {})",
-                    p, static_cast<size_t>(stat.m_uncomp_size), size ) );
+                    p, static_cast<std::size_t>(stat.m_uncomp_size), size ) );
                 return 0;
             }
 
@@ -339,7 +332,7 @@ namespace Mila::Dnn::Serialization
                 return 0;
             }
 
-            return static_cast<size_t>(stat.m_uncomp_size);
+            return static_cast<std::size_t>(stat.m_uncomp_size);
         }
 
         /**
@@ -349,7 +342,7 @@ namespace Mila::Dnn::Serialization
          * @param buffer Span to receive file contents.
          * @return Number of bytes written into the buffer, or 0 on error.
          */
-        [[nodiscard]] size_t extractData( const std::string& path, std::span<std::byte> buffer )
+        [[nodiscard]] std::size_t extractData( const std::string& path, std::span<std::byte> buffer )
         {
             return extractData( path, buffer.data(), buffer.size() );
         }
@@ -360,7 +353,7 @@ namespace Mila::Dnn::Serialization
          * @param path Archive-internal path.
          * @return File size in bytes, or 0 if the file is missing or an error occurred.
          */
-        [[nodiscard]] size_t getFileSize( const std::string& path ) const override
+        [[nodiscard]] std::size_t getFileSize( const std::string& path ) const override
         {
             if (!isOpenForRead())
             {
@@ -381,7 +374,7 @@ namespace Mila::Dnn::Serialization
                 return 0;
             }
 
-            return static_cast<size_t>(stat.m_uncomp_size);
+            return static_cast<std::size_t>(stat.m_uncomp_size);
         }
 
         /**
@@ -435,7 +428,7 @@ namespace Mila::Dnn::Serialization
         [[nodiscard]] std::string getMetadata( const std::string& key ) const override
         {
             std::string p = "metadata/" + key;
-            size_t size = getFileSize( p );
+            std::size_t size = getFileSize( p );
             if (size == 0)
             {
                 return {};
@@ -443,7 +436,7 @@ namespace Mila::Dnn::Serialization
 
             std::string value( size, '\0' );
             // Need to extract data - const_cast required for miniz API
-            size_t extracted = const_cast<ZipSerializer*>(this)->extractData( p, value.data(), size );
+            std::size_t extracted = const_cast<ZipSerializer*>(this)->extractData( p, value.data(), size );
 
             if (extracted != size)
             {

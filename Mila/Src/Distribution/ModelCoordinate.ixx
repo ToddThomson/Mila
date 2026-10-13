@@ -7,12 +7,9 @@
  * naming a model is not a network operation. See Specifications/ModelDistribution.md.
  */
 
-module;
-#include <optional>
-#include <string>
-#include <string_view>
-
 export module Distribution.ModelCoordinate;
+
+import std;
 
 namespace Mila::Distribution
 {

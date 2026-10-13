@@ -3,12 +3,9 @@
  * @brief One model's files and description, as a caller hands them to the packager.
  */
 
-module;
-#include <filesystem>
-#include <string>
-
 export module Distribution.PackageRequest;
 
+import std;
 export import Distribution.ModelCapabilities;
 
 namespace Mila::Distribution

@@ -3,12 +3,9 @@
  * @brief What the model listing needs to cost a row against this machine, right now.
  */
 
-module;
-#include <cstddef>
-#include <string>
-
 export module Chat.FootprintBudget;
 
+import std;
 import Mila;
 
 namespace Mila::ChatApp

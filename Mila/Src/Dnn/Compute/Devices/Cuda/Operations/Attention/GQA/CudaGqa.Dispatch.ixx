@@ -7,7 +7,7 @@ module;
 
 export module Compute.CudaGqaOp:Dispatch;
 
-import std.compat;
+import std;
 
 namespace Mila::Dnn::Compute::Cuda::Gqa
 {
@@ -441,7 +441,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 return cuda_gqa_decode_attention_supported( head_size, group_size );
             }
 
-            static size_t decode_attention_scratch_bytes( int B, int NH, int HS, int rows )
+            static std::size_t decode_attention_scratch_bytes( int B, int NH, int HS, int rows )
             {
                 return cuda_gqa_decode_attention_scratch_bytes( B, NH, HS, rows );
             }

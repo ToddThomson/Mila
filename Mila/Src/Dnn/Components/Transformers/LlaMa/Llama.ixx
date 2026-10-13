@@ -5,19 +5,9 @@
  * Device-templated network implementing a LLaMA-style autoregressive decoder.
  */
 
-module;
-#include <string>
-#include <vector>
-#include <memory>
-#include <sstream>
-#include <iostream>
-#include <stdexcept>
-#include <cstdint>
-#include <format>
-#include <optional>
-#include <algorithm>
-
 export module Dnn.Components.LlamaTransformer;
+
+import std;
 export import :Config;
 export import :Presets;
 export import :BlockWorkspace;
@@ -131,7 +121,7 @@ namespace Mila::Dnn
 
             block_input_ptrs_[ 0 ] = token_embed_out_ptr_;
 
-            for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+            for ( std::size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 auto& block_out = transformer_blocks_[ i ]->forward( *block_input_ptrs_[ i ] );
 
@@ -166,16 +156,16 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "LlamaTransformer must be built before calling prefill()." );
 
-            const int64_t B = input.shape()[ 0 ];
-            const int64_t T_prompt = input.shape()[ 1 ];
+            const std::int64_t B = input.shape()[ 0 ];
+            const std::int64_t T_prompt = input.shape()[ 1 ];
 
             if ( start_offset < 0 || start_offset >= T_prompt )
                 throw std::invalid_argument( std::format(
                     "LlamaTransformer::prefillFrom: start_offset {} must lie inside the prompt (length {})",
                     start_offset, T_prompt ) );
 
-            int64_t offset = start_offset;
-            int64_t T_last = 0;
+            std::int64_t offset = start_offset;
+            std::int64_t T_last = 0;
 
             TensorType* last_block_out = nullptr;
 
@@ -183,7 +173,7 @@ namespace Mila::Dnn
             // The final chunk output is used to extract the last token representation for LM head inference.
             while ( offset < T_prompt )
             {
-                const int64_t T_actual = std::min( prefill_chunk_size_, T_prompt - offset );
+                const std::int64_t T_actual = std::min( prefill_chunk_size_, T_prompt - offset );
                 T_last = T_actual;
 
                 auto chunk_input = input.view( shape_t{ B, T_actual }, offset );
@@ -191,7 +181,7 @@ namespace Mila::Dnn
                 // Embed directly -- output buffer lives in token_embedding_
                 TensorType* block_input = &token_embedding_->forward( chunk_input );
 
-                for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+                for ( std::size_t i = 0; i < transformer_blocks_.size(); ++i )
                 {
                     auto& block_out = transformer_blocks_[ i ]->prefill( *block_input, offset );
 
@@ -339,7 +329,7 @@ namespace Mila::Dnn
 
             block_input_ptrs_[ 0 ] = token_embed_out_ptr_;
 
-            for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+            for ( std::size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 auto& block_out = transformer_blocks_[ i ]->decode( *block_input_ptrs_[ i ], position );
 
@@ -384,7 +374,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "LlamaTransformer: backward requires training mode." );
             }
 
-            for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+            for ( std::size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 if ( !block_input_ptrs_[ i ] || !block_output_ptrs_[ i ] )
                     throw std::runtime_error( std::format( "LlamaTransformer: missing cached activation for block {}", i ) );
@@ -401,10 +391,10 @@ namespace Mila::Dnn
 
             TensorType* curr_grad = &last_block_grad;
 
-            for ( int64_t i = static_cast<int64_t>(transformer_blocks_.size()) - 1; i >= 0; --i )
+            for ( std::int64_t i = static_cast<std::int64_t>(transformer_blocks_.size()) - 1; i >= 0; --i )
             {
-                auto& block_grad = transformer_blocks_[ static_cast<size_t>(i) ]->backward(
-                    *block_input_ptrs_[ static_cast<size_t>(i) ], *curr_grad );
+                auto& block_grad = transformer_blocks_[ static_cast<std::size_t>(i) ]->backward(
+                    *block_input_ptrs_[ static_cast<std::size_t>(i) ], *curr_grad );
 
                 curr_grad = &block_grad;
 
@@ -499,14 +489,14 @@ namespace Mila::Dnn
          * @brief The context the token embedding is built and priced at: in inference, one prefill chunk wide,
          *        since every inference pass embeds at most a chunk at a time.
          */
-        static BuildContext embeddingContext( const BuildContext& context, int64_t prefill_chunk )
+        static BuildContext embeddingContext( const BuildContext& context, std::int64_t prefill_chunk )
         {
             if ( !context.isInferenceMode() )
                 return context;
 
             const auto& input_shape = context.inputShape();
 
-            return context.forChild( shape_t{ input_shape[ 0 ], std::min<int64_t>( input_shape[ 1 ], prefill_chunk ) } );
+            return context.forChild( shape_t{ input_shape[ 0 ], std::min<std::int64_t>( input_shape[ 1 ], prefill_chunk ) } );
         }
 
         /**
@@ -537,7 +527,7 @@ namespace Mila::Dnn
         /**
          * @brief What build( context ) would allocate with the given prefill chunk.
          */
-        MemoryStats requiredMemoryAtChunk( const BuildContext& context, int64_t prefill_chunk ) const
+        MemoryStats requiredMemoryAtChunk( const BuildContext& context, std::int64_t prefill_chunk ) const
         {
             const auto& input_shape = context.inputShape();
             const dim_t B = input_shape[ 0 ];
@@ -565,7 +555,7 @@ namespace Mila::Dnn
             stats += this->template getComponentAs<TokenEmbeddingType>( n + ".temb" )
                 ->getRequiredMemory( embeddingContext( context, prefill_chunk ) );
 
-            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+            for ( std::int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 stats += this->template getComponentAs<TransformerBlockType>(
                     n + ".tf_layer_" + std::to_string( i ) )->getRequiredMemory( block_context );
@@ -697,7 +687,7 @@ namespace Mila::Dnn
             BuildContext final_context( final_shape, context.getRuntimeMode(), context.shouldInitializeParameters() );
 
             transformer_blocks_.clear();
-            transformer_blocks_.reserve( static_cast<size_t>(config_.getNumLayers()) );
+            transformer_blocks_.reserve( static_cast<std::size_t>(config_.getNumLayers()) );
 
             token_embedding_ = this->template getComponentAs<TokenEmbeddingType>( this->getName() + ".temb" );
             token_embedding_->build( embeddingContext( context, prefill_chunk_size_ ) );
@@ -711,7 +701,7 @@ namespace Mila::Dnn
                     this->getName() + ".block_ws." );
             }
 
-            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+            for ( std::int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 std::string block_name = this->getName() + ".tf_layer_" + std::to_string( i );
                 auto block = this->template getComponentAs<TransformerBlockType>( block_name );
@@ -771,7 +761,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta = config_.toMetadata();
             meta.set( "type", "LlamaTransformer" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() );
 
             archive.writeMetadata( "transformer_meta.json", meta );
@@ -783,7 +773,7 @@ namespace Mila::Dnn
 
         // The prefill chunk the caller resolved, taken from the BuildContext in onBuilding and
         // threaded to child components via BuildContext::withPrefillSize().
-        int64_t prefill_chunk_size_{ 0 };
+        std::int64_t prefill_chunk_size_{ 0 };
 
         std::shared_ptr<TokenEmbeddingType> token_embedding_{ nullptr };
         std::vector<std::shared_ptr<TransformerBlockType>> transformer_blocks_;
@@ -820,13 +810,13 @@ namespace Mila::Dnn
         {
             TokenEmbeddingConfig embedding_config;
             embedding_config.withVocabSize( config_.getVocabSize() )
-                .withEmbeddingDim( static_cast<size_t>(config_.getModelDim()) );
+                .withEmbeddingDim( static_cast<std::size_t>(config_.getModelDim()) );
 
             auto embedding = std::make_shared<TokenEmbeddingType>( this->getName() + ".temb", embedding_config );
             this->addComponent( embedding );
 
             // Transformer blocks.
-            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+            for ( std::int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 LlamaConfig block_cfg( config_.getModelDim(), /*num_layers*/ 1 );
                 block_cfg.withNumHeads( config_.getNumHeads() )

@@ -7,11 +7,9 @@
  * and precisions.
  */
 
-module;
-#include <memory>
-
 export module Compute.OptimizerBase;
 
+import std;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;

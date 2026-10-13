@@ -57,14 +57,9 @@
  * @endcode
  */
 
-module;
-#include <format>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-
 export module Dnn.LanguageModelConfig;
 
+import std;
 export import Dnn.WeightQuantization;
 export import Dnn.KvCacheCompression;
 

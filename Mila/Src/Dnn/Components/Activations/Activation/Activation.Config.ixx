@@ -10,14 +10,9 @@
  * enum to the compile-time instantiation.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <sstream>
-
 export module Dnn.Components.ActivationConfig;
 
+import std;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.ActivationType;

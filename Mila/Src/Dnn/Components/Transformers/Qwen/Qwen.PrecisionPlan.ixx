@@ -7,11 +7,9 @@
  * property the whole per-role mechanism exists to preserve (section 6).
  */
 
-module;
-#include <concepts>
-
 export module Dnn.Components.QwenPrecisionPlan;
 
+import std;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.Weight.PrecisionPlan;
 

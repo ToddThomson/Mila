@@ -7,15 +7,9 @@
  * Specifications/FfnAndMoE.md section 7.
  */
 
-module;
-#include <stdexcept>
-#include <cstdint>
-#include <string>
-#include <utility>
-#include <sstream>
-
 export module Dnn.Components.GatedMLP:Config;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Dnn.ActivationType;
@@ -88,10 +82,10 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "input_features", static_cast<int64_t>( input_features_ ) )
-                .set( "hidden_size", static_cast<int64_t>( hidden_size_ ) )
+            meta.set( "input_features", static_cast<std::int64_t>( input_features_ ) )
+                .set( "hidden_size", static_cast<std::int64_t>( hidden_size_ ) )
                 .set( "has_bias", has_bias_ )
-                .set( "gate_activation", static_cast<int64_t>( gate_activation_ ) );
+                .set( "gate_activation", static_cast<std::int64_t>( gate_activation_ ) );
 
             return meta;
         }

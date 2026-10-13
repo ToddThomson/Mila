@@ -24,14 +24,9 @@
  *  - The MTP draft head and the vision tower (Qwen3.8.md section 1, "out of scope").
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-#include <utility>
-
 export module Dnn.Components.QwenConfig;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
@@ -552,24 +547,24 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "vocab_size", static_cast<int64_t>(vocab_size_) )
-                .set( "num_layers", static_cast<int64_t>(num_layers_) )
-                .set( "embedding_dim", static_cast<int64_t>(embedding_dim_) )
-                .set( "num_heads", static_cast<int64_t>(num_heads_) )
-                .set( "num_kv_heads", static_cast<int64_t>(num_kv_heads_) )
-                .set( "head_dim", static_cast<int64_t>(head_dim_) )
+            meta.set( "vocab_size", static_cast<std::int64_t>(vocab_size_) )
+                .set( "num_layers", static_cast<std::int64_t>(num_layers_) )
+                .set( "embedding_dim", static_cast<std::int64_t>(embedding_dim_) )
+                .set( "num_heads", static_cast<std::int64_t>(num_heads_) )
+                .set( "num_kv_heads", static_cast<std::int64_t>(num_kv_heads_) )
+                .set( "head_dim", static_cast<std::int64_t>(head_dim_) )
                 .set( "attention_output_gate", attention_output_gate_ )
-                .set( "hidden_dim", static_cast<int64_t>(hidden_dim_) )
-                .set( "max_seq_len", static_cast<int64_t>(max_seq_len_) )
+                .set( "hidden_dim", static_cast<std::int64_t>(hidden_dim_) )
+                .set( "max_seq_len", static_cast<std::int64_t>(max_seq_len_) )
                 .set( "rms_norm_eps", static_cast<double>(rms_norm_eps_) )
                 .set( "rope_theta", static_cast<double>(rope_theta_) )
                 .set( "partial_rotary_factor", static_cast<double>(partial_rotary_factor_) )
-                .set( "full_attention_interval", static_cast<int64_t>(full_attention_interval_) )
+                .set( "full_attention_interval", static_cast<std::int64_t>(full_attention_interval_) )
                 .set( "tie_word_embeddings", tie_word_embeddings_ )
-                .set( "linear_num_key_heads", static_cast<int64_t>(linear_num_key_heads_) )
-                .set( "linear_num_value_heads", static_cast<int64_t>(linear_num_value_heads_) )
-                .set( "linear_head_dim", static_cast<int64_t>(linear_head_dim_) )
-                .set( "linear_conv_kernel_dim", static_cast<int64_t>(linear_conv_kernel_dim_) );
+                .set( "linear_num_key_heads", static_cast<std::int64_t>(linear_num_key_heads_) )
+                .set( "linear_num_value_heads", static_cast<std::int64_t>(linear_num_value_heads_) )
+                .set( "linear_head_dim", static_cast<std::int64_t>(linear_head_dim_) )
+                .set( "linear_conv_kernel_dim", static_cast<std::int64_t>(linear_conv_kernel_dim_) );
 
             return meta;
         }

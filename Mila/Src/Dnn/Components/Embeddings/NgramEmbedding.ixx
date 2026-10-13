@@ -7,18 +7,9 @@
  * decode compose with one pass over the whole sequence.
  */
 
-module;
-#include <cstdint>
-#include <format>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <stdexcept>
-#include <string>
-#include <vector>
-
 export module Dnn.Components.NgramEmbedding;
 
+import std;
 export import Dnn.Components.NgramEmbeddingConfig;
 
 import Dnn.Component;
@@ -128,7 +119,7 @@ namespace Mila::Dnn
         {
             requireBuilt( "resetState" );
 
-            fill( *history_, static_cast<int32_t>( config_.getEosTokenId() ), this->getExecutionContext() );
+            fill( *history_, static_cast<std::int32_t>( config_.getEosTokenId() ), this->getExecutionContext() );
             state_primed_ = false;
         }
 
@@ -179,7 +170,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
             meta.set( "type", "NgramEmbedding" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() );
 
             archive.writeMetadata( "meta.json", meta );
@@ -316,7 +307,7 @@ namespace Mila::Dnn
             built_tokens_ = input_shape[ 0 ] * input_shape[ 1 ];
             view_shape_ = shape_t{};
 
-            fill( *history_, static_cast<int32_t>( config_.getEosTokenId() ), this->getExecutionContext() );
+            fill( *history_, static_cast<std::int32_t>( config_.getEosTokenId() ), this->getExecutionContext() );
             state_primed_ = false;
         }
 

@@ -3,11 +3,9 @@
  * @brief Minimal base interface for all serialization backends.
  */
 
-module;
-#include <string>
-
 export module Serialization.Serializer;
 
+import std;
 import Serialization.OpenMode;
 
 namespace Mila::Dnn::Serialization

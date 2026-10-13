@@ -14,12 +14,9 @@
  * CompositeComponent if ever needed).
  */
 
-module;
-#include <memory>
-#include <stdexcept>
-
 export module Dnn.Components.ITransformerBlock;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;

@@ -13,17 +13,9 @@
  * exercised by the build until one exists (e.g. a unit test).
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <iostream>
-#include <sstream>
-#include <type_traits>
-#include <cstdint>
-#include <stdexcept>
-
 export module Dnn.Components.SoftmaxCrossEntropy;
+
+import std;
 export import Dnn.Components.CrossEntropyConfig;
 
 import Dnn.Component;
@@ -226,7 +218,7 @@ namespace Mila::Dnn
         // SoftmaxCrossEntropy-specific accessors
         // ====================================================================
 
-        int64_t getVocabSize() const
+        std::int64_t getVocabSize() const
         {
             return config_.getVocabSize();
         }
@@ -290,7 +282,7 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "SoftmaxCrossEntropy: input must have rank >= 2 (batch, ..., vocab)" );
             }
 
-            int64_t vocab_dim = input_shape.back();
+            std::int64_t vocab_dim = input_shape.back();
 
             if (vocab_dim != config_.getVocabSize())
             {

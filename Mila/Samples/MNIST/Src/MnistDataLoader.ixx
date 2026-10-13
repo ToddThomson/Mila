@@ -1,18 +1,7 @@
-module;
-#include <iostream>
-#include <vector>
-#include <random>
-#include <algorithm>
-#include <string>
-#include <filesystem>
-#include <cstdio>
-#include <type_traits>
-#include <cstdint>
-#include <stdexcept>
-#include <memory>
 
 export module Mnist.DataLoader;
 
+import std;
 import Mila;
 
 namespace Mila::Mnist
@@ -23,10 +12,10 @@ namespace Mila::Mnist
 
     namespace fs = std::filesystem;
 
-    export constexpr int64_t MNIST_IMAGE_SIZE = 28 * 28;     // 28x28 pixels
-    export constexpr int64_t MNIST_NUM_CLASSES = 10;         // 10 digits (0-9)
-    export constexpr int64_t MNIST_TRAIN_SIZE = 60000;       // Training set size
-    export constexpr int64_t MNIST_TEST_SIZE = 10000;        // Test set size
+    export constexpr std::int64_t MNIST_IMAGE_SIZE = 28 * 28;     // 28x28 pixels
+    export constexpr std::int64_t MNIST_NUM_CLASSES = 10;         // 10 digits (0-9)
+    export constexpr std::int64_t MNIST_TRAIN_SIZE = 60000;       // Training set size
+    export constexpr std::int64_t MNIST_TEST_SIZE = 10000;        // Test set size
 
     /**
      * @brief MNIST dataset loader with host-accessible memory support.
@@ -69,7 +58,7 @@ namespace Mila::Mnist
          */
         MnistDataLoader(
             const std::string& data_directory,
-            int64_t batch_size,
+            std::int64_t batch_size,
             bool is_training,
             DeviceId device_id )
             : BaseLoader( batch_size ), is_training_( is_training ), device_id_( validateDeviceId( device_id ) )
@@ -85,7 +74,7 @@ namespace Mila::Mnist
             loadImages( images_file );
             loadLabels( labels_file );
 
-            for (size_t i = 0; i < num_samples_; ++i)
+            for (std::size_t i = 0; i < num_samples_; ++i)
             {
                 indices_.push_back( i );
             }
@@ -106,7 +95,7 @@ namespace Mila::Mnist
                 << "on device: " << device_id_.toString() << std::endl;
         }
 
-        int64_t numBatches() const override
+        std::int64_t numBatches() const override
         {
             return num_batches_;
         }
@@ -128,11 +117,11 @@ namespace Mila::Mnist
                 return;
             }
 
-            size_t batch_start = this->currentBatch() * this->batchSize();
+            std::size_t batch_start = this->currentBatch() * this->batchSize();
 
-            for (size_t i = 0; i < this->batchSize(); ++i)
+            for (std::size_t i = 0; i < this->batchSize(); ++i)
             {
-                size_t idx = indices_[batch_start + i];
+                std::size_t idx = indices_[batch_start + i];
 
                 for (int j = 0; j < MNIST_IMAGE_SIZE; ++j)
                 {
@@ -173,12 +162,12 @@ namespace Mila::Mnist
     private:
         DeviceId device_id_;
         bool is_training_;
-        size_t num_samples_;
-        int64_t num_batches_;
+        std::size_t num_samples_;
+        std::int64_t num_batches_;
 
         std::vector<unsigned char> images_;
         std::vector<unsigned char> labels_;
-        std::vector<size_t> indices_;
+        std::vector<std::size_t> indices_;
 
         std::shared_ptr<TensorType> input_tensor_;
         std::shared_ptr<TensorType> target_tensor_;
@@ -219,7 +208,7 @@ namespace Mila::Mnist
         // bug (C2079: basic_istream<char>::sentry is reported undefined when
         // istream::read is instantiated inside a module). fread does not touch
         // the sentry template, so the IDX parsing compiles cleanly.
-        uint32_t readInt32( std::FILE* stream )
+        std::uint32_t readInt32( std::FILE* stream )
         {
             unsigned char buffer[4];
 
@@ -228,10 +217,10 @@ namespace Mila::Mnist
                 throw std::runtime_error( "Unexpected end of file reading 32-bit integer" );
             }
 
-            return (static_cast<uint32_t>(buffer[0]) << 24) |
-                (static_cast<uint32_t>(buffer[1]) << 16) |
-                (static_cast<uint32_t>(buffer[2]) << 8) |
-                static_cast<uint32_t>(buffer[3]);
+            return (static_cast<std::uint32_t>(buffer[0]) << 24) |
+                (static_cast<std::uint32_t>(buffer[1]) << 16) |
+                (static_cast<std::uint32_t>(buffer[2]) << 8) |
+                static_cast<std::uint32_t>(buffer[3]);
         }
 
         void loadImages( const std::string& filename )
@@ -244,15 +233,15 @@ namespace Mila::Mnist
 
             try
             {
-                uint32_t magic = readInt32( file );
+                std::uint32_t magic = readInt32( file );
                 if (magic != 0x803)
                 {
                     throw std::runtime_error( "Invalid MNIST image file format" );
                 }
 
-                uint32_t num_images = readInt32( file );
-                uint32_t rows = readInt32( file );
-                uint32_t cols = readInt32( file );
+                std::uint32_t num_images = readInt32( file );
+                std::uint32_t rows = readInt32( file );
+                std::uint32_t cols = readInt32( file );
 
                 if (rows != 28 || cols != 28)
                 {
@@ -261,7 +250,7 @@ namespace Mila::Mnist
                 }
 
                 num_samples_ = num_images;
-                images_.resize( static_cast<size_t>( num_images ) * rows * cols );
+                images_.resize( static_cast<std::size_t>( num_images ) * rows * cols );
 
                 if (std::fread( images_.data(), 1, images_.size(), file ) != images_.size())
                 {
@@ -287,13 +276,13 @@ namespace Mila::Mnist
 
             try
             {
-                uint32_t magic = readInt32( file );
+                std::uint32_t magic = readInt32( file );
                 if (magic != 0x801)
                 {
                     throw std::runtime_error( "Invalid MNIST label file format" );
                 }
 
-                uint32_t num_labels = readInt32( file );
+                std::uint32_t num_labels = readInt32( file );
 
                 if (num_labels != num_samples_)
                 {

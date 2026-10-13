@@ -7,23 +7,9 @@
  * ExecutionContext ownership and deserialization to concrete subclasses.
  */
 
-module;
-#include <iostream>
-#include <filesystem>
-#include <memory>
-#include <string>
-#include <sstream>
-#include <stdexcept>
-#include <utility>
-#include <chrono>
-#include <algorithm>
-#include <vector>
-#include <unordered_map>
-#include <exception>
-#include <format>
-
 export module Dnn.Network;
 
+import std;
 import Dnn.Component;
 import Dnn.CompositeComponent;
 import Dnn.ComponentType;
@@ -229,7 +215,7 @@ namespace Mila::Dnn
                 );
             }
 
-            for ( size_t i = 0; i < params.size(); ++i )
+            for ( std::size_t i = 0; i < params.size(); ++i )
             {
                 optimizer->addParameter( params[i], grads[i] );
             }
@@ -429,7 +415,7 @@ namespace Mila::Dnn
          *
          * Extracts the layer number from names like "layers.5.attention.q_proj.weight"
          */
-        size_t parseLayerIndex( const std::string& name )
+        std::size_t parseLayerIndex( const std::string& name )
         {
             auto layers_pos = name.find( "layers." );
             if ( layers_pos == std::string::npos )
@@ -460,13 +446,13 @@ namespace Mila::Dnn
         void saveNetworkMetadata( ModelArchive& archive, SerializationMode mode ) const
         {
             SerializationMetadata net_meta;
-            net_meta.set( "format_version", int64_t( 1 ) )
+            net_meta.set( "format_version", std::int64_t( 1 ) )
                 .set( "name", this->getName() )
-                .set( "num_components", static_cast<int64_t>(this->childCount()) )
+                .set( "num_components", static_cast<std::int64_t>(this->childCount()) )
                 .set( "mode", serializationModeToString( mode ) );
 
             auto now = std::chrono::system_clock::now();
-            net_meta.set( "export_time", static_cast<int64_t>(
+            net_meta.set( "export_time", static_cast<std::int64_t>(
                 std::chrono::system_clock::to_time_t( now )) );
 
             archive.writeMetadata( "network/meta.json", net_meta );
@@ -496,9 +482,9 @@ namespace Mila::Dnn
 
                 if ( arch_meta.has( "num_components" ) )
                 {
-                    const int64_t recorded = arch_meta.getInt( "num_components" );
+                    const std::int64_t recorded = arch_meta.getInt( "num_components" );
 
-                    if ( recorded != static_cast<int64_t>( components.size() ) )
+                    if ( recorded != static_cast<std::int64_t>( components.size() ) )
                     {
                         throw std::runtime_error( std::format(
                             "Network::load: archive '{}' holds {} components but network '{}' has {}",
@@ -567,18 +553,18 @@ namespace Mila::Dnn
 
             // Save architecture metadata
             SerializationMetadata arch_meta;
-            arch_meta.set( "num_components", static_cast<int64_t>(names.size()) );
+            arch_meta.set( "num_components", static_cast<std::int64_t>(names.size()) );
             archive.writeMetadata( "network/architecture.json", arch_meta );
 
             // Save component descriptors individually
-            for ( size_t i = 0; i < names.size(); ++i )
+            for ( std::size_t i = 0; i < names.size(); ++i )
             {
                 const auto& nm = names[ i ];
 
                 SerializationMetadata comp_desc;
                 comp_desc.set( "name", nm )
                     .set( "path", "components/" + nm )
-                    .set( "index", static_cast<int64_t>( i ) );
+                    .set( "index", static_cast<std::int64_t>( i ) );
 
                 archive.writeMetadata( "network/component_" + nm + ".json", comp_desc );
             }

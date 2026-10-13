@@ -19,12 +19,9 @@
  * chat harness can surface or suppress the reasoning independently.
  */
 
-module;
-#include <string>
-#include <string_view>
-#include <array>
-
 export module Chat.ChannelParser;
+
+import std;
 
 namespace Mila::ChatApp
 {
@@ -136,11 +133,11 @@ namespace Mila::ChatApp
             const std::string prefix = (first_open > 0) ? response.substr( 0, first_open ) : std::string{};
 
             std::string thinking;
-            size_t cursor = first_open;
+            std::size_t cursor = first_open;
 
             while ( true )
             {
-                const size_t header_start = cursor + channel.open.size();
+                const std::size_t header_start = cursor + channel.open.size();
                 const auto close = response.find( channel.close, header_start );
 
                 if ( close == std::string::npos )
@@ -153,7 +150,7 @@ namespace Mila::ChatApp
                 appendThinking( thinking, stripChannelLabel(
                     response.substr( header_start, close - header_start ), channel.labelled ) );
 
-                const size_t after_close = close + channel.close.size();
+                const std::size_t after_close = close + channel.close.size();
                 const auto next_open = response.find( channel.open, after_close );
 
                 const bool adjacent = next_open != std::string::npos

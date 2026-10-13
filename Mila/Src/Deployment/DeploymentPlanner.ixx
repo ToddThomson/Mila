@@ -6,19 +6,9 @@
  * device. See Specifications/Deployment.md sections 5 and 6.
  */
 
-module;
-#include <algorithm>
-#include <cstddef>
-#include <expected>
-#include <format>
-#include <optional>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <vector>
-
 export module Deployment.DeploymentPlanner;
 
+import std;
 import Dnn.Component;
 import Dnn.RuntimeMode;
 import Dnn.TensorTypes;

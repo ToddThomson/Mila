@@ -17,7 +17,7 @@ module;
 
 export module Compute.CudaTensorOps:Random;
 
-import std.compat;
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.ITensor;
@@ -97,7 +97,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             constexpr bool kIsFp32 = std::is_same_v<NativeType, float>;
 
-            size_t n = static_cast<size_t>( tensor.size() );
+            std::size_t n = static_cast<std::size_t>( tensor.size() );
             if ( n == 0 )
                 return;
 
@@ -128,7 +128,7 @@ namespace Mila::Dnn::Compute::Cuda
             }
 
             // curandGenerateNormal requires an even count (Box-Muller pairs).
-            size_t gen_count = n + (n & 1);
+            std::size_t gen_count = n + (n & 1);
 
             // Two independent reasons to generate somewhere other than the tensor:
             // an odd count needs one element of padding, and a non-FP32 tensor cannot
@@ -226,7 +226,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             constexpr bool kIsFp32 = std::is_same_v<NativeType, float>;
 
-            size_t n = static_cast<size_t>( tensor.size() );
+            std::size_t n = static_cast<std::size_t>( tensor.size() );
             if ( n == 0 )
                 return;
 

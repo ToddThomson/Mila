@@ -1,10 +1,7 @@
-module;
-#include <string>
-#include <vector>
-#include <type_traits>
 
 export module Dnn.Loss;
 
+import std;
 import Dnn.Component;
 import Dnn.Tensor;
 import Dnn.TensorDataType;

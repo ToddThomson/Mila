@@ -5,11 +5,9 @@
  * See Specifications/ModelDistribution.md, Capabilities and modalities.
  */
 
-module;
-#include <string>
-#include <vector>
-
 export module Distribution.ModelCapabilities;
+
+import std;
 
 namespace Mila::Distribution
 {

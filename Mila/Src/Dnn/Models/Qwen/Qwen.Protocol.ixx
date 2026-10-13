@@ -19,21 +19,9 @@
  * String-level parse/format only, matching Gemma's module.
  */
 
-module;
-#include <format>
-#include <optional>
-#include <span>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <vector>
-// nlohmann::json::create instantiates here and compares a unique_ptr against nullptr, so this
-// TU needs <memory>'s operators by ordinary lookup. Importing nlohmann.json does not supply
-// them: they reach the BMI only as pruned global-module-fragment declarations.
-#include <memory>
-
 export module Dnn.Models.QwenProtocol;
 
+import std;
 export import Dnn.Models.Conversation;
 
 import nlohmann.json;

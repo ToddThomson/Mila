@@ -3,19 +3,9 @@
  * @brief Rotary positional embedding (RoPE) component.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <format>
-#include <sstream>
-#include <stdexcept>
-#include <cstdint>
-#include <optional>
-#include <tuple>
-#include <utility>
-
 export module Dnn.Components.Rope;
+
+import std;
 export import Dnn.Components.RopeConfig;
 
 import Dnn.Component;

@@ -8,15 +8,9 @@
  * or Learned).
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <utility>
-#include <sstream>
-#include <cmath>
-
 export module Dnn.Components.TokenEmbeddingConfig;
 
+import std;
 import Dnn.ComponentConfig;
 import Dnn.TensorTypes;
 import Serialization.Metadata;
@@ -96,8 +90,8 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "vocab_size", static_cast<int64_t>(vocab_size_) )
-                .set( "embedding_dim", static_cast<int64_t>(embedding_dim_) )
+            meta.set( "vocab_size", static_cast<std::int64_t>(vocab_size_) )
+                .set( "embedding_dim", static_cast<std::int64_t>(embedding_dim_) )
                 .set( "embedding_scale", embedding_scale_ );
 
             return meta;

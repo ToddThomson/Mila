@@ -1,25 +1,7 @@
-module;
-#include <iostream>
-#include <vector>
-#include <random>
-#include <algorithm>
-#include <string>
-#include <filesystem>
-#include <fstream>
-#include <type_traits>
-#include <cstdint>
-#include <stdexcept>
-#include <memory>
-#include <iomanip>
-#include <chrono>
-#include <limits>
-#include <ios>
-#include <exception>
-#include <cmath>
-#include <span>
 
 export module Bard.Trainer;
 
+import std;
 import Mila;
 import Bard.Config;
 
@@ -42,17 +24,17 @@ namespace Bard
     {
         using HostType = typename TensorHostTypeMap<TDataType>::host_type;
 
-        size_t batch_size = logits.shape()[ 0 ];
-        size_t seq_length = logits.shape()[ 1 ];
-        size_t vocab_size = logits.shape()[ 2 ];
+        std::size_t batch_size = logits.shape()[ 0 ];
+        std::size_t seq_length = logits.shape()[ 1 ];
+        std::size_t vocab_size = logits.shape()[ 2 ];
 
         // Count non-pad tokens
-        size_t valid_count = 0;
-        for ( size_t b = 0; b < batch_size; ++b )
+        std::size_t valid_count = 0;
+        for ( std::size_t b = 0; b < batch_size; ++b )
         {
-            for ( size_t t = 0; t < seq_length; ++t )
+            for ( std::size_t t = 0; t < seq_length; ++t )
             {
-                int32_t tgt = targets.data()[ b * seq_length + t ];
+                std::int32_t tgt = targets.data()[ b * seq_length + t ];
                 if ( pad_id < 0 || tgt != pad_id )
                 {
                     ++valid_count;
@@ -69,43 +51,43 @@ namespace Bard
 
         const float norm = 1.0f / static_cast<float>(valid_count);
 
-        for ( size_t b = 0; b < batch_size; ++b )
+        for ( std::size_t b = 0; b < batch_size; ++b )
         {
-            for ( size_t t = 0; t < seq_length; ++t )
+            for ( std::size_t t = 0; t < seq_length; ++t )
             {
                 float max_logit = -std::numeric_limits<float>::infinity();
-                for ( size_t v = 0; v < vocab_size; ++v )
+                for ( std::size_t v = 0; v < vocab_size; ++v )
                 {
-                    size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
+                    std::size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
                     max_logit = std::max( max_logit, static_cast<float>( logits.data()[ idx ] ) );
                 }
 
                 float denom = 0.0f;
-                for ( size_t v = 0; v < vocab_size; ++v )
+                for ( std::size_t v = 0; v < vocab_size; ++v )
                 {
-                    size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
+                    std::size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
                     float exp_val = std::exp( static_cast<float>( logits.data()[ idx ] ) - max_logit );
                     denom += exp_val;
                 }
 
-                int32_t target_idx = targets.data()[ b * seq_length + t ];
+                std::int32_t target_idx = targets.data()[ b * seq_length + t ];
 
                 if ( pad_id >= 0 && target_idx == pad_id )
                 {
-                    for ( size_t v = 0; v < vocab_size; ++v )
+                    for ( std::size_t v = 0; v < vocab_size; ++v )
                     {
-                        size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
+                        std::size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
                         output_grad.data()[ idx ] = HostType( 0 );
                     }
 
                     continue;
                 }
 
-                for ( size_t v = 0; v < vocab_size; ++v )
+                for ( std::size_t v = 0; v < vocab_size; ++v )
                 {
-                    size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
+                    std::size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
                     float prob = std::exp( static_cast<float>( logits.data()[ idx ] ) - max_logit ) / denom;
-                    float target = (static_cast<int32_t>( v ) == target_idx) ? 1.0f : 0.0f;
+                    float target = (static_cast<std::int32_t>( v ) == target_idx) ? 1.0f : 0.0f;
                     output_grad.data()[ idx ] = static_cast<HostType>( (prob - target) * norm );
                 }
             }
@@ -118,39 +100,39 @@ namespace Bard
         const Tensor<TensorDataType::INT32, CpuMemoryResource>& targets,
         int pad_id )
     {
-        size_t batch_size = logits.shape()[ 0 ];
-        size_t seq_length = logits.shape()[ 1 ];
-        size_t vocab_size = logits.shape()[ 2 ];
+        std::size_t batch_size = logits.shape()[ 0 ];
+        std::size_t seq_length = logits.shape()[ 1 ];
+        std::size_t vocab_size = logits.shape()[ 2 ];
 
         double total_nll = 0.0;
-        size_t valid_count = 0;
+        std::size_t valid_count = 0;
 
-        for ( size_t b = 0; b < batch_size; ++b )
+        for ( std::size_t b = 0; b < batch_size; ++b )
         {
-            for ( size_t t = 0; t < seq_length; ++t )
+            for ( std::size_t t = 0; t < seq_length; ++t )
             {
-                int32_t target_idx = targets.data()[ b * seq_length + t ];
+                std::int32_t target_idx = targets.data()[ b * seq_length + t ];
                 if ( pad_id >= 0 && target_idx == pad_id )
                 {
                     continue;
                 }
 
                 float max_logit = -std::numeric_limits<float>::infinity();
-                for ( size_t v = 0; v < vocab_size; ++v )
+                for ( std::size_t v = 0; v < vocab_size; ++v )
                 {
-                    size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
+                    std::size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
                     max_logit = std::max( max_logit, static_cast<float>( logits.data()[ idx ] ) );
                 }
 
                 float denom = 0.0f;
-                for ( size_t v = 0; v < vocab_size; ++v )
+                for ( std::size_t v = 0; v < vocab_size; ++v )
                 {
-                    size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
+                    std::size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
                     float exp_val = std::exp( static_cast<float>( logits.data()[ idx ] ) - max_logit );
                     denom += exp_val;
                 }
 
-                size_t logit_idx = b * seq_length * vocab_size + t * vocab_size + static_cast<size_t>( target_idx );
+                std::size_t logit_idx = b * seq_length * vocab_size + t * vocab_size + static_cast<std::size_t>( target_idx );
                 float prob = std::exp( static_cast<float>( logits.data()[ logit_idx ] ) - max_logit ) / denom;
                 total_nll += -std::log( std::max( prob, 1e-12f ) );
 
@@ -172,16 +154,16 @@ namespace Bard
     }
 
     template<TensorDataType TDataType>
-    int32_t sampleFromLogits(
+    std::int32_t sampleFromLogits(
         const typename TensorHostTypeMap<TDataType>::host_type* logits_ptr,
-        size_t vocab_size,
+        std::size_t vocab_size,
         float temperature,
         std::mt19937& rng )
     {
         using HostType = typename TensorHostTypeMap<TDataType>::host_type;
 
         float max_logit = -std::numeric_limits<float>::infinity();
-        for ( size_t v = 0; v < vocab_size; ++v )
+        for ( std::size_t v = 0; v < vocab_size; ++v )
         {
             max_logit = std::max( max_logit, static_cast<float>( logits_ptr[ v ] ) );
         }
@@ -189,14 +171,14 @@ namespace Bard
         std::vector<float> probs( vocab_size );
         float sum = 0.0f;
 
-        for ( size_t v = 0; v < vocab_size; ++v )
+        for ( std::size_t v = 0; v < vocab_size; ++v )
         {
             float scaled_logit = (static_cast<float>( logits_ptr[ v ] ) - max_logit) / temperature;
             probs[ v ] = std::exp( scaled_logit );
             sum += probs[ v ];
         }
 
-        for ( size_t v = 0; v < vocab_size; ++v )
+        for ( std::size_t v = 0; v < vocab_size; ++v )
         {
             probs[ v ] /= sum;
         }
@@ -205,16 +187,16 @@ namespace Bard
         float sample = dist( rng );
         float cumsum = 0.0f;
 
-        for ( size_t v = 0; v < vocab_size; ++v )
+        for ( std::size_t v = 0; v < vocab_size; ++v )
         {
             cumsum += probs[ v ];
             if ( sample < cumsum )
             {
-                return static_cast<int32_t>( v );
+                return static_cast<std::int32_t>( v );
             }
         }
 
-        return static_cast<int32_t>( vocab_size - 1 );
+        return static_cast<std::int32_t>( vocab_size - 1 );
     }
 
     template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
@@ -225,7 +207,7 @@ namespace Bard
         const std::shared_ptr<Tokenizer>& tokenizer,
         DeviceId device_id,
         const BardConfig& config,
-        size_t epoch )
+        std::size_t epoch )
     {
         using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
 
@@ -237,32 +219,32 @@ namespace Bard
         std::vector<TokenId> generated_tokens = prompt_tokens;
         std::mt19937 rng( static_cast<unsigned int>(epoch) );
 
-        size_t vocab_size = tokenizer->getVocabSize();
+        std::size_t vocab_size = tokenizer->getVocabSize();
 
-        int64_t model_batch_size = config.batch_size;
-        int64_t model_seq_length = config.seq_length;
+        std::int64_t model_batch_size = config.batch_size;
+        std::int64_t model_seq_length = config.seq_length;
 
         shape_t model_shape = { model_batch_size, model_seq_length };
-        shape_t logits_shape = { model_batch_size, model_seq_length, static_cast<int64_t>(vocab_size) };
+        shape_t logits_shape = { model_batch_size, model_seq_length, static_cast<std::int64_t>(vocab_size) };
 
         Tensor<TensorDataType::INT32, DeviceMR> context_device( device_id, model_shape );
         Tensor<TDataType, DeviceMR> logits_device( device_id, logits_shape );
         Tensor<TDataType, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
         Tensor<TensorDataType::INT32, CpuMemoryResource> context_cpu( Device::Cpu(), model_shape );
 
-        int32_t pad_value = 0;
+        std::int32_t pad_value = 0;
         auto pad_opt = tokenizer->getPadTokenId();
-        if ( pad_opt ) pad_value = static_cast<int32_t>( *pad_opt );
+        if ( pad_opt ) pad_value = static_cast<std::int32_t>( *pad_opt );
 
-        for ( int64_t i = 0; i < config.sample_length; ++i )
+        for ( std::int64_t i = 0; i < config.sample_length; ++i )
         {
-            int64_t context_start = std::max( int64_t( 0 ),
-                static_cast<int64_t>( generated_tokens.size() ) - model_seq_length );
-            int64_t actual_context_len = static_cast<int64_t>( generated_tokens.size() ) - context_start;
+            std::int64_t context_start = std::max( std::int64_t( 0 ),
+                static_cast<std::int64_t>( generated_tokens.size() ) - model_seq_length );
+            std::int64_t actual_context_len = static_cast<std::int64_t>( generated_tokens.size() ) - context_start;
 
-            std::fill_n( context_cpu.data(), static_cast<size_t>( model_batch_size * model_seq_length ), pad_value );
+            std::fill_n( context_cpu.data(), static_cast<std::size_t>( model_batch_size * model_seq_length ), pad_value );
 
-            for ( int64_t j = 0; j < actual_context_len; ++j )
+            for ( std::int64_t j = 0; j < actual_context_len; ++j )
             {
                 context_cpu.data()[ j ] = generated_tokens[ context_start + j ];
             }
@@ -274,12 +256,12 @@ namespace Bard
 
             copy( logits_dev, logits_cpu );
 
-            int64_t last_real_pos = (actual_context_len > 0) ? (actual_context_len - 1) : (model_seq_length - 1);
+            std::int64_t last_real_pos = (actual_context_len > 0) ? (actual_context_len - 1) : (model_seq_length - 1);
             if ( last_real_pos < 0 ) last_real_pos = 0;
 
-            size_t batch_0_last_token_offset = static_cast<size_t>( last_real_pos ) * vocab_size;
+            std::size_t batch_0_last_token_offset = static_cast<std::size_t>( last_real_pos ) * vocab_size;
 
-            int32_t next_token = sampleFromLogits<TDataType>(
+            std::int32_t next_token = sampleFromLogits<TDataType>(
                 logits_cpu.data() + batch_0_last_token_offset,
                 vocab_size,
                 config.sample_temperature,
@@ -358,7 +340,7 @@ namespace Bard
             tokenizer = std::make_shared<CharTokenizer>( std::move( char_vocab ) );
         }
 
-        size_t actual_vocab_size = tokenizer->getVocabSize();
+        std::size_t actual_vocab_size = tokenizer->getVocabSize();
         std::cout << "Vocabulary size: " << actual_vocab_size << std::endl;
 
         TokenSequenceLoader<THostMR> train_loader(
@@ -401,7 +383,7 @@ namespace Bard
         std::cout << "Optimizer initialized with " << optimizer->getParameterCount()
             << " parameter groups" << std::endl;
 
-        shape_t logits_shape = { config.batch_size, config.seq_length, static_cast<int64_t>(actual_vocab_size) };
+        shape_t logits_shape = { config.batch_size, config.seq_length, static_cast<std::int64_t>(actual_vocab_size) };
 
         auto input_shape = leading_shape;
 
@@ -416,12 +398,12 @@ namespace Bard
         std::cout << "Starting training for " << config.epochs << " epochs..." << std::endl;
         std::cout << "Total batches per epoch: " << train_loader.numBatches() << std::endl;
 
-        for ( size_t epoch = 0; epoch < config.epochs; ++epoch )
+        for ( std::size_t epoch = 0; epoch < config.epochs; ++epoch )
         {
             train_loader.reset();
 
             float epoch_loss = 0.0f;
-            size_t batches = 0;
+            std::size_t batches = 0;
 
             auto start_time = std::chrono::high_resolution_clock::now();
 

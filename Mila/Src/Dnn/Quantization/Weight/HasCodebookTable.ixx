@@ -3,10 +3,9 @@
  * @brief Detects a weight format that decodes through a per-tensor table.
  */
 
-module;
-#include <concepts>
-
 export module Dnn.Quantization.Weight.HasCodebookTable;
+
+import std;
 
 namespace Mila::Dnn::Quant::Weight
 {

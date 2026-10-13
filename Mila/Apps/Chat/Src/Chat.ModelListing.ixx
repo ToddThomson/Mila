@@ -3,11 +3,9 @@
  * @brief A rendered model listing, split by how it should be shown.
  */
 
-module;
-#include <string>
-#include <vector>
-
 export module Chat.ModelListing;
+
+import std;
 
 namespace Mila::ChatApp
 {

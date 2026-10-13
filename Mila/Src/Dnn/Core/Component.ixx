@@ -6,18 +6,9 @@
  * parameter, execution mode, and introspection APIs used by all Mila modules.
  */
 
-module;
-#include <string>
-#include <memory>
-#include <ostream>
-#include <vector>
-#include <mutex>
-#include <atomic>
-#include <stdexcept>
-#include <format>
-#include <string_view>
-
 export module Dnn.Component;
+
+import std;
 export import :TrainingMode;
 export import :BuildContext;
 export import :MemoryStats;

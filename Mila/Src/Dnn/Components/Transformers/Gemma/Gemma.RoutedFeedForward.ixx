@@ -4,15 +4,9 @@
  *        one component named ffn.
  */
 
-module;
-#include <format>
-#include <memory>
-#include <optional>
-#include <stdexcept>
-#include <string>
-
 export module Dnn.Components.GemmaRoutedFeedForward;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;

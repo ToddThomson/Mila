@@ -5,17 +5,9 @@
  * Provides fluent setters, validation, and metadata serialization for Linear.
  */
 
-module;
-#include <memory>
-#include <stdexcept>
-#include <cstdint>
-#include <string>
-#include <utility>
-#include <sstream>
-#include <ios>
-
 export module Dnn.Components.LinearConfig;
 
+import std;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.TensorTypes;
@@ -145,8 +137,8 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "input_features", static_cast<int64_t>( input_features_ ) )
-                .set( "output_features", static_cast<int64_t>( output_features_ ) )
+            meta.set( "input_features", static_cast<std::int64_t>( input_features_ ) )
+                .set( "output_features", static_cast<std::int64_t>( output_features_ ) )
                 .set( "has_bias", has_bias_ );
 
             return meta;

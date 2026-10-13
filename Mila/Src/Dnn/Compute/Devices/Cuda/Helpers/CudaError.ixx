@@ -13,7 +13,7 @@ module;
 
 export module Cuda.Error;
 
-import std.compat;
+import std;
 
 namespace Mila::Dnn::Compute
 {
@@ -66,7 +66,7 @@ namespace Mila::Dnn::Compute
          *
          * @return uint32_t The line number in the source file.
          */
-        uint32_t getLine() const noexcept
+        std::uint32_t getLine() const noexcept
         {
             return line_;
         }
@@ -84,7 +84,7 @@ namespace Mila::Dnn::Compute
     private:
         cudaError_t cuda_error_ = cudaSuccess; ///< The CUDA error code
         const char* file_;                     ///< Source file where the error occurred
-        uint32_t line_;                        ///< Line number where the error occurred
+        std::uint32_t line_;                        ///< Line number where the error occurred
         const char* function_;                 ///< Function name where the error occurred
 
         /**

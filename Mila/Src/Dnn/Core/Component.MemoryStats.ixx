@@ -8,14 +8,9 @@
  * state, and gradients.
  */
 
-module;
-#include <algorithm>
-#include <cstddef>
-#include <string>
-#include <format>
-
 export module Dnn.Component:MemoryStats;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;

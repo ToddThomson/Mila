@@ -31,13 +31,9 @@
  * @endcode
  */
 
- module;
- #include <stdexcept>
- #include <string>
- #include <type_traits>
- #include <concepts>
- 
 export module Dnn.Models.LlamaModelConfig;
+
+import std;
 
 // Re-exported, not merely imported: this config's own setters take WeightQuantization
 // and KvCacheCompression, so a consumer that cannot name them cannot call them.

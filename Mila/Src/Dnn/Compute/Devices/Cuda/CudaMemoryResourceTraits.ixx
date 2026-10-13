@@ -5,7 +5,7 @@
 
 export module Compute.CudaDeviceMemoryResourceTraits;
 
-import std.compat;
+import std;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;
@@ -36,8 +36,8 @@ namespace Mila::Dnn::Compute
         static constexpr bool supports_peer_access = true;
 
         // Memory characteristics
-        static constexpr size_t preferred_alignment = 256;  // Optimal for coalesced access
-        static constexpr size_t warp_size = 32;
+        static constexpr std::size_t preferred_alignment = 256;  // Optimal for coalesced access
+        static constexpr std::size_t warp_size = 32;
         static constexpr bool requires_host_synchronization = true;
         static constexpr bool supports_zero_copy = false;
 
@@ -75,8 +75,8 @@ namespace Mila::Dnn::Compute
         static constexpr bool supports_memory_advise = true;
 
         // Memory characteristics
-        static constexpr size_t preferred_alignment = 256;
-        static constexpr size_t warp_size = 32;
+        static constexpr std::size_t preferred_alignment = 256;
+        static constexpr std::size_t warp_size = 32;
         static constexpr bool requires_host_synchronization = false;  // Automatic migration
         static constexpr bool supports_zero_copy = true;             // Unified addressing
 
@@ -115,8 +115,8 @@ namespace Mila::Dnn::Compute
         static constexpr bool optimized_for_transfer = true;
 
         // Memory characteristics
-        static constexpr size_t preferred_alignment = 64;   // Host cache line
-        static constexpr size_t warp_size = 32;             // For kernel design
+        static constexpr std::size_t preferred_alignment = 64;   // Host cache line
+        static constexpr std::size_t warp_size = 32;             // For kernel design
         static constexpr bool requires_host_synchronization = false;
         static constexpr bool supports_zero_copy = true;    // Direct GPU access possible
 

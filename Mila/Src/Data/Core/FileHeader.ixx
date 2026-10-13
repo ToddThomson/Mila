@@ -5,17 +5,9 @@
  * Provides standardized file identification, versioning, and metadata storage.
  */
 
-module;
-#include <cstdint>
-#include <string>
-#include <vector>
-#include <stdexcept>
-#include <fstream>
-// Required by every importer of nlohmann.json -- see Distribution/ModelStore.ixx.
-#include <memory>
-
 export module Data.FileHeader;
 
+import std;
 import Serialization.Metadata;
 import nlohmann.json;
 
@@ -27,7 +19,7 @@ namespace Mila::Data
     /**
      * @brief File type identifiers for Mila data files.
      */
-    export enum class MilaFileType : uint32_t
+    export enum class MilaFileType : std::uint32_t
     {
         Unknown = 0,
         BpeVocabulary = 1,
@@ -67,8 +59,8 @@ namespace Mila::Data
     export class MilaFileHeader
     {
     public:
-        static constexpr uint32_t MAGIC = 0x4D494C41;  // "MILA" in little-endian
-        static constexpr uint32_t VERSION = 1;
+        static constexpr std::uint32_t MAGIC = 0x4D494C41;  // "MILA" in little-endian
+        static constexpr std::uint32_t VERSION = 1;
 
         MilaFileHeader() = default;
 
@@ -79,17 +71,17 @@ namespace Mila::Data
 
         void write( std::ostream& out ) const
         {
-            uint32_t magic = MAGIC;
+            std::uint32_t magic = MAGIC;
             out.write( reinterpret_cast<const char*>(&magic), sizeof( magic ) );
 
-            uint32_t version = VERSION;
+            std::uint32_t version = VERSION;
             out.write( reinterpret_cast<const char*>(&version), sizeof( version ) );
 
-            uint32_t file_type = static_cast<uint32_t>(file_type_);
+            std::uint32_t file_type = static_cast<std::uint32_t>(file_type_);
             out.write( reinterpret_cast<const char*>(&file_type), sizeof( file_type ) );
 
             std::string metadata_json = metadata_.toJson().dump();
-            uint32_t metadata_size = static_cast<uint32_t>(metadata_json.size());
+            std::uint32_t metadata_size = static_cast<std::uint32_t>(metadata_json.size());
             out.write( reinterpret_cast<const char*>(&metadata_size), sizeof( metadata_size ) );
 
             if ( metadata_size > 0 )
@@ -105,7 +97,7 @@ namespace Mila::Data
 
         static MilaFileHeader read( std::istream& in )
         {
-            uint32_t magic = 0;
+            std::uint32_t magic = 0;
             in.read( reinterpret_cast<char*>(&magic), sizeof( magic ) );
 
             if ( magic != MAGIC )
@@ -113,7 +105,7 @@ namespace Mila::Data
                 throw std::runtime_error( "MilaFileHeader: Invalid magic bytes (not a Mila file)" );
             }
 
-            uint32_t version = 0;
+            std::uint32_t version = 0;
             in.read( reinterpret_cast<char*>(&version), sizeof( version ) );
 
             if ( version != VERSION )
@@ -122,10 +114,10 @@ namespace Mila::Data
                     "MilaFileHeader: Unsupported version " + std::to_string( version ) );
             }
 
-            uint32_t file_type = 0;
+            std::uint32_t file_type = 0;
             in.read( reinterpret_cast<char*>(&file_type), sizeof( file_type ) );
 
-            uint32_t metadata_size = 0;
+            std::uint32_t metadata_size = 0;
             in.read( reinterpret_cast<char*>(&metadata_size), sizeof( metadata_size ) );
 
             SerializationMetadata metadata;

@@ -33,17 +33,9 @@
  *  matrix when loading into fc_gate_up.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <format>
-#include <iostream>
-#include <sstream>
-#include <stdexcept>
-#include <optional>
-
 export module Dnn.Components.LlamaTransformer:Block;
+
+import std;
 import :Config;
 import :BlockWorkspace;
 
@@ -193,12 +185,12 @@ namespace Mila::Dnn
                     "LlamaBlock::prefill: must be built before prefill()." );
             }
 
-            int64_t B = input.shape()[ 0 ];
-            int64_t T_actual = input.shape()[ 1 ];
+            std::int64_t B = input.shape()[ 0 ];
+            std::int64_t T_actual = input.shape()[ 1 ];
 
-            const int64_t n_heads = config_.getNumHeads();
-            const int64_t n_kv = config_.getNumKVHeads();
-            const int64_t head_dim = config_.getModelDim() / n_heads;
+            const std::int64_t n_heads = config_.getNumHeads();
+            const std::int64_t n_kv = config_.getNumKVHeads();
+            const std::int64_t head_dim = config_.getModelDim() / n_heads;
 
             // Pre-attention RMSNorm
             auto& rms1_out = rms1_->forward( input );
@@ -260,10 +252,10 @@ namespace Mila::Dnn
                     "LlamaBlock::decode: must be built before decode()." );
             }
 
-            int64_t B = input.shape()[ 0 ];
-            const int64_t n_heads = config_.getNumHeads();
-            const int64_t n_kv = config_.getNumKVHeads();
-            const int64_t head_dim = config_.getModelDim() / n_heads;
+            std::int64_t B = input.shape()[ 0 ];
+            const std::int64_t n_heads = config_.getNumHeads();
+            const std::int64_t n_kv = config_.getNumKVHeads();
+            const std::int64_t head_dim = config_.getModelDim() / n_heads;
 
             // Pre-attention RMSNorm, T=1
             auto& rms1_out = rms1_->forward( input );
@@ -679,10 +671,10 @@ namespace Mila::Dnn
 
             const auto& input_shape = context.inputShape();
 
-            const int64_t B = input_shape[ 0 ];
-            const int64_t n_heads = config_.getNumHeads();
-            const int64_t n_kv = config_.getNumKVHeads();
-            const int64_t head_dim = config_.getModelDim() / n_heads;
+            const std::int64_t B = input_shape[ 0 ];
+            const std::int64_t n_heads = config_.getNumHeads();
+            const std::int64_t n_kv = config_.getNumKVHeads();
+            const std::int64_t head_dim = config_.getModelDim() / n_heads;
 
             // Decode view shapes -- T=1, always
             q_shape_ = { B, 1, n_heads * head_dim };
@@ -699,7 +691,7 @@ namespace Mila::Dnn
             {
                 // Tuned prefill chunk size, computed once by LlamaTransformer and
                 // threaded down via BuildContext. Sizes every prefill-path buffer.
-                const int64_t prefill_chunk_size = contexts.sequence;
+                const std::int64_t prefill_chunk_size = contexts.sequence;
 
                 // Non-attention components built at the prefill chunk size --
                 // owned_output_ sized to hold a full prefill chunk.
@@ -914,12 +906,12 @@ namespace Mila::Dnn
 
         void createGraph()
         {
-            const int64_t model_dim = config_.getModelDim();
-            const int64_t n_heads = config_.getNumHeads();
-            const int64_t n_kv = config_.getNumKVHeads();
-            const int64_t head_dim = model_dim / n_heads;
-            const int64_t qkv_dim = (n_heads + 2 * n_kv) * head_dim;
-            const int64_t hidden_dim = config_.getHiddenDimension() > 0 ? config_.getHiddenDimension() : model_dim * 4;
+            const std::int64_t model_dim = config_.getModelDim();
+            const std::int64_t n_heads = config_.getNumHeads();
+            const std::int64_t n_kv = config_.getNumKVHeads();
+            const std::int64_t head_dim = model_dim / n_heads;
+            const std::int64_t qkv_dim = (n_heads + 2 * n_kv) * head_dim;
+            const std::int64_t hidden_dim = config_.getHiddenDimension() > 0 ? config_.getHiddenDimension() : model_dim * 4;
 
             const std::string name = this->getName();
 

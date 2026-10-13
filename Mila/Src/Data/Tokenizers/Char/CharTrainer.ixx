@@ -7,20 +7,9 @@
  * is simple enough that direct use of CharVocabulary::trainFromFile() is often preferred.
  */
 
-module;
-#include <string>
-#include <vector>
-#include <fstream>
-#include <filesystem>
-#include <iostream>
-#include <stdexcept>
-#include <cstdint>
-#include <memory>
-#include <optional>
-#include <algorithm>
-
 export module Data.CharTrainer;
 
+import std;
 import Data.CharVocabularyConfig;
 import Data.CharTokenizer;
 import Data.CharVocabulary;
@@ -77,7 +66,7 @@ namespace Mila::Data
 
             while ( stream.read( buffer.data(), buffer.size() ) || stream.gcount() > 0 )
             {
-                size_t bytes_read = stream.gcount();
+                std::size_t bytes_read = stream.gcount();
                 corpus_.append( buffer.data(), bytes_read );
             }
         }
@@ -131,7 +120,7 @@ namespace Mila::Data
          *
          * @return Size of accumulated corpus.
          */
-        size_t getCorpusSize() const
+        std::size_t getCorpusSize() const
         {
             return corpus_.size();
         }

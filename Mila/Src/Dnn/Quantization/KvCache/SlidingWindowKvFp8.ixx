@@ -3,11 +3,9 @@
  * @brief The bounded sliding-window ring holding FP8 codes: SlidingWindowKvCache's rows in PerTokenKvFp8's format.
  */
 
-module;
-#include <concepts>
-
 export module Dnn.Quantization.KvCache.SlidingWindowKvFp8;
 
+import std;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Quantization.KvCache.QuantPolicy;
 import Dnn.TensorDataType;

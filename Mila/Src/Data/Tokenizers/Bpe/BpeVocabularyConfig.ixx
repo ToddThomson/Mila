@@ -8,15 +8,9 @@
  * pretrained vocabularies; validate() enforces them only when called by BpeTrainer.
  */
 
-module;
-#include <cstddef>
-#include <cstdint>
-#include <string>
-#include <stdexcept>
-#include <sstream>
-
 export module Data.BpeVocabularyConfig;
 
+import std;
 import Data.BpePreTokenizationMode;
 import Data.SpecialTokens;
 import Serialization.Metadata;
@@ -52,7 +46,7 @@ namespace Mila::Data
         // Fluent Setters
         // ====================================================================
 
-        BpeVocabularyConfig& withVocabSize( size_t size )
+        BpeVocabularyConfig& withVocabSize( std::size_t size )
         {
             vocab_size_ = size;
             return *this;
@@ -64,7 +58,7 @@ namespace Mila::Data
             return *this;
         }
 
-        BpeVocabularyConfig& withMinFrequency( size_t frequency )
+        BpeVocabularyConfig& withMinFrequency( std::size_t frequency )
         {
             min_frequency_ = frequency;
             return *this;
@@ -88,7 +82,7 @@ namespace Mila::Data
             return *this;
         }
 
-        BpeVocabularyConfig& withMaxMerges( size_t max_merges )
+        BpeVocabularyConfig& withMaxMerges( std::size_t max_merges )
         {
             max_merges_ = max_merges;
             return *this;
@@ -126,7 +120,7 @@ namespace Mila::Data
 
             if ( byte_level_ )
             {
-                const size_t min_base_size = 256 + special_tokens_.count();
+                const std::size_t min_base_size = 256 + special_tokens_.count();
 
                 if ( vocab_size_ < min_base_size )
                 {
@@ -158,12 +152,12 @@ namespace Mila::Data
         {
             SerializationMetadata meta;
 
-            meta.set( "vocab_size", static_cast<int64_t>(vocab_size_) )
-                .set( "min_frequency", static_cast<int64_t>(min_frequency_) )
+            meta.set( "vocab_size", static_cast<std::int64_t>(vocab_size_) )
+                .set( "min_frequency", static_cast<std::int64_t>(min_frequency_) )
                 .set( "byte_level", byte_level_ )
-                .set( "pre_tokenization_mode", static_cast<int64_t>(pre_tokenization_mode_) )
+                .set( "pre_tokenization_mode", static_cast<std::int64_t>(pre_tokenization_mode_) )
                 .set( "pre_tokenization_pattern", pre_tokenization_pattern_ )
-                .set( "max_merges", static_cast<int64_t>(max_merges_) )
+                .set( "max_merges", static_cast<std::int64_t>(max_merges_) )
                 .set( "enable_merge_caching", enable_merge_caching_ )
                 .set( "use_pad", special_tokens_.use_pad )
                 .set( "use_unk", special_tokens_.use_unk )
@@ -192,10 +186,10 @@ namespace Mila::Data
         void fromMetadata( const SerializationMetadata& meta )
         {
             if ( auto v = meta.tryGetInt( "vocab_size" ) )
-                vocab_size_ = static_cast<size_t>(*v);
+                vocab_size_ = static_cast<std::size_t>(*v);
 
             if ( auto v = meta.tryGetInt( "min_frequency" ) )
-                min_frequency_ = static_cast<size_t>(*v);
+                min_frequency_ = static_cast<std::size_t>(*v);
 
             if ( auto v = meta.tryGetBool( "byte_level" ) )
                 byte_level_ = *v;
@@ -207,7 +201,7 @@ namespace Mila::Data
                 pre_tokenization_pattern_ = *v;
 
             if ( auto v = meta.tryGetInt( "max_merges" ) )
-                max_merges_ = static_cast<size_t>(*v);
+                max_merges_ = static_cast<std::size_t>(*v);
 
             if ( auto v = meta.tryGetBool( "enable_merge_caching" ) )
                 enable_merge_caching_ = *v;
@@ -257,11 +251,11 @@ namespace Mila::Data
         {
             return special_tokens_;
         }
-        size_t getVocabSize()               const
+        std::size_t getVocabSize()               const
         {
             return vocab_size_;
         }
-        size_t getMinFrequency()            const
+        std::size_t getMinFrequency()            const
         {
             return min_frequency_;
         }
@@ -278,7 +272,7 @@ namespace Mila::Data
         {
             return pre_tokenization_pattern_;
         }
-        size_t                getMaxMerges()               const
+        std::size_t                getMaxMerges()               const
         {
             return max_merges_;
         }
@@ -294,15 +288,15 @@ namespace Mila::Data
         // ====================================================================
 
         // Shared runtime properties (all BPE families)
-        size_t              vocab_size_ = 32000;
+        std::size_t              vocab_size_ = 32000;
         bool                byte_level_ = true;
         SpecialTokens       special_tokens_ = SpecialTokens::standard();
         PreTokenizationMode pre_tokenization_mode_ = PreTokenizationMode::None;
         std::string         pre_tokenization_pattern_ = "";
 
         // Training hyperparameters (BpeTrainer only; ignored for pretrained loads)
-        size_t              min_frequency_ = 2;
-        size_t              max_merges_ = 0;
+        std::size_t              min_frequency_ = 2;
+        std::size_t              max_merges_ = 0;
         bool                enable_merge_caching_ = true;
     };
 }

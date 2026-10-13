@@ -20,21 +20,6 @@
 
 module;
 #include <cstdio>
-#include <filesystem>
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <vector>
-#include <cstdint>
-#include <cstring>
-#include <stdexcept>
-#include <format>
-#include <algorithm>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <exception>
-#include <type_traits>
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -53,6 +38,7 @@ module;
 
 export module Serialization.WeightsReader;
 
+import std;
 export import Serialization.WeightsMetadata;
 
 import nlohmann.json;
@@ -81,16 +67,16 @@ namespace Mila::Dnn::Serialization
     struct TensorBlobMetadata
     {
         std::string name;
-        uint32_t dtype;
+        std::uint32_t dtype;
         shape_t shape;
-        uint64_t offset;
-        uint64_t nbytes;
+        std::uint64_t offset;
+        std::uint64_t nbytes;
     };
 
     // Wire codes 0-3 are the flat MILA format's original set and are fixed by every
     // .bin already on disk. Codes 4+ exist only to give safetensors dtypes a common
     // internal spelling; the Python writer never emits them.
-    enum class DType : uint32_t {
+    enum class DType : std::uint32_t {
         Float32 = 0,
         Float16 = 1,
         BFloat16 = 2,
@@ -101,7 +87,7 @@ namespace Mila::Dnn::Serialization
         Int8 = 7,
     };
 
-    inline TensorDataType dtypeToTensorDataType( uint32_t dtype )
+    inline TensorDataType dtypeToTensorDataType( std::uint32_t dtype )
     {
         switch ( static_cast<DType>( dtype ) )
         {
@@ -118,18 +104,18 @@ namespace Mila::Dnn::Serialization
         }
     }
 
-    inline uint32_t tensorDataTypeToWireCode( TensorDataType type )
+    inline std::uint32_t tensorDataTypeToWireCode( TensorDataType type )
     {
         switch ( type )
         {
-            case TensorDataType::FP32:     return static_cast<uint32_t>( DType::Float32 );
-            case TensorDataType::FP16:     return static_cast<uint32_t>( DType::Float16 );
-            case TensorDataType::BF16:     return static_cast<uint32_t>( DType::BFloat16 );
-            case TensorDataType::INT32:    return static_cast<uint32_t>( DType::Int32 );
-            case TensorDataType::UINT8:    return static_cast<uint32_t>( DType::UInt8 );
-            case TensorDataType::FP8_E4M3: return static_cast<uint32_t>( DType::Float8E4M3 );
-            case TensorDataType::FP8_E5M2: return static_cast<uint32_t>( DType::Float8E5M2 );
-            case TensorDataType::INT8:     return static_cast<uint32_t>( DType::Int8 );
+            case TensorDataType::FP32:     return static_cast<std::uint32_t>( DType::Float32 );
+            case TensorDataType::FP16:     return static_cast<std::uint32_t>( DType::Float16 );
+            case TensorDataType::BF16:     return static_cast<std::uint32_t>( DType::BFloat16 );
+            case TensorDataType::INT32:    return static_cast<std::uint32_t>( DType::Int32 );
+            case TensorDataType::UINT8:    return static_cast<std::uint32_t>( DType::UInt8 );
+            case TensorDataType::FP8_E4M3: return static_cast<std::uint32_t>( DType::Float8E4M3 );
+            case TensorDataType::FP8_E5M2: return static_cast<std::uint32_t>( DType::Float8E5M2 );
+            case TensorDataType::INT8:     return static_cast<std::uint32_t>( DType::Int8 );
             default:
                 throw std::runtime_error(
                     "No weights-file wire code for dtype " + tensorDataTypeToString( type ) );
@@ -306,9 +292,9 @@ namespace Mila::Dnn::Serialization
          * @return size_t Byte count of the tensor data.
          * @throws std::runtime_error if name is not found.
          */
-        size_t getTensorSizeBytes( const std::string& name ) const
+        std::size_t getTensorSizeBytes( const std::string& name ) const
         {
-            return static_cast<size_t>( getTensorBlobMetadata( name ).nbytes );
+            return static_cast<std::size_t>( getTensorBlobMetadata( name ).nbytes );
         }
 
         /**
@@ -329,12 +315,12 @@ namespace Mila::Dnn::Serialization
          *
          * @return size_t Maximum tensor byte count, or 0 if the index is empty.
          */
-        size_t getMaxTensorSizeBytes() const
+        std::size_t getMaxTensorSizeBytes() const
         {
-            size_t max_bytes = 0;
+            std::size_t max_bytes = 0;
 
             for ( const auto& [name, meta] : tensor_index_ )
-                max_bytes = std::max( max_bytes, static_cast<size_t>( meta.nbytes ) );
+                max_bytes = std::max( max_bytes, static_cast<std::size_t>( meta.nbytes ) );
 
             return max_bytes;
         }
@@ -359,12 +345,12 @@ namespace Mila::Dnn::Serialization
         {
             const auto& blob_meta = getTensorBlobMetadata( name );
 
-            TensorBuffer<dtype_t::UINT8, MR> buffer( device_id, static_cast<size_t>( blob_meta.nbytes ) );
+            TensorBuffer<dtype_t::UINT8, MR> buffer( device_id, static_cast<std::size_t>( blob_meta.nbytes ) );
 
             seekToOffset( blob_meta.offset );
             readExact(
                 reinterpret_cast<char*>( buffer.data() ),
-                static_cast<size_t>( blob_meta.nbytes ),
+                static_cast<std::size_t>( blob_meta.nbytes ),
                 "tensor '" + name + "'" );
 
             TensorMetadata tensor_meta{
@@ -422,19 +408,19 @@ namespace Mila::Dnn::Serialization
 
     private:
 
-        static constexpr uint32_t MAGIC = 0x4D494C41;  // "MILA"
-        static constexpr uint32_t VERSION = 1;
+        static constexpr std::uint32_t MAGIC = 0x4D494C41;  // "MILA"
+        static constexpr std::uint32_t VERSION = 1;
 
         // Bounds the safetensors header parse and doubles as the sniff discriminator:
         // a u64 header length below this cannot alias the MILA magic in its low word.
-        static constexpr uint64_t MAX_SAFETENSORS_HEADER_BYTES =
-            static_cast<uint64_t>( 128 ) * 1024 * 1024;
+        static constexpr std::uint64_t MAX_SAFETENSORS_HEADER_BYTES =
+            static_cast<std::uint64_t>( 128 ) * 1024 * 1024;
 
         // Cap on each pinned staging buffer. Per-layer weights sit well under this;
         // larger tensors (token embedding / lm_head) bypass staging and are consumed
         // directly from the mapped view, bounding pinned memory to two of these.
-        static constexpr size_t STAGING_BUFFER_CAPACITY_BYTES =
-            static_cast<size_t>( 256 ) * 1024 * 1024;
+        static constexpr std::size_t STAGING_BUFFER_CAPACITY_BYTES =
+            static_cast<std::size_t>( 256 ) * 1024 * 1024;
 
         std::filesystem::path filepath_;
 
@@ -453,7 +439,7 @@ namespace Mila::Dnn::Serialization
         std::string weight_quantization_;
 
         std::unordered_map<std::string, TensorBlobMetadata> tensor_index_;
-        uint32_t num_tensors_{ 0 };
+        std::uint32_t num_tensors_{ 0 };
 
         // Tensor metadata sorted by ascending file offset (pointers into tensor_index_).
         std::vector<const TensorBlobMetadata*> sorted_by_offset_;
@@ -466,8 +452,8 @@ namespace Mila::Dnn::Serialization
 #else
         int fd_{ -1 };
 #endif
-        const uint8_t* map_base_{ nullptr };
-        size_t map_size_{ 0 };
+        const std::uint8_t* map_base_{ nullptr };
+        std::size_t map_size_{ 0 };
 
         // Positioned read of nbytes at file offset into dst. The pinned-staging producer
         // uses this instead of a memcpy through the mapped view: blobs are visited in
@@ -476,25 +462,25 @@ namespace Mila::Dnn::Serialization
         // which throttles a large mmap once the whole file no longer fits resident (the
         // model's own GPU staging is multi-GB) -- the measured cause of a load running
         // ~5x below disk bandwidth.
-        void readAt( uint64_t offset, void* dst, size_t nbytes ) const
+        void readAt( std::uint64_t offset, void* dst, std::size_t nbytes ) const
         {
-            auto* out = static_cast<uint8_t*>( dst );
-            size_t done = 0;
+            auto* out = static_cast<std::uint8_t*>( dst );
+            std::size_t done = 0;
 
             while ( done < nbytes )
             {
-                const size_t remaining = nbytes - done;
+                const std::size_t remaining = nbytes - done;
 #ifdef _WIN32
                 // A synchronous handle honors OVERLAPPED.Offset as the read position and
                 // completes synchronously; only the single producer thread touches the
                 // handle, so there is no shared-file-pointer race.
-                const uint64_t position = offset + done;
+                const std::uint64_t position = offset + done;
                 OVERLAPPED overlapped{};
                 overlapped.Offset = static_cast<DWORD>( position & 0xFFFFFFFFull );
                 overlapped.OffsetHigh = static_cast<DWORD>( position >> 32 );
 
                 const DWORD to_read = static_cast<DWORD>(
-                    std::min<size_t>( remaining, 0x40000000ull ) );  // 1 GiB per call
+                    std::min<std::size_t>( remaining, 0x40000000ull ) );  // 1 GiB per call
                 DWORD got = 0;
 
                 if ( !ReadFile( file_handle_, out + done, to_read, &got, &overlapped ) || got == 0 )
@@ -516,7 +502,7 @@ namespace Mila::Dnn::Serialization
                         offset, done, nbytes, filepath_.string() ) );
                 }
 
-                done += static_cast<size_t>( got );
+                done += static_cast<std::size_t>( got );
 #endif
             }
         }
@@ -574,7 +560,7 @@ namespace Mila::Dnn::Serialization
                 throw std::runtime_error( "Cannot query model file size: " + filepath_.string() );
             }
 
-            map_size_ = static_cast<size_t>( file_size.QuadPart );
+            map_size_ = static_cast<std::size_t>( file_size.QuadPart );
 
             mapping_handle_ = CreateFileMappingW( file_handle_, nullptr, PAGE_READONLY, 0, 0, nullptr );
 
@@ -596,7 +582,7 @@ namespace Mila::Dnn::Serialization
                 throw std::runtime_error( "MapViewOfFile failed for: " + filepath_.string() );
             }
 
-            map_base_ = static_cast<const uint8_t*>( view );
+            map_base_ = static_cast<const std::uint8_t*>( view );
 
             // No whole-file prefetch: the staged path (readAt) streams each blob straight
             // off disk into pinned memory in file order, so priming the page cache with
@@ -621,7 +607,7 @@ namespace Mila::Dnn::Serialization
                 throw std::runtime_error( "Cannot stat model file: " + filepath_.string() );
             }
 
-            map_size_ = static_cast<size_t>( file_stat.st_size );
+            map_size_ = static_cast<std::size_t>( file_stat.st_size );
 
             void* view = ::mmap( nullptr, map_size_, PROT_READ, MAP_PRIVATE, fd_, 0 );
 
@@ -632,7 +618,7 @@ namespace Mila::Dnn::Serialization
                 throw std::runtime_error( "mmap failed for: " + filepath_.string() );
             }
 
-            map_base_ = static_cast<const uint8_t*>( view );
+            map_base_ = static_cast<const std::uint8_t*>( view );
 
             // MADV_SEQUENTIAL biases read-ahead for the oversized-blob mapped path; the
             // staged reads use pread (see readAt), so there is no whole-file MADV_WILLNEED
@@ -665,7 +651,7 @@ namespace Mila::Dnn::Serialization
 #else
             if ( map_base_ )
             {
-                ::munmap( const_cast<uint8_t*>( map_base_ ), map_size_ );
+                ::munmap( const_cast<std::uint8_t*>( map_base_ ), map_size_ );
                 map_base_ = nullptr;
             }
 
@@ -689,7 +675,7 @@ namespace Mila::Dnn::Serialization
                     .total_bytes = meta->nbytes
                 };
 
-                TensorBlobView view( tensor_meta, map_base_ + meta->offset, static_cast<size_t>( meta->nbytes ) );
+                TensorBlobView view( tensor_meta, map_base_ + meta->offset, static_cast<std::size_t>( meta->nbytes ) );
 
                 consume( meta->name, view );
             }
@@ -699,14 +685,14 @@ namespace Mila::Dnn::Serialization
         template<typename TConsumer>
         void streamTensorBlobsPinned( TConsumer&& consume, int device_id )
         {
-            const size_t count = sorted_by_offset_.size();
+            const std::size_t count = sorted_by_offset_.size();
 
             if ( count == 0 )
             {
                 return;
             }
 
-            const size_t staging_bytes = std::min<size_t>( STAGING_BUFFER_CAPACITY_BYTES, getMaxTensorSizeBytes() );
+            const std::size_t staging_bytes = std::min<std::size_t>( STAGING_BUFFER_CAPACITY_BYTES, getMaxTensorSizeBytes() );
 
             // TensorBuffer's constructor is explicit, so direct-initialize the two slots
             // and index them through a pointer array.
@@ -729,7 +715,7 @@ namespace Mila::Dnn::Serialization
             {
                 try
                 {
-                    for ( size_t k = 0; k < count; ++k )
+                    for ( std::size_t k = 0; k < count; ++k )
                     {
                         const int slot = static_cast<int>( k & 1 );
 
@@ -744,13 +730,13 @@ namespace Mila::Dnn::Serialization
                         }
 
                         const TensorBlobMetadata* meta = sorted_by_offset_[ k ];
-                        const uint8_t* src = map_base_ + meta->offset;
+                        const std::uint8_t* src = map_base_ + meta->offset;
                         const void* ptr;
 
-                        if ( static_cast<size_t>( meta->nbytes ) <= staging_bytes )
+                        if ( static_cast<std::size_t>( meta->nbytes ) <= staging_bytes )
                         {
-                            readAt( static_cast<uint64_t>( meta->offset ),
-                                staging[ slot ]->data(), static_cast<size_t>( meta->nbytes ) );
+                            readAt( static_cast<std::uint64_t>( meta->offset ),
+                                staging[ slot ]->data(), static_cast<std::size_t>( meta->nbytes ) );
                             ptr = staging[ slot ]->data();
                         }
                         else
@@ -781,7 +767,7 @@ namespace Mila::Dnn::Serialization
 
             try
             {
-                for ( size_t k = 0; k < count; ++k )
+                for ( std::size_t k = 0; k < count; ++k )
                 {
                     const int slot = static_cast<int>( k & 1 );
 
@@ -804,7 +790,7 @@ namespace Mila::Dnn::Serialization
                         .total_bytes = meta->nbytes
                     };
 
-                    TensorBlobView view( tensor_meta, ptr, static_cast<size_t>( meta->nbytes ) );
+                    TensorBlobView view( tensor_meta, ptr, static_cast<std::size_t>( meta->nbytes ) );
 
                     // consume() must complete its device read before returning (see the
                     // contract on streamTensorBlobs); only then is the slot safe to overwrite.
@@ -837,7 +823,7 @@ namespace Mila::Dnn::Serialization
          * @param description Names the field being read, so a truncated file reports what
          *        it was truncated in the middle of.
          */
-        void readExact( void* destination, size_t nbytes, const std::string& description )
+        void readExact( void* destination, std::size_t nbytes, const std::string& description )
         {
             if ( std::fread( destination, 1, nbytes, file_.get() ) != nbytes )
             {
@@ -854,14 +840,14 @@ namespace Mila::Dnn::Serialization
          * platform-specific helpers (_fseeki64 / fseeko) out of module code, matching
          * TokenSequenceLoader.
          */
-        void seekToOffset( uint64_t offset )
+        void seekToOffset( std::uint64_t offset )
         {
             if ( std::fseek( file_.get(), 0, SEEK_SET ) != 0 )
             {
                 throw std::runtime_error( "Failed to rewind " + filepath_.string() );
             }
 
-            constexpr uint64_t SEEK_STEP_BYTES = static_cast<uint64_t>( 1 ) << 30;
+            constexpr std::uint64_t SEEK_STEP_BYTES = static_cast<std::uint64_t>( 1 ) << 30;
 
             while ( offset > 0 )
             {
@@ -873,7 +859,7 @@ namespace Mila::Dnn::Serialization
                         std::format( "Failed to seek to offset in {}", filepath_.string() ) );
                 }
 
-                offset -= static_cast<uint64_t>( step );
+                offset -= static_cast<std::uint64_t>( step );
             }
         }
 
@@ -886,7 +872,7 @@ namespace Mila::Dnn::Serialization
          */
         bool isMilaContainer()
         {
-            uint32_t magic = 0;
+            std::uint32_t magic = 0;
 
             readExact( &magic, sizeof( magic ), "container magic" );
             seekToOffset( 0 );
@@ -908,7 +894,7 @@ namespace Mila::Dnn::Serialization
          */
         void readSafeTensorsHeader()
         {
-            uint64_t header_length = 0;
+            std::uint64_t header_length = 0;
 
             readExact( &header_length, sizeof( header_length ), "safetensors header length" );
 
@@ -919,11 +905,11 @@ namespace Mila::Dnn::Serialization
                         "length {} is out of range", header_length ) );
             }
 
-            std::string header_text( static_cast<size_t>( header_length ), '\0' );
-            readExact( header_text.data(), static_cast<size_t>( header_length ), "safetensors header" );
+            std::string header_text( static_cast<std::size_t>( header_length ), '\0' );
+            readExact( header_text.data(), static_cast<std::size_t>( header_length ), "safetensors header" );
 
-            const uint64_t data_start = sizeof( uint64_t ) + header_length;
-            const uint64_t file_size = static_cast<uint64_t>( std::filesystem::file_size( filepath_ ) );
+            const std::uint64_t data_start = sizeof( std::uint64_t ) + header_length;
+            const std::uint64_t file_size = static_cast<std::uint64_t>( std::filesystem::file_size( filepath_ ) );
 
             nlohmann::json header = nlohmann::json::parse( header_text, nullptr, false );
 
@@ -971,15 +957,15 @@ namespace Mila::Dnn::Serialization
                 meta.dtype = tensorDataTypeToWireCode(
                     fromSafeTensorsDataTypeName( record[ "dtype" ].get<std::string>() ) );
 
-                meta.shape.ndim = static_cast<uint8_t>( dims.size() );
+                meta.shape.ndim = static_cast<std::uint8_t>( dims.size() );
 
-                for ( size_t d = 0; d < dims.size(); ++d )
+                for ( std::size_t d = 0; d < dims.size(); ++d )
                 {
-                    meta.shape[ d ] = dims[ d ].get<int64_t>();
+                    meta.shape[ d ] = dims[ d ].get<std::int64_t>();
                 }
 
-                const uint64_t begin = offsets[ 0 ].get<uint64_t>();
-                const uint64_t end = offsets[ 1 ].get<uint64_t>();
+                const std::uint64_t begin = offsets[ 0 ].get<std::uint64_t>();
+                const std::uint64_t end = offsets[ 1 ].get<std::uint64_t>();
 
                 if ( end < begin )
                 {
@@ -999,7 +985,7 @@ namespace Mila::Dnn::Serialization
                 tensor_index_[ meta.name ] = std::move( meta );
             }
 
-            num_tensors_ = static_cast<uint32_t>( tensor_index_.size() );
+            num_tensors_ = static_cast<std::uint32_t>( tensor_index_.size() );
 
             if ( num_tensors_ == 0 )
             {
@@ -1047,7 +1033,7 @@ namespace Mila::Dnn::Serialization
 
         void readHeader()
         {
-            uint32_t magic, version, num_tensors;
+            std::uint32_t magic, version, num_tensors;
 
             readExact( &magic, sizeof( magic ), "binary header magic" );
             readExact( &version, sizeof( version ), "binary header version" );
@@ -1070,7 +1056,7 @@ namespace Mila::Dnn::Serialization
 
         void readMetadata()
         {
-            uint32_t metadata_size;
+            std::uint32_t metadata_size;
             readExact( &metadata_size, sizeof( metadata_size ), "metadata size" );
 
             if ( metadata_size == 0 )
@@ -1101,7 +1087,7 @@ namespace Mila::Dnn::Serialization
                 return json.substr( quote_start + 1, quote_end - quote_start - 1 );
             };
 
-            auto extract_int = [&]( const std::string& key ) -> uint32_t
+            auto extract_int = [&]( const std::string& key ) -> std::uint32_t
             {
                 auto pos = json.find( "\"" + key + "\"" );
                 if ( pos == std::string::npos ) return 0;
@@ -1197,11 +1183,11 @@ namespace Mila::Dnn::Serialization
 
         void readTensorIndex()
         {
-            for ( uint32_t i = 0; i < num_tensors_; ++i )
+            for ( std::uint32_t i = 0; i < num_tensors_; ++i )
             {
                 TensorBlobMetadata meta;
 
-                uint32_t name_length;
+                std::uint32_t name_length;
                 readExact( &name_length, sizeof( name_length ),
                     std::format( "tensor name length at index {}", i ) );
 
@@ -1218,7 +1204,7 @@ namespace Mila::Dnn::Serialization
                 readExact( &meta.dtype, sizeof( meta.dtype ),
                     std::format( "dtype of '{}'", meta.name ) );
 
-                uint32_t ndim;
+                std::uint32_t ndim;
                 readExact( &ndim, sizeof( ndim ), std::format( "rank of '{}'", meta.name ) );
 
                 if ( ndim > TensorShape::MaxRank )
@@ -1227,14 +1213,14 @@ namespace Mila::Dnn::Serialization
                         std::format( "Invalid tensor dimensionality for '{}'", meta.name ) );
                 }
 
-                meta.shape.ndim = static_cast<uint8_t>( ndim );
+                meta.shape.ndim = static_cast<std::uint8_t>( ndim );
 
-                for ( uint32_t d = 0; d < ndim; ++d )
+                for ( std::uint32_t d = 0; d < ndim; ++d )
                 {
-                    uint32_t dim32;
+                    std::uint32_t dim32;
                     readExact( &dim32, sizeof( dim32 ),
                         std::format( "extent {} of '{}'", d, meta.name ) );
-                    meta.shape[ d ] = static_cast<int64_t>( dim32 );
+                    meta.shape[ d ] = static_cast<std::int64_t>( dim32 );
                 }
 
                 readExact( &meta.offset, sizeof( meta.offset ),

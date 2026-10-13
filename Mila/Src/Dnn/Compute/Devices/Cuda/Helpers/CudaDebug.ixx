@@ -4,7 +4,7 @@ module;
 
 export module Cuda.Debug;
 
-import std.compat;
+import std;
 import Dnn.TensorTypes;
 import CublasLt.Error;
 import Logging.Logger;
@@ -108,14 +108,14 @@ namespace Mila::Dnn::Compute::Cuda
         }
 
         // Calculate total size
-        size_t total_size = 1;
+        std::size_t total_size = 1;
         for ( auto dim : shape )
         {
             if ( dim <= 0 )
             {
                 return name + ": <invalid shape>\n";
             }
-            total_size *= static_cast<size_t>(dim);
+            total_size *= static_cast<std::size_t>(dim);
         }
 
         // Allocate host memory
@@ -150,7 +150,7 @@ namespace Mila::Dnn::Compute::Cuda
         // Header
         oss << "\n=== Row-Major Tensor: " << name << " ===\n";
         oss << "Shape: [";
-        for ( size_t i = 0; i < shape.size(); ++i )
+        for ( std::size_t i = 0; i < shape.size(); ++i )
         {
             oss << shape[ i ];
             if ( i < shape.size() - 1 ) oss << ", ";
@@ -187,7 +187,7 @@ namespace Mila::Dnn::Compute::Cuda
                     oss << "  Head " << nh << ":\n";
 
                     // Pointer to this (b, nh) matrix (row-major block)
-                    size_t matrix_offset = (static_cast<size_t>( b ) * NH + static_cast<size_t>( nh )) * rows * cols;
+                    std::size_t matrix_offset = (static_cast<std::size_t>( b ) * NH + static_cast<std::size_t>( nh )) * rows * cols;
                     dump_2d_rowmajor_host( oss, read_ptr + matrix_offset, rows, cols, max_display_size, 10 );
                     oss << "\n";
                 }
@@ -213,7 +213,7 @@ namespace Mila::Dnn::Compute::Cuda
             for ( int b = 0; b < b_display; ++b )
             {
                 oss << "Batch " << b << ":\n";
-                size_t matrix_offset = static_cast<size_t>( b ) * rows * cols;
+                std::size_t matrix_offset = static_cast<std::size_t>( b ) * rows * cols;
                 dump_2d_rowmajor_host( oss, read_ptr + matrix_offset, rows, cols, max_display_size, 2 );
                 oss << "\n";
             }

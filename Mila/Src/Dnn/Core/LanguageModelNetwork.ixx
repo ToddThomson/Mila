@@ -3,20 +3,9 @@
  * @brief Abstract base for language model networks.
  */
 
-module;
-#include <algorithm>
-#include <cstddef>
-#include <cstdint>
-#include <format>
-#include <map>
-#include <memory>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <vector>
-
 export module Dnn.LanguageModelNetwork;
 
+import std;
 export import Dnn.SequenceLogLikelihood;
 
 import Dnn.Network;

@@ -9,16 +9,9 @@
  * the validation oracle for what this pipeline displayed.
  */
 
-module;
-#include <cctype>
-#include <cstdint>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-
 export module Chat.StreamingDisplay;
 
+import std;
 import Chat.ChannelParser;
 import Chat.Config;
 import Chat.Renderer;
@@ -43,7 +36,7 @@ namespace Mila::ChatApp
         {
             held_.append( bytes );
 
-            const size_t complete = completeUtf8PrefixLength( held_ );
+            const std::size_t complete = completeUtf8PrefixLength( held_ );
             std::string out = held_.substr( 0, complete );
             held_.erase( 0, complete );
 
@@ -57,9 +50,9 @@ namespace Mila::ChatApp
 
     private:
 
-        static size_t completeUtf8PrefixLength( std::string_view text )
+        static std::size_t completeUtf8PrefixLength( std::string_view text )
         {
-            size_t i = text.size();
+            std::size_t i = text.size();
             int continuation_bytes = 0;
 
             while ( i > 0 && continuation_bytes < 3 )
@@ -71,11 +64,11 @@ namespace Mila::ChatApp
 
                 if ( (c & 0xC0) == 0xC0 )
                 {
-                    const size_t need =
+                    const std::size_t need =
                         (c & 0xE0) == 0xC0 ? 2 :
                         (c & 0xF0) == 0xE0 ? 3 :
                         (c & 0xF8) == 0xF0 ? 4 : 1;  // invalid lead byte: emit as-is
-                    const size_t have = text.size() - (i - 1);
+                    const std::size_t have = text.size() - (i - 1);
 
                     return have >= need ? text.size() : i - 1;
                 }
@@ -121,7 +114,7 @@ namespace Mila::ChatApp
 
     private:
 
-        static constexpr size_t kMaximumHoldLength = 512;
+        static constexpr std::size_t kMaximumHoldLength = 512;
 
         StyledText drain( bool force )
         {
@@ -129,7 +122,7 @@ namespace Mila::ChatApp
 
             while ( !pending_.empty() )
             {
-                const size_t hold = force ? std::string::npos : holdPoint( pending_, at_line_start_ );
+                const std::size_t hold = force ? std::string::npos : holdPoint( pending_, at_line_start_ );
 
                 if ( hold == std::string::npos )
                 {
@@ -140,7 +133,7 @@ namespace Mila::ChatApp
 
                 // A construct is never held across a display line: force the
                 // whole line through rather than stalling on malformed markup.
-                const size_t newline = pending_.find( '\n', hold );
+                const std::size_t newline = pending_.find( '\n', hold );
 
                 if ( newline != std::string::npos )
                 {
@@ -186,15 +179,15 @@ namespace Mila::ChatApp
          * @brief Earliest position in s whose construct may continue past the end
          *        of the buffer; npos when the whole buffer is safe to format now.
          */
-        static size_t holdPoint( std::string_view s, bool at_line_start )
+        static std::size_t holdPoint( std::string_view s, bool at_line_start )
         {
             bool line_start_run = at_line_start;  // only indent seen so far on this line
 
             // Where that run began, so it can be held whole. A leading indent is part
             // of the list-marker construct, not text preceding it: emitting the indent
             // alone leaves the next chunk believing it starts mid-line.
-            size_t indent_start = at_line_start ? 0 : std::string_view::npos;
-            size_t i = 0;
+            std::size_t indent_start = at_line_start ? 0 : std::string_view::npos;
+            std::size_t i = 0;
 
             while ( i < s.size() )
             {
@@ -227,7 +220,7 @@ namespace Mila::ChatApp
                 // would never produce.
                 if ( line_start_run && c == '#' )
                 {
-                    size_t hashes = i;
+                    std::size_t hashes = i;
 
                     while ( hashes < s.size() && s[ hashes ] == '#' )
                         ++hashes;
@@ -244,7 +237,7 @@ namespace Mila::ChatApp
 
                 if ( c == '\\' )
                 {
-                    size_t j = i + 1;
+                    std::size_t j = i + 1;
 
                     while ( j < s.size() && std::isalpha( static_cast<unsigned char>( s[ j ] ) ) )
                         ++j;
@@ -263,7 +256,7 @@ namespace Mila::ChatApp
 
                     if ( isKnownBraceCommand( name ) && j < s.size() && s[ j ] == '{' )
                     {
-                        const size_t close = s.find( '}', j + 1 );
+                        const std::size_t close = s.find( '}', j + 1 );
 
                         if ( close == std::string_view::npos )
                             return i;
@@ -275,7 +268,7 @@ namespace Mila::ChatApp
 
                             if ( s[ close + 1 ] == '{' )
                             {
-                                const size_t second_close = s.find( '}', close + 2 );
+                                const std::size_t second_close = s.find( '}', close + 2 );
 
                                 if ( second_close == std::string_view::npos )
                                     return i;
@@ -300,7 +293,7 @@ namespace Mila::ChatApp
 
                     if ( s[ i + 1 ] == '{' )
                     {
-                        const size_t close = s.find( '}', i + 2 );
+                        const std::size_t close = s.find( '}', i + 2 );
 
                         if ( close == std::string_view::npos )
                             return i;
@@ -365,11 +358,11 @@ namespace Mila::ChatApp
      */
     export struct GemmaStreamTokens
     {
-        int32_t channel_open = -1;
-        int32_t channel_close = -1;
-        int32_t tool_call_open = -1;
-        int32_t tool_call_close = -1;
-        std::vector<int32_t> suppressed;
+        std::int32_t channel_open = -1;
+        std::int32_t channel_close = -1;
+        std::int32_t tool_call_open = -1;
+        std::int32_t tool_call_close = -1;
+        std::vector<std::int32_t> suppressed;
     };
 
     /**
@@ -401,7 +394,7 @@ namespace Mila::ChatApp
             renderer_.streamBegin();
         }
 
-        TokenAction onToken( int32_t token, std::string_view piece )
+        TokenAction onToken( std::int32_t token, std::string_view piece )
         {
             if ( token == tokens_.tool_call_open && state_ != State::ToolCall )
             {
@@ -512,9 +505,9 @@ namespace Mila::ChatApp
             return detail_ >= DetailLevel::Thoughts;
         }
 
-        bool isSuppressed( int32_t token ) const
+        bool isSuppressed( std::int32_t token ) const
         {
-            for ( const int32_t suppressed : tokens_.suppressed )
+            for ( const std::int32_t suppressed : tokens_.suppressed )
             {
                 if ( token == suppressed )
                     return true;

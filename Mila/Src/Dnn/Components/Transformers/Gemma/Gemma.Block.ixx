@@ -32,18 +32,9 @@
  *   x = ( res1 + post_feedforward_layernorm(f) ) * layer_scalar
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <format>
-#include <sstream>
-#include <stdexcept>
-#include <optional>
-#include <type_traits>
-
 export module Dnn.Components.GemmaBlock;
 
+import std;
 export import Dnn.Components.GemmaBlockWorkspace;
 
 export import Dnn.Components.GemmaConfig;
@@ -174,8 +165,8 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaBlock::prefill: must be built before prefill()." );
 
-            const int64_t B = input.shape()[ 0 ];
-            const int64_t T = input.shape()[ 1 ];
+            const std::int64_t B = input.shape()[ 0 ];
+            const std::int64_t T = input.shape()[ 1 ];
             const dim_t NH = config_.getNumHeads();
             const dim_t NKV = numKVHeads();
             const dim_t HD = headDim();
@@ -262,7 +253,7 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaBlock::decode: must be built before decode()." );
 
-            const int64_t B = input.shape()[ 0 ];
+            const std::int64_t B = input.shape()[ 0 ];
             const dim_t NH = config_.getNumHeads();
             const dim_t NKV = numKVHeads();
             const dim_t HD = headDim();
@@ -345,8 +336,8 @@ namespace Mila::Dnn
                 if ( !this->isBuilt() )
                     throw std::runtime_error( "GemmaBlock::decodeTokens: must be built before decodeTokens()." );
 
-                const int64_t B = input.shape()[ 0 ];
-                const int64_t T = input.shape()[ 1 ];
+                const std::int64_t B = input.shape()[ 0 ];
+                const std::int64_t T = input.shape()[ 1 ];
                 const dim_t NH = config_.getNumHeads();
                 const dim_t NKV = numKVHeads();
                 const dim_t HD = headDim();
@@ -833,8 +824,8 @@ namespace Mila::Dnn
             // prefixes instead of self-allocating.
             if ( workspace_installed_ )
             {
-                const int64_t q_needed = contexts.splitQElements();
-                const int64_t kv_needed = contexts.splitKvElements();
+                const std::int64_t q_needed = contexts.splitQElements();
+                const std::int64_t kv_needed = contexts.splitKvElements();
 
                 if ( !q_ || q_->size() < q_needed || !k_ || k_->size() < kv_needed
                      || ( !kGlobal && ( !v_ || v_->size() < kv_needed ) ) )
@@ -941,7 +932,7 @@ namespace Mila::Dnn
             // RoPE over the Q-projection width; per-layer base + rotary_dim (proportional on global).
             auto rope_cfg = RopeConfig( qProjWidth(), config_.getNumHeads(), numKVHeads(), config_.getMaxSequenceLength() )
                 .withBase( ropeTheta() )
-                .withRotaryDim( static_cast<size_t>( rotaryDim() ) );
+                .withRotaryDim( static_cast<std::size_t>( rotaryDim() ) );
             this->addComponent( std::make_shared<RopeType>( n + ".rope", rope_cfg ) );
 
             // GQA: head_dim from the Q-width, window per-layer, scale 1.0 (QK-norm controls magnitude).

@@ -5,16 +5,9 @@
  * Minimal configuration used by the fused softmax + cross-entropy kernels.
  */
 
-module;
-#include <stdexcept>
-#include <cstdint>
-#include <utility>
-#include <string>
-#include <ostream>
-#include <sstream>
-
 export module Dnn.Components.CrossEntropyConfig;
 
+import std;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
@@ -46,7 +39,7 @@ namespace Mila::Dnn
          * @param vocab_size The size of the vocabulary (number of classes).
          *                   Must be > 0. Kernels validate: 0 <= target < vocab_size.
          */
-        explicit CrossEntropyConfig( int64_t vocab_size )
+        explicit CrossEntropyConfig( std::int64_t vocab_size )
             : vocab_size_( vocab_size )
         {
         }
@@ -58,7 +51,7 @@ namespace Mila::Dnn
          * @return Self&& for method chaining
          */
         template <typename Self>
-        decltype(auto) withVocabSize( this Self&& self, int64_t vocab_size )
+        decltype(auto) withVocabSize( this Self&& self, std::int64_t vocab_size )
         {
             self.vocab_size_ = vocab_size;
             return std::forward<Self>( self );
@@ -71,7 +64,7 @@ namespace Mila::Dnn
          *
          * @return int64_t The vocabulary size
          */
-        int64_t getVocabSize() const
+        std::int64_t getVocabSize() const
         {
             return vocab_size_;
         }
@@ -105,7 +98,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "vocab_size", static_cast<int64_t>( vocab_size_ ) );
+            meta.set( "vocab_size", static_cast<std::int64_t>( vocab_size_ ) );
 
             return meta;
         }
@@ -140,6 +133,6 @@ namespace Mila::Dnn
         }
 
     private:
-        int64_t vocab_size_ = 0;  ///< Number of classes in the vocabulary
+        std::int64_t vocab_size_ = 0;  ///< Number of classes in the vocabulary
     };
 }

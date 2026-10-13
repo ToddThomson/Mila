@@ -3,10 +3,9 @@
  * @brief How a package is to be installed into the store.
  */
 
-module;
-#include <string>
-
 export module Distribution.InstallOptions;
+
+import std;
 
 namespace Mila::Distribution
 {

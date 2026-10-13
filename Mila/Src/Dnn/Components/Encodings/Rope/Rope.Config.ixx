@@ -19,14 +19,9 @@
  * @endcode
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-#include <utility>
-
 export module Dnn.Components.RopeConfig;
 
+import std;
 export import Dnn.Components.RotaryLayout;
 export import Dnn.Components.RopeFrequencyScaling;
 
@@ -251,15 +246,15 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "channels", static_cast<int64_t>(channels_) )
-                .set( "n_heads", static_cast<int64_t>(n_heads_) )
-                .set( "n_kv_heads", static_cast<int64_t>(n_kv_heads_) )
-                .set( "max_sequence_length", static_cast<int64_t>(max_seq_len_) )
+            meta.set( "channels", static_cast<std::int64_t>(channels_) )
+                .set( "n_heads", static_cast<std::int64_t>(n_heads_) )
+                .set( "n_kv_heads", static_cast<std::int64_t>(n_kv_heads_) )
+                .set( "max_sequence_length", static_cast<std::int64_t>(max_seq_len_) )
                 .set( "base", base_ );
 
             if ( rotary_dim_ != 0 )
             {
-                meta.set( "rotary_dim", static_cast<int64_t>(rotary_dim_) );
+                meta.set( "rotary_dim", static_cast<std::int64_t>(rotary_dim_) );
             }
 
             if ( frequency_scaling_.isScaled() )
@@ -267,7 +262,7 @@ namespace Mila::Dnn
                 meta.set( "scaling_factor", frequency_scaling_.factor )
                     .set( "scaling_low_frequency_factor", frequency_scaling_.low_frequency_factor )
                     .set( "scaling_high_frequency_factor", frequency_scaling_.high_frequency_factor )
-                    .set( "scaling_original_context_length", static_cast<int64_t>(frequency_scaling_.original_context_length) );
+                    .set( "scaling_original_context_length", static_cast<std::int64_t>(frequency_scaling_.original_context_length) );
             }
 
             return meta;

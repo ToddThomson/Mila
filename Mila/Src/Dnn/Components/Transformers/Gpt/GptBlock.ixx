@@ -6,22 +6,9 @@
  * composes attention, layer-norm, residual connections and MLP sub-components.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <sstream>
-#include <iostream>
-#include <iomanip>
-#include <format>
-#include <utility>
-#include <stdexcept>
-#include <cstdint>
-#include <type_traits>
-#include <optional>
-#include <algorithm>
-
 export module Dnn.Components.GptBlock;
+
+import std;
 export import :Config;
 
 import Dnn.ITensor;
@@ -309,7 +296,7 @@ namespace Mila::Dnn
          *
          * @param max_seq_len Maximum sequence length the cache must accommodate.
          */
-        void initializeKvCache( int64_t max_seq_len )
+        void initializeKvCache( std::int64_t max_seq_len )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GptBlock must be built before initializeKvCache()." );
@@ -403,7 +390,7 @@ namespace Mila::Dnn
             if ( !cached_input_shape_.empty() )
             {
                 oss << "Input shape: (";
-                for ( size_t i = 0; i < cached_input_shape_.size(); ++i )
+                for ( std::size_t i = 0; i < cached_input_shape_.size(); ++i )
                 {
                     oss << cached_input_shape_[ i ];
                     if ( i != cached_input_shape_.size() - 1 ) oss << ", ";
@@ -583,7 +570,7 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "GptBlock: input must have model-layout shape [B, T, embedding_dim]" );
             }
 
-            int64_t trailing = input_shape.back();
+            std::int64_t trailing = input_shape.back();
             if ( trailing != config_.getModelDim() )
             {
                 throw std::invalid_argument( std::format(

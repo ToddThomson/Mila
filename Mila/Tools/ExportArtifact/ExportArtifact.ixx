@@ -7,31 +7,9 @@
  * source and writing out what ended up on the device.
  */
 
-module;
-#include <algorithm>
-#include <cctype>
-#include <cmath>
-#include <cstring>
-#include <cstdint>
-#include <cstdio>
-#include <exception>
-#include <filesystem>
-#include <format>
-#include <iostream>
-#include <iterator>
-#include <limits>
-#include <map>
-#include <optional>
-#include <set>
-#include <utility>
-#include <string>
-#include <memory>
-#include <stdexcept>
-#include <string_view>
-#include <vector>
-
 export module Tools.ExportArtifact;
 
+import std;
 export import Tools.ExportArtifact.ExportOptions;
 export import Tools.ExportArtifact.InstallRequest;
 export import Tools.ExportArtifact.PackageArtifactRequest;
@@ -136,7 +114,7 @@ namespace Mila::Tools
      * transfer has to re-read what it already holds. Mirrors ModelStore's own replay so the
      * probe exercises the real protocol rather than an approximation of it.
      */
-    uint64_t replayIntoHash(
+    std::uint64_t replayIntoHash(
         const std::filesystem::path& path, Mila::Distribution::Sha256& hash )
     {
         std::unique_ptr<std::FILE, int( * )( std::FILE* )> input(
@@ -148,11 +126,11 @@ namespace Mila::Tools
         }
 
         std::vector<char> buffer( 1u << 20 );
-        uint64_t total = 0;
+        std::uint64_t total = 0;
 
         for ( ;; )
         {
-            const size_t read = std::fread( buffer.data(), 1, buffer.size(), input.get() );
+            const std::size_t read = std::fread( buffer.data(), 1, buffer.size(), input.get() );
 
             if ( read == 0 )
             {
@@ -189,7 +167,7 @@ namespace Mila::Tools
         const std::string& url, const std::filesystem::path& destination, bool resume )
     {
         Mila::Distribution::Sha256 hash;
-        uint64_t resume_from = 0;
+        std::uint64_t resume_from = 0;
 
         if ( resume )
         {
@@ -216,7 +194,7 @@ namespace Mila::Tools
             return 2;
         }
 
-        uint64_t written = 0;
+        std::uint64_t written = 0;
 
         Mila::Distribution::HttpRequest request;
         request.url = url;
@@ -238,7 +216,7 @@ namespace Mila::Tools
             Mila::Distribution::makeDefaultHttpTransport() );
 
         const auto result = client.get( request,
-            [&]( const char* data, size_t length ) -> bool
+            [&]( const char* data, std::size_t length ) -> bool
             {
                 if ( std::fwrite( data, 1, length, output.get() ) != length )
                 {
@@ -529,7 +507,7 @@ namespace Mila::Tools
         {
             std::cerr << std::format( "  {} tensor(s) MISSING from the artifact:\n", missing.size() );
 
-            for ( size_t index = 0; index < missing.size() && index < 8; ++index )
+            for ( std::size_t index = 0; index < missing.size() && index < 8; ++index )
             {
                 std::cerr << std::format( "    {}\n", missing[ index ] );
             }
@@ -545,7 +523,7 @@ namespace Mila::Tools
             std::cerr << std::format(
                 "  {} unexpected tensor(s) in the artifact:\n", extra.size() );
 
-            for ( size_t index = 0; index < extra.size() && index < 8; ++index )
+            for ( std::size_t index = 0; index < extra.size() && index < 8; ++index )
             {
                 std::cerr << std::format( "    {}\n", extra[ index ] );
             }
@@ -565,7 +543,7 @@ namespace Mila::Tools
      */
     void reportStorageCensus( Serialization::WeightsReader& reader )
     {
-        std::map<std::string, std::pair<uint64_t, uint64_t>> by_storage_type;
+        std::map<std::string, std::pair<std::uint64_t, std::uint64_t>> by_storage_type;
 
         reader.streamTensorBlobs(
             [&by_storage_type]( const std::string&, const Serialization::ITensorBlob& blob )
@@ -648,7 +626,7 @@ namespace Mila::Tools
 
             writer.beginData();
 
-            uint64_t written = 0;
+            std::uint64_t written = 0;
 
             reader.streamTensorBlobs(
                 [&writer, &written]( const std::string& name, const Serialization::ITensorBlob& blob )
@@ -735,7 +713,7 @@ namespace Mila::Tools
 
             int mismatched = 0;
             int compared = 0;
-            uint64_t bytes = 0;
+            std::uint64_t bytes = 0;
 
             for ( const auto& name : left_names )
             {
@@ -828,7 +806,7 @@ namespace Mila::Tools
         }
 
         TensorDataType widest{ TensorDataType::FP32 };
-        size_t widest_bytes = 0;
+        std::size_t widest_bytes = 0;
 
         reader.streamTensorBlobs(
             [&widest, &widest_bytes]( const std::string&, const Serialization::ITensorBlob& blob )
@@ -945,7 +923,7 @@ namespace Mila::Tools
      * build allocates before weights load, which the export never touches -- so the right
      * value is the smallest one that builds, always.
      */
-    inline constexpr int64_t kExportContextLength = 512;
+    inline constexpr std::int64_t kExportContextLength = 512;
 
     /**
      * @brief Logits fingerprint for a fixed prompt, for comparing two loads of one model.
@@ -964,7 +942,7 @@ namespace Mila::Tools
      */
     template<DeviceType TDeviceType, TensorDataType TPrecision>
     std::string fingerprintModel( LanguageModel<TDeviceType, TPrecision>& model,
-        const std::vector<int32_t>& probe )
+        const std::vector<std::int32_t>& probe )
     {
         using DeviceTensor =
             Tensor<TPrecision, typename DeviceTypeTraits<TDeviceType>::memory_resource>;
@@ -978,7 +956,7 @@ namespace Mila::Tools
         // everything published after it belongs to a decode step.
         bool recording = true;
 
-        const size_t observed = model.observe( "*", ComputePassMask::inference(),
+        const std::size_t observed = model.observe( "*", ComputePassMask::inference(),
             [&]( std::string_view path, ComputePass, std::string_view stage,
                 const ITensor& value )
             {
@@ -1001,7 +979,7 @@ namespace Mila::Tools
                 const float* elements = host.data();
                 const dim_t count = host.size();
 
-                int64_t nan_count = 0;
+                std::int64_t nan_count = 0;
                 float lowest = std::numeric_limits<float>::infinity();
                 float highest = -std::numeric_limits<float>::infinity();
 
@@ -1060,7 +1038,7 @@ namespace Mila::Tools
         try
         {
             [[maybe_unused]] const GenerateStatus status =
-                model.generate( probe, []( int32_t ) {}, params );
+                model.generate( probe, []( std::int32_t ) {}, params );
         }
         catch ( ... )
         {
@@ -1080,10 +1058,10 @@ namespace Mila::Tools
 
         // FNV-1a rather than a real digest: this only has to distinguish two runs, and a
         // model diagnostic should not depend on the model-download feature being compiled in.
-        uint64_t digest = 1469598103934665603ull;
-        const auto* bytes = reinterpret_cast<const uint8_t*>( logits.data() );
+        std::uint64_t digest = 1469598103934665603ull;
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>( logits.data() );
 
-        for ( size_t i = 0; i < logits.size() * sizeof( float ); ++i )
+        for ( std::size_t i = 0; i < logits.size() * sizeof( float ); ++i )
         {
             digest ^= bytes[ i ];
             digest *= 1099511628211ull;
@@ -1126,7 +1104,7 @@ namespace Mila::Tools
             // Fixed, arbitrary token ids: no tokenizer is involved, so two runs over
             // different files are comparable by construction. Their meaning is irrelevant --
             // only that both loads see the same input.
-            const std::vector<int32_t> probe{ 2, 1000, 2000, 3000, 4000, 5000, 6000, 7000 };
+            const std::vector<std::int32_t> probe{ 2, 1000, 2000, 3000, 4000, 5000, 6000, 7000 };
 
             std::cout << std::format( "Fingerprint of {}\n", options.source.string() );
             std::cout << "  " << fingerprintModel( *model, probe ) << "\n";

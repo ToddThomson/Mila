@@ -5,10 +5,9 @@
  * Export a small enum and helper to-string for reuse by GELU, SwiGLU and others.
  */
 
-module;
-#include <string_view>
-
 export module Dnn.ApproximationMethod;
+
+import std;
 
 namespace Mila::Dnn
 {

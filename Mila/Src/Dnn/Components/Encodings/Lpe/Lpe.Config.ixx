@@ -9,14 +9,9 @@
  * Exposed as part of the Encoder module via module partitions.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <utility>
-#include <sstream>
-
 export module Dnn.Components.LpeConfig;
 
+import std;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.ActivationType;
@@ -116,9 +111,9 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "channels", static_cast<int64_t>( embedding_dim_ ) )
-                .set( "max_sequence_length", static_cast<int64_t>( max_seq_len_ ) )
-                .set( "vocabulary_length", static_cast<int64_t>( vocab_len_ ) );
+            meta.set( "channels", static_cast<std::int64_t>( embedding_dim_ ) )
+                .set( "max_sequence_length", static_cast<std::int64_t>( max_seq_len_ ) )
+                .set( "vocabulary_length", static_cast<std::int64_t>( vocab_len_ ) );
 
             return meta;
         }

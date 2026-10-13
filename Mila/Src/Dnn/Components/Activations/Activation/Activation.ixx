@@ -11,17 +11,11 @@
  */
 
 module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <sstream>
-#include <stdexcept>
-#include <format>
-#include <utility>
-#include <optional>
 #include "Kernels/ElementwiseActivation.h"
 
 export module Dnn.Components.Activation;
+
+import std;
 export import Dnn.Components.ActivationConfig;
 
 import Dnn.Component;
@@ -188,10 +182,10 @@ namespace Mila::Dnn
 
             SerializationMetadata meta;
             meta.set( "type", "Activation" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() )
                 .set( "template_device", deviceTypeToString( TDeviceType ) )
-                .set( "template_precision", static_cast<int64_t>( TPrecision ) )
+                .set( "template_precision", static_cast<std::int64_t>( TPrecision ) )
                 .set( "template_function", activationTypeToString( TFn ) );
 
             archive.writeMetadata( "meta.json", meta );
@@ -402,7 +396,7 @@ namespace Mila::Dnn
 
         static void validateMetadata_( const SerializationMetadata& meta, const std::string& component_name )
         {
-            int64_t version = meta.tryGetInt( "version" ).value_or( 0 );
+            std::int64_t version = meta.tryGetInt( "version" ).value_or( 0 );
             if ( version != 1 )
             {
                 throw std::runtime_error(
@@ -418,11 +412,11 @@ namespace Mila::Dnn
             }
 
             std::string file_device = meta.tryGetString( "template_device" ).value_or( "" );
-            int64_t file_precision = meta.tryGetInt( "template_precision" ).value_or( -1 );
+            std::int64_t file_precision = meta.tryGetInt( "template_precision" ).value_or( -1 );
             std::string file_function = meta.tryGetString( "template_function" ).value_or( "" );
 
             std::string expected_device = deviceTypeToString( TDeviceType );
-            int64_t expected_precision = static_cast<int64_t>( TPrecision );
+            std::int64_t expected_precision = static_cast<std::int64_t>( TPrecision );
             std::string expected_function = activationTypeToString( TFn );
 
             if ( file_device != expected_device )

@@ -9,21 +9,9 @@
  * Derived from Lpe with all wpe / IPositionalDecode / decode() concerns removed.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <sstream>
-#include <iostream>
-#include <stdexcept>
-#include <optional>
-#include <cmath>
-#include <algorithm>
-#include <numeric>
-#include <format>
-#include <type_traits>
-
 export module Dnn.Components.TokenEmbedding;
+
+import std;
 export import Dnn.Components.TokenEmbeddingConfig;
 
 import Dnn.Component;
@@ -223,8 +211,8 @@ namespace Mila::Dnn
                 throw std::runtime_error( "TokenEmbedding must be built before calling forward()." );
 
             const auto& shape = input.shape();
-            int64_t B = shape[ 0 ];
-            int64_t T = shape[ 1 ];
+            std::int64_t B = shape[ 0 ];
+            std::int64_t T = shape[ 1 ];
 
             if ( B > max_batch_size_ || T > max_seq_len_ )
                 throw std::runtime_error( std::format(
@@ -366,7 +354,7 @@ namespace Mila::Dnn
             {
                 SerializationMetadata meta;
                 meta.set( "type", "TokenEmbedding" )
-                    .set( "version", int64_t( 1 ) )
+                    .set( "version", std::int64_t( 1 ) )
                     .set( "name", this->getName() );
 
                 archive.writeMetadata( "meta.json", meta );
@@ -518,11 +506,11 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-        int64_t getVocabSize()    const noexcept
+        std::int64_t getVocabSize()    const noexcept
         {
             return config_.getVocabSize();
         }
-        int64_t getEmbeddingDim() const noexcept
+        std::int64_t getEmbeddingDim() const noexcept
         {
             return config_.getEmbeddingDim();
         }
@@ -740,8 +728,8 @@ namespace Mila::Dnn
     private:
         TokenEmbeddingConfig config_;
 
-        int64_t max_batch_size_{ 0 };
-        int64_t max_seq_len_{ 0 };
+        std::int64_t max_batch_size_{ 0 };
+        std::int64_t max_seq_len_{ 0 };
 
         // shared_ptr so a tied lm_head can share ownership of this table after load
         // (WeightTying.md D3). wte_grad_ stays unique_ptr: tying is inference-only.

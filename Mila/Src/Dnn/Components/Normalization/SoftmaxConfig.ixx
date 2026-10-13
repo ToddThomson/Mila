@@ -3,12 +3,9 @@
  * @brief Configuration interface for the Softmax module in the Mila DNN framework.
  */
 
-module;
-#include <cstdint>
-#include <string>
-
 export module Dnn.Components.SoftmaxConfig;
 
+import std;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
 
@@ -32,7 +29,7 @@ namespace Mila::Dnn
          * @return Self&& for method chaining
          */
         template <typename Self>
-        Self&& withAxis( this Self&& self, int64_t axis )
+        Self&& withAxis( this Self&& self, std::int64_t axis )
         {
             self.axis_ = axis;
             return std::forward<Self>( self );
@@ -43,7 +40,7 @@ namespace Mila::Dnn
          *
          * @return int64_t The axis along which softmax will be computed
          */
-        int64_t getAxis() const noexcept { return axis_; }
+        std::int64_t getAxis() const noexcept { return axis_; }
 
         /**
          * @brief Validate configuration parameters.
@@ -94,6 +91,6 @@ namespace Mila::Dnn
         }
 
     private:
-        int64_t axis_ = -1;
+        std::int64_t axis_ = -1;
     };
 }

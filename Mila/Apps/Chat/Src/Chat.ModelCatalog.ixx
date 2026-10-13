@@ -7,25 +7,9 @@
  * table could not name a model the user installed after the build.
  */
 
-module;
-#include <chrono>
-#include <cstddef>
-#include <cstdint>
-#include <exception>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <iostream>
-#include <iterator>
-#include <optional>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-
 export module Chat.ModelCatalog;
 
+import std;
 export import Chat.ResolvedModel;
 export import Chat.RefusalAudience;
 export import Chat.ModelListing;

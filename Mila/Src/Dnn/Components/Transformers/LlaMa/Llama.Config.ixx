@@ -5,13 +5,9 @@
  * Provides only the network-level settings required for LLaMA networks.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-
 export module Dnn.Components.LlamaTransformer:Config;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Dnn.Components.RopeFrequencyScaling;
@@ -266,13 +262,13 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "vocab_size", static_cast<int64_t>(vocab_size_) )
-                .set( "num_layers", static_cast<int64_t>(num_layers_) )
-                .set( "embedding_dim", static_cast<int64_t>(embedding_dim_) )
-                .set( "max_seq_len", static_cast<int64_t>(max_seq_len_) )
-                .set( "num_heads", static_cast<int64_t>(num_heads_) )
-                .set( "num_kv_heads", static_cast<int64_t>(num_kv_heads_) )
-                .set( "hidden_dim", static_cast<int64_t>(hidden_dim_) )
+            meta.set( "vocab_size", static_cast<std::int64_t>(vocab_size_) )
+                .set( "num_layers", static_cast<std::int64_t>(num_layers_) )
+                .set( "embedding_dim", static_cast<std::int64_t>(embedding_dim_) )
+                .set( "max_seq_len", static_cast<std::int64_t>(max_seq_len_) )
+                .set( "num_heads", static_cast<std::int64_t>(num_heads_) )
+                .set( "num_kv_heads", static_cast<std::int64_t>(num_kv_heads_) )
+                .set( "hidden_dim", static_cast<std::int64_t>(hidden_dim_) )
                 .set( "rope_theta", static_cast<double>(rope_theta_) )
                 .set( "rms_norm_eps", static_cast<double>(rms_norm_eps_) )
                 .set( "use_bias", use_bias_ );
@@ -282,7 +278,7 @@ namespace Mila::Dnn
                 meta.set( "rope_scaling_factor", static_cast<double>(rope_frequency_scaling_.factor) )
                     .set( "rope_low_frequency_factor", static_cast<double>(rope_frequency_scaling_.low_frequency_factor) )
                     .set( "rope_high_frequency_factor", static_cast<double>(rope_frequency_scaling_.high_frequency_factor) )
-                    .set( "rope_original_context_length", static_cast<int64_t>(rope_frequency_scaling_.original_context_length) );
+                    .set( "rope_original_context_length", static_cast<std::int64_t>(rope_frequency_scaling_.original_context_length) );
             }
 
             return meta;

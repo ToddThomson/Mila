@@ -14,7 +14,7 @@
 
 export module Compute.CpuTensorOps:Fill;
 
-import std.compat;
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
@@ -48,7 +48,7 @@ namespace Mila::Dnn::Compute::Cpu
     export struct FillOps
     {
         template<TensorDataType TDataType>
-        using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
+        using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, std::int32_t, float>;
 
         /**
          * @brief Fill tensor with array of host values

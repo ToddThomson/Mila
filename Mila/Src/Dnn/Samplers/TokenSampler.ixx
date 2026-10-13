@@ -7,14 +7,9 @@
  * 4-byte device->host token readback. See Specifications/TokenSampling.md.
  */
 
-module;
-#include <memory>
-#include <random>
-#include <cstdint>
-#include <stdexcept>
-
 export module Dnn.Samplers.TokenSampler;
 
+import std;
 import Dnn.Samplers.SamplingConfig;
 import Dnn.SamplingParams;
 import Compute.SamplerBase;
@@ -71,7 +66,7 @@ namespace Mila::Dnn
             op_ = std::make_shared<SamplingOpType>( context_, config_ );
         }
 
-        int32_t sample(
+        std::int32_t sample(
             const ITensor& logits,
             TokenTensor& token_out,
             const SamplingParams& params ) override
@@ -133,7 +128,7 @@ namespace Mila::Dnn
         /**
          * @brief Block until the last enqueueSample()'s token id is host-visible and return it.
          */
-        int32_t awaitToken()
+        std::int32_t awaitToken()
         {
             return op_->awaitToken();
         }
@@ -156,7 +151,7 @@ namespace Mila::Dnn
          *
          * Called once per generation run (not per token) when the caller supplies a seed.
          */
-        void reseed( uint64_t seed )
+        void reseed( std::uint64_t seed )
         {
             rng_.seed( static_cast<std::mt19937::result_type>( seed ) );
         }

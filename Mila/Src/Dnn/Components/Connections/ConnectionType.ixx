@@ -3,11 +3,9 @@
  * @brief Definition of connection function types used by the Mila DNN library.
  */
 
-module;
-#include <string>
-#include <stdexcept>
-
 export module Dnn.ConnectionType;
+
+import std;
 
 namespace Mila::Dnn
 {

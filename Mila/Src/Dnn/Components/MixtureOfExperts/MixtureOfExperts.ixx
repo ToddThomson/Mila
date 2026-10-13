@@ -8,20 +8,11 @@
  */
 
 module;
-#include <cstddef>
-#include <cstdint>
-#include <format>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <stdexcept>
-#include <string>
-#include <utility>
-#include <vector>
 #include "../Activations/Activation/Kernels/ElementwiseActivation.h"
 
 export module Dnn.Components.MixtureOfExperts;
 
+import std;
 export import Dnn.Components.MixtureOfExpertsConfig;
 
 import Dnn.Component;
@@ -295,7 +286,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta = config_.toMetadata();
             meta.set( "type", "MixtureOfExperts" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() );
 
             archive.writeMetadata( "meta.json", meta );

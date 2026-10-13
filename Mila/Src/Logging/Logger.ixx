@@ -21,12 +21,9 @@
  * logging, register a NullSink.
  */
 
-module;
-#include <source_location>
-#include <stdexcept>
-#include <string_view>
-
 export module Logging.Logger;
+
+import std;
 
 namespace Mila::Logging
 {

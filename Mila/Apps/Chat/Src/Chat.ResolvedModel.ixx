@@ -3,12 +3,9 @@
  * @brief Everything Chat needs to load a model, resolved from its store record.
  */
 
-module;
-#include <filesystem>
-#include <string>
-
 export module Chat.ResolvedModel;
 
+import std;
 import Chat.Config;
 
 namespace Mila::ChatApp

@@ -6,17 +6,9 @@
  * a partition of the block's, because the feed-forward sublayers take their slots from it too.
  */
 
-module;
-#include <algorithm>
-#include <array>
-#include <cstddef>
-#include <memory>
-#include <string>
-#include <type_traits>
-#include <utility>
-
 export module Dnn.Components.GemmaBlockWorkspace;
 
+import std;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

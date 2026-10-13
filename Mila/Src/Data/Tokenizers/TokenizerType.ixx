@@ -1,14 +1,12 @@
-module;
-#include <cstdint>
-#include <string_view>
-#include <string>
 
 export module Data.TokenizerType;
+
+import std;
 
 namespace Mila::Data
 {
     /** Tokenizer type discriminator used across tokenizer and vocabulary types. */
-    export enum class TokenizerType : uint8_t {
+    export enum class TokenizerType : std::uint8_t {
         Unknown = 0,
         Char,
         Bpe,
@@ -38,7 +36,7 @@ namespace Mila::Data
         // Normalize ASCII lower-case on the fly for common strings
         auto eq_icase = []( std::string_view a, std::string_view b ) noexcept {
             if ( a.size() != b.size() ) return false;
-            for ( size_t i = 0; i < a.size(); ++i ) {
+            for ( std::size_t i = 0; i < a.size(); ++i ) {
                 char ca = a[ i ];
                 if ( ca >= 'A' && ca <= 'Z' ) ca = static_cast<char>( ca - 'A' + 'a' );
                 if ( ca != b[ i ] ) return false;

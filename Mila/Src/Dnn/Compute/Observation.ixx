@@ -8,7 +8,7 @@
 
 export module Compute.Observation;
 
-import std.compat;
+import std;
 import Dnn.ITensor;
 
 namespace Mila::Dnn::Compute
@@ -19,7 +19,7 @@ namespace Mila::Dnn::Compute
      * Declared complete while only the inference passes are implemented, so that adding
      * Backward later is additive rather than a change to the observer signature.
      */
-    export enum class ComputePass : uint8_t
+    export enum class ComputePass : std::uint8_t
     {
         Forward = 0,
         Prefill = 1,
@@ -82,12 +82,12 @@ namespace Mila::Dnn::Compute
         constexpr bool operator==( const ComputePassMask& ) const noexcept = default;
 
     private:
-        static constexpr uint8_t toBit( ComputePass pass ) noexcept
+        static constexpr std::uint8_t toBit( ComputePass pass ) noexcept
         {
-            return static_cast<uint8_t>( 1u << static_cast<uint8_t>( pass ) );
+            return static_cast<std::uint8_t>( 1u << static_cast<std::uint8_t>( pass ) );
         }
 
-        uint8_t bits_{ 0 };
+        std::uint8_t bits_{ 0 };
     };
 
     /**

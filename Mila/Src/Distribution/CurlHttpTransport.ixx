@@ -10,18 +10,12 @@
  */
 
 module;
-#include <cctype>
-#include <cstddef>
-#include <cstdint>
-#include <cstdlib>
-#include <memory>
-#include <string>
-#include <string_view>
 
 #include <curl/curl.h>
 
 export module Distribution.CurlHttpTransport;
 
+import std;
 import Distribution.HttpTransport;
 
 namespace Mila::Distribution
@@ -45,7 +39,7 @@ namespace Mila::Distribution
 
         /// A non-2xx body is captured to this many bytes and no further: enough to carry an
         /// error page's useful line, bounded enough that a hostile server cannot grow it.
-        constexpr size_t kMaximumCapturedErrorBytes = 4096;
+        constexpr std::size_t kMaximumCapturedErrorBytes = 4096;
 
         struct TransferState
         {
@@ -53,7 +47,7 @@ namespace Mila::Distribution
             const HeadersCallback* on_headers{ nullptr };
 
             long http_code{ 0 };
-            uint64_t content_length{ 0 };
+            std::uint64_t content_length{ 0 };
             std::string location;
             std::string captured;
 
@@ -65,14 +59,14 @@ namespace Mila::Distribution
             bool capturing{ false };
         };
 
-        size_t writeBody( char* data, size_t size, size_t count, void* user_data )
+        std::size_t writeBody( char* data, std::size_t size, std::size_t count, void* user_data )
         {
             auto* state = static_cast<TransferState*>( user_data );
-            const size_t length = size * count;
+            const std::size_t length = size * count;
 
             if ( state->capturing )
             {
-                const size_t room = ( state->captured.size() >= kMaximumCapturedErrorBytes )
+                const std::size_t room = ( state->captured.size() >= kMaximumCapturedErrorBytes )
                     ? 0
                     : kMaximumCapturedErrorBytes - state->captured.size();
 
@@ -98,7 +92,7 @@ namespace Mila::Distribution
                 return false;
             }
 
-            for ( size_t index = 0; index < left.size(); ++index )
+            for ( std::size_t index = 0; index < left.size(); ++index )
             {
                 if ( std::tolower( left[ index ] ) != std::tolower( right[ index ] ) )
                 {
@@ -109,10 +103,10 @@ namespace Mila::Distribution
             return true;
         }
 
-        size_t readHeader( char* buffer, size_t size, size_t count, void* user_data )
+        std::size_t readHeader( char* buffer, std::size_t size, std::size_t count, void* user_data )
         {
             auto* state = static_cast<TransferState*>( user_data );
-            const size_t length = size * count;
+            const std::size_t length = size * count;
 
             std::string_view line( buffer, length );
 

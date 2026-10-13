@@ -6,10 +6,9 @@
  * guard operations that are valid only in the corresponding mode.
  */
 
-module;
-#include <string_view>
-
 export module Serialization.OpenMode;
+
+import std;
 
 namespace Mila::Dnn::Serialization
 {

@@ -7,17 +7,9 @@
  * vocabulary object; ownership is transferred to the caller.
  */
 
-module;
-#include <string>
-#include <memory>
-#include <filesystem>
-#include <istream>
-#include <fstream>
-#include <sstream>
-#include <format>
-
 export module Data.TokenizerTrainer;
 
+import std;
 import Data.TokenizerVocabulary;
 
 namespace Mila::Data

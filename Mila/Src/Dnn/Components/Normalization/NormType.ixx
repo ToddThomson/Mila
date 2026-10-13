@@ -3,11 +3,9 @@
  * @brief Normalization layer type enumeration used by Transformer components.
  */
 
-    module;
-#include <string>
-#include <stdexcept>
-
 export module Dnn.NormType;
+
+import std;
 
 namespace Mila::Dnn
 {

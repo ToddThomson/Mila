@@ -43,15 +43,9 @@
  * Not thread-safe. External synchronization required if shared.
  */
 
-module;
-#include <cstddef>
-#include <memory>
-#include <string>
-#include <stdexcept>
-#include <format>
-
 export module Dnn.Model;
 
+import std;
 import Dnn.Network;
 import Dnn.Component;
 import Dnn.RuntimeMode;

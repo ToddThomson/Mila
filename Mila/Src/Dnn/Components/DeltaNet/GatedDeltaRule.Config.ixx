@@ -6,14 +6,9 @@
  * 48 value heads, and 128 for both head dimensions.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-#include <utility>
-
 export module Dnn.Components.GatedDeltaRuleConfig;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
@@ -94,10 +89,10 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "num_key_heads", static_cast<int64_t>( num_key_heads_ ) )
-                .set( "num_value_heads", static_cast<int64_t>( num_value_heads_ ) )
-                .set( "head_key_dim", static_cast<int64_t>( head_key_dim_ ) )
-                .set( "head_value_dim", static_cast<int64_t>( head_value_dim_ ) );
+            meta.set( "num_key_heads", static_cast<std::int64_t>( num_key_heads_ ) )
+                .set( "num_value_heads", static_cast<std::int64_t>( num_value_heads_ ) )
+                .set( "head_key_dim", static_cast<std::int64_t>( head_key_dim_ ) )
+                .set( "head_value_dim", static_cast<std::int64_t>( head_value_dim_ ) );
 
             return meta;
         }

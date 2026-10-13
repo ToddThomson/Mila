@@ -3,12 +3,9 @@
  * @brief What removing a model, or cleaning the store, deleted and kept.
  */
 
-module;
-#include <cstdint>
-#include <string>
-#include <vector>
-
 export module Distribution.RemovalReport;
+
+import std;
 
 namespace Mila::Distribution
 {
@@ -23,7 +20,7 @@ namespace Mila::Distribution
         /// Rejected transfers and abandoned locks, which belong to no record at all.
         int files_removed{ 0 };
 
-        uint64_t bytes_reclaimed{ 0 };
+        std::uint64_t bytes_reclaimed{ 0 };
 
         /// Paths the platform refused to delete, most often a blob still mapped by a live process.
         std::vector<std::string> retained;

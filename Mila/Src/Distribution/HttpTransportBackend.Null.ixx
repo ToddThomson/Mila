@@ -8,12 +8,9 @@
  * supplies its own transport loses nothing at all. That is how the Python wheel works.
  */
 
-module;
-#include <memory>
-#include <string>
-
 export module Distribution.HttpTransportBackend;
 
+import std;
 import Distribution.HttpTransport;
 
 namespace Mila::Distribution

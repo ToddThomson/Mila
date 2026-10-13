@@ -1,7 +1,7 @@
 
 export module Dnn.TensorHelpers;
 
-import std.compat;
+import std;
 import Dnn.ITensor;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
@@ -33,7 +33,7 @@ namespace Mila::Dnn
      *  - Callers should pick the template parameters that match the component context (e.g., `TensorType` alias).
      */
     export template<TensorDataType TPrecision, typename MemoryResource>
-        void debugDumpTensor( const ITensor& t, const std::string& label, size_t maxElements = 8 )
+        void debugDumpTensor( const ITensor& t, const std::string& label, std::size_t maxElements = 8 )
     {
         using ConcreteTensor = Tensor<TPrecision, MemoryResource>;
 
@@ -45,8 +45,8 @@ namespace Mila::Dnn
         }
 
         // Determine how many elements to show (cap at tensor size)
-        const size_t total = static_cast<size_t>( ct->size() );
-        const size_t show = ( total < maxElements ) ? total : maxElements;
+        const std::size_t total = static_cast<std::size_t>( ct->size() );
+        const std::size_t show = ( total < maxElements ) ? total : maxElements;
 
         if constexpr ( MemoryResource::is_host_accessible )
         {
@@ -56,7 +56,7 @@ namespace Mila::Dnn
             using HostType = typename TensorHostTypeMap<TPrecision>::host_type;
             const HostType* data = ct->data();
 
-            for ( size_t i = 0; i < show; ++i )
+            for ( std::size_t i = 0; i < show; ++i )
             {
                 if ( i ) oss << ", ";
                 oss << std::fixed << std::setprecision( 6 ) << static_cast<double>( data[ i ] );
@@ -78,7 +78,7 @@ namespace Mila::Dnn
             using HostType = typename TensorHostTypeMap<TPrecision>::host_type;
             const HostType* data = host_copy.data();
 
-            for ( size_t i = 0; i < show; ++i )
+            for ( std::size_t i = 0; i < show; ++i )
             {
                 if ( i ) oss << ", ";
                 oss << std::fixed << std::setprecision( 6 ) << static_cast<double>( data[ i ] );

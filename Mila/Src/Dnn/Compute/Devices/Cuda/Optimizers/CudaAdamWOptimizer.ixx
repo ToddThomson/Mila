@@ -15,7 +15,7 @@ module;
 
 export module Compute.CudaAdamWOptimizer;
 
-import std.compat;
+import std;
 import Dnn.Optimizers.AdamWConfig;
 import Dnn.ITensor;
 import Dnn.Tensor;
@@ -183,7 +183,7 @@ namespace Mila::Dnn::Compute
                 Cuda::launch_convert_copy_kernel<NativeType, float>(
                     static_cast<const NativeType*>( param->rawData() ),
                     reinterpret_cast<float*>( master_param->rawData() ),
-                    static_cast<size_t>( param->size() ),
+                    static_cast<std::size_t>( param->size() ),
                     exec_context_->getStream() );
 
                 master_params_.push_back( master_param );
@@ -226,9 +226,9 @@ namespace Mila::Dnn::Compute
             const float wd = config_.getWeightDecay();
 
             // Update each parameter group using cached raw pointers
-            for (size_t i = 0; i < params_.size(); ++i)
+            for (std::size_t i = 0; i < params_.size(); ++i)
             {
-                size_t num_params = params_[i]->size();
+                std::size_t num_params = params_[i]->size();
 
                 NativeType* param_ptr = param_data_[i];
                 NativeType* grad_ptr = grad_data_[i];
@@ -273,9 +273,9 @@ namespace Mila::Dnn::Compute
             // After the loop, print total:
             if ( step_count_ == 1 )
             {
-                size_t total = 0;
+                std::size_t total = 0;
 
-                for ( size_t i = 0; i < params_.size(); ++i ) {
+                for ( std::size_t i = 0; i < params_.size(); ++i ) {
                     total += params_[ i ]->size();
                 }
             }
@@ -340,7 +340,7 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Get current step count.
          */
-        size_t getStepCount() const noexcept
+        std::size_t getStepCount() const noexcept
         {
             return step_count_;
         }
@@ -396,7 +396,7 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Get number of registered parameter groups.
          */
-        size_t getParameterCount() const noexcept
+        std::size_t getParameterCount() const noexcept
         {
             return params_.size();
         }
@@ -408,7 +408,7 @@ namespace Mila::Dnn::Compute
 
         float grad_scale_{ 1.0f };
         
-        size_t step_count_;
+        std::size_t step_count_;
 
         // Non-owning pointers to parameters and gradients (component owns these)
         std::vector<ITensor*> params_;
@@ -472,7 +472,7 @@ namespace Mila::Dnn::Compute
         {
             std::ostringstream oss;
             oss << "[";
-            for (size_t i = 0; i < shape.size(); ++i)
+            for (std::size_t i = 0; i < shape.size(); ++i)
             {
                 oss << shape[i];
                 if (i + 1 < shape.size())

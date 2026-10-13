@@ -9,7 +9,7 @@
 
 export module Serialization.Tensor;
 
-import std.compat;
+import std;
 import Serialization.ModelArchive;
 import Serialization.Metadata;
 import Dnn.TensorDataType;
@@ -30,7 +30,7 @@ namespace Mila::Dnn::Serialization
     {
         dtype_t dtype;
         shape_t shape;
-        size_t total_bytes{ 0 };
+        std::size_t total_bytes{ 0 };
     };
 
     /**
@@ -57,7 +57,7 @@ namespace Mila::Dnn::Serialization
 
         virtual const TensorMetadata& getMetadata() const noexcept = 0;
         virtual const void* data() const noexcept = 0;
-        virtual size_t sizeBytes() const noexcept = 0;
+        virtual std::size_t sizeBytes() const noexcept = 0;
     };
 
     /**
@@ -90,7 +90,7 @@ namespace Mila::Dnn::Serialization
 
         const TensorMetadata& getMetadata() const noexcept override { return metadata; }
         const void* data() const noexcept override { return data_buffer.data(); }
-        size_t sizeBytes() const noexcept override { return data_buffer.storageBytes(); }
+        std::size_t sizeBytes() const noexcept override { return data_buffer.storageBytes(); }
     };
 
     /**
@@ -106,17 +106,17 @@ namespace Mila::Dnn::Serialization
     {
         TensorMetadata metadata;
         const void* ptr{ nullptr };
-        size_t bytes{ 0 };
+        std::size_t bytes{ 0 };
 
         TensorBlobView() = default;
 
-        TensorBlobView( TensorMetadata meta, const void* data_ptr, size_t byte_count )
+        TensorBlobView( TensorMetadata meta, const void* data_ptr, std::size_t byte_count )
             : metadata( std::move( meta ) ), ptr( data_ptr ), bytes( byte_count )
         {}
 
         const TensorMetadata& getMetadata() const noexcept override { return metadata; }
         const void* data() const noexcept override { return ptr; }
-        size_t sizeBytes() const noexcept override { return bytes; }
+        std::size_t sizeBytes() const noexcept override { return bytes; }
     };
 
     /**
@@ -135,12 +135,12 @@ namespace Mila::Dnn::Serialization
      * @throws std::runtime_error if write operations fail
      */
     export inline void writeTensorBlob( ModelArchive& archive, const std::string& prefix,
-        const TensorMetadata& meta, const void* data, size_t size )
+        const TensorMetadata& meta, const void* data, std::size_t size )
     {
         SerializationMetadata sm;
         sm.set( "dtype", tensorDataTypeToString( meta.dtype ) )
           .set( "shape", meta.shape )
-          .set( "total_bytes", static_cast<int64_t>( meta.total_bytes ) );
+          .set( "total_bytes", static_cast<std::int64_t>( meta.total_bytes ) );
 
         archive.writeMetadata( prefix + "/meta.json", sm );
         archive.writeBlob( prefix + "/data.bin", data, size );
@@ -171,11 +171,11 @@ namespace Mila::Dnn::Serialization
         TensorMetadata meta;
         meta.dtype = parseTensorDataType( sm.getString( "dtype" ) );
         meta.shape = sm.getShape( "shape" );
-        meta.total_bytes = static_cast<size_t>( sm.getInt( "total_bytes" ) );
+        meta.total_bytes = static_cast<std::size_t>( sm.getInt( "total_bytes" ) );
 
         TensorBuffer<dtype_t::UINT8, MR> buffer( device_id, meta.total_bytes );
 
-        size_t read = archive.readBlobInto( prefix + "/data.bin", buffer.data(), buffer.storageBytes() );
+        std::size_t read = archive.readBlobInto( prefix + "/data.bin", buffer.data(), buffer.storageBytes() );
 
         if ( read != meta.total_bytes )
         {

@@ -43,20 +43,9 @@
  * pinned memory, gathered across PCIe at 10 KiB per token, costing the card nothing.
  */
 
-module;
-#include <string>
-#include <vector>
-#include <memory>
-#include <sstream>
-#include <stdexcept>
-#include <cstdint>
-#include <format>
-#include <algorithm>
-#include <cmath>
-#include <type_traits>
-
 export module Dnn.Components.QwenTransformer;
 
+import std;
 import Dnn.Components.QwenConfig;
 import Dnn.Components.QwenAttentionBlock;
 import Dnn.Components.QwenDeltaNetBlock;
@@ -211,8 +200,8 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "QwenTransformer must be built before calling prefill()." );
 
-            const int64_t B = input.shape()[ 0 ];
-            const int64_t T_prompt = input.shape()[ 1 ];
+            const std::int64_t B = input.shape()[ 0 ];
+            const std::int64_t T_prompt = input.shape()[ 1 ];
 
             if ( start_offset < 0 || start_offset >= T_prompt )
                 throw std::invalid_argument( std::format(
@@ -221,14 +210,14 @@ namespace Mila::Dnn
 
             discardSavedPositionAt( start_offset );
 
-            int64_t offset = start_offset;
-            int64_t T_last = 0;
+            std::int64_t offset = start_offset;
+            std::int64_t T_last = 0;
 
             TensorType* last_block_out = nullptr;
 
             while ( offset < T_prompt )
             {
-                const int64_t T_actual = std::min<int64_t>( prefill_chunk_size_, T_prompt - offset );
+                const std::int64_t T_actual = std::min<std::int64_t>( prefill_chunk_size_, T_prompt - offset );
                 T_last = T_actual;
 
                 auto chunk_input = input.view( shape_t{ B, T_actual }, offset );
@@ -724,7 +713,7 @@ namespace Mila::Dnn
             }
 
             blocks_.clear();
-            blocks_.reserve( static_cast<size_t>( config_.getNumLayers() ) );
+            blocks_.reserve( static_cast<std::size_t>( config_.getNumLayers() ) );
 
             for ( dim_t i = 0; i < config_.getNumLayers(); ++i )
             {
@@ -788,7 +777,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta = config_.toMetadata();
             meta.set( "type", "QwenTransformer" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() );
 
             archive.writeMetadata( "transformer_meta.json", meta );
@@ -855,7 +844,7 @@ namespace Mila::Dnn
         {
             TokenEmbeddingConfig embedding_config;
             embedding_config.withVocabSize( config_.getVocabSize() )
-                .withEmbeddingDim( static_cast<size_t>( config_.getModelDim() ) );
+                .withEmbeddingDim( static_cast<std::size_t>( config_.getModelDim() ) );
 
             this->addComponent(
                 std::make_shared<TokenEmbeddingType>( this->getName() + ".temb", embedding_config ) );
@@ -1011,14 +1000,14 @@ namespace Mila::Dnn
          * @brief The context the token embedding is built and priced at: in inference, one prefill chunk wide,
          *        since every inference pass embeds at most a chunk at a time.
          */
-        static BuildContext embeddingContext( const BuildContext& context, int64_t prefill_chunk )
+        static BuildContext embeddingContext( const BuildContext& context, std::int64_t prefill_chunk )
         {
             if ( !context.isInferenceMode() )
                 return context;
 
             const auto& input_shape = context.inputShape();
 
-            return context.forChild( shape_t{ input_shape[ 0 ], std::min<int64_t>( input_shape[ 1 ], prefill_chunk ) } );
+            return context.forChild( shape_t{ input_shape[ 0 ], std::min<std::int64_t>( input_shape[ 1 ], prefill_chunk ) } );
         }
 
         void allocateBlockWorkspace( dim_t B )

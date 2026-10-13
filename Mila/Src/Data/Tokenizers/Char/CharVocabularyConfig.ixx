@@ -5,13 +5,9 @@
  * Provides fluent setters and serialization/validation for character tokenizer options.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-
 export module Data.CharVocabularyConfig;
 
+import std;
 import Data.SpecialTokens;
 import Serialization.Metadata;
 

@@ -29,28 +29,13 @@
 
 module;
 
-#include <iostream>
-#include <vector>
-#include <string>
-#include <string_view>
-#include <filesystem>
-#include <chrono>
-#include <cstdint>
-#include <cstddef>
 #include <cstdlib>
-#include <stdexcept>
-#include <charconv>
-#include <format>
-#include <thread>
-#include <atomic>
-#include <algorithm>
-#include <limits>
-#include <random>
 #include <cuda_runtime.h>
 #include <cuda_profiler_api.h>
 
 export module Profiling.ProfileModel;
 
+import std;
 import Mila;
 import Profiling.NvtxRange;
 
@@ -102,8 +87,8 @@ namespace Mila::Profiling
     // budget the prefill chunk rule (choosePrefillChunk) works against.
     void printGpuMemory( const char* label )
     {
-        size_t free_bytes = 0;
-        size_t total_bytes = 0;
+        std::size_t free_bytes = 0;
+        std::size_t total_bytes = 0;
         const cudaError_t status = cudaMemGetInfo( &free_bytes, &total_bytes );
 
         if ( status != cudaSuccess )
@@ -114,7 +99,7 @@ namespace Mila::Profiling
         }
 
         constexpr double mib = 1024.0 * 1024.0;
-        const size_t used_bytes = total_bytes - free_bytes;
+        const std::size_t used_bytes = total_bytes - free_bytes;
 
         std::cout << std::format(
             "[mem] {}: used={:.0f} MiB  free={:.0f} MiB  total={:.0f} MiB\n",
@@ -179,8 +164,8 @@ namespace Mila::Profiling
 
                 while ( !stop_.load( std::memory_order_relaxed ) )
                 {
-                    size_t free_bytes = 0;
-                    size_t total_bytes = 0;
+                    std::size_t free_bytes = 0;
+                    std::size_t total_bytes = 0;
 
                     if ( cudaMemGetInfo( &free_bytes, &total_bytes ) == cudaSuccess )
                     {
@@ -195,12 +180,12 @@ namespace Mila::Profiling
                         // max-used, but it does show as a drawdown -- running_peak climbs over
                         // it, then usage drops when it is freed. max_drawdown == the biggest
                         // such alloc/free (the "~2 GB returned" the user sees in Task Manager).
-                        const size_t used = total_bytes - free_bytes;
+                        const std::size_t used = total_bytes - free_bytes;
 
                         if ( used > running_peak_used_ )
                             running_peak_used_ = used;
 
-                        const size_t drawdown = running_peak_used_ - used;
+                        const std::size_t drawdown = running_peak_used_ - used;
 
                         if ( drawdown > max_drawdown_bytes_ )
                             max_drawdown_bytes_ = drawdown;
@@ -216,7 +201,7 @@ namespace Mila::Profiling
             stop();
 
             constexpr double mib = 1024.0 * 1024.0;
-            const size_t peak_used = ( total_bytes_ > min_free_bytes_ )
+            const std::size_t peak_used = ( total_bytes_ > min_free_bytes_ )
                 ? total_bytes_ - min_free_bytes_ : 0;
 
             std::cout << std::format(
@@ -237,10 +222,10 @@ namespace Mila::Profiling
         std::thread worker_;
         std::atomic<bool> stop_{ false };
         // Written only by the worker thread; read after join() -- no data race.
-        size_t min_free_bytes_{ std::numeric_limits<size_t>::max() };
-        size_t total_bytes_{ 0 };
-        size_t running_peak_used_{ 0 };
-        size_t max_drawdown_bytes_{ 0 };
+        std::size_t min_free_bytes_{ std::numeric_limits<std::size_t>::max() };
+        std::size_t total_bytes_{ 0 };
+        std::size_t running_peak_used_{ 0 };
+        std::size_t max_drawdown_bytes_{ 0 };
     };
 
     void printUsage( const char* program )
@@ -482,13 +467,13 @@ namespace Mila::Profiling
     // `length` tokens drawn uniformly from the vocabulary, as llama-bench draws its own. One token
     // repeated would route every row of a mixture of experts to the same few experts and time a
     // fraction of the bank. The seed is fixed, so every run does the same work.
-    std::vector<int32_t> syntheticTokens( std::size_t vocabulary_size, std::size_t length )
+    std::vector<std::int32_t> syntheticTokens( std::size_t vocabulary_size, std::size_t length )
     {
         std::mt19937 generator( 20260930u );
-        std::uniform_int_distribution<int32_t> vocabulary( 0, static_cast<int32_t>( vocabulary_size ) - 1 );
-        std::vector<int32_t> tokens( length );
+        std::uniform_int_distribution<std::int32_t> vocabulary( 0, static_cast<std::int32_t>( vocabulary_size ) - 1 );
+        std::vector<std::int32_t> tokens( length );
 
-        for ( int32_t& token : tokens )
+        for ( std::int32_t& token : tokens )
             token = vocabulary( generator );
 
         return tokens;
@@ -498,14 +483,14 @@ namespace Mila::Profiling
     // is measured through generate(), the public entry a consumer calls, so the
     // phases are family-agnostic and no family needs a profiling-only accessor.
     template<typename TModel>
-    void runPhases( TModel& model, const Options& options, const std::vector<int32_t>& prompt_tokens,
+    void runPhases( TModel& model, const Options& options, const std::vector<std::int32_t>& prompt_tokens,
         std::size_t vocabulary_size )
     {
         if ( options.phase == Phase::Prefill )
         {
             // --seq-len overrides the prompt, so prefill cost is measured at a fixed length
             // independent of the tokenizer.
-            const std::vector<int32_t> prefill_tokens = options.prefill_seq_len > 0
+            const std::vector<std::int32_t> prefill_tokens = options.prefill_seq_len > 0
                 ? syntheticTokens( vocabulary_size, options.prefill_seq_len )
                 : prompt_tokens;
 
@@ -519,7 +504,7 @@ namespace Mila::Profiling
             // Varying the first token forces a full prefill every run.
             auto timedPrefill = [&]( int run_index ) -> float
             {
-                std::vector<int32_t> tokens = prefill_tokens;
+                std::vector<std::int32_t> tokens = prefill_tokens;
 
                 // Measured 2026-09-12: without this line the same config reports 49.96 ms
                 // instead of 12914.53 ms -- runs after the first reuse the whole prefix and
@@ -540,7 +525,7 @@ namespace Mila::Profiling
                     Mila::Profiling::NvtxRange range( "prefill" );
                     [[maybe_unused]] const auto status = model.generate(
                         tokens,
-                        [&]( int32_t )
+                        [&]( std::int32_t )
                         {
                             if ( !produced )
                             {
@@ -613,7 +598,7 @@ namespace Mila::Profiling
         {
             std::size_t produced = 0;
 
-            std::vector<int32_t> tokens = prompt_tokens;
+            std::vector<std::int32_t> tokens = prompt_tokens;
 
             if ( options.prefill_seq_len > 0 )
             {
@@ -646,7 +631,7 @@ namespace Mila::Profiling
                 Mila::Profiling::NvtxRange range( label );
                 [[maybe_unused]] const auto status = model.generate(
                     tokens,
-                    [&]( int32_t )
+                    [&]( std::int32_t )
                     {
                         const auto now = std::chrono::high_resolution_clock::now();
                         if ( produced == 0 )
@@ -768,7 +753,7 @@ namespace Mila::Profiling
 
         auto tokenizer = BpeTokenizer::loadLlama32( options.tokenizer_path );
         const auto encoded = tokenizer->encode( options.prompt );
-        const std::vector<int32_t> prompt_tokens( encoded.begin(), encoded.end() );
+        const std::vector<std::int32_t> prompt_tokens( encoded.begin(), encoded.end() );
 
         runPhases( *model, options, prompt_tokens, tokenizer->getVocabSize() );
 
@@ -820,7 +805,7 @@ namespace Mila::Profiling
 
         auto tokenizer = BpeTokenizer::loadGemma( options.tokenizer_path );
         const auto encoded = tokenizer->encode( options.prompt );
-        const std::vector<int32_t> prompt_tokens( encoded.begin(), encoded.end() );
+        const std::vector<std::int32_t> prompt_tokens( encoded.begin(), encoded.end() );
 
         runPhases( *model, options, prompt_tokens, tokenizer->getVocabSize() );
 
@@ -871,7 +856,7 @@ namespace Mila::Profiling
 
         auto tokenizer = BpeTokenizer::loadQwen( options.tokenizer_path );
         const auto encoded = tokenizer->encode( options.prompt );
-        const std::vector<int32_t> prompt_tokens( encoded.begin(), encoded.end() );
+        const std::vector<std::int32_t> prompt_tokens( encoded.begin(), encoded.end() );
 
         runPhases( *model, options, prompt_tokens, tokenizer->getVocabSize() );
 

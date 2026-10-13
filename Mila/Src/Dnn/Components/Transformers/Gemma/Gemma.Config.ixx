@@ -16,16 +16,9 @@
  *   - per-layer sliding/global type, window, logit softcap                 - Steps 2/5
  */
 
-module;
-#include <format>
-#include <stdexcept>
-#include <string>
-#include <sstream>
-#include <utility>
-#include <cmath>
-
 export module Dnn.Components.GemmaConfig;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
@@ -744,27 +737,27 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "vocab_size", static_cast<int64_t>(vocab_size_) )
-                .set( "num_layers", static_cast<int64_t>(num_layers_) )
-                .set( "embedding_dim", static_cast<int64_t>(embedding_dim_) )
-                .set( "num_heads", static_cast<int64_t>(num_heads_) )
-                .set( "num_kv_heads", static_cast<int64_t>(num_kv_heads_) )
-                .set( "head_dim", static_cast<int64_t>(head_dim_) )
-                .set( "global_head_dim", static_cast<int64_t>(global_head_dim_) )
-                .set( "num_global_kv_heads", static_cast<int64_t>(num_global_kv_heads_) )
+            meta.set( "vocab_size", static_cast<std::int64_t>(vocab_size_) )
+                .set( "num_layers", static_cast<std::int64_t>(num_layers_) )
+                .set( "embedding_dim", static_cast<std::int64_t>(embedding_dim_) )
+                .set( "num_heads", static_cast<std::int64_t>(num_heads_) )
+                .set( "num_kv_heads", static_cast<std::int64_t>(num_kv_heads_) )
+                .set( "head_dim", static_cast<std::int64_t>(head_dim_) )
+                .set( "global_head_dim", static_cast<std::int64_t>(global_head_dim_) )
+                .set( "num_global_kv_heads", static_cast<std::int64_t>(num_global_kv_heads_) )
                 .set( "key_equals_value", key_equals_value_ )
-                .set( "hidden_dim", static_cast<int64_t>(hidden_dim_) )
-                .set( "max_seq_len", static_cast<int64_t>(max_seq_len_) )
+                .set( "hidden_dim", static_cast<std::int64_t>(hidden_dim_) )
+                .set( "max_seq_len", static_cast<std::int64_t>(max_seq_len_) )
                 .set( "rms_norm_eps", static_cast<double>(rms_norm_eps_) )
-                .set( "window", static_cast<int64_t>(window_) )
-                .set( "sliding_window_pattern", static_cast<int64_t>(sliding_window_pattern_) )
-                .set( "global_rotary_dim", static_cast<int64_t>(global_rotary_dim_) )
+                .set( "window", static_cast<std::int64_t>(window_) )
+                .set( "sliding_window_pattern", static_cast<std::int64_t>(sliding_window_pattern_) )
+                .set( "global_rotary_dim", static_cast<std::int64_t>(global_rotary_dim_) )
                 .set( "rope_theta_local", static_cast<double>(rope_theta_local_) )
                 .set( "rope_theta_global", static_cast<double>(rope_theta_global_) )
                 .set( "final_logit_softcapping", static_cast<double>(final_logit_softcapping_) )
-                .set( "num_experts", static_cast<int64_t>(num_experts_) )
-                .set( "top_k_experts", static_cast<int64_t>(top_k_experts_) )
-                .set( "expert_hidden_dim", static_cast<int64_t>(expert_hidden_dim_) );
+                .set( "num_experts", static_cast<std::int64_t>(num_experts_) )
+                .set( "top_k_experts", static_cast<std::int64_t>(top_k_experts_) )
+                .set( "expert_hidden_dim", static_cast<std::int64_t>(expert_hidden_dim_) );
 
             return meta;
         }

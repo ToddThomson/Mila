@@ -6,13 +6,9 @@
  * planner reads the device again. See Specifications/Deployment.md sections 3.3 and 9.
  */
 
-module;
-#include <cstddef>
-#include <exception>
-#include <memory>
-
 export module Deployment.DeviceReading;
 
+import std;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceRegistry;

@@ -14,20 +14,12 @@
  */
 
 module;
-#include <fstream>
-#include <string>
-#include <string_view>
-#include <source_location>
-#include <format>
-#include <chrono>
-#include <mutex>
+// localtime_s and localtime_r are platform C library functions, which the std module does not export.
 #include <ctime>
-#include <iomanip>
-#include <filesystem>
-#include <stdexcept>
 
 export module Logging.FileSink;
 
+import std;
 import Logging.Logger;
 
 namespace Mila::Logging

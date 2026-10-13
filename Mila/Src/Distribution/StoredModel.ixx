@@ -3,12 +3,9 @@
  * @brief An installed model's record together with where its bytes are.
  */
 
-module;
-#include <cstdint>
-#include <filesystem>
-
 export module Distribution.StoredModel;
 
+import std;
 export import Distribution.ModelRecord;
 
 namespace Mila::Distribution
@@ -32,6 +29,6 @@ namespace Mila::Distribution
         /// False when a declared file is missing from blobs/, which makes the model unloadable.
         bool complete{ false };
 
-        uint64_t bytes_on_disk{ 0 };
+        std::uint64_t bytes_on_disk{ 0 };
     };
 }

@@ -3,14 +3,9 @@
  * @brief What one fetch attempt reported, and the shape of the callable that makes one.
  */
 
-module;
-#include <cstddef>
-#include <cstdint>
-#include <functional>
-#include <string>
-
 export module Distribution.FetchReport;
 
+import std;
 export import Distribution.FetchOutcome;
 
 namespace Mila::Distribution
@@ -29,6 +24,6 @@ namespace Mila::Distribution
      * whichever hub produced the fetcher.
      */
     export using BlobFetcher = std::function<FetchReport(
-        uint64_t resume_from,
-        const std::function<bool( const char*, size_t )>& sink )>;
+        std::uint64_t resume_from,
+        const std::function<bool( const char*, std::size_t )>& sink )>;
 }

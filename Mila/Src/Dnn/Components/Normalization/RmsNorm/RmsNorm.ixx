@@ -7,22 +7,9 @@
  * lifecycle and API patterns used by LayerNorm.
  */
 
-module;
-#include <iostream>
-#include <sstream>
-#include <memory>
-#include <string>
-#include <vector>
-#include <type_traits>
-#include <cstdint>
-#include <stdexcept>
-#include <mutex>
-#include <utility>
-#include <optional>
-#include <format>
-
 export module Dnn.Components.RmsNorm;
 
+import std;
 export import Dnn.Components.RmsNormConfig;
 
 import Dnn.Component;
@@ -205,7 +192,7 @@ namespace Mila::Dnn
 
             SerializationMetadata meta;
             meta.set( "type", "RmsNorm" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() )
                 .set( "has_bias", config_.hasBias() );
 
@@ -569,9 +556,9 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "Input rank must be >= normalized_shape rank" );
             }
 
-            size_t offset = input_shape.size() - norm_shape.size();
+            std::size_t offset = input_shape.size() - norm_shape.size();
 
-            for ( size_t i = 0; i < norm_shape.size(); ++i )
+            for ( std::size_t i = 0; i < norm_shape.size(); ++i )
             {
                 if ( input_shape[ offset + i ] != norm_shape[ i ] )
                 {
@@ -604,11 +591,11 @@ namespace Mila::Dnn
 
                 partition.channels = ap.axis_size;
 
-                uint8_t out_ndim = 0;
+                std::uint8_t out_ndim = 0;
 
-                for ( uint8_t i = 0; i < input_shape->ndim; ++i )
+                for ( std::uint8_t i = 0; i < input_shape->ndim; ++i )
                 {
-                    if ( static_cast<int64_t>( i ) != ap.normalized_axis )
+                    if ( static_cast<std::int64_t>( i ) != ap.normalized_axis )
                     {
                         partition.outer_shape.dims[ out_ndim++ ] = (*input_shape)[ i ];
                     }

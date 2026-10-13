@@ -13,10 +13,9 @@
  * carrying dtype fields at all.
  */
 
-module;
-#include <concepts>
-
 export module Dnn.Quantization.KvCache.Policy;
+
+import std;
 
 namespace Mila::Dnn::Quant::KvCache
 {

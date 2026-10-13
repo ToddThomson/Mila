@@ -7,19 +7,9 @@
  * See Specifications/ModelDistribution.md.
  */
 
-module;
-#include <charconv>
-#include <cstdint>
-#include <format>
-// Required by every importer of nlohmann.json -- see Distribution/ModelStore.ixx.
-#include <memory>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <vector>
-
 export module Distribution.ModelManifest;
 
+import std;
 export import Distribution.ModelFile;
 export import Distribution.ModelCapabilities;
 
@@ -206,7 +196,7 @@ namespace Mila::Distribution
             file.role = entry.key();
             file.path = value[ "path" ].get<std::string>();
             file.sha256 = value[ "sha256" ].get<std::string>();
-            file.bytes = value.value( "bytes", uint64_t{ 0 } );
+            file.bytes = value.value( "bytes", std::uint64_t{ 0 } );
 
             manifest.files.push_back( std::move( file ) );
         }
@@ -294,7 +284,7 @@ namespace Mila::Distribution
                 break;
             }
 
-            text.remove_prefix( static_cast<size_t>( result.ptr - first ) );
+            text.remove_prefix( static_cast<std::size_t>( result.ptr - first ) );
             ++parsed;
 
             if ( text.empty() || text.front() != '.' )

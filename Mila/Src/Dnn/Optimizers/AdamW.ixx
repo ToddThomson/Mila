@@ -3,13 +3,9 @@
  * @brief AdamW optimizer wrapper using fluent `AdamWConfig`.
  */
 
-module;
-#include <memory>
-#include <type_traits>
-#include <stdexcept>
-
 export module Dnn.Optimizers.AdamW;
 
+import std;
 import Dnn.Optimizers.AdamWConfig;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -117,7 +113,7 @@ namespace Mila::Dnn::Optimizers
         // AdamW-Specific Interface
         // ====================================================================
 
-        size_t getStepCount() const noexcept
+        std::size_t getStepCount() const noexcept
         {
             return impl_->getStepCount();
         }
@@ -147,7 +143,7 @@ namespace Mila::Dnn::Optimizers
             impl_->setWeightDecay( weight_decay );
         }
 
-        size_t getParameterCount() const noexcept
+        std::size_t getParameterCount() const noexcept
         {
             return impl_->getParameterCount();
         }

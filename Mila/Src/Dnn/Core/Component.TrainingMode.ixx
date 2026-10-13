@@ -2,10 +2,10 @@
  * @file Component.TrainingMode.ixx
  * @brief Runtime behavioral mode for training-built Components.
  */
-module;
-#include <cstdint>
 
 export module Dnn.Component:TrainingMode;
+
+import std;
 
 namespace Mila::Dnn
 {
@@ -35,7 +35,7 @@ namespace Mila::Dnn
      * Model drives transitions via Network::setTrainingMode() -- the
      * toggle is never exposed directly to the user.
      */
-    export enum class TrainingMode : uint8_t
+    export enum class TrainingMode : std::uint8_t
     {
         Normal,    ///< Gradients active, dropout on, batch norm uses batch stats.
         Eval       ///< No gradients, dropout off, batch norm uses running stats.

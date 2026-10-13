@@ -7,17 +7,9 @@
  * 6 and 7.
  */
 
-module;
-#include <cstddef>
-#include <format>
-#include <optional>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <utility>
-
 export module Deployment.DeploymentPlan;
 
+import std;
 import Dnn.Component;
 import Dnn.LanguageModelConfig;
 import Dnn.RuntimeMode;

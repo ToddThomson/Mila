@@ -13,7 +13,7 @@ module;
 
 export module Compute.CudaNextTokenLogProbabilityOp;
 
-import std.compat;
+import std;
 import Dnn.ITensor;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
@@ -94,7 +94,7 @@ namespace Mila::Dnn::Compute::Cuda::LogLikelihood
 
             cuda_next_token_log_probability<NativeType>(
                 static_cast<const NativeType*>( logits.rawData() ),
-                static_cast<const int32_t*>( tokens.rawData() ) + first_position,
+                static_cast<const std::int32_t*>( tokens.rawData() ) + first_position,
                 static_cast<float*>( store_->rawData() ) + first_position,
                 static_cast<int>( rows ), static_cast<int>( vocab ), final_logit_softcap_, context_->getStream() );
 

@@ -3,11 +3,9 @@
  * @brief The concept a quantizing KV-cache policy satisfies: KvCachePolicy plus its storage and scale fields.
  */
 
-module;
-#include <concepts>
-
 export module Dnn.Quantization.KvCache.QuantPolicy;
 
+import std;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.TensorDataType;
 

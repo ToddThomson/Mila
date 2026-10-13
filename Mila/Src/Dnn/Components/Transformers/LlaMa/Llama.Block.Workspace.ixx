@@ -5,14 +5,9 @@
  * One slot set serves every layer; the transformer owns it and accounts for it.
  */
 
-module;
-#include <cstddef>
-#include <memory>
-#include <stdexcept>
-#include <string>
-#include <vector>
-
 export module Dnn.Components.LlamaTransformer:BlockWorkspace;
+
+import std;
 import :Config;
 
 import Dnn.Tensor;

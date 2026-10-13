@@ -24,29 +24,9 @@
  * boundary, and it is named in the error.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <span>
-#include <unordered_set>
-#include <string>
-#include <sstream>
-#include <cstdint>
-#include <cstddef>
-#include <expected>
-#include <string_view>
-#include <stdexcept>
-#include <filesystem>
-#include <format>
-#include <optional>
-#include <algorithm>
-#include <functional>
-#include <stop_token>
-#include <cstring>
-#include <type_traits>
-
 export module Dnn.Models.QwenModel;
 
+import std;
 import Dnn.Models.QwenModelConfig;
 import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
@@ -375,30 +355,30 @@ namespace Mila::Dnn
     protected:
 
         GenerateStatus onGenerating(
-            std::span<const int32_t> prompt_tokens,
-            const std::function<void( int32_t )>& on_token,
+            std::span<const std::int32_t> prompt_tokens,
+            const std::function<void( std::int32_t )>& on_token,
             const GenerateParams& params,
             std::stop_token stop ) override
         {
             // The prompt must fit the deployment context (the KV-cache depth the network was
             // built with). Context management is the caller's concern; reject rather than
             // silently truncate.
-            if ( prompt_tokens.size() > static_cast<size_t>( contextLength() ) )
+            if ( prompt_tokens.size() > static_cast<std::size_t>( contextLength() ) )
             {
                 throw std::invalid_argument( std::format(
                     "QwenModel::onGenerating: prompt length {} exceeds deployment context length {}",
                     prompt_tokens.size(), contextLength() ) );
             }
 
-            std::unordered_set<int32_t> stop_ids;
+            std::unordered_set<std::int32_t> stop_ids;
 
             if ( params.stop_tokens.empty() )
                 stop_ids = stopTokens();
             else
                 for ( auto id : params.stop_tokens )
-                    stop_ids.insert( static_cast<int32_t>( id ) );
+                    stop_ids.insert( static_cast<std::int32_t>( id ) );
 
-            const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
+            const std::int64_t seq_len = static_cast<std::int64_t>( prompt_tokens.size() );
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
             // Prefix reuse returns to the position saved at the end of the previous prompt, so it
@@ -407,7 +387,7 @@ namespace Mila::Dnn
             // reasoning from the history, so the next prompt diverges inside the reply. Otherwise
             // a full prefill from position 0, which zeroes the recurrent state and starts the
             // convolution windows cold, so nothing carries over from what ran before.
-            const int64_t saved = static_cast<int64_t>( saved_prompt_.size() );
+            const std::int64_t saved = static_cast<std::int64_t>( saved_prompt_.size() );
             const bool extends_saved = saved > 0 && saved < seq_len
                 && std::equal( saved_prompt_.begin(), saved_prompt_.end(), prompt_tokens.begin() );
 
@@ -459,7 +439,7 @@ namespace Mila::Dnn
                 if ( more_steps_allowed && cache_has_room )
                     decode_logits = &this->getNetwork().decode( decode_token_device_, position );
 
-                const int32_t token = this->awaitSampledToken();
+                const std::int32_t token = this->awaitSampledToken();
 
                 if ( decode_logits )
                     ++position;
@@ -493,12 +473,12 @@ namespace Mila::Dnn
             throw std::runtime_error( "QwenModel::onTraining: Qwen is inference-only" );
         }
 
-        int32_t eosToken() const noexcept override
+        std::int32_t eosToken() const noexcept override
         {
             return kEndOfTurnToken;
         }
 
-        std::unordered_set<int32_t> stopTokens() const override
+        std::unordered_set<std::int32_t> stopTokens() const override
         {
             return { kEndOfTurnToken, kEndOfTextToken };
         }
@@ -538,15 +518,15 @@ namespace Mila::Dnn
         TokenIndexType decode_token_device_;
 
         // The prompt whose end the network saved (savePosition): the prefix the next generation may resume from.
-        std::vector<int32_t> saved_prompt_;
+        std::vector<std::int32_t> saved_prompt_;
 
         // Qwen 3.8 instruct stop tokens, read from the checkpoint's own tokenizer_config and
         // generation_config: <|im_end|> is the conversational EOS and <|endoftext|> the
         // document terminator; generation_config lists both as eos_token_id. These are the
         // MODEL defaults -- a harness that owns the tokenizer may override the stop set per
         // call via GenerateParams::stop_tokens.
-        static constexpr int32_t kEndOfTurnToken = 248046;  // <|im_end|>
-        static constexpr int32_t kEndOfTextToken = 248044;  // <|endoftext|>
+        static constexpr std::int32_t kEndOfTurnToken = 248046;  // <|im_end|>
+        static constexpr std::int32_t kEndOfTextToken = 248044;  // <|endoftext|>
 
         /**
          * @brief Resolve a deployment's weight setting to one of this family's two plans.
@@ -802,14 +782,14 @@ namespace Mila::Dnn
             }
         }
 
-        TokenIndexType makeTokenTensor( std::span<const int32_t> token_ids ) const
+        TokenIndexType makeTokenTensor( std::span<const std::int32_t> token_ids ) const
         {
-            shape_t shape = { 1, static_cast<int64_t>( token_ids.size() ) };
+            shape_t shape = { 1, static_cast<std::int64_t>( token_ids.size() ) };
             TokenIndexType device_tensor( this->getDeviceId(), shape );
 
             Tensor<dtype_t::INT32, CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
 
-            std::memcpy( cpu_tensor.data(), token_ids.data(), token_ids.size() * sizeof( int32_t ) );
+            std::memcpy( cpu_tensor.data(), token_ids.data(), token_ids.size() * sizeof( std::int32_t ) );
 
             copy( cpu_tensor, device_tensor );
 

@@ -17,7 +17,7 @@ module;
 
 export module Compute.CudaMoeOp;
 
-import std.compat;
+import std;
 import Dnn.Components.MixtureOfExpertsConfig;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -182,14 +182,14 @@ namespace Mila::Dnn::Compute::Cuda::Moe
             {
                 Linear::cuda_quantize_fp4_per_group(
                     blob.data(), packed_out.rawData(), static_cast<float*>( scales_out.rawData() ),
-                    static_cast<int64_t>( rows ), static_cast<int64_t>( columns ),
+                    static_cast<std::int64_t>( rows ), static_cast<std::int64_t>( columns ),
                     TWeightQuantization::kQuantizationGroupSize, staging, staging_bytes, context_->getStream() );
             }
             else
             {
                 Linear::cuda_quantize_int4_per_group(
                     blob.data(), packed_out.rawData(), scales_out.rawData(),
-                    static_cast<int64_t>( rows ), static_cast<int64_t>( columns ),
+                    static_cast<std::int64_t>( rows ), static_cast<std::int64_t>( columns ),
                     TWeightQuantization::kQuantizationGroupSize, staging, staging_bytes, context_->getStream() );
             }
         }
@@ -215,7 +215,7 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
             const cudaStream_t stream = context_->getStream();
             auto* gated_data = static_cast<float*>( gated.rawData() );
-            const auto* index_data = static_cast<const int32_t*>( indices.rawData() );
+            const auto* index_data = static_cast<const std::int32_t*>( indices.rawData() );
 
             if constexpr ( kIsFp4 )
             {
@@ -223,7 +223,7 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
                 launch_moe_gated_forward_fp4<TFunctor>(
                     static_cast<const __nv_bfloat16*>( input.rawData() ),
-                    static_cast<const uint8_t*>( gate_up_projection_->rawData() ),
+                    static_cast<const std::uint8_t*>( gate_up_projection_->rawData() ),
                     static_cast<const float*>( gate_up_scales_->rawData() ),
                     index_data, gated_data,
                     narrowToKernelIndex( tokens ), narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
@@ -232,7 +232,7 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
                 launch_moe_combine_forward_fp4(
                     gated_data,
-                    static_cast<const uint8_t*>( down_projection_->rawData() ),
+                    static_cast<const std::uint8_t*>( down_projection_->rawData() ),
                     static_cast<const float*>( down_scales_->rawData() ),
                     static_cast<const __nv_bfloat16*>( weights.rawData() ),
                     index_data,
@@ -256,16 +256,16 @@ namespace Mila::Dnn::Compute::Cuda::Moe
                 // fetched on every forward, since the context reallocates it on grow.
                 void* scratch = context_->getDeviceScratchBuffer( moe_grouped_scratch_bytes(
                     narrowToKernelIndex( tokens ), narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
-                    narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ), static_cast<int64_t>( gated.size() ) ) );
+                    narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ), static_cast<std::int64_t>( gated.size() ) ) );
 
                 launch_moe_grouped_prefill_int4<TFunctor>(
                     static_cast<const __nv_bfloat16*>( input.rawData() ),
-                    static_cast<const uint8_t*>( gate_up_projection_->rawData() ),
+                    static_cast<const std::uint8_t*>( gate_up_projection_->rawData() ),
                     static_cast<const __half*>( gate_up_scales_->rawData() ),
-                    static_cast<const uint8_t*>( down_projection_->rawData() ),
+                    static_cast<const std::uint8_t*>( down_projection_->rawData() ),
                     static_cast<const __half*>( down_scales_->rawData() ),
                     static_cast<const __nv_bfloat16*>( weights.rawData() ),
-                    index_data, gated_data, static_cast<int64_t>( gated.size() ),
+                    index_data, gated_data, static_cast<std::int64_t>( gated.size() ),
                     static_cast<__nv_bfloat16*>( output.rawData() ), scratch,
                     narrowToKernelIndex( tokens ), narrowToKernelIndex( hidden ), narrowToKernelIndex( intermediate ),
                     narrowToKernelIndex( experts ), narrowToKernelIndex( top_k ),
@@ -414,11 +414,11 @@ namespace Mila::Dnn::Compute::Cuda::Moe
         {
             const cudaStream_t stream = context_->getStream();
             auto* gated_data = static_cast<float*>( gated.rawData() );
-            const auto* index_data = static_cast<const int32_t*>( indices.rawData() );
+            const auto* index_data = static_cast<const std::int32_t*>( indices.rawData() );
 
             launch_moe_gated_gather_int4<TFunctor>(
                 static_cast<const __nv_bfloat16*>( input.rawData() ),
-                static_cast<const uint8_t*>( gate_up_projection_->rawData() ),
+                static_cast<const std::uint8_t*>( gate_up_projection_->rawData() ),
                 static_cast<const __half*>( gate_up_scales_->rawData() ),
                 index_data, gated_data,
                 narrowToKernelIndex( tokens ), narrowToKernelIndex( config_.getHiddenSize() ),
@@ -428,7 +428,7 @@ namespace Mila::Dnn::Compute::Cuda::Moe
 
             launch_moe_combine_gather_int4(
                 gated_data,
-                static_cast<const uint8_t*>( down_projection_->rawData() ),
+                static_cast<const std::uint8_t*>( down_projection_->rawData() ),
                 static_cast<const __half*>( down_scales_->rawData() ),
                 static_cast<const __nv_bfloat16*>( weights.rawData() ),
                 index_data,
@@ -456,7 +456,7 @@ namespace Mila::Dnn::Compute::Cuda::Moe
                     return moe_grouped_scratch_bytes( narrowToKernelIndex( tokens ),
                         narrowToKernelIndex( config_.getHiddenSize() ), narrowToKernelIndex( intermediate ),
                         narrowToKernelIndex( config_.getNumExperts() ), narrowToKernelIndex( config_.getTopK() ),
-                        static_cast<int64_t>( tokens * config_.getTopK() * intermediate ) );
+                        static_cast<std::int64_t>( tokens * config_.getTopK() * intermediate ) );
                 }
             }
 

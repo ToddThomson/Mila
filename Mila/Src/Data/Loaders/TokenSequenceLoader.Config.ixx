@@ -1,8 +1,7 @@
-module;
-#include <cstddef>
-#include <cstdint>
 
 export module Data.TokenSequenceLoader:Config;
+
+import std;
 
 namespace Mila::Data
 {
@@ -19,7 +18,7 @@ namespace Mila::Data
          *
          * Default: 0 (automatic, typically ~25M tokens)
          */
-        size_t token_window_size = 0;
+        std::size_t token_window_size = 0;
 
         /**
          * @brief Timeout for initial batch preparation (milliseconds).
@@ -28,7 +27,7 @@ namespace Mila::Data
          *
          * Default: 5000ms (5 seconds)
          */
-        uint32_t initialization_timeout_ms = 5000;
+        std::uint32_t initialization_timeout_ms = 5000;
 
         /**
          * @brief Timeout for subsequent batch preparation (milliseconds).
@@ -38,7 +37,7 @@ namespace Mila::Data
          *
          * Default: 10000ms (10 seconds)
          */
-        uint32_t batch_timeout_ms = 10000;
+        std::uint32_t batch_timeout_ms = 10000;
 
         /**
          * @brief Enable verbose logging during initialization and operation.
@@ -56,7 +55,7 @@ namespace Mila::Data
          * so this parameter has no effect.
          */
         [[deprecated("Queue-based architecture replaced with double buffering")]]
-        size_t max_queue_size = 2;
+        std::size_t max_queue_size = 2;
     };
 
 }

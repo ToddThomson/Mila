@@ -3,21 +3,16 @@
  * @brief Configuration for special tokens used across all tokenizer types.
  */
 
-module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <unordered_map>
-#include <cstdint>
-
 export module Data.SpecialTokens;
+
+import std;
 
 namespace Mila::Data
 {
     /**
      * @brief Special token types for tokenization.
      */
-    export enum class SpecialToken : uint8_t
+    export enum class SpecialToken : std::uint8_t
     {
         PAD = 0,
         UNK,
@@ -67,7 +62,7 @@ namespace Mila::Data
          * Key: token string (e.g. "<|reserved_special_token_0|>")
          * Value: token ID
          */
-        std::unordered_map<std::string, int32_t> extended_special_tokens;
+        std::unordered_map<std::string, std::int32_t> extended_special_tokens;
 
         /**
          * @brief Get string representation of a named special token.
@@ -133,7 +128,7 @@ namespace Mila::Data
          * @brief Count enabled named special tokens.
          * Does not include extended_special_tokens.
          */
-        constexpr size_t count() const
+        constexpr std::size_t count() const
         {
             return (use_pad ? 1 : 0) + (use_unk ? 1 : 0) + (use_bos ? 1 : 0) +
                 (use_eos ? 1 : 0) + (use_mask ? 1 : 0) + (use_sep ? 1 : 0) +
@@ -143,7 +138,7 @@ namespace Mila::Data
         /**
          * @brief Count all special tokens including extended set.
          */
-        size_t countAll() const
+        std::size_t countAll() const
         {
             return count() + extended_special_tokens.size();
         }
@@ -172,7 +167,7 @@ namespace Mila::Data
          * start at this offset. Extended tokens have explicit IDs and do not
          * contribute to this offset.
          */
-        constexpr size_t getIdOffset() const
+        constexpr std::size_t getIdOffset() const
         {
             return count();
         }

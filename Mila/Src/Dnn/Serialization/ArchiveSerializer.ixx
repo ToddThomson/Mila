@@ -6,12 +6,9 @@
  * hierarchical paths like "components/layer1/tensors/weight/data.bin"
  */
 
-module;
-#include <string>
-#include <vector>
-
 export module Serialization.ArchiveSerializer;
 
+import std;
 import Serialization.Serializer;
 import Serialization.OpenMode;
 
@@ -39,7 +36,7 @@ namespace Mila::Dnn::Serialization
          * @param size Number of bytes
          * @return true on success
          */
-        [[nodiscard]] virtual bool addData(const std::string& path, const void* data, size_t size) = 0;
+        [[nodiscard]] virtual bool addData(const std::string& path, const void* data, std::size_t size) = 0;
 
         /**
          * @brief Extract a file from the archive.
@@ -49,12 +46,12 @@ namespace Mila::Dnn::Serialization
          * @param size Buffer size
          * @return Number of bytes extracted, or 0 on error
          */
-        [[nodiscard]] virtual size_t extractData(const std::string& path, void* data, size_t size) = 0;
+        [[nodiscard]] virtual std::size_t extractData(const std::string& path, void* data, std::size_t size) = 0;
 
         /**
          * @brief Get file size at path.
          */
-        [[nodiscard]] virtual size_t getFileSize(const std::string& path) const = 0;
+        [[nodiscard]] virtual std::size_t getFileSize(const std::string& path) const = 0;
 
         /**
          * @brief List all files in the archive.

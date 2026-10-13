@@ -5,16 +5,9 @@
  * The family switch every app made for itself, made once. See Specifications/Deployment.md 8.1 and 12.4.
  */
 
-module;
-#include <exception>
-#include <expected>
-#include <format>
-#include <optional>
-#include <stdexcept>
-#include <vector>
-
 export module Deployment.InstalledModelPlanner;
 
+import std;
 import Dnn.ModelType;
 import Dnn.WeightQuantization;
 import Dnn.TensorDataType;

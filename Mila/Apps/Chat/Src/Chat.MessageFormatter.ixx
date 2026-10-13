@@ -7,14 +7,9 @@
  * tokenizer before being fed to the model.
  */
 
-module;
-#include <string>
-#include <vector>
-#include <stdexcept>
-#include <format>
-
 export module Chat.MessageFormatter;
 
+import std;
 import Chat.Message;
 import Chat.Json;
 
@@ -62,7 +57,7 @@ namespace Mila::ChatApp
          * @brief Render a full conversation history into a model-ready prompt string.
          *
          * Appends the assistant primer at the end to prime generation. The last
-         * message in history must be a User or Tool turn — passing an Assistant
+         * message in history must be a User or Tool turn -- passing an Assistant
          * turn as the final message throws std::invalid_argument.
          *
          * @param history Ordered sequence of conversation turns.
@@ -181,9 +176,9 @@ namespace Mila::ChatApp
          *
          * Avoids repeated reallocation for long conversation histories.
          */
-        static size_t estimateSize( const std::vector<ChatMessage>& history )
+        static std::size_t estimateSize( const std::vector<ChatMessage>& history )
         {
-            size_t total = kBos.size() + kAssistantPrimer.size();
+            std::size_t total = kBos.size() + kAssistantPrimer.size();
 
             for ( const auto& m : history )
             {

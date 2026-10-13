@@ -7,20 +7,9 @@
  *   weights, indices = top_k( softmax( logits ) ), renormalized, times per_expert_scale[ index ]
  */
 
-module;
-#include <cmath>
-#include <cstdint>
-#include <format>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <stdexcept>
-#include <string>
-#include <utility>
-#include <vector>
-
 export module Dnn.Components.Router;
 
+import std;
 export import Dnn.Components.RouterConfig;
 
 import Dnn.Component;

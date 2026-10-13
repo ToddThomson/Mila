@@ -13,17 +13,11 @@
  */
 
 module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <sstream>
-#include <stdexcept>
-#include <format>
-#include <optional>
 #include "../../Activations/Activation/Kernels/ElementwiseActivation.h"
 
 export module Dnn.Components.AttentionOutputGate;
 
+import std;
 export import Dnn.Components.AttentionOutputGateConfig;
 
 import Dnn.Component;
@@ -170,10 +164,10 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
             meta.set( "type", "AttentionOutputGate" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() )
                 .set( "template_device", deviceTypeToString( TDeviceType ) )
-                .set( "template_precision", static_cast<int64_t>( TPrecision ) )
+                .set( "template_precision", static_cast<std::int64_t>( TPrecision ) )
                 .set( "template_gate", activationTypeToString( TGate ) );
 
             archive.writeMetadata( "meta.json", meta );

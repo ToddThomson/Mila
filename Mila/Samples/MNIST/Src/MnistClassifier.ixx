@@ -6,21 +6,9 @@
  * for MNIST handwritten digit classification (784 -> 128 -> 64 -> 10).
  */
 
-module;
-#include <string>
-#include <vector>
-#include <memory>
-#include <sstream>
-#include <type_traits>
-#include <stdexcept>
-#include <cstdint>
-#include <ostream>
-#include <format>
-#include <utility>
-#include <optional>
-
 export module Mnist.Classifier;
 
+import std;
 import Mila;
 import Mnist.DataLoader;
 import Dnn.Network;
@@ -80,7 +68,7 @@ namespace Mila::Mnist
          * @throws std::invalid_argument if device_id.type does not match TDeviceType
          * @throws std::runtime_error if ExecutionContext creation fails
          */
-        explicit MnistClassifier( const std::string& name, int64_t batch_size, DeviceId device_id )
+        explicit MnistClassifier( const std::string& name, std::int64_t batch_size, DeviceId device_id )
             : NetworkBase( name ), owned_context_( createExecutionContext( device_id ) ), batch_size_( batch_size )
         {
             if ( batch_size_ <= 0 )
@@ -128,11 +116,11 @@ namespace Mila::Mnist
             SerializationMetadata meta = archive.readMetadata( "classifier_meta.json" );
 
             std::string name = meta.getString( "name" );
-            int64_t batch_size = meta.getInt( "batch_size" );
+            std::int64_t batch_size = meta.getInt( "batch_size" );
 
-            int64_t saved_hidden1 = meta.getInt( "hidden1_size" );
-            int64_t saved_hidden2 = meta.getInt( "hidden2_size" );
-            int64_t saved_classes = meta.getInt( "num_classes" );
+            std::int64_t saved_hidden1 = meta.getInt( "hidden1_size" );
+            std::int64_t saved_hidden2 = meta.getInt( "hidden2_size" );
+            std::int64_t saved_classes = meta.getInt( "num_classes" );
 
             if ( saved_hidden1 != HIDDEN1_SIZE || saved_hidden2 != HIDDEN2_SIZE ||
                 saved_classes != MNIST_NUM_CLASSES )
@@ -319,7 +307,7 @@ namespace Mila::Mnist
             if ( this->isBuilt() )
             {
                 oss << "Input shape: (";
-                for ( size_t i = 0; i < input_shape_.size(); ++i )
+                for ( std::size_t i = 0; i < input_shape_.size(); ++i )
                 {
                     oss << input_shape_[ i ];
                     if ( i != input_shape_.size() - 1 )
@@ -328,7 +316,7 @@ namespace Mila::Mnist
                 oss << ")" << std::endl;
 
                 oss << "Output shape: (";
-                for ( size_t i = 0; i < output_shape_.size(); ++i )
+                for ( std::size_t i = 0; i < output_shape_.size(); ++i )
                 {
                     oss << output_shape_[ i ];
                     if ( i != output_shape_.size() - 1 )
@@ -389,7 +377,7 @@ namespace Mila::Mnist
         {
             SerializationMetadata meta;
             meta.set( "type", "MnistClassifier" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() )
                 .set( "batch_size", batch_size_ );
 
@@ -461,14 +449,14 @@ namespace Mila::Mnist
 
     private:
 
-        static constexpr int64_t HIDDEN1_SIZE = 128;
-        static constexpr int64_t HIDDEN2_SIZE = 64;
+        static constexpr std::int64_t HIDDEN1_SIZE = 128;
+        static constexpr std::int64_t HIDDEN2_SIZE = 64;
 
         // Owned ExecutionContext
         std::unique_ptr<IExecutionContext> owned_context_{ nullptr };
 
         // Configuration
-        int64_t batch_size_;
+        std::int64_t batch_size_;
 
         // Computed shapes (cached during build)
         shape_t input_shape_;
@@ -556,7 +544,7 @@ namespace Mila::Mnist
                 throw std::invalid_argument( "MnistClassifier: input must have rank >= 1" );
             }
 
-            int64_t input_features = input_shape.back();
+            std::int64_t input_features = input_shape.back();
 
             if ( input_features != MNIST_IMAGE_SIZE )
             {

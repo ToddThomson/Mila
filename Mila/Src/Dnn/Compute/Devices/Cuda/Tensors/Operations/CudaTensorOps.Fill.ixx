@@ -21,7 +21,7 @@ module;
 
 export module Compute.CudaTensorOps:Fill;
 
-import std.compat;
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.ITensor;
@@ -61,7 +61,7 @@ namespace Mila::Dnn::Compute::Cuda
     {
         template<TensorDataType TDataType>
         using host_value_t = std::conditional_t<
-            TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
+            TensorDataTypeTraits<TDataType>::is_integer_type, std::int32_t, float>;
 
         /**
          * @brief Fill tensor with array of host values using CUDA kernels
@@ -142,12 +142,12 @@ namespace Mila::Dnn::Compute::Cuda
             using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
 
             if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type) {
-                Cuda::launch_array_fill_typed<NativeType, int32_t>(
-                    raw_dst, host_values.data(), static_cast<size_t>( count ), stream);
+                Cuda::launch_array_fill_typed<NativeType, std::int32_t>(
+                    raw_dst, host_values.data(), static_cast<std::size_t>( count ), stream);
             }
             else {
                 Cuda::launch_array_fill_typed<NativeType, float>(
-                    raw_dst, host_values.data(), static_cast<size_t>( count ), stream);
+                    raw_dst, host_values.data(), static_cast<std::size_t>( count ), stream);
             }
 
             if (needs_sync) {
@@ -232,12 +232,12 @@ namespace Mila::Dnn::Compute::Cuda
             using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
 
             if constexpr ( TensorDataTypeTraits<TDataType>::is_integer_type ) {
-                Cuda::launch_constant_fill_typed<NativeType, int32_t>(
-                    raw_dst, static_cast<size_t>( tensor.size() ), host_value, stream );
+                Cuda::launch_constant_fill_typed<NativeType, std::int32_t>(
+                    raw_dst, static_cast<std::size_t>( tensor.size() ), host_value, stream );
             }
             else {
                 Cuda::launch_constant_fill_typed<NativeType, float>(
-                    raw_dst, static_cast<size_t>( tensor.size() ), host_value, stream );
+                    raw_dst, static_cast<std::size_t>( tensor.size() ), host_value, stream );
             }
 
             if ( needs_sync ) {

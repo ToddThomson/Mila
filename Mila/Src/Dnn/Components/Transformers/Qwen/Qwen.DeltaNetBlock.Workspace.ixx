@@ -5,14 +5,9 @@
  * A module of its own: QwenTransformer and the layer-streamed harnesses name the workspace apart from the block.
  */
 
-module;
-#include <cstddef>
-#include <memory>
-#include <string>
-#include <vector>
-
 export module Dnn.Components.QwenDeltaNetBlockWorkspace;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;

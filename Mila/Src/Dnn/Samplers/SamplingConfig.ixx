@@ -6,13 +6,9 @@
  * Per-call knobs (temperature / top_k / top_p / seed) are GenerateParams, not here.
  */
 
-module;
-#include <cstdint>
-#include <stdexcept>
-#include <utility>
-
 export module Dnn.Samplers.SamplingConfig;
 
+import std;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn
@@ -28,7 +24,7 @@ namespace Mila::Dnn
     {
     public:
         template<typename Self>
-        decltype(auto) withVocabularySize( this Self&& self, int64_t vocab_size ) noexcept
+        decltype(auto) withVocabularySize( this Self&& self, std::int64_t vocab_size ) noexcept
         {
             self.vocab_size_ = vocab_size;
             return std::forward<Self>( self );
@@ -53,7 +49,7 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        int64_t getVocabularySize() const noexcept
+        std::int64_t getVocabularySize() const noexcept
         {
             return vocab_size_;
         }
@@ -92,7 +88,7 @@ namespace Mila::Dnn
         }
 
     private:
-        int64_t vocab_size_{ 0 };
+        std::int64_t vocab_size_{ 0 };
         float final_logit_softcap_{ 0.0f };
         dim_t maximum_rows_{ 1 };
     };

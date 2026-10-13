@@ -22,22 +22,9 @@
  *   Concatenate token strings and reverse the byte encoding back to UTF-8.
  */
 
-module;
-#include <cstddef>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <span>
-#include <memory>
-#include <optional>
-#include <filesystem>
-#include <mutex>
-#include <regex>
-#include <limits>
-#include <stdexcept>
-
 export module Data.BpeTokenizer;
 
+import std;
 import Data.BpeVocabulary;
 import Data.BpePreTokenizationMode;
 import Data.Tokenizer;
@@ -193,7 +180,7 @@ namespace Mila::Data
             }
             else
             {
-                size_t pos = 0;
+                std::size_t pos = 0;
 
                 while ( pos < text.size() )
                 {
@@ -214,11 +201,11 @@ namespace Mila::Data
                     if ( !matched )
                     {
                         // Advance to the next special token boundary (or end of string).
-                        size_t next_special = text.size();
+                        std::size_t next_special = text.size();
 
                         for ( const auto& [token_str, token_id] : special_list )
                         {
-                            const size_t found = text.find( token_str, pos );
+                            const std::size_t found = text.find( token_str, pos );
 
                             if ( found != std::string::npos && found < next_special )
                             {
@@ -266,7 +253,7 @@ namespace Mila::Data
             return out;
         }
 
-        size_t getVocabSize() const override
+        std::size_t getVocabSize() const override
         {
             return vocab_.getSize();
         }
@@ -618,9 +605,9 @@ namespace Mila::Data
             while ( tokens.size() > 1 )
             {
                 int    best_idx = -1;
-                size_t best_priority = std::numeric_limits<size_t>::max();
+                std::size_t best_priority = std::numeric_limits<std::size_t>::max();
 
-                for ( size_t i = 0; i < tokens.size() - 1; ++i )
+                for ( std::size_t i = 0; i < tokens.size() - 1; ++i )
                 {
                     auto priority = vocab_.getMergePriority( tokens[ i ], tokens[ i + 1 ] );
 
@@ -659,11 +646,11 @@ namespace Mila::Data
                 std::vector<std::string> tokens;
                 tokens.reserve( word.size() );
 
-                size_t i = 0;
+                std::size_t i = 0;
 
                 while ( i < word.size() )
                 {
-                    const size_t char_len = utf8CharLength( static_cast<unsigned char>( word[ i ] ) );
+                    const std::size_t char_len = utf8CharLength( static_cast<unsigned char>( word[ i ] ) );
                     const std::string ch = word.substr( i, char_len );
 
                     if ( vocab_.containsToken( ch ) )
@@ -673,7 +660,7 @@ namespace Mila::Data
                     else
                     {
                         // Byte fallback: emit one <0xNN> piece per raw byte.
-                        for ( size_t b = 0; b < char_len && (i + b) < word.size(); ++b )
+                        for ( std::size_t b = 0; b < char_len && (i + b) < word.size(); ++b )
                         {
                             tokens.push_back( byteFallbackToken( static_cast<unsigned char>( word[ i + b ] ) ) );
                         }
@@ -768,11 +755,11 @@ namespace Mila::Data
             }
 
             std::vector<std::string> words;
-            size_t i = 0;
+            std::size_t i = 0;
 
             while ( i < marked.size() )
             {
-                const size_t start = i;
+                const std::size_t start = i;
 
                 // Consume the first character of this pre-token (possibly the mark).
                 i += utf8CharLength( static_cast<unsigned char>( marked[ i ] ) );
@@ -814,11 +801,11 @@ namespace Mila::Data
             }
 
             const auto& byte_decoder = BpeVocabulary::getByteDecoder();
-            size_t i = 0;
+            std::size_t i = 0;
 
             while ( i < token.size() )
             {
-                const size_t char_len = utf8CharLength( static_cast<unsigned char>( token[ i ] ) );
+                const std::size_t char_len = utf8CharLength( static_cast<unsigned char>( token[ i ] ) );
                 const std::string utf8_char = token.substr( i, char_len );
                 const auto it = byte_decoder.find( utf8_char );
 
@@ -853,7 +840,7 @@ namespace Mila::Data
             }
 
             static const std::string MARK = "\xE2\x96\x81";  // U+2581
-            size_t i = 0;
+            std::size_t i = 0;
 
             while ( i < token.size() )
             {
@@ -878,7 +865,7 @@ namespace Mila::Data
             return -1;
         }
 
-        static size_t utf8CharLength( unsigned char first_byte )
+        static std::size_t utf8CharLength( unsigned char first_byte )
         {
             if ( (first_byte & 0x80) == 0x00 ) return 1;
             if ( (first_byte & 0xE0) == 0xC0 ) return 2;

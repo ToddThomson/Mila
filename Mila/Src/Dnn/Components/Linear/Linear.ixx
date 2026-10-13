@@ -3,20 +3,9 @@
  * @brief Device-templated Linear (fully connected) component.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <iostream>
-#include <sstream>
-#include <type_traits>
-#include <stdexcept>
-#include <cstdint>
-#include <cstring>
-#include <format>
-#include <optional>
-
 export module Dnn.Components.Linear;
+
+import std;
 export import Dnn.Components.LinearConfig;
 
 import Dnn.Component;
@@ -369,7 +358,7 @@ namespace Mila::Dnn
             {
                 SerializationMetadata meta;
                 meta.set( "type", "Linear" )
-                    .set( "version", int64_t( 1 ) )
+                    .set( "version", std::int64_t( 1 ) )
                     .set( "name", this->getName() );
 
                 archive.writeMetadata( "meta.json", meta );
@@ -1194,8 +1183,8 @@ namespace Mila::Dnn
 
         void initializeParameters( const BuildContext& context )
         {
-            int64_t input_features = config_.getInputFeatures();
-            int64_t output_features = config_.getOutputFeatures();
+            std::int64_t input_features = config_.getInputFeatures();
+            std::int64_t output_features = config_.getOutputFeatures();
             auto device = this->getExecutionContext()->getDeviceId();
 
             // A weight (and scales) installed before build -- a tied lm_head adopting the
@@ -1224,7 +1213,7 @@ namespace Mila::Dnn
             // which held only because every per-group policy in the tree happened to be
             // 4-bit -- a 2-bit policy would have allocated twice what it needs and failed
             // the shape check on load. getRequiredMemory() must derive it the same way.
-            const int64_t weight_cols = kIsQuantized
+            const std::int64_t weight_cols = kIsQuantized
                 ? input_features * TWeightQuant::kStorageBitsPerElement / 8
                 : input_features;
 
@@ -1242,7 +1231,7 @@ namespace Mila::Dnn
                 else
                 {
                     // Per-group: one scale per (output channel, K-group) -- shape [out_features, K/group_size].
-                    const int64_t num_groups = input_features / TWeightQuant::kQuantizationGroupSize;
+                    const std::int64_t num_groups = input_features / TWeightQuant::kQuantizationGroupSize;
                     weight_scales_ = std::make_shared<WeightScaleTensorType>(
                         device, shape_t{ output_features, num_groups }, this->getName() + ".weight.scales" );
                 }

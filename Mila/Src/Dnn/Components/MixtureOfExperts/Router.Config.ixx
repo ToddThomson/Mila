@@ -5,16 +5,9 @@
  * Gemma 4 26B-A4B routes each 2816-wide token to 8 of 128 experts. See Specifications/Notebooks/Gemma4MoE.md Phase 5.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-#include <format>
-#include <utility>
-#include <cstdint>
-
 export module Dnn.Components.RouterConfig;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
@@ -78,9 +71,9 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "hidden_size", static_cast<int64_t>( hidden_size_ ) )
-                .set( "num_experts", static_cast<int64_t>( num_experts_ ) )
-                .set( "top_k", static_cast<int64_t>( top_k_ ) )
+            meta.set( "hidden_size", static_cast<std::int64_t>( hidden_size_ ) )
+                .set( "num_experts", static_cast<std::int64_t>( num_experts_ ) )
+                .set( "top_k", static_cast<std::int64_t>( top_k_ ) )
                 .set( "epsilon", epsilon_ );
 
             return meta;

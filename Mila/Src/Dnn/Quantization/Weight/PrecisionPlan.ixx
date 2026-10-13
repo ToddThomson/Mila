@@ -5,11 +5,9 @@
 // projections. A family with one uniform policy needs nothing here -- passing a bare
 // WeightQuantPolicy keeps working unchanged, because PrecisionPlanFor lifts it.
 
-module;
-#include <concepts>
-
 export module Dnn.Quantization.Weight.PrecisionPlan;
 
+import std;
 import Dnn.Quantization.Weight.Policies;
 
 namespace Mila::Dnn::Quant::Weight

@@ -6,19 +6,9 @@
  * planner (Specifications/Deployment.md); Chat only asks and reports.
  */
 
-module;
-#include <algorithm>
-#include <cstddef>
-#include <exception>
-#include <filesystem>
-#include <format>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-
 export module Chat.Footprint;
 
+import std;
 export import Chat.FootprintVerdict;
 export import Chat.ScopedLogSuppression;
 

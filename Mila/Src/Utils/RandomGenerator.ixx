@@ -3,11 +3,9 @@
  * @brief Provides a centralized random number generator for the Mila library.
  */
 
-module;
-#include <random>
-// #include <mutex> // MSVC++ 2026 does not support <mutex> in modules yet, so we will use a workaround
-
 export module Core.RandomGenerator;
+
+import std;
 
 namespace Mila::Core
 {

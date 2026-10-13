@@ -8,18 +8,9 @@
  * because no transport is ever told one. See Specifications/HttpClient.md.
  */
 
-module;
-#include <cstddef>
-#include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <stdexcept>
-#include <string>
-#include <utility>
-
 export module Distribution.HttpClient;
 
+import std;
 import Distribution.HttpTransport;
 
 namespace Mila::Distribution
@@ -61,16 +52,16 @@ namespace Mila::Distribution
      * total_bytes is zero when the server does not report a length.
      */
     export using ProgressCallback =
-        std::function<bool( uint64_t bytes_so_far, uint64_t total_bytes )>;
+        std::function<bool( std::uint64_t bytes_so_far, std::uint64_t total_bytes )>;
 
     export struct HttpResult
     {
         HttpStatus status{ HttpStatus::TransportError };
         long http_code{ 0 };
-        uint64_t bytes_received{ 0 };
+        std::uint64_t bytes_received{ 0 };
 
         /// Server-reported total for this transfer, excluding any resumed prefix. Zero if absent.
-        uint64_t content_length{ 0 };
+        std::uint64_t content_length{ 0 };
 
         /// Populated on failure. Never contains the authorization token.
         std::string message;
@@ -93,7 +84,7 @@ namespace Mila::Distribution
 
         /// Byte offset to resume from. Non-zero sends a Range header; a 200 response then
         /// means the server ignored it and the caller must restart.
-        uint64_t resume_from{ 0 };
+        std::uint64_t resume_from{ 0 };
 
         /// Redirect hops permitted before giving up.
         int maximum_redirects{ 5 };
@@ -108,7 +99,7 @@ namespace Mila::Distribution
     export inline std::string hostOf( const std::string& url )
     {
         const auto scheme_end = url.find( "://" );
-        const size_t start = ( scheme_end == std::string::npos ) ? 0 : scheme_end + 3;
+        const std::size_t start = ( scheme_end == std::string::npos ) ? 0 : scheme_end + 3;
         const auto host_end = url.find_first_of( "/?#", start );
 
         std::string authority = ( host_end == std::string::npos )
@@ -166,7 +157,7 @@ namespace Mila::Distribution
             return scheme + ":" + location;
         }
 
-        const size_t authority_start = ( scheme_end == std::string::npos )
+        const std::size_t authority_start = ( scheme_end == std::string::npos )
             ? 0
             : scheme_end + 3;
         const auto authority_end = base.find( '/', authority_start );
@@ -242,18 +233,18 @@ namespace Mila::Distribution
             std::string url = request.url;
             const std::string origin_host = hostOf( url );
 
-            uint64_t bytes_received = 0;
-            uint64_t content_length = 0;
+            std::uint64_t bytes_received = 0;
+            std::uint64_t content_length = 0;
             bool sink_failed = false;
             bool aborted = false;
 
-            const auto on_headers = [&content_length]( long, uint64_t length )
+            const auto on_headers = [&content_length]( long, std::uint64_t length )
                 {
                     content_length = length;
                 };
 
             const auto counting_sink =
-                [&]( const char* data, size_t length ) -> bool
+                [&]( const char* data, std::size_t length ) -> bool
                 {
                     if ( !sink( data, length ) )
                     {
@@ -268,7 +259,7 @@ namespace Mila::Distribution
                     {
                         // The total is the whole file, not this response: a resumed transfer
                         // reports a content-length covering only the remaining bytes.
-                        const uint64_t total = ( content_length == 0 )
+                        const std::uint64_t total = ( content_length == 0 )
                             ? 0
                             : request.resume_from + content_length;
 
@@ -366,7 +357,7 @@ namespace Mila::Distribution
         {
             body.clear();
 
-            return get( request, [&body]( const char* data, size_t length )
+            return get( request, [&body]( const char* data, std::size_t length )
                 {
                     body.append( data, length );
 

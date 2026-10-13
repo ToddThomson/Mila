@@ -6,17 +6,9 @@
  * same answer. See Specifications/Deployment.md 8.1.
  */
 
-module;
-#include <filesystem>
-#include <memory>
-#include <optional>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <vector>
-
 export module Deployment.InstalledModel;
 
+import std;
 export import Dnn.ModelType;
 export import Dnn.WeightQuantization;
 export import Distribution.ModelCapabilities;

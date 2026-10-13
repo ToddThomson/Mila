@@ -14,7 +14,7 @@
 
 export module Compute.CpuTensorOps:Transfer;
 
-import std.compat;
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
@@ -54,8 +54,8 @@ namespace Mila::Dnn::Compute::Cpu
                 return;
             }
 
-            constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
-            const size_t bytes = static_cast<size_t>( count ) * element_size;
+            constexpr std::size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
+            const std::size_t bytes = static_cast<std::size_t>( count ) * element_size;
 
             std::memcpy( dst_data, src_data, bytes );
         }

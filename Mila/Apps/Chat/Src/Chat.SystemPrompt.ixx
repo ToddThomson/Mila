@@ -6,17 +6,9 @@
  * array. Parsed results are held as plain value types for use by Chat::run().
  */
 
-module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <filesystem>
-#include <fstream>
-#include <stdexcept>
-#include <format>
-
 export module Chat.SystemPrompt;
 
+import std;
 import Chat.Json;
 
 namespace Mila::ChatApp

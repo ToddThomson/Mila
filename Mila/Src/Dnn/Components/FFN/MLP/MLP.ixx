@@ -3,18 +3,9 @@
  * @brief Dense feed-forward (MLP) block: Linear -> GELU -> Linear.
  */
 
-module;
-#include <iostream>
-#include <sstream>
-#include <memory>
-#include <string>
-#include <type_traits>
-#include <vector>
-#include <stdexcept>
-#include <cstdint>
-#include <optional>
-
 export module Dnn.Components.MLP;
+
+import std;
 export import :Config;
 
 import Dnn.ITensor;
@@ -302,7 +293,7 @@ namespace Mila::Dnn
                 oss << "Parameter count: " << this->parameterCount() << std::endl;
 
                 oss << "Input shape: (";
-                for ( size_t i = 0; i < cached_input_shape_.size(); ++i )
+                for ( std::size_t i = 0; i < cached_input_shape_.size(); ++i )
                 {
                     oss << cached_input_shape_[ i ];
                     if ( i != cached_input_shape_.size() - 1 )
@@ -311,7 +302,7 @@ namespace Mila::Dnn
                 oss << ")" << std::endl;
 
                 oss << "Hidden shape: (";
-                for ( size_t i = 0; i < cached_hidden_shape_.size(); ++i )
+                for ( std::size_t i = 0; i < cached_hidden_shape_.size(); ++i )
                 {
                     oss << cached_hidden_shape_[ i ];
                     if ( i != cached_hidden_shape_.size() - 1 )
@@ -466,7 +457,7 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "MLP: input must have rank >= 1" );
             }
 
-            int64_t input_features = input_shape.back();
+            std::int64_t input_features = input_shape.back();
 
             if ( input_features != config_.getInputFeatures() )
             {

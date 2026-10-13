@@ -2,10 +2,10 @@
  * @file Model.RuntimeMode.ixx
  * @brief Build-time execution mode for component buffer allocation policy.
  */
-module;
-#include <cstdint>
 
 export module Dnn.RuntimeMode;
+
+import std;
 
 namespace Mila::Dnn
 {
@@ -20,7 +20,7 @@ namespace Mila::Dnn
      * | Inference | { 1, context_len }   | generate()              |
      * | Training  | { batch, seq_len }   | eval(), sample()        |
      */
-    export enum class RuntimeMode : uint8_t
+    export enum class RuntimeMode : std::uint8_t
     {
         Inference,  // decode path, T=1 buffers, generate() only
         Training    // full sequence buffers, eval/sample/backward

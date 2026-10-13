@@ -16,7 +16,7 @@ module;
 
 export module Compute.CudaSamplingOp;
 
-import std.compat;
+import std;
 import Dnn.Samplers.SamplingConfig;
 import Dnn.SamplingParams;
 import Dnn.Component;
@@ -137,7 +137,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             }
 
             cudaError_t status = cudaMemcpyAsync(
-                pinned_token_.rawData(), token_out.rawData(), sizeof( int32_t ),
+                pinned_token_.rawData(), token_out.rawData(), sizeof( std::int32_t ),
                 cudaMemcpyDeviceToHost, stream );
 
             if ( status != cudaSuccess )
@@ -193,7 +193,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             const SamplingParams& params,
             std::span<const float> uniforms ) const
         {
-            const int64_t vocab = config_.getVocabularySize();
+            const std::int64_t vocab = config_.getVocabularySize();
 
             if ( rows < 1 || rows > config_.getMaximumRows() )
             {
@@ -211,7 +211,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             }
 
             const NativeType* first_row = static_cast<const NativeType*>( logits.rawData() );
-            int32_t* out = static_cast<int32_t*>( tokens_out.rawData() );
+            std::int32_t* out = static_cast<std::int32_t*>( tokens_out.rawData() );
             const int row_count = narrowToKernelIndex( rows );
             cudaStream_t stream = context_->getStream();
 
@@ -226,13 +226,13 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             SampleRowUniforms row_uniforms{};
 
             for ( int row = 0; row < row_count; ++row )
-                row_uniforms.value[ row ] = uniforms[ static_cast<size_t>( row ) ];
+                row_uniforms.value[ row ] = uniforms[ static_cast<std::size_t>( row ) ];
 
             cuda_sample_rows_stochastic<NativeType>(
                 first_row, out,
                 static_cast<float*>( prob_scratch_.rawData() ),
                 static_cast<float*>( reduction_scratch_.rawData() ),
-                static_cast<int32_t*>( index_scratch_.rawData() ),
+                static_cast<std::int32_t*>( index_scratch_.rawData() ),
                 row_count, static_cast<int>( vocab ),
                 config_.getFinalLogitSoftcap(), params.temperature,
                 params.top_k, params.top_p, row_uniforms, stream );
@@ -273,10 +273,10 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             }
 
             cuda_speculative_accept(
-                static_cast<int32_t*>( tokens.rawData() ),
-                static_cast<const int32_t*>( chosen.rawData() ),
+                static_cast<std::int32_t*>( tokens.rawData() ),
+                static_cast<const std::int32_t*>( chosen.rawData() ),
                 narrowToKernelIndex( rows ),
-                static_cast<int32_t*>( result.rawData() ),
+                static_cast<std::int32_t*>( result.rawData() ),
                 context_->getStream() );
         }
 
@@ -288,7 +288,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
          * that sampling step has completed. Work enqueued on the stream after the event
          * (the decode-ahead forward) is NOT waited on -- that is the point.
          */
-        int32_t awaitToken() const
+        std::int32_t awaitToken() const
         {
             if ( !token_ready_event_ )
             {
@@ -305,7 +305,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
                     cudaGetErrorString( status ) ) );
             }
 
-            return static_cast<const int32_t*>( pinned_token_.rawData() )[ 0 ];
+            return static_cast<const std::int32_t*>( pinned_token_.rawData() )[ 0 ];
         }
 
         /**
@@ -321,11 +321,11 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             const SamplingParams& params,
             float r ) const
         {
-            const int64_t vocab = config_.getVocabularySize();
+            const std::int64_t vocab = config_.getVocabularySize();
             const dim_t offset = logits.size() - vocab;
 
             const NativeType* row = static_cast<const NativeType*>( logits.rawData() ) + offset;
-            int32_t* out = static_cast<int32_t*>( token_out.rawData() );
+            std::int32_t* out = static_cast<std::int32_t*>( token_out.rawData() );
 
             cudaStream_t stream = 0;
 
@@ -379,11 +379,11 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             float r,
             cudaStream_t stream ) const
         {
-            const int64_t vocab = config_.getVocabularySize();
+            const std::int64_t vocab = config_.getVocabularySize();
             const dim_t offset = logits.size() - vocab;
 
             const NativeType* row = static_cast<const NativeType*>( logits.rawData() ) + offset;
-            int32_t* out = static_cast<int32_t*>( token_out.rawData() );
+            std::int32_t* out = static_cast<std::int32_t*>( token_out.rawData() );
 
             const bool greedy = (params.temperature <= 0.0f || params.top_k == 1);
 
@@ -395,7 +395,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
 
             float* scratch = static_cast<float*>( prob_scratch_.rawData() );
             float* reduction_scratch = static_cast<float*>( reduction_scratch_.rawData() );
-            int32_t* index_scratch = static_cast<int32_t*>( index_scratch_.rawData() );
+            std::int32_t* index_scratch = static_cast<std::int32_t*>( index_scratch_.rawData() );
 
             cuda_sample_stochastic<NativeType>(
                 row, out, scratch, reduction_scratch, index_scratch,

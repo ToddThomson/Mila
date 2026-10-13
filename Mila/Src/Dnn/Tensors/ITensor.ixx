@@ -8,7 +8,7 @@
 
 export module Dnn.ITensor;
 
-import std.compat;
+import std;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Compute.DeviceId;
@@ -69,7 +69,7 @@ namespace Mila::Dnn
          *
          * @return Byte size for the tensor's data type (e.g. 4 for FP32, 2 for FP16).
          */
-        virtual size_t elementSize() const = 0;
+        virtual std::size_t elementSize() const = 0;
 
         /**
          * @brief Get the total storage size in bytes backing the tensor's buffer.
@@ -78,7 +78,7 @@ namespace Mila::Dnn
          *
          * @return Number of bytes occupied by the tensor's logical elements, or 0 if no buffer.
          */
-        virtual size_t getStorageSize() const = 0;
+        virtual std::size_t getStorageSize() const = 0;
 
         /**
          * @brief Get tensor element data type identifier.

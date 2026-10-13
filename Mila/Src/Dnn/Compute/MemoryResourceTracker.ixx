@@ -1,7 +1,7 @@
 
 export module Compute.MemoryResourceTracker;
 
-import std.compat;
+import std;
 import Compute.MemoryResource;
 import Dnn.TensorDataType;
 
@@ -17,14 +17,14 @@ namespace Mila::Dnn::Compute
      * saw an ambiguous unqualified name.
      */
     export struct MemoryAllocationStats {
-        static std::atomic<size_t> totalAllocated;
-        static std::atomic<size_t> totalDeallocated;
-        static std::atomic<size_t> currentUsage;
-        static std::atomic<size_t> peakUsage;
-        static std::atomic<size_t> allocationCount;
-        static std::atomic<size_t> deallocationCount;
-        static std::atomic<size_t> memcpyOperationCount;
-        static std::atomic<size_t> memsetOperationCount;
+        static std::atomic<std::size_t> totalAllocated;
+        static std::atomic<std::size_t> totalDeallocated;
+        static std::atomic<std::size_t> currentUsage;
+        static std::atomic<std::size_t> peakUsage;
+        static std::atomic<std::size_t> allocationCount;
+        static std::atomic<std::size_t> deallocationCount;
+        static std::atomic<std::size_t> memcpyOperationCount;
+        static std::atomic<std::size_t> memsetOperationCount;
 
         /** @brief Resets all memory statistics to zero */
         static void reset() {
@@ -53,14 +53,14 @@ namespace Mila::Dnn::Compute
     };
 
     // Initialize static members
-    std::atomic<size_t> MemoryAllocationStats::totalAllocated(0);
-    std::atomic<size_t> MemoryAllocationStats::totalDeallocated(0);
-    std::atomic<size_t> MemoryAllocationStats::currentUsage(0);
-    std::atomic<size_t> MemoryAllocationStats::peakUsage(0);
-    std::atomic<size_t> MemoryAllocationStats::allocationCount(0);
-    std::atomic<size_t> MemoryAllocationStats::deallocationCount(0);
-    std::atomic<size_t> MemoryAllocationStats::memcpyOperationCount(0);
-    std::atomic<size_t> MemoryAllocationStats::memsetOperationCount(0);
+    std::atomic<std::size_t> MemoryAllocationStats::totalAllocated(0);
+    std::atomic<std::size_t> MemoryAllocationStats::totalDeallocated(0);
+    std::atomic<std::size_t> MemoryAllocationStats::currentUsage(0);
+    std::atomic<std::size_t> MemoryAllocationStats::peakUsage(0);
+    std::atomic<std::size_t> MemoryAllocationStats::allocationCount(0);
+    std::atomic<std::size_t> MemoryAllocationStats::deallocationCount(0);
+    std::atomic<std::size_t> MemoryAllocationStats::memcpyOperationCount(0);
+    std::atomic<std::size_t> MemoryAllocationStats::memsetOperationCount(0);
 
     /**
      * @brief A memory resource wrapper that tracks allocation and deallocation statistics.
@@ -135,8 +135,8 @@ namespace Mila::Dnn::Compute
             MemoryAllocationStats::allocationCount++;
 
             // Update peak usage atomically
-            size_t currentUsage = MemoryAllocationStats::currentUsage;
-            size_t peakUsage = MemoryAllocationStats::peakUsage;
+            std::size_t currentUsage = MemoryAllocationStats::currentUsage;
+            std::size_t peakUsage = MemoryAllocationStats::peakUsage;
             while (currentUsage > peakUsage) {
                 if (MemoryAllocationStats::peakUsage.compare_exchange_weak(peakUsage, currentUsage)) {
                     break;

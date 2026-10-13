@@ -3,12 +3,9 @@
  * @brief The model configuration a weights file carries, and the JSON a writer stores it as.
  */
 
-module;
-#include <cstdint>
-#include <string>
-
 export module Serialization.WeightsMetadata;
 
+import std;
 import nlohmann.json;
 
 namespace Mila::Dnn::Serialization
@@ -20,14 +17,14 @@ namespace Mila::Dnn::Serialization
     {
         std::string architecture;
         std::string model_name;
-        uint32_t vocab_size;
-        uint32_t max_seq_length;
-        uint32_t embedding_dim;
-        uint32_t num_layers;
-        uint32_t num_heads;
-        uint32_t num_kv_heads;
-        uint32_t head_dim;          // explicit per-head width (Gemma decouples it from embedding_dim/num_heads); 0 = derive
-        uint32_t hidden_dim;
+        std::uint32_t vocab_size;
+        std::uint32_t max_seq_length;
+        std::uint32_t embedding_dim;
+        std::uint32_t num_layers;
+        std::uint32_t num_heads;
+        std::uint32_t num_kv_heads;
+        std::uint32_t head_dim;          // explicit per-head width (Gemma decouples it from embedding_dim/num_heads); 0 = derive
+        std::uint32_t hidden_dim;
         bool use_bias;
         bool tie_word_embeddings = false;
 
@@ -45,37 +42,37 @@ namespace Mila::Dnn::Serialization
         float rope_scaling_factor = 0.0f;
         float rope_low_frequency_factor = 0.0f;
         float rope_high_frequency_factor = 0.0f;
-        uint32_t rope_original_context_length = 0;
+        std::uint32_t rope_original_context_length = 0;
 
         // Gemma-specific geometry (0 / false for other architectures). The global
         // (full-attention) layers diverge from the sliding layers; the chassis fields
         // drive the 5:1 interleave, dual RoPE, and logit softcap. See GemmaConfig.
-        uint32_t global_head_dim;
-        uint32_t num_global_kv_heads;
+        std::uint32_t global_head_dim;
+        std::uint32_t num_global_kv_heads;
         bool     key_equals_value;
-        uint32_t window;
-        uint32_t sliding_window_pattern;
-        uint32_t global_rotary_dim;
+        std::uint32_t window;
+        std::uint32_t sliding_window_pattern;
+        std::uint32_t global_rotary_dim;
         float    rope_theta_local;
         float    rope_theta_global;
         float    final_logit_softcapping;
 
         // Routed feed-forward geometry, zero for a dense model (Gemma 4 26B-A4B: 128 experts, top 8,
         // expert width 704). hidden_dim stays the width of the always-on dense branch.
-        uint32_t num_experts = 0;
-        uint32_t top_k_experts = 0;
-        uint32_t expert_hidden_dim = 0;
+        std::uint32_t num_experts = 0;
+        std::uint32_t top_k_experts = 0;
+        std::uint32_t expert_hidden_dim = 0;
 
         // Qwen 3.8 geometry (0 / false for other architectures). This stack interleaves two
         // different MIXERS rather than two geometries of one mixer, so the Gated DeltaNet
         // fields are its own rather than variants of the attention ones above. See QwenConfig.
         bool     attention_output_gate = false;
-        uint32_t full_attention_interval = 0;
+        std::uint32_t full_attention_interval = 0;
         float    partial_rotary_factor = 0.0f;
-        uint32_t linear_num_key_heads = 0;
-        uint32_t linear_num_value_heads = 0;
-        uint32_t linear_head_dim = 0;
-        uint32_t linear_conv_kernel_dim = 0;
+        std::uint32_t linear_num_key_heads = 0;
+        std::uint32_t linear_num_value_heads = 0;
+        std::uint32_t linear_head_dim = 0;
+        std::uint32_t linear_conv_kernel_dim = 0;
     };
 
     /**

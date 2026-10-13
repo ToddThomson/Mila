@@ -1,7 +1,7 @@
 
 export module Dnn.TensorPartitioning;
 
-import std.compat;
+import std;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn
@@ -17,11 +17,11 @@ namespace Mila::Dnn
      */
     export struct AxisPartition
     {
-        int64_t normalized_axis;  ///< Axis normalized to [0, ndim)
-        int64_t outer_size;       ///< Product of dimensions before axis
-        int64_t axis_size;        ///< Size of the axis dimension
-        int64_t inner_size;       ///< Product of dimensions after axis
-        int64_t num_slices;       ///< outer_size * inner_size (for statistics buffers)
+        std::int64_t normalized_axis;  ///< Axis normalized to [0, ndim)
+        std::int64_t outer_size;       ///< Product of dimensions before axis
+        std::int64_t axis_size;        ///< Size of the axis dimension
+        std::int64_t inner_size;       ///< Product of dimensions after axis
+        std::int64_t num_slices;       ///< outer_size * inner_size (for statistics buffers)
     };
 
     /**
@@ -39,7 +39,7 @@ namespace Mila::Dnn
         const char* op_name = "Operation"
     )
     {
-        const int64_t ndim = static_cast<int64_t>( shape.size() );
+        const std::int64_t ndim = static_cast<std::int64_t>( shape.size() );
 
         if ( ndim == 0 )
         {
@@ -48,7 +48,7 @@ namespace Mila::Dnn
             );
         }
 
-        int64_t normalized_axis = axis;
+        std::int64_t normalized_axis = axis;
 
         if ( normalized_axis < 0 )
         {
@@ -63,18 +63,18 @@ namespace Mila::Dnn
             );
         }
 
-        int64_t outer_size = 1;
+        std::int64_t outer_size = 1;
 
-        for ( int64_t i = 0; i < normalized_axis; ++i )
+        for ( std::int64_t i = 0; i < normalized_axis; ++i )
         {
             outer_size *= shape[i];
         }
 
-        const int64_t axis_size = shape[normalized_axis];
+        const std::int64_t axis_size = shape[normalized_axis];
 
-        int64_t inner_size = 1;
+        std::int64_t inner_size = 1;
 
-        for ( int64_t i = normalized_axis + 1; i < ndim; ++i )
+        for ( std::int64_t i = normalized_axis + 1; i < ndim; ++i )
         {
             inner_size *= shape[i];
         }
@@ -94,9 +94,9 @@ namespace Mila::Dnn
      * @param shape Tensor shape.
      * @return int64_t Total number of elements.
      */
-    export int64_t computeNumElements( const shape_t& shape )
+    export std::int64_t computeNumElements( const shape_t& shape )
     {
-        int64_t num_elements = 1;
+        std::int64_t num_elements = 1;
 
         for ( auto dim : shape )
         {
@@ -117,12 +117,12 @@ namespace Mila::Dnn
      */
     export void validateTensorSize(
         const shape_t& shape,
-        int64_t expected_size,
+        std::int64_t expected_size,
         const char* tensor_name = "tensor",
         const char* op_name = "Operation"
     )
     {
-        const int64_t actual_size = computeNumElements( shape );
+        const std::int64_t actual_size = computeNumElements( shape );
 
         if ( actual_size != expected_size )
         {
@@ -139,8 +139,8 @@ namespace Mila::Dnn
      */
     export struct MultiAxisPartition
     {
-        int64_t outer_size;       ///< Product of dimensions before normalized axes
-        int64_t normalized_size;  ///< Product of the normalized dimensions
+        std::int64_t outer_size;       ///< Product of dimensions before normalized axes
+        std::int64_t normalized_size;  ///< Product of the normalized dimensions
         shape_t outer_shape;      ///< Shape of outer dimensions
         shape_t normalized_shape; ///< Shape of normalized dimensions
     };
@@ -163,8 +163,8 @@ namespace Mila::Dnn
         const char* op_name = "Operation"
     )
     {
-        const int64_t ndim = static_cast<int64_t>( shape.size() );
-        const int64_t norm_ndim = static_cast<int64_t>( normalized_shape.size() );
+        const std::int64_t ndim = static_cast<std::int64_t>( shape.size() );
+        const std::int64_t norm_ndim = static_cast<std::int64_t>( normalized_shape.size() );
 
         if ( norm_ndim > ndim )
         {
@@ -175,9 +175,9 @@ namespace Mila::Dnn
             );
         }
 
-        const int64_t offset = ndim - norm_ndim;
+        const std::int64_t offset = ndim - norm_ndim;
 
-        for ( int64_t i = 0; i < norm_ndim; ++i )
+        for ( std::int64_t i = 0; i < norm_ndim; ++i )
         {
             if ( shape[offset + i] != normalized_shape[i] )
             {
@@ -190,16 +190,16 @@ namespace Mila::Dnn
             }
         }
 
-        int64_t outer_size = 1;
+        std::int64_t outer_size = 1;
         shape_t outer_shape{};
 
-        for ( int64_t i = 0; i < offset; ++i )
+        for ( std::int64_t i = 0; i < offset; ++i )
         {
             outer_size *= shape[i];
             outer_shape.dims[outer_shape.ndim++] = shape[i];
         }
 
-        int64_t normalized_size = 1;
+        std::int64_t normalized_size = 1;
 
         for ( auto dim : normalized_shape )
         {

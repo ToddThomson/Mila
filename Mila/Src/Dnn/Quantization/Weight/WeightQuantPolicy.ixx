@@ -3,11 +3,9 @@
  * @brief The concept every weight quantization policy satisfies.
  */
 
-module;
-#include <concepts>
-
 export module Dnn.Quantization.Weight.WeightQuantPolicy;
 
+import std;
 import Dnn.TensorDataType;
 
 namespace Mila::Dnn::Quant::Weight

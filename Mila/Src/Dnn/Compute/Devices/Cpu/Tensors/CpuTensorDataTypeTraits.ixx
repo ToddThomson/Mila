@@ -5,7 +5,7 @@
 
 export module Compute.CpuTensorDataTypeTraits;
 
-import std.compat;
+import std;
 import Dnn.TensorDataType;
 
 namespace Mila::Dnn
@@ -56,12 +56,12 @@ namespace Mila::Dnn
         template<TensorDataType TDataType>
         using native_type = 
             std::conditional_t<TDataType == TensorDataType::FP32, float,
-            std::conditional_t<TDataType == TensorDataType::INT8, int8_t,
-            std::conditional_t<TDataType == TensorDataType::INT16, int16_t,
-            std::conditional_t<TDataType == TensorDataType::INT32, int32_t,
-            std::conditional_t<TDataType == TensorDataType::UINT8, uint8_t,
-            std::conditional_t<TDataType == TensorDataType::UINT16, uint16_t,
-            std::conditional_t<TDataType == TensorDataType::UINT32, uint32_t,
+            std::conditional_t<TDataType == TensorDataType::INT8, std::int8_t,
+            std::conditional_t<TDataType == TensorDataType::INT16, std::int16_t,
+            std::conditional_t<TDataType == TensorDataType::INT32, std::int32_t,
+            std::conditional_t<TDataType == TensorDataType::UINT8, std::uint8_t,
+            std::conditional_t<TDataType == TensorDataType::UINT16, std::uint16_t,
+            std::conditional_t<TDataType == TensorDataType::UINT32, std::uint32_t,
             void>>>>>>>;
     };
 }

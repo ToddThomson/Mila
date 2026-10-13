@@ -6,18 +6,9 @@
  * device-specific UnaryOperation backend (registered as "SwigluOp").
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <sstream>
-#include <type_traits>
-#include <stdexcept>
-#include <format>
-#include <utility>
-#include <optional>
-
 export module Dnn.Components.Swiglu;
+
+import std;
 export import Dnn.Components.SwigluConfig;
 
 import Dnn.Components.Gelu;
@@ -145,10 +136,10 @@ namespace Mila::Dnn
 
             SerializationMetadata meta;
             meta.set( "type", "Swiglu" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() )
                 .set( "template_device", deviceTypeToString( TDeviceType ) )
-                .set( "template_precision", static_cast<int64_t>(TPrecision) );
+                .set( "template_precision", static_cast<std::int64_t>(TPrecision) );
 
             archive.writeMetadata( "meta.json", meta );
 
@@ -420,7 +411,7 @@ namespace Mila::Dnn
 
         static void validateMetadata_( const SerializationMetadata& meta, const std::string& component_name )
         {
-            int64_t version = meta.tryGetInt( "version" ).value_or( 0 );
+            std::int64_t version = meta.tryGetInt( "version" ).value_or( 0 );
             if ( version != 1 )
             {
                 throw std::runtime_error( std::format( "Swiglu: unsupported version {} for '{}'", version, component_name ) );
@@ -433,10 +424,10 @@ namespace Mila::Dnn
             }
 
             std::string file_device = meta.tryGetString( "template_device" ).value_or( "" );
-            int64_t file_precision = meta.tryGetInt( "template_precision" ).value_or( -1 );
+            std::int64_t file_precision = meta.tryGetInt( "template_precision" ).value_or( -1 );
 
             std::string expected_device = deviceTypeToString( TDeviceType );
-            int64_t expected_precision = static_cast<int64_t>(TPrecision);
+            std::int64_t expected_precision = static_cast<std::int64_t>(TPrecision);
 
             if ( file_device != expected_device )
             {

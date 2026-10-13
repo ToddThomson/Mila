@@ -7,30 +7,9 @@
  * removal is refcounted against. See Specifications/ModelDistribution.md.
  */
 
-module;
-#include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <cstdlib>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <ios>
-// Required by every importer of nlohmann.json: basic_json::create compares a unique_ptr
-// against nullptr at the point of instantiation, and those operators are not reachable
-// through the module.
-#include <memory>
-#include <optional>
-#include <set>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <vector>
-
 export module Distribution.ModelStore;
 
+import std;
 export import Distribution.FetchReport;
 export import Distribution.ModelRecord;
 export import Distribution.StoredModel;
@@ -220,7 +199,7 @@ namespace Mila::Distribution
             }
 
             Sha256 hash;
-            uint64_t resume_from = 0;
+            std::uint64_t resume_from = 0;
 
             if ( std::filesystem::exists( partial_path, ignored ) )
             {
@@ -237,7 +216,7 @@ namespace Mila::Distribution
                     "ModelStore: cannot open " + partial_path.string() + " for writing" );
             }
 
-            auto sink = [&]( const char* data, size_t length ) -> bool
+            auto sink = [&]( const char* data, std::size_t length ) -> bool
                 {
                     output.write( data, static_cast<std::streamsize>( length ) );
 
@@ -891,7 +870,7 @@ namespace Mila::Distribution
                         continue;
                     }
 
-                    const uint64_t bytes = std::filesystem::file_size( entry.path(), ignored );
+                    const std::uint64_t bytes = std::filesystem::file_size( entry.path(), ignored );
 
                     ++totals.blob_count;
                     totals.blob_bytes += bytes;
@@ -911,7 +890,7 @@ namespace Mila::Distribution
                     }
 
                     const std::string name = entry.path().filename().string();
-                    const uint64_t bytes = std::filesystem::file_size( entry.path(), ignored );
+                    const std::uint64_t bytes = std::filesystem::file_size( entry.path(), ignored );
 
                     if ( name.ends_with( ".partial" ) )
                     {
@@ -1073,7 +1052,7 @@ namespace Mila::Distribution
             const std::filesystem::path& path, RemovalReport& report, int& counter )
         {
             std::error_code size_error;
-            const uint64_t bytes = std::filesystem::file_size( path, size_error );
+            const std::uint64_t bytes = std::filesystem::file_size( path, size_error );
 
             std::error_code remove_error;
             std::filesystem::remove( path, remove_error );
@@ -1196,7 +1175,7 @@ namespace Mila::Distribution
             {
                 input.read( buffer, sizeof( buffer ) );
 
-                const auto read = static_cast<size_t>( input.gcount() );
+                const auto read = static_cast<std::size_t>( input.gcount() );
 
                 if ( read == 0 )
                 {
@@ -1292,7 +1271,7 @@ namespace Mila::Distribution
                     file.role = entry.key();
                     file.path = value.value( "path", std::string{} );
                     file.sha256 = value.value( "sha256", std::string{} );
-                    file.bytes = value.value( "bytes", uint64_t{ 0 } );
+                    file.bytes = value.value( "bytes", std::uint64_t{ 0 } );
 
                     record.files.push_back( std::move( file ) );
                 }
@@ -1312,7 +1291,7 @@ namespace Mila::Distribution
          * SHA-256 is sequential, so resuming a transfer means re-reading the prefix. That is
          * disk-local and far cheaper than re-downloading it.
          */
-        static uint64_t replayPartialIntoHash(
+        static std::uint64_t replayPartialIntoHash(
             const std::filesystem::path& partial_path, Sha256& hash )
         {
             std::ifstream input( partial_path, std::ios::binary );
@@ -1323,13 +1302,13 @@ namespace Mila::Distribution
             }
 
             std::string buffer( 1u << 20, '\0' );
-            uint64_t total = 0;
+            std::uint64_t total = 0;
 
             for ( ;; )
             {
                 input.read( buffer.data(), static_cast<std::streamsize>( buffer.size() ) );
 
-                const auto read = static_cast<size_t>( input.gcount() );
+                const auto read = static_cast<std::size_t>( input.gcount() );
 
                 if ( read == 0 )
                 {

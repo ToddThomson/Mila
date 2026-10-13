@@ -3,16 +3,9 @@
  * @brief The log-likelihood a language model assigns to a given token sequence.
  */
 
-module;
-#include <cmath>
-#include <cstddef>
-#include <cstdint>
-#include <format>
-#include <stdexcept>
-#include <vector>
-
 export module Dnn.SequenceLogLikelihood;
 
+import std;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn

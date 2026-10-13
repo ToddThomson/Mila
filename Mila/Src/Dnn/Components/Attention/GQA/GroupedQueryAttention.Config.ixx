@@ -12,15 +12,9 @@
  *   num_kv_heads == 1          ->  Multi-Query Attention (MQA)
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <utility>
-#include <sstream>
-#include <cmath>
-
 export module Dnn.Components.GqaConfig;
 
+import std;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.TensorTypes;
@@ -285,10 +279,10 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "model_dim", static_cast<int64_t>(model_dim_) )
-                .set( "num_heads", static_cast<int64_t>(num_heads_) )
-                .set( "num_kv_heads", static_cast<int64_t>(num_kv_heads_) )
-                .set( "window", static_cast<int64_t>(window_) )
+            meta.set( "model_dim", static_cast<std::int64_t>(model_dim_) )
+                .set( "num_heads", static_cast<std::int64_t>(num_heads_) )
+                .set( "num_kv_heads", static_cast<std::int64_t>(num_kv_heads_) )
+                .set( "window", static_cast<std::int64_t>(window_) )
                 .set( "attention_scale", attention_scale_ );
 
             return meta;

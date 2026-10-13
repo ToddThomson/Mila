@@ -5,18 +5,9 @@
  * Provides scoping API and type-safe metadata access without exposing JSON implementation.
  */
 
-module;
-#include <memory>
-#include <string>
-#include <vector>
-#include <stdexcept>
-#include <utility>
-#include <cstdint>
-#include <exception>
-#include <format>
-
 export module Serialization.ModelArchive;
 
+import std;
 import Serialization.ArchiveSerializer;
 import Serialization.OpenMode;
 import Serialization.Metadata;
@@ -235,7 +226,7 @@ namespace Mila::Dnn::Serialization
             return serializer_->hasFile( scopedPath( path ) );
         }
 
-        size_t getFileSize( const std::string& path ) const
+        std::size_t getFileSize( const std::string& path ) const
         {
             requireOpen( "getFileSize" );
             return serializer_->getFileSize( scopedPath( path ) );
@@ -314,14 +305,14 @@ namespace Mila::Dnn::Serialization
 
             const std::string full = scopedPath( path );
 
-            size_t sz = serializer_->getFileSize( full );
+            std::size_t sz = serializer_->getFileSize( full );
             if ( sz == 0 )
             {
                 throw std::runtime_error( "ModelArchive::readMetadata missing file: " + full );
             }
 
             std::string s( sz, '\0' );
-            size_t read = serializer_->extractData( full, s.data(), sz );
+            std::size_t read = serializer_->extractData( full, s.data(), sz );
             if ( read != sz )
             {
                 throw std::runtime_error( "ModelArchive::readMetadata failed to read entire file: " + full );
@@ -352,7 +343,7 @@ namespace Mila::Dnn::Serialization
          * @throws std::runtime_error if archive is not in Write mode
          * @throws std::runtime_error on write failure
          */
-        void writeBlob( const std::string& path, const void* data, size_t size )
+        void writeBlob( const std::string& path, const void* data, std::size_t size )
         {
             requireOpen( "writeBlob" );
             requireMode( OpenMode::Write, "writeBlob" );
@@ -380,7 +371,7 @@ namespace Mila::Dnn::Serialization
          * @throws std::runtime_error if archive is not in Read mode
          * @throws std::runtime_error if file missing or read fails
          */
-        std::vector<uint8_t> readBlob( const std::string& path ) const
+        std::vector<std::uint8_t> readBlob( const std::string& path ) const
         {
             requireOpen( "readBlob" );
             requireMode( OpenMode::Read, "readBlob" );
@@ -393,14 +384,14 @@ namespace Mila::Dnn::Serialization
                     std::format( "ModelArchive::readBlob: file not found: {}", full ) );
             }
 
-            size_t sz = serializer_->getFileSize( full );
+            std::size_t sz = serializer_->getFileSize( full );
             if ( sz == 0 )
             {
                 return {};
             }
 
-            std::vector<uint8_t> buf( sz );
-            size_t read = serializer_->extractData( full, buf.data(), sz );
+            std::vector<std::uint8_t> buf( sz );
+            std::size_t read = serializer_->extractData( full, buf.data(), sz );
             if ( read != sz )
             {
                 throw std::runtime_error(
@@ -420,7 +411,7 @@ namespace Mila::Dnn::Serialization
          *
          * @throws std::runtime_error if file missing or buffer too small
          */
-        size_t readBlobInto( const std::string& path, void* buffer, size_t buffer_size ) const
+        std::size_t readBlobInto( const std::string& path, void* buffer, std::size_t buffer_size ) const
         {
             requireOpen( "readBlobInto" );
             requireMode( OpenMode::Read, "readBlobInto" );
@@ -433,7 +424,7 @@ namespace Mila::Dnn::Serialization
                     std::format( "ModelArchive::readBlobInto: file not found: {}", full ) );
             }
 
-            size_t file_size = serializer_->getFileSize( full );
+            std::size_t file_size = serializer_->getFileSize( full );
             if ( file_size > buffer_size )
             {
                 throw std::runtime_error(
@@ -441,7 +432,7 @@ namespace Mila::Dnn::Serialization
                         buffer_size, file_size ) );
             }
 
-            size_t read = serializer_->extractData( full, buffer, file_size );
+            std::size_t read = serializer_->extractData( full, buffer, file_size );
             if ( read != file_size )
             {
                 throw std::runtime_error(
@@ -491,7 +482,7 @@ namespace Mila::Dnn::Serialization
             if ( scope_stack_.empty() ) return std::string();
 
             std::string p;
-            for ( size_t i = 0; i < scope_stack_.size(); ++i )
+            for ( std::size_t i = 0; i < scope_stack_.size(); ++i )
             {
                 if ( i ) p.push_back( '/' );
                 p += scope_stack_[ i ];

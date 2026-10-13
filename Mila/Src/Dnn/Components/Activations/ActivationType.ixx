@@ -3,11 +3,9 @@
  * @brief Definition of activation function types used throughout the Mila library.
  */
 
-module;
-#include <string>
-#include <stdexcept>
-
 export module Dnn.ActivationType;
+
+import std;
 
 namespace Mila::Dnn
 {

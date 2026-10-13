@@ -8,14 +8,9 @@
  * and defaults to 1.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-#include <utility>
-
 export module Dnn.Components.CausalConv1dConfig;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
@@ -115,9 +110,9 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "channels", static_cast<int64_t>( channels_ ) )
-                .set( "kernel_width", static_cast<int64_t>( kernel_width_ ) )
-                .set( "dilation", static_cast<int64_t>( dilation_ ) )
+            meta.set( "channels", static_cast<std::int64_t>( channels_ ) )
+                .set( "kernel_width", static_cast<std::int64_t>( kernel_width_ ) )
+                .set( "dilation", static_cast<std::int64_t>( dilation_ ) )
                 .set( "has_bias", has_bias_ );
 
             return meta;

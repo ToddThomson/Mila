@@ -26,7 +26,7 @@ module;
 
 export module Compute.CudaLinearOp;
 
-import std.compat;
+import std;
 import :Plans;
 import :Dispatch;
 import :Quantize;
@@ -197,7 +197,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         /// Elements of the primary weight tensor that one row of `in_features` logical weights occupies: bytes for
         /// a packed format, which need not hold a whole number of codes (six-bit codes take 3 bytes per 4).
-        static constexpr int64_t physicalRowElements( int64_t in_features ) noexcept
+        static constexpr std::int64_t physicalRowElements( std::int64_t in_features ) noexcept
         {
             if constexpr ( kIsQuantized && TWeightQuant::kStorageBitsPerElement < 8 )
                 return in_features * TWeightQuant::kStorageBitsPerElement / 8;
@@ -387,8 +387,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             {
                 ensureFp8ScaleScalarsAllocated();
 
-                const int64_t num_scales =
-                    ( static_cast<int64_t>( out_features_ ) * static_cast<int64_t>( weight_in_features_ ) )
+                const std::int64_t num_scales =
+                    ( static_cast<std::int64_t>( out_features_ ) * static_cast<std::int64_t>( weight_in_features_ ) )
                     / TWeightQuant::kQuantizationGroupSize;
 
                 cuda_compute_fp8_weight_scale(
@@ -421,9 +421,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             ITensor& scales_out,
             const shape_t& expected_shape ) requires ( kIsQuantized && !kIsCodebookWeight )
         {
-            const int64_t out_features = static_cast<int64_t>( expected_shape[ 0 ] );
-            const int64_t in_features  = static_cast<int64_t>( expected_shape[ 1 ] );
-            const size_t  src_bytes    = static_cast<size_t>( out_features * in_features )
+            const std::int64_t out_features = static_cast<std::int64_t>( expected_shape[ 0 ] );
+            const std::int64_t in_features  = static_cast<std::int64_t>( expected_shape[ 1 ] );
+            const std::size_t  src_bytes    = static_cast<std::size_t>( out_features * in_features )
                                          * sizeof( __nv_bfloat16 );
 
             cudaStream_t stream = context_->getStream();
@@ -431,7 +431,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             // Staged through the load's own buffer, in row blocks under its limit: the buffer is
             // freed when the load returns, and the limit bounds the load's peak. Qwen 3.8's lm_head
             // is 2.54 GiB of BF16 source, so a whole-tensor request would not be a small transient.
-            const size_t staging_bytes = std::min( src_bytes, context_->getLoadStagingLimitBytes() );
+            const std::size_t staging_bytes = std::min( src_bytes, context_->getLoadStagingLimitBytes() );
 
             if constexpr ( kIsPerChannelQuantized )
             {
@@ -463,7 +463,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     // the reduction reads the freshly written values.
                     ensureFp8ScaleScalarsAllocated();
 
-                    const int64_t num_scales = ( out_features * in_features )
+                    const std::int64_t num_scales = ( out_features * in_features )
                         / TWeightQuant::kQuantizationGroupSize;
                     cuda_compute_fp8_weight_scale(
                         weight_fp8_scale_,
@@ -546,11 +546,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 return 0;
             }
 
-            int64_t outer_size = 1;
+            std::int64_t outer_size = 1;
 
-            for ( size_t i = 0; i + 1 < input_shape.size(); ++i )
+            for ( std::size_t i = 0; i + 1 < input_shape.size(); ++i )
             {
-                outer_size *= static_cast<int64_t>( input_shape[ i ] );
+                outer_size *= static_cast<std::int64_t>( input_shape[ i ] );
             }
 
             return scratchBytesFor( static_cast<int>( config_.getOutputFeatures() ),
@@ -647,7 +647,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             cached_outer_size_ = 1;
 
-            for ( size_t i = 0; i + 1 < input_shape.size(); ++i )
+            for ( std::size_t i = 0; i + 1 < input_shape.size(); ++i )
             {
                 cached_outer_size_ *= static_cast<int>(input_shape[ i ]);
             }
@@ -756,8 +756,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 for ( int row = 0; row < rows; ++row )
                 {
                     decodeRow(
-                        input_ptr + static_cast<ptrdiff_t>( row ) * cached_in_features_,
-                        output_ptr + static_cast<ptrdiff_t>( row ) * out_features_,
+                        input_ptr + static_cast<std::ptrdiff_t>( row ) * cached_in_features_,
+                        output_ptr + static_cast<std::ptrdiff_t>( row ) * out_features_,
                         stream );
                 }
             }
@@ -901,8 +901,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         ComputeType* weight_grad_{ nullptr };
         ComputeType* bias_grad_{ nullptr };
 
-        int64_t weight_out_features_{ 0 };
-        int64_t weight_in_features_{ 0 };
+        std::int64_t weight_out_features_{ 0 };
+        std::int64_t weight_in_features_{ 0 };
 
         int cached_outer_size_{ 0 };
         int cached_in_features_{ 0 };
@@ -1050,19 +1050,19 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          */
         void dequantizeStrip( __nv_bfloat16* staging, int begin, int rows, cudaStream_t stream ) const
         {
-            const auto* strip_weight = weight_ + static_cast<ptrdiff_t>( begin )
+            const auto* strip_weight = weight_ + static_cast<std::ptrdiff_t>( begin )
                 * physicalRowElements( cached_in_features_ );
 
             if constexpr ( kIsCodebookWeight )
             {
-                const auto* strip_scales = weight_scales_ + static_cast<ptrdiff_t>( begin )
+                const auto* strip_scales = weight_scales_ + static_cast<std::ptrdiff_t>( begin )
                     * ( cached_in_features_ / weight_group_size_ );
 
                 if constexpr ( kHasHighBitPlane )
                 {
                     launch_codebook3_dequantize_to_bf16(
                         stream, staging, strip_weight,
-                        weight_high_plane_ + static_cast<ptrdiff_t>( begin ) * ( cached_in_features_ / 8 ),
+                        weight_high_plane_ + static_cast<std::ptrdiff_t>( begin ) * ( cached_in_features_ / 8 ),
                         strip_scales, weight_codebook_,
                         cached_in_features_, rows, weight_group_size_ );
                 }
@@ -1085,7 +1085,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             {
                 cuda_fp4_dequantize_to_bf16(
                     staging, strip_weight,
-                    weight_scales_ + static_cast<ptrdiff_t>( begin )
+                    weight_scales_ + static_cast<std::ptrdiff_t>( begin )
                         * ( cached_in_features_ / weight_group_size_ ),
                     rows, cached_in_features_, weight_group_size_, stream );
             }
@@ -1105,7 +1105,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             const auto in_features = static_cast<std::size_t>( cached_in_features_ );
 
             auto* scratch = static_cast<char*>( context_->getDeviceScratchBuffer( int4GemmScratchBytes( rows, in_features ) ) );
-            auto* activation_codes = reinterpret_cast<int8_t*>( scratch );
+            auto* activation_codes = reinterpret_cast<std::int8_t*>( scratch );
             auto* activation_scales = reinterpret_cast<float*>( scratch + int4GemmScaleOffset( rows, in_features ) );
 
             cuda_quantize_bf16_to_int8_per_block(
@@ -1147,8 +1147,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         void runStagedPrefill( const ComputeType* input_ptr, ComputeType* output_ptr,
             int outer_size, cudaStream_t stream ) const
         {
-            const size_t staging_bytes = static_cast<size_t>( strip_rows_ )
-                * static_cast<size_t>( cached_in_features_ )
+            const std::size_t staging_bytes = static_cast<std::size_t>( strip_rows_ )
+                * static_cast<std::size_t>( cached_in_features_ )
                 * sizeof( __nv_bfloat16 );
 
             auto* staging = static_cast<__nv_bfloat16*>(
@@ -1355,15 +1355,15 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             // ONE STRIP of output channels, not the whole matrix. Unstriped, the
             // head asks for 1212.5 MiB here regardless of how many rows the
             // caller wants -- see kMaxStagingBytes.
-            const size_t weight_fp8_bytes = static_cast<size_t>( strip_rows_ )
-                * static_cast<size_t>( cached_in_features_ );
-            const size_t weight_fp8_bytes_aligned =
-                ( weight_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
-            const size_t activation_fp8_bytes = static_cast<size_t>( plan_rows )
-                * static_cast<size_t>( cached_in_features_ );
-            const size_t activation_fp8_bytes_aligned =
-                ( activation_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
-            const size_t token_scale_bytes = static_cast<size_t>( plan_rows )
+            const std::size_t weight_fp8_bytes = static_cast<std::size_t>( strip_rows_ )
+                * static_cast<std::size_t>( cached_in_features_ );
+            const std::size_t weight_fp8_bytes_aligned =
+                ( weight_fp8_bytes + 15u ) & ~static_cast<std::size_t>( 15u );
+            const std::size_t activation_fp8_bytes = static_cast<std::size_t>( plan_rows )
+                * static_cast<std::size_t>( cached_in_features_ );
+            const std::size_t activation_fp8_bytes_aligned =
+                ( activation_fp8_bytes + 15u ) & ~static_cast<std::size_t>( 15u );
+            const std::size_t token_scale_bytes = static_cast<std::size_t>( plan_rows )
                 * sizeof( float );
 
             auto* scratch = static_cast<char*>( context_->getDeviceScratchBuffer(
@@ -1395,9 +1395,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 // dequantizeStrip relies on for the BF16 formats.
                 cuda_fp4_dequantize_to_fp8(
                     weight_fp8,
-                    weight_ + static_cast<ptrdiff_t>( begin )
+                    weight_ + static_cast<std::ptrdiff_t>( begin )
                         * physicalRowElements( cached_in_features_ ),
-                    weight_scales_ + static_cast<ptrdiff_t>( begin )
+                    weight_scales_ + static_cast<std::ptrdiff_t>( begin )
                         * ( cached_in_features_ / weight_group_size_ ),
                     weight_fp8_scale_,
                     rows, cached_in_features_,
@@ -1499,8 +1499,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 for ( int t = 0; t < outer_size; ++t )
                 {
                     decodeRow(
-                        input_ptr + static_cast<ptrdiff_t>( t ) * cached_in_features_,
-                        output_ptr + static_cast<ptrdiff_t>( t ) * out_features_,
+                        input_ptr + static_cast<std::ptrdiff_t>( t ) * cached_in_features_,
+                        output_ptr + static_cast<std::ptrdiff_t>( t ) * out_features_,
                         stream );
                 }
             }

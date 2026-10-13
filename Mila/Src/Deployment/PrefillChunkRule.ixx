@@ -6,12 +6,9 @@
  * the prediction and the build cannot disagree about it. See Specifications/Deployment.md.
  */
 
-module;
-#include <algorithm>
-#include <cstddef>
-
 export module Deployment.PrefillChunkRule;
 
+import std;
 import Dnn.Component;
 import Dnn.TensorTypes;
 

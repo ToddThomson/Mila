@@ -6,11 +6,9 @@
  * Copyright (c) 2021..2026 Todd J. Thomson
  */
 
-module;
-#include <string>
-#include <sstream>
-
 export module Mila.Version;
+
+import std;
 
 namespace Mila
 {

@@ -7,23 +7,9 @@
  * UnaryOperation backend.
  */
 
-module;
-#include <iostream>
-#include <sstream>
-#include <memory>
-#include <string>
-#include <vector>
-#include <type_traits>
-#include <cstdint>
-#include <stdexcept>
-#include <mutex>
-#include <utility>
-#include <optional>
-#include <numeric>
-#include <algorithm>
-#include <format>
-
 export module Dnn.Components.LayerNorm;
+
+import std;
 export import Dnn.Components.LayerNormConfig;
 
 import Dnn.Component;
@@ -248,7 +234,7 @@ namespace Mila::Dnn
 
             SerializationMetadata meta;
             meta.set( "type", "LayerNorm" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() )
                 .set( "has_bias", config_.hasBias() );
 
@@ -573,8 +559,8 @@ namespace Mila::Dnn
                         input_shape.size(), normalized_shape.size() ) );
                 }
 
-                size_t offset = input_shape.size() - normalized_shape.size();
-                for ( size_t i = 0; i < normalized_shape.size(); ++i )
+                std::size_t offset = input_shape.size() - normalized_shape.size();
+                for ( std::size_t i = 0; i < normalized_shape.size(); ++i )
                 {
                     if ( input_shape[ offset + i ] != normalized_shape[ i ] )
                     {
@@ -586,8 +572,8 @@ namespace Mila::Dnn
             }
             else if ( config_.getAxis().has_value() )
             {
-                int64_t axis = config_.getAxis().value();
-                int64_t rank = static_cast<int64_t>(input_shape.size());
+                std::int64_t axis = config_.getAxis().value();
+                std::int64_t rank = static_cast<std::int64_t>(input_shape.size());
 
                 // Resolve negative axis
                 if ( axis < 0 )
@@ -613,9 +599,9 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "Input rank must be >= normalized_shape rank" );
             }
 
-            size_t offset = input_shape.size() - norm_shape.size();
+            std::size_t offset = input_shape.size() - norm_shape.size();
 
-            for ( size_t i = 0; i < norm_shape.size(); ++i )
+            for ( std::size_t i = 0; i < norm_shape.size(); ++i )
             {
                 if ( input_shape[ offset + i ] != norm_shape[ i ] )
                 {

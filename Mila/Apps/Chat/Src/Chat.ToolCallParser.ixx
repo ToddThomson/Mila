@@ -7,15 +7,9 @@
  * JSON detection for models that omit the prefix token.
  */
 
-module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <stdexcept>
-#include <format>
-
 export module Chat.ToolCallParser;
 
+import std;
 import Chat.Message;
 import Chat.Json;
 
@@ -79,7 +73,7 @@ namespace Mila::ChatApp
          * response string. End-of-string is therefore a valid implicit terminator
          * and is tried last after the explicit token search.
          */
-        static std::optional<ToolCall> parseTagged( const std::string& response, size_t tag_pos )
+        static std::optional<ToolCall> parseTagged( const std::string& response, std::size_t tag_pos )
         {
             const auto content_start = tag_pos + kPythonTag.size();
 
@@ -155,7 +149,7 @@ namespace Mila::ChatApp
             return call;
         }
 
-        static std::optional<ToolCall> parsePythonicCall( const std::string& response, size_t bracket_pos )
+        static std::optional<ToolCall> parsePythonicCall( const std::string& response, std::size_t bracket_pos )
         {
             const auto bracket_end = response.rfind( ']' );
 

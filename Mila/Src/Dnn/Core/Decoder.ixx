@@ -3,11 +3,9 @@
  * @brief Base interface for Mila decoders.
  */
 
-module;
-#include <memory>
-
 export module Dnn.DecoderBase;
 
+import std;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;

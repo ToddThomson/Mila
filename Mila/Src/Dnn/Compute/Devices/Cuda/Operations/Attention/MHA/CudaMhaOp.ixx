@@ -11,7 +11,7 @@ module;
 
 export module Compute.CudaMultiHeadAttentionOp;
 
-import std.compat;
+import std;
 import :Plans;
 import :Dispatch;
 
@@ -157,7 +157,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             const float alpha = 1.0f;
             const float beta = 0.0f;
-            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+            const float scale = 1.0f / std::sqrt( static_cast<float>(HS_) );
 
             Detail::cuda_mha_kernels<NativeType>::permute_qkv_padded(
                 q_, k_, v_,
@@ -243,7 +243,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             const float alpha = 1.0f;
             const float beta = 0.0f;
-            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+            const float scale = 1.0f / std::sqrt( static_cast<float>(HS_) );
 
             Detail::cuda_mha_kernels<NativeType>::permute_qkv_decode(
                 q_, k_, v_,
@@ -275,7 +275,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //    Logging::Logger::info( this->getName() + ": dbg.v_ (device dump):\n" + v_dump );
             //}
 
-            const NativeType* q_decode = q_ + static_cast<int64_t>(kernel_position) * HS_;
+            const NativeType* q_decode = q_ + static_cast<std::int64_t>(kernel_position) * HS_;
 
             execute_plan<NativeType>(
                 cublaslt_handle_,
@@ -442,7 +442,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             const float alpha = 1.0f;
             const float beta = 0.0f;
-            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+            const float scale = 1.0f / std::sqrt( static_cast<float>(HS_) );
 
             // Permute QKV from [B, T, 3*C] to separate Q, K, V with shape [B, NH, T, HS]
             Detail::cuda_mha_kernels<NativeType>::permute_qkv(
@@ -555,7 +555,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             const float alpha = 1.0f;
             const float beta = 0.0f;
-            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+            const float scale = 1.0f / std::sqrt( static_cast<float>(HS_) );
 
             Detail::cuda_mha_kernels<NativeType>::unpermute_backward(
                 dVout_, dY,
@@ -744,7 +744,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                     "CudaAttentionOp: input must have rank 3 (batch_size, seq_length, 3 * model_dim)" );
             }
 
-            const int64_t expected_qkv_dim = 3 * config_.getModelDim();
+            const std::int64_t expected_qkv_dim = 3 * config_.getModelDim();
 
             if ( input_shape[ 2 ] != expected_qkv_dim )
             {

@@ -9,23 +9,9 @@
  * See Specifications/ModelDistribution.md.
  */
 
-module;
-#include <cstddef>
-#include <cstdint>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <ios>
-// Required by every importer of nlohmann.json -- see Distribution/ModelStore.ixx.
-#include <memory>
-#include <stdexcept>
-#include <string>
-#include <utility>
-#include <vector>
-
 export module Distribution.HuggingFaceHub;
 
+import std;
 import nlohmann.json;
 import Distribution.Environment;
 import Distribution.ModelCoordinate;
@@ -83,7 +69,7 @@ namespace Mila::Distribution
         {
             file.read( buffer, sizeof( buffer ) );
 
-            const auto read = static_cast<size_t>( file.gcount() );
+            const auto read = static_cast<std::size_t>( file.gcount() );
 
             if ( read == 0 )
             {
@@ -223,8 +209,8 @@ namespace Mila::Distribution
         FetchReport fetchFile(
             const ModelCoordinate& coordinate,
             const std::string& path,
-            uint64_t resume_from,
-            const std::function<bool( const char*, size_t )>& sink ) const override
+            std::uint64_t resume_from,
+            const std::function<bool( const char*, std::size_t )>& sink ) const override
         {
             HttpRequest request;
             request.url = fileUrl( coordinate, path );

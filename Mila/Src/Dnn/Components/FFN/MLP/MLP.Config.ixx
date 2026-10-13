@@ -5,15 +5,9 @@
  * Provides a fluent configuration object used to construct MLP components.
  */
 
-module;
-#include <stdexcept>
-#include <cstdint>
-#include <string>
-#include <utility>
-#include <sstream>
-
 export module Dnn.Components.MLP:Config;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Dnn.ActivationType;
@@ -154,10 +148,10 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "input_features", static_cast<int64_t>(input_features_) )
-                .set( "hidden_size", static_cast<int64_t>(hidden_size_) )
+            meta.set( "input_features", static_cast<std::int64_t>(input_features_) )
+                .set( "hidden_size", static_cast<std::int64_t>(hidden_size_) )
                 .set( "has_bias", has_bias_ )
-                .set( "activation", static_cast<int64_t>(activation_type_) );
+                .set( "activation", static_cast<std::int64_t>(activation_type_) );
 
             return meta;
         }

@@ -34,7 +34,7 @@ module;
 
 export module Compute.Cuda.CublasLtLinearPlan;
 
-import std.compat;
+import std;
 import Dnn.TensorDataType;
 import Compute.CudaTensorDataType;
 import Cuda.Error;
@@ -317,7 +317,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             // Fast accumulation enables the FP8 tensor-core algorithm path on Ada.
             // Without this the heuristic returns no valid algorithms.
-            const int8_t fast_accum = 1;
+            const std::int8_t fast_accum = 1;
             status = cublasLtMatmulDescSetAttribute(
                 plan.matmul_desc,
                 CUBLASLT_MATMUL_DESC_FAST_ACCUM,
@@ -418,7 +418,7 @@ namespace Mila::Dnn::Compute::Cuda
         // --- heuristic ---
         cublasLtCheckStatus( cublasLtMatmulPreferenceCreate( &plan.preference ) );
 
-        constexpr size_t kWorkspaceHint = 4ull * 1024 * 1024;
+        constexpr std::size_t kWorkspaceHint = 4ull * 1024 * 1024;
         cublasLtCheckStatus( cublasLtMatmulPreferenceSetAttribute(
             plan.preference,
             CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
@@ -489,7 +489,7 @@ namespace Mila::Dnn::Compute::Cuda
             const float* weight_scale,
             cudaStream_t stream,
             void*   workspace      = nullptr,
-            size_t  workspace_size = 0 )
+            std::size_t  workspace_size = 0 )
     {
         if ( !plan.isValid() )
         {
@@ -621,7 +621,7 @@ namespace Mila::Dnn::Compute::Cuda
 
         cublasLtCheckStatus( cublasLtMatmulPreferenceCreate( &plan.preference ) );
 
-        constexpr size_t kWorkspaceHint = 4ull * 1024 * 1024;
+        constexpr std::size_t kWorkspaceHint = 4ull * 1024 * 1024;
         cublasLtCheckStatus( cublasLtMatmulPreferenceSetAttribute(
             plan.preference,
             CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
@@ -670,7 +670,7 @@ namespace Mila::Dnn::Compute::Cuda
             typename CublasLtLinearPlan<TComputePrecision, TensorDataType::FP8_E4M3>::ActivationType* C,
             cudaStream_t stream,
             void*   workspace      = nullptr,
-            size_t  workspace_size = 0 )
+            std::size_t  workspace_size = 0 )
     {
         if ( !plan.isValid() )
         {

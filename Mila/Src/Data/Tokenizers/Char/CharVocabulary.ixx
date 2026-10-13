@@ -5,20 +5,9 @@
  * for full provenance tracking. Use static factory methods to create instances.
  */
 
-module;
-#include <vector>
-#include <unordered_map>
-#include <string>
-#include <fstream>
-#include <algorithm>
-#include <stdexcept>
-#include <cstdint>
-#include <filesystem>
-#include <optional>
-#include <cctype>
-
 export module Data.CharVocabulary;
 
+import std;
 import Data.SpecialTokens;
 import Data.TokenizerVocabulary;
 import Data.CharVocabularyConfig;
@@ -159,8 +148,8 @@ namespace Mila::Data
             }
 
             SerializationMetadata meta = config_.toMetadata();
-            meta.set( "format_version", static_cast<int64_t>( 1 ) )
-                .set( "actual_vocab_size", static_cast<int64_t>( idx_to_char_.size() ) )
+            meta.set( "format_version", static_cast<std::int64_t>( 1 ) )
+                .set( "actual_vocab_size", static_cast<std::int64_t>( idx_to_char_.size() ) )
                 .set( "has_special_tokens", pad_token_id_ >= 0 );
 
             MilaFileHeader header( MilaFileType::CharVocabulary, std::move( meta ) );
@@ -173,7 +162,7 @@ namespace Mila::Data
         // TokenizerVocabulary Interface
         // ====================================================================
 
-        size_t getSize() const override
+        std::size_t getSize() const override
         {
             return idx_to_char_.size();
         }
@@ -203,9 +192,9 @@ namespace Mila::Data
 
         std::optional<std::string> idToToken( TokenId id ) const override
         {
-            if ( id >= 0 && static_cast<size_t>( id ) < idx_to_char_.size() )
+            if ( id >= 0 && static_cast<std::size_t>( id ) < idx_to_char_.size() )
             {
-                return std::string( 1, idx_to_char_[ static_cast<size_t>( id ) ] );
+                return std::string( 1, idx_to_char_[ static_cast<std::size_t>( id ) ] );
             }
 
             return std::nullopt;
@@ -229,9 +218,9 @@ namespace Mila::Data
 
         char indexToChar( TokenId idx ) const
         {
-            if ( idx >= 0 && static_cast<size_t>( idx ) < idx_to_char_.size() )
+            if ( idx >= 0 && static_cast<std::size_t>( idx ) < idx_to_char_.size() )
             {
-                return idx_to_char_[ static_cast<size_t>( idx ) ];
+                return idx_to_char_[ static_cast<std::size_t>( idx ) ];
             }
 
             return '?';
@@ -289,7 +278,7 @@ namespace Mila::Data
 
             if ( config_.isCaseSensitive() )
             {
-                for ( size_t i = 0; i < text.size(); ++i )
+                for ( std::size_t i = 0; i < text.size(); ++i )
                 {
                     char c = text[ i ];
 
@@ -310,7 +299,7 @@ namespace Mila::Data
             }
             else
             {
-                for ( size_t i = 0; i < text.size(); ++i )
+                for ( std::size_t i = 0; i < text.size(); ++i )
                 {
                     unsigned char cu = static_cast<unsigned char>( text[ i ] );
 
@@ -445,7 +434,7 @@ namespace Mila::Data
 
         void saveContent( std::ostream& file ) const
         {
-            size_t vocab_size = idx_to_char_.size();
+            std::size_t vocab_size = idx_to_char_.size();
             file.write( reinterpret_cast<const char*>( &vocab_size ), sizeof( vocab_size ) );
 
             bool has_special = (pad_token_id_ >= 0);
@@ -470,7 +459,7 @@ namespace Mila::Data
 
         void loadContent( std::istream& file )
         {
-            size_t vocab_size;
+            std::size_t vocab_size;
             file.read( reinterpret_cast<char*>( &vocab_size ), sizeof( vocab_size ) );
 
             bool has_special;
@@ -488,7 +477,7 @@ namespace Mila::Data
             }
 
             idx_to_char_.resize( vocab_size );
-            for ( size_t i = 0; i < vocab_size; ++i )
+            for ( std::size_t i = 0; i < vocab_size; ++i )
             {
                 char c;
                 file.read( &c, sizeof( char ) );

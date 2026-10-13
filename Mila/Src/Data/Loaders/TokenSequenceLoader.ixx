@@ -1,26 +1,9 @@
 module;
-#include <vector>
-#include <filesystem>
 #include <cstdio>
-#include <queue>
-#include <iostream>
-#include <thread>
-#include <mutex>
-#include <chrono>
-#include <atomic>
-#include <memory>
-#include <string>
-#include <stdexcept>
-#include <span>
-#include <condition_variable>
-#include <cstdint>
-#include <cstring>
-#include <random>
-#include <algorithm>
-#include <type_traits>
-#include <exception>
 
 export module Data.TokenSequenceLoader;
+
+import std;
 export import :Config;
 
 import Data.DataLoader;
@@ -87,8 +70,8 @@ namespace Mila::Data
          */
         TokenSequenceLoader(
             const std::filesystem::path& tokens_file,
-            int64_t batch_size,
-            int64_t seq_length,
+            std::int64_t batch_size,
+            std::int64_t seq_length,
             bool is_training,
             DeviceId device,
             const TokenSequenceLoaderConfig& config = TokenSequenceLoaderConfig() )
@@ -207,7 +190,7 @@ namespace Mila::Data
         TokenSequenceLoader( TokenSequenceLoader&& ) = delete;
         TokenSequenceLoader& operator=( TokenSequenceLoader&& ) = delete;
 
-        int64_t numBatches() const override
+        std::int64_t numBatches() const override
         {
             return num_batches_;
         }
@@ -324,51 +307,51 @@ namespace Mila::Data
             return *front_target_tensor_;
         }
 
-        size_t numTokens() const
+        std::size_t numTokens() const
         {
             return num_tokens_;
         }
 
-        int64_t sequenceLength() const
+        std::int64_t sequenceLength() const
         {
             return seq_length_;
         }
 
-        size_t windowSizeTokens() const
+        std::size_t windowSizeTokens() const
         {
             return window_size_tokens_;
         }
 
-        size_t numWindows() const
+        std::size_t numWindows() const
         {
             return num_windows_;
         }
 
     private:
         // Configuration
-        int64_t seq_length_;
+        std::int64_t seq_length_;
         bool is_training_;
         DeviceId device_;
         TokenSequenceLoaderConfig config_;
 
         // File management
         std::filesystem::path tokens_file_path_;
-        size_t file_size_;
-        size_t num_tokens_;
+        std::size_t file_size_;
+        std::size_t num_tokens_;
 
         // Window management
-        size_t window_size_tokens_;
-        size_t sequences_per_window_;
-        size_t batches_per_window_;
-        size_t num_windows_;
-        int64_t num_batches_;
+        std::size_t window_size_tokens_;
+        std::size_t sequences_per_window_;
+        std::size_t batches_per_window_;
+        std::size_t num_windows_;
+        std::int64_t num_batches_;
 
         // Current position
-        std::atomic<size_t> current_window_idx_;
-        std::atomic<size_t> current_batch_in_window_;
+        std::atomic<std::size_t> current_window_idx_;
+        std::atomic<std::size_t> current_batch_in_window_;
 
         // Shuffling for training
-        std::vector<size_t> sequence_indices_;
+        std::vector<std::size_t> sequence_indices_;
 
         // Double buffering
         std::shared_ptr<TensorType> front_input_tensor_;
@@ -415,7 +398,7 @@ namespace Mila::Data
         {
             num_tokens_ = file_size_ / sizeof( TokenId );
 
-            const size_t tokens_needed = this->batchSize() * (seq_length_ + 1); // +1 for target shift
+            const std::size_t tokens_needed = this->batchSize() * (seq_length_ + 1); // +1 for target shift
             if ( num_tokens_ < tokens_needed )
             {
                 throw std::runtime_error(
@@ -432,8 +415,8 @@ namespace Mila::Data
             else
             {
                 // Default: use reasonable window size based on memory constraints
-                const size_t default_window = 25'000'000; // ~100MB for uint32
-                const size_t min_window = tokens_needed * 10;
+                const std::size_t default_window = 25'000'000; // ~100MB for uint32
+                const std::size_t min_window = tokens_needed * 10;
                 window_size_tokens_ = std::min(
                     default_window,
                     std::max( min_window, num_tokens_ / 4 )
@@ -451,7 +434,7 @@ namespace Mila::Data
             // Each sequence needs seq_length + 1 tokens (for target shift)
             sequences_per_window_ = window_size_tokens_ / (seq_length_ + 1);
 
-            if ( sequences_per_window_ < static_cast<size_t>( this->batchSize() ) )
+            if ( sequences_per_window_ < static_cast<std::size_t>( this->batchSize() ) )
             {
                 throw std::runtime_error(
                     "Window too small to produce even one batch. "
@@ -461,7 +444,7 @@ namespace Mila::Data
             batches_per_window_ = sequences_per_window_ / this->batchSize();
 
             // Calculate number of windows needed to cover dataset
-            const size_t total_sequences = num_tokens_ / (seq_length_ + 1);
+            const std::size_t total_sequences = num_tokens_ / (seq_length_ + 1);
             num_windows_ = (total_sequences + sequences_per_window_ - 1) / sequences_per_window_;
 
             if ( num_windows_ == 0 )
@@ -488,7 +471,7 @@ namespace Mila::Data
             sequence_indices_.clear();
             sequence_indices_.reserve( sequences_per_window_ );
 
-            for ( size_t i = 0; i < sequences_per_window_; ++i )
+            for ( std::size_t i = 0; i < sequences_per_window_; ++i )
             {
                 sequence_indices_.push_back( i );
             }
@@ -564,14 +547,14 @@ namespace Mila::Data
 
                 while ( !stop_ )
                 {
-                    const size_t window_idx = current_window_idx_.load();
-                    const size_t batch_idx = current_batch_in_window_.load();
+                    const std::size_t window_idx = current_window_idx_.load();
+                    const std::size_t batch_idx = current_batch_in_window_.load();
 
                     // Calculate global batch number
-                    const size_t global_batch = window_idx * batches_per_window_ + batch_idx;
+                    const std::size_t global_batch = window_idx * batches_per_window_ + batch_idx;
 
                     // Check if we've completed all batches in non-training mode
-                    if ( !is_training_ && global_batch >= static_cast<size_t>(num_batches_) )
+                    if ( !is_training_ && global_batch >= static_cast<std::size_t>(num_batches_) )
                     {
                         break; // Evaluation mode: stop at epoch end
                     }
@@ -624,11 +607,11 @@ namespace Mila::Data
                     }
 
                     // Advance to next batch
-                    size_t next_batch = batch_idx + 1;
+                    std::size_t next_batch = batch_idx + 1;
                     if ( next_batch >= batches_per_window_ )
                     {
                         next_batch = 0;
-                        size_t next_window = window_idx + 1;
+                        std::size_t next_window = window_idx + 1;
 
                         if ( is_training_ )
                         {
@@ -664,19 +647,19 @@ namespace Mila::Data
          * token corpora without the platform-specific _fseeki64/fseeko split (which a
          * C++23 module unit cannot express without a preprocessor branch).
          */
-        static void seekToToken( std::FILE* file, size_t token_index )
+        static void seekToToken( std::FILE* file, std::size_t token_index )
         {
             if ( std::fseek( file, 0, SEEK_SET ) != 0 )
             {
                 throw std::runtime_error( "Failed to seek to window position" );
             }
 
-            size_t remaining_bytes = token_index * sizeof( TokenId );
+            std::size_t remaining_bytes = token_index * sizeof( TokenId );
             constexpr long chunk_bytes = 1L << 30; // 1 GiB
 
             while ( remaining_bytes > 0 )
             {
-                const long step = (remaining_bytes > static_cast<size_t>( chunk_bytes ))
+                const long step = (remaining_bytes > static_cast<std::size_t>( chunk_bytes ))
                     ? chunk_bytes
                     : static_cast<long>( remaining_bytes );
 
@@ -685,7 +668,7 @@ namespace Mila::Data
                     throw std::runtime_error( "Failed to seek to window position" );
                 }
 
-                remaining_bytes -= static_cast<size_t>( step );
+                remaining_bytes -= static_cast<std::size_t>( step );
             }
         }
 
@@ -696,10 +679,10 @@ namespace Mila::Data
          * @param buffer Destination buffer (must have space for window_size_tokens_)
          * @param window_idx Which window to load
          */
-        void loadWindowFromFile( std::FILE* file, TokenId* buffer, size_t window_idx )
+        void loadWindowFromFile( std::FILE* file, TokenId* buffer, std::size_t window_idx )
         {
-            const size_t start_token = (window_idx * sequences_per_window_ * (seq_length_ + 1)) % num_tokens_;
-            size_t tokens_to_read = std::min( window_size_tokens_, num_tokens_ - start_token );
+            const std::size_t start_token = (window_idx * sequences_per_window_ * (seq_length_ + 1)) % num_tokens_;
+            std::size_t tokens_to_read = std::min( window_size_tokens_, num_tokens_ - start_token );
 
             seekToToken( file, start_token );
 
@@ -711,7 +694,7 @@ namespace Mila::Data
             // Wrap around if needed
             if ( tokens_to_read < window_size_tokens_ )
             {
-                const size_t remaining = window_size_tokens_ - tokens_to_read;
+                const std::size_t remaining = window_size_tokens_ - tokens_to_read;
 
                 seekToToken( file, 0 );
 
@@ -734,26 +717,26 @@ namespace Mila::Data
          */
         void fillBatch(
             const TokenId* window_buffer,
-            size_t batch_idx,
+            std::size_t batch_idx,
             HostType* input_dest,
             HostType* target_dest )
         {
-            const size_t batch_start_seq = batch_idx * this->batchSize();
+            const std::size_t batch_start_seq = batch_idx * this->batchSize();
 
-            for ( size_t b = 0; b < static_cast<size_t>( this->batchSize() ); ++b )
+            for ( std::size_t b = 0; b < static_cast<std::size_t>( this->batchSize() ); ++b )
             {
-                const size_t seq_idx = is_training_
+                const std::size_t seq_idx = is_training_
                     ? sequence_indices_[ batch_start_seq + b ]
                     : batch_start_seq + b;
 
                 // Each sequence starts at seq_idx * (seq_length + 1) to avoid overlap
                 // and to have room for target shift
-                const size_t token_offset = seq_idx * (seq_length_ + 1);
+                const std::size_t token_offset = seq_idx * (seq_length_ + 1);
 
-                for ( size_t t = 0; t < static_cast<size_t>( seq_length_ ); ++t )
+                for ( std::size_t t = 0; t < static_cast<std::size_t>( seq_length_ ); ++t )
                 {
-                    const size_t input_idx = (token_offset + t) % window_size_tokens_;
-                    const size_t target_idx = (token_offset + t + 1) % window_size_tokens_;
+                    const std::size_t input_idx = (token_offset + t) % window_size_tokens_;
+                    const std::size_t target_idx = (token_offset + t + 1) % window_size_tokens_;
 
                     input_dest[ b * seq_length_ + t ] = static_cast<HostType>( window_buffer[ input_idx ] );
                     target_dest[ b * seq_length_ + t ] = static_cast<HostType>( window_buffer[ target_idx ] );

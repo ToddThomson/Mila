@@ -7,17 +7,9 @@
  * See Specifications/ModelDistribution.md.
  */
 
-module;
-#include <cstdint>
-#include <filesystem>
-#include <format>
-#include <functional>
-#include <stdexcept>
-#include <string>
-#include <system_error>
-
 export module Distribution.ModelResolver;
 
+import std;
 import Distribution.ModelCoordinate;
 import Distribution.ModelManifest;
 import Distribution.ModelStore;
@@ -137,8 +129,8 @@ namespace Mila::Distribution
             store_.ensureBlob(
                 std::format( "{} ({})", path, coordinate.toString() ),
                 file.sha256,
-                [&hub, &source, path]( uint64_t resume_from,
-                    const std::function<bool( const char*, size_t )>& sink ) -> FetchReport
+                [&hub, &source, path]( std::uint64_t resume_from,
+                    const std::function<bool( const char*, std::size_t )>& sink ) -> FetchReport
                 {
                     return hub.fetchFile( source, path, resume_from, sink );
                 } );

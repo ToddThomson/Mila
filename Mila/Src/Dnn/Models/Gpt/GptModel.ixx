@@ -14,27 +14,9 @@
  *                      via ModelArchive. Round-trip path after training.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <sstream>
-#include <stdexcept>
-#include <filesystem>
-#include <format>
-#include <random>
-#include <optional>
-#include <chrono>
-#include <algorithm>
-#include <numeric>
-#include <cstring>
-#include <cmath>
-#include <functional>
-#include <stop_token>
-#include <unordered_set>
-
 export module Dnn.Models.GptModel;
 
+import std;
 import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
 import Dnn.LanguageModelNetwork;
@@ -141,7 +123,7 @@ namespace Mila::Dnn
                 metadata.model_name, config, device_id );
 
             BuildContext build_context(
-                shape_t{ 1, static_cast<int64_t>(context_length) },
+                shape_t{ 1, static_cast<std::int64_t>(context_length) },
                 RuntimeMode::Inference,
                 false );
 
@@ -198,7 +180,7 @@ namespace Mila::Dnn
             auto network = std::make_unique<GptTransformerType>( model_name, config, device_id );
 
             BuildContext build_context(
-                shape_t{ 1, static_cast<int64_t>( context_length ) },
+                shape_t{ 1, static_cast<std::int64_t>( context_length ) },
                 RuntimeMode::Inference,
                 false );
 
@@ -280,37 +262,37 @@ namespace Mila::Dnn
          * @brief Prefill + KV-cache decode loop with per-token streaming.
          */
         GenerateStatus onGenerating(
-            std::span<const int32_t> prompt_tokens,
-            const std::function<void(int32_t)>& on_token,
+            std::span<const std::int32_t> prompt_tokens,
+            const std::function<void(std::int32_t)>& on_token,
             const GenerateParams& params,
             std::stop_token stop ) override
         {
             // Stop set: GPT-2 <|endoftext|> by default, or the caller's per-call override.
-            std::unordered_set<int32_t> stop_ids;
+            std::unordered_set<std::int32_t> stop_ids;
             if ( params.stop_tokens.empty() )
                 stop_ids.insert( eos_token_ );
             else
                 for ( auto id : params.stop_tokens )
-                    stop_ids.insert( static_cast<int32_t>( id ) );
+                    stop_ids.insert( static_cast<std::int32_t>( id ) );
 
             // Host sampler path (device-sampler migration deferred): time-seeded.
             std::mt19937 rng( static_cast<std::mt19937::result_type>(
                 std::chrono::high_resolution_clock::now().time_since_epoch().count() ) );
 
-            if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
+            if ( prompt_tokens.size() > static_cast<std::size_t>( context_length_ ) )
             {
                 throw std::invalid_argument( std::format(
                     "GptModel::onGenerating: prompt length {} exceeds deployment context length {}",
                     prompt_tokens.size(), context_length_ ) );
             }
 
-            const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
+            const std::int64_t seq_len = static_cast<std::int64_t>( prompt_tokens.size() );
 
             auto prefill_input = makeTokenTensor( prompt_tokens );
             auto& logits = this->getNetwork().prefill( prefill_input );
             this->getNetwork().synchronize();
 
-            int32_t next_token = sampleFromLogits(
+            std::int32_t next_token = sampleFromLogits(
                 logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
 
             if ( stop_ids.contains( next_token ) )
@@ -354,7 +336,7 @@ namespace Mila::Dnn
         /**
          * @brief GPT-2 end-of-text token id.
          */
-        int32_t eosToken() const noexcept override
+        std::int32_t eosToken() const noexcept override
         {
             return eos_token_;
         }
@@ -391,7 +373,7 @@ namespace Mila::Dnn
         explicit GptModel(
             std::unique_ptr<GptTransformerType> network,
             const GptConfig& config,
-            int64_t context_length,
+            std::int64_t context_length,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode ), context_length_( context_length ), config_( config )
         {}
@@ -403,18 +385,18 @@ namespace Mila::Dnn
         {}
 
         GptConfig config_;
-        int64_t context_length_;
+        std::int64_t context_length_;
 
         // REVIEW: Should come from tokenizer metadata when tokenizer support added.
-        static constexpr int32_t eos_token_ = 50256;  // GPT-2 <|endoftext|>
+        static constexpr std::int32_t eos_token_ = 50256;  // GPT-2 <|endoftext|>
 
         // ====================================================================
         // Generation helpers
         // ====================================================================
 
-        void truncateIfNeeded( std::vector<int32_t>& tokens ) const
+        void truncateIfNeeded( std::vector<std::int32_t>& tokens ) const
         {
-            int64_t seq_len = static_cast<int64_t>(tokens.size());
+            std::int64_t seq_len = static_cast<std::int64_t>(tokens.size());
 
             if ( seq_len > config_.getMaxSequenceLength() )
             {
@@ -427,19 +409,19 @@ namespace Mila::Dnn
             }
         }
 
-        TokenIndexType makeTokenTensor( std::span<const int32_t> token_ids ) const
+        TokenIndexType makeTokenTensor( std::span<const std::int32_t> token_ids ) const
         {
-            shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
+            shape_t shape = { 1, static_cast<std::int64_t>(token_ids.size()) };
             TokenIndexType device_tensor( this->getDeviceId(), shape );
             Tensor<dtype_t::INT32, CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
             std::memcpy( cpu_tensor.data(), token_ids.data(),
-                token_ids.size() * sizeof( int32_t ) );
+                token_ids.size() * sizeof( std::int32_t ) );
             copy( cpu_tensor, device_tensor );
 
             return device_tensor;
         }
 
-        int32_t sampleFromLogits(
+        std::int32_t sampleFromLogits(
             const TensorType& logits,
             dim_t position,
             float temperature,
@@ -454,19 +436,19 @@ namespace Mila::Dnn
             const float* last = cpu.data() + position * config_.getVocabSize();
 
             return sampleToken( last,
-                static_cast<size_t>(config_.getVocabSize()),
+                static_cast<std::size_t>(config_.getVocabSize()),
                 temperature, top_k, rng );
         }
 
-        static int32_t sampleToken(
+        static std::int32_t sampleToken(
             const float* logits,
-            size_t vocab_size,
+            std::size_t vocab_size,
             float temperature,
             int top_k,
             std::mt19937& rng )
         {
             if ( temperature <= 0.0f || top_k == 1 )
-                return static_cast<int32_t>(
+                return static_cast<std::int32_t>(
                     std::max_element( logits, logits + vocab_size ) - logits);
 
             float max_logit = *std::max_element( logits, logits + vocab_size );
@@ -474,23 +456,23 @@ namespace Mila::Dnn
             std::vector<float> probs( vocab_size );
             double sum = 0.0;
 
-            for ( size_t i = 0; i < vocab_size; ++i )
+            for ( std::size_t i = 0; i < vocab_size; ++i )
             {
                 float v = std::exp( (logits[ i ] - max_logit) / temperature );
                 probs[ i ] = v;
                 sum += v;
             }
 
-            for ( size_t i = 0; i < vocab_size; ++i )
+            for ( std::size_t i = 0; i < vocab_size; ++i )
                 probs[ i ] /= static_cast<float>( sum );
 
             if ( top_k > 0 && top_k < static_cast<int>( vocab_size ) )
             {
-                std::vector<size_t> indices( vocab_size );
+                std::vector<std::size_t> indices( vocab_size );
                 std::iota( indices.begin(), indices.end(), 0 );
                 std::partial_sort( indices.begin(), indices.begin() + top_k,
                     indices.end(),
-                    [&]( size_t a, size_t b ) { return probs[ a ] > probs[ b ]; } );
+                    [&]( std::size_t a, std::size_t b ) { return probs[ a ] > probs[ b ]; } );
 
                 std::vector<float> filtered( vocab_size, 0.0f );
                 double filtered_sum = 0.0;
@@ -501,7 +483,7 @@ namespace Mila::Dnn
                     filtered_sum += probs[ indices[ i ] ];
                 }
 
-                for ( size_t i = 0; i < vocab_size; ++i )
+                for ( std::size_t i = 0; i < vocab_size; ++i )
                     probs[ i ] = filtered[ i ] / static_cast<float>( filtered_sum );
             }
 
@@ -509,15 +491,15 @@ namespace Mila::Dnn
             float r = dist( rng );
             float cumsum = 0.0f;
 
-            for ( size_t i = 0; i < vocab_size; ++i )
+            for ( std::size_t i = 0; i < vocab_size; ++i )
             {
                 cumsum += probs[ i ];
 
                 if ( r < cumsum )
-                    return static_cast<int32_t>( i );
+                    return static_cast<std::int32_t>( i );
             }
 
-            return static_cast<int32_t>( vocab_size - 1 );
+            return static_cast<std::int32_t>( vocab_size - 1 );
         }
 
         // ====================================================================

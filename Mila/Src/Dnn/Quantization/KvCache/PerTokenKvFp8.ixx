@@ -3,11 +3,9 @@
  * @brief FP8 KV-cache compression with one scale per KV head per token.
  */
 
-module;
-#include <concepts>
-
 export module Dnn.Quantization.KvCache.PerTokenKvFp8;
 
+import std;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Quantization.KvCache.QuantPolicy;
 import Dnn.TensorDataType;

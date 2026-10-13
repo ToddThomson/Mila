@@ -12,7 +12,7 @@ module;
 
 export module Cuda.Helpers;
 
-import std.compat;
+import std;
 import Cuda.Error;
 
 namespace Mila::Dnn::Compute::Cuda
@@ -142,7 +142,7 @@ namespace Mila::Dnn::Compute::Cuda
     export inline int getBestDeviceId( bool preferMemory = false ) {
         int deviceCount = getDeviceCount();
         int bestDevice = 0;
-        uint64_t bestScore = 0;
+        std::uint64_t bestScore = 0;
 
         for ( int device = 0; device < deviceCount; device++ ) {
             
@@ -154,15 +154,15 @@ namespace Mila::Dnn::Compute::Cuda
 
             if ( computeMode == cudaComputeModeProhibited ) continue;
 
-            uint64_t score;
+            std::uint64_t score;
             if ( preferMemory ) {
-                score = (uint64_t)props.totalGlobalMem * props.memoryBusWidth;
+                score = (std::uint64_t)props.totalGlobalMem * props.memoryBusWidth;
             }
             else {
                 int clockRate;
                 cudaDeviceGetAttribute( &clockRate, cudaDevAttrClockRate, device );
 
-                score = (uint64_t)props.multiProcessorCount * props.maxThreadsPerMultiProcessor *
+                score = (std::uint64_t)props.multiProcessorCount * props.maxThreadsPerMultiProcessor *
                     clockRate * (props.major >= 7 ? 10 : 1);
             }
 

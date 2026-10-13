@@ -16,11 +16,9 @@
  * blocks -- the one type they are all written against.
  */
 
-module;
-#include <string>
-#include <vector>
-
 export module Dnn.Models.Conversation;
+
+import std;
 
 namespace Mila::Dnn::Conversation
 {

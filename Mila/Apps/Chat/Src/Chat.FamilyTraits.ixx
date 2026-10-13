@@ -6,11 +6,9 @@
  * facts a publisher cannot change, and the context a run with no configuration file opens at.
  */
 
-module;
-#include <cstddef>
-
 export module Chat.FamilyTraits;
 
+import std;
 import Chat.Config;
 
 namespace Mila::ChatApp

@@ -876,9 +876,11 @@ module (libstdc++ 15, libc++ 17).
 Clang's floor also becomes 22 (decided 2026-10-12, Todd). Clang 21 rejects libstdc++'s `shared_ptr` friends with
 "cannot befriend target of using declaration" in a module that instantiates one while a textual libstdc++ header and
 the `std` module are both reachable (LLVM #156604, #138558), which every module holding a `Tensor` member meets; the
-fix landed after 21 branched, and 22.1.2 builds `mila-chat`. Measured on Clang 22 with `Dnn/Compute` and
-`Dnn/Tensors` converted: `Chat.ixx` uses 1.667 GB of the 2.15 GB space, down from 2.130 GB, which Clang 22 alone
-leaves unchanged.
+fix landed after 21 branched, and 22.1.2 builds `mila-chat`. Measured on Clang 22 with every module
+converted: `mila-chat`'s `main.cpp` uses 0.475 GB of the 2.15 GB space, from over it, which Clang 22 alone leaves
+unchanged. Every module interface imports `std` now; left are the test and sample translation units, which keep
+their includes before `import Mila;`, and the gate's own checks. Mila uses `import std;` alone, with the
+standard library's C names qualified (Todd, 2026-10-13).
 
 Work, each step leaving the tree building on MSVC and Clang:
 

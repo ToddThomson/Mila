@@ -5,14 +5,9 @@
  * Fluent setters, validation and metadata serialization for AdamW hyperparameters.
  */
 
-module;
-#include <string>
-#include <stdexcept>
-#include <sstream>
-#include <utility>
-
 export module Dnn.Optimizers.AdamWConfig;
 
+import std;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
 

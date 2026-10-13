@@ -27,15 +27,9 @@
  * @endcode
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-#include <optional>
-#include <utility>
-
 export module Dnn.Components.LayerNormConfig;
 
+import std;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.TensorTypes;
@@ -71,7 +65,7 @@ namespace Mila::Dnn
          *
          * @param axis  Axis along which to normalize (negative indexing supported).
          */
-        explicit LayerNormConfig( int64_t axis )
+        explicit LayerNormConfig( std::int64_t axis )
             : axis_( axis )
         {
             // REVIEW: these constructors are not unambiguous. We could add static factory methods
@@ -122,7 +116,7 @@ namespace Mila::Dnn
             return !normalized_shape_.empty();
         }
 
-        std::optional<int64_t> getAxis() const noexcept
+        std::optional<std::int64_t> getAxis() const noexcept
         {
             return axis_;
         }
@@ -159,7 +153,7 @@ namespace Mila::Dnn
 
             if ( has_shape )
             {
-                for ( size_t i = 0; i < normalized_shape_.size(); ++i )
+                for ( std::size_t i = 0; i < normalized_shape_.size(); ++i )
                 {
                     if ( normalized_shape_[ i ] <= 0 )
                     {
@@ -240,7 +234,7 @@ namespace Mila::Dnn
             if ( !normalized_shape_.empty() )
             {
                 oss << "normalized_shape=[ ";
-                for ( size_t i = 0; i < normalized_shape_.size(); ++i )
+                for ( std::size_t i = 0; i < normalized_shape_.size(); ++i )
                 {
                     oss << normalized_shape_[ i ];
                     if ( i < normalized_shape_.size() - 1 )

@@ -3,11 +3,9 @@
  * @brief Where a package is going: the local store, under a name.
  */
 
-module;
-#include <filesystem>
-#include <string>
-
 export module Tools.ExportArtifact.InstallRequest;
+
+import std;
 
 namespace Mila::Tools
 {

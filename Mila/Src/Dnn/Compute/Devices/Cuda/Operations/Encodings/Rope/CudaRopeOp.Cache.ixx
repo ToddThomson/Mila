@@ -11,7 +11,7 @@ module;
 
 export module Compute.CudaRopeOp:Cache;
 
-import std.compat;
+import std;
 import Dnn.TensorDataType;
 import Dnn.TensorTypes;
 import Cuda.Error;
@@ -66,10 +66,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 seed = mix( seed, std::hash<dim_t>{}( k.head_dim ) );
                 seed = mix( seed, std::hash<dim_t>{}( k.rotary_dim ) );
                 seed = mix( seed, std::hash<int>{}( k.rotary_layout ) );
-                seed = mix( seed, std::hash<uint32_t>{}( std::bit_cast<uint32_t>( k.base ) ) );
-                seed = mix( seed, std::hash<uint32_t>{}( std::bit_cast<uint32_t>( k.scaling_factor ) ) );
-                seed = mix( seed, std::hash<uint32_t>{}( std::bit_cast<uint32_t>( k.scaling_low_frequency_factor ) ) );
-                seed = mix( seed, std::hash<uint32_t>{}( std::bit_cast<uint32_t>( k.scaling_high_frequency_factor ) ) );
+                seed = mix( seed, std::hash<std::uint32_t>{}( std::bit_cast<std::uint32_t>( k.base ) ) );
+                seed = mix( seed, std::hash<std::uint32_t>{}( std::bit_cast<std::uint32_t>( k.scaling_factor ) ) );
+                seed = mix( seed, std::hash<std::uint32_t>{}( std::bit_cast<std::uint32_t>( k.scaling_low_frequency_factor ) ) );
+                seed = mix( seed, std::hash<std::uint32_t>{}( std::bit_cast<std::uint32_t>( k.scaling_high_frequency_factor ) ) );
                 seed = mix( seed, std::hash<dim_t>{}( k.scaling_original_context_length ) );
                 seed = mix( seed, std::hash<int>{}( static_cast<int>( k.precision ) ) );
                 return seed;

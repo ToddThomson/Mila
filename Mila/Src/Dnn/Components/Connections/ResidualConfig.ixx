@@ -5,16 +5,9 @@
  * Provides fluent setters consumed by Residual components and backend factories.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <ostream>
-#include <sstream>
-#include <cstdint>
-#include <utility>
-
 export module Dnn.Components.ResidualConfig;
 
+import std;
 import Dnn.ComponentConfig;
 import Dnn.ConnectionType;
 import Serialization.Metadata;
@@ -131,7 +124,7 @@ namespace Mila::Dnn
             SerializationMetadata meta;
 
             meta.set( "scaling_factor", static_cast<double>( scaling_factor_ ) )
-                .set( "connection_type", static_cast<int64_t>( connection_type_ ) );
+                .set( "connection_type", static_cast<std::int64_t>( connection_type_ ) );
 
             return meta;
         }

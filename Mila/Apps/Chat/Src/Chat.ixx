@@ -13,31 +13,9 @@
  * probe grammar pending more empirical validation, not a hardened implementation.
  */
 
-module;
-#include <iostream>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <variant>
-#include <filesystem>
-#include <format>
-#include <memory>
-#include <stdexcept>
-#include <future>
-#include <stop_token>
-#include <algorithm>
-#include <atomic>
-#include <cctype>
-#include <cstdint>
-#include <charconv>
-#include <functional>
-#include <unordered_map>
-#include <chrono>
-#include <optional>
-#include <span>
-
 export module Mila.Chat;
 
+import std;
 export import Chat.Config;
 export import Chat.ModelCatalog;
 export import Chat.Message;
@@ -280,7 +258,7 @@ namespace Mila::ChatApp
                         }
 
                         const std::string_view arg = cmd.substr( 5 );
-                        uint64_t seed = 0;
+                        std::uint64_t seed = 0;
                         const auto result = std::from_chars( arg.data(), arg.data() + arg.size(), seed );
 
                         if ( result.ec != std::errc{} )
@@ -753,8 +731,8 @@ namespace Mila::ChatApp
                 if ( streamed == oracle )
                     return;
 
-                size_t line = 0;
-                const size_t common = std::min( streamed.size(), oracle.size() );
+                std::size_t line = 0;
+                const std::size_t common = std::min( streamed.size(), oracle.size() );
 
                 while ( line < common && streamed[ line ] == oracle[ line ] )
                     ++line;
@@ -1048,7 +1026,7 @@ namespace Mila::ChatApp
 
         void generateResponse( std::string& response )
         {
-            std::vector<int32_t> input_tokens = buildInputTokens();
+            std::vector<std::int32_t> input_tokens = buildInputTokens();
 
             const std::size_t budget = generationBudget( input_tokens.size() );
 
@@ -1121,7 +1099,7 @@ namespace Mila::ChatApp
                     {
                         round_status = m->generate(
                             input_tokens,
-                            [&]( int32_t tok )
+                            [&]( std::int32_t tok )
                             {
                                 const auto now = std::chrono::high_resolution_clock::now();
                                 if ( round_token_count == 0 )
@@ -1184,11 +1162,11 @@ namespace Mila::ChatApp
                 if ( !token_gaps_ms.empty() )
                 {
                     std::vector<float> ordered( token_gaps_ms );
-                    const size_t mid = ordered.size() / 2;
+                    const std::size_t mid = ordered.size() / 2;
                     std::nth_element( ordered.begin(), ordered.begin() + mid, ordered.end() );
                     round_stats.median_gap_ms = ordered[ mid ];
 
-                    const size_t p99_index = ( ordered.size() * 99 ) / 100;
+                    const std::size_t p99_index = ( ordered.size() * 99 ) / 100;
                     std::nth_element( ordered.begin(), ordered.begin() + p99_index, ordered.end() );
                     round_stats.p99_gap_ms = ordered[ p99_index ];
 
@@ -1282,7 +1260,7 @@ namespace Mila::ChatApp
          *
          * @return Token ids ready to pass to generateAsync().
          */
-        std::vector<int32_t> buildInputTokens() const
+        std::vector<std::int32_t> buildInputTokens() const
         {
             std::string prompt;
 
@@ -1308,7 +1286,7 @@ namespace Mila::ChatApp
 
             auto token_ids = tokenizer_->encode( prompt );
 
-            return std::vector<int32_t>( token_ids.begin(), token_ids.end() );
+            return std::vector<std::int32_t>( token_ids.begin(), token_ids.end() );
         }
 
         /**
@@ -1420,7 +1398,7 @@ namespace Mila::ChatApp
         {
             std::vector<std::string_view> tokens;
 
-            size_t i = 0;
+            std::size_t i = 0;
 
             while ( i < text.size() )
             {
@@ -1430,7 +1408,7 @@ namespace Mila::ChatApp
                 if ( i >= text.size() )
                     break;
 
-                const size_t start = i;
+                const std::size_t start = i;
 
                 while ( i < text.size() && text[ i ] != ' ' )
                     ++i;
@@ -2521,12 +2499,12 @@ namespace Mila::ChatApp
          *        (special) token; nullopt when the checkpoint lacks the
          *        registered special.
          */
-        std::optional<int32_t> probeSingleTokenId( std::string_view text ) const
+        std::optional<std::int32_t> probeSingleTokenId( std::string_view text ) const
         {
             const auto ids = tokenizer_->encode( std::string( text ) );
 
             return (ids.size() == 1)
-                ? std::optional<int32_t>( static_cast<int32_t>( ids[ 0 ] ) )
+                ? std::optional<std::int32_t>( static_cast<std::int32_t>( ids[ 0 ] ) )
                 : std::nullopt;
         }
 
@@ -2685,7 +2663,7 @@ namespace Mila::ChatApp
             int total_tokens = 0;
             float total_prefill_ms = 0.0f;
 
-            for ( size_t i = 0; i < last_turn_rounds_.size(); ++i )
+            for ( std::size_t i = 0; i < last_turn_rounds_.size(); ++i )
             {
                 const RoundStats& round = last_turn_rounds_[ i ];
                 total_tokens += round.tokens_generated;
@@ -2898,7 +2876,7 @@ Examples:
         ConsoleRenderer renderer_;
 
         // Gemma 4 tool-call protocol probe state (see generateResponse()).
-        std::optional<int32_t> gemma_tool_call_close_token_;
+        std::optional<std::int32_t> gemma_tool_call_close_token_;
 
         // Streaming display state: control-token ids resolved at tokenizer load
         // (absent when the vocabulary lacks them — streaming falls back to the

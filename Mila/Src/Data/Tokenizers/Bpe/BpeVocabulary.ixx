@@ -3,26 +3,9 @@
  * @brief BPE vocabulary for GPT-2, Llama 3.x, and Mistral model families.
  */
 
-module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <unordered_map>
-#include <unordered_set>
-#include <optional>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <algorithm>
-#include <stdexcept>
-#include <cstdint>
-#include <chrono>
-#include <iostream>
-#include <iomanip>
-#include <format>
-
 export module Data.BpeVocabulary;
 
+import std;
 import Data.SpecialTokens;
 import Data.Tokenizer;
 import Data.TokenizerVocabulary;
@@ -275,9 +258,9 @@ namespace Mila::Data
             }
 
             SerializationMetadata meta = config_.toMetadata();
-            meta.set( "content_version", static_cast<int64_t>(2) )
-                .set( "actual_vocab_size", static_cast<int64_t>(id_to_token_.size()) )
-                .set( "num_merges", static_cast<int64_t>(merges_.size()) );
+            meta.set( "content_version", static_cast<std::int64_t>(2) )
+                .set( "actual_vocab_size", static_cast<std::int64_t>(id_to_token_.size()) )
+                .set( "num_merges", static_cast<std::int64_t>(merges_.size()) );
 
             MilaFileHeader header( MilaFileType::BpeVocabulary, std::move( meta ) );
             header.write( file );
@@ -289,7 +272,7 @@ namespace Mila::Data
         // TokenizerVocabulary Interface
         // ====================================================================
 
-        size_t getSize() const override
+        std::size_t getSize() const override
         {
             return id_to_token_.size();
         }
@@ -328,9 +311,9 @@ namespace Mila::Data
 
         std::optional<std::string> idToToken( TokenId id ) const override
         {
-            if ( id >= 0 && static_cast<size_t>(id) < id_to_token_.size() )
+            if ( id >= 0 && static_cast<std::size_t>(id) < id_to_token_.size() )
             {
-                return id_to_token_[ static_cast<size_t>(id) ];
+                return id_to_token_[ static_cast<std::size_t>(id) ];
             }
 
             return std::nullopt;
@@ -391,7 +374,7 @@ namespace Mila::Data
             return special_token_list_;
         }
 
-        std::optional<size_t> getMergePriority( const std::string& left, const std::string& right ) const
+        std::optional<std::size_t> getMergePriority( const std::string& left, const std::string& right ) const
         {
             auto it = merge_map_.find( { left, right } );
 
@@ -446,7 +429,7 @@ namespace Mila::Data
 
         struct PairHash
         {
-            size_t operator()( const std::pair<std::string, std::string>& p ) const
+            std::size_t operator()( const std::pair<std::string, std::string>& p ) const
             {
                 return std::hash<std::string>{}(p.first) ^ (std::hash<std::string>{}(p.second) << 1);
             }
@@ -454,10 +437,10 @@ namespace Mila::Data
 
         struct PairViewHash
         {
-            size_t operator()( const std::pair<std::string_view, std::string_view>& p ) const
+            std::size_t operator()( const std::pair<std::string_view, std::string_view>& p ) const
             {
-                size_t h1 = std::hash<std::string_view>{}(p.first);
-                size_t h2 = std::hash<std::string_view>{}(p.second);
+                std::size_t h1 = std::hash<std::string_view>{}(p.first);
+                std::size_t h2 = std::hash<std::string_view>{}(p.second);
                 return h1 ^ (h2 << 1);
             }
         };
@@ -466,18 +449,18 @@ namespace Mila::Data
         void buildSpecialTokenList();
         std::vector<std::string> preTokenize( const std::string& text ) const;
 
-        std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash>
+        std::unordered_map<std::pair<std::string, std::string>, std::size_t, PairHash>
             countPairs( const std::vector<std::vector<std::string>>& corpus ) const;
 
-        std::pair<std::pair<std::string, std::string>, size_t>
-            getMostFrequentPair( const std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash>& counts ) const;
+        std::pair<std::pair<std::string, std::string>, std::size_t>
+            getMostFrequentPair( const std::unordered_map<std::pair<std::string, std::string>, std::size_t, PairHash>& counts ) const;
 
         void applyMergeAndUpdateCounts(
             std::vector<std::vector<std::string>>& corpus,
             const std::string& left,
             const std::string& right,
             const std::string& merged,
-            std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash>& pair_counts );
+            std::unordered_map<std::pair<std::string, std::string>, std::size_t, PairHash>& pair_counts );
 
         void addSpecialToken( const std::string& token, TokenId id );
 
@@ -491,7 +474,7 @@ namespace Mila::Data
         std::unordered_map<std::string, TokenId>  token_to_id_;
         std::vector<std::string>                  id_to_token_;
         std::vector<std::pair<std::string, std::string>> merges_;
-        std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash> merge_map_;
+        std::unordered_map<std::pair<std::string, std::string>, std::size_t, PairHash> merge_map_;
 
         // String-keyed to support the encode pre-pass across all BPE families.
         // GPT-2 registers "<|endoftext|>"; Llama 3.x registers "<|begin_of_text|>" etc.
@@ -520,9 +503,9 @@ namespace Mila::Data
         initializeBaseVocabulary();
         addSpecialTokensFromConfig();
 
-        const size_t target_vocab_size = config_.getVocabSize();
+        const std::size_t target_vocab_size = config_.getVocabSize();
 
-        if ( target_vocab_size == 0 || static_cast<size_t>(current_id_) >= target_vocab_size )
+        if ( target_vocab_size == 0 || static_cast<std::size_t>(current_id_) >= target_vocab_size )
         {
             buildMergeMap();
             return;
@@ -607,14 +590,14 @@ namespace Mila::Data
         std::vector<std::vector<std::string>>& corpus_tokens,
         std::chrono::steady_clock::time_point  start_time )
     {
-        const size_t target_vocab_size = config_.getVocabSize();
-        const size_t min_frequency = config_.getMinFrequency();
-        const size_t max_merges = config_.getMaxMerges();
+        const std::size_t target_vocab_size = config_.getVocabSize();
+        const std::size_t min_frequency = config_.getMinFrequency();
+        const std::size_t max_merges = config_.getMaxMerges();
 
-        size_t merges_performed = 0;
+        std::size_t merges_performed = 0;
         auto pair_counts = countPairs( corpus_tokens );
 
-        while ( static_cast<size_t>(current_id_) < target_vocab_size )
+        while ( static_cast<std::size_t>(current_id_) < target_vocab_size )
         {
             if ( pair_counts.empty() )
             {
@@ -691,42 +674,42 @@ namespace Mila::Data
     {
         // Content version 2: special tokens stored as (str_len, string, token_id).
         // Version 1 used a char type-code key and is no longer supported.
-        uint32_t version = 2;
+        std::uint32_t version = 2;
         file.write( reinterpret_cast<const char*>(&version), sizeof( version ) );
 
-        uint32_t vocab_size = static_cast<uint32_t>(id_to_token_.size());
+        std::uint32_t vocab_size = static_cast<std::uint32_t>(id_to_token_.size());
         file.write( reinterpret_cast<const char*>(&vocab_size), sizeof( vocab_size ) );
 
-        uint32_t num_special = static_cast<uint32_t>(special_token_ids_.size());
+        std::uint32_t num_special = static_cast<std::uint32_t>(special_token_ids_.size());
         file.write( reinterpret_cast<const char*>(&num_special), sizeof( num_special ) );
 
         for ( const auto& [token_str, id] : special_token_ids_ )
         {
-            uint32_t str_len = static_cast<uint32_t>(token_str.size());
+            std::uint32_t str_len = static_cast<std::uint32_t>(token_str.size());
             file.write( reinterpret_cast<const char*>(&str_len), sizeof( str_len ) );
             file.write( token_str.data(), str_len );
 
-            uint32_t token_id = static_cast<uint32_t>(id);
+            std::uint32_t token_id = static_cast<std::uint32_t>(id);
             file.write( reinterpret_cast<const char*>(&token_id), sizeof( token_id ) );
         }
 
-        uint32_t num_merges = static_cast<uint32_t>(merges_.size());
+        std::uint32_t num_merges = static_cast<std::uint32_t>(merges_.size());
         file.write( reinterpret_cast<const char*>(&num_merges), sizeof( num_merges ) );
 
         for ( const auto& [left, right] : merges_ )
         {
-            uint32_t left_len = static_cast<uint32_t>(left.size());
+            std::uint32_t left_len = static_cast<std::uint32_t>(left.size());
             file.write( reinterpret_cast<const char*>(&left_len), sizeof( left_len ) );
             file.write( left.data(), left_len );
 
-            uint32_t right_len = static_cast<uint32_t>(right.size());
+            std::uint32_t right_len = static_cast<std::uint32_t>(right.size());
             file.write( reinterpret_cast<const char*>(&right_len), sizeof( right_len ) );
             file.write( right.data(), right_len );
         }
 
         for ( const auto& token : id_to_token_ )
         {
-            uint32_t len = static_cast<uint32_t>(token.size());
+            std::uint32_t len = static_cast<std::uint32_t>(token.size());
             file.write( reinterpret_cast<const char*>(&len), sizeof( len ) );
 
             if ( len > 0 )
@@ -743,7 +726,7 @@ namespace Mila::Data
 
     void BpeVocabulary::loadContent( std::istream& file )
     {
-        uint32_t version = 0;
+        std::uint32_t version = 0;
         file.read( reinterpret_cast<char*>(&version), sizeof( version ) );
 
         if ( version != 2 )
@@ -753,15 +736,15 @@ namespace Mila::Data
                 " (expected 2; re-save with the current build)" );
         }
 
-        uint32_t vocab_size = 0;
+        std::uint32_t vocab_size = 0;
         file.read( reinterpret_cast<char*>(&vocab_size), sizeof( vocab_size ) );
 
-        uint32_t num_special = 0;
+        std::uint32_t num_special = 0;
         file.read( reinterpret_cast<char*>(&num_special), sizeof( num_special ) );
 
-        for ( uint32_t i = 0; i < num_special; ++i )
+        for ( std::uint32_t i = 0; i < num_special; ++i )
         {
-            uint32_t str_len = 0;
+            std::uint32_t str_len = 0;
             file.read( reinterpret_cast<char*>( &str_len ), sizeof( str_len ) );
 
             std::string token_str( str_len, '\0' );
@@ -771,20 +754,20 @@ namespace Mila::Data
                 file.read( token_str.data(), str_len );
             }
 
-            uint32_t token_id = 0;
+            std::uint32_t token_id = 0;
             file.read( reinterpret_cast<char*>(&token_id), sizeof( token_id ) );
 
             special_token_ids_[ token_str ] = static_cast<TokenId>(token_id);
         }
 
-        uint32_t num_merges = 0;
+        std::uint32_t num_merges = 0;
         file.read( reinterpret_cast<char*>(&num_merges), sizeof( num_merges ) );
 
         merges_.reserve( num_merges );
 
-        for ( uint32_t i = 0; i < num_merges; ++i )
+        for ( std::uint32_t i = 0; i < num_merges; ++i )
         {
-            uint32_t left_len = 0;
+            std::uint32_t left_len = 0;
             file.read( reinterpret_cast<char*>( &left_len ), sizeof( left_len ) );
             std::string left( left_len, '\0' );
 
@@ -793,7 +776,7 @@ namespace Mila::Data
                 file.read( left.data(), left_len );
             }
 
-            uint32_t right_len = 0;
+            std::uint32_t right_len = 0;
             file.read( reinterpret_cast<char*>(&right_len), sizeof( right_len ) );
             std::string right( right_len, '\0' );
 
@@ -807,9 +790,9 @@ namespace Mila::Data
 
         id_to_token_.resize( vocab_size );
 
-        for ( uint32_t i = 0; i < vocab_size; ++i )
+        for ( std::uint32_t i = 0; i < vocab_size; ++i )
         {
-            uint32_t len = 0;
+            std::uint32_t len = 0;
             file.read( reinterpret_cast<char*>( &len ), sizeof( len ) );
 
             std::string token( len, '\0' );
@@ -841,7 +824,7 @@ namespace Mila::Data
         merge_map_.clear();
         merge_map_.reserve( merges_.size() );
 
-        for ( size_t i = 0; i < merges_.size(); ++i )
+        for ( std::size_t i = 0; i < merges_.size(); ++i )
         {
             merge_map_[ merges_[ i ] ] = i;
         }
@@ -883,20 +866,20 @@ namespace Mila::Data
         return words;
     }
 
-    std::unordered_map<std::pair<std::string, std::string>, size_t, BpeVocabulary::PairHash>
+    std::unordered_map<std::pair<std::string, std::string>, std::size_t, BpeVocabulary::PairHash>
         BpeVocabulary::countPairs( const std::vector<std::vector<std::string>>& corpus ) const
     {
-        std::unordered_map<std::pair<std::string_view, std::string_view>, size_t, PairViewHash> temp_counts;
+        std::unordered_map<std::pair<std::string_view, std::string_view>, std::size_t, PairViewHash> temp_counts;
 
         for ( const auto& tokens : corpus )
         {
-            for ( size_t i = 0; i + 1 < tokens.size(); ++i )
+            for ( std::size_t i = 0; i + 1 < tokens.size(); ++i )
             {
                 temp_counts[ { std::string_view{ tokens[ i ] }, std::string_view{ tokens[ i + 1 ] } } ]++;
             }
         }
 
-        std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash> counts;
+        std::unordered_map<std::pair<std::string, std::string>, std::size_t, PairHash> counts;
         counts.reserve( temp_counts.size() );
 
         for ( const auto& [pair_view, count] : temp_counts )
@@ -907,13 +890,13 @@ namespace Mila::Data
         return counts;
     }
 
-    std::pair<std::pair<std::string, std::string>, size_t>
+    std::pair<std::pair<std::string, std::string>, std::size_t>
         BpeVocabulary::getMostFrequentPair(
-            const std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash>& counts ) const
+            const std::unordered_map<std::pair<std::string, std::string>, std::size_t, PairHash>& counts ) const
     {
         if ( counts.empty() )
         {
-            return { { std::string{}, std::string{} }, size_t{ 0 } };
+            return { { std::string{}, std::string{} }, std::size_t{ 0 } };
         }
 
         auto best = std::max_element(
@@ -929,14 +912,14 @@ namespace Mila::Data
         const std::string& left,
         const std::string& right,
         const std::string& merged,
-        std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash>& pair_counts )
+        std::unordered_map<std::pair<std::string, std::string>, std::size_t, PairHash>& pair_counts )
     {
         std::string_view left_view{ left };
         std::string_view right_view{ right };
 
         for ( auto& word : corpus )
         {
-            for ( size_t i = 0; i + 1 < word.size(); )
+            for ( std::size_t i = 0; i + 1 < word.size(); )
             {
                 if ( std::string_view{ word[ i ] } == left_view &&
                     std::string_view{ word[ i + 1 ] } == right_view )
@@ -1017,7 +1000,7 @@ namespace Mila::Data
                     }
                 }
 
-                for ( size_t i = 0; i < bs.size(); ++i )
+                for ( std::size_t i = 0; i < bs.size(); ++i )
                 {
                     char32_t cp = static_cast<char32_t>( cs[ i ] );
 
@@ -1077,7 +1060,7 @@ namespace Mila::Data
             throw std::runtime_error( "Cannot open GPT-2 tokenizer file: " + tokenizer_path.string() );
         }
 
-        auto read_u32 = [&]( uint32_t& out )
+        auto read_u32 = [&]( std::uint32_t& out )
             {
                 file.read( reinterpret_cast<char*>(&out), sizeof( out ) );
 
@@ -1088,10 +1071,10 @@ namespace Mila::Data
                 }
             };
 
-        uint32_t vocab_size = 0;
+        std::uint32_t vocab_size = 0;
         read_u32( vocab_size );
 
-        uint32_t num_merges = 0;
+        std::uint32_t num_merges = 0;
         read_u32( num_merges );
 
         BpeVocabularyConfig config = BpeVocabularyConfig()
@@ -1104,9 +1087,9 @@ namespace Mila::Data
         BpeVocabulary vocab( config );
         vocab.id_to_token_.resize( vocab_size );
 
-        for ( uint32_t i = 0; i < vocab_size; ++i )
+        for ( std::uint32_t i = 0; i < vocab_size; ++i )
         {
-            uint32_t len = 0;
+            std::uint32_t len = 0;
             read_u32( len );
 
             std::string token( len, '\0' );
@@ -1122,7 +1105,7 @@ namespace Mila::Data
                 }
             }
 
-            uint32_t token_id = 0;
+            std::uint32_t token_id = 0;
             read_u32( token_id );
 
             if ( token_id >= vocab_size )
@@ -1138,9 +1121,9 @@ namespace Mila::Data
 
         vocab.merges_.reserve( num_merges );
 
-        for ( uint32_t i = 0; i < num_merges; ++i )
+        for ( std::uint32_t i = 0; i < num_merges; ++i )
         {
-            uint32_t llen = 0;
+            std::uint32_t llen = 0;
             read_u32( llen );
             std::string left( llen, '\0' );
 
@@ -1152,7 +1135,7 @@ namespace Mila::Data
                     throw std::runtime_error( "Failed reading merge left at " + std::to_string( i ) );
             }
 
-            uint32_t rlen = 0;
+            std::uint32_t rlen = 0;
             read_u32( rlen );
             std::string right( rlen, '\0' );
 
@@ -1171,32 +1154,32 @@ namespace Mila::Data
         // token strings to that value so a single map entry covers BOS, EOS, PAD, and UNK.
         const auto& st = vocab.config_.getSpecialTokens();
 
-        uint32_t has_eos = 0;
+        std::uint32_t has_eos = 0;
         read_u32( has_eos );
 
         if ( has_eos )
         {
-            uint32_t eos_id = 0;
+            std::uint32_t eos_id = 0;
             read_u32( eos_id );
             vocab.special_token_ids_[ st.eos_token ] = static_cast<TokenId>(eos_id);
         }
 
-        uint32_t has_bos = 0;
+        std::uint32_t has_bos = 0;
         read_u32( has_bos );
 
         if ( has_bos )
         {
-            uint32_t bos_id = 0;
+            std::uint32_t bos_id = 0;
             read_u32( bos_id );
             vocab.special_token_ids_[ st.bos_token ] = static_cast<TokenId>(bos_id);
         }
 
-        uint32_t has_pad = 0;
+        std::uint32_t has_pad = 0;
         read_u32( has_pad );
 
         if ( has_pad )
         {
-            uint32_t pad_id = 0;
+            std::uint32_t pad_id = 0;
             read_u32( pad_id );
             vocab.special_token_ids_[ st.pad_token ] = static_cast<TokenId>(pad_id);
         }
@@ -1216,7 +1199,7 @@ namespace Mila::Data
             throw std::runtime_error( "Cannot open Llama 3.2 tokenizer file: " + path.string() );
         }
 
-        auto read_u32 = [&]( uint32_t& out )
+        auto read_u32 = [&]( std::uint32_t& out )
             {
                 file.read( reinterpret_cast<char*>(&out), sizeof( out ) );
 
@@ -1227,10 +1210,10 @@ namespace Mila::Data
                 }
             };
 
-        uint32_t vocab_size = 0;
+        std::uint32_t vocab_size = 0;
         read_u32( vocab_size );
 
-        uint8_t use_byte_fallback = 0;
+        std::uint8_t use_byte_fallback = 0;
         file.read( reinterpret_cast<char*>(&use_byte_fallback), sizeof( use_byte_fallback ) );
 
         if ( !file )
@@ -1248,9 +1231,9 @@ namespace Mila::Data
         BpeVocabulary vocab( config );
         vocab.id_to_token_.resize( vocab_size );
 
-        for ( uint32_t i = 0; i < vocab_size; ++i )
+        for ( std::uint32_t i = 0; i < vocab_size; ++i )
         {
-            uint32_t len = 0;
+            std::uint32_t len = 0;
             read_u32( len );
 
             std::string token( len, '\0' );
@@ -1275,7 +1258,7 @@ namespace Mila::Data
                     "Failed reading token score at index " + std::to_string( i ) );
             }
 
-            uint32_t token_id = 0;
+            std::uint32_t token_id = 0;
             read_u32( token_id );
 
             if ( token_id >= vocab_size )
@@ -1292,42 +1275,42 @@ namespace Mila::Data
         // Special token order matches convert_llama_tokenizer.py: BOS, EOS, PAD, UNK.
         const auto& st = vocab.config_.getSpecialTokens();
 
-        uint32_t has_bos = 0;
+        std::uint32_t has_bos = 0;
         read_u32( has_bos );
 
         if ( has_bos )
         {
-            uint32_t bos_id = 0;
+            std::uint32_t bos_id = 0;
             read_u32( bos_id );
             vocab.special_token_ids_[ st.bos_token ] = static_cast<TokenId>(bos_id);
         }
 
-        uint32_t has_eos = 0;
+        std::uint32_t has_eos = 0;
         read_u32( has_eos );
 
         if ( has_eos )
         {
-            uint32_t eos_id = 0;
+            std::uint32_t eos_id = 0;
             read_u32( eos_id );
             vocab.special_token_ids_[ st.eos_token ] = static_cast<TokenId>(eos_id);
         }
 
-        uint32_t has_pad = 0;
+        std::uint32_t has_pad = 0;
         read_u32( has_pad );
 
         if ( has_pad )
         {
-            uint32_t pad_id = 0;
+            std::uint32_t pad_id = 0;
             read_u32( pad_id );
             vocab.special_token_ids_[ st.pad_token ] = static_cast<TokenId>(pad_id);
         }
 
-        uint32_t has_unk = 0;
+        std::uint32_t has_unk = 0;
         read_u32( has_unk );
 
         if ( has_unk )
         {
-            uint32_t unk_id = 0;
+            std::uint32_t unk_id = 0;
             read_u32( unk_id );
             vocab.special_token_ids_[ st.unk_token ] = static_cast<TokenId>(unk_id);
         }
@@ -1356,7 +1339,7 @@ namespace Mila::Data
             throw std::runtime_error( "Cannot open Gemma tokenizer file: " + path.string() );
         }
 
-        auto read_u32 = [&]( uint32_t& out )
+        auto read_u32 = [&]( std::uint32_t& out )
             {
                 file.read( reinterpret_cast<char*>(&out), sizeof( out ) );
 
@@ -1366,7 +1349,7 @@ namespace Mila::Data
                 }
             };
 
-        auto read_string = [&]( uint32_t len ) -> std::string
+        auto read_string = [&]( std::uint32_t len ) -> std::string
             {
                 std::string s( len, '\0' );
 
@@ -1383,13 +1366,13 @@ namespace Mila::Data
                 return s;
             };
 
-        uint32_t vocab_size = 0;
+        std::uint32_t vocab_size = 0;
         read_u32( vocab_size );
 
-        uint8_t use_byte_fallback = 0;
+        std::uint8_t use_byte_fallback = 0;
         file.read( reinterpret_cast<char*>(&use_byte_fallback), sizeof( use_byte_fallback ) );
 
-        uint8_t model_type = 0;
+        std::uint8_t model_type = 0;
         file.read( reinterpret_cast<char*>(&model_type), sizeof( model_type ) );
 
         if ( !file )
@@ -1406,7 +1389,7 @@ namespace Mila::Data
                 " (Unigram needs a Viterbi decode path that is not yet implemented)." );
         }
 
-        uint32_t num_merges = 0;
+        std::uint32_t num_merges = 0;
         read_u32( num_merges );
 
         // SentencePiece runtime: pieces are raw UTF-8 (byte_level=false) and the
@@ -1420,16 +1403,16 @@ namespace Mila::Data
         BpeVocabulary vocab( config );
         vocab.id_to_token_.resize( vocab_size );
 
-        for ( uint32_t i = 0; i < vocab_size; ++i )
+        for ( std::uint32_t i = 0; i < vocab_size; ++i )
         {
-            uint32_t len = 0;
+            std::uint32_t len = 0;
             read_u32( len );
             std::string token = read_string( len );
 
             float score = 0.0f;
             file.read( reinterpret_cast<char*>(&score), sizeof( score ) );
 
-            uint32_t token_id = 0;
+            std::uint32_t token_id = 0;
             read_u32( token_id );
 
             if ( token_id >= vocab_size )
@@ -1445,13 +1428,13 @@ namespace Mila::Data
 
         vocab.merges_.reserve( num_merges );
 
-        for ( uint32_t i = 0; i < num_merges; ++i )
+        for ( std::uint32_t i = 0; i < num_merges; ++i )
         {
-            uint32_t llen = 0;
+            std::uint32_t llen = 0;
             read_u32( llen );
             std::string left = read_string( llen );
 
-            uint32_t rlen = 0;
+            std::uint32_t rlen = 0;
             read_u32( rlen );
             std::string right = read_string( rlen );
 
@@ -1463,12 +1446,12 @@ namespace Mila::Data
 
         auto read_special = [&]( const std::string& token_str )
             {
-                uint32_t has = 0;
+                std::uint32_t has = 0;
                 read_u32( has );
 
                 if ( has )
                 {
-                    uint32_t id = 0;
+                    std::uint32_t id = 0;
                     read_u32( id );
                     vocab.special_token_ids_[ token_str ] = static_cast<TokenId>(id);
                 }
@@ -1540,7 +1523,7 @@ namespace Mila::Data
             throw std::runtime_error( "Cannot open Qwen tokenizer file: " + path.string() );
         }
 
-        auto read_u32 = [&]( uint32_t& out )
+        auto read_u32 = [&]( std::uint32_t& out )
             {
                 file.read( reinterpret_cast<char*>(&out), sizeof( out ) );
 
@@ -1550,7 +1533,7 @@ namespace Mila::Data
                 }
             };
 
-        auto read_string = [&]( uint32_t len ) -> std::string
+        auto read_string = [&]( std::uint32_t len ) -> std::string
             {
                 std::string s( len, '\0' );
 
@@ -1567,13 +1550,13 @@ namespace Mila::Data
                 return s;
             };
 
-        uint32_t vocab_size = 0;
+        std::uint32_t vocab_size = 0;
         read_u32( vocab_size );
 
-        uint8_t use_byte_fallback = 0;
+        std::uint8_t use_byte_fallback = 0;
         file.read( reinterpret_cast<char*>(&use_byte_fallback), sizeof( use_byte_fallback ) );
 
-        uint8_t model_type = 0;
+        std::uint8_t model_type = 0;
         file.read( reinterpret_cast<char*>(&model_type), sizeof( model_type ) );
 
         if ( !file )
@@ -1590,7 +1573,7 @@ namespace Mila::Data
                 + std::to_string( static_cast<int>(model_type) ) );
         }
 
-        uint32_t num_merges = 0;
+        std::uint32_t num_merges = 0;
         read_u32( num_merges );
 
         if ( num_merges == 0 )
@@ -1611,13 +1594,13 @@ namespace Mila::Data
         BpeVocabulary vocab( config );
         vocab.id_to_token_.resize( vocab_size );
 
-        for ( uint32_t i = 0; i < vocab_size; ++i )
+        for ( std::uint32_t i = 0; i < vocab_size; ++i )
         {
-            uint32_t len = 0;
+            std::uint32_t len = 0;
             read_u32( len );
             std::string token = read_string( len );
 
-            uint32_t token_id = 0;
+            std::uint32_t token_id = 0;
 
             // The score field is unused by BPE; it is present so this file and the
             // Gemma one stay one layout rather than two.
@@ -1639,13 +1622,13 @@ namespace Mila::Data
 
         vocab.merges_.reserve( num_merges );
 
-        for ( uint32_t i = 0; i < num_merges; ++i )
+        for ( std::uint32_t i = 0; i < num_merges; ++i )
         {
-            uint32_t llen = 0;
+            std::uint32_t llen = 0;
             read_u32( llen );
             std::string left = read_string( llen );
 
-            uint32_t rlen = 0;
+            std::uint32_t rlen = 0;
             read_u32( rlen );
             std::string right = read_string( rlen );
 
@@ -1659,12 +1642,12 @@ namespace Mila::Data
 
         auto read_special = [&]( const std::string& token_str )
             {
-                uint32_t has = 0;
+                std::uint32_t has = 0;
                 read_u32( has );
 
                 if ( has )
                 {
-                    uint32_t id = 0;
+                    std::uint32_t id = 0;
                     read_u32( id );
                     vocab.special_token_ids_[ token_str ] = static_cast<TokenId>(id);
                 }

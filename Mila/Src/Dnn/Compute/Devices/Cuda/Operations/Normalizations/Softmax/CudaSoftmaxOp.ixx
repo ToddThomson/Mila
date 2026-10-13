@@ -9,7 +9,7 @@ module;
 
 export module Compute.CudaSoftmaxOp;
 
-import std.compat;
+import std;
 import Dnn.Components.SoftmaxConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
@@ -183,14 +183,14 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
         {
             const auto& input_shape = config.inputShape();
             const auto& shape = input_shape;
-            const int64_t ndim = static_cast<int64_t>(shape.size());
+            const std::int64_t ndim = static_cast<std::int64_t>(shape.size());
 
             if (ndim == 0)
             {
                 throw std::invalid_argument( "CudaSoftmaxOp::build - input must have rank >= 1" );
             }
 
-            int64_t axis = config_.getAxis();
+            std::int64_t axis = config_.getAxis();
 
             if (axis < 0)
                 axis = ndim + axis;
@@ -202,14 +202,14 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
 
             cached_axis_ = axis;
 
-            int64_t outer_size = 1;
-            for (int64_t i = 0; i < axis; ++i)
+            std::int64_t outer_size = 1;
+            for (std::int64_t i = 0; i < axis; ++i)
                 outer_size *= shape[i];
 
-            int64_t dim_size = shape[axis];
+            std::int64_t dim_size = shape[axis];
 
-            int64_t inner_size = 1;
-            for (int64_t i = axis + 1; i < ndim; ++i)
+            std::int64_t inner_size = 1;
+            for (std::int64_t i = axis + 1; i < ndim; ++i)
                 inner_size *= shape[i];
 
             cached_outer_size_ = static_cast<int>( outer_size );
@@ -321,7 +321,7 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
         Detail::cuda_softmax_impl<NativeType> impl_;
 
         // Cached dimension values computed once in build() for hot-path dispatch
-        int64_t cached_axis_{ -1 };
+        std::int64_t cached_axis_{ -1 };
         int cached_outer_size_{ 0 };   // product of dimensions before axis
         int cached_dim_size_{ 0 };     // size of the softmax axis dimension
         int cached_inner_size_{ 0 };   // product of dimensions after axis

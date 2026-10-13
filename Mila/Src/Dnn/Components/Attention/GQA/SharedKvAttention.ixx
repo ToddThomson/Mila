@@ -3,15 +3,9 @@
  * @brief Attention for a layer that projects queries only and attends a KV cache another layer owns.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <sstream>
-#include <stdexcept>
-#include <optional>
-
 export module Dnn.Components.SharedKvAttention;
+
+import std;
 export import Dnn.Components.GqaConfig;
 export import Compute.KvCacheView;
 

@@ -3,10 +3,9 @@
  * @brief Which earlier positions a model can continue from without prefilling them again.
  */
 
-module;
-#include <cstdint>
-
 export module Dnn.PromptPrefixReuse;
+
+import std;
 
 namespace Mila::Dnn
 {
@@ -18,7 +17,7 @@ namespace Mila::Dnn
      * holds a summary that cannot be rolled back; it resumes only from a position whose state it saved,
      * and a prompt that diverges before that position prefills from the start.
      */
-    export enum class PromptPrefixReuse : int32_t
+    export enum class PromptPrefixReuse : std::int32_t
     {
         AnyPosition,
         SavedPosition

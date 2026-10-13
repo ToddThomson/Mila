@@ -431,7 +431,8 @@ set_target_properties( ChatRichTextTests PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
-target_link_libraries( ChatRichTextTests PRIVATE gtest gtest_main )
+# MilaStd for `import std;`: the module under test links nothing else of Mila's.
+target_link_libraries( ChatRichTextTests PRIVATE MilaStd gtest gtest_main )
 
 gtest_discover_tests( ChatRichTextTests
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

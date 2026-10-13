@@ -11,7 +11,7 @@ module;
 
 export module Compute.CudaLpeOp:Dispatch;
 
-import std.compat;
+import std;
 
 namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
 {
@@ -49,7 +49,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
          * @param C   Embedding dimension.
          */
         static void forward(
-            float* Y, const int32_t* X,
+            float* Y, const std::int32_t* X,
             const float* wte, const float* wpe,
             int B, int T, int C,
             cudaStream_t stream )
@@ -70,7 +70,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
          */
         static void backward(
             float* dwte, float* dwpe,
-            const int32_t* X, const float* dY,
+            const std::int32_t* X, const float* dY,
             int B, int T, int C,
             cudaStream_t stream )
         {
@@ -93,7 +93,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
          * @param C        Embedding dimension.
          */
         static void decode(
-            float* Y, const int32_t* X,
+            float* Y, const std::int32_t* X,
             const float* wte, const float* wpe,
             int B, int position, int C,
             cudaStream_t stream )
@@ -124,7 +124,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
          * @param C   Embedding dimension.
          */
         static void forward(
-            half* Y, const int32_t* X,
+            half* Y, const std::int32_t* X,
             const half* wte, const half* wpe,
             int B, int T, int C,
             cudaStream_t stream )
@@ -145,7 +145,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
          */
         static void backward(
             half* /*dwte*/, half* /*dwpe*/,
-            const int32_t* /*X*/, const half* /*dY*/,
+            const std::int32_t* /*X*/, const half* /*dY*/,
             int /*B*/, int /*T*/, int /*C*/,
             cudaStream_t /*stream*/ )
         {
@@ -165,7 +165,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
          * @param C        Embedding dimension.
          */
         static void decode(
-            half* /*Y*/, const int32_t* /*X*/,
+            half* /*Y*/, const std::int32_t* /*X*/,
             const half* /*wte*/, const half* /*wpe*/,
             int /*B*/, int /*position*/, int /*C*/,
             cudaStream_t /*stream*/ )

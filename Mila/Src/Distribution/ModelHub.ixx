@@ -8,15 +8,9 @@
  * Specifications/ModelDistribution.md.
  */
 
-module;
-#include <cstddef>
-#include <cstdint>
-#include <functional>
-#include <string>
-#include <vector>
-
 export module Distribution.ModelHub;
 
+import std;
 import Distribution.ModelCoordinate;
 import Distribution.ModelStore;
 
@@ -99,7 +93,7 @@ namespace Mila::Distribution
         virtual FetchReport fetchFile(
             const ModelCoordinate& coordinate,
             const std::string& path,
-            uint64_t resume_from,
-            const std::function<bool( const char*, size_t )>& sink ) const = 0;
+            std::uint64_t resume_from,
+            const std::function<bool( const char*, std::size_t )>& sink ) const = 0;
     };
 }

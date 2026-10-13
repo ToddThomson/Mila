@@ -5,31 +5,9 @@
  * Inference-only wrapper around a loaded GemmaTransformer network.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <span>
-#include <unordered_set>
-#include <string>
-#include <sstream>
-#include <cstdint>
-#include <cstddef>
-#include <expected>
-#include <string_view>
-#include <stdexcept>
-#include <filesystem>
-#include <format>
-#include <random>
-#include <chrono>
-#include <algorithm>
-#include <numeric>
-#include <functional>
-#include <stop_token>
-#include <cstring>
-#include <optional>
-
 export module Dnn.Models.GemmaModel;
 
+import std;
 import Dnn.Models.GemmaModelConfig;
 import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
@@ -324,7 +302,7 @@ namespace Mila::Dnn
         /// Deployment context length: the KV-cache depth the network was built with.
         dim_t contextLength() const noexcept
         {
-            return static_cast<int64_t>( model_config_.getContextLength() );
+            return static_cast<std::int64_t>( model_config_.getContextLength() );
         }
 
         /// AnyPosition: every layer caches each position, so a prompt resumes after any prefix it shares.
@@ -386,15 +364,15 @@ namespace Mila::Dnn
     protected:
 
         GenerateStatus onGenerating(
-            std::span<const int32_t> prompt_tokens,
-            const std::function<void( int32_t )>& on_token,
+            std::span<const std::int32_t> prompt_tokens,
+            const std::function<void( std::int32_t )>& on_token,
             const GenerateParams& params,
             std::stop_token stop ) override
         {
             // The prompt must fit the deployment context (the KV-cache depth the network
             // was built with). Context management is the caller's concern; reject rather
             // than silently truncate.
-            if ( prompt_tokens.size() > static_cast<size_t>( contextLength() ) )
+            if ( prompt_tokens.size() > static_cast<std::size_t>( contextLength() ) )
             {
                 throw std::invalid_argument( std::format(
                     "GemmaModel::onGenerating: prompt length {} exceeds deployment context length {}",
@@ -403,14 +381,14 @@ namespace Mila::Dnn
 
             // Stop set: the model defaults (EOS is a model/tokenizer property), unless the
             // caller overrides them for this call (advanced structured generation).
-            std::unordered_set<int32_t> stop_ids;
+            std::unordered_set<std::int32_t> stop_ids;
             if ( params.stop_tokens.empty() )
                 stop_ids = stopTokens();
             else
                 for ( auto id : params.stop_tokens )
-                    stop_ids.insert( static_cast<int32_t>( id ) );
+                    stop_ids.insert( static_cast<std::int32_t>( id ) );
 
-            const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
+            const std::int64_t seq_len = static_cast<std::int64_t>( prompt_tokens.size() );
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
             // Transparent KV prefix reuse (PromptCaching.md): cache positions [0, n)
@@ -420,14 +398,14 @@ namespace Mila::Dnn
             // the final position prefills and the sampled logits are fresh. A refused
             // rewind (bounded-ring staleness, cold cache) falls back to the full
             // prefill, which positionally overwrites regardless of cache state.
-            int64_t common = 0;
-            const int64_t comparable = std::min(
-                seq_len, static_cast<int64_t>( kv_token_history_.size() ) );
+            std::int64_t common = 0;
+            const std::int64_t comparable = std::min(
+                seq_len, static_cast<std::int64_t>( kv_token_history_.size() ) );
 
-            while ( common < comparable && kv_token_history_[ static_cast<size_t>( common ) ] == prompt_tokens[ static_cast<size_t>( common ) ] )
+            while ( common < comparable && kv_token_history_[ static_cast<std::size_t>( common ) ] == prompt_tokens[ static_cast<std::size_t>( common ) ] )
                 ++common;
 
-            const int64_t reuse = std::min( common, seq_len - 1 );
+            const std::int64_t reuse = std::min( common, seq_len - 1 );
 
             const bool reused = reuse > 0
                 && this->getNetwork().rewindKvCache( reuse );
@@ -486,7 +464,7 @@ namespace Mila::Dnn
                 if ( more_steps_allowed && cache_has_room )
                     decode_logits = &this->getNetwork().decode( decode_token_device_, position );
 
-                const int32_t token = this->awaitSampledToken();
+                const std::int32_t token = this->awaitSampledToken();
 
                 if ( decode_logits )
                 {
@@ -547,8 +525,8 @@ namespace Mila::Dnn
         GenerateStatus generateWithDraft(
             const TensorType& prompt_logits,
             dim_t prompt_length,
-            const std::unordered_set<int32_t>& stop_ids,
-            const std::function<void( int32_t )>& on_token,
+            const std::unordered_set<std::int32_t>& stop_ids,
+            const std::function<void( std::int32_t )>& on_token,
             const GenerateParams& params,
             std::stop_token stop )
         {
@@ -569,7 +547,7 @@ namespace Mila::Dnn
             context->synchronize();
 
             // The token at `position`: chosen, not yet in the caches.
-            int32_t pending = head_on_host.data()[ 0 ];
+            std::int32_t pending = head_on_host.data()[ 0 ];
             dim_t position = prompt_length;
             dim_t hidden_row = 0;
             int emitted = 0;
@@ -577,7 +555,7 @@ namespace Mila::Dnn
             // Emits one token; false when generation ends at it.
             GenerateStatus ended = GenerateStatus::Success;
 
-            const auto emit = [&]( int32_t token ) -> bool
+            const auto emit = [&]( std::int32_t token ) -> bool
             {
                 if ( stop_ids.contains( token ) )
                 {
@@ -630,7 +608,7 @@ namespace Mila::Dnn
                 // token into slot 0 for the next round; the host waits once, for the kept tokens.
                 this->enqueueSpeculativeRound( logits, checked, rows, sampling );
 
-                const std::span<const int32_t> kept = this->awaitSpeculativeRound();
+                const std::span<const std::int32_t> kept = this->awaitSpeculativeRound();
                 const dim_t accepted = static_cast<dim_t>( kept.size() ) - 1;
 
                 // Keep the token at `position` and the accepted drafts; the rejected drafts' rows are written over.
@@ -1007,21 +985,21 @@ namespace Mila::Dnn
         // in lockstep with the decode call). Drives the transparent prompt-prefix
         // reuse in onGenerating (PromptCaching.md): host-side bookkeeping only,
         // bounded by the deployment context length.
-        std::vector<int32_t> kv_token_history_;
+        std::vector<std::int32_t> kv_token_history_;
 
         // Gemma 4 instruct stop tokens: <eos> = 1, <end_of_turn> = 106 (validated by the
         // token-for-token HF parity run + the live chat). These are the MODEL defaults; the
         // library does not parse the tokenizer -- a harness that owns the tokenizer may
         // override the stop set per call via GenerateParams::stop_tokens.
-        static constexpr int32_t kEosToken = 1;
-        static constexpr int32_t kEndOfTurnToken = 106;
+        static constexpr std::int32_t kEosToken = 1;
+        static constexpr std::int32_t kEndOfTurnToken = 106;
 
-        int32_t eosToken() const noexcept override
+        std::int32_t eosToken() const noexcept override
         {
             return kEosToken;
         }
 
-        std::unordered_set<int32_t> stopTokens() const override
+        std::unordered_set<std::int32_t> stopTokens() const override
         {
             return { kEosToken, kEndOfTurnToken };
         }
@@ -1038,18 +1016,18 @@ namespace Mila::Dnn
         // Generation helpers
         // ====================================================================
 
-        TokenIndexType makeTokenTensor( std::span<const int32_t> token_ids ) const
+        TokenIndexType makeTokenTensor( std::span<const std::int32_t> token_ids ) const
         {
             // REVIEW: The inference path data movement is suboptimal:
             // the token_ids vector is copied to a CPU tensor, then copied to the device tensor.
             // Ideally, we would construct the device tensor directly from the vector without an intermediate copy.
 
-            shape_t shape = { 1, static_cast<int64_t>( token_ids.size() ) };
+            shape_t shape = { 1, static_cast<std::int64_t>( token_ids.size() ) };
             TokenIndexType device_tensor( this->getDeviceId(), shape );
 
             Tensor<dtype_t::INT32, CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
 
-            std::memcpy( cpu_tensor.data(), token_ids.data(), token_ids.size() * sizeof( int32_t ) );
+            std::memcpy( cpu_tensor.data(), token_ids.data(), token_ids.size() * sizeof( std::int32_t ) );
 
             copy( cpu_tensor, device_tensor );
 

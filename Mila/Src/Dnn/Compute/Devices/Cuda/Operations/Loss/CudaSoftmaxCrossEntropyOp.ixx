@@ -19,7 +19,7 @@ module;
 
 export module Compute.CudaSoftmaxCrossEntropyOp;
 
-import std.compat;
+import std;
 import Dnn.Components.CrossEntropyConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
@@ -227,7 +227,7 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
         {
             const auto& input_shape = config.inputShape();
             const auto& shape = input_shape;
-            const int64_t ndim = static_cast<int64_t>(shape.size());
+            const std::int64_t ndim = static_cast<std::int64_t>(shape.size());
 
             if (ndim < 2)
             {
@@ -260,7 +260,7 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
             else
             {
                 cached_batch_size_ = 1;
-                for (int64_t i = 0; i < ndim - 2; ++i)
+                for (std::int64_t i = 0; i < ndim - 2; ++i)
                 {
                     cached_batch_size_ *= static_cast<int>( shape[i] );
                 }

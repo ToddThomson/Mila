@@ -20,7 +20,7 @@ module;
 
 export module Compute.CudaTensorOps:Math;
 
-import std.compat;
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.ITensor;
@@ -547,7 +547,7 @@ namespace Mila::Dnn::Compute::Cuda
             auto* typed_result = static_cast<NativeType*>(result_data);
 
             Kernels::launch_elementwise_add_kernel<NativeType>(
-                typed_a, typed_b, typed_result, static_cast<size_t>( count ), stream
+                typed_a, typed_b, typed_result, static_cast<std::size_t>( count ), stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -576,7 +576,7 @@ namespace Mila::Dnn::Compute::Cuda
             auto* typed_result = static_cast<NativeType*>(result_data);
 
             Kernels::launch_elementwise_subtract_kernel<NativeType>(
-                typed_a, typed_b, typed_result, static_cast<size_t>( count ), stream
+                typed_a, typed_b, typed_result, static_cast<std::size_t>( count ), stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -605,7 +605,7 @@ namespace Mila::Dnn::Compute::Cuda
             auto* typed_result = static_cast<NativeType*>(result_data);
 
             Kernels::launch_elementwise_multiply_kernel<NativeType>(
-                typed_a, typed_b, typed_result, static_cast<size_t>( count ), stream
+                typed_a, typed_b, typed_result, static_cast<std::size_t>( count ), stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -635,7 +635,7 @@ namespace Mila::Dnn::Compute::Cuda
             // Pass the float scalar straight to the kernel; the float->native conversion happens
             // device-side (host MSVC has no float->bf16). Arithmetic is done in float.
             Kernels::launch_scalar_multiply_float_kernel<NativeType>(
-                typed_in, typed_result, scalar, static_cast<size_t>( count ), stream
+                typed_in, typed_result, scalar, static_cast<std::size_t>( count ), stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -664,7 +664,7 @@ namespace Mila::Dnn::Compute::Cuda
             auto* typed_result = static_cast<NativeType*>(result_data);
 
             launch_elementwise_divide_kernel<NativeType>(
-                typed_a, typed_b, typed_result, static_cast<size_t>( count ), stream
+                typed_a, typed_b, typed_result, static_cast<std::size_t>( count ), stream
             );
 
             cudaError_t status = cudaGetLastError();

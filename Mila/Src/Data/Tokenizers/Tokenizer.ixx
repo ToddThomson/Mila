@@ -1,12 +1,7 @@
-module;
-#include <string>
-#include <vector>
-#include <cstdint>
-#include <optional>
-#include <span>
-#include <filesystem>
 
 export module Data.Tokenizer;
+
+import std;
 
 namespace Mila::Data
 {
@@ -15,7 +10,7 @@ namespace Mila::Data
 
     // Semantically, Token Ids are unsigned. However, we use int* in my CUDA Encoder kenels
     // For now we 'll use int32_t as the TokenId type
-    export using TokenId = int32_t;
+    export using TokenId = std::int32_t;
 
     export class Tokenizer {
     public:
@@ -28,7 +23,7 @@ namespace Mila::Data
         virtual std::string decode( std::span<const TokenId> tokens ) = 0;
 
         // Get vocabulary size
-        virtual size_t getVocabSize() const = 0;
+        virtual std::size_t getVocabSize() const = 0;
 
         // Get special token IDs
         virtual std::optional<TokenId> getBosTokenId() const = 0;

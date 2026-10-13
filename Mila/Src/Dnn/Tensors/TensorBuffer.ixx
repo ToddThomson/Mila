@@ -17,7 +17,7 @@
 
 export module Dnn.TensorBuffer;
 
-import std.compat;
+import std;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
@@ -39,7 +39,7 @@ namespace Mila::Dnn
 		 * in CUDA warp-level operations, ensuring maximum memory throughput
 		 * in GPU kernels and device functions.
 		 */
-		constexpr size_t CUDA_WARP_SIZE = 32;
+		constexpr std::size_t CUDA_WARP_SIZE = 32;
 
 		/**
 		 * @brief AVX-512 alignment boundary for optimal CPU SIMD operations
@@ -48,7 +48,7 @@ namespace Mila::Dnn
 		 * AVX-512 vector instructions, enabling optimal vectorized operations
 		 * on modern CPU architectures.
 		 */
-		constexpr size_t CPU_SIMD_ALIGN = 64;
+		constexpr std::size_t CPU_SIMD_ALIGN = 64;
 
 		/**
 		 * @brief Determines optimal memory alignment based on memory resource and data type
@@ -62,7 +62,7 @@ namespace Mila::Dnn
 		 * @return Optimal alignment boundary in bytes for the given configuration
 		 */
 		template<TensorDataType TDataType, typename MR>
-		constexpr size_t get_alignment() 
+		constexpr std::size_t get_alignment() 
 		{
 			// REVIEW: Update for packed types. We now support FP4 packed types
 
@@ -90,17 +90,17 @@ namespace Mila::Dnn
 		 * @throws std::overflow_error If calculation would overflow
 		 */
 		template<TensorDataType TDataType>
-		constexpr size_t getStorageSize( size_t logical_size )
+		constexpr std::size_t getStorageSize( std::size_t logical_size )
 		{
 			// For sub-byte packed types use bits_per_element; all other types use size_in_bytes * 8.
-			constexpr size_t bits = []() constexpr {
+			constexpr std::size_t bits = []() constexpr {
 				if constexpr ( requires { TensorDataTypeTraits<TDataType>::bits_per_element; } )
 					return TensorDataTypeTraits<TDataType>::bits_per_element;
 				else
-					return TensorDataTypeTraits<TDataType>::size_in_bytes * size_t( 8 );
+					return TensorDataTypeTraits<TDataType>::size_in_bytes * std::size_t( 8 );
 				}();
 
-			if ( logical_size > (std::numeric_limits<size_t>::max() - 7) / bits )
+			if ( logical_size > (std::numeric_limits<std::size_t>::max() - 7) / bits )
 			{
 				throw std::overflow_error( "Storage size calculation would overflow." );
 			}
@@ -108,7 +108,7 @@ namespace Mila::Dnn
 			return (logical_size * bits + 7) / 8;
 		}
 
-		inline std::string formatBytes( size_t bytes )
+		inline std::string formatBytes( std::size_t bytes )
 		{
 			if ( bytes < 1024 )
 				return std::format( "{} B", bytes );
@@ -174,8 +174,8 @@ namespace Mila::Dnn
 		using DataTypeTraits = TensorDataTypeTraits<TDataType>;                   ///< Compile-time data type characteristics
 
 		static constexpr TensorDataType data_type = TDataType;                     ///< Compile-time data type constant
-		static constexpr size_t element_size = DataTypeTraits::size_in_bytes;      ///< Storage size per element
-		static constexpr size_t alignment = Detail::get_alignment<TDataType, TMemoryResource>(); ///< Optimal memory alignment
+		static constexpr std::size_t element_size = DataTypeTraits::size_in_bytes;      ///< Storage size per element
+		static constexpr std::size_t alignment = Detail::get_alignment<TDataType, TMemoryResource>(); ///< Optimal memory alignment
 		static constexpr bool is_float_type = DataTypeTraits::is_float_type;       ///< Floating-point type classification
 		static constexpr bool is_integer_type = DataTypeTraits::is_integer_type;   ///< Integer type classification
 		static constexpr bool is_device_only = DataTypeTraits::is_device_only;     ///< Device-only type restriction
@@ -198,7 +198,7 @@ namespace Mila::Dnn
 		 * @note Memory is aligned according to hardware optimization requirements
 		 * @note Zero-sized buffers are handled efficiently without allocation
 		 */
-		explicit TensorBuffer( int device_id, size_t logical_size )
+		explicit TensorBuffer( int device_id, std::size_t logical_size )
 			: device_id_( device_id ), logical_size_( logical_size ), storage_bytes_( 0 ), mr_( createMemoryResource() ) {
 
 			if (logical_size_ == 0) {
@@ -220,7 +220,7 @@ namespace Mila::Dnn
 			// END DEBUG:
 
 			// Check for overflow in alignment calculations
-			if (storage_bytes_ > (std::numeric_limits<size_t>::max() - alignment + 1)) {
+			if (storage_bytes_ > (std::numeric_limits<std::size_t>::max() - alignment + 1)) {
 				throw std::overflow_error( "Storage size too large, causing overflow in alignment calculation." );
 			}
 
@@ -314,7 +314,7 @@ namespace Mila::Dnn
 		 *
 		 * @return Number of logical elements stored in the buffer
 		 */
-		size_t size() const noexcept {
+		std::size_t size() const noexcept {
 			return logical_size_;
 		}
 
@@ -325,7 +325,7 @@ namespace Mila::Dnn
 		 *
 		 * @return Storage size in bytes
 		 */
-		size_t storageBytes() const noexcept {
+		std::size_t storageBytes() const noexcept {
 			return storage_bytes_;
 		}
 
@@ -337,7 +337,7 @@ namespace Mila::Dnn
 		 *
 		 * @return Total allocated memory size including alignment padding
 		 */
-		size_t alignedSize() const noexcept {
+		std::size_t alignedSize() const noexcept {
 			return aligned_size_;
 		}
 
@@ -405,7 +405,7 @@ namespace Mila::Dnn
 		 * @note Does NOT preserve existing data (caller must reinitialize)
 		 * @note New memory is uninitialized for performance
 		 */
-		void resize( size_t new_logical_size ) {
+		void resize( std::size_t new_logical_size ) {
 			if ( !mr_ ) {
 				throw std::runtime_error(
 					"Cannot resize buffer with external memory management."
@@ -436,7 +436,7 @@ namespace Mila::Dnn
 			// Calculate new storage requirements
 			storage_bytes_ = Detail::getStorageSize<TDataType>( new_logical_size );
 
-			if ( storage_bytes_ > (std::numeric_limits<size_t>::max() - alignment + 1) ) {
+			if ( storage_bytes_ > (std::numeric_limits<std::size_t>::max() - alignment + 1) ) {
 				throw std::overflow_error(
 					"New storage size too large for alignment calculation."
 				);
@@ -486,9 +486,9 @@ namespace Mila::Dnn
 
 	private:
 		int device_id_{ -1 }; ///< Device Id for memory resource operations
-		size_t logical_size_{ 0 };                                      ///< Number of logical elements in buffer
-		size_t storage_bytes_{ 0 };                                     ///< Actual storage bytes 
-		size_t aligned_size_{ 0 };                                      ///< Total allocated bytes including alignment
+		std::size_t logical_size_{ 0 };                                      ///< Number of logical elements in buffer
+		std::size_t storage_bytes_{ 0 };                                     ///< Actual storage bytes 
+		std::size_t aligned_size_{ 0 };                                      ///< Total allocated bytes including alignment
 		std::byte* data_{ nullptr };                                    ///< Pointer to allocated memory buffer
 		std::unique_ptr<Compute::MemoryResource> mr_{ nullptr };        ///< Memory resource for allocation (null for external)
 
@@ -498,7 +498,7 @@ namespace Mila::Dnn
 		 * Ensures memory allocations meet hardware alignment requirements
 		 * for optimal performance on target devices.
 		 */
-		size_t calculateAlignedSize( size_t storage_bytes ) const noexcept {
+		std::size_t calculateAlignedSize( std::size_t storage_bytes ) const noexcept {
 			return (storage_bytes + alignment - 1) & ~(alignment - 1);
 		}
 
@@ -544,7 +544,7 @@ namespace Mila::Dnn
 					<< Detail::formatBytes( storage_bytes_ ) << " storage, "
 					<< Detail::formatBytes( aligned_size_ ) << " aligned)"
 					<< " DataType: " << DataTypeTraits::type_name
-					<< " Pointer: 0x" << std::hex << reinterpret_cast<uintptr_t>(data_) << std::dec
+					<< " Pointer: 0x" << std::hex << reinterpret_cast<std::uintptr_t>(data_) << std::dec
 					<< std::endl;
 			}
 		}

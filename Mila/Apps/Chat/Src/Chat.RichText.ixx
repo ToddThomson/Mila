@@ -9,14 +9,9 @@
  * run exactly the same transforms.
  */
 
-module;
-#include <cctype>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-
 export module Chat.RichText;
+
+import std;
 
 namespace Mila::ChatApp
 {
@@ -196,7 +191,7 @@ namespace Mila::ChatApp
             text.text.reserve( styled.text.size() );
             text.attributes.reserve( styled.text.size() );
 
-            for ( size_t at = 0; at < styled.text.size(); ++at )
+            for ( std::size_t at = 0; at < styled.text.size(); ++at )
             {
                 const auto style = static_cast<unsigned char>( styled.attributes[ at ] );
 
@@ -215,7 +210,7 @@ namespace Mila::ChatApp
             // character of current is not already a space (i.e. not a leading-indent run).
             // Slice both strings with identical arithmetic -- that equality is the
             // whole reason attributes are a parallel string rather than a span list.
-            auto splitOff = [&]( StyledText& from, size_t count )
+            auto splitOff = [&]( StyledText& from, std::size_t count )
             {
                 StyledLine head;
                 head.text = from.text.substr( 0, count );
@@ -240,7 +235,7 @@ namespace Mila::ChatApp
                         current.clear();
                     }
 
-                    lines.push_back( splitOff( word, static_cast<size_t>( max_width ) ) );
+                    lines.push_back( splitOff( word, static_cast<std::size_t>( max_width ) ) );
                 }
 
                 if ( current.empty() || current.text.back() == ' ' )
@@ -264,7 +259,7 @@ namespace Mila::ChatApp
                 word.clear();
             };
 
-            for ( size_t at = 0; at < text.text.size(); ++at )
+            for ( std::size_t at = 0; at < text.text.size(); ++at )
             {
                 const char c = text.text[ at ];
                 const auto style = static_cast<unsigned char>( text.attributes[ at ] );
@@ -321,7 +316,7 @@ namespace Mila::ChatApp
             out.text.reserve( s.size() );
             out.attributes.reserve( s.size() );
 
-            size_t i = 0;
+            std::size_t i = 0;
             bool bold = false;
 
             while ( i < s.size() )
@@ -330,7 +325,7 @@ namespace Mila::ChatApp
 
                 if ( at_line_start )
                 {
-                    const size_t indent_start = i;
+                    const std::size_t indent_start = i;
 
                     while ( i < s.size() && (s[ i ] == ' ' || s[ i ] == '\t') )
                         ++i;
@@ -338,12 +333,12 @@ namespace Mila::ChatApp
                     // ATX heading: one to six hashes then a space. Levels collapse to
                     // one treatment -- models pick depth inconsistently, so honouring
                     // it would encode their noise rather than the section structure.
-                    size_t hashes = i;
+                    std::size_t hashes = i;
 
                     while ( hashes < s.size() && s[ hashes ] == '#' )
                         ++hashes;
 
-                    const size_t hash_count = hashes - i;
+                    const std::size_t hash_count = hashes - i;
 
                     if ( hash_count >= 1 && hash_count <= 6
                         && hashes < s.size() && s[ hashes ] == ' ' )
@@ -415,7 +410,7 @@ namespace Mila::ChatApp
             if ( from.empty() )
                 return;
 
-            size_t pos = 0;
+            std::size_t pos = 0;
 
             while ( (pos = s.find( from, pos )) != std::string::npos )
             {
@@ -436,11 +431,11 @@ namespace Mila::ChatApp
         {
             const std::string token = std::string( cmd ) + "{";
             std::string out;
-            size_t i = 0;
+            std::size_t i = 0;
 
             while ( i < s.size() )
             {
-                const size_t p = s.find( token, i );
+                const std::size_t p = s.find( token, i );
 
                 if ( p == std::string::npos )
                 {
@@ -450,8 +445,8 @@ namespace Mila::ChatApp
 
                 out += s.substr( i, p - i );
 
-                const size_t inner = p + token.size();
-                const size_t close = s.find( '}', inner );
+                const std::size_t inner = p + token.size();
+                const std::size_t close = s.find( '}', inner );
 
                 if ( close == std::string::npos )
                 {
@@ -470,11 +465,11 @@ namespace Mila::ChatApp
         {
             const std::string token = "\\frac{";
             std::string out;
-            size_t i = 0;
+            std::size_t i = 0;
 
             while ( i < s.size() )
             {
-                const size_t p = s.find( token, i );
+                const std::size_t p = s.find( token, i );
 
                 if ( p == std::string::npos )
                 {
@@ -484,8 +479,8 @@ namespace Mila::ChatApp
 
                 out += s.substr( i, p - i );
 
-                const size_t a0 = p + token.size();
-                const size_t a1 = s.find( '}', a0 );
+                const std::size_t a0 = p + token.size();
+                const std::size_t a1 = s.find( '}', a0 );
 
                 if ( a1 == std::string::npos || a1 + 1 >= s.size() || s[ a1 + 1 ] != '{' )
                 {
@@ -493,8 +488,8 @@ namespace Mila::ChatApp
                     break;
                 }
 
-                const size_t b0 = a1 + 2;
-                const size_t b1 = s.find( '}', b0 );
+                const std::size_t b0 = a1 + 2;
+                const std::size_t b1 = s.find( '}', b0 );
 
                 if ( b1 == std::string::npos )
                 {
@@ -513,7 +508,7 @@ namespace Mila::ChatApp
         {
             const bool subscript = (marker == '_');
             std::string out;
-            size_t i = 0;
+            std::size_t i = 0;
 
             while ( i < s.size() )
             {
@@ -521,11 +516,11 @@ namespace Mila::ChatApp
                 {
                     if ( s[ i + 1 ] == '{' )
                     {
-                        const size_t close = s.find( '}', i + 2 );
+                        const std::size_t close = s.find( '}', i + 2 );
 
                         if ( close != std::string::npos )
                         {
-                            for ( size_t k = i + 2; k < close; ++k )
+                            for ( std::size_t k = i + 2; k < close; ++k )
                                 out += scriptChar( s[ k ], subscript );
 
                             i = close + 1;
@@ -585,13 +580,13 @@ namespace Mila::ChatApp
         static std::string stripBackslashCommands( const std::string& s )
         {
             std::string out;
-            size_t i = 0;
+            std::size_t i = 0;
 
             while ( i < s.size() )
             {
                 if ( s[ i ] == '\\' )
                 {
-                    size_t j = i + 1;
+                    std::size_t j = i + 1;
 
                     while ( j < s.size() && std::isalpha( static_cast<unsigned char>( s[ j ] ) ) )
                         ++j;

@@ -22,22 +22,9 @@
  * the decided direction but is post-release (see MilaProductFamily.md).
  */
 
-module;
-#include <string>
-#include <string_view>
-#include <optional>
-#include <span>
-#include <stdexcept>
-#include <vector>
-#include <cstdint>
-#include <cstdlib>
-// nlohmann::json::create instantiates here and compares a unique_ptr against nullptr, so this
-// TU needs <memory>'s operators by ordinary lookup. Importing nlohmann.json does not supply
-// them: they reach the BMI only as pruned global-module-fragment declarations.
-#include <memory>
-
 export module Dnn.Models.GemmaProtocol;
 
+import std;
 export import Dnn.Models.Conversation;
 
 import nlohmann.json;
@@ -127,7 +114,7 @@ namespace Mila::Dnn::Gemma
             std::string result;
             result.reserve( text.size() );
 
-            size_t cursor = 0;
+            std::size_t cursor = 0;
 
             while ( cursor < text.size() )
             {
@@ -138,7 +125,7 @@ namespace Mila::Dnn::Gemma
                     continue;
                 }
 
-                size_t scan = cursor + 2;
+                std::size_t scan = cursor + 2;
 
                 while ( scan < text.size() && text[ scan ] != '|' && text[ scan ] != '>' )
                     ++scan;
@@ -258,7 +245,7 @@ namespace Mila::Dnn::Gemma
         struct Cursor
         {
             std::string_view text;
-            size_t position = 0;
+            std::size_t position = 0;
 
             bool atEnd() const { return position >= text.size(); }
             char peek() const { return text[ position ]; }
@@ -319,7 +306,7 @@ namespace Mila::Dnn::Gemma
         /// Consume a bare literal, stopping at whatever closes the enclosing construct.
         inline nlohmann::json parseBare( Cursor& cursor )
         {
-            const size_t start = cursor.position;
+            const std::size_t start = cursor.position;
 
             while ( !cursor.atEnd() && cursor.peek() != ',' && cursor.peek() != '}' && cursor.peek() != ']' )
                 ++cursor.position;
@@ -341,7 +328,7 @@ namespace Mila::Dnn::Gemma
             if ( !cursor.atEnd() && cursor.peek() == '"' )
                 return parseQuotedString( cursor );
 
-            const size_t start = cursor.position;
+            const std::size_t start = cursor.position;
 
             while ( !cursor.atEnd() && cursor.peek() != ':' && cursor.peek() != ',' && cursor.peek() != '}' )
                 ++cursor.position;
@@ -762,7 +749,7 @@ namespace Mila::Dnn::Gemma
 
             std::string body = "{";
 
-            for ( size_t index = 0; index < parts.size(); ++index )
+            for ( std::size_t index = 0; index < parts.size(); ++index )
             {
                 if ( index != 0 )
                     body += ",";
@@ -1039,7 +1026,7 @@ namespace Mila::Dnn::Gemma
 
                 body += ",parameters:{";
 
-                for ( size_t index = 0; index < parameter_parts.size(); ++index )
+                for ( std::size_t index = 0; index < parameter_parts.size(); ++index )
                 {
                     if ( index != 0 )
                         body += ",";
@@ -1159,9 +1146,9 @@ namespace Mila::Dnn::Gemma
         if ( !system_content.empty() )
             prompt += formatTurn( { Conversation::Role::System, system_content } );
 
-        const size_t body_count = continue_open ? history.size() - 1 : history.size();
+        const std::size_t body_count = continue_open ? history.size() - 1 : history.size();
 
-        for ( size_t index = 0; index < body_count; ++index )
+        for ( std::size_t index = 0; index < body_count; ++index )
         {
             if ( history[ index ].role == Conversation::Role::System )
                 continue;
@@ -1228,7 +1215,7 @@ namespace Mila::Dnn::Gemma
             std::string_view open_token, std::string_view close_token )
         {
             std::string result;
-            size_t cursor = 0;
+            std::size_t cursor = 0;
 
             while ( true )
             {

@@ -6,12 +6,9 @@
  * factories and concise diagnostics.
  */
 
-module;
-#include <string>
-#include <string_view>
-#include <cctype>
-
 export module Dnn.ComponentType;
+
+import std;
 
 namespace Mila::Dnn
 {

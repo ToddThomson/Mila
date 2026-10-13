@@ -3,12 +3,9 @@
  * @brief What checking a package against its own manifest found.
  */
 
-module;
-#include <cstdint>
-#include <string>
-#include <vector>
-
 export module Distribution.PackageValidation;
+
+import std;
 
 namespace Mila::Distribution
 {
@@ -26,7 +23,7 @@ namespace Mila::Distribution
         std::vector<std::string> warnings;
 
         /// Bytes actually read and digested.
-        uint64_t bytes_verified{ 0 };
+        std::uint64_t bytes_verified{ 0 };
 
         int files_verified{ 0 };
 

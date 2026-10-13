@@ -3,12 +3,9 @@
  * @brief Per-call generation request: loop control plus the sampling shape.
  */
 
-module;
-#include <optional>
-#include <vector>
-
 export module Dnn.GenerateParams;
 
+import std;
 import Data.Tokenizer;
 import Dnn.SamplingParams;
 

@@ -6,23 +6,10 @@
  * language models. Derived classes implement the prefill + decode loop via
  * the protected onGenerating() hook.
  */
-module;
-#include <vector>
-#include <algorithm>
-#include <span>
-#include <unordered_set>
-#include <memory>
-#include <string>
-#include <stdexcept>
-#include <format>
-#include <functional>
-#include <stop_token>
-#include <cstddef>
-#include <cstdint>
-#include <filesystem>
 
 export module Dnn.LanguageModel;
 
+import std;
 import Dnn.Model;
 import Dnn.LanguageModelNetwork;
 import Dnn.Tensor;
@@ -87,8 +74,8 @@ namespace Mila::Dnn
          * @return               Why generation stopped.
          */
         [[nodiscard]] GenerateStatus generate(
-            std::span<const int32_t> prompt_tokens,
-            const std::function<void( int32_t )>& on_token,
+            std::span<const std::int32_t> prompt_tokens,
+            const std::function<void( std::int32_t )>& on_token,
             const GenerateParams& params = {},
             std::stop_token stop = {} )
         {
@@ -128,7 +115,7 @@ namespace Mila::Dnn
          * @return How many components matched. **Check it** -- zero means nothing will
          *         publish, and downstream that is indistinguishable from a clean run.
          */
-        size_t observe( std::string_view pattern,
+        std::size_t observe( std::string_view pattern,
             Compute::ComputePassMask passes,
             Compute::ActivationObserver sink )
         {
@@ -220,7 +207,7 @@ namespace Mila::Dnn
          * a given prompt and model. Deliberately not a per-call GenerateParams field,
          * so a caller cannot accidentally reset the stream on every call.
          */
-        void seedSampler( uint64_t seed )
+        void seedSampler( std::uint64_t seed )
         {
             ensureSampler();
             token_sampler_->reseed( seed );
@@ -298,7 +285,7 @@ namespace Mila::Dnn
          * from the final row of @p logits, writing the int32 token into @p token_out in
          * place (ready for the next decode step) and returning the host value.
          */
-        int32_t sampleNext(
+        std::int32_t sampleNext(
             const TensorType& logits,
             TokenTensor& token_out,
             const SamplingParams& params )
@@ -349,7 +336,7 @@ namespace Mila::Dnn
          * ahead-decoded forward) keeps running, which is what hides the per-token
          * host gap.
          */
-        int32_t awaitSampledToken()
+        std::int32_t awaitSampledToken()
         {
             return token_sampler_->awaitToken();
         }
@@ -395,7 +382,7 @@ namespace Mila::Dnn
                     rows, rows ) );
             }
 
-            std::vector<float> uniforms( static_cast<size_t>( rows ) );
+            std::vector<float> uniforms( static_cast<std::size_t>( rows ) );
 
             for ( auto& uniform : uniforms )
                 uniform = token_sampler_->drawUniform();
@@ -404,7 +391,7 @@ namespace Mila::Dnn
         }
 
         /// Block until the last enqueueSpeculativeRound()'s choice is on the host: the kept drafts, then the next token.
-        std::span<const int32_t> awaitSpeculativeRound()
+        std::span<const std::int32_t> awaitSpeculativeRound()
         {
             return speculative_sampler_->awaitRound();
         }
@@ -443,8 +430,8 @@ namespace Mila::Dnn
          * @return               Why generation stopped.
          */
         virtual GenerateStatus onGenerating(
-            std::span<const int32_t> prompt_tokens,
-            const std::function<void( int32_t )>& on_token,
+            std::span<const std::int32_t> prompt_tokens,
+            const std::function<void( std::int32_t )>& on_token,
             const GenerateParams& params,
             std::stop_token stop ) = 0;
 
@@ -452,9 +439,9 @@ namespace Mila::Dnn
         // Pure virtual accessors
         // ====================================================================
 
-        virtual int32_t eosToken() const noexcept = 0;
+        virtual std::int32_t eosToken() const noexcept = 0;
 
-        virtual std::unordered_set<int32_t> stopTokens() const
+        virtual std::unordered_set<std::int32_t> stopTokens() const
         {
             return { eosToken() };
         }

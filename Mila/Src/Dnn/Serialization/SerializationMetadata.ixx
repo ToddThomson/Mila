@@ -6,20 +6,9 @@
  * Provides fluent API for common metadata patterns used in component save/load.
  */
 
-module;
-#include <string>
-#include <vector>
-#include <map>
-#include <variant>
-#include <optional>
-#include <stdexcept>
-#include <format>
-#include <cstdint>
-// Required by every importer of nlohmann.json -- see Distribution/ModelStore.ixx.
-#include <memory>
-
 export module Serialization.Metadata;
 
+import std;
 import nlohmann.json;
 import Dnn.TensorTypes;
 
@@ -35,10 +24,10 @@ namespace Mila::Dnn::Serialization
      */
     export using MetadataValue = std::variant<
         std::string,
-        int64_t,
+        std::int64_t,
         double,
         bool,
-        std::vector<int64_t>,
+        std::vector<std::int64_t>,
         std::vector<double>,
         std::vector<std::string>
     >;
@@ -107,7 +96,7 @@ namespace Mila::Dnn::Serialization
          * @param value Integer value
          * @return Reference to this for method chaining
          */
-        SerializationMetadata& set( const std::string& key, int64_t value )
+        SerializationMetadata& set( const std::string& key, std::int64_t value )
         {
             data_[ key ] = value;
 
@@ -169,7 +158,7 @@ namespace Mila::Dnn::Serialization
          */
         SerializationMetadata& set( const std::string& key, const shape_t& value )
         {
-            data_[ key ] = std::vector<int64_t>( value.begin(), value.end() );
+            data_[ key ] = std::vector<std::int64_t>( value.begin(), value.end() );
 
             return *this;
         }
@@ -250,7 +239,7 @@ namespace Mila::Dnn::Serialization
          *
          * @return Entry count
          */
-        size_t size() const noexcept
+        std::size_t size() const noexcept
         {
             return data_.size();
         }
@@ -286,11 +275,11 @@ namespace Mila::Dnn::Serialization
          * @return Integer value
          * @throws std::runtime_error if key not found or type mismatch
          */
-        int64_t getInt( const std::string& key ) const
+        std::int64_t getInt( const std::string& key ) const
         {
             const auto& value = getValue( key );
 
-            if ( const auto* i = std::get_if<int64_t>( &value ) )
+            if ( const auto* i = std::get_if<std::int64_t>( &value ) )
             {
                 return *i;
             }
@@ -352,7 +341,7 @@ namespace Mila::Dnn::Serialization
         {
             const auto& value = getValue( key );
 
-            if ( const auto* vec = std::get_if<std::vector<int64_t>>( &value ) )
+            if ( const auto* vec = std::get_if<std::vector<std::int64_t>>( &value ) )
             {
                 return shape_t{ vec->data(), vec->data() + vec->size() };
             }
@@ -368,11 +357,11 @@ namespace Mila::Dnn::Serialization
          * @return Integer vector
          * @throws std::runtime_error if key not found or type mismatch
          */
-        std::vector<int64_t> getIntVector( const std::string& key ) const
+        std::vector<std::int64_t> getIntVector( const std::string& key ) const
         {
             const auto& value = getValue( key );
 
-            if ( const auto* vec = std::get_if<std::vector<int64_t>>( &value ) )
+            if ( const auto* vec = std::get_if<std::vector<std::int64_t>>( &value ) )
             {
                 return *vec;
             }
@@ -453,7 +442,7 @@ namespace Mila::Dnn::Serialization
          * @param key Metadata key
          * @return Integer value or std::nullopt if not found or type mismatch
          */
-        std::optional<int64_t> tryGetInt( const std::string& key ) const noexcept
+        std::optional<std::int64_t> tryGetInt( const std::string& key ) const noexcept
         {
             auto it = data_.find( key );
             if ( it == data_.end() )
@@ -461,7 +450,7 @@ namespace Mila::Dnn::Serialization
                 return std::nullopt;
             }
 
-            if ( const auto* i = std::get_if<int64_t>( &it->second ) )
+            if ( const auto* i = std::get_if<std::int64_t>( &it->second ) )
             {
                 return *i;
             }
@@ -512,7 +501,7 @@ namespace Mila::Dnn::Serialization
                 return static_cast<float>( *d );
             }
 
-            if ( const auto* i = std::get_if<int64_t>( &it->second ) )
+            if ( const auto* i = std::get_if<std::int64_t>( &it->second ) )
             {
                 return static_cast<float>( *i );
             }
@@ -558,7 +547,7 @@ namespace Mila::Dnn::Serialization
                 return std::nullopt;
             }
 
-            if ( const auto* vec = std::get_if<std::vector<int64_t>>( &it->second ) )
+            if ( const auto* vec = std::get_if<std::vector<std::int64_t>>( &it->second ) )
             {
                 return shape_t{ vec->data(), vec->data() + vec->size() };
             }
@@ -620,7 +609,7 @@ namespace Mila::Dnn::Serialization
                 }
                 else if ( value.is_number_integer() )
                 {
-                    meta.set( key, value.get<int64_t>() );
+                    meta.set( key, value.get<std::int64_t>() );
                 }
                 else if ( value.is_number_float() )
                 {
@@ -634,7 +623,7 @@ namespace Mila::Dnn::Serialization
                 {
                     if ( value[ 0 ].is_number_integer() )
                     {
-                        meta.set( key, value.get<std::vector<int64_t>>() );
+                        meta.set( key, value.get<std::vector<std::int64_t>>() );
                     }
                     else if ( value[ 0 ].is_number_float() )
                     {

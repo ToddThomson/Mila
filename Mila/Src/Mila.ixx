@@ -6,13 +6,9 @@
  * Copyright (c) 2021..2026 Todd J. Thomson
  */
 
-module;
-#include <string>
-#include <memory>
-#include <format>
-#include <exception>
-
 export module Mila;
+
+import std;
 
 // The export list below IS the public API spec: `import Mila;` is the single supported entry point,
 // and the public surface is exactly what this umbrella re-exports.

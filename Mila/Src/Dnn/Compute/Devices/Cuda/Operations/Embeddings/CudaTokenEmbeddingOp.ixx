@@ -22,7 +22,7 @@ module;
 
 export module Compute.CudaTokenEmbeddingOp;
 
-import std.compat;
+import std;
 import :Dispatch;
 import :Quantize;
 
@@ -83,7 +83,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         using TableScaleNativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TTableQuantization::kScaleDtype>::device_type;
 
         /// Bytes of one stored table row of embedding_dim elements.
-        static constexpr int64_t storedRowElements( int64_t embedding_dim ) noexcept
+        static constexpr std::int64_t storedRowElements( std::int64_t embedding_dim ) noexcept
         {
             if constexpr ( kIsInt6Table )
                 return embedding_dim * TTableQuantization::kStorageBitsPerElement / 8;
@@ -186,11 +186,11 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             ITensor& scales_out,
             const shape_t& expected_shape ) requires kIsQuantized
         {
-            const int64_t vocab_size = static_cast<int64_t>( expected_shape[ 0 ] );
-            const int64_t embedding_dim = static_cast<int64_t>( expected_shape[ 1 ] );
+            const std::int64_t vocab_size = static_cast<std::int64_t>( expected_shape[ 0 ] );
+            const std::int64_t embedding_dim = static_cast<std::int64_t>( expected_shape[ 1 ] );
 
-            const size_t src_bytes = static_cast<size_t>( vocab_size * embedding_dim ) * sizeof( uint16_t );
-            const size_t staging_bytes = std::min( src_bytes, context_->getLoadStagingLimitBytes() );
+            const std::size_t src_bytes = static_cast<std::size_t>( vocab_size * embedding_dim ) * sizeof( std::uint16_t );
+            const std::size_t staging_bytes = std::min( src_bytes, context_->getLoadStagingLimitBytes() );
 
             void* staging = context_->getLoadStagingBuffer( staging_bytes );
 
@@ -279,7 +279,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
 
             validateRuntimeShape( B, T );
 
-            const int32_t* X = static_cast<const int32_t*>(input.rawData());
+            const std::int32_t* X = static_cast<const std::int32_t*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
 
             if constexpr ( kIsInt6Table )
@@ -334,7 +334,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
 
                 validateRuntimeShape( B, T );
 
-                const int32_t* X = static_cast<const int32_t*>(input.rawData());
+                const std::int32_t* X = static_cast<const std::int32_t*>(input.rawData());
                 const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
 
                 Detail::cuda_token_embedding_impl<NativeType>::backward(
@@ -359,7 +359,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         {
             int B = static_cast<int>(input.shape()[ 0 ]);
 
-            const int32_t* X = static_cast<const int32_t*>(input.rawData());
+            const std::int32_t* X = static_cast<const std::int32_t*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
 
             if constexpr ( kIsInt6Table )

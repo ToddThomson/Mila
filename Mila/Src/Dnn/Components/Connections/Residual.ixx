@@ -8,20 +8,9 @@
  * a device-specific binary operation backend obtained from the OperationRegistry.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <iostream>
-#include <sstream>
-#include <type_traits>
-#include <stdexcept>
-#include <cstdint>
-#include <optional>
-#include <format>
-#include <algorithm>
-
 export module Dnn.Components.Residual;
+
+import std;
 export import Dnn.Components.ResidualConfig;
 
 import Dnn.Component;

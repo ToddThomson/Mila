@@ -7,13 +7,9 @@
  * stream I/O on every call path.
  */
 
-module;
-#include <iostream>
-#include <string>
-#include <source_location>
-
 export module Logging.NullSink;
 
+import std;
 import Logging.Logger;
 
 namespace Mila::Logging

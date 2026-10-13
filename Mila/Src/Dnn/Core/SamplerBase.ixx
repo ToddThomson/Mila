@@ -8,11 +8,9 @@
  * Specifications/TokenSampling.md.
  */
 
-module;
-#include <cstdint>
-
 export module Compute.SamplerBase;
 
+import std;
 import Dnn.ITensor;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
@@ -63,7 +61,7 @@ namespace Mila::Dnn
          * @param params    Per-call sampling parameters (temperature / top_k / top_p / seed).
          * @return The sampled token id (host value, after device readback).
          */
-        virtual int32_t sample(
+        virtual std::int32_t sample(
             const ITensor& logits,
             TokenTensor& token_out,
             const SamplingParams& params ) = 0;

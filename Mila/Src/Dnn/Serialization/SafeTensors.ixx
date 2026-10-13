@@ -7,19 +7,9 @@
  * which sniffs the container and shares one staging path across both formats.
  */
 
-module;
-#include <cstdint>
-#include <cstdio>
-#include <filesystem>
-#include <format>
-#include <map>
-#include <memory>
-#include <stdexcept>
-#include <string>
-#include <vector>
-
 export module Serialization.SafeTensors;
 
+import std;
 export import Serialization.TensorSavePass;
 
 import nlohmann.json;
@@ -57,7 +47,7 @@ namespace Mila::Dnn::Serialization
      * therefore declares its physical (halved) column count, and the byte count follows
      * from the declared shape with no special case.
      */
-    export inline size_t storageBytesPerElement( TensorDataType type )
+    export inline std::size_t storageBytesPerElement( TensorDataType type )
     {
         switch ( type )
         {
@@ -213,9 +203,9 @@ namespace Mila::Dnn::Serialization
                 }
             }
 
-            int64_t element_count = 1;
+            std::int64_t element_count = 1;
 
-            for ( uint8_t d = 0; d < shape.ndim; ++d )
+            for ( std::uint8_t d = 0; d < shape.ndim; ++d )
             {
                 if ( shape[ d ] < 0 )
                 {
@@ -231,7 +221,7 @@ namespace Mila::Dnn::Serialization
             entry.dtype = dtype;
             entry.shape = shape;
             entry.begin = next_offset_;
-            entry.nbytes = static_cast<uint64_t>( element_count ) * storageBytesPerElement( dtype );
+            entry.nbytes = static_cast<std::uint64_t>( element_count ) * storageBytesPerElement( dtype );
 
             next_offset_ += entry.nbytes;
             entries_.push_back( std::move( entry ) );
@@ -284,7 +274,7 @@ namespace Mila::Dnn::Serialization
 
                 nlohmann::json dims = nlohmann::json::array();
 
-                for ( uint8_t d = 0; d < entry.shape.ndim; ++d )
+                for ( std::uint8_t d = 0; d < entry.shape.ndim; ++d )
                 {
                     dims.push_back( entry.shape[ d ] );
                 }
@@ -299,12 +289,12 @@ namespace Mila::Dnn::Serialization
 
             // The data region must start 8-byte aligned; pad the JSON itself, since the
             // container has no gap between header and data to pad instead.
-            while ( ( sizeof( uint64_t ) + header_text.size() ) % 8 != 0 )
+            while ( ( sizeof( std::uint64_t ) + header_text.size() ) % 8 != 0 )
             {
                 header_text.push_back( ' ' );
             }
 
-            const uint64_t header_length = header_text.size();
+            const std::uint64_t header_length = header_text.size();
 
             writeExact( &header_length, sizeof( header_length ), "header length" );
             writeExact( header_text.data(), header_text.size(), "header" );
@@ -319,7 +309,7 @@ namespace Mila::Dnn::Serialization
          * @throws std::runtime_error on order or size mismatch, either of which would
          *         silently desynchronize the file from its own index.
          */
-        void writeTensorData( const std::string& name, const void* data, size_t nbytes )
+        void writeTensorData( const std::string& name, const void* data, std::size_t nbytes )
         {
             if ( !header_written_ )
             {
@@ -383,7 +373,7 @@ namespace Mila::Dnn::Serialization
         /**
          * @brief Number of declared tensors.
          */
-        size_t getTensorCount() const noexcept
+        std::size_t getTensorCount() const noexcept
         {
             return entries_.size();
         }
@@ -396,7 +386,7 @@ namespace Mila::Dnn::Serialization
          * A short write leaves the data region misaligned with the header's byte ranges,
          * which no later step can detect.
          */
-        void writeExact( const void* data, size_t nbytes, const std::string& description )
+        void writeExact( const void* data, std::size_t nbytes, const std::string& description )
         {
             if ( nbytes == 0 )
             {
@@ -416,8 +406,8 @@ namespace Mila::Dnn::Serialization
             std::string name;
             TensorDataType dtype{ TensorDataType::FP32 };
             shape_t shape;
-            uint64_t begin{ 0 };
-            uint64_t nbytes{ 0 };
+            std::uint64_t begin{ 0 };
+            std::uint64_t nbytes{ 0 };
         };
 
         std::filesystem::path filepath_;
@@ -430,8 +420,8 @@ namespace Mila::Dnn::Serialization
         std::vector<Entry> entries_;
         std::map<std::string, std::string> metadata_;
 
-        uint64_t next_offset_{ 0 };
+        std::uint64_t next_offset_{ 0 };
         bool header_written_{ false };
-        size_t next_write_index_{ 0 };
+        std::size_t next_write_index_{ 0 };
     };
 }

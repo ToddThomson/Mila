@@ -3,13 +3,9 @@
  * @brief An installed model: what its manifest published, plus how this copy came to be here.
  */
 
-module;
-#include <string>
-#include <string_view>
-#include <vector>
-
 export module Distribution.ModelRecord;
 
+import std;
 export import Distribution.ModelFile;
 export import Distribution.ModelCapabilities;
 

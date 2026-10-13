@@ -3,18 +3,9 @@
  * @brief Gemma 4's draft model: four query-only Gemma layers over the target's caches, proposing tokens to verify.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <string_view>
-#include <format>
-#include <stdexcept>
-#include <optional>
-#include <utility>
-
 export module Dnn.Components.GemmaDrafter;
 
+import std;
 export import Dnn.Components.GemmaConfig;
 export import Dnn.Components.GemmaDraftBlock;
 export import Compute.KvCacheView;

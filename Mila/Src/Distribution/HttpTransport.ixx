@@ -8,14 +8,9 @@
  * language without being trusted with a token.
  */
 
-module;
-#include <cstddef>
-#include <cstdint>
-#include <functional>
-#include <string>
-#include <vector>
-
 export module Distribution.HttpTransport;
+
+import std;
 
 namespace Mila::Distribution
 {
@@ -45,7 +40,7 @@ namespace Mila::Distribution
         std::string location;
 
         /// Server-reported length of this response body. Zero if absent.
-        uint64_t content_length{ 0 };
+        std::uint64_t content_length{ 0 };
 
         /// Connection, TLS or I/O failure -- distinct from any HTTP status.
         bool transport_failed{ false };
@@ -61,7 +56,7 @@ namespace Mila::Distribution
      * writes here so the bytes are touched exactly once.
      */
     export using SinkCallback =
-        std::function<bool( const char* data, size_t length )>;
+        std::function<bool( const char* data, std::size_t length )>;
 
     /**
      * @brief Called once when the response line and headers have arrived, before any body.
@@ -70,7 +65,7 @@ namespace Mila::Distribution
      * after the transfer finished.
      */
     export using HeadersCallback =
-        std::function<void( long http_code, uint64_t content_length )>;
+        std::function<void( long http_code, std::uint64_t content_length )>;
 
     /**
      * @brief Performs one HTTP GET.

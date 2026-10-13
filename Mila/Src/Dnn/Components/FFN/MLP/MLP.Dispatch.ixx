@@ -10,15 +10,9 @@
 // MLP.ixx. Kept on disk for reference until the generalized elementwise Activation
 // component replaces Gelu; delete once that lands.
 
-module;
-#include <memory>
-#include <functional>
-#include <stdexcept>
-#include <string>
-#include <optional>
-
 export module Dnn.Components.MLP:Dispatch;
 
+import std;
 import Dnn.ActivationType;
 import Dnn.Tensor;
 import Dnn.TensorDataType;

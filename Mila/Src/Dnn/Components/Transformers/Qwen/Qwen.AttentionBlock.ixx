@@ -45,18 +45,9 @@
  * three and de-interleaves the query half; nothing here changes.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <format>
-#include <sstream>
-#include <stdexcept>
-#include <optional>
-#include <type_traits>
-
 export module Dnn.Components.QwenAttentionBlock;
 
+import std;
 export import Dnn.Components.QwenConfig;
 export import Dnn.Components.ITransformerBlock;
 
@@ -308,8 +299,8 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "QwenAttentionBlock::prefill: must be built before prefill()." );
 
-            const int64_t B = input.shape()[ 0 ];
-            const int64_t T = input.shape()[ 1 ];
+            const std::int64_t B = input.shape()[ 0 ];
+            const std::int64_t T = input.shape()[ 1 ];
 
             auto& output = run( input, B, T, position_offset, /*is_decode*/ false );
 
@@ -323,7 +314,7 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "QwenAttentionBlock::decode: must be built before decode()." );
 
-            const int64_t B = input.shape()[ 0 ];
+            const std::int64_t B = input.shape()[ 0 ];
 
             auto& output = run( input, B, 1, position, /*is_decode*/ true );
 
@@ -724,7 +715,7 @@ namespace Mila::Dnn
          * the two paths here. Two copies of a sequence this long is where a fix lands in one
          * of them; the pair of `is_decode` branches is cheaper than that risk.
          */
-        TensorType& run( const TensorType& input, int64_t B, int64_t T, dim_t position, bool is_decode )
+        TensorType& run( const TensorType& input, std::int64_t B, std::int64_t T, dim_t position, bool is_decode )
         {
             const dim_t NH = config_.getNumHeads();
             const dim_t NKV = numKVHeads();

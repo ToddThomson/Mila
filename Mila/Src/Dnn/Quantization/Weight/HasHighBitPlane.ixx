@@ -3,10 +3,9 @@
  * @brief Detects a weight format that stores one bit per element in a second plane.
  */
 
-module;
-#include <concepts>
-
 export module Dnn.Quantization.Weight.HasHighBitPlane;
+
+import std;
 
 namespace Mila::Dnn::Quant::Weight
 {

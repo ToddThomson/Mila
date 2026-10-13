@@ -43,18 +43,9 @@
  * Inference-only, like the other blocks: implements ITransformerBlock, not forward/backward.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <format>
-#include <sstream>
-#include <stdexcept>
-#include <optional>
-#include <type_traits>
-
 export module Dnn.Components.QwenDeltaNetBlock;
 
+import std;
 export import Dnn.Components.QwenConfig;
 export import Dnn.Components.ITransformerBlock;
 export import Dnn.Components.QwenDeltaNetBlockWorkspace;

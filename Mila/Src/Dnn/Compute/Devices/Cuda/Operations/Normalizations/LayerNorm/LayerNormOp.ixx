@@ -9,7 +9,7 @@ module;
 
 export module Compute.CudaLayerNormOp;
 
-import std.compat;
+import std;
 import :Dispatch;
 
 import Dnn.Components.LayerNormConfig;
@@ -222,9 +222,9 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             int outer_size = 0;
             int inner_size = 0;
             int norm_dim = 0;
-            int64_t num_slices = 0;
-            int64_t normalized_features = 0;
-            int64_t norm_axis = -1;
+            std::int64_t num_slices = 0;
+            std::int64_t normalized_features = 0;
+            std::int64_t norm_axis = -1;
 
             computeRuntimePartition_( input_shape, norm_axis, outer_size, inner_size, norm_dim, num_slices, normalized_features );
 
@@ -270,9 +270,9 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             int outer_size = 0;
             int inner_size = 0;
             int norm_dim = 0;
-            int64_t num_slices = 0;
-            int64_t normalized_features = 0;
-            int64_t norm_axis = -1;
+            std::int64_t num_slices = 0;
+            std::int64_t normalized_features = 0;
+            std::int64_t norm_axis = -1;
 
             computeRuntimePartition_( input_shape, norm_axis, outer_size, inner_size, norm_dim, num_slices, normalized_features );
 
@@ -291,7 +291,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
 
             cudaStream_t stream = context_->getStream();
 
-            if ( norm_axis == static_cast<int64_t>(input_shape.size() - 1) && inner_size == 1 )
+            if ( norm_axis == static_cast<std::int64_t>(input_shape.size() - 1) && inner_size == 1 )
             {
                 Detail::cuda_layernorm_impl<NativeType>::forward_fast(
                     Y, X,
@@ -337,9 +337,9 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             int outer_size = 0;
             int inner_size = 0;
             int norm_dim = 0;
-            int64_t num_slices = 0;
-            int64_t normalized_features = 0;
-            int64_t norm_axis = -1;
+            std::int64_t num_slices = 0;
+            std::int64_t normalized_features = 0;
+            std::int64_t norm_axis = -1;
 
             computeRuntimePartition_( input_shape, norm_axis, outer_size, inner_size, norm_dim, num_slices, normalized_features );
 
@@ -359,7 +359,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
 
             cudaStream_t stream = context_->getStream();
 
-            if ( norm_axis == static_cast<int64_t>(input_shape.size() - 1) && inner_size == 1 )
+            if ( norm_axis == static_cast<std::int64_t>(input_shape.size() - 1) && inner_size == 1 )
             {
                 Detail::cuda_layernorm_impl<NativeType>::backward_fast(
                     dX, weight_grad_, bias_grad_,
@@ -403,14 +403,14 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         NativeType* bias_{ nullptr };
         NativeType* weight_grad_{ nullptr };
         NativeType* bias_grad_{ nullptr };
-        int64_t weight_size_{ 0 };
+        std::int64_t weight_size_{ 0 };
 
         std::shared_ptr<TensorType> mean_tensor_;
         std::shared_ptr<TensorType> rstd_tensor_;
         NativeType* mean_{ nullptr };
         NativeType* rstd_{ nullptr };
 
-        int64_t norm_axis_{ -1 };
+        std::int64_t norm_axis_{ -1 };
         shape_t max_input_shape_;
         int max_outer_size_{ 0 };
         int max_inner_size_{ 0 };
@@ -426,9 +426,9 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                     throw std::invalid_argument( "CudaLayerNormOp - input rank is less than normalized_shape rank" );
                 }
 
-                size_t offset = input_shape.size() - config_.getNormalizedShape().size();
+                std::size_t offset = input_shape.size() - config_.getNormalizedShape().size();
 
-                for ( size_t i = 0; i < config_.getNormalizedShape().size(); ++i )
+                for ( std::size_t i = 0; i < config_.getNormalizedShape().size(); ++i )
                 {
                     if ( input_shape[ offset + i ] != config_.getNormalizedShape()[ i ] )
                     {
@@ -451,7 +451,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 throw std::invalid_argument( "CudaLayerNormOp - runtime rank does not match built rank" );
             }
 
-            for ( size_t i = 0; i < input_shape.size(); ++i )
+            for ( std::size_t i = 0; i < input_shape.size(); ++i )
             {
                 if ( input_shape[ i ] > max_input_shape_[ i ] )
                 {
@@ -462,16 +462,16 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
 
         void computeRuntimePartition_(
             const shape_t& input_shape,
-            int64_t& norm_axis,
+            std::int64_t& norm_axis,
             int& outer_size,
             int& inner_size,
             int& norm_dim,
-            int64_t& num_slices,
-            int64_t& normalized_features ) const
+            std::int64_t& num_slices,
+            std::int64_t& normalized_features ) const
         {
-            const int64_t ndim = static_cast<int64_t>(input_shape.size());
+            const std::int64_t ndim = static_cast<std::int64_t>(input_shape.size());
 
-            int64_t axis = -1;
+            std::int64_t axis = -1;
 
             if ( config_.getAxis().has_value() )
             {
@@ -479,8 +479,8 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             }
             else
             {
-                axis = static_cast<int64_t>(input_shape.size()) -
-                    static_cast<int64_t>(config_.getNormalizedShape().size());
+                axis = static_cast<std::int64_t>(input_shape.size()) -
+                    static_cast<std::int64_t>(config_.getNormalizedShape().size());
             }
 
             if ( axis < 0 )
@@ -493,21 +493,21 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 throw std::invalid_argument( "CudaLayerNormOp - computed axis out of range" );
             }
 
-            int64_t outer = 1;
+            std::int64_t outer = 1;
 
-            for ( int64_t i = 0; i < axis; ++i )
+            for ( std::int64_t i = 0; i < axis; ++i )
             {
-                outer *= static_cast<int64_t>( input_shape[ i ] );
+                outer *= static_cast<std::int64_t>( input_shape[ i ] );
             }
 
-            int64_t inner = 1;
+            std::int64_t inner = 1;
 
-            for ( int64_t i = axis + 1; i < ndim; ++i )
+            for ( std::int64_t i = axis + 1; i < ndim; ++i )
             {
-                inner *= static_cast<int64_t>( input_shape[ i ] );
+                inner *= static_cast<std::int64_t>( input_shape[ i ] );
             }
 
-            const int64_t dim = static_cast<int64_t>( input_shape[ axis ] );
+            const std::int64_t dim = static_cast<std::int64_t>( input_shape[ axis ] );
 
             norm_axis = axis;
             outer_size = static_cast<int>( outer );

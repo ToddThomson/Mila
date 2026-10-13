@@ -5,27 +5,9 @@
  * Device-templated network implementing a GPT-2 style transformer decoder.
  */
 
-module;
-#include <string>
-#include <vector>
-#include <memory>
-#include <sstream>
-#include <type_traits>
-#include <stdexcept>
-#include <cstdint>
-#include <cstring>
-#include <ostream>
-#include <iostream>
-#include <filesystem>
-#include <format>
-#include <optional>
-#include <cassert>
-#include <random>
-#include <chrono>
-#include <algorithm>
-#include <numeric>
-
 export module Dnn.Components.GptTransformer;
+
+import std;
 export import :Config;
 export import :Presets;
 
@@ -198,7 +180,7 @@ namespace Mila::Dnn
 
             block_input_ptrs_[ 0 ] = encoder_out_ptr_;
 
-            for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+            for ( std::size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 auto& block_out = transformer_blocks_[ i ]->forward( *block_input_ptrs_[ i ] );
                 this->getExecutionContext()->synchronize();
@@ -237,7 +219,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "GptTransformer: forward activations not present for backward. Call forward() before backward()." );
             }
 
-            for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+            for ( std::size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 if ( !block_input_ptrs_[ i ] || !block_output_ptrs_[ i ] )
                 {
@@ -258,10 +240,10 @@ namespace Mila::Dnn
 
             TensorType* curr_grad = &last_block_grad_ptr;
 
-            for ( int64_t i = static_cast<int64_t>(transformer_blocks_.size()) - 1; i >= 0; --i )
+            for ( std::int64_t i = static_cast<std::int64_t>(transformer_blocks_.size()) - 1; i >= 0; --i )
             {
-                auto& block_grad_ptr = transformer_blocks_[ static_cast<size_t>(i) ]->backward(
-                    *block_input_ptrs_[ static_cast<size_t>(i) ], *curr_grad );
+                auto& block_grad_ptr = transformer_blocks_[ static_cast<std::size_t>(i) ]->backward(
+                    *block_input_ptrs_[ static_cast<std::size_t>(i) ], *curr_grad );
 
                 curr_grad = &block_grad_ptr;
 
@@ -296,7 +278,7 @@ namespace Mila::Dnn
                 throw std::runtime_error(
                     "GptTransformer must be built before calling prefill()." );
 
-            int64_t T_prompt = input.shape()[ 1 ];
+            std::int64_t T_prompt = input.shape()[ 1 ];
 
             // 1. Encoder -- full sequence embedding (Lpe output buffer is full-sized)
             encoder_out_ptr_ = &encoder_->forward( input );
@@ -309,7 +291,7 @@ namespace Mila::Dnn
             // 2. Blocks -- full sequence forward populates KV cache
             block_input_ptrs_[ 0 ] = encoder_out_ptr_;
 
-            for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+            for ( std::size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 auto& block_out = transformer_blocks_[ i ]->forward( *block_input_ptrs_[ i ] );
                 this->getExecutionContext()->synchronize();
@@ -386,7 +368,7 @@ namespace Mila::Dnn
             // Block traversal -- decode() instead of forward() on each block.
             // Attention inside each block decides KV cache vs fallback transparently.
             block_input_ptrs_[ 0 ] = encoder_out_ptr_;
-            for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+            for ( std::size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 auto& block_out = transformer_blocks_[ i ]->decode( *block_input_ptrs_[ i ], position );
                 this->getExecutionContext()->synchronize();
@@ -468,11 +450,11 @@ namespace Mila::Dnn
                 oss << "  Batch size: " << batch_size_ << std::endl;
                 oss << "  Sequence length: " << seq_length_ << std::endl;
 
-                oss << "  Input shape: ("; for ( size_t i = 0; i < leading_shape_.size(); ++i ) {
+                oss << "  Input shape: ("; for ( std::size_t i = 0; i < leading_shape_.size(); ++i ) {
                     oss << leading_shape_[ i ]; if ( i != leading_shape_.size() - 1 ) oss << ", ";
                 } oss << ")" << std::endl;
 
-                oss << "  Output shape: ("; for ( size_t i = 0; i < output_shape_.size(); ++i ) {
+                oss << "  Output shape: ("; for ( std::size_t i = 0; i < output_shape_.size(); ++i ) {
                     oss << output_shape_[ i ]; if ( i != output_shape_.size() - 1 ) oss << ", ";
                 } oss << ")" << std::endl;
             }
@@ -598,7 +580,7 @@ namespace Mila::Dnn
             SerializationMetadata meta = config_.toMetadata();
 
             meta.set( "type", "GptTransformer" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() );
 
             if ( this->isBuilt() )
@@ -681,9 +663,9 @@ namespace Mila::Dnn
             BuildContext embedding_context( embedding_shape, context.getRuntimeMode() );
 
             transformer_blocks_.clear();
-            transformer_blocks_.reserve( static_cast<size_t>(config_.getNumLayers()) );
+            transformer_blocks_.reserve( static_cast<std::size_t>(config_.getNumLayers()) );
 
-            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+            for ( std::int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 std::string block_name = this->getName() + ".tf_layer_" + std::to_string( i );
                 auto block = this->template getComponentAs<TransformerBlockType>( block_name );
@@ -718,8 +700,8 @@ namespace Mila::Dnn
         shape_t leading_shape_;
         shape_t embedding_shape_;
         shape_t output_shape_;
-        int64_t batch_size_{ 0 };
-        int64_t seq_length_{ 0 };
+        std::int64_t batch_size_{ 0 };
+        std::int64_t seq_length_{ 0 };
 
         std::shared_ptr<EncoderType> encoder_{ nullptr };
         std::vector<std::shared_ptr<TransformerBlockType>> transformer_blocks_;
@@ -792,14 +774,14 @@ namespace Mila::Dnn
             LpeConfig enc_cfg;
             enc_cfg.withVocabularyLength( config_.getVocabSize() )
                 .withMaxSequenceLength( config_.getMaxSequenceLength() )
-                .withEmbeddingDim( static_cast<size_t>(config_.getEmbeddingSize()));
+                .withEmbeddingDim( static_cast<std::size_t>(config_.getEmbeddingSize()));
 
             enc_cfg.validate();
 
             auto encoder = std::make_shared<EncoderType>( this->getName() + ".lenc", enc_cfg );
             this->addComponent( encoder );
 
-            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+            for ( std::int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 GptBlockConfig block_cfg( 
                     config_.getEmbeddingSize(),

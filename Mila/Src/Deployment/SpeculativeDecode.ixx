@@ -5,13 +5,9 @@
  * See Specifications/Gemma4Mtp.md section 4.1 and Deployment.md section 2.1.
  */
 
-module;
-#include <filesystem>
-#include <format>
-#include <stdexcept>
-
 export module Deployment.SpeculativeDecode;
 
+import std;
 import Dnn.TensorTypes;
 
 namespace Mila::Deployment

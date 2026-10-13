@@ -12,11 +12,9 @@
  * which is Llama 3.x's role header and no other family's.
  */
 
-module;
-#include <string_view>
-
 export module Chat.Message;
 
+import std;
 export import Dnn.Models.Conversation;
 
 namespace Mila::ChatApp

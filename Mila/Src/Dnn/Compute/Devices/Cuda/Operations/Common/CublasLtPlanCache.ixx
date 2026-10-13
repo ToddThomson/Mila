@@ -4,7 +4,7 @@ module;
 
 export module Compute.CublasLtPlanCache;
 
-import std.compat;
+import std;
 import Logging.Logger;
 
 namespace Mila::Dnn::Compute::Cuda
@@ -158,7 +158,7 @@ namespace Mila::Dnn::Compute::Cuda
         {
             return cache_.empty();
         }
-        size_t size() const
+        std::size_t size() const
         {
             return cache_.size();
         }

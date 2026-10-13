@@ -5,28 +5,9 @@
  * Inference-only wrapper around a loaded LlamaTransformer network.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <algorithm>
-#include <unordered_set>
-#include <string>
-#include <sstream>
-#include <cstdint>
-#include <cstddef>
-#include <expected>
-#include <string_view>
-#include <stdexcept>
-#include <filesystem>
-#include <format>
-#include <optional>
-#include <functional>
-#include <stop_token>
-#include <cstring>
-#include <type_traits>
-
 export module Dnn.Models.LlamaModel;
 
+import std;
 import Dnn.Models.LlamaModelConfig;
 import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
@@ -401,12 +382,12 @@ namespace Mila::Dnn
          * @return               Why generation stopped.
          */
         GenerateStatus onGenerating(
-            std::span<const int32_t> prompt_tokens,
-            const std::function<void( int32_t )>& on_token,
+            std::span<const std::int32_t> prompt_tokens,
+            const std::function<void( std::int32_t )>& on_token,
             const GenerateParams& params,
             std::stop_token stop ) override
         {
-            if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
+            if ( prompt_tokens.size() > static_cast<std::size_t>( context_length_ ) )
             {
                 throw std::invalid_argument( std::format(
                     "LlamaModel::onGenerating: prompt length {} exceeds deployment context length {}",
@@ -414,15 +395,15 @@ namespace Mila::Dnn
             }
 
             // Stop set: model defaults, or the caller's per-call override.
-            std::unordered_set<int32_t> stop_ids;
+            std::unordered_set<std::int32_t> stop_ids;
 
             if ( params.stop_tokens.empty() )
                 stop_ids = stopTokens();
             else
                 for ( auto id : params.stop_tokens )
-                    stop_ids.insert( static_cast<int32_t>( id ) );
+                    stop_ids.insert( static_cast<std::int32_t>( id ) );
 
-            const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
+            const std::int64_t seq_len = static_cast<std::int64_t>( prompt_tokens.size() );
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
             // Transparent KV prefix reuse (PromptCaching.md): cache positions [0, n) are a deterministic
@@ -430,13 +411,13 @@ namespace Mila::Dnn
             // sole validity test and reuse can never change outputs. Capped at seq_len - 1 so the final
             // position prefills and the sampled logits are fresh; a refused rewind falls back to the full
             // prefill, which positionally overwrites regardless of cache state.
-            int64_t common = 0;
-            const int64_t comparable = std::min( seq_len, static_cast<int64_t>( kv_token_history_.size() ) );
+            std::int64_t common = 0;
+            const std::int64_t comparable = std::min( seq_len, static_cast<std::int64_t>( kv_token_history_.size() ) );
 
-            while ( common < comparable && kv_token_history_[ static_cast<size_t>( common ) ] == prompt_tokens[ static_cast<size_t>( common ) ] )
+            while ( common < comparable && kv_token_history_[ static_cast<std::size_t>( common ) ] == prompt_tokens[ static_cast<std::size_t>( common ) ] )
                 ++common;
 
-            const int64_t reuse = std::min( common, seq_len - 1 );
+            const std::int64_t reuse = std::min( common, seq_len - 1 );
 
             const bool reused = reuse > 0
                 && this->getNetwork().rewindKvCache( reuse );
@@ -486,7 +467,7 @@ namespace Mila::Dnn
                 if ( more_steps_allowed && cache_has_room )
                     decode_logits = &this->getNetwork().decode( decode_token_device_, position );
 
-                const int32_t token = this->awaitSampledToken();
+                const std::int32_t token = this->awaitSampledToken();
 
                 if ( decode_logits )
                 {
@@ -703,7 +684,7 @@ namespace Mila::Dnn
         }
 
         LlamaConfig config_;
-        int64_t context_length_;
+        std::int64_t context_length_;
 
         // The plan this model executed; reported, never re-derived.
         DeploymentPlan plan_;
@@ -714,13 +695,13 @@ namespace Mila::Dnn
         // The token ids whose K/V the caches hold, in position order: the last prefilled prompt plus every
         // token fed through decode. Drives the prefix reuse in onGenerating; host-side bookkeeping only,
         // bounded by the deployment context length.
-        std::vector<int32_t> kv_token_history_;
+        std::vector<std::int32_t> kv_token_history_;
 
         /**
          * @brief LLaMA 3.x end-of-sequence token.
          * <|end_of_text|> = 128001.
          */
-        int32_t eosToken() const noexcept override
+        std::int32_t eosToken() const noexcept override
         {
             return 128001;
         }
@@ -732,7 +713,7 @@ namespace Mila::Dnn
          * and <|eom_id|> (128008). The latter two are the primary
          * turn and tool-call boundaries in instruct-format generation.
          */
-        std::unordered_set<int32_t> stopTokens() const override
+        std::unordered_set<std::int32_t> stopTokens() const override
         {
             return { 128001, 128009, 128008 };
         }
@@ -741,14 +722,14 @@ namespace Mila::Dnn
         // Generation helpers
         // ====================================================================
 
-        TokenIndexType makeTokenTensor( std::span<const int32_t> token_ids ) const
+        TokenIndexType makeTokenTensor( std::span<const std::int32_t> token_ids ) const
         {
-            shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
+            shape_t shape = { 1, static_cast<std::int64_t>(token_ids.size()) };
             TokenIndexType device_tensor( this->getDeviceId(), shape );
 
             Tensor<dtype_t::INT32, CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
 
-            std::memcpy( cpu_tensor.data(), token_ids.data(), token_ids.size() * sizeof( int32_t ) );
+            std::memcpy( cpu_tensor.data(), token_ids.data(), token_ids.size() * sizeof( std::int32_t ) );
 
             copy( cpu_tensor, device_tensor );
 

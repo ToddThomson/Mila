@@ -6,13 +6,9 @@
  * the Mila types stay in the implementation unit (Mila_py.Runtime.cpp).
  */
 
-module;
-
-#include <cstddef>
-#include <string>
-#include <vector>
-
 export module Mila.Bindings.Runtime;
+
+import std;
 
 namespace Mila::Bindings
 {

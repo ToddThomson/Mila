@@ -9,19 +9,10 @@
  *
  * Uses vocabulary factory methods and trainers for different types (char, bpe).
  */
-module;
-#include <iostream>
-#include <string>
-#include <string_view>
-#include <stdexcept>
-#include <exception>
-#include <filesystem>
-#include <fstream>
-#include <vector>
-#include <memory>
 
 export module Tokenize.Commands;
 
+import std;
 import Mila;
 export import Tokenize.Args;
 
@@ -192,7 +183,7 @@ namespace Tokenize
         }
 
         input.seekg( 0, std::ios::end );
-        size_t file_size = static_cast<size_t>(input.tellg());
+        std::size_t file_size = static_cast<std::size_t>(input.tellg());
         input.seekg( 0, std::ios::beg );
 
         std::string text( file_size, '\0' );
@@ -214,7 +205,7 @@ namespace Tokenize
             throw std::runtime_error( "Cannot open output file: " + args.output_file );
         }
 
-        size_t num_tokens = tokens.size();
+        std::size_t num_tokens = tokens.size();
         output.write( reinterpret_cast<const char*>(&num_tokens), sizeof( num_tokens ) );
         output.write( reinterpret_cast<const char*>(tokens.data()),
             static_cast<std::streamsize>(tokens.size() * sizeof( TokenId )) );
@@ -270,7 +261,7 @@ namespace Tokenize
             throw std::runtime_error( "Cannot open input file: " + args.input_file );
         }
 
-        size_t num_tokens;
+        std::size_t num_tokens;
         input.read( reinterpret_cast<char*>(&num_tokens), sizeof( num_tokens ) );
         if ( !input )
         {

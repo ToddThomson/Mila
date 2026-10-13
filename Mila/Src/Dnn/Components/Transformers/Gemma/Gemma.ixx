@@ -34,20 +34,9 @@
  *    probability is not invariant to it the way an argmax is.
  */
 
-module;
-#include <string>
-#include <vector>
-#include <memory>
-#include <sstream>
-#include <stdexcept>
-#include <cstdint>
-#include <format>
-#include <algorithm>
-#include <type_traits>
-#include <cmath>
-
 export module Dnn.Components.GemmaTransformer;
 
+import std;
 import Dnn.Components.GemmaConfig;
 import Dnn.Components.GemmaFeedForward;
 import Dnn.Components.GemmaBlock;
@@ -202,16 +191,16 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaTransformer must be built before calling prefill()." );
 
-            const int64_t B = input.shape()[ 0 ];
-            const int64_t T_prompt = input.shape()[ 1 ];
+            const std::int64_t B = input.shape()[ 0 ];
+            const std::int64_t T_prompt = input.shape()[ 1 ];
 
             if ( start_offset < 0 || start_offset >= T_prompt )
                 throw std::invalid_argument( std::format(
                     "GemmaTransformer::prefillFrom: start_offset {} must lie inside the prompt (length {})",
                     start_offset, T_prompt ) );
 
-            int64_t offset = start_offset;
-            int64_t T_last = 0;
+            std::int64_t offset = start_offset;
+            std::int64_t T_last = 0;
 
             TensorType* last_block_out = nullptr;
 
@@ -219,7 +208,7 @@ namespace Mila::Dnn
             // feed each through the heterogeneous layer list to populate the KV cache.
             while ( offset < T_prompt )
             {
-                const int64_t T_actual = std::min( prefill_chunk_size_, T_prompt - offset );
+                const std::int64_t T_actual = std::min( prefill_chunk_size_, T_prompt - offset );
                 T_last = T_actual;
 
                 auto chunk_input = input.view( shape_t{ B, T_actual }, offset );
@@ -721,7 +710,7 @@ namespace Mila::Dnn
          * Mirrors onBuilding(): recurse with the same per-child contexts, then add the
          * transformer's own pooled buffers and apply the two no-double-count corrections.
          */
-        MemoryStats requiredMemoryAtChunk( const BuildContext& context, int64_t prefill_chunk ) const
+        MemoryStats requiredMemoryAtChunk( const BuildContext& context, std::int64_t prefill_chunk ) const
         {
             const auto& input_shape = context.inputShape();
             const dim_t B = input_shape[ 0 ];
@@ -751,7 +740,7 @@ namespace Mila::Dnn
             stats += this->template getComponentAs<TokenEmbeddingType>( n + ".temb" )
                 ->getRequiredMemory( embeddingContext( context, prefill_chunk ) );
 
-            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+            for ( std::int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 const std::string block_name = n + ".tf_layer_" + std::to_string( i );
 
@@ -901,8 +890,8 @@ namespace Mila::Dnn
             validateBuildContext( context );
 
             const auto& input_shape = context.inputShape();
-            const int64_t B = input_shape[ 0 ];
-            const int64_t T = input_shape[ 1 ];
+            const std::int64_t B = input_shape[ 0 ];
+            const std::int64_t T = input_shape[ 1 ];
 
             // The chunk the caller resolved, threaded to every block (and its GQA op) via
             // block_context. The build never chooses one (Deployment.md section 7).
@@ -936,9 +925,9 @@ namespace Mila::Dnn
                 allocateBlockWorkspace( B );
 
             blocks_.clear();
-            blocks_.reserve( static_cast<size_t>(config_.getNumLayers()) );
+            blocks_.reserve( static_cast<std::size_t>(config_.getNumLayers()) );
 
-            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+            for ( std::int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 const std::string block_name = this->getName() + ".tf_layer_" + std::to_string( i );
 
@@ -1043,7 +1032,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta = config_.toMetadata();
             meta.set( "type", "GemmaTransformer" )
-                .set( "version", int64_t( 1 ) )
+                .set( "version", std::int64_t( 1 ) )
                 .set( "name", this->getName() );
 
             archive.writeMetadata( "transformer_meta.json", meta );
@@ -1055,7 +1044,7 @@ namespace Mila::Dnn
 
         // The prefill chunk the caller resolved, taken from the BuildContext in onBuilding and
         // threaded to child components via BuildContext::withPrefillSize().
-        int64_t prefill_chunk_size_{ 0 };
+        std::int64_t prefill_chunk_size_{ 0 };
 
         std::shared_ptr<TokenEmbeddingType> token_embedding_{ nullptr };
         // Non-owning, polymorphic view of the heterogeneous block list; the concrete
@@ -1137,7 +1126,7 @@ namespace Mila::Dnn
             // runtime here instead of being folded into the converted table (WeightTying.md D5).
             TokenEmbeddingConfig embedding_config;
             embedding_config.withVocabSize( config_.getVocabSize() )
-                .withEmbeddingDim( static_cast<size_t>(config_.getModelDim()) )
+                .withEmbeddingDim( static_cast<std::size_t>(config_.getModelDim()) )
                 .withEmbeddingScale( static_cast<float>(
                     std::sqrt( static_cast<double>( config_.getModelDim() ) ) ) );
 
@@ -1146,7 +1135,7 @@ namespace Mila::Dnn
 
             // Heterogeneous transformer blocks: the same network config drives every
             // block; the kGlobal template flag selects the per-layer geometry from it.
-            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+            for ( std::int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 const std::string block_name = this->getName() + ".tf_layer_" + std::to_string( i );
 
@@ -1216,7 +1205,7 @@ namespace Mila::Dnn
          * once the global layers flash, and to nothing once every layer does, so this must
          * use the same prefillScoreWidth().
          */
-        std::size_t gqaWorkspaceBytes( dim_t B, int64_t T_ctx, int64_t prefill_chunk, std::size_t granularity ) const
+        std::size_t gqaWorkspaceBytes( dim_t B, std::int64_t T_ctx, std::int64_t prefill_chunk, std::size_t granularity ) const
         {
             const dim_t HS_max = std::max( config_.getHeadDim(), config_.getGlobalHeadDim() );
 
@@ -1237,17 +1226,17 @@ namespace Mila::Dnn
          * @brief The context the token embedding is built and priced at: in inference, one prefill chunk wide,
          *        since every inference pass embeds at most a chunk at a time.
          */
-        static BuildContext embeddingContext( const BuildContext& context, int64_t prefill_chunk )
+        static BuildContext embeddingContext( const BuildContext& context, std::int64_t prefill_chunk )
         {
             if ( !context.isInferenceMode() )
                 return context;
 
             const auto& input_shape = context.inputShape();
 
-            return context.forChild( shape_t{ input_shape[ 0 ], std::min<int64_t>( input_shape[ 1 ], prefill_chunk ) } );
+            return context.forChild( shape_t{ input_shape[ 0 ], std::min<std::int64_t>( input_shape[ 1 ], prefill_chunk ) } );
         }
 
-        int64_t prefillScoreWidth( int64_t T_ctx ) const
+        std::int64_t prefillScoreWidth( std::int64_t T_ctx ) const
         {
             return prefillScoreWidth( T_ctx, prefill_chunk_size_ );
         }
@@ -1260,7 +1249,7 @@ namespace Mila::Dnn
          * kBounded) for a ring one. So it is the whole context when any layer of the first two kinds misses flash,
          * the ring capacity when only ring layers miss it, and zero -- no buffer -- when every layer flashes.
          */
-        int64_t prefillScoreWidth( int64_t T_ctx, int64_t prefill_chunk ) const
+        std::int64_t prefillScoreWidth( std::int64_t T_ctx, std::int64_t prefill_chunk ) const
         {
             constexpr bool kLocalLayersRing =
                 std::is_same_v<TKvCachePolicy, SlidingWindowKvCache> || std::is_same_v<TKvCachePolicy, SlidingWindowKvFp8>;
@@ -1272,19 +1261,19 @@ namespace Mila::Dnn
                 return T_ctx;
 
             if ( !usesFlashPrefillOnLocalLayers() )
-                return std::min<int64_t>( T_ctx, config_.getWindow() + prefill_chunk - 1 );
+                return std::min<std::int64_t>( T_ctx, config_.getWindow() + prefill_chunk - 1 );
 
             return 0;
         }
 
-        void allocateBlockWorkspace( int64_t B )
+        void allocateBlockWorkspace( std::int64_t B )
         {
             block_workspace_ = makeGemmaBlockWorkspace<TDeviceType, TPrecision>(
                 config_, this->getExecutionContext()->getDeviceId(), B, prefill_chunk_size_,
                 this->getName() + ".block_ws." );
         }
 
-        void allocateAndWireGqaWorkspace( int64_t B, int64_t T_ctx )
+        void allocateAndWireGqaWorkspace( std::int64_t B, std::int64_t T_ctx )
         {
             // preatt/att carry the O(chunk x score_width) score matrix for the cuBLASLt path. The width MUST
             // match the flash decision set on the blocks in the build loop, or the cuBLASLt global path would

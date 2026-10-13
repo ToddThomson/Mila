@@ -6,16 +6,9 @@
  * See Specifications/Qwen4.md section 3.1.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-#include <format>
-#include <utility>
-#include <cstdint>
-
 export module Dnn.Components.GatedResidualConfig;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
@@ -99,9 +92,9 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "model_dim", static_cast<int64_t>( model_dim_ ) )
-                .set( "streams", static_cast<int64_t>( streams_ ) )
-                .set( "rank", static_cast<int64_t>( rank_ ) )
+            meta.set( "model_dim", static_cast<std::int64_t>( model_dim_ ) )
+                .set( "streams", static_cast<std::int64_t>( streams_ ) )
+                .set( "rank", static_cast<std::int64_t>( rank_ ) )
                 .set( "has_injection", has_injection_ )
                 .set( "epsilon", epsilon_ );
 

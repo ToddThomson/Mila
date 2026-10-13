@@ -12,7 +12,7 @@ module;
 
 export module Compute.CublasLtPlan;
 
-import std.compat;
+import std;
 import Dnn.TensorTypes;
 import CublasLt.Error;
 import Logging.Logger;
@@ -304,7 +304,7 @@ export namespace Mila::Dnn::Compute::Cuda
 
         // Hint the available workspace so the heuristic considers algorithms that require
         // scratch memory. Required for bias epilogue on row-major layouts with small M.
-        constexpr size_t kWorkspaceHint = 4ull * 1024 * 1024;
+        constexpr std::size_t kWorkspaceHint = 4ull * 1024 * 1024;
         cublasLtCheckStatus( cublasLtMatmulPreferenceSetAttribute(
             plan.preference,
             CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
@@ -360,7 +360,7 @@ export namespace Mila::Dnn::Compute::Cuda
         const TComputePrecision* bias,
         cudaStream_t stream,
         void* workspace = nullptr,
-        size_t workspaceSize = 0 )
+        std::size_t workspaceSize = 0 )
     {
         if ( !plan.isValid() )
         {

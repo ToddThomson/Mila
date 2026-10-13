@@ -6,19 +6,9 @@
  * stream state through one of these and writes its output back through the same one.
  */
 
-module;
-#include <cstdint>
-#include <format>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <stdexcept>
-#include <string>
-#include <utility>
-#include <vector>
-
 export module Dnn.Components.GatedResidual;
 
+import std;
 export import Dnn.Components.GatedResidualConfig;
 
 import Dnn.Component;

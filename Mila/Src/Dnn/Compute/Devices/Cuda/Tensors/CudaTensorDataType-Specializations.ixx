@@ -9,7 +9,7 @@ module;
 
 export module Compute.CudaTensorDataType:Specializations;
 
-import std.compat;
+import std;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Compute.DeviceType;
@@ -26,7 +26,7 @@ namespace Mila::Dnn
         static constexpr bool is_device_only = true;
         static constexpr DeviceType required_device_type = DeviceType::Cuda;
         static constexpr std::string_view type_name = "FP16";
-        static constexpr size_t size_in_bytes = sizeof( half );
+        static constexpr std::size_t size_in_bytes = sizeof( half );
         static constexpr TensorDataType data_type = TensorDataType::FP16;
     };
 
@@ -37,7 +37,7 @@ namespace Mila::Dnn
         static constexpr bool is_device_only = true;
         static constexpr DeviceType required_device_type = DeviceType::Cuda;
         static constexpr std::string_view type_name = "BF16";
-        static constexpr size_t size_in_bytes = sizeof( nv_bfloat16 );
+        static constexpr std::size_t size_in_bytes = sizeof( nv_bfloat16 );
         static constexpr TensorDataType data_type = TensorDataType::BF16;
     };
 
@@ -48,7 +48,7 @@ namespace Mila::Dnn
         static constexpr bool is_device_only = true;
         static constexpr DeviceType required_device_type = DeviceType::Cuda;
         static constexpr std::string_view type_name = "FP8_E4M3";
-        static constexpr size_t size_in_bytes = sizeof( __nv_fp8_e4m3 );
+        static constexpr std::size_t size_in_bytes = sizeof( __nv_fp8_e4m3 );
         static constexpr TensorDataType data_type = TensorDataType::FP8_E4M3;
     };
 
@@ -59,7 +59,7 @@ namespace Mila::Dnn
         static constexpr bool is_device_only = true;
         static constexpr DeviceType required_device_type = DeviceType::Cuda;
         static constexpr std::string_view type_name = "FP8_E5M2";
-        static constexpr size_t size_in_bytes = sizeof( __nv_fp8_e5m2 );
+        static constexpr std::size_t size_in_bytes = sizeof( __nv_fp8_e5m2 );
         static constexpr TensorDataType data_type = TensorDataType::FP8_E5M2;
     };
 }

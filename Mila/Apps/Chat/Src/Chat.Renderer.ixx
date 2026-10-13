@@ -1,16 +1,4 @@
 module;
-#include <iostream>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <format>
-#include <algorithm>
-#include <atomic>
-#include <thread>
-#include <chrono>
-#include <utility>
-#include <mutex>
-#include <functional>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -19,6 +7,7 @@ module;
 
 export module Chat.Renderer;
 
+import std;
 import Chat.Ansi;
 import Chat.RichText;
 
@@ -247,7 +236,7 @@ namespace Mila::ChatApp
 
                 unsigned char painted = StyleNone;
 
-                for ( size_t at = 0; at < line.text.size(); ++at )
+                for ( std::size_t at = 0; at < line.text.size(); ++at )
                 {
                     const auto style = static_cast<unsigned char>( line.attributes[ at ] );
 
@@ -336,7 +325,7 @@ namespace Mila::ChatApp
                 stream_.thinking_style = thinking;
             }
 
-            for ( size_t at = 0; at < run.text.size(); ++at )
+            for ( std::size_t at = 0; at < run.text.size(); ++at )
             {
                 const char c = run.text[ at ];
                 const auto style = static_cast<unsigned char>( run.attributes[ at ] );
@@ -601,7 +590,7 @@ namespace Mila::ChatApp
                 if ( !stream_.current_line.empty() )
                     closeStreamLine();
 
-                const auto count = static_cast<size_t>( stream_.wrap_width );
+                const auto count = static_cast<std::size_t>( stream_.wrap_width );
 
                 StyledText head;
                 head.text = word.text.substr( 0, count );
@@ -749,7 +738,7 @@ namespace Mila::ChatApp
             if ( !stream_.line_open )
                 openStreamLine();
 
-            for ( size_t at = 0; at < run.text.size(); ++at )
+            for ( std::size_t at = 0; at < run.text.size(); ++at )
             {
                 const auto style = static_cast<unsigned char>( run.attributes[ at ] );
 

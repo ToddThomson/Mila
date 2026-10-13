@@ -1,8 +1,7 @@
-module;
-#include <string>
 
 export module Bard.Config;
 
+import std;
 import Mila;
 
 namespace Bard
@@ -22,9 +21,9 @@ namespace Bard
         // the working directory it is launched from.
         std::string data_dir = "./Data/Datasets/Shakespeare";
         TokenizerType tokenizer = TokenizerType::Char;
-        int64_t batch_size = 32;
-        int64_t seq_length = 128;
-        size_t epochs = 200;
+        std::int64_t batch_size = 32;
+        std::int64_t seq_length = 128;
+        std::size_t epochs = 200;
         float learning_rate = 1e-4f;
         float beta1 = 0.9f;
         float beta2 = 0.999f;
@@ -32,17 +31,17 @@ namespace Bard
         float weight_decay = 0.01f;
         TensorDataType precision = TensorDataType::FP32;
 
-        int64_t embedding_dim = 384;
-        int64_t num_heads = 6;
-        int64_t num_layers = 6;
-        int64_t mlp_hidden_dim = 1536;
+        std::int64_t embedding_dim = 384;
+        std::int64_t num_heads = 6;
+        std::int64_t num_layers = 6;
+        std::int64_t mlp_hidden_dim = 1536;
 
         float sample_temperature = 0.8f;
-        int64_t sample_length = 300;
-        size_t sample_every_n_epochs = 1;
+        std::int64_t sample_length = 300;
+        std::size_t sample_every_n_epochs = 1;
         std::string sample_prompt = "ROMEO:\n";
 
         float lr_decay = 1.0f;
-        size_t lr_decay_every_n_epochs = 0;
+        std::size_t lr_decay_every_n_epochs = 0;
     };
 }

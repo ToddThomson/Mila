@@ -5,16 +5,9 @@
  * Provides fluent setters and serialization helpers used by block factories.
  */
 
-module;
-#include <stdexcept>
-#include <vector>
-#include <utility>
-#include <string>
-#include <sstream>
-#include <optional>
-
 export module Dnn.Components.GptBlock:Config;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Dnn.ActivationType;
@@ -146,13 +139,13 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "model_dim", static_cast<int64_t>(model_dim_) )
-                .set( "num_heads", static_cast<int64_t>(num_heads_) )
-                .set( "hidden_dim", static_cast<int64_t>(hidden_dim_) )
+            meta.set( "model_dim", static_cast<std::int64_t>(model_dim_) )
+                .set( "num_heads", static_cast<std::int64_t>(num_heads_) )
+                .set( "hidden_dim", static_cast<std::int64_t>(hidden_dim_) )
                 .set( "use_bias", use_bias_ )
-                .set( "activation", static_cast<int64_t>(activation_type_) )
+                .set( "activation", static_cast<std::int64_t>(activation_type_) )
                 .set( "residual_scale", static_cast<double>(residual_scale_) )
-                .set( "max_seq_len", static_cast<int64_t>(max_seq_len_) );
+                .set( "max_seq_len", static_cast<std::int64_t>(max_seq_len_) );
 
             return meta;
         }

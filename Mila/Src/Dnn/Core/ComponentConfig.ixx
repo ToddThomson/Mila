@@ -6,14 +6,9 @@
  * configuration types (precision policy and serialization/validation hooks).
  */
 
-module;
-#include <memory>
-#include <string>
-#include <stdexcept>
-#include <utility>
-
 export module Dnn.ComponentConfig;
 
+import std;
 import Serialization.Metadata;
 
 namespace Mila::Dnn

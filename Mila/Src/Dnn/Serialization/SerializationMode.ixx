@@ -1,7 +1,7 @@
-module;
-#include <string>
 
 export module Serialization.Mode;
+
+import std;
 
 namespace Mila::Dnn::Serialization
 {

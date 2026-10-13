@@ -20,7 +20,7 @@ module;
 
 export module Compute.CudaTensorOps:Transfer;
 
-import std.compat;
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.ITensor;
@@ -462,7 +462,7 @@ namespace Mila::Dnn::Compute::Cuda
             auto* typed_dst = static_cast<NativeType*>(dst_data);
 
             Cuda::launch_fast_copy_kernel<NativeType>(
-                typed_src, typed_dst, static_cast<size_t>( count ), stream
+                typed_src, typed_dst, static_cast<std::size_t>( count ), stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -484,8 +484,8 @@ namespace Mila::Dnn::Compute::Cuda
 
             Cuda::setCurrentDevice( device_id );
 
-            constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
-            const size_t bytes = static_cast<size_t>( count ) * element_size;
+            constexpr std::size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
+            const std::size_t bytes = static_cast<std::size_t>( count ) * element_size;
 
             cudaError_t status = cudaMemcpyAsync(
                 dst_data, src_data, bytes,
@@ -511,8 +511,8 @@ namespace Mila::Dnn::Compute::Cuda
 
             Cuda::setCurrentDevice( device_id );
 
-            constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
-            const size_t bytes = static_cast<size_t>( count ) * element_size;
+            constexpr std::size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
+            const std::size_t bytes = static_cast<std::size_t>( count ) * element_size;
 
             // DEBUG: Check for any previous CUDA errors
             cudaCheckLastError( std::source_location::current() );
@@ -537,8 +537,8 @@ namespace Mila::Dnn::Compute::Cuda
                 return;
             }
 
-            constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
-            const size_t bytes = static_cast<size_t>( count ) * element_size;
+            constexpr std::size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
+            const std::size_t bytes = static_cast<std::size_t>( count ) * element_size;
 
             std::memcpy( dst_data, src_data, bytes );
         }
@@ -569,7 +569,7 @@ namespace Mila::Dnn::Compute::Cuda
             auto* typed_dst = static_cast<DstType*>(dst_data);
 
             Cuda::launch_convert_copy_kernel<SrcType, DstType>(
-                typed_src, typed_dst, static_cast<size_t>( count ), stream
+                typed_src, typed_dst, static_cast<std::size_t>( count ), stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -600,8 +600,8 @@ namespace Mila::Dnn::Compute::Cuda
             using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::device_type;
             using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::device_type;
 
-            constexpr size_t src_element_size = TensorDataTypeTraits<TSrcDataType>::size_in_bytes;
-            const size_t src_bytes = static_cast<size_t>( count ) * src_element_size;
+            constexpr std::size_t src_element_size = TensorDataTypeTraits<TSrcDataType>::size_in_bytes;
+            const std::size_t src_bytes = static_cast<std::size_t>( count ) * src_element_size;
 
             // Allocate temporary device buffer for source data
             SrcType* temp_device_src = nullptr;
@@ -626,7 +626,7 @@ namespace Mila::Dnn::Compute::Cuda
                 // Convert on device
                 auto* typed_dst = static_cast<DstType*>(dst_data);
                 Cuda::launch_convert_copy_kernel<SrcType, DstType>(
-                    temp_device_src, typed_dst, static_cast<size_t>( count ), stream
+                    temp_device_src, typed_dst, static_cast<std::size_t>( count ), stream
                 );
 
                 cudaError_t kernel_status = cudaGetLastError();
@@ -666,8 +666,8 @@ namespace Mila::Dnn::Compute::Cuda
             using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::device_type;
             using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::device_type;
 
-            constexpr size_t dst_element_size = TensorDataTypeTraits<TDstDataType>::size_in_bytes;
-            const size_t dst_bytes = static_cast<size_t>( count ) * dst_element_size;
+            constexpr std::size_t dst_element_size = TensorDataTypeTraits<TDstDataType>::size_in_bytes;
+            const std::size_t dst_bytes = static_cast<std::size_t>( count ) * dst_element_size;
 
             // Allocate temporary device buffer for destination data
             DstType* temp_device_dst = nullptr;
@@ -683,7 +683,7 @@ namespace Mila::Dnn::Compute::Cuda
                 // Convert on device
                 const auto* typed_src = static_cast<const SrcType*>(src_data);
                 Cuda::launch_convert_copy_kernel<SrcType, DstType>(
-                    typed_src, temp_device_dst, static_cast<size_t>( count ), stream
+                    typed_src, temp_device_dst, static_cast<std::size_t>( count ), stream
                 );
 
                 cudaError_t kernel_status = cudaGetLastError();
@@ -731,7 +731,7 @@ namespace Mila::Dnn::Compute::Cuda
             auto* typed_dst = static_cast<DstType*>(dst_data);
 
             // CPU-based type conversion loop
-            for (size_t i = 0; i < count; ++i)
+            for (std::size_t i = 0; i < count; ++i)
             {
                 typed_dst[i] = static_cast<DstType>( typed_src[i] );
             }

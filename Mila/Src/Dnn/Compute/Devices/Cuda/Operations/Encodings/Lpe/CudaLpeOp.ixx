@@ -11,7 +11,7 @@ module;
 
 export module Compute.CudaLpeOp;
 
-import std.compat;
+import std;
 import :Dispatch;
 
 import Dnn.Components.LpeConfig;
@@ -199,7 +199,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
                 //B, T, batch_size_, seq_length_ ) );
             }
 
-            const int32_t* X = static_cast<const int32_t*>( input.rawData() );
+            const std::int32_t* X = static_cast<const std::int32_t*>( input.rawData() );
             NativeType* Y    = static_cast<NativeType*>( output.rawData() );
 
             Detail::cuda_lpe_impl<NativeType>::forward(
@@ -236,7 +236,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
                         B, T, batch_size_, seq_length_ ) );
             }
 
-            const int32_t* X  = static_cast<const int32_t*>( input.rawData() );
+            const std::int32_t* X  = static_cast<const std::int32_t*>( input.rawData() );
             const NativeType* dY = static_cast<const NativeType*>( output_grad.rawData() );
 
             Detail::cuda_lpe_impl<NativeType>::backward(
@@ -302,7 +302,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
 
             int B = static_cast<int>( input.shape()[ 0 ] );
 
-            const int32_t* X = static_cast<const int32_t*>( input.rawData() );
+            const std::int32_t* X = static_cast<const std::int32_t*>( input.rawData() );
             NativeType* Y = static_cast<NativeType*>( output.rawData() );
 
             Detail::cuda_lpe_impl<NativeType>::decode(

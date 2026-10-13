@@ -7,18 +7,9 @@
  * so the borrowed pointer whose lifetime the warning is about never escapes this file.
  */
 
-module;
-// std::getenv is deprecated by the MSVC CRT and not by the C++ standard, and there is no
-// portable non-deprecated replacement: _dupenv_s is MSVC, secure_getenv is glibc with different
-// semantics. The hazard is the returned pointer's lifetime, which readEnvironmentVariable ends
-// by copying before it returns. Confined to this file so nothing else has to claim the same.
-#define _CRT_SECURE_NO_WARNINGS
-
-#include <cstdlib>
-#include <optional>
-#include <string>
-
 export module Distribution.Environment;
+
+import std;
 
 namespace Mila::Distribution
 {
@@ -31,6 +22,12 @@ namespace Mila::Distribution
      */
     export std::optional<std::string> readEnvironmentVariable( const char* name )
     {
+        // std::getenv is deprecated by the MSVC CRT and not by the C++ standard, and there is no portable
+        // non-deprecated replacement: _dupenv_s is MSVC, secure_getenv is glibc with different semantics. The
+        // hazard is the returned pointer's lifetime, which this function ends by copying before it returns.
+        // Suppressed at the call, since the deprecation arrives from the std module, where no macro defined here
+        // can lift it.
+#pragma warning( suppress : 4996 )
         const char* const value = std::getenv( name );
 
         if ( value == nullptr || *value == '\0' )

@@ -1,10 +1,7 @@
-module;
-#include <string>
-#include <format>
-#include <fstream>
-#include <iostream>
 
 export module Utils.StepLogger;
+
+import std;
 
 namespace Mila::Utils
 {

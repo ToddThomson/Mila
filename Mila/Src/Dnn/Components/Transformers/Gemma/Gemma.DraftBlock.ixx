@@ -3,17 +3,9 @@
  * @brief One layer of Gemma 4's draft model: a Gemma block that projects queries only and attends the target's cache.
  */
 
-module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <format>
-#include <stdexcept>
-#include <optional>
-#include <type_traits>
-
 export module Dnn.Components.GemmaDraftBlock;
 
+import std;
 export import Dnn.Components.GemmaConfig;
 export import Compute.KvCacheView;
 
@@ -129,7 +121,7 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaDraftBlock::decode: must be built before decode()." );
 
-            const int64_t B = input.shape()[ 0 ];
+            const std::int64_t B = input.shape()[ 0 ];
             const dim_t NH = config_.getNumHeads();
             const dim_t HD = headDim();
 
@@ -395,7 +387,7 @@ namespace Mila::Dnn
             // Queries only: zero key/value heads, since the keys were rotated by the target layer that cached them.
             auto rope_cfg = RopeConfig( qProjWidth(), config_.getNumHeads(), 0, config_.getMaxSequenceLength() )
                 .withBase( ropeTheta() )
-                .withRotaryDim( static_cast<size_t>( rotaryDim() ) );
+                .withRotaryDim( static_cast<std::size_t>( rotaryDim() ) );
             this->addComponent( std::make_shared<RopeType>( n + ".rope", rope_cfg ) );
 
             auto attention_cfg = GqaConfig( qProjWidth(), config_.getNumHeads(), numKVHeads() )

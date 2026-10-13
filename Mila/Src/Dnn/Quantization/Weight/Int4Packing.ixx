@@ -4,13 +4,9 @@
  * The CUDA quantizer and kernels must match this file exactly; a disagreement is resolved in its favor.
  */
 
-module;
-#include <algorithm>
-#include <cmath>
-#include <cstdint>
-
 export module Dnn.Quantization.Weight.Int4Packing;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.Quantization.Weight.CodebookPacking;
 

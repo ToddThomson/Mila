@@ -6,15 +6,9 @@
  * See Specifications/Notebooks/Gemma4MoE.md Phase 6.
  */
 
-module;
-#include <stdexcept>
-#include <string>
-#include <sstream>
-#include <format>
-#include <cstdint>
-
 export module Dnn.Components.MixtureOfExpertsConfig;
 
+import std;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
@@ -66,10 +60,10 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "hidden_size", static_cast<int64_t>( hidden_size_ ) )
-                .set( "expert_intermediate_size", static_cast<int64_t>( expert_intermediate_size_ ) )
-                .set( "num_experts", static_cast<int64_t>( num_experts_ ) )
-                .set( "top_k", static_cast<int64_t>( top_k_ ) );
+            meta.set( "hidden_size", static_cast<std::int64_t>( hidden_size_ ) )
+                .set( "expert_intermediate_size", static_cast<std::int64_t>( expert_intermediate_size_ ) )
+                .set( "num_experts", static_cast<std::int64_t>( num_experts_ ) )
+                .set( "top_k", static_cast<std::int64_t>( top_k_ ) );
 
             return meta;
         }
