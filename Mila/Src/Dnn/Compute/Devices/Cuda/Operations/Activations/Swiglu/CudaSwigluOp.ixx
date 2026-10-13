@@ -4,18 +4,14 @@
  */
 
 module;
-#include <vector>
-#include <memory>
-#include <iostream>
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
-#include <stdexcept>
-#include <type_traits>
-#include <string>
 #include "Kernels/Swiglu.cuh"
 //#include "Kernels/Math.Elementwise.h"
 
 export module Compute.CudaSwigluOp;
+
+import std;
 import :Dispatch;
 
 import Dnn.Components.SwigluConfig;

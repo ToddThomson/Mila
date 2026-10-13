@@ -1,12 +1,7 @@
-module;
-#include <cassert>
-#include <memory>
-#include <string>
-#include <stdexcept>
-#include <format>
 
 export module Compute.ExecutionContextFactory;
 
+import std;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.DeviceType;

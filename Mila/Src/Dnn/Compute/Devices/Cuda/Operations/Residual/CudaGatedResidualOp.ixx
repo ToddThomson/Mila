@@ -8,12 +8,10 @@
 module;
 #include "Kernels/GatedResidual.cuh"
 #include <cuda_bf16.h>
-#include <cstdint>
-#include <stdexcept>
-#include <string>
 
 export module Compute.CudaGatedResidualOp;
 
+import std;
 import Dnn.Components.GatedResidualConfig;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

@@ -7,16 +7,12 @@ module;
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
 #include <cuda_runtime.h>
-#include <memory>
-#include <string>
-#include <format>
-#include <stdexcept>
-#include <cstdint>
 #include "Kernels/CudaGqa.cuh"
 #include "../../../Kernels/DecodePosition.cuh"
 
 export module Compute.CudaSharedKvAttentionOp;
 
+import std;
 import Dnn.Components.GqaConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;

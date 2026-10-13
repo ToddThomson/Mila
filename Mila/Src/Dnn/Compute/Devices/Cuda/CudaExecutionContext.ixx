@@ -11,16 +11,11 @@ module;
 #include <cudnn.h>
 #endif
 #include <cstdio>
-#include <memory>
-#include <span>
-#include <vector>
-#include <string>
-#include <format>
-#include <stdexcept>
 #include "Kernels/DecodePosition.cuh"
 
 export module Compute.CudaExecutionContext;
 
+import std.compat;
 import Compute.IExecutionContext;
 import Compute.IDecodeRecording;
 import Compute.CudaDecodeGraph;

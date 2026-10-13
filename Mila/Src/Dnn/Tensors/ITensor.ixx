@@ -6,13 +6,9 @@
  * manner. Concrete implementations (Tensor<T, MR>) provide typed access on top of this base.
  */
 
-module;
-#include <memory>
-#include <string>
-#include <cstdint>
-
 export module Dnn.ITensor;
 
+import std.compat;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Compute.DeviceId;

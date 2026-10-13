@@ -6,13 +6,9 @@
  * layer-streamed harness allocate the identical set.
  */
 
-module;
-#include <cstddef>
-#include <memory>
-#include <string>
-
 export module Compute.GqaWorkspace;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;

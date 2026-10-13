@@ -3,15 +3,9 @@
  * @brief Minimal type-erased execution context interface.
  */
 
-module;
-#include <cstddef>
-#include <memory>
-#include <span>
-#include <stdexcept>
-#include <utility>
-
 export module Compute.IExecutionContext;
 
+import std;
 import Compute.DeviceId;
 import Compute.Observation;
 import Compute.IDecodeRecording;

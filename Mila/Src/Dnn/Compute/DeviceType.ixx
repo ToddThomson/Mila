@@ -2,15 +2,10 @@
  * @file DeviceType.ixx
  * @brief Device type definitions and conversion utilities for compute devices.
  */
-module;
-#include <stdexcept>
-#include <algorithm>
-#include <string>
-#include <cctype>
-#include <string_view>
-#include <format>
 
 export module Compute.DeviceType;
+
+import std;
 
 namespace Mila::Dnn::Compute
 {

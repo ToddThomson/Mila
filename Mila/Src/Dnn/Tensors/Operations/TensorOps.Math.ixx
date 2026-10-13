@@ -31,12 +31,9 @@
  *   - ExecutionContext (if provided) must outlive the function call.
  */
 
-module;
-#include <concepts>
-#include <memory>
-
 export module Dnn.TensorOps:Math;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;

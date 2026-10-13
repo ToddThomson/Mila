@@ -6,18 +6,12 @@
 module;
 #include <cublasLt.h>
 #include <cuda_fp16.h>
-#include <vector>
-#include <memory>
-#include <string>
-#include <format>
-#include <stdexcept>
-#include <cstdint>
-#include <type_traits>
-#include <sstream>
 #include <cassert>
 #include "Kernels/CudaMha.cuh"
 
 export module Compute.CudaMultiHeadAttentionOp;
+
+import std.compat;
 import :Plans;
 import :Dispatch;
 

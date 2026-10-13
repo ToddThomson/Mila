@@ -1,8 +1,7 @@
-module;
-#include <string>
-#include <exception>
 
 export module Cuda.BadAlloc;
+
+import std;
 
 namespace Mila::Dnn::Compute
 {

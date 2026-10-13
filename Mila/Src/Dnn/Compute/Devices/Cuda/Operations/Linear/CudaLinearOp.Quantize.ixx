@@ -18,10 +18,6 @@
  */
 
 module;
-#include <cstddef>
-#include <cstdint>
-#include <stdexcept>
-#include <format>
 #include "Kernels/Quantization/CudaFp8WeightQuantization.cuh"
 #include "Kernels/Quantization/CudaFp4WeightQuantization.cuh"
 #include "Kernels/Quantization/CudaInt4WeightQuantization.cuh"
@@ -29,6 +25,7 @@ module;
 
 export module Compute.CudaLinearOp:Quantize;
 
+import std.compat;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Serialization.Tensor;

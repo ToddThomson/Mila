@@ -3,11 +3,9 @@
  * @brief Defines a clean memory resource abstraction focused on allocation responsibilities.
  */
 
-module;
-#include <memory_resource>
-#include <cstddef>
-
 export module Compute.MemoryResource;
+
+import std;
 
 namespace Mila::Dnn::Compute
 {

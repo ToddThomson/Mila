@@ -10,17 +10,13 @@
  */
 
 module;
-#include <string>
-#include <stdexcept>
-#include <format>
-#include <cstdint>
-#include <span>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
 #include "Kernels/Sampling.cuh"
 
 export module Compute.CudaSamplingOp;
 
+import std.compat;
 import Dnn.Samplers.SamplingConfig;
 import Dnn.SamplingParams;
 import Dnn.Component;

@@ -16,10 +16,10 @@ module;
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
-#include <type_traits>
 
 export module Compute.CudaTensorDataType:CublasLtTypes;
 
+import std;
 import Dnn.TensorDataType;
 
 namespace Mila::Dnn::Compute::Cuda

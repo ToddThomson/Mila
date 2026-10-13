@@ -19,14 +19,10 @@
 
 module;
 #include <cuda_fp16.h>
-#include <algorithm>
-#include <string>
-#include <stdexcept>
-#include <cstdint>
-#include <format>
-#include <sstream>
 
 export module Compute.CudaTokenEmbeddingOp;
+
+import std.compat;
 import :Dispatch;
 import :Quantize;
 

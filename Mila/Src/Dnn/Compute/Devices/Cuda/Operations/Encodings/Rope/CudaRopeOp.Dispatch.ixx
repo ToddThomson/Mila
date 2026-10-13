@@ -7,10 +7,11 @@
 
 module;
 #include <cuda_bf16.h>
-#include <type_traits>
 #include "Kernels/Rope.cuh"
 
 export module Compute.CudaRopeOp:Dispatch;
+
+import std;
 
 namespace Mila::Dnn::Compute::Cuda::Rope::Detail
 {

@@ -10,14 +10,10 @@
 
 module;
 #include <cuda_runtime.h>
-#include <stdexcept>
-#include <string>
-#include <ostream>
-#include <sstream>
-#include <source_location>
-#include <cstdint>
 
 export module Cuda.Error;
+
+import std.compat;
 
 namespace Mila::Dnn::Compute
 {

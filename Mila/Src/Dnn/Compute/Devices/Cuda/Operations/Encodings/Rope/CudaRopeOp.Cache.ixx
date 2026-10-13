@@ -8,13 +8,10 @@
 
 module;
 #include <cuda_runtime.h>
-#include <mutex>
-#include <unordered_map>
-#include <bit>
-#include <cstdint>
 
 export module Compute.CudaRopeOp:Cache;
 
+import std.compat;
 import Dnn.TensorDataType;
 import Dnn.TensorTypes;
 import Cuda.Error;

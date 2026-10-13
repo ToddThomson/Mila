@@ -17,16 +17,11 @@
 
 module;
 #include <cuda_runtime.h>
-#include <cstring>
-#include <algorithm>
-#include <memory>
-#include <span>
-#include <type_traits>
-#include <stdexcept>
 #include "Kernels/TensorOps.Fill.h"
 
 export module Compute.CudaTensorOps:Fill;
 
+import std.compat;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.ITensor;

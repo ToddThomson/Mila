@@ -19,10 +19,6 @@
  */
 
 module;
-// std::fopen is deprecated by the MSVC CRT and not by the C++ standard, and fopen_s is not portable. The reader
-// owns the FILE* it opens and never hands it out. Confined to this file, as Environment.ixx confines getenv's.
-#define _CRT_SECURE_NO_WARNINGS
-
 #include <cstdio>
 #include <filesystem>
 #include <memory>
@@ -190,6 +186,10 @@ namespace Mila::Dnn::Serialization
         explicit WeightsReader( const std::filesystem::path& filepath )
             : filepath_( filepath )
         {
+            // std::fopen is deprecated by the MSVC CRT and not by the C++ standard, and fopen_s is not portable.
+            // The reader owns the FILE* it opens and never hands it out. Suppressed at the call, since the
+            // deprecation reaches this file from the std module, where no macro defined here can lift it.
+#pragma warning( suppress : 4996 )
             file_.reset( std::fopen( filepath.string().c_str(), "rb" ) );
 
             if ( file_ == nullptr )

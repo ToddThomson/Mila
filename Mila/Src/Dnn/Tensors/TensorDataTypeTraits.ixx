@@ -9,13 +9,9 @@
  * - host conversion type used when converting values to/from host representations
  */
 
-module;
-#include <cstdint>
-#include <type_traits>
-#include <string_view>
-
 export module Dnn.TensorDataTypeTraits;
 
+import std.compat;
 import Dnn.TensorDataType;
 import Compute.DeviceType;
 import Compute.MemoryResource;

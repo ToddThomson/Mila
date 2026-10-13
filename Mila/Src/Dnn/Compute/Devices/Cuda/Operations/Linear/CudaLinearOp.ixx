@@ -13,19 +13,6 @@ module;
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
-#include <vector>
-#include <memory>
-#include <string>
-#include <format>
-#include <stdexcept>
-#include <exception>
-#include <cstdint>
-#include <type_traits>
-#include <sstream>
-#include <cassert>
-#include <algorithm>
-#include <cmath>
-#include <variant>
 #include "Kernels/Linear.cuh"
 #include "Kernels/Fp8Prefill/CudaFp8Prefill.cuh"
 #include "Kernels/W8A16Gemm/CudaW8A16Gemm.cuh"
@@ -38,6 +25,8 @@ module;
 #include "Kernels/DecodeRows/CudaDecodeRows.cuh"
 
 export module Compute.CudaLinearOp;
+
+import std.compat;
 import :Plans;
 import :Dispatch;
 import :Quantize;

@@ -8,12 +8,10 @@
 
 module;
 #include <cuda_fp16.h>
-#include <string>
-#include <stdexcept>
-#include <cstdint>
-#include <format>
 
 export module Compute.CudaLpeOp;
+
+import std.compat;
 import :Dispatch;
 
 import Dnn.Components.LpeConfig;

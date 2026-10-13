@@ -12,14 +12,12 @@ module;
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 #include <curand.h>
-#include <stdexcept>
-#include <string>
-#include <type_traits>
 #include "Kernels/Random.h"
 #include "Kernels/Transfer.Copy.h"
 
 export module Compute.CudaTensorOps:Random;
 
+import std.compat;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.ITensor;

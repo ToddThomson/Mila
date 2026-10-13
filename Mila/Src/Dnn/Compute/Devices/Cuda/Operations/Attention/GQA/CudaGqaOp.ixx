@@ -8,18 +8,11 @@ module;
 #include <cuda_fp16.h>
 #include <cuda_fp8.h>
 #include <cuda_runtime.h>
-#include <memory>
-#include <string>
-#include <format>
-#include <stdexcept>
-#include <cstdint>
-#include <type_traits>
-#include <sstream>
-#include <unordered_map>
-#include <algorithm>
 #include "Kernels/CudaGqa.cuh"
 
 export module Compute.CudaGqaOp;
+
+import std.compat;
 import :Dispatch;
 import :Plans;
 

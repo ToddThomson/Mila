@@ -11,11 +11,9 @@
  * to reference OperationType directly.
  */
 
-module;
-#include <string>
-#include <stdexcept>
-
 export module Compute.OperationType;
+
+import std;
 
 namespace Mila::Dnn::Compute
 {

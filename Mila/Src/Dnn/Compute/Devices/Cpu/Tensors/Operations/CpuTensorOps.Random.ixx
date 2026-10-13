@@ -7,12 +7,9 @@
  * surface so TensorOps<Cpu> exposes the same fill_normal/fill_uniform entry points.
  */
 
-module;
-#include <random>
-#include <type_traits>
-
 export module Compute.CpuTensorOps:Random;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;

@@ -5,12 +5,11 @@
 
 module;
 #include <cuda_runtime.h>
-#include <memory>
-#include <stdexcept>
-#include <string>
 #include <cuda_runtime_api.h>  // cudaStream_t
 
 export module Compute.CudaGeluOp;
+
+import std;
 import :Dispatch;
 
 import Dnn.Components.GeluConfig;

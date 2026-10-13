@@ -8,12 +8,10 @@
 module;
 #include "Kernels/Router.cuh"
 #include <cuda_bf16.h>
-#include <stdexcept>
-#include <format>
-#include <cstdint>
-#include <string>
 
 export module Compute.CudaRouterOp;
+
+import std.compat;
 import :Dispatch;
 
 import Dnn.Components.RouterConfig;

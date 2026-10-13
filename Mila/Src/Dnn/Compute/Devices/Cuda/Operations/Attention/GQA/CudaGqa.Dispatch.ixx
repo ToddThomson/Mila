@@ -2,18 +2,12 @@ module;
 #include <cublasLt.h>
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
-#include <vector>
-#include <memory>
-#include <string>
-#include <stdexcept>
-#include <cstdint>
-#include <type_traits>
-#include <sstream>
-#include <cassert>
 #include "Kernels/CudaGqa.cuh"
 #include "../Common/Kernels/CudaAttention.cuh"
 
 export module Compute.CudaGqaOp:Dispatch;
+
+import std.compat;
 
 namespace Mila::Dnn::Compute::Cuda::Gqa
 {

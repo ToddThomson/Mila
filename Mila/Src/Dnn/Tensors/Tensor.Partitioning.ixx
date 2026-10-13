@@ -1,10 +1,7 @@
-module;
-#include <stdexcept>
-#include <string>
-#include <cstdint>
 
 export module Dnn.TensorPartitioning;
 
+import std.compat;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn

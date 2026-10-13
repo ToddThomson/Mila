@@ -3,12 +3,9 @@
  * @brief Implementation of CPU-based compute device for the Mila framework.
  */
 
-module;
-#include <string>
-#include <memory>
-
 export module Compute.CpuDevice;
 
+import std;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;

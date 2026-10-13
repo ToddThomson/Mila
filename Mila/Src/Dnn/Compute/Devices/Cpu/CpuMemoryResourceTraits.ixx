@@ -3,11 +3,9 @@
  * @brief CPU-specific memory resource traits and specializations
  */
 
-module;
-#include <type_traits>
-
 export module Compute.CpuMemoryResourceTraits;
 
+import std.compat;
 import Compute.CpuMemoryResource;
 import Compute.MemoryResourceTraits;
 

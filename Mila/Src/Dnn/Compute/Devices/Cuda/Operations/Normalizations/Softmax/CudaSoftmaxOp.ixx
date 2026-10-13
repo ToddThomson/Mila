@@ -4,17 +4,12 @@
  */
 
 module;
-#include <vector>
-#include <iostream>
-#include <memory>
-#include <stdexcept>
-#include <type_traits>
-#include <cstdint>
 #include <cuda_fp16.h>
 #include "Kernels/Softmax.cuh"
 
 export module Compute.CudaSoftmaxOp;
 
+import std.compat;
 import Dnn.Components.SoftmaxConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;

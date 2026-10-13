@@ -3,11 +3,9 @@
  * @brief CUDA-specific memory resource traits and specializations
  */
 
-module;
-#include <type_traits>
-
 export module Compute.CudaDeviceMemoryResourceTraits;
 
+import std.compat;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;

@@ -1,9 +1,10 @@
 module;
 #include <cuda_bf16.h>
-#include <cstdint>
 #include "Kernels/GatedDeltaRule.cuh"
 
 export module Compute.CudaGatedDeltaRuleOp:Dispatch;
+
+import std;
 
 namespace Mila::Dnn::Compute::Cuda::DeltaNet
 {

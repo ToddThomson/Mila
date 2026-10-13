@@ -30,12 +30,11 @@
  */
 
 module;
-#include <stdexcept>
-#include <string>
 #include <cublasLt.h>
 
 export module Compute.Cuda.CublasLtLinearPlan;
 
+import std.compat;
 import Dnn.TensorDataType;
 import Compute.CudaTensorDataType;
 import Cuda.Error;

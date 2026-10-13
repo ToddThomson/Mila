@@ -1,13 +1,10 @@
 module;
 #include <cuda_runtime.h>
-#include <memory_resource>
-#include <string>
 #include <cstdio>
-#include <cstdarg>
-#include <stdexcept>
 
 export module Compute.CudaDeviceMemoryResource;
 
+import std;
 import Compute.MemoryResource;
 import Compute.MemoryResourceProperties;
 import Compute.DeviceType;

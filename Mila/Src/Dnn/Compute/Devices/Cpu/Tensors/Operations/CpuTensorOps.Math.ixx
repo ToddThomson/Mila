@@ -13,15 +13,9 @@
  * - No stream management needed on CPU
  */
 
-module;
-//#include <memory>
-#include <stdexcept>
-//#include <source_location>
-//#include <cmath>
-#include <algorithm>
-
 export module Compute.CpuTensorOps:Math;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;

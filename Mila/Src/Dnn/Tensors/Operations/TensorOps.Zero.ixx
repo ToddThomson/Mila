@@ -6,11 +6,9 @@
  * forwards to the backend `TensorOps<device>::zero(...)` implementation.
  */
 
-module;
-#include <type_traits>
-
 export module Dnn.TensorOps:Zero;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;

@@ -3,11 +3,9 @@
  * @brief Compute backend memory resource traits for dispatch optimization
  */
 
-module;
-#include <type_traits>
-
 export module Compute.MemoryResourceTraits;
 
+import std;
 import Compute.CpuMemoryResource;
 #ifdef MILA_HAS_CUDA
 import Compute.CudaDeviceMemoryResource;

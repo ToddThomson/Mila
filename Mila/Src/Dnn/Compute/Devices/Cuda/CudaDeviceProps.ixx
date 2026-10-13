@@ -14,16 +14,11 @@
  */
 
 module;
-#include <string>
-#include <iostream>
-#include <sstream>
-#include <vector>
-#include <stdexcept>
-#include <format>
 #include <cuda_runtime.h>
 
 export module Compute.CudaDeviceProps;
 
+import std.compat;
 import Cuda.Helpers;
 import Cuda.Error;
 

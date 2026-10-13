@@ -8,12 +8,6 @@
  */
 
 module;
-#include <algorithm>
-#include <cstddef>
-#include <cstdint>
-#include <format>
-#include <stdexcept>
-#include <string>
 #include <cuda_runtime_api.h>
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
@@ -23,6 +17,7 @@ module;
 
 export module Compute.CudaMoeOp;
 
+import std.compat;
 import Dnn.Components.MixtureOfExpertsConfig;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

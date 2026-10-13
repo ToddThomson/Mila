@@ -12,14 +12,12 @@
 
 module;
 #include "Kernels/Residual.cuh"
-#include <memory>
 #include <cuda_fp16.h>
-#include <stdexcept>
-#include <cstdint>
 #include <cassert>
-#include <string>
 
 export module Compute.CudaResidualOp;
+
+import std.compat;
 import :Dispatch;
 
 import Dnn.Components.ResidualConfig;

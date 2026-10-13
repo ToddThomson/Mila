@@ -1,18 +1,12 @@
 module;
-#include <memory_resource>
-#include <exception>
-#include <memory>
 
 #ifdef _WIN32
 #include <malloc.h>  // For _aligned_malloc and _aligned_free
-#else
-#include <cstdlib>   // For std::aligned_alloc and std::free
 #endif
-#include <cstring>
-#include <cstddef>
 
 export module Compute.CpuMemoryResource;
 
+import std;
 import Compute.DeviceType;
 import Compute.MemoryResource;
 import Compute.MemoryResourceProperties;

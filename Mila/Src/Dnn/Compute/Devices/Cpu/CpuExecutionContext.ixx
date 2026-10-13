@@ -3,13 +3,9 @@
  * @brief CPU-specific execution context specialization.
  */
 
-module;
-#include <memory>
-#include <string>
-#include <stdexcept>
-
 export module Compute.CpuExecutionContext;
 
+import std;
 import Compute.IExecutionContext;
 import Compute.Device;
 import Compute.DeviceId;

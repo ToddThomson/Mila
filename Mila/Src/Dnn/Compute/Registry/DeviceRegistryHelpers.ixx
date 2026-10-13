@@ -5,12 +5,9 @@
  * Small helpers for listing and selecting devices via DeviceRegistry.
  */
 
-module;
-#include <vector>
-#include <string>
-
 export module Compute.DeviceRegistryHelpers;
 
+import std;
 import Compute.DeviceRegistry;
 import Compute.DeviceId;
 import Compute.DeviceType;

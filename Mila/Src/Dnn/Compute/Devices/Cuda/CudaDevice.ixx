@@ -5,16 +5,10 @@
 
 module;
 #include <cuda_runtime.h>
-#include <cstddef>
-#include <string>
-#include <format>
-#include <stdexcept>
-#include <utility>
-#include <memory>
-#include <exception>
 
 export module Compute.CudaDevice;
 
+import std.compat;
 import Compute.Device;
 import Compute.DeviceAllocation;
 import Compute.DeviceId;

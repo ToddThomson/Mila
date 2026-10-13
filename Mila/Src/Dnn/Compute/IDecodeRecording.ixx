@@ -3,10 +3,9 @@
  * @brief A decode step's launches, recorded once and replayed (DecodeGraph.md).
  */
 
-module;
-#include <functional>
-
 export module Compute.IDecodeRecording;
+
+import std;
 
 namespace Mila::Dnn::Compute
 {

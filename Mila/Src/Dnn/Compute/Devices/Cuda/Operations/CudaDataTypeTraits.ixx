@@ -1,10 +1,11 @@
 module;
-#include <type_traits>
 #include <cublasLt.h>
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 
 export module Cuda.DataTypeTraits;
+
+import std;
 
 namespace Mila::Dnn::Compute
 {

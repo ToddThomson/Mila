@@ -6,28 +6,9 @@
  * abstraction and host/device access semantics. Scalars use empty shape {}.
  */
 
-module;
-#include <utility>
-#include <vector>
-#include <memory>
-#include <string>
-#include <cstdint>
-#include <stdexcept>
-#include <atomic>
-#include <functional>
-#include <numeric>
-#include <iostream>
-#include <sstream>
-#include <iomanip>
-#include <type_traits>
-#include <limits>
-#include <exception>
-#include <optional>
-#include <format>
-#include <algorithm>
-
 export module Dnn.Tensor;
 
+import std.compat;
 import Dnn.TensorBuffer;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

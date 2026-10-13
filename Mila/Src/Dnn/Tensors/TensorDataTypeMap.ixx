@@ -15,12 +15,9 @@
  *   canonical `TensorDataTypeTraits` which defines per-enum compile-time traits.
  */
 
-module;
-#include <type_traits>
-#include <cstdint>
-
 export module Dnn.TensorDataTypeMap;
 
+import std;
 import Dnn.TensorDataType;
 
 namespace Mila::Dnn

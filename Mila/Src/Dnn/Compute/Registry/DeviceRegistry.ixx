@@ -8,19 +8,9 @@
  * requested via getDevice().
  */
 
-module;
-#include <vector>
-#include <unordered_map>
-#include <memory>
-#include <mutex>
-#include <format>
-#include <stdexcept>
-#include <algorithm>
-#include <functional>
-#include <utility>
-
 export module Compute.DeviceRegistry;
 
+import std;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.Device;

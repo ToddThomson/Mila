@@ -6,11 +6,9 @@
  * to the preferred memory resource type used for CUDA-backed tensors.
  */
 
-module;
-#include <type_traits>
-
 export module Compute.DeviceTypeTraits.Cuda;
 
+import std;
 import Compute.DeviceTypeTraits;
 import Compute.DeviceType;
 import Compute.CudaDeviceMemoryResource;

@@ -16,15 +16,11 @@
 
 module;
 #include <cuda_runtime.h>
-#include <memory>
-#include <stdexcept>
-#include <source_location>
-#include <cmath>
-#include <vector>
 #include "Kernels/Math.Elementwise.h"
 
 export module Compute.CudaTensorOps:Math;
 
+import std.compat;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.ITensor;

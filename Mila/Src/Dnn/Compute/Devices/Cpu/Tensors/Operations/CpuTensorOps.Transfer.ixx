@@ -12,16 +12,9 @@
  * - No stream management needed on CPU
  */
 
-module;
-#include <cstring>
-#include <algorithm>
-#include <memory>
-#include <span>
-#include <type_traits>
-#include <stdexcept>
-
 export module Compute.CpuTensorOps:Transfer;
 
+import std.compat;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;

@@ -1,15 +1,10 @@
 module;
-#include <vector>
-#include <memory>
-#include <iostream>
 #include <cuda_bf16.h>
-#include <stdexcept>
-#include <type_traits>
-#include <string>
 #include "Kernels/Swiglu.cuh"
 
 export module Compute.CudaSwigluOp:Dispatch;
 
+import std;
 import Dnn.Components.SwigluConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;

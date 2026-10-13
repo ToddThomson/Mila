@@ -7,15 +7,9 @@
  * (Device::Cuda(0), Device::Cpu()) rather than directly.
  */
 
-module;
-#include <string>
-#include <string_view>
-//#include <compare>
-#include <stdexcept>
-//#include <functional>
-
 export module Compute.DeviceId;
 
+import std;
 import Compute.DeviceType;
 
 namespace Mila::Dnn::Compute

@@ -15,10 +15,10 @@
 
 module;
 #include <cuda_runtime.h>
-#include <stdexcept>
-#include <format>
 
 export module Compute.Cuda.Timer;
+
+import std;
 
 namespace Mila::Dnn::Compute
 {

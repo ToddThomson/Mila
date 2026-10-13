@@ -15,16 +15,11 @@
 module;
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
-#include <vector>
-#include <memory>
-#include <string>
-#include <stdexcept>
-#include <cstdint>
-#include <type_traits>
 #include "Kernels/SoftmaxCrossEntropy.cuh"
 
 export module Compute.CudaSoftmaxCrossEntropyOp;
 
+import std.compat;
 import Dnn.Components.CrossEntropyConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;

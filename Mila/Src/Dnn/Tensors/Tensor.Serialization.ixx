@@ -7,14 +7,9 @@
  * out of ModelArchive and lets tensor implementations call these helpers.
  */
 
-module;
-#include <string>
-#include <cstddef>
-#include <stdexcept>
-#include <utility>
-
 export module Serialization.Tensor;
 
+import std.compat;
 import Serialization.ModelArchive;
 import Serialization.Metadata;
 import Dnn.TensorDataType;

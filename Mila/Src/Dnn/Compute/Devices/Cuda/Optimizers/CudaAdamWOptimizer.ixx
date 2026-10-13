@@ -8,12 +8,6 @@
  */
 
 module;
-#include <vector>
-#include <memory>
-#include <stdexcept>
-#include <string>
-#include <sstream>
-#include <cstdint>
 #include <cuda_runtime.h>
 #include "Kernels/CudaOptimizers.h"
 // Widening the live parameter into its FP32 master copy (mixed precision).
@@ -21,6 +15,7 @@ module;
 
 export module Compute.CudaAdamWOptimizer;
 
+import std.compat;
 import Dnn.Optimizers.AdamWConfig;
 import Dnn.ITensor;
 import Dnn.Tensor;

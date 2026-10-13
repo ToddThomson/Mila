@@ -16,15 +16,11 @@
 
 module;
 #include <cuda_runtime.h>
-#include <memory>
-#include <format>
-#include <stdexcept>
-#include <source_location>
-#include <cstring>
 #include "Kernels/Transfer.Copy.h"
 
 export module Compute.CudaTensorOps:Transfer;
 
+import std.compat;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.ITensor;

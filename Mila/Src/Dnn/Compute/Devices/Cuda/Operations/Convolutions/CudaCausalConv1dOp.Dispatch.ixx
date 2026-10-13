@@ -1,9 +1,10 @@
 module;
 #include <cuda_bf16.h>
-#include <cstdint>
 #include "Kernels/CausalConv1d.cuh"
 
 export module Compute.CudaCausalConv1dOp:Dispatch;
+
+import std;
 
 namespace Mila::Dnn::Compute::Cuda::Convolution
 {

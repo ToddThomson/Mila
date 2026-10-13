@@ -15,15 +15,12 @@
  */
 
 module;
-#include <algorithm>
-#include <cstdint>
-#include <stdexcept>
-#include <format>
 #include "../Linear/Kernels/Quantization/CudaFp8WeightQuantization.cuh"
 #include "../Linear/Kernels/Quantization/CudaInt6WeightQuantization.cuh"
 
 export module Compute.CudaTokenEmbeddingOp:Quantize;
 
+import std.compat;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Serialization.Tensor;

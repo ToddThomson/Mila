@@ -1,12 +1,7 @@
-module;
-#include <string>
-#include <iostream>
-#include <sstream>
-#include <format>
-#include <iomanip>
 
 export module Dnn.TensorHelpers;
 
+import std.compat;
 import Dnn.ITensor;
 import Dnn.Tensor;
 import Dnn.TensorTypes;

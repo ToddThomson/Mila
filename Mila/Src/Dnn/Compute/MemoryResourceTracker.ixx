@@ -1,13 +1,7 @@
-module;
-#include <memory_resource>
-#include <atomic>
-#include <mutex>
-#include <iostream>
-#include <string_view>
-#include <string>
 
 export module Compute.MemoryResourceTracker;
 
+import std.compat;
 import Compute.MemoryResource;
 import Dnn.TensorDataType;
 

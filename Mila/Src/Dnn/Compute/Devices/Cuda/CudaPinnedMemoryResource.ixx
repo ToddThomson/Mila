@@ -1,14 +1,9 @@
 module;
 #include <cuda_runtime.h>
-#include <memory_resource>
-#include <stdexcept>
-#include <string>
-#include <source_location>
-#include <exception>
-#include <cstddef>
 
 export module Compute.CudaPinnedMemoryResource;
 
+import std;
 import Compute.MemoryResource;
 import Compute.MemoryResourceProperties;
 import Compute.DeviceType;

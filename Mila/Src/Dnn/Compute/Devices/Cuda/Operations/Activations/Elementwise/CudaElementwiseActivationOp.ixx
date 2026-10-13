@@ -9,14 +9,12 @@
  */
 
 module;
-#include <memory>
-#include <stdexcept>
-#include <string>
 #include <cuda_runtime_api.h>
 #include "Kernels/ElementwiseActivation.cuh"
 
 export module Compute.CudaElementwiseActivationOp;
 
+import std;
 import Dnn.Components.ActivationConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;

@@ -6,14 +6,9 @@
  * implementations (CPU, CUDA). For CUDA, uses cuRAND for efficient device-side fill.
  */
 
-module;
-#include <concepts>
-#include <span>
-#include <cstdint>
-#include <cmath>
-
 export module Dnn.TensorOps:Random;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;

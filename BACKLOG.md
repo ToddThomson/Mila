@@ -873,6 +873,13 @@ CMake's support is no longer experimental; a consumer that sets no gate built an
 4.3.1 and on Clang with 4.2.3, and gets `import std;` through Mila. Clang's floor becomes a standard library that ships a `std`
 module (libstdc++ 15, libc++ 17).
 
+Clang's floor also becomes 22 (decided 2026-10-12, Todd). Clang 21 rejects libstdc++'s `shared_ptr` friends with
+"cannot befriend target of using declaration" in a module that instantiates one while a textual libstdc++ header and
+the `std` module are both reachable (LLVM #156604, #138558), which every module holding a `Tensor` member meets; the
+fix landed after 21 branched, and 22.1.2 builds `mila-chat`. Measured on Clang 22 with `Dnn/Compute` and
+`Dnn/Tensors` converted: `Chat.ixx` uses 1.667 GB of the 2.15 GB space, down from 2.130 GB, which Clang 22 alone
+leaves unchanged.
+
 Work, each step leaving the tree building on MSVC and Clang:
 
 1. The `std` module target in the tree, as the probe built it.
@@ -883,7 +890,7 @@ Work, each step leaving the tree building on MSVC and Clang:
    workarounds deleted where the conversion removes their cause.
 
 Gate: both images build and pass their checks; every target builds on MSVC and Clang with the full suite
-passing; `QuickStart/Cpp` builds through FetchContent with no `import std` setting of its own; `CLAUDE.md` states
-the new Clang floor.
+passing; `QuickStart/Cpp` builds through FetchContent with no `import std` setting of its own; `CLAUDE.md`,
+`getting-started.md` and the images state the new Clang floor.
 
 `Mila/CMakeLists.txt` · GitHub #30

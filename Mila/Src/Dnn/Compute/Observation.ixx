@@ -6,15 +6,9 @@
  * Component (which publishes) and IExecutionContext (which transports).
  */
 
-module;
-#include <cstdint>
-#include <functional>
-#include <initializer_list>
-#include <string>
-#include <string_view>
-
 export module Compute.Observation;
 
+import std.compat;
 import Dnn.ITensor;
 
 namespace Mila::Dnn::Compute

@@ -5,13 +5,9 @@
  * The two readings a footprint prediction takes from the device. See Specifications/MemoryFootprint.md 11.3 and 11.8.
  */
 
-module;
-#include <cstddef>
-#include <exception>
-#include <memory>
-
 export module Compute.DeviceAllocation;
 
+import std;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceRegistry;

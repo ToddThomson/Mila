@@ -15,21 +15,9 @@
  * - Exception-safe memory management with strong guarantees
  */
 
-module;
-#include <memory>
-#include <limits>
-#include <iostream>
-#include <stdexcept>
-#include <type_traits>
-#include <cstring>
-#include <cstddef>
-
-#include <cassert>
-#include <string>
-#include <format>
-
 export module Dnn.TensorBuffer;
 
+import std.compat;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;

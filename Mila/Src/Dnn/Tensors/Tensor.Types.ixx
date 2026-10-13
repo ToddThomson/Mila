@@ -6,16 +6,9 @@
  * shape_t, stride_t, and index_t aliases used throughout the framework.
  */
 
-module;
-#include <array>
-#include <string>
-#include <cstdint>
-#include <limits>
-#include <stdexcept>
-#include <algorithm>
-#include <initializer_list>
-
 export module Dnn.TensorTypes;
+
+import std.compat;
 
 namespace Mila::Dnn
 {

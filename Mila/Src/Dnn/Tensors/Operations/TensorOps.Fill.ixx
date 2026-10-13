@@ -33,15 +33,9 @@
  * - ExecutionContext (if provided) must outlive the function call.
  */
 
-module;
-#include <concepts>
-#include <memory>
-#include <span>
-#include <type_traits>
-#include <cstdint>
-
 export module Dnn.TensorOps:Fill;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;

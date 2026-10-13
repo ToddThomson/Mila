@@ -13,12 +13,11 @@
 module;
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
-#include <stdexcept>
-#include <string>
 #include "Kernels/Geglu.cuh"
 
 export module Compute.CudaGegluOp;
 
+import std;
 import Dnn.Components.SwigluConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;

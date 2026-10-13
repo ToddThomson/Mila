@@ -1,9 +1,10 @@
 module;
 #include <cuda_bf16.h>
-#include <cstdint>
 #include "Kernels/Router.cuh"
 
 export module Compute.CudaRouterOp:Dispatch;
+
+import std.compat;
 
 namespace Mila::Dnn::Compute::Cuda::Routing
 {

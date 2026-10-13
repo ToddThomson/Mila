@@ -8,14 +8,11 @@
 
 #pragma once
 
-#include <algorithm>
-#include <cstdint>
-#include <filesystem>
+// For stderr, a macro no module exports. The rest of the standard library comes from the module: on MSVC a
+// standard header met after `import Mila;` redefines what the module already declared.
 #include <cstdio>
-#include <format>
-#include <memory>
-#include <unordered_set>
-#include <vector>
+
+import std;
 
 namespace Mila::Measurement
 {

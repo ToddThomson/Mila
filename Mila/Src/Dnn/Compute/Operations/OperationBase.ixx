@@ -3,11 +3,9 @@
  * @brief Core abstraction for neural network operations in the Mila framework.
  */
 
-module;
-#include <string>
-
 export module Compute.OperationBase;
 
+import std;
 import Dnn.Component;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

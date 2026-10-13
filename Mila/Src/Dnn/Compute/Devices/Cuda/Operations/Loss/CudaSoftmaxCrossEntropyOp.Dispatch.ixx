@@ -5,10 +5,11 @@
 
 module;
 #include <cuda_bf16.h>
-#include <type_traits>
 #include "Kernels/SoftmaxCrossEntropy.cuh"
 
 export module Compute.CudaSoftmaxCrossEntropyOp:Dispatch;
+
+import std;
 
 namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
 {

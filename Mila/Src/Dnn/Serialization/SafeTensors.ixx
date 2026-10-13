@@ -8,10 +8,6 @@
  */
 
 module;
-// std::fopen is deprecated by the MSVC CRT and not by the C++ standard, and fopen_s is not portable. The writer
-// owns the FILE* it opens and never hands it out. Confined to this file, as Environment.ixx confines getenv's.
-#define _CRT_SECURE_NO_WARNINGS
-
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -23,6 +19,8 @@ module;
 #include <vector>
 
 export module Serialization.SafeTensors;
+
+export import Serialization.TensorSavePass;
 
 import nlohmann.json;
 import Dnn.TensorDataType;
@@ -134,19 +132,6 @@ namespace Mila::Dnn::Serialization
     }
 
     /**
-     * @brief Which pass of a two-phase save a component is being driven through.
-     *
-     * Exists so a component visits its tensors from ONE ordered body rather than two.
-     * The writer requires bodies in declaration order, and two separate walks would be
-     * free to drift out of agreement with no diagnostic until the file is read back.
-     */
-    export enum class TensorSavePass
-    {
-        Declare,  ///< Reserve each tensor's byte range in the header.
-        Write     ///< Stream each tensor's bytes, in declaration order.
-    };
-
-    /**
      * @brief Writes a safetensors file: u64 header length, JSON header, packed data.
      *
      * Two-phase by necessity. The header records every tensor's byte range, so all shapes
@@ -185,6 +170,10 @@ namespace Mila::Dnn::Serialization
                 std::filesystem::create_directories( parent );
             }
 
+            // std::fopen is deprecated by the MSVC CRT and not by the C++ standard, and fopen_s is not portable.
+            // The writer owns the FILE* it opens and never hands it out. Suppressed at the call, since the
+            // deprecation reaches this file from the std module, where no macro defined here can lift it.
+#pragma warning( suppress : 4996 )
             file_.reset( std::fopen( filepath.string().c_str(), "wb" ) );
 
             if ( file_ == nullptr )

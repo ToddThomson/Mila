@@ -1,17 +1,11 @@
 module;
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
-#include <cstring>
-#include <algorithm>
-#include <memory>
-#include <span>
-#include <type_traits>
-#include <stdexcept>
-#include <format>
 #include "Kernels/Structural.h"
 
 export module Compute.CudaTensorOps:Structural;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.ITensor;

@@ -3,11 +3,9 @@
  * @brief Device-dispatched structural operations for tensors.
   */
 
-module;
-#include <type_traits>
-
 export module Dnn.TensorOps:Structural;
 
+import std;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;

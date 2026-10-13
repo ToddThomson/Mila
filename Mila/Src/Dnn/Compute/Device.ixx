@@ -3,12 +3,9 @@
  * @brief Abstract compute device interface and device identifier factory.
  */
 
-module;
-#include <cstddef>
-#include <string>
-
 export module Compute.Device;
 
+import std;
 import Compute.DeviceType;
 import Compute.DeviceId;
 

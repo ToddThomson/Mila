@@ -7,16 +7,9 @@
  * implementations. Supports an optional execution context for stream control.
  */
 
-module;
-#include <concepts>
-#include <string>
-#include <memory>
-#include <span>
-#include <type_traits>
-#include <stdexcept>
-
 export module Dnn.TensorOps:Transfer;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;

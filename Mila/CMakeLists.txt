@@ -471,6 +471,7 @@ PUBLIC
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
         "Src/Dnn/Serialization/SafeTensors.ixx"
+        "Src/Dnn/Serialization/TensorSavePass.ixx"
         "Src/Dnn/Serialization/WeightsMetadata.ixx"
         "Src/Dnn/Serialization/WeightsReader.ixx"
         "Src/Dnn/Serialization/Serializer.ixx"

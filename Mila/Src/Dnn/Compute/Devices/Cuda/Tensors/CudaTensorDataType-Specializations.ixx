@@ -3,14 +3,13 @@
  * @brief CUDA concrete type trait specializations
  */
 module;
-#include <cstdint>
-#include <string_view>
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
 
 export module Compute.CudaTensorDataType:Specializations;
 
+import std.compat;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Compute.DeviceType;

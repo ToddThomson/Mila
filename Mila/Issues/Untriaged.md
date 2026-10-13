@@ -10,6 +10,15 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## A consumer that enables CMake's own `import std` may get two modules named `std`
+
+`cmake/StdModule.cmake`, `mila_add_std_module_library` @ `b2bdcc9`
+
+Found 2026-10-12 converting the library to `import std;`. Mila links its own `MilaStd` target, which builds `std`
+and `std.compat`, PUBLIC from `Mila`, so every FetchContent consumer gets it. A consumer that also sets
+`CXX_MODULE_STD` (CMake's experimental support) would have CMake build a second `std` from the same source in the
+same build. Not tested: whether CMake, MSVC or Clang reject that, pick one, or build both silently.
+
 ## Gelu and Residual zero a gradient buffer the CUDA kernels overwrite
 
 `Mila/Src/Dnn/Components/Activations/Gelu/Gelu.ixx` and `Connections/Residual.ixx`, `backward` @ `4db0309`

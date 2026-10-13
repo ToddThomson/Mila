@@ -26,12 +26,9 @@
  * - Maps are closed via explicit specializations with clear error messages
  */
 
-module;
-#include <cstdint>
-#include <type_traits>
-
 export module Dnn.TensorHostTypeMap;
 
+import std;
 import Dnn.TensorDataType;
 
 namespace Mila::Dnn

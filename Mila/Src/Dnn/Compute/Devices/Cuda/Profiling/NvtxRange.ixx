@@ -1,8 +1,9 @@
 module;
 #include <nvtx3/nvtx3.hpp>
-#include <string_view>
 
 export module Profiling.NvtxRange;
+
+import std;
 
 namespace Mila::Profiling
 {

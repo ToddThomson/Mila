@@ -1,8 +1,7 @@
-module;
-#include <type_traits>
 
 export module Compute.DeviceTypeTraits;
 
+import std;
 import Compute.DeviceType;
 
 namespace Mila::Dnn::Compute

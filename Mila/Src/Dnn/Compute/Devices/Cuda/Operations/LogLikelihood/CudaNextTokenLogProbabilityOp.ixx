@@ -7,19 +7,13 @@
  */
 
 module;
-#include <algorithm>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
-#include <cstdint>
-#include <format>
-#include <memory>
-#include <span>
-#include <stdexcept>
-#include <string>
 #include "Kernels/NextTokenLogProbability.cuh"
 
 export module Compute.CudaNextTokenLogProbabilityOp;
 
+import std.compat;
 import Dnn.ITensor;
 import Dnn.Tensor;
 import Dnn.TensorTypes;

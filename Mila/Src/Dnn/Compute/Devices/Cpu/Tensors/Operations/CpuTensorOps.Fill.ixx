@@ -12,15 +12,9 @@
  * - No stream management needed on CPU
  */
 
-module;
-#include <cstring>
-#include <algorithm>
-#include <span>
-#include <type_traits>
-#include <stdexcept>
-
 export module Compute.CpuTensorOps:Fill;
 
+import std.compat;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;

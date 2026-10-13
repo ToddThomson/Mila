@@ -7,10 +7,11 @@
 
 module;
 #include <cuda_fp16.h>
-#include <type_traits>
 #include "Kernels/TokenEmbedding.cuh"
 
 export module Compute.CudaTokenEmbeddingOp:Dispatch;
+
+import std;
 
 namespace Mila::Dnn::Compute::Cuda::TokenEmbedding::Detail
 {

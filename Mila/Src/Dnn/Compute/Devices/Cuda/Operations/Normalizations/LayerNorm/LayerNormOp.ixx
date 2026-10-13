@@ -4,19 +4,12 @@
  */
 
 module;
-#include <vector>
-#include <memory>
-#include <string>
-#include <stdexcept>
-#include <cstdint>
-#include <type_traits>
-#include <sstream>
 #include <cuda_fp16.h>
 #include "Kernels/LayerNorm.cuh"
 
-#include <iostream> // DEBUG
-
 export module Compute.CudaLayerNormOp;
+
+import std.compat;
 import :Dispatch;
 
 import Dnn.Components.LayerNormConfig;

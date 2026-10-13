@@ -8,11 +8,9 @@
  * types as well as advanced precision formats including FP8, FP4, and packed sub-byte types.
  */
 
-module;
-#include <string>
-#include <stdexcept>
-
 export module Dnn.TensorDataType;
+
+import std;
 
 namespace Mila::Dnn
 {

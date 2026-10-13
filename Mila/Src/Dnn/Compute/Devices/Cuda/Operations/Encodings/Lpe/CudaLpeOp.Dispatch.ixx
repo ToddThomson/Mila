@@ -7,11 +7,11 @@
 
 module;
 #include <cuda_fp16.h>
-#include <type_traits>
-#include <cstdint>
 #include "Kernels/Lpe.cuh"
 
 export module Compute.CudaLpeOp:Dispatch;
+
+import std.compat;
 
 namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
 {

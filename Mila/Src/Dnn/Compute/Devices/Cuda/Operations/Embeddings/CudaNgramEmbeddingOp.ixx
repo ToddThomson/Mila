@@ -8,14 +8,10 @@
 module;
 #include "Kernels/NgramEmbedding.cuh"
 #include <cuda_bf16.h>
-#include <cstddef>
-#include <cstdint>
-#include <format>
-#include <stdexcept>
-#include <string>
 
 export module Compute.CudaNgramEmbeddingOp;
 
+import std;
 import Dnn.Components.NgramEmbeddingConfig;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

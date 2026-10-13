@@ -6,10 +6,11 @@
  */
 
 module;
-#include <cstdint>
 #include "Kernels/Codebook/CodebookGemv.cuh"
 
 export module Compute.Cuda.CodebookGemv;
+
+import std;
 
 namespace Mila::Dnn::Compute::Cuda::Linear
 {

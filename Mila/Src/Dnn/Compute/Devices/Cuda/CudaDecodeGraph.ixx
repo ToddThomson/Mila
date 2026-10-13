@@ -5,12 +5,10 @@
 
 module;
 #include <cuda_runtime.h>
-#include <format>
-#include <functional>
-#include <stdexcept>
 
 export module Compute.CudaDecodeGraph;
 
+import std;
 import Compute.IDecodeRecording;
 import Cuda.Error;
 

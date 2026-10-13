@@ -358,6 +358,7 @@ export import Serialization.Tensor;
 export import Serialization.ArchiveSerializer;
 export import Serialization.ZipSerializer;
 export import Serialization.SafeTensors;
+export import Serialization.TensorSavePass;
 export import Serialization.WeightsMetadata;
 export import Serialization.WeightsReader;
 

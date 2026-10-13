@@ -6,12 +6,9 @@
  * byte-wise memset for contiguous CPU buffers.
  */
 
-module;
-#include <cstring>
-#include <type_traits>
-
 export module Compute.CpuTensorOps:Zero;
 
+import std;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
