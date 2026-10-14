@@ -3,15 +3,9 @@
  * @brief Implementation unit for Mila.Bindings.Runtime: reads the device registry and the library version.
  */
 
-module;
-
-#include <algorithm>
-#include <memory>
-#include <string>
-#include <vector>
-
 module Mila.Bindings.Runtime;
 
+import std;
 import Mila;
 
 namespace Mila::Bindings

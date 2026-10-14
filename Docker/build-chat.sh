@@ -8,7 +8,7 @@
 # module build is metadata-heavy BMI I/O, which is slow across the host->container
 # filesystem boundary (the same reason the WSL build uses an ext4 clone, not /mnt).
 #
-# The flag set mirrors the validated CI toolchain path (clang-21 modules, gcc-15
+# The flag set mirrors the validated CI toolchain path (clang-22 modules, gcc-15
 # nvcc host, CUDA 13.4) and trims the build to the Chat target: no tests, samples,
 # profiling, docs, or Python binding -- none are on the path to a running Chat.
 set -euo pipefail
@@ -39,8 +39,8 @@ BUILD=/build
 
 cmake -S "${SRC}" -B "${BUILD}" -G Ninja \
     -DCMAKE_BUILD_TYPE="${MILA_BUILD_TYPE}" \
-    -DCMAKE_C_COMPILER=clang-21 \
-    -DCMAKE_CXX_COMPILER=clang++-21 \
+    -DCMAKE_C_COMPILER=clang-22 \
+    -DCMAKE_CXX_COMPILER=clang++-22 \
     -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
     -DCUDAToolkit_ROOT=/usr/local/cuda \
     -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \

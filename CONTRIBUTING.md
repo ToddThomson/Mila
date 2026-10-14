@@ -41,7 +41,7 @@ first PR — see [getting-started.md](getting-started.md).
 ## Development Environment
 
 ### Required Components
-* A C++23 compiler with module support: **MSVC** (Visual Studio 2026 18.6.2+) or **Clang 19+**. GCC is not supported: 14.2 and 15 fail to compile Mila's C++23 modules, and GCC 16 has not been tried. (In CUDA builds the C++ compiler handles the modules; nvcc uses a separate host compiler for `.cu` files, where an older GCC is acceptable.)
+* A C++23 compiler with module support: **MSVC** (Visual Studio 2026 18.6.2+) or **Clang 22+**. GCC is not supported: 14.2 and 15 fail to compile Mila's C++23 modules, and GCC 16 has not been tried. (In CUDA builds the C++ compiler handles the modules; nvcc uses a separate host compiler for `.cu` files, where an older GCC is acceptable.)
 * Git 2.x or newer, on `PATH` (validated on 2.54.0; used to clone, and required at CMake configure time — CPM fetches dependencies via `git clone`). GitHub Desktop is an optional convenience
 * NVIDIA CUDA Toolkit 13.4 (the version CI builds with) — **only for GPU builds**; see below
 * CMake 4.0 or newer
@@ -286,7 +286,7 @@ Two workflows run on a PR against `dev`:
 
 * **Mila Gates** — about a minute. Dependency notices, version consistency, and Doxygen (doc
   warnings are errors).
-* **Mila CI** — compiles the whole tree under clang-21 on Linux with CUDA enabled, and runs the
+* **Mila CI** — compiles the whole tree under clang-22 on Linux with CUDA enabled, and runs the
   CPU test suite.
 
 **No kernel is executed.** Hosted runners have no GPU, so there is a CUDA *compile* path and a CPU

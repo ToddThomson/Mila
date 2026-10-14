@@ -18,25 +18,26 @@
 #
 # Driven by scripts/build-wheel.{ps1,sh} -- see Docker/README.md.
 #
-# UNPROVEN: whether clang compiles Mila's C++23 module units against 24.04's libstdc++
-# 14 headers. That is the first thing this image exists to answer.
 FROM nvidia/cuda:13.4.2-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Two third-party apt sources, both because 24.04's own versions are below Mila's floor:
-# clang 18 cannot compile the module units (19+ required), and 3.13 is not in the archive
-# at all. 3.12 IS the system interpreter, so only its -dev and -venv are pulled in; one
-# wheel is built per interpreter because pybind11 cannot use Py_LIMITED_API and there is
-# no abi3 build covering a range. gcc-14 is from the Ubuntu archive and fills two roles at once
-# -- nvcc's host compiler for the module-free .cu files, and the libstdc++ headers clang
-# compiles the module units against.
+# Three third-party apt sources, all because 24.04's own versions are below Mila's floor:
+# clang 18 cannot compile the module units (22 required), 24.04's libstdc++ 14 ships no `std`
+# module (15 does), and 3.13 and 3.14 (Ubuntu 26.04's own) are not in the archive at all. 3.12 IS the system interpreter, so
+# only its -dev and -venv are pulled in; one wheel is built per interpreter because pybind11
+# cannot use Py_LIMITED_API and there is no abi3 build covering a range. gcc-15, from the Ubuntu
+# toolchain PPA, fills two roles at once -- nvcc's host compiler for the module-free .cu files,
+# and the libstdc++ whose headers and `std` module clang compiles the module units against. It
+# is linked statically (linux-wheel's -static-libstdc++), so the wheel's glibc floor is still
+# 24.04's.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates gnupg software-properties-common wget \
     && wget -qO /etc/apt/trusted.gpg.d/apt.llvm.org.asc https://apt.llvm.org/llvm-snapshot.gpg.key \
-    && echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" \
+    && echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
         > /etc/apt/sources.list.d/llvm.list \
+    && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
     && add-apt-repository -y ppa:deadsnakes/ppa \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -44,15 +45,18 @@ RUN apt-get update \
         git \
         ninja-build \
         ccache \
-        gcc-14 \
-        g++-14 \
-        clang-21 \
+        gcc-15 \
+        g++-15 \
+        clang-22 \
         python3.12 \
         python3.12-dev \
         python3.12-venv \
         python3.13 \
         python3.13-dev \
         python3.13-venv \
+        python3.14 \
+        python3.14-dev \
+        python3.14-venv \
         patchelf \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

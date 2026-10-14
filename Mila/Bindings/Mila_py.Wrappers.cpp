@@ -10,25 +10,9 @@
  * invisible to Mila_py.cpp. See [[feedback-build-in-vs]].
  */
 
-module;
-
-#include <cstddef>
-#include <cstdint>
-#include <filesystem>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <span>
-#include <stdexcept>
-#include <stop_token>
-#include <string>
-#include <unordered_map>
-#include <utility>
-#include <vector>
-
 module Mila.Bindings;
 
+import std;
 import Mila;
 
 namespace Mila::Bindings
@@ -356,7 +340,7 @@ namespace Mila::Bindings
          * Headroom stays the library's zero (Deployment.md 12.3): what else shares the device is known
          * only to the program calling this binding.
          */
-        DeploymentRequest sessionRequest( std::optional<int64_t> context_length, int device_index )
+        DeploymentRequest sessionRequest( std::optional<std::int64_t> context_length, int device_index )
         {
             DeploymentRequest request;
             request.withDevice( DeviceId{ DeviceType::Cuda, device_index } );
@@ -695,50 +679,50 @@ namespace Mila::Bindings
         return std::shared_ptr<Tokenizer>( new Tokenizer( std::move( impl ) ) );
     }
 
-    std::vector<int32_t> Tokenizer::encode( const std::string& text )
+    std::vector<std::int32_t> Tokenizer::encode( const std::string& text )
     {
         return impl_->tokenizer->encode( text );
     }
 
-    std::string Tokenizer::decode( const std::vector<int32_t>& ids )
+    std::string Tokenizer::decode( const std::vector<std::int32_t>& ids )
     {
-        return impl_->tokenizer->decode( std::span<const int32_t>( ids ) );
+        return impl_->tokenizer->decode( std::span<const std::int32_t>( ids ) );
     }
 
-    std::string Tokenizer::tokenToString( int32_t token_id ) const
+    std::string Tokenizer::tokenToString( std::int32_t token_id ) const
     {
         return impl_->tokenizer->tokenToString( token_id );
     }
 
-    bool Tokenizer::isValidToken( int32_t token_id ) const
+    bool Tokenizer::isValidToken( std::int32_t token_id ) const
     {
         return impl_->tokenizer->isValidToken( token_id );
     }
 
-    int64_t Tokenizer::vocabSize() const
+    std::int64_t Tokenizer::vocabSize() const
     {
-        return static_cast<int64_t>( impl_->tokenizer->getVocabSize() );
+        return static_cast<std::int64_t>( impl_->tokenizer->getVocabSize() );
     }
 
-    std::optional<int32_t> Tokenizer::bosTokenId() const
+    std::optional<std::int32_t> Tokenizer::bosTokenId() const
     {
         auto id = impl_->tokenizer->getBosTokenId();
 
-        return id ? std::optional<int32_t>( static_cast<int32_t>( *id ) ) : std::nullopt;
+        return id ? std::optional<std::int32_t>( static_cast<std::int32_t>( *id ) ) : std::nullopt;
     }
 
-    std::optional<int32_t> Tokenizer::eosTokenId() const
+    std::optional<std::int32_t> Tokenizer::eosTokenId() const
     {
         auto id = impl_->tokenizer->getEosTokenId();
 
-        return id ? std::optional<int32_t>( static_cast<int32_t>( *id ) ) : std::nullopt;
+        return id ? std::optional<std::int32_t>( static_cast<std::int32_t>( *id ) ) : std::nullopt;
     }
 
-    std::optional<int32_t> Tokenizer::padTokenId() const
+    std::optional<std::int32_t> Tokenizer::padTokenId() const
     {
         auto id = impl_->tokenizer->getPadTokenId();
 
-        return id ? std::optional<int32_t>( static_cast<int32_t>( *id ) ) : std::nullopt;
+        return id ? std::optional<std::int32_t>( static_cast<std::int32_t>( *id ) ) : std::nullopt;
     }
 
     // ---- LlamaSession -------------------------------------------------------
@@ -752,7 +736,7 @@ namespace Mila::Bindings
     LlamaSession::~LlamaSession() = default;
 
     std::unique_ptr<LlamaSession> LlamaSession::load(
-        const std::string& path, std::optional<int64_t> context_length, int device_index,
+        const std::string& path, std::optional<std::int64_t> context_length, int device_index,
         const std::string& quantization )
     {
         const std::filesystem::path weights( path );
@@ -768,7 +752,7 @@ namespace Mila::Bindings
     }
 
     std::unique_ptr<LlamaSession> LlamaSession::fromStore(
-        const std::string& name, std::optional<int64_t> context_length, int device_index )
+        const std::string& name, std::optional<std::int64_t> context_length, int device_index )
     {
         const auto model = requireInstalledModel( name, ModelType::Llama );
 
@@ -783,8 +767,8 @@ namespace Mila::Bindings
     }
 
     std::string LlamaSession::generate(
-        const std::vector<int32_t>& prompt_tokens,
-        const std::function<void( int32_t )>& on_token,
+        const std::vector<std::int32_t>& prompt_tokens,
+        const std::function<void( std::int32_t )>& on_token,
         std::size_t max_new_tokens, float temperature, int top_k, float top_p,
         std::stop_token stop )
     {
@@ -805,20 +789,20 @@ namespace Mila::Bindings
         const auto& cfg = impl_->model->getConfig();
 
         return LlamaConfigInfo{
-            .vocab_size          = static_cast<int64_t>( cfg.getVocabSize() ),
-            .max_sequence_length = static_cast<int64_t>( cfg.getMaxSequenceLength() ),
-            .model_dim           = static_cast<int64_t>( cfg.getModelDim() ),
-            .num_layers          = static_cast<int64_t>( cfg.getNumLayers() ),
-            .num_heads           = static_cast<int64_t>( cfg.getNumHeads() ),
-            .num_kv_heads        = static_cast<int64_t>( cfg.getNumKVHeads() ),
-            .hidden_dim          = static_cast<int64_t>( cfg.getHiddenDimension() ),
+            .vocab_size          = static_cast<std::int64_t>( cfg.getVocabSize() ),
+            .max_sequence_length = static_cast<std::int64_t>( cfg.getMaxSequenceLength() ),
+            .model_dim           = static_cast<std::int64_t>( cfg.getModelDim() ),
+            .num_layers          = static_cast<std::int64_t>( cfg.getNumLayers() ),
+            .num_heads           = static_cast<std::int64_t>( cfg.getNumHeads() ),
+            .num_kv_heads        = static_cast<std::int64_t>( cfg.getNumKVHeads() ),
+            .hidden_dim          = static_cast<std::int64_t>( cfg.getHiddenDimension() ),
             .rope_theta          = static_cast<double>( cfg.getRoPETheta() ),
         };
     }
 
-    int64_t LlamaSession::contextLength() const
+    std::int64_t LlamaSession::contextLength() const
     {
-        return static_cast<int64_t>( impl_->model->getDeploymentPlan().contextLength() );
+        return static_cast<std::int64_t>( impl_->model->getDeploymentPlan().contextLength() );
     }
 
     std::string LlamaSession::repr() const
@@ -837,7 +821,7 @@ namespace Mila::Bindings
     GemmaSession::~GemmaSession() = default;
 
     std::unique_ptr<GemmaSession> GemmaSession::load(
-        const std::string& path, std::optional<int64_t> context_length, int device_index,
+        const std::string& path, std::optional<std::int64_t> context_length, int device_index,
         const std::string& quantization )
     {
         const std::filesystem::path weights( path );
@@ -853,7 +837,7 @@ namespace Mila::Bindings
     }
 
     std::unique_ptr<GemmaSession> GemmaSession::fromStore(
-        const std::string& name, std::optional<int64_t> context_length, int device_index )
+        const std::string& name, std::optional<std::int64_t> context_length, int device_index )
     {
         const auto model = requireInstalledModel( name, ModelType::Gemma );
 
@@ -868,8 +852,8 @@ namespace Mila::Bindings
     }
 
     std::string GemmaSession::generate(
-        const std::vector<int32_t>& prompt_tokens,
-        const std::function<void( int32_t )>& on_token,
+        const std::vector<std::int32_t>& prompt_tokens,
+        const std::function<void( std::int32_t )>& on_token,
         std::size_t max_new_tokens, float temperature, int top_k, float top_p,
         std::stop_token stop )
     {
@@ -890,25 +874,25 @@ namespace Mila::Bindings
         const auto& cfg = impl_->model->getNetworkConfig();
 
         return GemmaConfigInfo{
-            .vocab_size              = static_cast<int64_t>( cfg.getVocabSize() ),
-            .max_sequence_length     = static_cast<int64_t>( cfg.getMaxSequenceLength() ),
-            .model_dim               = static_cast<int64_t>( cfg.getModelDim() ),
-            .num_layers              = static_cast<int64_t>( cfg.getNumLayers() ),
-            .num_heads               = static_cast<int64_t>( cfg.getNumHeads() ),
-            .num_kv_heads            = static_cast<int64_t>( cfg.getNumKVHeads() ),
-            .head_dim                = static_cast<int64_t>( cfg.getHeadDim() ),
-            .global_head_dim         = static_cast<int64_t>( cfg.getGlobalHeadDim() ),
-            .hidden_dim              = static_cast<int64_t>( cfg.getHiddenDimension() ),
-            .window                  = static_cast<int64_t>( cfg.getWindow() ),
+            .vocab_size              = static_cast<std::int64_t>( cfg.getVocabSize() ),
+            .max_sequence_length     = static_cast<std::int64_t>( cfg.getMaxSequenceLength() ),
+            .model_dim               = static_cast<std::int64_t>( cfg.getModelDim() ),
+            .num_layers              = static_cast<std::int64_t>( cfg.getNumLayers() ),
+            .num_heads               = static_cast<std::int64_t>( cfg.getNumHeads() ),
+            .num_kv_heads            = static_cast<std::int64_t>( cfg.getNumKVHeads() ),
+            .head_dim                = static_cast<std::int64_t>( cfg.getHeadDim() ),
+            .global_head_dim         = static_cast<std::int64_t>( cfg.getGlobalHeadDim() ),
+            .hidden_dim              = static_cast<std::int64_t>( cfg.getHiddenDimension() ),
+            .window                  = static_cast<std::int64_t>( cfg.getWindow() ),
             .rope_theta_local        = static_cast<double>( cfg.getRoPEThetaLocal() ),
             .rope_theta_global       = static_cast<double>( cfg.getRoPEThetaGlobal() ),
             .final_logit_softcapping = static_cast<double>( cfg.getFinalLogitSoftcapping() ),
         };
     }
 
-    int64_t GemmaSession::contextLength() const
+    std::int64_t GemmaSession::contextLength() const
     {
-        return static_cast<int64_t>( impl_->model->getDeploymentPlan().contextLength() );
+        return static_cast<std::int64_t>( impl_->model->getDeploymentPlan().contextLength() );
     }
 
     std::string GemmaSession::repr() const
@@ -927,7 +911,7 @@ namespace Mila::Bindings
     QwenSession::~QwenSession() = default;
 
     std::unique_ptr<QwenSession> QwenSession::load(
-        const std::string& path, std::optional<int64_t> context_length, int device_index,
+        const std::string& path, std::optional<std::int64_t> context_length, int device_index,
         const std::string& quantization )
     {
         const std::filesystem::path weights( path );
@@ -943,7 +927,7 @@ namespace Mila::Bindings
     }
 
     std::unique_ptr<QwenSession> QwenSession::fromStore(
-        const std::string& name, std::optional<int64_t> context_length, int device_index )
+        const std::string& name, std::optional<std::int64_t> context_length, int device_index )
     {
         const auto model = requireInstalledModel( name, ModelType::Qwen );
 
@@ -958,8 +942,8 @@ namespace Mila::Bindings
     }
 
     std::string QwenSession::generate(
-        const std::vector<int32_t>& prompt_tokens,
-        const std::function<void( int32_t )>& on_token,
+        const std::vector<std::int32_t>& prompt_tokens,
+        const std::function<void( std::int32_t )>& on_token,
         std::size_t max_new_tokens, float temperature, int top_k, float top_p,
         std::stop_token stop )
     {
@@ -980,28 +964,28 @@ namespace Mila::Bindings
         const auto& cfg = impl_->model->getNetworkConfig();
 
         return QwenConfigInfo{
-            .vocab_size              = static_cast<int64_t>( cfg.getVocabSize() ),
-            .max_sequence_length     = static_cast<int64_t>( cfg.getMaxSequenceLength() ),
-            .model_dim               = static_cast<int64_t>( cfg.getModelDim() ),
-            .num_layers              = static_cast<int64_t>( cfg.getNumLayers() ),
-            .num_heads               = static_cast<int64_t>( cfg.getNumHeads() ),
-            .num_kv_heads            = static_cast<int64_t>( cfg.getNumKVHeads() ),
-            .head_dim                = static_cast<int64_t>( cfg.getHeadDim() ),
-            .hidden_dim              = static_cast<int64_t>( cfg.getHiddenDimension() ),
+            .vocab_size              = static_cast<std::int64_t>( cfg.getVocabSize() ),
+            .max_sequence_length     = static_cast<std::int64_t>( cfg.getMaxSequenceLength() ),
+            .model_dim               = static_cast<std::int64_t>( cfg.getModelDim() ),
+            .num_layers              = static_cast<std::int64_t>( cfg.getNumLayers() ),
+            .num_heads               = static_cast<std::int64_t>( cfg.getNumHeads() ),
+            .num_kv_heads            = static_cast<std::int64_t>( cfg.getNumKVHeads() ),
+            .head_dim                = static_cast<std::int64_t>( cfg.getHeadDim() ),
+            .hidden_dim              = static_cast<std::int64_t>( cfg.getHiddenDimension() ),
             .rope_theta              = static_cast<double>( cfg.getRoPETheta() ),
             .partial_rotary_factor   = static_cast<double>( cfg.getPartialRotaryFactor() ),
             .attention_output_gate   = cfg.hasAttentionOutputGate(),
-            .full_attention_interval = static_cast<int64_t>( cfg.getFullAttentionInterval() ),
-            .linear_num_key_heads    = static_cast<int64_t>( cfg.getLinearNumKeyHeads() ),
-            .linear_num_value_heads  = static_cast<int64_t>( cfg.getLinearNumValueHeads() ),
-            .linear_head_dim         = static_cast<int64_t>( cfg.getLinearHeadDim() ),
-            .linear_conv_kernel_dim  = static_cast<int64_t>( cfg.getLinearConvKernelDim() ),
+            .full_attention_interval = static_cast<std::int64_t>( cfg.getFullAttentionInterval() ),
+            .linear_num_key_heads    = static_cast<std::int64_t>( cfg.getLinearNumKeyHeads() ),
+            .linear_num_value_heads  = static_cast<std::int64_t>( cfg.getLinearNumValueHeads() ),
+            .linear_head_dim         = static_cast<std::int64_t>( cfg.getLinearHeadDim() ),
+            .linear_conv_kernel_dim  = static_cast<std::int64_t>( cfg.getLinearConvKernelDim() ),
         };
     }
 
-    int64_t QwenSession::contextLength() const
+    std::int64_t QwenSession::contextLength() const
     {
-        return static_cast<int64_t>( impl_->model->getDeploymentPlan().contextLength() );
+        return static_cast<std::int64_t>( impl_->model->getDeploymentPlan().contextLength() );
     }
 
     std::string QwenSession::repr() const

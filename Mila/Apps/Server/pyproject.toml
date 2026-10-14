@@ -12,9 +12,8 @@ dynamic = ["version", "dependencies"]
 description = "Mila Inference Server: OpenAI, Anthropic and Mila chat protocols over the Mila runtime."
 readme = "README.md"
 # Follows mila-llm's range rather than leading it. The old 3.13 floor predated the cp312
-# wheels and refused an interpreter the binding supports; the 3.14 ceiling is still real,
-# because no mila-llm wheel is built against it.
-requires-python = ">=3.12,<3.14"
+# wheels and refused an interpreter the binding supports.
+requires-python = ">=3.12,<3.15"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Todd Thomson" }]
@@ -26,6 +25,7 @@ classifiers = [
     "Framework :: FastAPI",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Environment :: GPU :: NVIDIA CUDA :: 13",
     "Operating System :: Microsoft :: Windows",

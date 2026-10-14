@@ -19,7 +19,7 @@ harness cannot send the same model different prompts.
 ## Requirements
 
 - Windows or Linux
-- **Python 3.12 or 3.13** — the `mila` binding is a version-locked CPython extension
+- **Python 3.12, 3.13 or 3.14** — the `mila` binding is a version-locked CPython extension
   (`_mila.cp313-win_amd64.pyd`), and a wheel is published for each of those minors. Any other
   interpreter yields `ModuleNotFoundError: No module named 'mila'`.
 - CUDA-capable GPU (tested on RTX 4070 12GB)

@@ -112,8 +112,11 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   target_compile_options(Mila PRIVATE 
     $<$<COMPILE_LANGUAGE:CXX>:-std=c++23 -fno-implicit-modules -fno-implicit-module-maps>
   )
+  # The scanner must be the compiler's own version: a scanner of another major reads the module
+  # dependencies with different rules, so its versioned name is tried before the unversioned one.
+  string(REGEX MATCH "^[0-9]+" _mila_clang_major "${CMAKE_CXX_COMPILER_VERSION}")
   find_program(MILA_CLANG_SCAN_DEPS
-    NAMES clang-scan-deps clang-scan-deps-21 clang-scan-deps-20 clang-scan-deps-19
+    NAMES clang-scan-deps-${_mila_clang_major} clang-scan-deps
     REQUIRED)
   set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${MILA_CLANG_SCAN_DEPS}")
   # nvcc's host compiler for the (module-free) .cu files. Only default it to the

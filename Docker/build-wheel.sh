@@ -14,7 +14,7 @@
 set -euo pipefail
 
 : "${MILA_BUILD_JOBS:=4}"
-: "${INTERPRETERS:=3.12 3.13}"
+: "${INTERPRETERS:=3.12 3.13 3.14}"
 
 SRC=/mila
 BUILD=/build/linux-wheel

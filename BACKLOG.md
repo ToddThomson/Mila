@@ -564,9 +564,14 @@ readable through v0.21 (`ModelDistribution.md` *Compatibility*): the names as an
 table as its own decode path again -- row gather, decode matvec and batched head. Not a conversion to
 six-bit codes at load, which quantizes twice.
 
+The published Llama packages are not untouched either: `Llama-3.2-3B-Instruct-fp4`, installed fresh from
+the hub on 2026-10-13, is refused because its manifest records no position scaling ("packaged by an earlier
+version of Mila, which did not record how the model's positions are scaled"). v0.20 read it, so it stays
+readable through v0.21 under the same rule.
+
 Gate: every model `mila-llm` published at v0.20 loads on this tree as installed, and answers a factual
-prompt in a piped Chat session -- the 12B by the two readers above, Llama and Qwen by confirming that
-nothing they carry changed.
+prompt in a piped Chat session -- the 12B by the two readers above, the Llama packages likewise, and Qwen
+by confirming that nothing it carries changed.
 
 #### A Mila one release behind the newest build of a model cannot install it
 
@@ -879,7 +884,17 @@ the `std` module are both reachable (LLVM #156604, #138558), which every module 
 fix landed after 21 branched, and 22.1.2 builds `mila-chat`. Measured on Clang 22 with every module
 converted: `mila-chat`'s `main.cpp` uses 0.475 GB of the 2.15 GB space, from over it, which Clang 22 alone leaves
 unchanged. Every module interface imports `std` now; left are the test and sample translation units, which keep
-their includes before `import Mila;`, and the gate's own checks. Mila uses `import std;` alone, with the
+their includes before `import Mila;`, and the gate's own checks.
+
+Checked 2026-10-13: `QuickStart/Cpp` builds through FetchContent with no `import std` setting and without its
+`<sstream>` workaround on MSVC (and runs) and on Clang 22; the published sample keeps the workaround while it pins
+`v0.20.0`, and loses it when the release moves the tag. A consumer that also turns on CMake's own `import std` builds
+and runs on both compilers: each target compiles against its own `std`. GitHub #30's workarounds in the binding and
+the NgramEmbedding test are deleted. Both images build on Clang 22 and generate on a model this tree reads; their
+scripted checks fail only on the published packages, which this tree refuses ("A model installed under v0.20 stops
+loading when Mila is upgraded"), and pass once that lands. The Linux wheel stays on Ubuntu 24.04 with gcc-15's
+libstdc++ from the Ubuntu toolchain PPA (decided 2026-10-13, Todd), measures `manylinux_2_38` as before, and gains a
+cp314 wheel for Ubuntu 26.04's Python, which runs end to end there. Mila uses `import std;` alone, with the
 standard library's C names qualified (Todd, 2026-10-13).
 
 Work, each step leaving the tree building on MSVC and Clang:

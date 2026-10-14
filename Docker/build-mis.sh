@@ -33,8 +33,8 @@ VENV=/build/mis-venv
 # --- Half 1: build the mila binding (library + MilaPy target only) ---
 cmake -S "${SRC}" -B "${BUILD}" -G Ninja \
     -DCMAKE_BUILD_TYPE="${MILA_BUILD_TYPE}" \
-    -DCMAKE_C_COMPILER=clang-21 \
-    -DCMAKE_CXX_COMPILER=clang++-21 \
+    -DCMAKE_C_COMPILER=clang-22 \
+    -DCMAKE_CXX_COMPILER=clang++-22 \
     -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
     -DCUDAToolkit_ROOT=/usr/local/cuda \
     -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \

@@ -44,7 +44,7 @@ concurrency:
 
 jobs:
   compile-and-gate:
-    name: Compile (clang-21) + packaging gates
+    name: Compile (clang-22) + packaging gates
     runs-on: ubuntu-24.04
     # The job's own observed worst case is 72 minutes; the default is SIX HOURS, and a hang has
     # already burned it twice in one day. A bound above any real run and far below the default
@@ -80,7 +80,7 @@ jobs:
           key: ccache-${{ github.sha }}
           restore-keys: ccache-
 
-      # clang-21 compiles the C++23 module units; gcc-15 is only the nvcc host
+      # clang-22 compiles the C++23 module units; gcc-15 is only the nvcc host
       # compiler for the (module-free) .cu files. Both ship with Ubuntu 26.04.
       # python3 + python3-dev build the Python binding (MILA_ENABLE_PYTHON_BINDINGS);
       # the bare CUDA devel image ships none. ccache caches the .cu compiles.
@@ -92,7 +92,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential git wget ca-certificates ninja-build ccache \
-            gcc-15 g++-15 clang-21 python3 python3-dev libssl-dev
+            gcc-15 g++-15 clang-22 python3 python3-dev libssl-dev
 
       - name: Install CMake 4.2.3
         run: |
@@ -108,8 +108,8 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=clang-21 \
-            -DCMAKE_CXX_COMPILER=clang++-21 \
+            -DCMAKE_C_COMPILER=clang-22 \
+            -DCMAKE_CXX_COMPILER=clang++-22 \
             -DCMAKE_CUDA_COMPILER=${CUDA_PATH}/bin/nvcc \
             -DCUDAToolkit_ROOT=${CUDA_PATH} \
             -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \
@@ -143,7 +143,7 @@ jobs:
         run: ctest --test-dir build -L packaging --output-on-failure
 
   cpu-only-tests:
-    name: CPU-only suite (clang-21, MILA_ENABLE_CUDA=OFF)
+    name: CPU-only suite (clang-22, MILA_ENABLE_CUDA=OFF)
     # The only CI job that RUNS tests. The CPU-only build needs no GPU, so the
     # device-independent suite (store, tokenizers, protocols, quantization packing,
     # host tensors -- there are no CPU compute operations) executes here -- the anti-rot ratchet that keeps the revived tests
@@ -151,7 +151,7 @@ jobs:
     # data-dependent cases self-skip (GTEST_SKIP), so the absence of a GPU or model
     # weights is green, not red.
     #
-    # Plain ubuntu:26.04 (clang-21 + gcc-15 ship with it) -- NOT the CUDA image:
+    # Plain ubuntu:26.04 (clang-22 + gcc-15 ship with it) -- NOT the CUDA image:
     # MILA_ENABLE_CUDA=OFF leaves the CUDA language disabled (project() declares only
     # CXX; enable_language(CUDA) is gated), so there is no nvcc and no multi-GB CUDA
     # image pull. Mirrors the linux-clang-cpu-release preset.
@@ -171,13 +171,13 @@ jobs:
           key: cpm-cpu-${{ hashFiles('CMakeLists.txt') }}
           restore-keys: cpm-cpu-
 
-      # clang-21 compiles the C++23 module units; no nvcc (CUDA off). git is for CPM's
+      # clang-22 compiles the C++23 module units; no nvcc (CUDA off). git is for CPM's
       # dependency clones (GTest), wget/ca-certificates for the CMake download.
       - name: Install toolchain
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential git wget ca-certificates ninja-build clang-21
+            build-essential git wget ca-certificates ninja-build clang-22
 
       - name: Install CMake 4.2.3
         run: |
@@ -187,7 +187,7 @@ jobs:
           cp -r cmake-4.2.3-linux-x86_64/share/* /usr/local/share/
 
       # Mirrors the linux-clang-cpu-release preset (CMakePresets.json). Kept as explicit
-      # flags rather than --preset so the job is self-contained and pins clang-21 (the
+      # flags rather than --preset so the job is self-contained and pins clang-22 (the
       # preset uses the generic `clang` name, which is the dev's WSL default but not the
       # runner's).
       #
@@ -199,8 +199,8 @@ jobs:
         run: |
           cmake -B build-cpu -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=clang-21 \
-            -DCMAKE_CXX_COMPILER=clang++-21 \
+            -DCMAKE_C_COMPILER=clang-22 \
+            -DCMAKE_CXX_COMPILER=clang++-22 \
             -DMILA_ENABLE_CUDA=OFF \
             -DMILA_ENABLE_LIBCURL=OFF \
             -DMILA_ENABLE_TESTING=ON \

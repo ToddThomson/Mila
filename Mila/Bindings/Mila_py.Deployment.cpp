@@ -3,19 +3,9 @@
  * @brief Implementation unit for Mila.Bindings.Deployment: asks the library's planner which weight formats fit.
  */
 
-module;
-
-#include <format>
-#include <optional>
-// Workaround for GitHub #30 (MSVC): the planner instantiates each family's model, whose toString() needs
-// std::ostringstream complete here. Delete once the fixed MSVC is the minimum.
-#include <sstream>
-#include <stdexcept>
-#include <string>
-#include <vector>
-
 module Mila.Bindings.Deployment;
 
+import std;
 import Mila;
 
 namespace Mila::Bindings

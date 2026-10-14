@@ -10,14 +10,14 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
-## A consumer that enables CMake's own `import std` may get two modules named `std`
+## A consumer build warns that CudaTensorOps.Random's cudaMalloc is local to another translation unit
 
-`cmake/StdModule.cmake`, `mila_add_std_module_library` @ `b2bdcc9`
+`Mila/Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Random.ixx:266` @ `2e3e44a`
 
-Found 2026-10-12 converting the library to `import std;`. Mila links its own `MilaStd` target, which builds `std`
-and `std.compat`, PUBLIC from `Mila`, so every FetchContent consumer gets it. A consumer that also sets
-`CXX_MODULE_STD` (CMake's experimental support) would have CMake build a second `std` from the same source in the
-same build. Not tested: whether CMake, MSVC or Clang reject that, pick one, or build both silently.
+Found 2026-10-13 building QuickStart inside the devel image with Clang 22: four
+`-Wreference-tu-local-entity-in-other-tu` warnings, from `fill_uniform` and `fill_normal` instantiating
+`cudaMalloc<float>`, the CUDA runtime header's template, which the module's global fragment declares. Not checked:
+whether Clang 21 warned too, and whether it is only a warning or a real ODR hazard.
 
 ## Gelu and Residual zero a gradient buffer the CUDA kernels overwrite
 

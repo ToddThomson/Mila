@@ -273,7 +273,7 @@ current API as part of v0.20 Training Revival.
 
 | Requirement | Version |
 |---|---|
-| C++ compiler | MSVC (Visual Studio 2026 18.6.2+) on Windows; Clang 19+ on Linux |
+| C++ compiler | MSVC (Visual Studio 2026 18.6.2+) on Windows; Clang 22+ on Linux, with libstdc++ 15 or libc++ 17 |
 | CUDA Toolkit | 13.4 |
 | CMake | 4.0 or newer |
 | Git | 2.x or newer (validated on 2.54.0) |
@@ -292,8 +292,9 @@ that breaks the C++23 module build.
 
 On Linux, **Clang compiles the C++23 module units and GCC is nvcc's host compiler for the `.cu`
 files**, which contain no modules. The two carry different requirements: CI and the container use
-clang-21 with gcc-15 as the host. GCC cannot be used for the module units: 14.2 and 15 fail to
-compile them, and GCC 16 has not been tried.
+clang-22 with gcc-15 as the host. Clang 21 cannot build Mila. Its standard library must ship a
+`std` module, which libstdc++ 15 and libc++ 17 do. GCC cannot be used for the module units: 14.2
+and 15 fail to compile them, and GCC 16 has not been tried.
 
 Git must be installed and on `PATH`: the first CMake configure fetches dependencies via CPM
 (`git clone`), so it is needed beyond the initial repository clone. GitHub Desktop is an
@@ -325,7 +326,7 @@ Select the Ninja generator and Release configuration. Build with F7.
 ### Linux (native / WSL)
 
 On Linux — including WSL 2 — build with Clang against the bundled CMake presets. Requires
-Clang 19+ and CUDA 13.4:
+Clang 22+ and CUDA 13.4:
 
 ```bash
 cmake --preset linux-clang-release
@@ -340,7 +341,7 @@ exercises, requiring no CUDA toolkit.
 ### Docker
 
 A development container provides a reproducible Linux build toolchain (CUDA 13.4,
-Clang 21 with a gcc-15 nvcc host, CMake 4.x, Ninja) — the simplest way to build Mila without
+Clang 22 with a gcc-15 nvcc host, CMake 4.x, Ninja) — the simplest way to build Mila without
 installing the toolchain locally, for example from WSL. It mounts the repo at `/mila` with GPU access.
 
 ```bash

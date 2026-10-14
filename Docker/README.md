@@ -13,7 +13,7 @@ Mirrors the validated CI / WSL matrix, so the container and CI stay comparable:
 | | |
 |---|---|
 | Base image | `nvidia/cuda:13.4.2-devel-ubuntu26.04` |
-| C++23 modules | clang-21 |
+| C++23 modules | clang-22 |
 | nvcc host compiler | gcc-15 (module-free `.cu` files) |
 | Build system | CMake 4.2.3 + Ninja + ccache |
 

@@ -29,7 +29,7 @@ FROM nvidia/cuda:${CUDA_VERSION}-devel-${UBUNTU_VERSION} AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Same toolchain as Docker/Dockerfile, minus the interactive-shell niceties (gdb, less):
-# clang-21 for the C++23 module units, gcc-15 as nvcc's module-free host compiler,
+# clang-22 for the C++23 module units, gcc-15 as nvcc's module-free host compiler,
 # libssl-dev because vendored curl's find_package(OpenSSL) fails the configure without it
 # and this image builds at the MILA_ENABLE_LIBCURL default (ON) -- the published image
 # must be able to pull a model with no caller-supplied transport.
@@ -42,7 +42,7 @@ RUN apt-get update \
         ninja-build \
         gcc-15 \
         g++-15 \
-        clang-21 \
+        clang-22 \
         libssl-dev \
         python3 \
         python3-dev \
@@ -114,8 +114,8 @@ RUN --mount=type=cache,target=/build,sharing=locked \
     if [ "${MILA_CLEAN_BUILD}" = "1" ]; then rm -rf /build/*; fi \
     && cmake -S /src -B /build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_C_COMPILER=clang-21 \
-        -DCMAKE_CXX_COMPILER=clang++-21 \
+        -DCMAKE_C_COMPILER=clang-22 \
+        -DCMAKE_CXX_COMPILER=clang++-22 \
         -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
         -DCUDAToolkit_ROOT=/usr/local/cuda \
         -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \
@@ -281,7 +281,7 @@ CMD ["chat"]
 # =============================================================================
 # Stage 3 -- devel: the published development environment
 # =============================================================================
-# Derives from the builder, so the CUDA -devel base, clang-21, gcc-15, CMake, Ninja and
+# Derives from the builder, so the CUDA -devel base, clang-22, gcc-15, CMake, Ninja and
 # the source are already here. What it adds is the one thing the builder throws away.
 FROM builder AS devel
 
@@ -368,8 +368,8 @@ COPY Docker/myapp/CMakeLists.txt /root/myapp/CMakeLists.txt
 RUN cp /src/Mila/Samples/QuickStart/Cpp/main.cpp /root/myapp/main.cpp \
     && cmake -S /root/myapp -B /root/myapp/build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_C_COMPILER=clang-21 \
-        -DCMAKE_CXX_COMPILER=clang++-21 \
+        -DCMAKE_C_COMPILER=clang-22 \
+        -DCMAKE_CXX_COMPILER=clang++-22 \
         -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
         -DCUDAToolkit_ROOT=/usr/local/cuda \
         -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \

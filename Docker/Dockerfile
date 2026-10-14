@@ -7,7 +7,7 @@
 # headless deployment is a separate, later deliverable (see ROADMAP).
 #
 # Toolchain is pinned to the validated CI/WSL matrix: Ubuntu 26.04 + CUDA 13.4
-# (glibc 2.43 -- the path that broke under CUDA 13.0's rsqrt declarations), clang-21
+# (glibc 2.43 -- the path that broke under CUDA 13.0's rsqrt declarations), clang-22
 # for the C++23 module units, gcc-15 as nvcc's (module-free) host compiler. No cuDNN
 # variant exists for 26.04 and none is needed while USE_CUDNN is unset, so the plain
 # `devel` image is correct.
@@ -21,7 +21,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Build toolchain, mirroring .github/workflows/build-pipeline.yml so the container
 # and CI stay byte-comparable:
-#   clang-21   -- compiles the C++23 module units
+#   clang-22   -- compiles the C++23 module units
 #   gcc-15/g++ -- nvcc's host compiler for the .cu files (no modules there)
 #   ninja      -- the C++23 module-dyndep generator the build requires
 #   ccache     -- persists .cu object codegen across runs (CUDA launcher only;
@@ -46,7 +46,7 @@ RUN apt-get update \
         ccache \
         gcc-15 \
         g++-15 \
-        clang-21 \
+        clang-22 \
         libssl-dev \
         python3 \
         python3-dev \
@@ -61,12 +61,12 @@ RUN wget -q https://github.com/Kitware/CMake/releases/download/v4.2.3/cmake-4.2.
     && tar --strip-components=1 -xz -C /usr/local -f cmake-4.2.3-linux-x86_64.tar.gz \
     && rm -f cmake-4.2.3-linux-x86_64.tar.gz
 
-# clang-21 installs only versioned names, so the generic `clang`/`clang++` the linux-clang-*
+# clang-22 installs only versioned names, so the generic `clang`/`clang++` the linux-clang-*
 # presets name would not exist, and a bare `cmake` would pick the distro's c++ (GCC 15.2, which
 # cannot compile the module units). The alternatives give the presets their names; CC/CXX make
 # clang the default for any configure that names no compiler, and CUDAHOSTCXX keeps nvcc on gcc-15.
-RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 100 \
-    && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-21 100
+RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-22 100 \
+    && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-22 100
 
 ENV CC=clang
 ENV CXX=clang++

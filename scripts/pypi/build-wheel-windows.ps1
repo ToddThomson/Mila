@@ -18,7 +18,7 @@ $out = Join-Path $repo "out\wheel"
 # build covering a range. These must match requires-python in pyproject.toml -- metadata
 # promising an interpreter with no wheel behind it turns a clear "requires a different
 # Python" into "no matching distribution".
-$interpreters = @("3.12", "3.13")
+$interpreters = @("3.12", "3.13", "3.14")
 
 $pythons = foreach ($version in $interpreters) {
     $found = (& py "-$version" -c "import sys; print(sys.executable)" 2>$null)

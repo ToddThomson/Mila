@@ -183,7 +183,7 @@ on hardware); the third is an **end-user feature** we verify but do not gate wit
 
 | Surface | Role | What it does | GPU? |
 |---|---|---|---|
-| **GitHub CI** (`build-pipeline.yml`) | maintainer gate | *compiles* the full tree under clang-21 + packaging gates | no (hosted, no GPU) |
+| **GitHub CI** (`build-pipeline.yml`) | maintainer gate | *compiles* the full tree under clang-22 + packaging gates | no (hosted, no GPU) |
 | **WSL** (`linux-clang-debug` preset) | maintainer gate | compiles the full tree under clang **and runs the CUDA test suite on real hardware** — minus anything needing weights, see below | yes |
 | **Devcontainer** (`Docker/build-chat.sh`) | end-user convenience | a completely known build environment — clone, one step, a running Mila | yes |
 
@@ -541,8 +541,10 @@ invalidates the check rather than the conclusion:
 - **Linux**, by symbol. All 49 CUDA symbols the extension leaves undefined are exported by the 13.0
   libraries, and all four version nodes it requires (`libcudart.so.13`, `libcublas.so.13`,
   `libcublasLt.so.13`, `libcurand.so.10` — NVIDIA versions by SONAME, stable across 13.x) are
-  defined there. Not run end to end: the manylinux wheel is cp312/cp313 and the WSL distribution
-  carries only 3.14.
+  defined there. Not run end to end against the 13.0 libraries. The cp314 wheel has run end to end
+  under WSL on Ubuntu 26.04's Python 3.14 (2026-10-13, Gemma 4 12B answering through the Python
+  quick start), but against the 13.3 toolkit rather than the 13.0 wheels, so the floor is still
+  shown by symbol only.
 
 The risk this retires is a wheel that is immutable once uploaded declaring a floor nothing had
 loaded. Re-check it when the cuBLASLt surface grows — the thirteen `cublasLt*` entry points are the
@@ -590,8 +592,8 @@ step below exists to prevent, and why it is not optional.
    three weeks later, unrepairably: delete does not free filenames, and yank changes neither metadata
    nor an exact pin.
 4. **Dispatch the `Wheel clean room` workflow** (Actions -> Wheel clean room -> Run workflow) with the
-   exact version (`0.20.0b3.dev38`) and index `testpypi`. It runs a four-leg matrix — `windows-latest` and
-   `ubuntu-latest` x Python 3.12 and 3.13, one leg per published wheel, none of them carrying a CUDA
+   exact version (`0.20.0b3.dev38`) and index `testpypi`. It runs a six-leg matrix — `windows-latest` and
+   `ubuntu-latest` x Python 3.12, 3.13 and 3.14, one leg per published wheel, none of them carrying a CUDA
    Toolkit — and runs `scripts/pypi/verify_wheel_cleanroom.py`, which asserts that absence *before* it
    asserts anything else. A developer machine cannot answer this question, because a wheel quietly
    leaning on a host Toolkit passes there exactly the way a correct one does. Each leg installs

@@ -46,7 +46,7 @@ jobs:
         # is no abi3 file covering a range), and each is a separately compiled extension.
         # A cp312 wheel passing says nothing about cp313. Keep in step with
         # requires-python and with the build scripts' interpreter lists.
-        python-version: ["3.12", "3.13"]
+        python-version: ["3.12", "3.13", "3.14"]
 
     steps:
       # Only the verification script is needed; nothing here builds from source.

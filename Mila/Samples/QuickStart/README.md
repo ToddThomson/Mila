@@ -8,7 +8,7 @@ template, same defaults — so you can read them side by side and see only the l
 
 | | Who it's for | What it costs |
 |---|---|---|
-| **[Python](Python/quickstart.py)** | I'm building in Python | `pip install mila-llm` and a model download. No compiler. Python 3.12 or 3.13, to match the published wheels. |
+| **[Python](Python/quickstart.py)** | I'm building in Python | `pip install mila-llm` and a model download. No compiler. Python 3.12, 3.13 or 3.14, to match the published wheels. |
 | **[C++](Cpp/)** | I'm building a C++ app | A C++23 toolchain, CUDA, and a from-source build of Mila. Its `CMakeLists.txt` is also the worked example of depending on Mila. |
 
 Both need the same two things underneath: **a CUDA GPU**, and **a model in the local store**.

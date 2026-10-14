@@ -38,12 +38,12 @@ CUDA release once NVIDIA publishes its Ubuntu 26.04 build image.
 | Compiler | Minimum | Notes |
 |---|---|---|
 | MSVC (Visual Studio) | 2026 18.6.2 | Primary Windows compiler |
-| Clang | 19 | The Linux path CI and the container build |
+| Clang | 22 | The Linux path CI and the container build; needs libstdc++ 15 or libc++ 17 |
 | GCC | — | Not supported for the module units: 14.2 and 15 fail, and 16 has not been tried |
 
 **Two compilers are involved in a Linux CUDA build, and only one of them is bound by that
 table.** The compiler above compiles the C++23 module units. nvcc uses a separate host compiler
-for the `.cu` files, which contain no modules — CI and the dev container pair clang-21 with
+for the `.cu` files, which contain no modules — CI and the dev container pair clang-22 with
 gcc-15 in that role, and its version is nvcc's business rather than the module floor's.
 
 A CUDA-capable NVIDIA GPU is needed to run a model; the library builds without one. Mila is
@@ -95,18 +95,19 @@ breaks the C++23 module build; 18.6.2 fixed it.
 
 ### Linux / WSL (VS Code)
 
-**Clang is the Linux path** — clang-21 is what CI compiles and what the dev container runs, with
-gcc-15 as nvcc's host compiler for the `.cu` files. Clang 19 is the floor.
+**Clang is the Linux path** — clang-22 is what CI compiles and what the dev container runs, with
+gcc-15 as nvcc's host compiler for the `.cu` files. Clang 22 is the floor, with a standard library
+that ships a `std` module: libstdc++ 15 or libc++ 17.
 
 GCC cannot compile the module units: 14.2 and 15 fail, and GCC 16 has not been tried. That is a
 different question from nvcc's host GCC, which the container pins at 15.
 
-The steps below target a recent Ubuntu (24.04 or 26.04) with CUDA through WSL.
+The steps below target Ubuntu 26.04 with CUDA through WSL. Ubuntu 24.04's archive has neither
+Clang 22 nor libstdc++ 15, so these steps do not build Mila there.
 
 1. **Set up WSL** (skip on native Linux). From an elevated PowerShell on Windows:
    ```powershell
-   wsl --install                    # installs the latest Ubuntu LTS (e.g. 26.04)
-   # or pin a release:  wsl --install -d Ubuntu-24.04
+   wsl --install -d Ubuntu-26.04
    ```
    Reboot if prompted, then open the Ubuntu shell to finish user setup. Check the release
    with `lsb_release -a`.
@@ -124,7 +125,6 @@ The steps below target a recent Ubuntu (24.04 or 26.04) with CUDA through WSL.
    sudo apt-get update
    sudo apt-get -y install cuda-toolkit-13-4
    ```
-   On Ubuntu 24.04, write `2404` for `2604` in every line.
 
    The toolkit does **not** add itself to `PATH` — that is a manual post-install step:
    ```bash
@@ -138,10 +138,10 @@ The steps below target a recent Ubuntu (24.04 or 26.04) with CUDA through WSL.
    ```bash
    sudo apt-get update
    sudo apt-get install -y build-essential ninja-build git wget ca-certificates cmake libssl-dev
-   sudo apt-get install -y clang-21     # compiles the module units; see the matrix above
-   # clang-21 installs only versioned names; the linux-clang-* presets use `clang` / `clang++`
-   sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 100
-   sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-21 100
+   sudo apt-get install -y clang-22     # compiles the module units; see the matrix above
+   # clang-22 installs only versioned names; the linux-clang-* presets use `clang` / `clang++`
+   sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-22 100
+   sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-22 100
    ```
    `libssl-dev` is curl's, not Mila's: `MILA_ENABLE_LIBCURL` defaults ON, and on Linux the
    vendored libcurl takes TLS from the system OpenSSL (`CURL_USE_SCHANNEL` is Windows-only),
@@ -183,12 +183,12 @@ own process, so it takes several times longer than the binary above — every GP
 fresh CUDA context and reloads its weights.
 
 On Linux, point CMake at both compilers and the CUDA toolkit explicitly. This is what CI and the
-dev container run — clang-21 for the module units, gcc-15 as nvcc's host, CUDA 13.4:
+dev container run — clang-22 for the module units, gcc-15 as nvcc's host, CUDA 13.4:
 
 ```bash
 cmake -S . -B out/build/linux-release -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
+  -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
   -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.4/bin/nvcc \
   -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \
   -DCUDAToolkit_ROOT=/usr/local/cuda-13.4 \
