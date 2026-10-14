@@ -22,6 +22,7 @@ record live in the spec ("Phase 0 first results"); this file is how to reproduce
 | `qwen_plan.py` | the Qwen 3.8 deployment allocation, as a per-tensor target table |
 | `pack_qwen.py` | the layer-streamed Qwen 3.8 packer: calibrate, quantize, emit, audit |
 | `streaming_safetensors.py` | a safetensors writer that never holds the artifact in memory |
+| `decode_codebook.py` | the BF16 twin of a packed artifact, which `QwenModel.Codebook.Cuda.cpp` checks the packed path against |
 
 `packing.py` is held to `Src/Dnn/Quantization/Weight/CodebookPacking.ixx`, which is the
 normative statement of the layout; regenerate the fixture after any layout change:

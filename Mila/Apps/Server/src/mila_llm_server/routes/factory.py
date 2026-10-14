@@ -119,12 +119,9 @@ async def _dispatch(
     inf_req.max_new_tokens = min(inf_req.max_new_tokens, remaining)
     inf_req.prompt_ids = prompt_ids
 
-    # Tool-capable adapters (currently the Anthropic Messages path) parse the
-    # native Gemma <|tool_call> grammar from the model text, so they need the RAW
-    # decode plus the <tool_call|> stop -- neither of which the plain blocking
-    # generate()/decode() path provides. generate_collect reuses the streaming
-    # primitive to supply both. Non-gemma families and tool-blind adapters keep
-    # the original stripped blocking path.
+    # Tool-capable adapters parse the family's native call grammar from the model
+    # text, so they take the raw reply (_generate_buffered). Llama and tool-blind
+    # adapters keep the stripped blocking path.
     tool_capable = (
         loaded.family in _NATIVE_TOOL_FAMILIES
         and hasattr(adapter, "parse_tool_call_from_text")
@@ -142,38 +139,7 @@ async def _dispatch(
             stream_gen = _stream(inf_req, http_req, adapter, requested_tokens)
         return StreamingResponse(stream_gen, media_type="text/event-stream")
 
-    if tool_capable:
-        text, completion_count, status = await worker.generate_collect(
-            inf_req.prompt_ids,
-            inf_req.max_new_tokens,
-            inf_req.temperature,
-            inf_req.top_k,
-            inf_req.top_p,
-        )
-        response = InferenceResponse(
-            text=text,
-            finish_reason=finish_reason_from_status(status, requested_tokens, inf_req.max_new_tokens),
-            prompt_token_count=len(inf_req.prompt_ids),
-            completion_token_count=completion_count,
-        )
-    else:
-        output_ids, status = await worker.generate(
-            inf_req.prompt_ids,
-            inf_req.max_new_tokens,
-            inf_req.temperature,
-            inf_req.top_k,
-            inf_req.top_p,
-        )
-
-        new_ids = output_ids[len(inf_req.prompt_ids):]
-        text = await worker.decode(new_ids)
-
-        response = InferenceResponse(
-            text=text,
-            finish_reason=finish_reason_from_status(status, requested_tokens, inf_req.max_new_tokens),
-            prompt_token_count=len(inf_req.prompt_ids),
-            completion_token_count=len(new_ids),
-        )
+    response = await _generate_buffered(inf_req, requested_tokens, tool_capable)
 
     # Cut after generation rather than during it: the caller receives the same reply, and
     # stopping early would save only the tokens past the stop.
@@ -211,24 +177,48 @@ async def _dispatch_responses(
             media_type="text/event-stream",
         )
 
-    output_ids, status = await worker.generate(
-        inf_req.prompt_ids,
-        inf_req.max_new_tokens,
-        inf_req.temperature,
-        inf_req.top_k,
-        inf_req.top_p,
-    )
+    response = await _generate_buffered(inf_req, requested_tokens, loaded.family in _NATIVE_TOOL_FAMILIES)
 
-    new_ids = output_ids[len(inf_req.prompt_ids):]
-    text = await worker.decode(new_ids)
+    return JSONResponse(content=adapter.format_responses_response(response))
 
-    response = InferenceResponse(
+
+async def _generate_buffered(
+    inf_req: InferenceRequest,
+    requested_tokens: int,
+    raw: bool,
+) -> InferenceResponse:
+    """
+    One whole reply. raw keeps the family's tool grammar in the text and stops at the end of a
+    call: a Gemma turn does not end after <tool_call|> -- it waits for a result -- so without the
+    stop it repeats the call to the budget, and decode() strips the markers the parser needs.
+    """
+    if raw:
+        text, completion_count, status = await worker.generate_collect(
+            inf_req.prompt_ids,
+            inf_req.max_new_tokens,
+            inf_req.temperature,
+            inf_req.top_k,
+            inf_req.top_p,
+        )
+    else:
+        output_ids, status = await worker.generate(
+            inf_req.prompt_ids,
+            inf_req.max_new_tokens,
+            inf_req.temperature,
+            inf_req.top_k,
+            inf_req.top_p,
+        )
+
+        new_ids = output_ids[len(inf_req.prompt_ids):]
+        text = await worker.decode(new_ids)
+        completion_count = len(new_ids)
+
+    return InferenceResponse(
         text=text,
         finish_reason=finish_reason_from_status(status, requested_tokens, inf_req.max_new_tokens),
         prompt_token_count=len(inf_req.prompt_ids),
-        completion_token_count=len(new_ids),
+        completion_token_count=completion_count,
     )
-    return JSONResponse(content=adapter.format_responses_response(response))
 
 
 async def _stream(

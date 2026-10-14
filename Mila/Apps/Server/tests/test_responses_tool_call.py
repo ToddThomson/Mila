@@ -7,12 +7,16 @@ when the bridges were folded into the runtime nothing added them back: every Gem
 over /v1/responses died with KeyError: 'id' mid-stream, which Codex reports as a transport error.
 These drive raw model text through the adapter exactly as the streaming and buffered routes do.
 """
+import dataclasses
 import json
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from mila_llm_server.config import loaded, ModelFamily
 from mila_llm_server.protocols.openai.responses import OpenAIResponsesAdapter
+from mila_llm_server.routes import factory
 from mila_llm_server.schemas.internal import InferenceResponse
 
 
@@ -66,3 +70,43 @@ def test_buffered_response_carries_the_call_as_its_output(raw_call):
 
     assert [item["type"] for item in body["output"]] == ["function_call"]
     assert body["output"][0]["id"].startswith("fc_")
+
+
+class StrippingWorker:
+    """
+    The worker's two buffered paths as they differ: the raw collect keeps the call's markers,
+    decode() strips them, as the binding's Gemma decode does.
+    """
+
+    def __init__(self, raw):
+        self.raw = raw
+
+    async def encode(self, text):
+        return [2, 1, 2, 3]
+
+    async def generate(self, prompt_ids, max_new_tokens, temperature, top_k, top_p=1.0):
+        return list(prompt_ids) + [7], "stop"
+
+    async def decode(self, ids):
+        return self.raw.replace("<|tool_call>", "").replace("<tool_call|>", "").replace('<|"|>', "")
+
+    async def generate_collect(self, prompt_ids, max_new_tokens, temperature, top_k, top_p=1.0):
+        return self.raw, 1, "stop"
+
+
+def test_buffered_route_returns_the_call_the_model_made(raw_call, monkeypatch):
+    # A buffered Gemma call over /v1/responses came back as stripped text, repeated to the budget.
+    before = dataclasses.replace(loaded)
+    loaded.context_length = 4096
+    monkeypatch.setattr(factory, "worker", StrippingWorker(raw_call))
+    app = FastAPI()
+    factory.register_routes(app, OpenAIResponsesAdapter())
+
+    try:
+        body = TestClient(app).post("/v1/responses", json={"input": "What does line_count.txt hold?"}).json()
+    finally:
+        for field in dataclasses.fields(before):
+            setattr(loaded, field.name, getattr(before, field.name))
+
+    assert [item["type"] for item in body["output"]] == ["function_call"]
+    assert body["output"][0]["name"] == "exec_command"

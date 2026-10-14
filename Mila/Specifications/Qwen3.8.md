@@ -2646,6 +2646,32 @@ weight in the stack**. The cost is fixed per chunk and per layer, which means it
 fixture at context 1152 never takes that walk, and prefill on the full 64-layer artifact at a
 real context has still not been measured.
 
+### The 2.82-bit build misnames tools, and the packed path is not why (2026-10-13)
+
+Served through the inference server, `Qwen3.8-27B-cb2-3` calls `get weather` for a tool declared
+`get_weather`. Greedy through the binding, over twelve declared names: **four wrong at 2.82 bits, none on the
+FP4 build** -- `get weather`, `get_current Weather`, `fetch weather_data`, `create calendar event`. Every
+parameter name is right on both. The two builds part at exactly one token: FP4 emits 67017 `_weather`, the
+tokenization of the declared name, and the 2.82-bit build emits its space-prefixed twin 21926 ` Weather`.
+
+Ruled out in order: the tokenizer (one file, one hash, in both packages); the embedding table, final norm and
+head (byte-identical across the two weights files -- the head is FP4 in both, the table BF16); and the decode
+path (prefilling the whole prefix picks the same token).
+
+**Every quality figure above compares Mila with Mila's FP4 build**, so a fault in how the packed codes are
+loaded or multiplied would have been counted as quantization damage. `QwenCodebookPathTests` closes that: it
+loads the packed 4-layer fixture through `QwenPrecisionPlan`, and its BF16 twin -- each codebook tensor decoded
+offline by `Tools/Quantization/decode_codebook.py`, everything else as stored -- through the same plan with the
+four codebook roles read as BF16, and compares the prefill's logits and six teacher-forced decode steps. Bound
+written before the run: 1e-2 relative L2 per row. **Measured 1.6e-3 to 2.2e-3 on all seven rows, argmax equal
+on each.** The negative control, a twin decoded with the high plane dropped, measured 0.64 to 1.9 and failed
+every row.
+
+So the packed path computes exactly what the fitted weights say, at every policy, both block kinds and the
+model's own tensor shapes, and the misnaming is **in the fitted weights**: the GPTQ codebook fit, not the
+runtime. Not yet known: why these tokens. The packer calibrates on wikitext-2 train, which is prose; that it
+under-weights identifier copying is a hypothesis, untested.
+
 ---
 
 ## 9. Open Questions

@@ -290,6 +290,8 @@ if(MILA_ENABLE_CUDA)
         # without the fixture; see the file header for how to produce it.
         "Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp"
         "Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp"
+        # The packed codebook path against the same 4-layer fixture decoded to BF16; skips without both files.
+        "Dnn/Models/Qwen/QwenModel.Codebook.Cuda.cpp"
         # Observability's whole-model cost criterion. NOT under Models/: publication is a
         # Component facility, so the two chassis it runs on are two samples of one
         # measurement. DISABLED, and skips without a real checkpoint.

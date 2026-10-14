@@ -10,6 +10,18 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## The inference server's Chat Completions endpoint returns a tool call as reply text
+
+`Mila/Apps/Server/src/mila_llm_server/protocols/openai/chat.py` `format_chat_response` @ `bb27731`
+
+Found 2026-10-13 serving Qwen3.8-27B-fp4 through the inference server. `/v1/chat/completions` puts the request's
+`tools` into the prompt, and the model answers with a well-formed call, but the reply carries it as raw
+`<tool_call>` text in `message.content` with `finish_reason: stop` -- no `tool_calls`, and no
+`finish_reason: tool_calls`. The adapter has no tool path at all, for any family: nothing parses the reply, nor
+renders an assistant message's `tool_calls` or a `tool` role message from the history. `/v1/responses` and
+`/v1/messages` parse, resume and stream the same call correctly. Not checked: streaming, and which clients reach
+the server through Chat Completions.
+
 ## A consumer build warns that CudaTensorOps.Random's cudaMalloc is local to another translation unit
 
 `Mila/Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Random.ixx:266` @ `2e3e44a`

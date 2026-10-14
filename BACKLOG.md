@@ -104,6 +104,9 @@ retired, after the training path's tests move to CUDA. No removal.
 Scope grew again on 2026-10-12 (Todd), the date held: under Internal fixes, the library imports the standard
 library as a module, since Clang can no longer compile Chat and no image can be built. No removal.
 
+Scope grew on 2026-10-13 (Todd), the date held: under Qwen 3.8 Complete, the 2.82-bit build's misnamed tool calls,
+which stand between that build and its publish. No removal.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -195,7 +198,7 @@ tokens equal to a fresh prefill's.
 
 #### Announce the Gemma 4 26B-A4B mixture of experts
 
-`open` · `gemma` · `distribution`
+`in progress` · `gemma` · `distribution`
 
 Landed in `Mila/Src` during rc.1 — the router and expert bank on CPU and CUDA, wired into
 `GemmaModel` with FP4 and Q4_0 expert banks and a streaming converter, gated against HuggingFace at BF16,
@@ -371,6 +374,30 @@ announced, the same rule that kept the Gemma 4 MoE work unannounced. The cost is
 FP4 build at 16 GB. Publishing it is what makes the stronger claim sayable, so it wants to land
 early in the cycle rather than at the end. The fitted source is gitignored and not reproducible
 from the repo, so no reader can work around its absence.
+
+Not before the build names the tools it is given correctly (the entry below).
+
+#### The 2.82-bit Qwen 3.8 27B calls some tools by the wrong name
+
+`open` · `qwen` · `quantization` · `distribution`
+
+Asked to call a tool declared `get_weather`, the 2.82-bit build calls `get weather`, every time, greedy or
+sampled, so a client dispatching by name fails the call. Of twelve names probed, four come out wrong --
+`get weather`, `get_current Weather`, `fetch weather_data`, `create calendar event` -- each an underscore-prefixed
+word token replaced by its space-prefixed twin (67017 `_weather` becomes 21926 ` Weather`). The FP4 build of the
+same model names all twelve correctly, and every parameter name is right on both.
+
+Mila's runtime is cleared: the tokenizer, embedding table and head are identical across the two builds, prefill
+and decode agree, and the packed codebook path matches the same weights decoded to BF16 to rounding
+(`QwenCodebookPathTests`). The error is in the fitted weights. Why these tokens is not known; the packer
+calibrates on wikitext-2 train, which is prose, and that it under-weights identifier copying is the first
+hypothesis to test.
+
+Gate: the twelve-name probe all correct on the 2.82-bit build, greedy, plus Claude Code and Codex completing a
+tool task against it through the inference server; and the build's perplexity ratio against FP4 no worse than
+the 1.139 at 16K of record.
+
+`Mila/Specifications/Qwen3.8.md` "The 2.82-bit build misnames tools, and the packed path is not why"
 
 #### Qwen's KV cache is uncompressed on a card its weights already fill
 

@@ -21,6 +21,13 @@ set_target_properties( mila-store PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
 
+# Importing Mila alone emits enough COMDAT sections into Store.ixx.obj to cross MSVC's 65535-section
+# object limit (C1128). /bigobj widens the COFF section count; it changes no code generation.
+# MSVC-only: clang has no such limit.
+if(MSVC)
+    target_compile_options( mila-store PRIVATE /bigobj )
+endif()
+
 target_link_libraries( mila-store PRIVATE
     Mila
 )

@@ -184,7 +184,7 @@ class Protocol
 {
 public:
     virtual std::string formatPrompt( std::span<const Turn> history, const PromptOptions& options ) const = 0;
-    virtual std::optional<ToolCall> parseToolCall( std::string_view text ) const = 0;
+    virtual Reply parseReply( std::string_view text ) const = 0;
     virtual std::string formatToolResult( std::string_view name, std::string_view result_json ) const = 0;
     virtual const ProtocolMarkers& markers() const noexcept = 0;
     virtual std::span<const ReasoningEffort> reasoningEfforts() const noexcept = 0;
@@ -195,6 +195,13 @@ struct PromptOptions
     bool enable_reasoning{ false };
     std::optional<ReasoningEffort> reasoning_effort;   // only a level reasoningEfforts() lists
     std::string tools_json;                            // the family serializes it its own way
+};
+
+struct Reply
+{
+    std::string reasoning;                             // the reasoning channel's text, empty when none
+    std::string content;                               // what the user is shown
+    std::vector<ToolCall> tool_calls;                  // every call, in the order the model made them
 };
 
 struct ProtocolMarkers
@@ -208,11 +215,17 @@ struct ProtocolMarkers
 ```
 
 Each member answers one of section 1's seven decisions: `formatPrompt` renders and declares tools,
-`parseToolCall` parses, `markers()` gives the stop and the channel routing, `formatToolResult` renders a
+`parseReply` parses, `markers()` gives the stop and the channel routing, `formatToolResult` renders a
 tool's answer as the text that continues the turn -- what the agent core's splice appends to the live cache,
 though how it is used is that spec's decision. The existing free functions (`Gemma::formatPrompt`,
 `Qwen::parseToolCall`, and the rest) stay, and the implementations call them; the binding's
 `qwen_format_prompt` and its siblings keep working until the binding moves onto `Mila::AI`.
+
+**The whole reply, not the first call** (2026-10-13, `InferenceServerWire.md` 3.2). `parseReply` replaced a
+`parseToolCall` that returned one `optional<ToolCall>`: a turn can hold several calls, and OpenAI's `tool_calls`
+and Anthropic's content blocks are lists, so every call after the first was lost on every server endpoint. It
+also takes over the answer extraction each consumer did for itself (`Gemma::extractAnswer`, the server's
+`answer_text`).
 
 **Why virtual rather than a concept.** The handle holds one protocol chosen by name at run time, so a concept
 would need a variant again. The call is once per turn, never per token.
