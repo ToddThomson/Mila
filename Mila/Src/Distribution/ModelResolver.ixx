@@ -92,6 +92,7 @@ namespace Mila::Distribution
             ModelRecord record;
             record.name = coordinate.repository;
             record.architecture = manifest.architecture;
+            record.architecture_version = manifest.architecture_version;
             record.variant = manifest.variant;
             record.weight_quantization = manifest.weight_quantization;
             record.minimum_mila_version = manifest.minimum_mila_version;

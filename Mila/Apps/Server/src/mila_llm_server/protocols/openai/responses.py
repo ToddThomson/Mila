@@ -1,598 +1,267 @@
 """
-OpenAI Responses API protocol adapter.
+OpenAI Responses.
   Responses:   POST /v1/responses
+
+A parser into the conversation and a formatter from the reply, with nothing about which model is loaded
+(InferenceServerWire.md 3.3); what it honours and refuses is 3.6's table. The server is stateless: every
+request carries the whole transcript, reasoning included, and nothing is kept between them.
 """
 import json
-import time
 import uuid
 
-from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
-from mila_llm_server.protocols.base import ResponsesCapable
-from mila_llm_server.protocols.utils import CONTEXT_LIMIT, DEFAULT_SYSTEM_PROMPT, END_TURN, MAX_TOKENS, extract_content
+from mila_llm_server.conversation import (
+    RequestError,
+    ServedReply,
+    ServedRequest,
+    assistant_turn,
+    not_offered,
+    offered_tool,
+    template_variable,
+    text_of,
+    tool_turn,
+)
+from mila_llm_server.protocols.base import ChatEndpoint, ReplyContext
+from mila_llm_server.protocols.openai.chat import tool_choice_offers_tools
+from mila_llm_server.protocols.utils import CONTEXT_LIMIT, MAX_TOKENS
+
+#: Codex asks for this so its stateless loop can send reasoning back; it is honoured by carrying the text.
+_ENCRYPTED_REASONING = "reasoning.encrypted_content"
 
 
-def _completion_status(finish_reason: str) -> tuple[str, dict | None]:
+def _status(reply: ServedReply) -> tuple[str, dict | None]:
     """A reply cut at its token budget or the context is `incomplete`, as OpenAI reports one."""
-    if finish_reason in (MAX_TOKENS, CONTEXT_LIMIT):
+    if reply.finish_reason in (MAX_TOKENS, CONTEXT_LIMIT):
         return "incomplete", {"reason": "max_output_tokens"}
 
     return "completed", None
-from mila_llm_server.protocols.openai.tool_bridge import build_tool_injection, parse_tool_call
-from mila_llm_server.prompt import build_instruct_prompt
-from mila_llm_server.config import settings, loaded, ModelFamily
-from mila_llm_server import gemma_bridge, qwen_bridge
-
-import mila
 
 
-def _as_function_call_item(call: dict | None) -> dict | None:
-    """A bridge's family-neutral call as a Responses function_call item; 'id' is per item, not a correlation key."""
-    if call is None:
-        return None
-
-    return {"type": "function_call", "id": f"fc_{uuid.uuid4().hex}", **call}
+def _event(name: str, data: dict) -> str:
+    return f"event: {name}\ndata: {json.dumps({'type': name, **data})}\n\n"
 
 
-class OpenAIResponsesAdapter(ResponsesCapable):
+def _reasoning_text(item: dict) -> str:
+    summary = "".join(part.get("text", "") for part in item.get("summary") or [] if isinstance(part, dict))
+
+    return summary or item.get("encrypted_content") or ""
+
+
+class OpenAIResponses(ChatEndpoint):
 
     @property
-    def responses_path(self) -> str:
+    def path(self) -> str:
         return "/v1/responses"
 
-    def parse_responses_request(self, body: dict) -> tuple[str, InferenceRequest]:
-        raw_input = body.get("input", "")
-        instructions = body.get("instructions", DEFAULT_SYSTEM_PROMPT)
-        tools = body.get("tools") or []
+    def parse(self, body: dict, protocol) -> ServedRequest:
+        if body.get("previous_response_id"):
+            raise RequestError("previous_response_id is not supported: the server keeps no state between requests")
 
-        # Bring-up: log the tool schemas + input item shapes Codex sends so we
-        # can see what is a first-class function tool vs a built-in, and how
-        # apply_patch/list_dir arrive. Trim once the tool loop is settled.
-        _tool_names = [(t.get("name") or (t.get("function") or {}).get("name"), t.get("type")) for t in tools]
-        print("[MIS DEBUG] tools:", json.dumps(_tool_names), flush=True)
-        if not isinstance(raw_input, str):
-            _input_shapes = [(m.get("type", "message"), m.get("role")) for m in raw_input]
-            print("[MIS DEBUG] input items:", json.dumps(_input_shapes), flush=True)
+        if body.get("store") is True:
+            raise RequestError("store is not supported: the server keeps no state between requests")
 
-        # Three-way, not gemma-or-else: the else branch was Llama's tool bridge back when
-        # Llama was the only other family, and it splices Llama 3's <|python_tag|> grammar
-        # into the prompt. A Qwen model sent through it would be handed a grammar it was
-        # never trained to read.
-        if loaded.family == ModelFamily.gemma:
-            prompt_str = self._build_gemma_prompt(raw_input, instructions, tools)
-        elif loaded.family == ModelFamily.qwen:
-            prompt_str = self._build_qwen_prompt(raw_input, instructions, tools)
-        elif loaded.family == ModelFamily.llama:
-            prompt_str = self._build_llama_prompt(raw_input, instructions, tools)
-        else:
-            prompt_str = self._build_plain_prompt(raw_input, instructions)
+        text_format = (body.get("text") or {}).get("format") or {}
 
-        print("[MIS DEBUG] prompt_str:\n", prompt_str, flush=True)
+        if text_format.get("type", "text") != "text":
+            raise RequestError("text.format other than text is not supported: there is no constrained decoding")
 
-        req = InferenceRequest(
-            prompt_ids=[],
-            max_new_tokens=body.get("max_output_tokens", settings.default_max_new_tokens),
-            temperature=body.get("temperature", settings.default_temperature),
-            top_k=body.get("top_k", settings.default_top_k),
-            top_p=body.get("top_p", settings.default_top_p),
-            stream=body.get("stream", False),
-        )
-        return prompt_str, req
+        include = body.get("include") or []
 
-    def _collect_system_block(self, messages: list, instructions: str) -> tuple[str, list]:
-        """Fold leading system/developer items + instructions into one system block."""
-        system_parts: list[str] = []
+        for requested in include:
+            if requested != _ENCRYPTED_REASONING:
+                raise RequestError(f"include '{requested}' is not supported by this server")
 
-        if instructions and instructions != DEFAULT_SYSTEM_PROMPT:
-            system_parts.append(instructions)
+        turns, names_by_id = [], {}
 
-        while messages and messages[0].get("role") in ("system", "developer"):
-            system_parts.append(extract_content(messages[0].get("content", "")))
-            messages = messages[1:]
+        if body.get("instructions"):
+            turns.append({"role": "system", "content": body["instructions"]})
 
-        system_block = "\n\n".join(system_parts) if system_parts else instructions
-        return system_block, messages
+        items = body.get("input", "")
+        items = [{"type": "message", "role": "user", "content": items}] if isinstance(items, str) else items
+        reasoning = ""
 
-    def _build_gemma_prompt(self, raw_input, instructions: str, tools: list) -> str:
-        """
-        Assemble a native Gemma agentic prompt. Function-call / function-call-output
-        items replay as <|tool_call>/<|tool_response> spans inside a model turn;
-        a conversation that ends on a tool result leaves that model turn open so
-        the model continues it (mirrors the chat harness splice-and-resume).
-        """
-        if isinstance(raw_input, str):
-            system_block = instructions + gemma_bridge.tool_declarations(tools)
-            turns = [{"role": "user", "content": raw_input}]
-            return gemma_bridge.format_prompt(system_block, turns, continue_open=False)
+        def open_assistant() -> dict:
+            nonlocal reasoning
 
-        messages = list(raw_input)
-        system_block, messages = self._collect_system_block(messages, instructions)
-        system_block += gemma_bridge.tool_declarations(tools)
-
-        turns: list[dict] = []
-        pending_names: dict[str, str] = {}  # call_id -> tool name
-
-        def append_model_tool_span(span: str) -> None:
-            # Spans concatenate with NO separator: the reference template emits
-            # <tool_call|><|tool_response> back-to-back, and these are atomic special
-            # tokens -- a newline between them is an extra token the model never saw.
-            if turns and turns[-1]["role"] == "model" and turns[-1].get("tool"):
-                turns[-1]["content"] += span
+            if turns and turns[-1]["role"] == "assistant":
+                turns[-1]["reasoning"] = turns[-1]["reasoning"] or reasoning
             else:
-                turns.append({"role": "model", "content": span, "tool": True})
+                turns.append(assistant_turn(reasoning=reasoning))
 
-        for msg in messages:
-            msg_type = msg.get("type", "message")
+            reasoning = ""
 
-            if msg_type == "function_call":
-                name = msg.get("name", "tool")
-                pending_names[msg.get("call_id", "")] = name
-                append_model_tool_span(
-                    gemma_bridge.format_tool_call(name, msg.get("arguments", "{}")))
+            return turns[-1]
 
-            elif msg_type == "function_call_output":
-                name = pending_names.get(msg.get("call_id", ""), "tool")
-                raw_output = msg.get("output", "")
-                # Bring-up: see the exact envelope Codex sends so we know which
-                # field is the real output vs metadata (e.g. the leaked chunk id).
-                print("[MIS DEBUG] tool_output:", repr(raw_output)[:600], flush=True)
-                append_model_tool_span(
-                    gemma_bridge.format_tool_response(name, raw_output))
+        for index, item in enumerate(items):
+            kind = item.get("type", "message")
+            where = f"input[{index}]"
 
-            elif msg_type == "message":
-                role = "model" if msg.get("role") == "assistant" else "user"
-                content = extract_content(msg.get("content", ""))
-                if turns and turns[-1]["role"] == role and not turns[-1].get("tool"):
-                    turns[-1]["content"] += "\n" + content
+            if kind == "message":
+                role = item.get("role")
+                content = text_of(item.get("content"), field_name=f"{where}.content")
+
+                if role in ("system", "developer"):
+                    turns.append({"role": "system", "content": content})
+                elif role == "user":
+                    turns.append({"role": "user", "content": content})
+                elif role == "assistant":
+                    turn = open_assistant()
+                    turn["content"] = (turn["content"] + "\n" + content) if turn["content"] else content
                 else:
-                    turns.append({"role": role, "content": content})
+                    raise RequestError(f"{where}.role '{role}' is not one this server reads")
 
-        # If the transcript ends on a tool exchange the model must continue that
-        # same turn; otherwise the last turn is the user's message and a fresh
-        # model turn is primed.
-        continue_open = bool(turns) and turns[-1].get("tool", False)
-        return gemma_bridge.format_prompt(system_block, turns, continue_open)
+            elif kind == "function_call":
+                names_by_id[item.get("call_id", "")] = item.get("name", "")
+                open_assistant()["tool_calls"].append({"name": item.get("name", ""), "arguments": item.get("arguments") or "{}"})
 
-    def _build_llama_prompt(self, raw_input, instructions: str, tools: list) -> str:
-        if isinstance(raw_input, str):
-            user_message = raw_input
-            history = []
-        else:
-            messages = list(raw_input)
-            system_block, messages = self._collect_system_block(messages, instructions)
-            instructions = system_block
+            elif kind == "function_call_output":
+                output = item.get("output", "")
+                turns.append(tool_turn(
+                    names_by_id, item.get("call_id", ""),
+                    output if isinstance(output, str) else text_of(output, field_name=f"{where}.output"),
+                    field_name=f"{where}.call_id"))
 
-            merged: list[dict] = []
-            pending_calls: dict[str, str] = {}
-
-            for msg in messages:
-                msg_type = msg.get("type", "message")
-                role = msg.get("role", "user")
-
-                if msg_type == "function_call":
-                    call_id = msg.get("call_id", "")
-                    name = msg.get("name", "tool")
-                    arguments = msg.get("arguments", "{}")
-                    pending_calls[call_id] = name
-                    merged.append({
-                        "role": "assistant",
-                        "content": f"<|python_tag|>[{name}(cmd={arguments})]",
-                    })
-
-                elif msg_type == "function_call_output":
-                    output = msg.get("output", "")
-                    merged.append({
-                        "role": "tool",
-                        "content": output if output else "(no output)",
-                    })
-
-                elif msg_type == "message":
-                    content = extract_content(msg.get("content", ""))
-                    if merged and merged[-1]["role"] == role:
-                        merged[-1]["content"] += "\n" + content
-                    else:
-                        merged.append({"role": role, "content": content})
-
-            history = merged[:-1]
-            user_message = merged[-1]["content"] if merged else ""
-
-        has_tool_result = any(
-            m.get("type") == "function_call_output"
-            for m in (raw_input if not isinstance(raw_input, str) else [])
-        )
-
-        if not has_tool_result:
-            tool_injection = build_tool_injection(tools)
-            if tool_injection:
-                instructions = instructions + tool_injection
-        else:
-            instructions = instructions + (
-                "\n\nThe tool has been executed and the result is in the conversation. "
-                "Summarize what was done in one short sentence. Do NOT emit another tool call."
-            )
-
-        return build_instruct_prompt(user_message, instructions, history, None)
-
-    def _build_qwen_prompt(self, raw_input, instructions: str, tools: list) -> str:
-        """
-        Assemble a native Qwen agentic prompt from Responses items.
-
-        No template is written here -- the turns go to `mila.qwen_format_prompt`, the runtime's
-        own renderer. A `function_call` item becomes a tool call on the assistant turn and a
-        `function_call_output` becomes a turn of its own, which the template renders as a user
-        turn carrying a tool_response span.
-        """
-        if isinstance(raw_input, str):
-            turns = [{"role": "user", "content": raw_input}]
-            system_block = instructions
-        else:
-            messages = list(raw_input)
-            system_block, messages = self._collect_system_block(messages, instructions)
-            turns = []
-
-            for msg in messages:
-                msg_type = msg.get("type", "message")
-
-                if msg_type == "function_call":
-                    call = {
-                        "id": msg.get("call_id", ""),
-                        "name": msg.get("name", "tool"),
-                        "arguments": msg.get("arguments", "{}"),
-                    }
-
-                    if turns and turns[-1]["role"] == "assistant":
-                        turns[-1].setdefault("tool_calls", []).append(call)
-                    else:
-                        turns.append({"role": "assistant", "content": "", "tool_calls": [call]})
-
-                elif msg_type == "function_call_output":
-                    turns.append({
-                        "role": "tool",
-                        "content": msg.get("output", "") or "(no output)",
-                    })
-
-                elif msg_type == "message":
-                    role = "assistant" if msg.get("role") == "assistant" else "user"
-                    content = extract_content(msg.get("content", ""))
-
-                    if turns and turns[-1]["role"] == role and not turns[-1].get("tool_calls"):
-                        turns[-1]["content"] += "\n" + content
-                    else:
-                        turns.append({"role": role, "content": content})
-
-        if system_block:
-            turns.insert(0, {"role": "system", "content": system_block})
-
-        return mila.qwen_format_prompt(
-            turns,
-            enable_thinking=False,
-            tools_json=json.dumps(tools) if tools else "",
-        )
-
-    def _build_plain_prompt(self, raw_input, instructions: str) -> str:
-        """
-        Tool-blind assembly for a family with no agentic grammar on this path yet.
-
-        Tool declarations are dropped and a tool result replays as ordinary user text, so
-        the conversation stays readable and nothing invents a call syntax the model was not
-        trained on. The family's own turn template still applies -- build_instruct_prompt
-        dispatches on it -- so this is a plain conversation in the right frame, not a
-        Llama prompt wearing another model's name.
-        """
-        if isinstance(raw_input, str):
-            return build_instruct_prompt(raw_input, instructions, [], None)
-
-        messages = list(raw_input)
-        system_block, messages = self._collect_system_block(messages, instructions)
-
-        merged: list[dict] = []
-
-        for msg in messages:
-            msg_type = msg.get("type", "message")
-            role = msg.get("role", "user")
-
-            if msg_type == "function_call":
-                name = msg.get("name", "tool")
-                content = f"Called {name} with {msg.get('arguments', '{}')}."
-                role = "assistant"
-
-            elif msg_type == "function_call_output":
-                content = f"Result: {msg.get('output', '') or '(no output)'}"
-                role = "user"
-
-            elif msg_type == "message":
-                content = extract_content(msg.get("content", ""))
+            elif kind == "reasoning":
+                reasoning = _reasoning_text(item)
 
             else:
-                continue
+                raise RequestError(f"{where} is a '{kind}' item, which this server does not read")
 
-            if merged and merged[-1]["role"] == role:
-                merged[-1]["content"] += "\n" + content
-            else:
-                merged.append({"role": role, "content": content})
+        variables = {}
+        effort = (body.get("reasoning") or {}).get("effort")
 
-        user_message = merged[-1]["content"] if merged else ""
+        if effort is not None:
+            name, value = template_variable(protocol, "reasoning_effort", effort, field_name="reasoning.effort")
+            variables[name] = value
 
-        return build_instruct_prompt(user_message, system_block, merged[:-1], None)
+        tools = []
 
-    def parse_tool_call_from_text(self, text: str) -> dict | None:
-        """
-        The model's tool call as a Responses function_call item, or None (family-aware).
+        if tool_choice_offers_tools(body.get("tool_choice")):
+            for tool in body.get("tools") or []:
+                if tool.get("type") != "function":
+                    not_offered(tool.get("type", "unknown"), tool.get("name"))
+                    continue
 
-        The Gemma and Qwen bridges are shared with the Anthropic adapter and return only the
-        family-neutral {'call_id', 'name', 'arguments'}. The item's own 'type' and 'id' are
-        Responses vocabulary, so they are added here, once, for both the streaming and the
-        buffered path.
-        """
-        if loaded.family == ModelFamily.gemma:
-            return _as_function_call_item(gemma_bridge.parse_tool_call(text))
+                declared = offered_tool(tool.get("name"), tool.get("description"), tool.get("parameters"))
 
-        if loaded.family == ModelFamily.qwen:
-            return _as_function_call_item(qwen_bridge.parse_tool_call(text))
+                if declared is not None:
+                    tools.append(declared)
 
-        # Llama's bridge only. A family whose prompt carried no call syntax cannot have
-        # emitted one, and running a parser over its prose can only produce a phantom.
-        if loaded.family == ModelFamily.llama:
-            return parse_tool_call(text)
-
-        return None
-
-    def clean_response_text(self, text: str) -> str:
-        """Reduce raw model output to the user-facing answer."""
-        if loaded.family == ModelFamily.gemma:
-            return gemma_bridge.answer_text(text)
-
-        if loaded.family == ModelFamily.qwen:
-            return qwen_bridge.answer_text(text)
-
-        return text
-
-    def format_responses_stream_function_call(self, response_id: str, item: dict) -> str:
-        item_added = {
-            "type": "response.output_item.added",
-            "response_id": response_id,
-            "output_index": 0,
-            "item": {
-                "type": "function_call",
-                "id": item["id"],
-                "call_id": item["call_id"],
-                "name": item["name"],
-                "arguments": "",
-            },
-        }
-        args_delta = {
-            "type": "response.function_call_arguments.delta",
-            "response_id": response_id,
-            "item_id": item["id"],
-            "output_index": 0,
-            "call_id": item["call_id"],
-            "delta": item["arguments"],
-        }
-        args_done = {
-            "type": "response.function_call_arguments.done",
-            "response_id": response_id,
-            "item_id": item["id"],
-            "output_index": 0,
-            "call_id": item["call_id"],
-            "arguments": item["arguments"],
-        }
-        item_done = {
-            "type": "response.output_item.done",
-            "response_id": response_id,
-            "output_index": 0,
-            "item": {
-                "type": "function_call",
-                "id": item["id"],
-                "call_id": item["call_id"],
-                "name": item["name"],
-                "arguments": item["arguments"],
-            },
-        }
-        return (
-            f"event: response.output_item.added\ndata: {json.dumps(item_added)}\n\n"
-            f"event: response.function_call_arguments.delta\ndata: {json.dumps(args_delta)}\n\n"
-            f"event: response.function_call_arguments.done\ndata: {json.dumps(args_done)}\n\n"
-            f"event: response.output_item.done\ndata: {json.dumps(item_done)}\n\n"
+        return ServedRequest(
+            turns=turns,
+            tools=tools,
+            template_variables=variables,
+            max_new_tokens=body.get("max_output_tokens"),
+            temperature=body.get("temperature"),
+            top_k=body.get("top_k"),
+            top_p=body.get("top_p"),
+            stream=bool(body.get("stream", False)),
+            parallel_tool_calls=body.get("parallel_tool_calls", True) is not False,
+            wire={"carry_reasoning": _ENCRYPTED_REASONING in include},
         )
 
-    def format_responses_stream_done_with_tool_call(self, response_id: str, item: dict) -> str:
-        data = {
-            "type": "response.completed",
-            "response": {
-                "id": response_id,
-                "object": "response",
-                "created_at": int(time.time()),
-                "model": loaded.name,
+    @staticmethod
+    def _output(reply: ServedReply, context: ReplyContext) -> list[dict]:
+        status, _ = _status(reply)
+        output = []
+
+        if reply.reasoning:
+            item = {
+                "type": "reasoning",
+                "id": f"rs_{uuid.uuid4().hex}",
+                "summary": [{"type": "summary_text", "text": reply.reasoning}],
+            }
+
+            if context.wire.get("carry_reasoning"):
+                item["encrypted_content"] = reply.reasoning
+
+            output.append(item)
+
+        if reply.content or not reply.tool_calls:
+            output.append({
+                "id": f"msg_{uuid.uuid4().hex}",
+                "type": "message",
+                "role": "assistant",
+                "status": status,
+                "content": [{"type": "output_text", "text": reply.content, "annotations": []}],
+            })
+
+        for call in reply.tool_calls:
+            output.append({
+                "type": "function_call",
+                "id": f"fc_{uuid.uuid4().hex}",
+                "call_id": call.call_id,
+                "name": call.name,
+                "arguments": call.arguments,
                 "status": "completed",
-                "incomplete_details": None,
-                "error": None,
-                "output": [
-                    {
-                        "type": "function_call",
-                        "id": item["id"],
-                        "call_id": item["call_id"],
-                        "name": item["name"],
-                        "arguments": item["arguments"],
-                    }
-                ],
-            },
-        }
-        return f"event: response.completed\ndata: {json.dumps(data)}\n\n"
+            })
 
-    def format_responses_response(self, response: InferenceResponse) -> dict:
-        response_id = f"resp-{uuid.uuid4().hex}"
+        return output
 
-        tool_call_item = self.parse_tool_call_from_text(response.text)
-        if tool_call_item:
-            output = [tool_call_item]
-            status, incomplete_details = "completed", None
-        else:
-            status, incomplete_details = _completion_status(response.finish_reason)
-            output = [
-                {
-                    "id": f"msg-{uuid.uuid4().hex}",
-                    "type": "message",
-                    "role": "assistant",
-                    "status": status,
-                    "content": [
-                        {
-                            "type": "output_text",
-                            "text": self.clean_response_text(response.text),
-                        }
-                    ],
-                }
-            ]
+    @staticmethod
+    def _response(reply: ServedReply | None, context: ReplyContext, output: list[dict]) -> dict:
+        status, incomplete = _status(reply) if reply is not None else ("in_progress", None)
 
         return {
-            "id": response_id,
+            "id": context.response_id,
             "object": "response",
-            "created_at": int(time.time()),
-            "model": loaded.name,
+            "created_at": context.created,
+            "model": context.model,
             "status": status,
-            "incomplete_details": incomplete_details,
+            "incomplete_details": incomplete,
             "error": None,
             "output": output,
-            "usage": {
-                "input_tokens": response.prompt_token_count,
-                "output_tokens": response.completion_token_count,
-                "total_tokens": response.prompt_token_count + response.completion_token_count,
+            "usage": None if reply is None else {
+                "input_tokens": reply.prompt_tokens,
+                "output_tokens": reply.completion_tokens,
+                "total_tokens": reply.prompt_tokens + reply.completion_tokens,
             },
         }
 
-    def format_responses_stream_created(self, response_id: str) -> str:
-        data = {
-            "type": "response.created",
-            "response": {
-                "id": response_id,
-                "object": "response",
-                "created_at": int(time.time()),
-                "model": loaded.name,
-                "status": "in_progress",
-                "incomplete_details": None,
-                "error": None,
-                "output": [],
-                "usage": None,
-            },
-        }
-        return f"event: response.created\ndata: {json.dumps(data)}\n\n"
+    def format(self, reply: ServedReply, context: ReplyContext) -> dict:
+        return self._response(reply, context, self._output(reply, context))
 
-    def format_responses_stream_keepalive(self, response_id: str) -> str:
-        data = {
-            "type": "response.in_progress",
-            "response_id": response_id,
-        }
-        return f"event: response.in_progress\ndata: {json.dumps(data)}\n\n"
+    def stream_open(self, context: ReplyContext) -> str:
+        return _event("response.created", {"response": self._response(None, context, [])})
 
-    def format_responses_stream_output_item_added(self, response_id: str, item_id: str) -> str:
-        data = {
-            "type": "response.output_item.added",
-            "response_id": response_id,
-            "output_index": 0,
-            "item": {
-                "id": item_id,
-                "type": "message",
-                "role": "assistant",
-                "status": "in_progress",
-                "content": [],
-            },
-        }
-        return f"event: response.output_item.added\ndata: {json.dumps(data)}\n\n"
+    def stream_keepalive(self, context: ReplyContext) -> str:
+        return _event("response.in_progress", {"response": self._response(None, context, [])})
 
-    def format_responses_stream_content_part_added(self, response_id: str) -> str:
-        data = {
-            "type": "response.content_part.added",
-            "response_id": response_id,
-            "output_index": 0,
-            "content_index": 0,
-            "part": {
-                "type": "output_text",
-                "text": "",
-            },
-        }
-        return f"event: response.content_part.added\ndata: {json.dumps(data)}\n\n"
+    def stream_reply(self, reply: ServedReply, context: ReplyContext) -> str:
+        output = self._output(reply, context)
+        events = []
 
-    def format_responses_stream_content_part_done(self, response_id: str, text: str) -> str:
-        data = {
-            "type": "response.content_part.done",
-            "response_id": response_id,
-            "output_index": 0,
-            "content_index": 0,
-            "part": {
-                "type": "output_text",
-                "text": text,
-            },
-        }
-        return f"event: response.content_part.done\ndata: {json.dumps(data)}\n\n"
+        for index, item in enumerate(output):
+            item_id = item["id"]
 
-    def format_responses_stream_output_item_done(self, response_id: str, item_id: str, text: str) -> str:
-        data = {
-            "type": "response.output_item.done",
-            "response_id": response_id,
-            "output_index": 0,
-            "item": {
-                "id": item_id,
-                "type": "message",
-                "role": "assistant",
-                "status": "completed",
-                "content": [
-                    {
-                        "type": "output_text",
-                        "text": text,
-                    }
-                ],
-            },
-        }
-        return f"event: response.output_item.done\ndata: {json.dumps(data)}\n\n"
+            if item["type"] == "reasoning":
+                text = item["summary"][0]["text"]
+                part = {"item_id": item_id, "output_index": index, "summary_index": 0}
+                events.append(_event("response.output_item.added", {"output_index": index, "item": {**item, "summary": []}}))
+                events.append(_event("response.reasoning_summary_part.added", {**part, "part": {"type": "summary_text", "text": ""}}))
+                events.append(_event("response.reasoning_summary_text.delta", {**part, "delta": text}))
+                events.append(_event("response.reasoning_summary_text.done", {**part, "text": text}))
+                events.append(_event("response.reasoning_summary_part.done", {**part, "part": {"type": "summary_text", "text": text}}))
 
-    def format_responses_stream_chunk(self, text: str, done: bool, response_id: str) -> str:
-        if done:
-            event_type = "response.output_text.done"
-            data = {
-                "type": event_type,
-                "response_id": response_id,
-                "output_index": 0,
-                "content_index": 0,
-                "text": text,
-            }
-        else:
-            event_type = "response.output_text.delta"
-            data = {
-                "type": event_type,
-                "response_id": response_id,
-                "output_index": 0,
-                "content_index": 0,
-                "delta": text,
-            }
-        return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+            elif item["type"] == "message":
+                text = item["content"][0]["text"]
+                part = {"item_id": item_id, "output_index": index, "content_index": 0}
+                events.append(_event("response.output_item.added", {"output_index": index, "item": {**item, "status": "in_progress", "content": []}}))
+                events.append(_event("response.content_part.added", {**part, "part": {"type": "output_text", "text": "", "annotations": []}}))
+                events.append(_event("response.output_text.delta", {**part, "delta": text}))
+                events.append(_event("response.output_text.done", {**part, "text": text}))
+                events.append(_event("response.content_part.done", {**part, "part": item["content"][0]}))
 
-    def format_responses_stream_done(
-        self, response_id: str, output_text: str = "", finish_reason: str = END_TURN
-    ) -> str:
-        status, incomplete_details = _completion_status(finish_reason)
-        event_type = "response.completed" if status == "completed" else "response.incomplete"
-        data = {
-            "type": event_type,
-            "response": {
-                "id": response_id,
-                "object": "response",
-                "created_at": int(time.time()),
-                "model": loaded.name,
-                "status": status,
-                "incomplete_details": incomplete_details,
-                "error": None,
-                "output": [
-                    {
-                        "id": f"msg-{uuid.uuid4().hex}",
-                        "type": "message",
-                        "role": "assistant",
-                        "status": status,
-                        "content": [
-                            {
-                                "type": "output_text",
-                                "text": output_text,
-                            }
-                        ],
-                    }
-                ],
-            },
-        }
-        return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+            else:
+                call = {"item_id": item_id, "output_index": index}
+                events.append(_event("response.output_item.added", {"output_index": index, "item": {**item, "arguments": "", "status": "in_progress"}}))
+                events.append(_event("response.function_call_arguments.delta", {**call, "delta": item["arguments"]}))
+                events.append(_event("response.function_call_arguments.done", {**call, "arguments": item["arguments"]}))
+
+            events.append(_event("response.output_item.done", {"output_index": index, "item": item}))
+
+        status, _ = _status(reply)
+        events.append(_event(
+            "response.completed" if status == "completed" else "response.incomplete",
+            {"response": self._response(reply, context, output)}))
+
+        return "".join(events)

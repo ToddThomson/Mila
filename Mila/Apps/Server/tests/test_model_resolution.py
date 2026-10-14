@@ -11,8 +11,8 @@ import mila
 import pytest
 
 from mila_llm_server import model_worker
-from mila_llm_server.config import ModelFamily, loaded, settings
-from mila_llm_server.model_worker import ModelWorker, _family_of
+from mila_llm_server.config import loaded, settings
+from mila_llm_server.model_worker import ModelWorker, _session_of
 
 
 class FakeRecord:
@@ -33,6 +33,8 @@ class FakeRecord:
         self.family = architecture if architecture in ("gemma", "llama", "qwen") else ""
         self.variant = variant
         self.instruct = instruct
+        self.tools = True
+        self.thinking = architecture in ("gemma", "qwen")
         self.base_model = base_model
         self.license = license
 
@@ -85,6 +87,8 @@ def store(monkeypatch):
 
         return from_store
 
+    # The protocol comes from the record's manifest; the fake store has none, so one template stands in.
+    monkeypatch.setattr(mila.ChatProtocol, "for_model", staticmethod(lambda name: mila.ChatProtocol.gemma()))
     monkeypatch.setattr(mila.GemmaModel, "from_store", staticmethod(make_session("gemma")))
     monkeypatch.setattr(mila.LlamaModel, "from_store", staticmethod(make_session("llama")))
     monkeypatch.setattr(mila.QwenModel, "from_store", staticmethod(make_session("qwen")))
@@ -134,19 +138,15 @@ def test_unservable_architecture_is_refused_at_load(store, monkeypatch):
     assert "gemma" in message and "llama" in message and "qwen" in message
 
 
-def test_family_guard_accepts_every_served_architecture():
-    assert _family_of(FakeRecord(architecture="gemma")) is ModelFamily.gemma
-    assert _family_of(FakeRecord(architecture="llama")) is ModelFamily.llama
-    assert _family_of(FakeRecord(architecture="qwen")) is ModelFamily.qwen
+def test_each_served_architecture_loads_into_its_own_session():
+    assert _session_of(FakeRecord(architecture="gemma")) is mila.GemmaModel
+    assert _session_of(FakeRecord(architecture="llama")) is mila.LlamaModel
+    assert _session_of(FakeRecord(architecture="qwen")) is mila.QwenModel
 
 
-def test_every_admitted_family_has_a_session():
-    """_family_of admits a record on the strength of ModelFamily alone, so a value with no
-    entry here would load one architecture's weights into another's session -- silently,
-    since both accept the same three arguments. This is the guard against that."""
-    for family in ModelFamily:
-        assert family in model_worker.SESSION_FOR
-        assert hasattr(mila, model_worker.SESSION_FOR[family])
+def test_every_session_named_exists():
+    for session in model_worker.SESSION_FOR.values():
+        assert hasattr(mila, session)
 
 
 def test_load_fills_loaded_from_the_record_not_from_settings(store, monkeypatch):
@@ -166,7 +166,6 @@ def test_load_fills_loaded_from_the_record_not_from_settings(store, monkeypatch)
     ModelWorker()._load()
 
     assert loaded.name == "Llama-3.1-8B-Instruct-fp4"
-    assert loaded.family is ModelFamily.llama
     assert loaded.variant == "fp4"
     assert loaded.instruct is True
     assert loaded.base_model == "meta-llama/Llama-3.1-8B-Instruct"
@@ -183,7 +182,6 @@ def test_gemma_record_selects_the_gemma_session_and_asks_no_attribution(store, m
 
     ModelWorker()._load()
 
-    assert loaded.family is ModelFamily.gemma
     assert store["session"] == "gemma"
     # Apache 2.0 requires the notice travel with the model, not that a server render one.
     assert loaded.attribution == ""
@@ -191,7 +189,7 @@ def test_gemma_record_selects_the_gemma_session_and_asks_no_attribution(store, m
 
 def test_qwen_record_selects_the_qwen_session(store, monkeypatch):
     # The regression this pins: the session was chosen by `gemma if ... else llama`, so the
-    # first qwen record ModelFamily admitted would have been loaded into a LlamaModel.
+    # first qwen record admitted would have been loaded into a LlamaModel.
     record = FakeRecord(
         name="Qwen3.8-27B-fp4",
         architecture="qwen",
@@ -204,7 +202,6 @@ def test_qwen_record_selects_the_qwen_session(store, monkeypatch):
 
     ModelWorker()._load()
 
-    assert loaded.family is ModelFamily.qwen
     assert store["session"] == "qwen"
     assert loaded.attribution == ""
 

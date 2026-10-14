@@ -1,9 +1,10 @@
 """
-Registers chat, completions, and (when the adapter supports it) responses
-and models routes for whichever protocol adapter is active. All
-streaming/queueing mechanics live here exactly once.
+Registers the active protocol's chat endpoints, completions and models routes. All generation, streaming and
+reply parsing lives here exactly once, and knows nothing about which model is loaded: the prompt and the reply
+are the model's chat protocol's (InferenceServerWire.md 3.3, 3.4).
 """
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -13,48 +14,43 @@ import mila
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from mila_llm_server.config import loaded, settings
+from mila_llm_server.conversation import RequestError, ServedCall, ServedReply, ServedRequest, call_id
 from mila_llm_server.model_worker import worker
-from mila_llm_server.protocols.base import ProtocolAdapter, ResponsesCapable, ModelsCapable
+from mila_llm_server.protocols.base import ChatEndpoint, CompletionsCapable, ModelsCapable, ProtocolAdapter, ReplyContext
 from mila_llm_server.protocols.utils import (
     END_TURN,
     STOP_SEQUENCE,
+    TOOL_CALLS,
     StopScanner,
     finish_reason_from_status,
     truncate_at_stop,
 )
 from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
-from mila_llm_server.config import settings, loaded, ModelFamily
 
 logger = logging.getLogger(__name__)
-
-#: Families whose model emits a tool call in a grammar of its own, which the adapter parses out
-#: of the raw decode. These take the buffered path and the unstripped stream; Llama's bridge is
-#: plain text and does not, which is why it is absent.
-_NATIVE_TOOL_FAMILIES = frozenset({ModelFamily.gemma, ModelFamily.qwen})
 
 
 def register_routes(app: FastAPI, adapter) -> None:
     if isinstance(adapter, ProtocolAdapter):
-        _register_chat(app, adapter)
-        _register_completions(app, adapter)
+        for endpoint in adapter.chat_endpoints():
+            _register_chat(app, endpoint)
 
-    if isinstance(adapter, ResponsesCapable):
-        _register_responses(app, adapter)
+    if isinstance(adapter, CompletionsCapable):
+        _register_completions(app, adapter)
 
     if isinstance(adapter, ModelsCapable):
         _register_models(app, adapter)
 
 
-def _register_chat(app: FastAPI, adapter: ProtocolAdapter) -> None:
+def _register_chat(app: FastAPI, endpoint: ChatEndpoint) -> None:
 
-    @app.post(adapter.chat_path, response_model=None)
+    @app.post(endpoint.path, response_model=None)
     async def chat_endpoint(http_req: Request) -> JSONResponse | StreamingResponse:
-        body = await http_req.json()
-        prompt_str, inf_req = adapter.parse_chat_request(body)
-        return await _dispatch(prompt_str, inf_req, http_req, adapter, is_chat=True)
+        return await _serve_chat(endpoint, await http_req.json(), http_req)
 
 
-def _register_completions(app: FastAPI, adapter: ProtocolAdapter) -> None:
+def _register_completions(app: FastAPI, adapter: CompletionsCapable) -> None:
 
     @app.post(adapter.completions_path, response_model=None)
     async def completions_endpoint(http_req: Request) -> JSONResponse | StreamingResponse:
@@ -65,16 +61,7 @@ def _register_completions(app: FastAPI, adapter: ProtocolAdapter) -> None:
         except ValueError as error:
             return _invalid_request_error(str(error))
 
-        return await _dispatch(prompt_str, inf_req, http_req, adapter, is_chat=False)
-
-
-def _register_responses(app: FastAPI, adapter: ResponsesCapable) -> None:
-
-    @app.post(adapter.responses_path, response_model=None)
-    async def responses_endpoint(http_req: Request) -> JSONResponse | StreamingResponse:
-        body = await http_req.json()
-        prompt_str, inf_req = adapter.parse_responses_request(body)
-        return await _dispatch_responses(prompt_str, inf_req, http_req, adapter)
+        return await _serve_completion(prompt_str, inf_req, http_req, adapter)
 
 
 def _register_models(app: FastAPI, adapter: ModelsCapable) -> None:
@@ -85,33 +72,199 @@ def _register_models(app: FastAPI, adapter: ModelsCapable) -> None:
         return JSONResponse(content=adapter.format_models_response())
 
 
-async def _dispatch(
-    prompt_str: str,
-    inf_req: InferenceRequest,
-    http_req: Request,
-    adapter: ProtocolAdapter,
-    is_chat: bool,
-) -> JSONResponse | StreamingResponse:
-    # Bring-up: log the ASSEMBLED prompt MIS sends to the model. The tail is what
-    # matters -- the continuation seam (last user turn, replayed tool spans, the
-    # thought prime, the open model turn) where the model degrades. The static
-    # harness system prompt is the bulk; log the length + tail, not the whole
-    # thing. Pairs with the buffered_tool full_text (model OUTPUT) log.
-    logger.info("dispatch assembled prompt (%d chars); tail:\n%s", len(prompt_str), prompt_str[-3000:])
-    # Effective sampling AFTER request-body-vs-.env resolution -- shows whether the
-    # client overrode the Gemma-recommended defaults (temp 1.0 / top_k 64 / top_p 0.95).
-    logger.info(
-        "dispatch sampling: temperature=%.3f top_k=%d top_p=%.3f max_new_tokens=%d",
-        inf_req.temperature, inf_req.top_k, inf_req.top_p, inf_req.max_new_tokens)
+# ----------------------------------------------------------------------
+# Chat: one conversation in, one parsed reply out
+# ----------------------------------------------------------------------
 
-    # A Completions prompt may arrive as token ids, which are the model's input as sent:
-    # the caller tokenized it, and encoding it again here would be a second tokenizer.
-    if inf_req.prompt_ids:
-        prompt_ids = inf_req.prompt_ids
-    else:
-        prompt_ids = await worker.encode(prompt_str)
+async def _serve_chat(endpoint: ChatEndpoint, body: dict, http_req: Request) -> JSONResponse | StreamingResponse:
+    protocol = worker.protocol
 
+    if protocol is None:
+        return JSONResponse(status_code=400, content=endpoint.error(
+            f"'{loaded.name}' is a base model, which has no chat template; use the completions endpoint"))
+
+    try:
+        request = endpoint.parse(body, protocol)
+        prompt = protocol.format_prompt(request.turns, request.template_variables, request.tools_json)
+    except ValueError as error:
+        # RequestError for what the endpoint refuses, ValueError for what the template refuses -- both name it.
+        logger.warning("refused %s: %s; request shape: %s", endpoint.path, error, _shape(body))
+        return JSONResponse(status_code=400, content=endpoint.error(str(error)))
+
+    prompt_ids = await worker.encode(prompt["text"])
     remaining = loaded.context_length - len(prompt_ids)
+
+    if remaining <= 0:
+        return JSONResponse(status_code=400, content=endpoint.error(
+            f"Prompt length {len(prompt_ids)} tokens exceeds context_length {loaded.context_length}."))
+
+    requested = request.max_new_tokens or settings.default_max_new_tokens
+    allowed = min(requested, remaining)
+
+    context = ReplyContext(
+        response_id=f"resp_{uuid.uuid4().hex}",
+        model=loaded.name,
+        created=int(time.time()),
+        prompt_tokens=len(prompt_ids),
+        wire=request.wire,
+    )
+
+    logger.info("prompt %d tokens; tail: %r", len(prompt_ids), prompt["text"][-600:])
+
+    if request.stream:
+        return StreamingResponse(
+            _stream_chat(endpoint, request, prompt, prompt_ids, requested, allowed, context, http_req),
+            media_type="text/event-stream")
+
+    parts: list[str] = []
+    status = await worker.generate_streaming(
+        prompt_ids, parts.append, allowed, *_sampling(request), mila.StopController())
+
+    reply = _reply(protocol, "".join(parts), prompt, status, request, requested, allowed, len(prompt_ids), len(parts))
+
+    return JSONResponse(content=endpoint.format(reply, context))
+
+
+def _shape(body: dict) -> str:
+    """A refused request's structure without its text: the fields it set, and each message's role and part types."""
+    messages = body.get("messages") or body.get("input") or []
+
+    if isinstance(messages, str):
+        messages = []
+
+    def parts(message):
+        content = message.get("content")
+
+        if isinstance(content, list):
+            return [part.get("type") for part in content if isinstance(part, dict)]
+
+        return type(content).__name__
+
+    settings_sent = {key: body[key] for key in sorted(body) if key not in ("messages", "input", "system", "instructions", "tools")}
+
+    return f"settings {json.dumps(settings_sent)[:600]}; " + ", ".join(
+        f"{message.get('role') or message.get('type')}:{parts(message)}" for message in messages if isinstance(message, dict))
+
+
+def _sampling(request: ServedRequest) -> tuple[float, int, float]:
+    return (
+        settings.default_temperature if request.temperature is None else request.temperature,
+        settings.default_top_k if request.top_k is None else request.top_k,
+        settings.default_top_p if request.top_p is None else request.top_p,
+    )
+
+
+def _reply(protocol, raw: str, prompt: dict, status: str, request: ServedRequest, requested: int, allowed: int,
+           prompt_tokens: int, completion_tokens: int) -> ServedReply:
+    """
+    The model's turn, read by its own protocol. A call the grammar could not read is never dispatched; it is
+    answered as prose and logged (InferenceServerWire.md 3.2).
+    """
+    parsed = protocol.parse_reply(raw, prompt)
+    content = parsed["content"]
+
+    for span in parsed["malformed_tool_calls"]:
+        logger.warning("the model wrote a tool call that does not parse; answering it as text: %r", span)
+        content = f"{content}\n{span}".strip()
+
+    calls = [ServedCall(call_id(call["name"], call["arguments"]), call["name"], call["arguments"])
+             for call in parsed["tool_calls"]]
+
+    if not request.parallel_tool_calls:
+        calls = calls[:1]
+
+    content, matched = truncate_at_stop(content, request.stop)
+
+    if calls:
+        finish_reason = TOOL_CALLS
+    elif matched is not None:
+        finish_reason = STOP_SEQUENCE
+    else:
+        finish_reason = finish_reason_from_status(status, requested, allowed)
+
+    logger.info("reply: %d chars raw, %d calls, %d chars of reasoning", len(raw), len(calls), len(parsed["reasoning"]))
+
+    return ServedReply(
+        reasoning=parsed["reasoning"],
+        content=content,
+        tool_calls=calls,
+        finish_reason=finish_reason,
+        stop_sequence=matched,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
+
+
+async def _stream_chat(endpoint: ChatEndpoint, request: ServedRequest, prompt: dict, prompt_ids: list[int],
+                       requested: int, allowed: int, context: ReplyContext, http_req: Request) -> AsyncIterator[str]:
+    """
+    A streamed reply, sent whole once the model's turn ends: what a span is -- reasoning, text or a call -- is
+    known only once it is parsed. The stream opens before the prompt is read, and a keepalive goes out while
+    the model works, so a client's read timeout does not fire (live streaming is Phase 4).
+    """
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
+    stop_ctrl = mila.StopController()
+    loop = asyncio.get_running_loop()
+    parts: list[str] = []
+
+    def on_text(text: str) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, text)
+
+    generation = asyncio.create_task(
+        worker.generate_streaming(prompt_ids, on_text, allowed, *_sampling(request), stop_ctrl))
+    generation.add_done_callback(lambda _: loop.call_soon_threadsafe(queue.put_nowait, None))
+
+    yield endpoint.stream_open(context)
+
+    last_text = time.monotonic()
+
+    try:
+        while True:
+            if await http_req.is_disconnected():
+                logger.info("client disconnected")
+                stop_ctrl.request_stop()
+                break
+
+            try:
+                text = await asyncio.wait_for(queue.get(), timeout=settings.keepalive_interval)
+            except asyncio.TimeoutError:
+                if parts and time.monotonic() - last_text > settings.decode_timeout:
+                    logger.warning("decode_timeout hit after waiting %.1fs", settings.decode_timeout)
+                    stop_ctrl.request_stop()
+                    break
+
+                yield endpoint.stream_keepalive(context)
+                continue
+
+            if text is None:
+                break
+
+            parts.append(text)
+            last_text = time.monotonic()
+
+    finally:
+        if not generation.done():
+            stop_ctrl.request_stop()
+            await generation
+
+        status = END_TURN if generation.cancelled() or generation.exception() is not None else generation.result()
+        reply = _reply(worker.protocol, "".join(parts), prompt, status, request, requested, allowed,
+                       len(prompt_ids), len(parts))
+
+        yield endpoint.stream_reply(reply, context)
+
+
+# ----------------------------------------------------------------------
+# Completions: raw continuation, no conversation
+# ----------------------------------------------------------------------
+
+async def _serve_completion(prompt_str: str, inf_req: InferenceRequest, http_req: Request,
+                            adapter: CompletionsCapable) -> JSONResponse | StreamingResponse:
+    # A prompt may arrive as token ids, which are the model's input as sent: the caller tokenized it, and
+    # encoding it again here would be a second tokenizer.
+    prompt_ids = inf_req.prompt_ids or await worker.encode(prompt_str)
+    remaining = loaded.context_length - len(prompt_ids)
+
     if remaining <= 0:
         return _prompt_too_long_error(len(prompt_ids), loaded.context_length)
 
@@ -119,114 +272,33 @@ async def _dispatch(
     inf_req.max_new_tokens = min(inf_req.max_new_tokens, remaining)
     inf_req.prompt_ids = prompt_ids
 
-    # Tool-capable adapters parse the family's native call grammar from the model
-    # text, so they take the raw reply (_generate_buffered). Llama and tool-blind
-    # adapters keep the stripped blocking path.
-    tool_capable = (
-        loaded.family in _NATIVE_TOOL_FAMILIES
-        and hasattr(adapter, "parse_tool_call_from_text")
+    if inf_req.stream:
+        return StreamingResponse(_stream_completion(inf_req, http_req, adapter, requested_tokens), media_type="text/event-stream")
+
+    output_ids, status = await worker.generate(
+        inf_req.prompt_ids, inf_req.max_new_tokens, inf_req.temperature, inf_req.top_k, inf_req.top_p)
+    new_ids = output_ids[len(inf_req.prompt_ids):]
+
+    response = InferenceResponse(
+        text=await worker.decode(new_ids),
+        finish_reason=finish_reason_from_status(status, requested_tokens, inf_req.max_new_tokens),
+        prompt_token_count=len(inf_req.prompt_ids),
+        completion_token_count=len(new_ids),
     )
 
-    if inf_req.stream:
-        # Streaming tool_use must buffer: the Anthropic wire emits content_block_start
-        # before the body, but text-vs-tool_use is only known once the model finishes,
-        # so we cannot stream text deltas live and still switch to a tool_use block.
-        # Adapters that supply the streaming tool_use formatters take the buffered path;
-        # everyone else (tool-blind adapters, Llama) keeps the live token stream.
-        if tool_capable and hasattr(adapter, "format_stream_tool_use_block"):
-            stream_gen = _stream_buffered_tool(inf_req, http_req, adapter, requested_tokens)
-        else:
-            stream_gen = _stream(inf_req, http_req, adapter, requested_tokens)
-        return StreamingResponse(stream_gen, media_type="text/event-stream")
-
-    response = await _generate_buffered(inf_req, requested_tokens, tool_capable)
-
-    # Cut after generation rather than during it: the caller receives the same reply, and
-    # stopping early would save only the tokens past the stop.
+    # Cut after generation rather than during it: the caller receives the same reply, and stopping early would
+    # save only the tokens past the stop.
     response.text, matched = truncate_at_stop(response.text, inf_req.stop)
 
     if matched is not None:
         response.finish_reason = STOP_SEQUENCE
         response.stop_sequence = matched
 
-    payload = adapter.format_chat_response(response) if is_chat else adapter.format_completions_response(response)
-    return JSONResponse(content=payload)
+    return JSONResponse(content=adapter.format_completions_response(response))
 
 
-async def _dispatch_responses(
-    prompt_str: str,
-    inf_req: InferenceRequest,
-    http_req: Request,
-    adapter: ResponsesCapable,
-) -> JSONResponse | StreamingResponse:
-    prompt_ids = await worker.encode(prompt_str)
-
-    remaining = loaded.context_length - len(prompt_ids)
-    if remaining <= 0:
-        return _prompt_too_long_error(len(prompt_ids), loaded.context_length)
-
-    requested_tokens = inf_req.max_new_tokens
-    inf_req.max_new_tokens = min(inf_req.max_new_tokens, remaining)
-    inf_req.prompt_ids = prompt_ids
-
-    response_id = f"resp-{uuid.uuid4().hex}"
-
-    if inf_req.stream:
-        return StreamingResponse(
-            _stream_responses(inf_req, http_req, adapter, response_id, requested_tokens),
-            media_type="text/event-stream",
-        )
-
-    response = await _generate_buffered(inf_req, requested_tokens, loaded.family in _NATIVE_TOOL_FAMILIES)
-
-    return JSONResponse(content=adapter.format_responses_response(response))
-
-
-async def _generate_buffered(
-    inf_req: InferenceRequest,
-    requested_tokens: int,
-    raw: bool,
-) -> InferenceResponse:
-    """
-    One whole reply. raw keeps the family's tool grammar in the text and stops at the end of a
-    call: a Gemma turn does not end after <tool_call|> -- it waits for a result -- so without the
-    stop it repeats the call to the budget, and decode() strips the markers the parser needs.
-    """
-    if raw:
-        text, completion_count, status = await worker.generate_collect(
-            inf_req.prompt_ids,
-            inf_req.max_new_tokens,
-            inf_req.temperature,
-            inf_req.top_k,
-            inf_req.top_p,
-        )
-    else:
-        output_ids, status = await worker.generate(
-            inf_req.prompt_ids,
-            inf_req.max_new_tokens,
-            inf_req.temperature,
-            inf_req.top_k,
-            inf_req.top_p,
-        )
-
-        new_ids = output_ids[len(inf_req.prompt_ids):]
-        text = await worker.decode(new_ids)
-        completion_count = len(new_ids)
-
-    return InferenceResponse(
-        text=text,
-        finish_reason=finish_reason_from_status(status, requested_tokens, inf_req.max_new_tokens),
-        prompt_token_count=len(inf_req.prompt_ids),
-        completion_token_count=completion_count,
-    )
-
-
-async def _stream(
-    inf_req: InferenceRequest,
-    http_req: Request,
-    adapter: ProtocolAdapter,
-    requested_tokens: int,
-) -> AsyncIterator[str]:
+async def _stream_completion(inf_req: InferenceRequest, http_req: Request, adapter: CompletionsCapable,
+                             requested_tokens: int) -> AsyncIterator[str]:
     queue: asyncio.Queue[str | None] = asyncio.Queue()
     stop_ctrl = mila.StopController()
     loop = asyncio.get_running_loop()
@@ -236,26 +308,11 @@ async def _stream(
     def on_text(text: str) -> None:
         loop.call_soon_threadsafe(queue.put_nowait, text)
 
-    def on_done() -> None:
-        loop.call_soon_threadsafe(queue.put_nowait, None)
+    generation = asyncio.create_task(worker.generate_streaming(
+        inf_req.prompt_ids, on_text, inf_req.max_new_tokens, inf_req.temperature, inf_req.top_k, inf_req.top_p,
+        stop_ctrl, stop_at_markers=False))
+    generation.add_done_callback(lambda _: loop.call_soon_threadsafe(queue.put_nowait, None))
 
-    generation = asyncio.create_task(
-        worker.generate_streaming(
-            inf_req.prompt_ids,
-            on_text,
-            inf_req.max_new_tokens,
-            inf_req.temperature,
-            inf_req.top_k,
-            inf_req.top_p,
-            stop_ctrl,
-        )
-    )
-    generation.add_done_callback(lambda _: on_done())
-
-    if hasattr(adapter, "format_stream_preamble"):
-        yield adapter.format_stream_preamble(len(inf_req.prompt_ids))
-
-    output_token_count = 0
     first_token = True
 
     try:
@@ -281,7 +338,6 @@ async def _stream(
                 break
 
             first_token = False
-            output_token_count += 1
             safe = scanner.feed(text)
 
             if safe:
@@ -309,250 +365,15 @@ async def _stream(
             finish_reason = finish_reason_from_status(generation.result(), requested_tokens, inf_req.max_new_tokens)
 
         yield adapter.format_stream_chunk("", done=True, finish_reason=finish_reason)
-        if hasattr(adapter, "format_stream_message_delta"):
-            yield adapter.format_stream_message_delta(output_token_count, finish_reason, scanner.matched)
         yield adapter.format_stream_done()
-
-
-async def _stream_buffered_tool(
-    inf_req: InferenceRequest,
-    http_req: Request,
-    adapter: ProtocolAdapter,
-    requested_tokens: int,
-) -> AsyncIterator[str]:
-    """
-    Streaming path for native-tool Gemma adapters (Anthropic Messages). The Gemma
-    tool-call grammar is only classifiable once the whole model turn is in hand, and
-    the Anthropic wire fixes each content block's type at content_block_start -- so we
-    open the message, buffer the RAW decode (strip_control_tokens=False, keeping the
-    <|tool_call> markers), then emit a single tool_use or text block at the end. This
-    trades live token streaming for a protocol-correct tool_use; harness clients need
-    the latter. Mirrors the tool-call handling already in _stream_responses.
-    """
-    queue: asyncio.Queue[str | None] = asyncio.Queue()
-    stop_ctrl = mila.StopController()
-    loop = asyncio.get_running_loop()
-    accumulated: list[str] = []
-
-    def on_text(text: str) -> None:
-        accumulated.append(text)
-        loop.call_soon_threadsafe(queue.put_nowait, text)
-
-    def on_done() -> None:
-        loop.call_soon_threadsafe(queue.put_nowait, None)
-
-    generation = asyncio.create_task(
-        worker.generate_streaming(
-            inf_req.prompt_ids,
-            on_text,
-            inf_req.max_new_tokens,
-            inf_req.temperature,
-            inf_req.top_k,
-            inf_req.top_p,
-            stop_ctrl,
-            False,  # strip_control_tokens: keep the raw <|tool_call> grammar for parsing
-        )
-    )
-    generation.add_done_callback(lambda _: on_done())
-
-    # Open the message immediately; the content block type is deferred until the end.
-    yield adapter.format_stream_message_start(len(inf_req.prompt_ids))
-
-    output_token_count = 0
-    first_token = True
-
-    try:
-        while True:
-            if await http_req.is_disconnected():
-                logger.info("client disconnected")
-                stop_ctrl.request_stop()
-                break
-
-            timeout = settings.keepalive_interval if first_token else settings.decode_timeout
-
-            try:
-                text = await asyncio.wait_for(queue.get(), timeout=timeout)
-            except asyncio.TimeoutError:
-                if first_token:
-                    yield ": keepalive\n\n"
-                    continue
-                logger.warning("decode_timeout hit after waiting %.1fs", settings.decode_timeout)
-                stop_ctrl.request_stop()
-                break
-
-            # None is the generation-complete sentinel from on_done (not a text chunk).
-            if text is None:
-                break
-
-            first_token = False
-            output_token_count += 1
-
-    finally:
-        if not generation.done():
-            stop_ctrl.request_stop()
-            await generation
-
-        full_text = "".join(accumulated)
-        # Bring-up: log the FULL raw model output (untruncated) so the exact
-        # channel structure and any stray registered tokens (e.g. a bare <|>)
-        # are visible on the Anthropic/Claude Code path, which otherwise had no
-        # raw logging (mirrors _stream_responses). Trim to a preview once the
-        # Gemma tool-call grammar is settled on this path.
-        logger.info("buffered_tool full_text (%d chars): %r", len(full_text), full_text)
-        tool_call = adapter.parse_tool_call_from_text(full_text)
-
-        if tool_call:
-            yield adapter.format_stream_tool_use_block(tool_call)
-            yield adapter.format_stream_message_stop_delta(output_token_count, "tool_use")
-        else:
-            display_text = adapter.clean_response_text(full_text)
-            finish_reason = END_TURN
-
-            if not generation.cancelled() and generation.exception() is None:
-                finish_reason = finish_reason_from_status(generation.result(), requested_tokens, inf_req.max_new_tokens)
-
-            yield adapter.format_stream_text_block(display_text)
-            yield adapter.format_stream_message_stop_delta(output_token_count, adapter.stop_reason(finish_reason))
-
-        yield adapter.format_stream_done()
-
-
-async def _stream_responses(
-    inf_req: InferenceRequest,
-    http_req: Request,
-    adapter: ResponsesCapable,
-    response_id: str,
-    requested_tokens: int,
-) -> AsyncIterator[str]:
-    queue: asyncio.Queue[str | None] = asyncio.Queue()
-    stop_ctrl = mila.StopController()
-    loop = asyncio.get_running_loop()
-    accumulated: list[str] = []
-    t_start = time.time()
-
-    def _elapsed() -> str:
-        return f"{time.time() - t_start:.2f}s"
-
-    def on_text(text: str) -> None:
-        accumulated.append(text)
-        loop.call_soon_threadsafe(queue.put_nowait, text)
-
-    def on_done() -> None:
-        loop.call_soon_threadsafe(queue.put_nowait, None)
-
-    # A family with a native grammar emits protocol tokens the adapter parses out of the
-    # accumulated text, so it needs the raw (unstripped) decode. The worker stops generation
-    # at the closing tool-call marker either way.
-    strip_control_tokens = loaded.family not in _NATIVE_TOOL_FAMILIES
-
-    generation = asyncio.create_task(
-        worker.generate_streaming(
-            inf_req.prompt_ids,
-            on_text,
-            inf_req.max_new_tokens,
-            inf_req.temperature,
-            inf_req.top_k,
-            inf_req.top_p,
-            stop_ctrl,
-            strip_control_tokens,
-        )
-    )
-    generation.add_done_callback(lambda _: on_done())
-
-    print(f"[{_elapsed()}] {response_id}: yielding response.created", flush=True)
-    yield adapter.format_responses_stream_created(response_id)
-
-    first_token = True
-    token_count = 0
-
-    try:
-        while True:
-            disconnected = await http_req.is_disconnected()
-            if disconnected:
-                print(f"[{_elapsed()}] {response_id}: client disconnected after {token_count} tokens", flush=True)
-                stop_ctrl.request_stop()
-                break
-
-            timeout = settings.keepalive_interval if first_token else settings.decode_timeout
-
-            try:
-                text = await asyncio.wait_for(queue.get(), timeout=timeout)
-            except asyncio.TimeoutError:
-                if first_token:
-                    print(f"[{_elapsed()}] {response_id}: keepalive ping", flush=True)
-                    yield adapter.format_responses_stream_keepalive(response_id)
-                    continue
-                print(f"[{_elapsed()}] {response_id}: decode_timeout after {token_count} tokens", flush=True)
-                stop_ctrl.request_stop()
-                break
-
-            if text is None:
-                print(f"[{_elapsed()}] {response_id}: generation done after {token_count} tokens", flush=True)
-                break
-
-            if first_token:
-                print(f"[{_elapsed()}] {response_id}: first token received", flush=True)
-                first_token = False
-
-            token_count += 1
-
-    finally:
-        if not generation.done():
-            stop_ctrl.request_stop()
-            await generation
-
-        full_text = "".join(accumulated)
-        # Bring-up: log the FULL raw model output (untruncated) so a tool-call
-        # attempt's tail is visible while wiring Codex/Gemma. Trim back to a
-        # preview once the tool-call format is settled.
-        print(f"[{_elapsed()}] {response_id}: full_text ({len(full_text)} chars): {repr(full_text)}", flush=True)
-
-        tool_call_item = adapter.parse_tool_call_from_text(full_text) if hasattr(adapter, "parse_tool_call_from_text") else None
-
-        if tool_call_item:
-            print(f"[{_elapsed()}] {response_id}: tool call detected — {tool_call_item['name']}", flush=True)
-            yield adapter.format_responses_stream_function_call(response_id, tool_call_item)
-            yield adapter.format_responses_stream_done_with_tool_call(response_id, tool_call_item)
-        else:
-            # Reduce the raw channel-structured output to the user-facing answer.
-            display_text = adapter.clean_response_text(full_text) if hasattr(adapter, "clean_response_text") else full_text
-            item_id = f"msg-{uuid.uuid4().hex}"
-            yield adapter.format_responses_stream_output_item_added(response_id, item_id)
-            yield adapter.format_responses_stream_content_part_added(response_id)
-            yield adapter.format_responses_stream_chunk(display_text, done=True, response_id=response_id)
-            yield adapter.format_responses_stream_content_part_done(response_id, display_text)
-            yield adapter.format_responses_stream_output_item_done(response_id, item_id, display_text)
-            finish_reason = END_TURN
-
-            if not generation.cancelled() and generation.exception() is None:
-                finish_reason = finish_reason_from_status(generation.result(), requested_tokens, inf_req.max_new_tokens)
-
-            yield adapter.format_responses_stream_done(response_id, output_text=display_text, finish_reason=finish_reason)
-
-        print(f"[{_elapsed()}] {response_id}: stream closed", flush=True)
 
 
 def _invalid_request_error(message: str) -> JSONResponse:
     return JSONResponse(
         status_code=400,
-        content={
-            "type": "error",
-            "error": {
-                "type": "invalid_request_error",
-                "message": message,
-            },
-        },
+        content={"type": "error", "error": {"type": "invalid_request_error", "message": message}},
     )
 
 
 def _prompt_too_long_error(prompt_length: int, context_length: int) -> JSONResponse:
-    return JSONResponse(
-        status_code=400,
-        content={
-            "type": "error",
-            "error": {
-                "type": "invalid_request_error",
-                "message": f"Prompt length {prompt_length} tokens exceeds context_length {context_length}.",
-            },
-        },
-    )
+    return _invalid_request_error(f"Prompt length {prompt_length} tokens exceeds context_length {context_length}.")

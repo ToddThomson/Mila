@@ -107,11 +107,11 @@ code, they come from three different places, and putting each in the wrong one r
 |---|---|---|---|
 | Trained maximum context | the weights | the weights header's `max_seq_length`, which the planner already reads as `trained_maximum` | n/a -- every weights file has it |
 | Instruction-tuned | the weights | manifest `instruct` (exists) | false |
-| Reasoning channel | the weights: one family can publish a checkpoint with or without one | manifest `reasoning` (new) | the architecture's default (3.3) |
+| Reasoning channel | the weights: one family can publish a checkpoint with or without one | manifest `reasoning` (new); false narrows the template's thinking variable to its off value | the architecture's default (3.3) |
 | Input modalities | the weights carry them; Mila must also load them | manifest `modalities` (new), intersected with what the family's loader reads | `["text"]` |
 | Draft model | the package carries one, or does not | manifest (new, 2026-10-04), naming the draft's weights in the package | none |
 | Prompt-prefix reuse | Mila's implementation of the architecture | the model type (3.1) | n/a |
-| Trained reasoning-effort levels | the grammar | the protocol (3.4): Qwen has three, Gemma none | n/a |
+| Template variables (thinking, effort, kept reasoning) | the checkpoint's template | the protocol (3.4), by the template's own names, values and defaults: Qwen 3.8 `enable_thinking` (true), `reasoning_effort` (`xhigh`, `medium`, `low`) and `preserve_thinking` (true); Gemma 4 `enable_thinking` (false) and `preserve_thinking` (false); Llama 3 none | n/a |
 | Streaming by channel | the application's display | stays in the application (`ROADMAP.md`, Model Handle) | n/a |
 | Default context | the application's configuration | stays in the application (Chat layer 1) | n/a |
 
@@ -177,23 +177,39 @@ the families it names, and reads the architecture string the manifest reader pro
 
 ### 3.4 The protocol: the grammar behind one interface, in `Mila/Src`
 
-A virtual interface in `Dnn.Models.Conversation`'s namespace, implemented once per family:
+A virtual interface in `Dnn.Models.Conversation`'s namespace, implemented once per **template** -- the chat
+template ships with the weights, and the tool grammar is part of it, so it is not stable within a family
+(Gemma 3 had no tool tokens, Qwen 2.5 wrote JSON inside `<tool_call>`, Llama 3.1 and 3.2 differ). Today each
+family has one, and the architecture picks it (decided 2026-10-14, Todd); a package naming its own handler
+waits for a family that ships a second template.
 
 ```cpp
 class Protocol
 {
 public:
-    virtual std::string formatPrompt( std::span<const Turn> history, const PromptOptions& options ) const = 0;
-    virtual Reply parseReply( std::string_view text ) const = 0;
-    virtual std::string formatToolResult( std::string_view name, std::string_view result_json ) const = 0;
+    virtual Prompt formatPrompt( std::span<const Turn> history, const PromptOptions& options ) const = 0;
+    virtual Reply parseReply( std::string_view text, const Prompt& prompt ) const = 0;
+    virtual std::string formatToolResult( std::string_view name, std::string_view result ) const = 0;
     virtual const ProtocolMarkers& markers() const noexcept = 0;
-    virtual std::span<const ReasoningEffort> reasoningEfforts() const noexcept = 0;
+    virtual std::span<const TemplateVariable> templateVariables() const noexcept = 0;   // empty when none
+};
+
+struct Prompt
+{
+    std::string text;
+    bool reply_begins_in_reasoning{ false };           // Qwen's primer leaves <think> open; Gemma's, on a thinking resume
+};
+
+struct TemplateVariable
+{
+    std::string name;                                  // as the template spells it: "enable_thinking"
+    std::vector<std::string> values;                   // every value the template accepts, as text
+    std::string default_value;                         // what the template uses when the variable is not set
 };
 
 struct PromptOptions
 {
-    bool enable_reasoning{ false };
-    std::optional<ReasoningEffort> reasoning_effort;   // only a level reasoningEfforts() lists
+    std::map<std::string, std::string> template_variables;   // unset: the template's default; else a listed value
     std::string tools_json;                            // the family serializes it its own way
 };
 
@@ -202,17 +218,25 @@ struct Reply
     std::string reasoning;                             // the reasoning channel's text, empty when none
     std::string content;                               // what the user is shown
     std::vector<ToolCall> tool_calls;                  // every call, in the order the model made them
+    std::vector<std::string> malformed_tool_calls;     // each call span the grammar could not read, as written
 };
 
 struct ProtocolMarkers
 {
     std::string reasoning_open, reasoning_close;
-    bool primer_opens_reasoning{ false };              // Qwen leaves <think> open when reasoning is on
     std::string tool_call_open, tool_call_close;
     std::string tool_response_open;
-    std::vector<std::string> stop_after;               // text that ends a turn early: a closed tool call
+    std::vector<std::string> stop_after;               // a closed call, and the open of a result (the engine's to write)
 };
 ```
+
+Built at `0.21.0-dev+68` as `Dnn.Models.Conversation.*`, one module per type, with `QwenChatProtocol` and
+`GemmaChatProtocol` beside each family's free functions. **The reply is read against its prompt**: whether it
+begins inside the reasoning channel is a fact of the rendering -- Qwen's primer leaves `<think>` open while
+thinking is on, Gemma's leaves its channel open only on a resume after a result with thinking on -- so
+`formatPrompt` returns it and `parseReply` takes it. **Stopping at a call's close keeps only the first of
+several** in a Gemma turn that would have made more; the markers carry today's stops, and choosing between
+them and parallel calls is the server's (`InferenceServerWire.md` W2).
 
 Each member answers one of section 1's seven decisions: `formatPrompt` renders and declares tools,
 `parseReply` parses, `markers()` gives the stop and the channel routing, `formatToolResult` renders a
@@ -227,6 +251,25 @@ and Anthropic's content blocks are lists, so every call after the first was lost
 also takes over the answer extraction each consumer did for itself (`Gemma::extractAnswer`, the server's
 `answer_text`).
 
+**A malformed call is never silent** (decided 2026-10-14, Todd). Today Qwen throws and Gemma returns nothing
+and leaves the text, so the same failure is an exception from one family and invisible from the other.
+`parseReply` does neither: it does not throw, and each call span the grammar cannot read -- an unclosed one
+included -- is returned in `malformed_tool_calls` as the model wrote it, beside whatever calls did parse, and
+kept out of `content`. What a consumer does with it --
+Chat shows it, the server logs it and answers in prose -- is the consumer's; that it learns of it is not.
+
+**A result names its tool; the loop resolves which call it answers** (decided 2026-10-14). The template
+renders a history; it does not own the tool loop. Which call a result answers is known to whoever ran the
+call -- Chat, or the server's client, which sends an id -- so it is resolved there, and a `Tool` turn carries
+the name of the tool that produced it (`Conversation::Turn::tool_name`). Gemma's grammar renders the name
+(`response:get_weather{...}`); Qwen's and Llama's render content only and ignore it. Ids stay out of the
+library: they are how one wire format finds the name. Turns render in the order they are given, never
+reordered, and pairing by position is rejected -- it has the protocol infer a fact about the flow that only
+the loop's owner holds, and it misnames a result returned out of order or alone. A Gemma call and its
+results share one model turn, so consecutive `Tool` turns after an `Assistant` turn with calls fold into it,
+and a history ending on a `Tool` turn resumes that turn open; both follow from the conversation, so
+`continue_open` is not a member of the interface.
+
 **Why virtual rather than a concept.** The handle holds one protocol chosen by name at run time, so a concept
 would need a variant again. The call is once per turn, never per token.
 
@@ -234,20 +277,40 @@ would need a variant again. The call is once per turn, never per token.
 library's and consumer-blind. The interface holds no conversation and dispatches no tool; those are the agent
 core's.
 
-**What stays out.** Only what the checkpoint was trained on is protocol. Chat's five-step thinking-effort
-scale for Gemma is a sentence Chat writes into the system turn -- Gemma's `<|think|>` is a boolean with no
-trained budget -- so it stays Chat's text (open, 10.6). Qwen's three levels are trained, with exact wording,
-so they are protocol.
+**Reasoning is the checkpoint's, exactly** (decided 2026-10-14, Todd). Thinking, reasoning and effort are
+model-specific, and what a template offers is not a list of modes but its own **variables** -- what HF's
+`apply_chat_template(**kwargs)` takes. Qwen 3.8's has `enable_thinking` (default true), `reasoning_effort`
+(`xhigh` by default, `medium`, `low`; read only while thinking is on, and anything else raises) and
+`preserve_thinking` (default true, which renders past turns' reasoning back into history). Gemma 4's has
+`enable_thinking` and `preserve_thinking`, both false by default. Llama 3's has none. So there is no
+family-neutral effort type and no invented name -- not even `off` or `on` -- and no layer, the library, an
+application or an end user, invents a level or its text. `templateVariables()` lists each variable by the
+template's name, with every value it accepts and its default; a prompt sets some of them, leaves the rest at
+the template's default, and an unknown name or value is refused with what is accepted, never approximated.
+Where the template ignores a variable (effort with thinking off), so does the renderer. An application may map
+its own control onto a variable; the mapping is its own and lands only on an accepted value. Qwen's
+`ReasoningEffort` stays an implementation detail behind its free functions. `Turn` gains `reasoning`, the
+text of the turn's reasoning channel, so that `preserve_thinking` renders what the template renders.
 
-**Llama is folded into the library**, as Gemma was at `+34`: Chat's `MessageFormatter` and
-`ToolCallParser` become `Llama.Protocol.ixx`, with parity demonstrated against Chat's output before either
-application stops calling its own. MIS's `_build_llama_prompt` is then the third copy, and the one that
-disagrees; it is deleted when MIS moves, and the zero-shot tool format is the one kept, because it is what
-Llama 3.x was fine-tuned on.
+**Llama is folded into the library**, as Gemma was at `+34`: `LlamaChatProtocol` (`+68`) renders Meta's own
+templates, with parity against them rather than against Chat's `MessageFormatter` and `ToolCallParser`, which
+become the copies Chat stops calling. MIS's `_build_llama_prompt` is deleted when MIS moves. **Llama ships two
+templates**: 3.1's and 3.2's differ in `date_string`'s default (a fixed 26 Jul 2024, and today) and in 3.1's
+built-in tools, which the protocol does not take -- so `llama31()` and `llama32()` are two handlers, and the
+architecture alone cannot pick between them. The architecture picks the handler until a family ships a second
+template (decided 2026-10-14); Llama already has, so what names it -- the package, or the model's lineage -- is
+Phase 3's to decide.
 
-**Gemma is made one renderer.** `Gemma::formatPrompt` gains the `<|think|>` trigger and the empty
-thought-channel primer that only Chat's copy has, so Chat's `formatGemmaPrompt` has nothing left but the
-effort prose.
+**Gemma is made one renderer.** The Gemma protocol renders every variable of Google's template, `enable_thinking`
+and its `<|think|>` trigger included, so Chat's `formatGemmaPrompt` -- whose remaining difference is the effort
+prose 10.6 deleted -- is replaced rather than matched.
+
+**The oracle is the checkpoint's own template** (2026-10-14). Parity is measured against `chat_template.jinja`
+as the checkpoint ships it, rendered by `transformers`' `apply_chat_template`, not against today's Chat or server
+output: those are earlier readings of the same template, and a reading can be wrong. Qwen 3.8's shows it -- its
+default effort is `xhigh` where Mila assumed `medium`, it groups consecutive tool results into one user turn,
+and it writes tool signatures with `tojson`'s separators and key order. Where an existing renderer differs from
+the template, the template wins and the difference is recorded as a finding.
 
 ### 3.5 The handle, in `Mila/AI/`
 
@@ -361,9 +424,10 @@ is being retired from; a missing family is then a run-time miss rather than a co
 ## 5. Traps
 
 - **Parity before deletion.** Every renderer that moves -- Llama's into the library, Gemma's two into one --
-  is proven byte-identical against the renderer it replaces, on recorded fixtures, before any caller
-  switches. The Gemma fold's parity step (`+34`) is the recipe: declarations, calls, responses and answers
-  identical; parsed arguments equal after decoding.
+  is proven byte-identical against the checkpoint's own template (P1), on recorded fixtures, before any
+  caller switches; where the renderer it replaces disagrees, the caller changes behaviour when it switches,
+  and the release notes say so. The Gemma fold's parity step (`+34`) is the recipe: declarations, calls,
+  responses and answers identical; parsed arguments equal after decoding.
 - **Gemma's `call_id` stays a digest** of name and arguments, not a counter, because MIS's Responses path
   re-parses the transcript on every request. Any protocol member that mints an id must keep that.
 - **C1128.** The factory instantiates every family's `load` in one translation unit, which is the shape that
@@ -395,8 +459,10 @@ Bounds written before any run; each gate forced to fail once. All in the maintai
   opens, generates, and reports no protocol.
 - **H6. A composed network meets the contract.** A test builds a small `LanguageModel` subclass from
   components, adopts it with no registration, and generates through the handle.
-- **P1. Protocol parity.** Each family's `Protocol` produces byte-identical prompts, declarations and parses
-  to the renderer it replaces, on fixtures recorded from today's Chat and MIS.
+- **P1. Protocol parity.** Each family's `Protocol` produces prompts byte-identical to the checkpoint's own
+  `chat_template.jinja` under `apply_chat_template`, on fixtures recorded from it: every template variable at
+  each of its values, tools, one and several calls, results in and out of call order, multi-turn, and the
+  resume after a result (3.4).
 - **Negatives.** N1: an architecture removed from the list -- opening its model is a refusal naming the list,
   not a misroute into another family (the "else means llama" defect MIS had). N2: `as<>` with the wrong type
   returns null. N3: the manifest default for `reasoning` set to false -- H3 fails for Gemma and Qwen.
@@ -464,6 +530,7 @@ there.
 5. **The Python projection of descent.** `mila.AI` projects the contract; how far `model()` reaches from
    Python -- the `LanguageModel` surface, or also observation -- is `PythonBinding.md`'s to decide with
    `Mila::AI`'s spec.
-6. **Gemma's effort scale.** Recommend it stays Chat's system-turn text (3.4). The alternative is a library
-   "effort" option for Gemma that is a sentence, not a trained parameter, which is a prompt the library would
-   be writing on the model's behalf.
+6. **Gemma's effort scale.** *Decided 2026-10-14 (Todd): deleted.* "Mila chat should not impose a made up
+   setting", and the same for the inference server. Chat's five-step scale and its Gemma sentences go, and
+   its reasoning setting becomes the loaded model's own template variables (3.4). What replaces the server's fixed
+   thinking-off is `InferenceServerWire.md` 3.6's to settle.

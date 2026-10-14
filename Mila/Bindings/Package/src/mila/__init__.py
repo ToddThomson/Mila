@@ -49,6 +49,7 @@ __all__ = [
     "StopController",
     # Chat protocol: the model's own grammar, projected from the runtime rather than
     # reimplemented here. A host renders a conversation; it does not write a template.
+    "ChatProtocol",
     "qwen_format_prompt",
     "qwen_parse_tool_call",
     "qwen_protocol_tokens",
@@ -210,6 +211,7 @@ cuda_library_directories = _register_cuda_libraries()
 try:
     from ._mila import (
         BpeTokenizer,
+        ChatProtocol,
         CudaDevice,
         GemmaModel,
         HttpResponse,

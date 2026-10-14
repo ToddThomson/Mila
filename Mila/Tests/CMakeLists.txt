@@ -82,6 +82,11 @@ add_executable( MilaTests
     "Dnn/Core/LanguageModelConfig.cpp"
     "Dnn/Models/Gemma/Gemma.Protocol.cpp"
     "Dnn/Models/Qwen/Qwen.Protocol.cpp"
+    # Each template's protocol against the checkpoint's own chat_template.jinja (ModelHandle.md P1).
+    "Dnn/Models/ChatProtocolForArchitecture.cpp"
+    "Dnn/Models/Gemma/Gemma.ChatProtocol.cpp"
+    "Dnn/Models/LlaMa/Llama.ChatProtocol.cpp"
+    "Dnn/Models/Qwen/Qwen.ChatProtocol.cpp"
     # Covers both containers WeightsReader accepts, including a hand-built
     # MILA file that guards the legacy .bin path no fixture-free test could reach.
     "Dnn/Serialization/SafeTensors.Cpu.cpp"

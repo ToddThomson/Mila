@@ -5,6 +5,7 @@ FetchContent never configures it.
 
 | Directory | Language | What it does |
 |---|---|---|
+| `ChatTemplates/` | Python | Renders the protocol tests' conversations through each checkpoint's own chat template, for their goldens |
 | `ContextProfile/` | C++ | What a model configuration is worth to an agent at each context length it fits |
 | `Converters/` | Python | HuggingFace weights and tokenizers to Mila format, per family |
 | `Drafting/` | C++ | Whether a draft model pays on its target: what a verify costs, and how many drafts are accepted |
@@ -93,6 +94,15 @@ ExportArtifact --fetch <lfs-url> probe.bin --resume     # digest must come back 
 
 There is no upload here. Publishing is `Publishing/publish_model.py`, and the library itself never
 uploads.
+
+## ChatTemplates
+
+`record_template_goldens.py qwen|gemma [--case NAME]` renders a fixed set of conversations -- tools, one and
+several calls, results out of order, multi-turn, every template variable at each value -- through the
+checkpoint's own `chat_template.jinja` with transformers' `render_jinja_template`, and prints each as a C++
+literal. Those are the goldens `Tests/Dnn/Models/*/*.ChatProtocol.cpp` hold each protocol to
+(`Specifications/ModelHandle.md` P1). Needs `transformers` and `jinja2`, no PyTorch, and the checkpoint's
+template in the HuggingFace cache.
 
 ## ContextProfile
 

@@ -1,568 +1,208 @@
 """
-Anthropic Messages API protocol adapter.
+Anthropic Messages.
   Chat:        POST /v1/messages
-  Completions: POST /v1/messages  (Anthropic has no separate completions path;
-               we alias it to the same endpoint for factory symmetry.)
 
-Native tool calling for the Gemma and Qwen families: inbound tool defs, assistant
-tool_use blocks and user tool_result blocks are mapped onto the model's own grammar,
-so Claude Code can drive MIS as a harness. Llama stays tool-blind plain text.
-Non-streaming tool_use is wired here; streaming tool_use
-(content_block_start{type:tool_use} + input_json_delta) is deferred.
-
-Both families' grammars come from the runtime through the mila binding, so nothing here
-renders a template. What stays local is wire-shape adaptation: Anthropic names a tool's
-schema `input_schema` where the declaration renderer reads `parameters`.
+A parser into the conversation and a formatter from the reply, with nothing about which model is loaded
+(InferenceServerWire.md 3.3); what it honours and refuses is 3.6's table.
 """
 import json
-import logging
-import uuid
 
-import mila
-
-from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
-from mila_llm_server.protocols.base import ProtocolAdapter
-from mila_llm_server.protocols.utils import (
-    DEFAULT_SYSTEM_PROMPT,
-    END_TURN,
-    anthropic_stop_reason,
-    extract_content,
-    parse_stop,
+from mila_llm_server.conversation import (
+    RequestError,
+    ServedReply,
+    ServedRequest,
+    assistant_turn,
+    not_offered,
+    offered_tool,
+    template_variable,
+    text_of,
+    tool_turn,
 )
-from mila_llm_server.prompt import build_instruct_prompt
-from mila_llm_server.config import settings, loaded, ModelFamily
-from mila_llm_server import gemma_bridge, qwen_bridge
-
-logger = logging.getLogger(__name__)
+from mila_llm_server.protocols.base import ChatEndpoint, ReplyContext
+from mila_llm_server.protocols.utils import anthropic_stop_reason, parse_stop
 
 
-def _summarize_messages(messages: list) -> list:
-    """Compact role/block-type/preview view of an inbound messages array for logging."""
-    summary = []
-
-    for msg in messages:
-        role = msg.get("role", "?")
-        content = msg.get("content", "")
-        blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
-        parts = []
-
-        for block in blocks:
-            if not isinstance(block, dict):
-                parts.append("?")
-                continue
-
-            btype = block.get("type", "text")
-
-            if btype == "text":
-                parts.append(f"text:{block.get('text', '')[:60]!r}")
-            elif btype == "tool_use":
-                parts.append(f"tool_use:{block.get('name')}({json.dumps(block.get('input', {}))[:80]})")
-            elif btype == "tool_result":
-                body = block.get("content", "")
-                body = body if isinstance(body, str) else json.dumps(body)
-                parts.append(f"tool_result[{block.get('tool_use_id', '')[:12]}]:{body[:80]!r}")
-            else:
-                parts.append(btype)
-
-        summary.append({role: parts})
-
-    return summary
+def _event(name: str, data: dict) -> str:
+    return f"event: {name}\ndata: {json.dumps({'type': name, **data})}\n\n"
 
 
-class AnthropicMessagesAdapter(ProtocolAdapter):
+def _tool_choice_offers_tools(tool_choice) -> tuple[bool, bool]:
+    """Whether tools are offered, and whether more than one call a turn is allowed."""
+    if tool_choice is None:
+        return True, True
+
+    kind = tool_choice.get("type")
+    parallel = not tool_choice.get("disable_parallel_tool_use", False)
+
+    if kind == "auto":
+        return True, parallel
+
+    if kind == "none":
+        return False, parallel
+
+    raise RequestError(f"tool_choice {json.dumps(tool_choice)} is not supported: the model cannot be made to call a tool")
+
+
+class AnthropicMessages(ChatEndpoint):
 
     @property
-    def chat_path(self) -> str:
+    def path(self) -> str:
         return "/v1/messages"
 
-    @property
-    def completions_path(self) -> str:
-        # Anthropic has no separate completions endpoint; alias to messages.
-        return "/v1/messages/completions"
+    def parse(self, body: dict, protocol) -> ServedRequest:
+        turns, names_by_id = [], {}
+        system = body.get("system")
 
-    def _extract_text(self, content) -> str:
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            return " ".join(
-                block["text"]
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "text"
-            )
-        return ""
+        if system:
+            turns.append({"role": "system", "content": text_of(system, field_name="system")})
 
-    def _extract_system(self, system) -> str:
-        if isinstance(system, str):
-            return system
-        if isinstance(system, list):
-            return " ".join(
-                block["text"]
-                for block in system
-                if isinstance(block, dict) and block.get("type") == "text"
-            )
-        return DEFAULT_SYSTEM_PROMPT
+        for index, message in enumerate(body.get("messages") or []):
+            role = message.get("role")
+            where = f"messages[{index}]"
+            content = message.get("content", "")
+            blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content or []
 
-    # ------------------------------------------------------------------
-    # Request parsing
-    # ------------------------------------------------------------------
+            if role == "user":
+                texts = []
 
-    def parse_chat_request(self, body: dict) -> tuple[str, InferenceRequest]:
-        system_prompt = self._extract_system(body.get("system", DEFAULT_SYSTEM_PROMPT))
-        messages = body.get("messages", [])
-        tools = body.get("tools") or []
+                for position, block in enumerate(blocks):
+                    kind = block.get("type")
 
-        # Bring-up: log what Claude Code POSTED back -- the inbound message shape
-        # (roles + content-block types + previews). Reveals whether the prior
-        # assistant tool_use and the user's tool_result arrived well-formed before
-        # MIS reassembles them into the Gemma prompt.
-        logger.info(
-            "anthropic /v1/messages: %d msgs, %d tools; %s",
-            len(messages), len(tools), _summarize_messages(messages))
-
-        if loaded.family == ModelFamily.gemma:
-            prompt_str = self._build_gemma_prompt(messages, system_prompt, tools)
-        elif loaded.family == ModelFamily.qwen:
-            prompt_str = self._build_qwen_prompt(messages, system_prompt, tools)
-        else:
-            prompt_str = self._build_plain_prompt(messages, system_prompt)
-
-        req = InferenceRequest(
-            prompt_ids=[],
-            max_new_tokens=body.get("max_tokens", settings.default_max_new_tokens),
-            temperature=body.get("temperature", settings.default_temperature),
-            top_k=body.get("top_k", settings.default_top_k),
-            top_p=body.get("top_p", settings.default_top_p),
-            stream=body.get("stream", False),
-            stop=parse_stop(body.get("stop_sequences")),
-        )
-        return prompt_str, req
-
-    def parse_completions_request(self, body: dict) -> tuple[str, InferenceRequest]:
-        prompt_str = body.get("prompt", "")
-        req = InferenceRequest(
-            prompt_ids=[],
-            max_new_tokens=body.get("max_tokens", settings.default_max_new_tokens),
-            temperature=body.get("temperature", settings.default_temperature),
-            top_k=body.get("top_k", settings.default_top_k),
-            top_p=body.get("top_p", settings.default_top_p),
-            stream=body.get("stream", False),
-        )
-        return prompt_str, req
-
-    # ------------------------------------------------------------------
-    # Prompt assembly
-    # ------------------------------------------------------------------
-
-    def _normalize_tools(self, tools: list) -> list:
-        """
-        Adapt Anthropic tool defs ({name, description, input_schema}) to the
-        OpenAI-ish shape gemma_bridge.tool_declarations consumes (it reads
-        `parameters`, not Anthropic's `input_schema`).
-        """
-        normalized = []
-
-        for tool in tools:
-            if not isinstance(tool, dict):
-                continue
-
-            name = tool.get("name")
-            if not name:
-                continue
-
-            normalized.append({
-                "name": name,
-                "description": tool.get("description", ""),
-                "parameters": tool.get("input_schema", {}),
-            })
-
-        return normalized
-
-    def _tool_result_text(self, content) -> str:
-        """Anthropic tool_result.content is a string or a list of content blocks."""
-        if isinstance(content, str):
-            return content
-
-        return extract_content(content) if isinstance(content, list) else ""
-
-    def _build_gemma_prompt(self, messages: list, system_prompt: str, tools: list) -> str:
-        """
-        Assemble a native Gemma agentic prompt from Anthropic messages. Assistant
-        `tool_use` and user `tool_result` content blocks replay as
-        <|tool_call>/<|tool_response> spans inside a model turn; a conversation that
-        ends on a tool result leaves that model turn open so the model continues it
-        (mirrors responses.py / the chat harness splice-and-resume).
-        """
-        tool_injection = gemma_bridge.tool_declarations(self._normalize_tools(tools))
-        # Bring-up: the tool declarations land in the SYSTEM turn (front of the
-        # prompt), so they never appear in the _dispatch tail log -- log length +
-        # head here to confirm they are actually injected, not filtered.
-        logger.info(
-            "gemma tool injection: %d tools in, %d chars out; head: %s",
-            len(tools), len(tool_injection), tool_injection[:400].replace("\n", " "))
-        system_block = system_prompt + tool_injection
-
-        turns: list[dict] = []
-        pending_names: dict[str, str] = {}  # tool_use.id -> tool name
-
-        def append_model_tool_span(span: str) -> None:
-            # Merge into any immediately-preceding model turn (a tool span OR the
-            # assistant's preamble text) so a single Anthropic assistant message
-            # that carries text + tool_use stays one model turn -- back-to-back
-            # <|turn>model turns are off-distribution for Gemma.
-            #
-            # NO separator: the reference template emits <tool_call|><|tool_response>
-            # back-to-back, and these are atomic special tokens -- a newline between
-            # them is an extra token the model never saw in training.
-            if turns and turns[-1]["role"] == "model":
-                turns[-1]["content"] += span
-                turns[-1]["tool"] = True
-            else:
-                turns.append({"role": "model", "content": span, "tool": True})
-
-        def append_text(role: str, text: str) -> None:
-            if not text:
-                return
-            if turns and turns[-1]["role"] == role and not turns[-1].get("tool"):
-                turns[-1]["content"] += "\n" + text
-            else:
-                turns.append({"role": role, "content": text})
-
-        for msg in messages:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
-            blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
-
-            for block in blocks:
-                if not isinstance(block, dict):
-                    continue
-
-                btype = block.get("type", "text")
-
-                if btype == "text":
-                    gemma_role = "model" if role == "assistant" else "user"
-                    append_text(gemma_role, block.get("text", ""))
-
-                elif btype == "tool_use":
-                    name = block.get("name", "tool")
-                    pending_names[block.get("id", "")] = name
-                    append_model_tool_span(
-                        gemma_bridge.format_tool_call(name, json.dumps(block.get("input", {}))))
-
-                elif btype == "tool_result":
-                    name = pending_names.get(block.get("tool_use_id", ""), "tool")
-                    append_model_tool_span(
-                        gemma_bridge.format_tool_response(
-                            name, self._tool_result_text(block.get("content", ""))))
-
-        # If the transcript ends on a tool exchange the model must continue that
-        # same model turn; otherwise a fresh model turn is primed.
-        continue_open = bool(turns) and turns[-1].get("tool", False)
-        return gemma_bridge.format_prompt(system_block, turns, continue_open)
-
-    def _build_qwen_prompt(self, messages: list, system_prompt: str, tools: list) -> str:
-        """
-        Assemble a native Qwen agentic prompt from Anthropic messages.
-
-        No template is written here: the turns go to `mila.qwen_format_prompt`, which is the
-        runtime's own renderer. All this does is translate Anthropic's content blocks into the
-        conversation they describe -- an assistant `tool_use` becomes a tool call on the
-        assistant turn, a user `tool_result` becomes a turn of its own.
-
-        Simpler than the Gemma path in one way worth noting: there is no splice-and-resume.
-        Qwen renders a tool result as a user turn, so a transcript ending on one primes a fresh
-        assistant turn by construction and no model turn is left open.
-        """
-        turns: list[dict] = []
-
-        if system_prompt:
-            turns.append({"role": "system", "content": system_prompt})
-
-        pending_names: dict[str, str] = {}
-
-        def append_text(role: str, text: str) -> None:
-            if not text:
-                return
-
-            if turns and turns[-1]["role"] == role and not turns[-1].get("tool_calls"):
-                turns[-1]["content"] += "\n" + text
-            else:
-                turns.append({"role": role, "content": text})
-
-        for msg in messages:
-            role = "assistant" if msg.get("role") == "assistant" else "user"
-            content = msg.get("content", "")
-            blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
-
-            for block in blocks:
-                if not isinstance(block, dict):
-                    continue
-
-                btype = block.get("type", "text")
-
-                if btype == "text":
-                    append_text(role, block.get("text", ""))
-
-                elif btype == "tool_use":
-                    name = block.get("name", "tool")
-                    pending_names[block.get("id", "")] = name
-                    call = {
-                        "id": block.get("id", ""),
-                        "name": name,
-                        "arguments": json.dumps(block.get("input", {})),
-                    }
-
-                    # Text and a call in one Anthropic message are one assistant turn: the
-                    # template renders the preamble and the call inside the same turn.
-                    if turns and turns[-1]["role"] == "assistant":
-                        turns[-1].setdefault("tool_calls", []).append(call)
+                    if kind == "text":
+                        texts.append(block.get("text", ""))
+                    elif kind == "tool_result":
+                        # A result is the tool's turn, not the user's: rendered as user text it is another
+                        # message from the person (InferenceServerWire.md 5).
+                        turns.append(tool_turn(
+                            names_by_id, block.get("tool_use_id", ""),
+                            text_of(block.get("content"), field_name=f"{where}.content[{position}].content"),
+                            field_name=f"{where}.content[{position}].tool_use_id"))
                     else:
-                        turns.append({"role": "assistant", "content": "", "tool_calls": [call]})
+                        raise RequestError(f"{where}.content[{position}] is a '{kind}' block, which this model cannot be given")
 
-                elif btype == "tool_result":
-                    turns.append({
-                        "role": "tool",
-                        "content": self._tool_result_text(block.get("content", "")),
-                    })
+                if texts:
+                    turns.append({"role": "user", "content": "\n".join(texts)})
 
-        return mila.qwen_format_prompt(
-            turns,
-            enable_thinking=False,
-            tools_json=json.dumps(self._normalize_tools(tools)) if tools else "",
+            elif role == "assistant":
+                turn = assistant_turn()
+
+                for position, block in enumerate(blocks):
+                    kind = block.get("type")
+
+                    if kind == "text":
+                        turn["content"] = (turn["content"] + "\n" + block.get("text", "")) if turn["content"] else block.get("text", "")
+                    elif kind == "thinking":
+                        turn["reasoning"] = block.get("thinking", "")
+                    elif kind == "tool_use":
+                        names_by_id[block.get("id", "")] = block.get("name", "")
+                        turn["tool_calls"].append({"name": block.get("name", ""), "arguments": json.dumps(block.get("input") or {})})
+                    else:
+                        raise RequestError(f"{where}.content[{position}] is a '{kind}' block, which this server does not read")
+
+                turns.append(turn)
+
+            else:
+                raise RequestError(f"{where}.role '{role}' is not one this server reads")
+
+        variables = {}
+        thinking = body.get("thinking")
+
+        if thinking is not None:
+            if thinking.get("type") == "disabled":
+                name, value = template_variable(protocol, "enable_thinking", "false", field_name="thinking.type")
+                variables[name] = value
+            else:
+                raise RequestError(
+                    "thinking with budget_tokens is not supported: this model's template has no thinking budget. "
+                    "Send thinking.type 'disabled', or omit thinking for the template's default")
+
+        offers_tools, parallel = _tool_choice_offers_tools(body.get("tool_choice"))
+        tools = []
+
+        if offers_tools:
+            for tool in body.get("tools") or []:
+                if tool.get("type") not in (None, "custom"):
+                    not_offered(tool.get("type"), tool.get("name"))
+                    continue
+
+                declared = offered_tool(tool.get("name"), tool.get("description"), tool.get("input_schema"))
+
+                if declared is not None:
+                    tools.append(declared)
+
+        return ServedRequest(
+            turns=turns,
+            tools=tools,
+            template_variables=variables,
+            max_new_tokens=body.get("max_tokens"),
+            temperature=body.get("temperature"),
+            top_k=body.get("top_k"),
+            top_p=body.get("top_p"),
+            stop=parse_stop(body.get("stop_sequences")),
+            stream=bool(body.get("stream", False)),
+            parallel_tool_calls=parallel,
         )
 
-    def _build_plain_prompt(self, messages: list, system_prompt: str) -> str:
-        """
-        Tool-blind plain-text path for every family without a native assembler here.
+    @staticmethod
+    def _content(reply: ServedReply) -> list[dict]:
+        content = []
 
-        Named for what it does rather than for Llama, which is what it was called when
-        Llama was the only family that reached it: build_instruct_prompt dispatches on the
-        loaded family, so this already renders Qwen's ChatML frame correctly.
-        """
-        user_message = self._extract_text(messages[-1]["content"]) if messages else ""
-        history = [
-            {"role": m["role"], "content": self._extract_text(m["content"])}
-            for m in messages[:-1]
-        ]
-        return build_instruct_prompt(user_message, system_prompt, history)
+        if reply.reasoning:
+            content.append({"type": "thinking", "thinking": reply.reasoning, "signature": ""})
 
-    # ------------------------------------------------------------------
-    # Model-text reduction (shared with the factory tool-call detection)
-    # ------------------------------------------------------------------
+        if reply.content or not reply.tool_calls:
+            content.append({"type": "text", "text": reply.content})
 
-    def parse_tool_call_from_text(self, text: str) -> dict | None:
-        """Detect a native tool call in the raw model output, in the loaded family's grammar."""
-        if loaded.family == ModelFamily.gemma:
-            return gemma_bridge.parse_tool_call(text)
+        for call in reply.tool_calls:
+            content.append({"type": "tool_use", "id": call.call_id, "name": call.name, "input": json.loads(call.arguments or "{}")})
 
-        if loaded.family == ModelFamily.qwen:
-            return qwen_bridge.parse_tool_call(text)
+        return content
 
-        return None
-
-    def clean_response_text(self, text: str) -> str:
-        """Reduce raw model output to the user-facing answer."""
-        if loaded.family == ModelFamily.gemma:
-            return gemma_bridge.answer_text(text)
-
-        if loaded.family == ModelFamily.qwen:
-            return qwen_bridge.answer_text(text)
-
-        return text
-
-    # ------------------------------------------------------------------
-    # Response formatting
-    # ------------------------------------------------------------------
-
-    def format_chat_response(self, response: InferenceResponse) -> dict:
-        tool_call = self.parse_tool_call_from_text(response.text)
-
-        if tool_call:
-            try:
-                tool_input = json.loads(tool_call["arguments"])
-            except (json.JSONDecodeError, TypeError):
-                tool_input = {}
-
-            content = [
-                {
-                    "type": "tool_use",
-                    # Deterministic call_id round-trips as the client's tool_result
-                    # tool_use_id, correlating the result back to this call.
-                    "id": tool_call["call_id"],
-                    "name": tool_call["name"],
-                    "input": tool_input,
-                }
-            ]
-            stop_reason = "tool_use"
-            stop_sequence = None
-        else:
-            content = [
-                {
-                    "type": "text",
-                    "text": self.clean_response_text(response.text),
-                }
-            ]
-            stop_reason = anthropic_stop_reason(response.finish_reason)
-            stop_sequence = response.stop_sequence
-
+    @staticmethod
+    def _message(context: ReplyContext, content: list[dict], reply: ServedReply | None) -> dict:
         return {
-            "id": f"msg_{uuid.uuid4().hex}",
+            "id": context.response_id,
             "type": "message",
             "role": "assistant",
             "content": content,
-            "model": loaded.name,
-            "stop_reason": stop_reason,
-            "stop_sequence": stop_sequence,
+            "model": context.model,
+            "stop_reason": None if reply is None else anthropic_stop_reason(reply.finish_reason),
+            "stop_sequence": None if reply is None else reply.stop_sequence,
             "usage": {
-                "input_tokens": response.prompt_token_count,
-                "output_tokens": response.completion_token_count,
+                "input_tokens": context.prompt_tokens,
+                "output_tokens": 0 if reply is None else reply.completion_tokens,
             },
         }
 
-    def format_completions_response(self, response: InferenceResponse) -> dict:
-        return self.format_chat_response(response)
+    def format(self, reply: ServedReply, context: ReplyContext) -> dict:
+        return self._message(context, self._content(reply), reply)
 
-    def format_stream_preamble(self, prompt_token_count: int) -> str:
-        message_start = {
-            "type": "message_start",
-            "message": {
-                "id": f"msg_{uuid.uuid4().hex}",
-                "type": "message",
-                "role": "assistant",
-                "content": [],
-                "model": loaded.name,
-                "stop_reason": None,
-                "stop_sequence": None,
-                "usage": {"input_tokens": prompt_token_count, "output_tokens": 0},
-            },
-        }
-        content_block_start = {
-            "type": "content_block_start",
-            "index": 0,
-            "content_block": {"type": "text", "text": ""},
-        }
-        ping = {"type": "ping"}
-        return (
-            f"event: message_start\ndata: {json.dumps(message_start)}\n\n"
-            f"event: content_block_start\ndata: {json.dumps(content_block_start)}\n\n"
-            f"event: ping\ndata: {json.dumps(ping)}\n\n"
-        )
+    def stream_open(self, context: ReplyContext) -> str:
+        return _event("message_start", {"message": self._message(context, [], None)}) + _event("ping", {})
 
-    def stop_reason(self, finish_reason: str) -> str:
-        return anthropic_stop_reason(finish_reason)
+    def stream_keepalive(self, context: ReplyContext) -> str:
+        return _event("ping", {})
 
-    def format_stream_chunk(self, text: str, done: bool, finish_reason: str = END_TURN) -> str:
-        if done:
-            event_type = "content_block_stop"
-            data = {"type": "content_block_stop", "index": 0}
-        else:
-            event_type = "content_block_delta"
-            data = {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {
-                    "type": "text_delta",
-                    "text": text,
-                },
-            }
-        return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+    def stream_reply(self, reply: ServedReply, context: ReplyContext) -> str:
+        events = []
 
-    def format_stream_message_delta(
-        self, output_token_count: int, finish_reason: str = END_TURN, stop_sequence: str | None = None
-    ) -> str:
-        data = {
-            "type": "message_delta",
-            "delta": {"stop_reason": anthropic_stop_reason(finish_reason), "stop_sequence": stop_sequence},
-            "usage": {"output_tokens": output_token_count},
-        }
-        return f"event: message_delta\ndata: {json.dumps(data)}\n\n"
+        for index, block in enumerate(self._content(reply)):
+            if block["type"] == "thinking":
+                events.append(_event("content_block_start", {"index": index, "content_block": {"type": "thinking", "thinking": "", "signature": ""}}))
+                events.append(_event("content_block_delta", {"index": index, "delta": {"type": "thinking_delta", "thinking": block["thinking"]}}))
+                events.append(_event("content_block_delta", {"index": index, "delta": {"type": "signature_delta", "signature": ""}}))
+            elif block["type"] == "text":
+                events.append(_event("content_block_start", {"index": index, "content_block": {"type": "text", "text": ""}}))
+                events.append(_event("content_block_delta", {"index": index, "delta": {"type": "text_delta", "text": block["text"]}}))
+            else:
+                events.append(_event("content_block_start", {"index": index, "content_block": {**block, "input": {}}}))
+                events.append(_event("content_block_delta", {"index": index, "delta": {"type": "input_json_delta", "partial_json": json.dumps(block["input"])}}))
 
-    def format_stream_done(self) -> str:
-        message_stop = {"type": "message_stop"}
-        return f"event: message_stop\ndata: {json.dumps(message_stop)}\n\n"
+            events.append(_event("content_block_stop", {"index": index}))
 
-    # ------------------------------------------------------------------
-    # Streaming tool_use (buffered path -- see factory._stream_buffered_tool)
-    # ------------------------------------------------------------------
+        events.append(_event("message_delta", {
+            "delta": {"stop_reason": anthropic_stop_reason(reply.finish_reason), "stop_sequence": reply.stop_sequence},
+            "usage": {"output_tokens": reply.completion_tokens}}))
+        events.append(_event("message_stop", {}))
 
-    def format_stream_message_start(self, prompt_token_count: int) -> str:
-        # Open the message but DEFER content_block_start: the block's type
-        # (text vs tool_use) is only known once the whole model turn is parsed.
-        message_start = {
-            "type": "message_start",
-            "message": {
-                "id": f"msg_{uuid.uuid4().hex}",
-                "type": "message",
-                "role": "assistant",
-                "content": [],
-                "model": loaded.name,
-                "stop_reason": None,
-                "stop_sequence": None,
-                "usage": {"input_tokens": prompt_token_count, "output_tokens": 0},
-            },
-        }
-        ping = {"type": "ping"}
-        return (
-            f"event: message_start\ndata: {json.dumps(message_start)}\n\n"
-            f"event: ping\ndata: {json.dumps(ping)}\n\n"
-        )
-
-    def format_stream_text_block(self, text: str) -> str:
-        start = {
-            "type": "content_block_start",
-            "index": 0,
-            "content_block": {"type": "text", "text": ""},
-        }
-        delta = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": {"type": "text_delta", "text": text},
-        }
-        stop = {"type": "content_block_stop", "index": 0}
-        return (
-            f"event: content_block_start\ndata: {json.dumps(start)}\n\n"
-            f"event: content_block_delta\ndata: {json.dumps(delta)}\n\n"
-            f"event: content_block_stop\ndata: {json.dumps(stop)}\n\n"
-        )
-
-    def format_stream_tool_use_block(self, tool_call: dict) -> str:
-        # content_block_start carries the tool id+name with empty input; the arguments
-        # arrive as one input_json_delta. Gemma emits the whole call at once, so there
-        # is no partial JSON to fragment. The deterministic call_id round-trips as the
-        # client's tool_result tool_use_id.
-        try:
-            tool_input = json.loads(tool_call["arguments"])
-        except (json.JSONDecodeError, TypeError):
-            tool_input = {}
-
-        start = {
-            "type": "content_block_start",
-            "index": 0,
-            "content_block": {
-                "type": "tool_use",
-                "id": tool_call["call_id"],
-                "name": tool_call["name"],
-                "input": {},
-            },
-        }
-        delta = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": {"type": "input_json_delta", "partial_json": json.dumps(tool_input)},
-        }
-        stop = {"type": "content_block_stop", "index": 0}
-        return (
-            f"event: content_block_start\ndata: {json.dumps(start)}\n\n"
-            f"event: content_block_delta\ndata: {json.dumps(delta)}\n\n"
-            f"event: content_block_stop\ndata: {json.dumps(stop)}\n\n"
-        )
-
-    def format_stream_message_stop_delta(self, output_token_count: int, stop_reason: str) -> str:
-        data = {
-            "type": "message_delta",
-            "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-            "usage": {"output_tokens": output_token_count},
-        }
-        return f"event: message_delta\ndata: {json.dumps(data)}\n\n"
-
-    def format_responses_stream_keepalive(self, response_id: str) -> str:
-        return "event: ping\ndata: {}\n\n"
+        return "".join(events)

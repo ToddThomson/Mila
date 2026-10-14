@@ -192,6 +192,25 @@ namespace Mila::Tests::Distribution
         ASSERT_NE( manifest.file( kTokenizerRole ), nullptr );
     }
 
+    TEST( ModelManifestTests, AManifestWrittenBeforeArchitectureVersionReadsItEmpty )
+    {
+        EXPECT_TRUE( parseModelManifest( manifestJson( "aaa" ), "test" ).architecture_version.empty() );
+        EXPECT_EQ( toJsonText( parseModelManifest( manifestJson( "aaa" ), "test" ) ).find( "architecture_version" ),
+            std::string::npos );
+    }
+
+    TEST( ModelManifestTests, ArchitectureVersionRoundTripsBesideTheArchitecture )
+    {
+        auto manifest = parseModelManifest( manifestJson( "aaa" ), "test" );
+        manifest.architecture = "llama";
+        manifest.architecture_version = "3.1";
+
+        const std::string text = toJsonText( manifest );
+
+        EXPECT_EQ( parseModelManifest( text, "test" ).architecture_version, "3.1" );
+        EXPECT_NE( text.find( "\"architecture\": \"llama\",\n  \"architecture_version\": \"3.1\"" ), std::string::npos );
+    }
+
     TEST( ModelManifestTests, RefusesAModelWithNoWeights )
     {
         // A model declaring only a tokenizer is not one, and the failure belongs at the parse

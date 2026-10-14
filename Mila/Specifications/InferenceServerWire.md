@@ -97,8 +97,10 @@ text before reaching it today.
 | Messages | `system` | assistant `tool_use` block | user `tool_result` block, by `tool_use_id` |
 
 Correlation ids are wire bookkeeping: `Conversation::ToolCall` has none, because no template renders one. Each
-parser resolves an id to its call when it builds the turns, and the formatter mints one for a new call -- for
-Gemma the existing digest of name and arguments (`ModelHandle.md` section 5).
+parser resolves a result's id to its call when it builds the turns and sets the `Tool` turn's `tool_name` from
+it (`ModelHandle.md` 3.4), keeping the order the client sent; an id that names no earlier call is refused with a
+400, never rendered under a guessed name. The formatter mints an id for a new call -- for Gemma the existing
+digest of name and arguments (`ModelHandle.md` section 5).
 
 Content given as parts is reduced to its text parts; a part the server cannot pass to the model (an image, a
 file) is refused with a 400 naming it, never dropped.
@@ -113,14 +115,16 @@ struct Reply
     std::string reasoning;                    // the reasoning channel's text, empty when there was none
     std::string content;                      // what the user is shown
     std::vector<ToolCall> tool_calls;         // every call, in the order the model made them
+    std::string malformed_tool_call;          // a call span the grammar could not read; empty when none
 };
 
 virtual Reply parseReply( std::string_view text ) const = 0;
 ```
 
 It replaces `parseToolCall` in the interface and subsumes `Gemma::extractAnswer`, both bridges' `answer_text`,
-and the server's `clean_response_text`. A malformed call is the family's to report, as today; the server's
-choice of what a malformed call does to a live request -- prose, logged -- stays the server's. Carried to
+and the server's `clean_response_text`. A malformed call is reported, never dropped:
+`Reply::malformed_tool_call` carries the span as the model wrote it (`ModelHandle.md` 3.4). What it does to a
+live request -- prose, logged -- stays the server's. Carried to
 `ModelHandle.md` 3.4 in this change.
 
 ### 3.3 Family-blind endpoints
@@ -156,22 +160,62 @@ Every field an API defines is either acted on or refused with a 400 naming it. N
 asked for something and got a normal-looking reply cannot tell it was not done. Fields outside the API's
 definition are left alone, as OpenAI's and Anthropic's servers treat them.
 
-Proposed for Chat Completions; Responses and Messages get the same table in this document before their
-endpoints move.
+Decided 2026-10-14 (Todd, "go with your recommendations for now", reviewed by running Codex and Claude Code). A
+field that only describes the request and changes no reply -- `user`, `metadata`, `store: false` -- is accepted;
+a refusal is for a field whose value would change the reply and cannot be acted on, so a field sent at its
+API's default (`n: 1`, `frequency_penalty: 0`) is accepted too. No endpoint writes a system turn the request did
+not send: the "You are a helpful assistant." each one supplied is gone, and an absent system message is the
+template's to render.
 
-| Field | Proposed | Note |
+**Reasoning reaches the client in each API's own shape** (decided 2026-10-14): Chat Completions in
+`message.reasoning_content` (and `delta.reasoning_content` streamed), which OpenAI does not define and a client that
+does not know it ignores; Responses as a `reasoning` output item with its text as `summary_text`; Messages as a
+`thinking` content block. Reasoning a client sends back -- `reasoning_content`, a `reasoning` item, a `thinking`
+block -- becomes the assistant turn's `Turn::reasoning`, which the template renders or drops by its own rule.
+
+Chat Completions:
+
+| Field | Decided | Note |
 |---|---|---|
-| `messages`, `tools` | honour | 3.1 |
+| `messages`, `tools` | honour | 3.1; `developer` is `system`; an assistant's `reasoning_content` is its reasoning |
 | `max_completion_tokens`, `max_tokens` | honour | the first wins when both are sent |
-| `temperature`, `top_p`, `stop`, `stream` | honour | already |
+| `temperature`, `top_p`, `stop`, `stream` | honour | |
 | `stream_options.include_usage` | honour | a final usage chunk |
-| `tool_choice` | honour `auto` and `none`; the rest open | 10.3 |
+| `tool_choice` | honour `auto` and `none`; refuse `required` and a named function | 10.3: asking is not doing |
 | `parallel_tool_calls` | honour | `false` keeps the first call of a turn |
-| `seed` | open | the binding takes no seed today (10.4) |
+| `seed` | refuse | the binding takes no seed (10.4) |
 | `n` > 1 | refuse | one completion per request |
 | `logprobs`, `top_logprobs` | refuse | not exposed by the binding |
+| `frequency_penalty`, `presence_penalty`, `logit_bias` other than their defaults | refuse | the sampler has none |
 | `response_format` other than `text` | refuse | Mila has no constrained decoding |
+| `reasoning_effort` | honour a value the model's template accepts for its own `reasoning_effort` variable; refuse any other, and refuse the field for a template without the variable, naming what is accepted | `ModelHandle.md` 3.4: no layer maps one model's levels onto another's. Absent: the template's default (10.6) |
 | image or audio content parts | refuse | 3.1 |
+
+Responses:
+
+| Field | Decided | Note |
+|---|---|---|
+| `input` (text, `message`, `function_call`, `function_call_output`, `reasoning` items), `instructions`, `tools` | honour | 3.1; any other item type is refused, naming it |
+| `tools` of a type other than `function` | not offered, logged | a built-in tool the server cannot run is never declared to the model |
+| `max_output_tokens`, `temperature`, `top_p`, `stream` | honour | |
+| `tool_choice`, `parallel_tool_calls` | as Chat Completions | |
+| `reasoning.effort` | as Chat Completions' `reasoning_effort` | |
+| `reasoning.summary` | honour | the reasoning is returned whole as its summary |
+| `text.format` other than `text` | refuse | no constrained decoding |
+| `previous_response_id`, `store: true` | refuse | the server keeps no state between requests |
+| `include` | honour `reasoning.encrypted_content` | the reasoning travels in the item and comes back in it; nothing is encrypted, and the client never reads it |
+
+Messages:
+
+| Field | Decided | Note |
+|---|---|---|
+| `messages` (text, `tool_use`, `tool_result`, `thinking` blocks), `system`, `tools` | honour | 3.1; a `tool_result` is split out of its user message as a `Tool` turn (5) |
+| `tools` with a server-side `type` | not offered, logged | as Responses |
+| `max_tokens`, `temperature`, `top_p`, `top_k`, `stop_sequences`, `stream`, `metadata` | honour | |
+| `tool_choice` | honour `auto` and `none`; refuse `any` and `tool` | 10.3 |
+| `tool_choice.disable_parallel_tool_use` | honour | keeps the first call |
+| `thinking.type` | `disabled` sets the template's `enable_thinking` false; `enabled` needs `budget_tokens`, which is refused | no template has a thinking budget |
+| image and document blocks, `redacted_thinking` | refuse | 3.1 |
 
 ---
 
@@ -277,3 +321,9 @@ functions (`gemma_format_prompt`, `qwen_parse_tool_call` and the rest).
 5. **Llama in the server.** Llama's tool grammar is the server's own copy until Phase 1 folds it. Recommend no
    Llama tool support on Chat Completions before then -- a Llama tool request is refused -- rather than built
    on the copy Phase 1 deletes.
+6. **Reasoning when a request names no mode.** *Decided 2026-10-14 (Todd): the template's default.* The
+   server imposes no made-up setting, as Chat does not (`ModelHandle.md` 3.4); today every endpoint fixes
+   thinking off for every model ("a harness wants the answer"), which is the server choosing for the model.
+   With the template's default Qwen 3.8 thinks and Gemma 4 does not, which changes what Codex and Claude Code
+   receive from Qwen, so it lands with Phase 3, once the reasoning channel reaches the client as the API's
+   reasoning block rather than as text.

@@ -12,8 +12,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mila_llm_server.config import ModelFamily, loaded
-from mila_llm_server.protocols.openai.chat import OpenAIChatAdapter
+import mila
+
+from mila_llm_server.config import loaded
+from mila_llm_server.protocols.openai import OpenAIAdapter
+from mila_llm_server.protocols.openai.chat import OpenAIChatCompletions, OpenAICompletions
 from mila_llm_server.protocols.utils import parse_completion_prompt, parse_stop, truncate_at_stop
 from mila_llm_server.routes import factory
 
@@ -57,7 +60,7 @@ def test_batches_and_malformed_prompts_are_refused(prompt):
 
 
 def test_the_openai_adapter_carries_ids_and_stop_into_the_request():
-    adapter = OpenAIChatAdapter()
+    adapter = OpenAICompletions()
 
     prompt_str, request = adapter.parse_completions_request(
         {"prompt": [[128000, 9906]], "stop": ["Q:", "<|eot_id|>"], "max_tokens": 32, "temperature": 0}
@@ -69,9 +72,8 @@ def test_the_openai_adapter_carries_ids_and_stop_into_the_request():
 
 
 def test_a_chat_request_carries_stop_too():
-    adapter = OpenAIChatAdapter()
-
-    _, request = adapter.parse_chat_request({"messages": [{"role": "user", "content": "Hi"}], "stop": "Q:"})
+    request = OpenAIChatCompletions().parse(
+        {"messages": [{"role": "user", "content": "Hi"}], "stop": "Q:"}, mila.ChatProtocol.gemma())
 
     assert request.stop == ["Q:"]
 
@@ -105,14 +107,13 @@ class FakeWorker:
 @pytest.fixture
 def client(monkeypatch):
     before = dataclasses.replace(loaded)
-    loaded.family = ModelFamily.llama
     loaded.context_length = 4096
 
     fake = FakeWorker(reply_ids=[10, 11, 12])
     monkeypatch.setattr(factory, "worker", fake)
 
     app = FastAPI()
-    factory.register_routes(app, OpenAIChatAdapter())
+    factory.register_routes(app, OpenAIAdapter())
 
     yield TestClient(app), fake
 

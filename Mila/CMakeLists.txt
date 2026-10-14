@@ -494,14 +494,28 @@ PUBLIC
         "Src/Deployment/DeploymentPlanner.ixx"
 
         # The one runtime-to-compile-time quantization bridge, imported by the models below.
+        "Src/Dnn/Models/Conversation.Role.ixx"
+        "Src/Dnn/Models/Conversation.ToolCall.ixx"
+        "Src/Dnn/Models/Conversation.Turn.ixx"
+        "Src/Dnn/Models/Conversation.TemplateVariable.ixx"
+        "Src/Dnn/Models/Conversation.PromptOptions.ixx"
+        "Src/Dnn/Models/Conversation.Prompt.ixx"
+        "Src/Dnn/Models/Conversation.Reply.ixx"
+        "Src/Dnn/Models/Conversation.ProtocolMarkers.ixx"
+        "Src/Dnn/Models/Conversation.Protocol.ixx"
+        "Src/Dnn/Models/Conversation.TemplateJson.ixx"
         "Src/Dnn/Models/Conversation.ixx"
         "Src/Dnn/Models/QuantizationDispatch.ixx"
         "Src/Dnn/Models/Gpt/GptModel.ixx"
         "Src/Dnn/Models/LlaMa/LlamaModel.ixx"
+        "Src/Dnn/Models/LlaMa/Llama.ChatProtocol.ixx"
         "Src/Dnn/Models/Gemma/GemmaModel.ixx"
         "Src/Dnn/Models/Gemma/Gemma.Protocol.ixx"
+        "Src/Dnn/Models/Gemma/Gemma.ChatProtocol.ixx"
         "Src/Dnn/Models/Qwen/QwenModel.ixx"
         "Src/Dnn/Models/Qwen/Qwen.Protocol.ixx"
+        "Src/Dnn/Models/Qwen/Qwen.ChatProtocol.ixx"
+        "Src/Dnn/Models/ChatProtocolForArchitecture.ixx"
 
         # An installed model by its store name, and the family switch that plans it: above the families, which it
         # imports (Deployment.md 8.1).

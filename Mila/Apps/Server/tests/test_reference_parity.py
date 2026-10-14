@@ -23,9 +23,10 @@ block from inside the `type:` branch, so a schema with no `type` leaves the bloc
 with a dangling comma. MIS always closes it -- a deliberate, documented deviation (see
 _build_trained_tool_declarations). Do not "fix" the template.
 
-Scope: the Anthropic adapter path (Claude Code). The Codex/Responses adapter shares
-assemble_prompt and append_model_tool_span, so it inherits the coverage; a dedicated
-case would still be worth adding if that path diverges.
+Scope: the Messages endpoint (Claude Code), parsed into the conversation and rendered by the
+runtime's GemmaChatProtocol, whose own suite holds it to the template on many more cases
+(Mila/Tests/Dnn/Models/Gemma/Gemma.ChatProtocol.cpp). This case checks that the endpoint's
+parse hands it the right conversation.
 """
 import pathlib
 
@@ -35,7 +36,9 @@ jinja2 = pytest.importorskip("jinja2", reason="reference parity needs the jinja2
 from jinja2 import TemplateError
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
-from mila_llm_server.protocols.anthropic.messages import AnthropicMessagesAdapter
+import mila
+
+from mila_llm_server.protocols.anthropic.messages import AnthropicMessages
 
 TEMPLATE = pathlib.Path(__file__).parent / "reference" / "gemma4_12b_chat_template.jinja"
 
@@ -106,10 +109,12 @@ def anthropic_messages(resumed: bool) -> list:
 
 def assert_matches_reference(resumed: bool) -> None:
     expected = render_reference(messages=reference_messages(resumed), tools=REFERENCE_TOOLS)
-    # Drive the REAL adapter, not a hand-built prompt: routing through the production
-    # path is what caught a stray newline in the span joiner.
-    actual = AnthropicMessagesAdapter()._build_gemma_prompt(
-        anthropic_messages(resumed), SYSTEM, ANTHROPIC_TOOLS)
+    # Drive the REAL endpoint and the runtime's protocol, not a hand-built prompt: routing through
+    # the production path is what caught a stray newline in the span joiner.
+    protocol = mila.ChatProtocol.gemma()
+    request = AnthropicMessages().parse(
+        {"system": SYSTEM, "messages": anthropic_messages(resumed), "tools": ANTHROPIC_TOOLS}, protocol)
+    actual = protocol.format_prompt(request.turns, request.template_variables, request.tools_json)["text"]
 
     assert actual == expected, (
         "MIS prompt diverged from Google's template.\n"

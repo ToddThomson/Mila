@@ -1,5 +1,5 @@
 """
-Owns the loaded model and its BpeTokenizer and serializes inference requests
+Owns the loaded model, its BpeTokenizer and its chat protocol, and serializes inference requests
 through a single worker thread, honoring the model's non-thread-safe contract.
 All public methods are async-safe and may be called from any asyncio task.
 
@@ -12,72 +12,43 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 import mila
-from mila_llm_server.config import settings, loaded, ModelFamily
-from mila_llm_server import gemma_bridge
-from mila_llm_server.gemma_bridge import strip_control_tokens as _strip_gemma_control_tokens
+from mila_llm_server.config import settings, loaded
 
-# The checkpoint's own tokens, reported by the runtime rather than written down again.
-TOOL_CALL_CLOSE = gemma_bridge.TOKENS["tool_call_close"]
-TOOL_RESPONSE_OPEN = gemma_bridge.TOKENS["tool_response_open"]
-CHANNEL_OPEN = gemma_bridge.TOKENS["reasoning_open"]
-
-# Degeneration backstop. A bad Gemma sample can fail to emit a tool call or stop
-# token and instead spam empty reasoning channels / repeat one token for the whole
-# budget (observed: the literal "thought" label perseverated ~1000 tokens). These
-# caps only fire on genuine runaway (hundreds) -- set well clear of any legitimate
-# response, since a false trip cuts a real answer short (a too-tight channel cap
-# once killed tool calls mid-reasoning).
+# Degeneration backstop. A bad sample can fail to emit a call or stop token and instead
+# spam empty reasoning channels / repeat one token for the whole budget (observed on Gemma:
+# the literal "thought" label perseverated ~1000 tokens). These caps only fire on genuine
+# runaway (hundreds) -- set well clear of any legitimate response, since a false trip cuts
+# a real answer short (a too-tight channel cap once killed tool calls mid-reasoning).
 _MAX_REASONING_CHANNELS = 24
 _MAX_TOKEN_REPEATS = 48
 
 _log = logging.getLogger(__name__)
 
-#: The session class that loads each family's weights. A mapping rather than a chain of
-#: conditionals, because the chain's else branch was a silent default: adding a third family
-#: to ModelFamily routed its weights into LlamaModel rather than failing.
+#: The binding's session class for each loader a store record names (StoredModel.family). The one place the
+#: server meets the model's family, and only to load it: the binding has no family-blind loader yet, which the
+#: model handle supplies (ModelHandle.md 3.5).
 SESSION_FOR = {
-    ModelFamily.gemma: "GemmaModel",
-    ModelFamily.llama: "LlamaModel",
-    ModelFamily.qwen: "QwenModel",
+    "gemma": "GemmaModel",
+    "llama": "LlamaModel",
+    "qwen": "QwenModel",
 }
 
 
-def _stop_markers_for(family: ModelFamily) -> tuple[str, ...]:
+def _session_of(record: "mila.StoredModel"):
     """
-    The decoded text that ends a turn early, in the loaded family's own grammar.
-
-    A closing tool-call marker is a protocol boundary: left running, the model fabricates the
-    tool result itself. The opening tool-response marker is the engine's turn to speak and never
-    the model's, so it backstops a call the model failed to close.
-
-    Qwen's come from the runtime rather than from constants here -- the grammar is the library's
-    and asking it is what keeps this from becoming a second place the tokens are written down.
+    The session that loads the record's weights. A model MIS cannot serve is refused at load rather than at
+    the first request: the store holds models no session loads (gpt2 has a record and no session), and a server
+    that started on one would fail every request instead.
     """
-    if family == ModelFamily.gemma:
-        return (TOOL_CALL_CLOSE, TOOL_RESPONSE_OPEN)
+    session = SESSION_FOR.get(record.family)
 
-    if family == ModelFamily.qwen:
-        tokens = mila.qwen_protocol_tokens()
-        return (tokens["tool_call_close"], tokens["tool_response_open"])
-
-    return ()
-
-
-def _family_of(record: "mila.StoredModel") -> ModelFamily:
-    """
-    The family the library loads the model as, for the protocol layer to branch on.
-
-    A model MIS cannot serve is refused at load rather than at the first request: the store
-    holds families no session loads (gpt2 has a record and no session), and a server that
-    started on one would fail every request instead.
-    """
-    try:
-        return ModelFamily(record.family)
-    except ValueError:
+    if session is None:
         raise RuntimeError(
-            f"'{record.name}' has architecture '{record.architecture}', which MIS does not "
-            f"serve. Supported: {', '.join(family.value for family in ModelFamily)}."
-        ) from None
+            f"'{record.name}' has architecture '{record.architecture}', which MIS does not serve. "
+            f"Supported: {', '.join(SESSION_FOR)}."
+        )
+
+    return getattr(mila, session)
 
 
 def _device_record(device_index: int) -> dict | None:
@@ -108,12 +79,15 @@ class ModelWorker:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mila-worker")
         self._loop: asyncio.AbstractEventLoop | None = None
         self._tokenizer: mila.BpeTokenizer | None = None
-        self._model: "mila.LlamaModel | mila.GemmaModel | mila.QwenModel | None" = None
+        self._model = None
 
-        # Decoded text that must halt generation, from the loaded family's own grammar. Empty
-        # for a family with no tool spans, and filled by _load() -- never written down here,
-        # since the runtime reports them.
+        #: The loaded model's chat template. None for a base model, which has none to converse through.
+        self.protocol: mila.ChatProtocol | None = None
+
+        # Decoded text that must halt generation, and the open of a reasoning channel the backstop counts,
+        # both from the protocol's own markers.
         self._stop_markers: tuple[str, ...] = ()
+        self._reasoning_open: str = ""
 
     async def startup(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -144,10 +118,13 @@ class ModelWorker:
                 "'mila-server models --online' lists what is published."
             )
 
+        session = _session_of(record)
+
         loaded.name = record.name
         loaded.variant = record.variant
         loaded.instruct = record.instruct
-        loaded.family = _family_of(record)
+        loaded.tools = record.tools
+        loaded.thinking = record.thinking
         loaded.base_model = record.base_model
         loaded.license = record.license
 
@@ -163,13 +140,15 @@ class ModelWorker:
         if loaded.attribution:
             _log.info("%s", loaded.attribution)
 
-        # One call for either family: the record says which loader the weights need, so
-        # there is no longer a tokenizer path to pair with a weights path by hand.
+        # The template the model ships with, named by its manifest. Read before the weights load, so a model whose
+        # manifest does not say which template it runs with is refused in seconds rather than after a load.
+        if record.instruct:
+            self.protocol = mila.ChatProtocol.for_model(record.name)
+            markers = self.protocol.markers
+            self._stop_markers = tuple(markers["stop_after"])
+            self._reasoning_open = markers["reasoning_open"]
+
         self._tokenizer = mila.BpeTokenizer.from_store(record.name)
-
-        self._stop_markers = _stop_markers_for(loaded.family)
-
-        session = getattr(mila, SESSION_FOR[loaded.family])
 
         # from_store, not load: every published model is already quantized,
         # and only the record knows to what.
@@ -191,10 +170,6 @@ class ModelWorker:
             loaded.device["name"] if loaded.device else "unknown",
         )
 
-    @property
-    def _is_gemma(self) -> bool:
-        return loaded.family == ModelFamily.gemma
-
     # ------------------------------------------------------------------
     # Tokenizer helpers (cheap; run on the worker thread for consistency)
     # ------------------------------------------------------------------
@@ -205,17 +180,13 @@ class ModelWorker:
 
     async def decode(self, ids: list[int]) -> str:
         """
-        A whole reply's text. Its ids may stop inside a multi-byte character -- a reply cut at
-        max_tokens -- and that tail becomes U+FFFD rather than an error, as HuggingFace decodes it.
+        A whole reply's text, as the model wrote it. Its ids may stop inside a multi-byte character -- a reply
+        cut at max_tokens -- and that tail becomes U+FFFD rather than an error, as HuggingFace decodes it.
         Streaming decodes strictly instead, holding such a tail until its next token arrives.
         """
         loop = asyncio.get_running_loop()
-        text = await loop.run_in_executor(self._executor, self._tokenizer.decode, ids, "replace")
 
-        if self._is_gemma:
-            text = _strip_gemma_control_tokens(text)
-
-        return text
+        return await loop.run_in_executor(self._executor, self._tokenizer.decode, ids, "replace")
 
     @property
     def bos_token_id(self) -> int | None:
@@ -251,42 +222,6 @@ class ModelWorker:
 
         return await loop.run_in_executor(self._executor, _run)
 
-    async def generate_collect(
-        self,
-        prompt_tokens: list[int],
-        max_new_tokens: int,
-        temperature: float,
-        top_k: int,
-        top_p: float = 1.0,
-    ) -> tuple[str, int, str]:
-        """
-        Non-streaming generation that still honors the Gemma <tool_call|> stop and
-        the degeneration backstop by driving the streaming primitive to completion
-        and accumulating the RAW (unstripped) decode. The plain blocking generate()
-        path has neither guard and worker.decode() strips the <|tool_call> markers,
-        so a non-streaming tool-call turn cannot be detected there; this path is what
-        the Anthropic/Responses tool flows need for a single-shot JSON response.
-        Returns (raw_text, decoded_chunk_count, status). Callers that only want display text
-        reduce via gemma_bridge.answer_text / strip_control_tokens.
-        """
-        parts: list[str] = []
-
-        def on_text(text: str) -> None:
-            parts.append(text)
-
-        stop_ctrl = mila.StopController()
-        status = await self.generate_streaming(
-            prompt_tokens,
-            on_text,
-            max_new_tokens,
-            temperature,
-            top_k,
-            top_p,
-            stop_ctrl,
-            strip_control_tokens=False,
-        )
-        return "".join(parts), len(parts), status
-
     # ------------------------------------------------------------------
     # Streaming generation
     # ------------------------------------------------------------------
@@ -300,41 +235,30 @@ class ModelWorker:
         top_k: int,
         top_p: float = 1.0,
         stop_ctrl: mila.StopController | None = None,
-        strip_control_tokens: bool = True,
+        stop_at_markers: bool = True,
     ) -> str:
         """
-        Runs the binding's generate() on the worker thread. Each token is decoded
-        on the worker thread and delivered as a string via on_text, avoiding
-        re-entrant calls back into the executor from the asyncio event loop.
-        on_text is called from the worker thread; callers must use thread-safe
-        delivery (e.g. loop.call_soon_threadsafe into an asyncio.Queue).
-        Token IDs are buffered until they form a valid UTF-8 sequence to handle
-        tokens that carry only a partial multi-byte code point.
+        Runs the binding's generate() on the worker thread, delivering the decoded text as the model wrote it,
+        markers and all: what it means is the protocol's to parse. on_text is called from the worker thread;
+        callers must use thread-safe delivery (e.g. loop.call_soon_threadsafe into an asyncio.Queue). Token ids
+        are buffered until they form a valid UTF-8 sequence, since a token can carry part of a code point.
 
-        Gemma native tool calls: <|tool_call> ... <tool_call|> is a registered
-        protocol boundary. Left running, the model fabricates the tool result
-        itself, so generation is stopped the moment <tool_call|> is decoded --
-        exactly mirroring the chat harness (Chat.ixx generateResponse). Per the
-        Gemma 4 spec, <|tool_response> is ALSO a stop sequence: it is the engine's
-        turn to supply the result, never the model's, so if the model runs past a
-        malformed/unclosed call and starts emitting <|tool_response> we cut it off
-        before it can hallucinate an execution result. When strip_control_tokens is
-        False the raw decoded text (channel + tool-call markers intact) is delivered
-        so the caller can parse the native grammar; the responses/tool path needs
-        this, the plain-chat streaming path does not.
+        With stop_at_markers, generation stops at the protocol's stop markers: a closed call, since left
+        running the model writes the result itself, and the open of a result, which is the engine's to write
+        and backstops a call the model failed to close.
 
-        Returns the binding's status. A stop this worker requested at a protocol marker is the
-        model's turn ending, and reads as `stop`; `cancelled` is left only for a stop the caller
-        requested, whose reason the caller knows.
+        Returns the binding's status. A stop this worker requested at a marker is the model's turn ending, and
+        reads as `stop`; `cancelled` is left only for a stop the caller requested, whose reason the caller knows.
         """
         loop = asyncio.get_running_loop()
         token_buffer: list[int] = []
         guard = {"channels": 0, "last": None, "repeats": 0}
         ended_by_marker = False
+        stop_markers = self._stop_markers if stop_at_markers else ()
 
         def _degenerating(raw_text: str) -> bool:
             # Runaway reasoning channels: no legitimate answer opens this many.
-            if CHANNEL_OPEN in raw_text:
+            if self._reasoning_open and self._reasoning_open in raw_text:
                 guard["channels"] += 1
                 if guard["channels"] > _MAX_REASONING_CHANNELS:
                     return True
@@ -361,16 +285,10 @@ class ModelWorker:
 
             token_buffer.clear()
 
-            # A closing tool-call marker ends the turn; an opening tool-response marker is the
-            # engine's to write, never the model's, so it backstops an unclosed call. Both come
-            # from the loaded family's grammar -- see _stop_markers_for.
-            stop_now = any(marker in text for marker in self._stop_markers)
+            stop_now = any(marker in text for marker in stop_markers)
 
-            if self._is_gemma and stop_ctrl is not None and _degenerating(text):
+            if stop_ctrl is not None and stop_at_markers and _degenerating(text):
                 stop_now = True
-
-            if self._is_gemma and strip_control_tokens:
-                text = _strip_gemma_control_tokens(text)
 
             on_text(text)
 

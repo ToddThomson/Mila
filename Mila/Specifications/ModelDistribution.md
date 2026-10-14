@@ -168,6 +168,13 @@ the bytes actually are, so a name that lies is visible rather than load-bearing.
 `base_model` and `license` are **lineage**, and they are published on purpose: every license Mila
 redistributes under requires attribution to travel with the weights.
 
+`architecture` is the **family** -- `gemma`, `llama`, `qwen` -- and `architecture_version` says which of the
+family's architectures the weights are: `"3.1"` for Llama 3.1 (decided 2026-10-14, Todd). It also names the chat
+template the model runs with, which ships with the checkpoint and differs within a family -- Llama 3.1's and 3.2's
+do. Additive, written only when known: a manifest from before it reads as the family's only template for Gemma
+and Qwen, and a Llama manifest without it is refused for conversation rather than given a guessed template. It
+is declared, never read out of `base_model`. `ExportArtifact --package --architecture-version 3.1` writes it.
+
 ### Capabilities and modalities
 
 *Decided 2026-10-12 (Todd).* What a model can do is declared by the manifest, never inferred from its family:

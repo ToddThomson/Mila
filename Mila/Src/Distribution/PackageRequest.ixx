@@ -24,6 +24,10 @@ namespace Mila::Distribution
         std::string name;
 
         std::string architecture;
+
+        /// Which of the family's architectures, "3.1" for Llama 3.1. Empty for a family with only one.
+        std::string architecture_version;
+
         std::string variant;
         std::string weight_quantization;
         std::string minimum_mila_version;

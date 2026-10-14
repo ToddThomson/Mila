@@ -1,153 +1,92 @@
 """
-Abstract base that every protocol adapter must implement. The route factory
-depends only on this interface.
+What each API implements for the route factory. A chat endpoint is a parser into the conversation and a
+formatter from the reply, and knows nothing about which model is loaded (InferenceServerWire.md 3.3).
 """
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 
+from mila_llm_server.conversation import ServedReply, ServedRequest
 from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
 
 
-class ProtocolAdapter(ABC):
+@dataclass
+class ReplyContext:
+    """What a formatter needs besides the reply: the ids and names the wire carries."""
+
+    response_id: str
+    model: str
+    created: int
+    prompt_tokens: int
+
+    # What the endpoint's own parse noted for its formatter -- Chat Completions' include_usage, Responses'
+    # include -- and that nothing between the two reads.
+    wire: dict = field(default_factory=dict)
+
+
+class ChatEndpoint(ABC):
+    """One conversational API: Chat Completions, Responses or Messages."""
 
     @property
     @abstractmethod
-    def chat_path(self) -> str:
-        """URL path for the chat/messages endpoint."""
-        ...
+    def path(self) -> str: ...
+
+    @abstractmethod
+    def parse(self, body: dict, protocol) -> ServedRequest:
+        """The request as a conversation. Raises RequestError for anything it refuses, naming it."""
+
+    @abstractmethod
+    def format(self, reply: ServedReply, context: ReplyContext) -> dict:
+        """A whole reply in the API's response shape."""
+
+    @abstractmethod
+    def stream_open(self, context: ReplyContext) -> str:
+        """The events that open a stream, sent before the prompt is read so the client holds the connection."""
+
+    @abstractmethod
+    def stream_keepalive(self, context: ReplyContext) -> str:
+        """An event that keeps a client's read timeout from firing while the model works."""
+
+    @abstractmethod
+    def stream_reply(self, reply: ServedReply, context: ReplyContext) -> str:
+        """Every remaining event of a stream, the reply's and the close."""
+
+    def error(self, message: str) -> dict:
+        return {"type": "error", "error": {"type": "invalid_request_error", "message": message}}
+
+
+class CompletionsCapable(ABC):
+    """Raw text continuation, which has no conversation and so no protocol."""
 
     @property
     @abstractmethod
-    def completions_path(self) -> str:
-        """URL path for the raw completions endpoint."""
-        ...
+    def completions_path(self) -> str: ...
 
     @abstractmethod
-    def parse_chat_request(self, body: dict) -> tuple[str, InferenceRequest]:
-        """
-        Parse a raw request body into a (raw_prompt_str, InferenceRequest).
-        prompt_ids on the returned request will be empty; the factory fills
-        them after encoding. Returns the prompt string so the factory can
-        encode it via the worker.
-        """
-        ...
+    def parse_completions_request(self, body: dict) -> tuple[str, InferenceRequest]: ...
 
     @abstractmethod
-    def parse_completions_request(self, body: dict) -> tuple[str, InferenceRequest]:
-        """Same contract as parse_chat_request but for /completions."""
-        ...
+    def format_completions_response(self, response: InferenceResponse) -> dict: ...
 
     @abstractmethod
-    def format_chat_response(self, response: InferenceResponse) -> dict:
-        """Serialize a completed InferenceResponse into the protocol's JSON shape."""
-        ...
+    def format_stream_chunk(self, text: str, done: bool, finish_reason: str = "end_turn") -> str: ...
 
     @abstractmethod
-    def format_completions_response(self, response: InferenceResponse) -> dict:
-        """Serialize a completed InferenceResponse into the completions JSON shape."""
-        ...
+    def format_stream_done(self) -> str: ...
 
-    @abstractmethod
-    def format_stream_chunk(self, text: str, done: bool, finish_reason: str = "end_turn") -> str:
-        """
-        Format a single token (or the done sentinel) into an SSE line.
-        Must return a complete SSE-formatted string including trailing newlines.
-        finish_reason is why the reply ended, in protocols.utils' terms; read only when done.
-        """
-        ...
-
-    @abstractmethod
-    def format_stream_done(self) -> str:
-        """Final SSE line(s) sent when the stream closes cleanly."""
-        ...
 
 class ModelsCapable(ABC):
-    """
-    Optional mixin for adapters that support GET /v1/models.
-    The route factory registers the endpoint only when the adapter
-    inherits from this class.
-    """
+    """GET /v1/models, registered only for an adapter that inherits it."""
 
     @property
     @abstractmethod
-    def models_path(self) -> str:
-        """URL path for the models list endpoint."""
-        ...
+    def models_path(self) -> str: ...
 
     @abstractmethod
-    def format_models_response(self) -> dict:
-        """
-        Return the protocol's model list payload.
-        No InferenceResponse involved — this is pure metadata.
-        """
-        ...
+    def format_models_response(self) -> dict: ...
 
-class ResponsesCapable(ABC):
-    """
-    Optional mixin for adapters that support the OpenAI Responses API
-    (POST /v1/responses). The route factory registers the /v1/responses
-    endpoint only when the adapter inherits from this class.
-    """
 
-    @property
-    @abstractmethod
-    def responses_path(self) -> str:
-        """URL path for the responses endpoint."""
-        ...
+class ProtocolAdapter(ABC):
+    """The API family a server speaks: the chat endpoints it serves, and optionally completions and models."""
 
     @abstractmethod
-    def parse_responses_request(self, body: dict) -> tuple[str, InferenceRequest]:
-        """Same contract as parse_chat_request but for /responses."""
-        ...
-
-    @abstractmethod
-    def format_responses_response(self, response: InferenceResponse) -> dict:
-        """Serialize a completed InferenceResponse into the responses JSON shape."""
-        ...
-
-    @abstractmethod
-    def format_responses_stream_created(self, response_id: str) -> str:
-        """
-        First SSE event emitted when a Responses API stream opens, before prefill begins.
-        Must be sent immediately so the client holds the connection open during prefill.
-        """
-        ...
-
-    @abstractmethod
-    def format_responses_stream_keepalive(self, response_id: str) -> str:
-        """
-        Heartbeat SSE event emitted during prefill while waiting for the first token.
-        Must carry a real data: payload — SSE comment lines (: ...) are ignored by
-        most clients and do not reset their read timeout.
-        """
-        ...
-
-    @abstractmethod
-    def format_responses_stream_output_item_added(self, response_id: str, item_id: str) -> str: ...
-
-    @abstractmethod
-    def format_responses_stream_content_part_added(self, response_id: str) -> str: ...
-
-    @abstractmethod
-    def format_responses_stream_content_part_done(self, response_id: str, text: str) -> str: ...
-
-    @abstractmethod
-    def format_responses_stream_output_item_done(self, response_id: str, item_id: str, text: str) -> str: ...
-    
-    @abstractmethod
-    def format_responses_stream_chunk(self, text: str, done: bool, response_id: str) -> str:
-        """
-        Format a single token (or done sentinel) into a Responses API SSE event.
-        Emits response.output_text.delta while streaming and response.output_text.done
-        on the final chunk. Must return a complete SSE-formatted string including
-        trailing newlines.
-        """
-        ...
-
-    @abstractmethod
-    def format_responses_stream_done(self, response_id: str, output_text: str = "") -> str:
-        """
-        Final response.completed SSE event for the Responses API stream.
-        Must include the full response object with status=completed and final output content.
-        Must return a complete SSE-formatted string including trailing newlines.
-        """
-        ...
+    def chat_endpoints(self) -> list[ChatEndpoint]: ...

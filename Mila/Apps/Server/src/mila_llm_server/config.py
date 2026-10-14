@@ -12,20 +12,6 @@ class ProtocolMode(str, Enum):
     anthropic = "anthropic"
 
 
-class ModelFamily(str, Enum):
-    """
-    The architectures MIS serves, named as a store record names them.
-
-    Each value must have a session class in SESSION_FOR and a prompt template, because
-    _family_of() admits a record on the strength of this enum alone -- adding a value
-    without both is how one architecture's weights get loaded into another's session.
-    """
-
-    llama = "llama"
-    gemma = "gemma"
-    qwen = "qwen"
-
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="MILA_",
@@ -92,20 +78,19 @@ class LoadedModel:
     """
     What the store record says about the model this process loaded.
 
-    Deliberately not configuration. Family, variant and instruct-tuning are facts about
-    the weights' bytes, and an environment variable that disagreed with them could only
-    ever be wrong -- which is exactly what MILA_MODEL_FAMILY was, a second place to state
-    something the record already knew. ModelWorker fills this in at startup; the protocol
-    adapters read it per request.
-
-    The default is Gemma because that is the default model, and it keeps every module
-    importable (and the test suite runnable) without a store on the machine.
+    Deliberately not configuration. Variant, instruct-tuning and what the model can do are facts
+    about the weights, and an environment variable that disagreed with them could only ever be
+    wrong. ModelWorker fills this in at startup; the endpoints read it per request. Nothing here
+    names a family: what varies by model is the model's chat protocol, which the worker holds.
     """
 
     name: str = settings.model
-    family: ModelFamily = ModelFamily.gemma
     variant: str = ""
     instruct: bool = True
+
+    # Declared by the manifest, for the model cards a client reads before it drives the model.
+    tools: bool = False
+    thinking: bool = False
 
     # Lineage. Carried because a license that requires attribution requires it of whoever
     # presents the model, and serving it over an API is presenting it.

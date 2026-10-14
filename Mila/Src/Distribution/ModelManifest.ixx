@@ -36,7 +36,18 @@ namespace Mila::Distribution
         /// The model's name. Empty leaves the store to take it from the package directory.
         std::string name;
 
+        /// The family, as every manifest since 0.20 has written it: "gemma", "llama", "qwen".
         std::string architecture;
+
+        /**
+         * @brief Which of the family's architectures the weights are: "3.1" or "3.2" for Llama.
+         *
+         * It names the chat template too, which ships with the checkpoint. Empty in every manifest
+         * written before it existed; a family with one template reads empty as that one, and Llama,
+         * which has two, refuses it rather than guess.
+         */
+        std::string architecture_version;
+
         std::string variant;
         std::string weight_quantization;
         std::string minimum_mila_version;
@@ -169,6 +180,7 @@ namespace Mila::Distribution
         manifest.manifest_version = json.value( "manifest_version", 1 );
         manifest.name = json.value( "name", std::string{} );
         manifest.architecture = json.value( "architecture", std::string{} );
+        manifest.architecture_version = json.value( "architecture_version", std::string{} );
         manifest.variant = json.value( "variant", std::string{} );
         manifest.weight_quantization = json.value( "weight_quantization", std::string{} );
         manifest.minimum_mila_version = json.value( "minimum_mila_version", std::string{} );
@@ -249,6 +261,24 @@ namespace Mila::Distribution
             { "minimum_mila_version", manifest.minimum_mila_version },
             { "base_model", manifest.base_model },
             { "license", manifest.license } };
+
+        // Beside the family it qualifies, and only when known: a reader older than the field ignores it either way.
+        if ( !manifest.architecture_version.empty() )
+        {
+            nlohmann::ordered_json placed = nlohmann::ordered_json::object();
+
+            for ( auto entry = document.begin(); entry != document.end(); ++entry )
+            {
+                placed[ entry.key() ] = entry.value();
+
+                if ( entry.key() == "architecture" )
+                {
+                    placed[ "architecture_version" ] = manifest.architecture_version;
+                }
+            }
+
+            document = std::move( placed );
+        }
 
         writeCapabilities( document, manifest.capabilities );
         document[ "files" ] = files;

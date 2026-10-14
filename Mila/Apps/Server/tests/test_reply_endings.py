@@ -14,10 +14,14 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mila_llm_server.config import ModelFamily, loaded
+import mila
+
+from mila_llm_server.config import loaded
+from mila_llm_server.conversation import ServedReply
 from mila_llm_server.protocols.anthropic import AnthropicAdapter
-from mila_llm_server.protocols.openai.chat import OpenAIChatAdapter
-from mila_llm_server.protocols.openai.responses import OpenAIResponsesAdapter
+from mila_llm_server.protocols.base import ReplyContext
+from mila_llm_server.protocols.openai import OpenAIAdapter
+from mila_llm_server.protocols.openai.responses import OpenAIResponses
 from mila_llm_server.protocols.utils import (
     CONTEXT_LIMIT,
     END_TURN,
@@ -29,7 +33,6 @@ from mila_llm_server.protocols.utils import (
     truncate_at_stop,
 )
 from mila_llm_server.routes import factory
-from mila_llm_server.schemas.internal import InferenceResponse
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +108,7 @@ class FakeWorker:
     def __init__(self, chunks, status):
         self.chunks = chunks
         self.status = status
+        self.protocol = mila.ChatProtocol.gemma()
 
     async def encode(self, text):
         return [128000, 1, 2, 3]
@@ -116,7 +120,7 @@ class FakeWorker:
         return list(prompt_ids) + list(range(len(self.chunks))), self.status
 
     async def generate_streaming(self, prompt_ids, on_text, max_new_tokens, temperature, top_k,
-                                 top_p=1.0, stop_ctrl=None, strip_control_tokens=True):
+                                 top_p=1.0, stop_ctrl=None, stop_at_markers=True):
         for chunk in self.chunks:
             if stop_ctrl is not None and stop_ctrl.stop_requested:
                 return "cancelled"
@@ -129,7 +133,6 @@ class FakeWorker:
 @pytest.fixture
 def serve(monkeypatch):
     before = dataclasses.replace(loaded)
-    loaded.family = ModelFamily.llama
     loaded.context_length = 4096
 
     def start(adapter, chunks, status):
@@ -150,14 +153,14 @@ def _openai_stream(http, body):
               if line.startswith("data: ") and line != "data: [DONE]"]
     chunks = [json.loads(event)["choices"][0] for event in events]
 
-    return "".join(chunk["delta"]["content"] for chunk in chunks), chunks[-1]["finish_reason"]
+    return "".join(chunk["text"] for chunk in chunks), chunks[-1]["finish_reason"]
 
 
 CHUNKS = ["The final", " answer is 6\n", "Q", ": another question"]
 
 
 def test_a_reply_cut_at_max_tokens_says_so_buffered_and_streamed(serve):
-    http = serve(OpenAIChatAdapter(), CHUNKS, "length")
+    http = serve(OpenAIAdapter(), CHUNKS, "length")
     body = {"prompt": [1, 2], "max_tokens": 4}
 
     buffered = http.post("/v1/completions", json=body).json()["choices"][0]
@@ -167,7 +170,7 @@ def test_a_reply_cut_at_max_tokens_says_so_buffered_and_streamed(serve):
 
 
 def test_buffered_and_streamed_replies_end_at_the_same_stop_sequence(serve):
-    http = serve(OpenAIChatAdapter(), CHUNKS, "length")
+    http = serve(OpenAIAdapter(), CHUNKS, "length")
     body = {"prompt": [1, 2], "max_tokens": 64, "stop": ["Q:"]}
 
     buffered = http.post("/v1/completions", json=body).json()["choices"][0]
@@ -178,7 +181,7 @@ def test_buffered_and_streamed_replies_end_at_the_same_stop_sequence(serve):
 
 
 def test_a_reply_that_finished_says_stop(serve):
-    http = serve(OpenAIChatAdapter(), CHUNKS, "stop")
+    http = serve(OpenAIAdapter(), CHUNKS, "stop")
 
     assert http.post("/v1/completions", json={"prompt": [1, 2], "max_tokens": 64}).json()["choices"][0]["finish_reason"] == "stop"
 
@@ -205,11 +208,16 @@ def test_anthropic_names_the_cut_and_the_sequence(serve):
 
 
 def test_a_cut_off_response_is_incomplete_and_a_finished_one_completed():
-    adapter = OpenAIResponsesAdapter()
+    endpoint = OpenAIResponses()
+    context = ReplyContext(response_id="resp_1", model="m", created=0, prompt_tokens=4)
 
-    cut = adapter.format_responses_response(InferenceResponse(text="The final", finish_reason=MAX_TOKENS))
-    finished = adapter.format_responses_response(InferenceResponse(text="The final answer is 6"))
-    streamed = json.loads(adapter.format_responses_stream_done("resp-1", "The final", CONTEXT_LIMIT).split("data: ", 1)[1])
+    def reply(text, reason):
+        return ServedReply(reasoning="", content=text, tool_calls=[], finish_reason=reason)
+
+    cut = endpoint.format(reply("The final", MAX_TOKENS), context)
+    finished = endpoint.format(reply("The final answer is 6", END_TURN), context)
+    last = endpoint.stream_reply(reply("The final", CONTEXT_LIMIT), context).strip().split("\n\n")[-1]
+    streamed = json.loads(last.split("data: ", 1)[1])
 
     assert (cut["status"], cut["incomplete_details"]) == ("incomplete", {"reason": "max_output_tokens"})
     assert (finished["status"], finished["incomplete_details"]) == ("completed", None)

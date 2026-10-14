@@ -444,12 +444,16 @@ namespace Mila::Dnn::Gemma
          * containers. Whitespace around ':' and ',' is tolerated on the way in even though
          * the trained format emits none.
          *
-         * Malformed input degrades rather than throwing -- a truncated body keeps the
-         * arguments parsed so far, so a cut-off tool call surfaces partially instead of
-         * blanking. It is NOT strict: this reads what the model emits, and the model is
-         * inconsistent (see the plain-quote and namespacing notes above).
+         * Lenient where the model is inconsistent (see the plain-quote and namespacing notes
+         * above), and a container cut off by a truncated body keeps what it holds. Not lenient
+         * about a body it cannot read to the end: a key with no ':' -- the observed
+         * `cmd="cat line_count.txt"`, `=` and plain quotes off the trained grammar -- makes the
+         * whole body unreadable, since returning the arguments read before it would hand a
+         * client a valid-looking call with arguments missing.
+         *
+         * @return The arguments, or nothing when the body does not parse to its end.
          */
-        inline nlohmann::json parseArguments( std::string_view body )
+        inline std::optional<nlohmann::json> parseArguments( std::string_view body )
         {
             nlohmann::json arguments = nlohmann::json::object();
             Cursor cursor{ body, 0 };
@@ -465,7 +469,7 @@ namespace Mila::Dnn::Gemma
                 cursor.skipWhitespace();
 
                 if ( key.empty() || cursor.atEnd() || cursor.peek() != ':' )
-                    break;
+                    return std::nullopt;
 
                 ++cursor.position;
                 arguments[ key ] = parseValue( cursor );
@@ -789,8 +793,9 @@ namespace Mila::Dnn::Gemma
      *        output, once generation has stopped right after <tool_call|>.
      *
      * Returns nullopt when no <|tool_call> ... call:name{...} block is present or
-     * the block is malformed (so the caller surfaces the text as-is rather than
-     * looping on a call it cannot dispatch).
+     * the block is malformed -- its arguments included, which never come back as a
+     * partial object -- so the caller surfaces the text rather than dispatching a call
+     * the model did not make.
      */
     export std::optional<GemmaToolCall> parseToolCall( std::string_view text )
     {
@@ -826,10 +831,14 @@ namespace Mila::Dnn::Gemma
         if ( call.name.empty() )
             return std::nullopt;
 
+        const auto arguments = detail::parseArguments( body.substr( brace_open + 1, brace_close - brace_open - 1 ) );
+
+        if ( !arguments.has_value() )
+            return std::nullopt;
+
         // A stray registered token the checkpoint slipped into a value rides into the client's
         // tool arguments otherwise -- the observed case is a path arriving as `foo.cpp<|>`.
-        call.arguments = detail::scrubPipeTokensDeep( detail::parseArguments(
-            body.substr( brace_open + 1, brace_close - brace_open - 1 ) ) ).dump();
+        call.arguments = detail::scrubPipeTokensDeep( *arguments ).dump();
 
         return call;
     }
@@ -927,6 +936,19 @@ namespace Mila::Dnn::Gemma
 
         return std::string( kToolResponseOpen ) + "response:" + std::string( name )
             + "{" + body + "}" + std::string( kToolResponseClose );
+    }
+
+    /**
+     * @brief Render a tool result as Google's template renders a result given as text.
+     *
+     * The whole text under `value:`, with nothing distilled: a result that happens to be a JSON
+     * envelope reaches the model as that text, exactly as the template writes it. formatToolResponse
+     * is the distilling form the applications use today.
+     */
+    export std::string formatToolResponseText( std::string_view name, std::string_view result )
+    {
+        return std::string( kToolResponseOpen ) + "response:" + std::string( name )
+            + "{value:" + detail::renderStringValue( std::string( result ) ) + "}" + std::string( kToolResponseClose );
     }
 
     // --- Tool declarations (schemas -> system-turn suffix) -------------------
@@ -1210,9 +1232,13 @@ namespace Mila::Dnn::Gemma
          * collapse to nothing -- and the 12B does emit an off-spec `call:name:key=value` form
          * with no closing marker. Keeping the body degrades it to readable text instead of
          * blanking the turn; the residual open marker is cleared by stripControlTokens.
+         *
+         * @param keep_unparsed Keep the body of a COMPLETE span that parseToolCall cannot read,
+         *        too: a call that was not dispatched is prose the user is shown, never a span
+         *        that disappears from both the calls and the answer.
          */
         inline std::string stripToolSpans( std::string_view text,
-            std::string_view open_token, std::string_view close_token )
+            std::string_view open_token, std::string_view close_token, bool keep_unparsed = false )
         {
             std::string result;
             std::size_t cursor = 0;
@@ -1230,6 +1256,12 @@ namespace Mila::Dnn::Gemma
 
                 const auto end = text.find( close_token, start + open_token.size() );
                 result += text.substr( cursor, start - cursor );
+
+                if ( end != std::string_view::npos && keep_unparsed
+                    && !parseToolCall( text.substr( start, end + close_token.size() - start ) ).has_value() )
+                {
+                    result += text.substr( start + open_token.size(), end - start - open_token.size() );
+                }
 
                 cursor = end == std::string_view::npos
                     ? start + open_token.size()
@@ -1272,7 +1304,7 @@ namespace Mila::Dnn::Gemma
      */
     export inline std::string extractAnswer( std::string_view text )
     {
-        std::string result = detail::stripToolSpans( text, kToolCallOpen, kToolCallClose );
+        std::string result = detail::stripToolSpans( text, kToolCallOpen, kToolCallClose, true );
         result = detail::stripToolSpans( result, kToolResponseOpen, kToolResponseClose );
         result = detail::removeSpans( result, kChannelOpen, kChannelClose );
 

@@ -66,6 +66,9 @@ namespace
             "      --modality <name>          An input besides text this Mila runs for it.\n"
             "      --drafter <path>           The draft model to carry for speculative decoding.\n"
             "      --base-model <id>          Lineage, published with the model.\n"
+            "      --architecture-version <v> Which of the family's architectures, e.g. 3.1 for\n"
+            "                                 Llama 3.1. Required for Llama, whose chat\n"
+            "                                 template differs between 3.1 and 3.2.\n"
             "      --license-id <id>          License identifier, e.g. llama3.2.\n"
             "      --replace                  Build over a directory that already describes a\n"
             "                                 model. Refused without it.\n"
@@ -151,6 +154,10 @@ namespace
             else if ( argument == "--base-model" && index + 1 < argc )
             {
                 request.base_model = argv[ ++index ];
+            }
+            else if ( argument == "--architecture-version" && index + 1 < argc )
+            {
+                request.architecture_version = argv[ ++index ];
             }
             else if ( argument == "--license-id" && index + 1 < argc )
             {

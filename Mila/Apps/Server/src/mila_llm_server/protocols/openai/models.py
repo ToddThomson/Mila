@@ -5,17 +5,7 @@ OpenAI Models API protocol adapter.
 import time
 
 from mila_llm_server.protocols.base import ModelsCapable
-from mila_llm_server.config import settings, loaded, ModelFamily
-
-#: Families whose prompt assembly renders tool declarations and whose output is parsed for
-#: a call. A client reads this card to decide how to drive the model -- Codex degrades its
-#: whole loop when the card and the server disagree -- so claiming tools for a family that
-#: has neither half wired produces calls nothing ever executes.
-_TOOL_CAPABLE_FAMILIES = frozenset({
-    ModelFamily.gemma,
-    ModelFamily.llama,
-    ModelFamily.qwen,
-})
+from mila_llm_server.config import settings, loaded
 
 
 class OpenAIModelsAdapter(ModelsCapable):
@@ -26,7 +16,10 @@ class OpenAIModelsAdapter(ModelsCapable):
 
     def format_models_response(self) -> dict:
         created = int(time.time())
-        tool_capable = loaded.family in _TOOL_CAPABLE_FAMILIES
+
+        # What the manifest declares rather than what a family is assumed to do. A client reads this card to
+        # decide how to drive the model -- Codex degrades its whole loop when the card and the server disagree.
+        tool_capable = loaded.tools
 
         card = {
             "id": loaded.name,
@@ -36,7 +29,7 @@ class OpenAIModelsAdapter(ModelsCapable):
             "context_window": loaded.context_length,
             "max_output_tokens": settings.default_max_new_tokens,
             "supports_parallel_tool_calls": False,
-            "supports_reasoning": False,
+            "supports_reasoning": loaded.thinking,
             "reasoning_summary_format": "none",
             "slug": loaded.name,
             "display_name": loaded.name,

@@ -356,6 +356,14 @@ namespace Mila::Tests::Dnn::Models
         EXPECT_EQ( arguments.at( "b" ), nlohmann::json::parse( "[1,2]" ) );
     }
 
+    TEST( GemmaProtocolParse, OffGrammarArgumentsAreNotACallWithNoArguments )
+    {
+        // Seen driving Codex through the inference server: `=` and plain quotes, off the trained
+        // grammar. Parsed to the first key with no ':', it came back as exec_command with {}.
+        EXPECT_FALSE( parseToolCall( R"(<|tool_call>call:exec_command{cmd="cat line_count.txt"}<tool_call|>)" ).has_value() );
+        EXPECT_FALSE( parseToolCall( R"(<|tool_call>call:t{a:1,b}<tool_call|>)" ).has_value() );
+    }
+
     TEST( GemmaProtocolParse, TruncatedBodyKeepsWhatParsed )
     {
         // A cut-off call surfaces partially rather than blanking the turn.
@@ -584,6 +592,13 @@ namespace Mila::Tests::Dnn::Models
     {
         EXPECT_EQ( extractAnswer( "before<|tool_call>call:f{a:1}<tool_call|>after" ),
             "beforeafter" );
+    }
+
+    TEST( GemmaProtocolAnswer, ACallThatDoesNotParseStaysAsText )
+    {
+        // Not dispatched, so it is prose the user is shown -- it must not vanish from both.
+        EXPECT_EQ( extractAnswer( R"(Running it.<|tool_call>call:exec_command{cmd="cat x"}<tool_call|>)" ),
+            R"(Running it.call:exec_command{cmd="cat x"})" );
     }
 
     TEST( GemmaProtocolAnswer, DanglingToolCallKeepsItsBodyRatherThanBlankingTheTurn )

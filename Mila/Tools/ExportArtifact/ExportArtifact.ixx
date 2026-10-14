@@ -873,6 +873,7 @@ namespace Mila::Tools
             package_request.directory = request.directory;
             package_request.name = request.name;
             package_request.architecture = architecture;
+            package_request.architecture_version = request.architecture_version;
             package_request.variant = variant;
             package_request.weight_quantization = quantization;
             package_request.minimum_mila_version = kArtifactMinimumMilaVersion;

@@ -225,32 +225,6 @@ leading run, so a model working through a multi-step tool sequence starts each s
 reasoning that led to it. Moved out of v0.20 at `rc.1+24` (Todd): a behaviour change inside Gemma's
 protocol is too late in the cycle.
 
-#### A malformed Gemma tool call parses as a call with no arguments instead of failing
-
-`open` · `gemma` · `mila-src`
-
-`parseArguments` (`Gemma.Protocol.ixx:480`) breaks out of its loop at the first key not followed by
-`:` and returns what it has accumulated, so a partial parse is indistinguishable from a call that
-genuinely took no arguments. Seen driving Codex through MIS: the model emitted
-`call:exec_command{cmd="cat line_count.txt"}` — `=` and plain quotes, off the trained grammar — and
-`gemma_parse_tool_call` returned `{'name': 'exec_command', 'arguments': '{}'}`. Codex rejected the
-empty call and the model retried correctly, so that flow recovered; a client that executes `{}`
-would not. Qwen's bridge treats a malformed call as prose, which is the behaviour to match.
-
-Held for the same reason as the entry above (`rc.1+24`): a behaviour change inside Gemma's protocol
-is too late in this cycle. `Chat.ToolCallParser.ixx`'s over-eager `[` test — "Any response
-containing a bracket enters the tool-call parser" in `Vnext.md` — is the same failure shape in the
-application rather than the library.
-
-#### `gemma_protocol.py` is dead and can be deleted
-
-`open` · `gemma` · `binding`
-
-Its 856 lines are superseded by `Gemma.Protocol.ixx` plus `gemma_bridge.py`, nothing imports it, and
-it carries a header saying so. Kept on disk under the retire-don't-delete rule, which is the correct
-state for now; removing it is a one-file deletion whenever the reconciled grammar has been driven
-long enough to be sure.
-
 #### Nobody knows whether Google's drafters would make Gemma 4 decode faster
 
 `in progress` · `gemma` · `perf` · `measured`
@@ -327,18 +301,18 @@ application.
 
 #### Chat renders Gemma's prompt itself, and its template and the library's have drifted apart
 
-`open` · `gemma` · `mila-src` · `apps`
+`in progress` · `gemma` · `mila-src` · `apps`
 
 `formatGemmaPrompt` (`Chat.ixx:1359`) renders thinking on — the `<|think|>` trigger in the system
 turn — and the library's `Gemma::formatPrompt` (`Gemma.Protocol.ixx:1132`), which the inference
 server uses, cannot: it always primes the empty thought channel. The library's has the tool
 declarations and `continue_open` that Chat's lacks. Each is missing half of the other.
 
-One template, in the library: `Gemma::formatPrompt` gains thinking on, proven byte-identical to Chat's
-output on recorded fixtures (thinking on and off, with and without tools, multi-turn) before Chat calls
-it — the `+34` fold's recipe. Chat's effort sentences stay Chat's text: Gemma's `<|think|>` has no
-trained budget, so they are a prompt, not grammar (`ModelHandle.md` 3.4). The Gemma half of
-`ModelHandle.md` Phase 2.
+The library half is built: `GemmaChatProtocol` renders every variable of Google's template, thinking on
+included, byte-identical to the checkpoint's own `chat_template.jinja` (`Gemma.ChatProtocol.cpp`). What is
+left is Chat rendering through it. Chat's effort sentences go rather than move: Gemma 4's thinking is a
+switch with no budget, and no layer writes an effort level a template does not have (Todd, 2026-10-14,
+`ModelHandle.md` 10.6).
 
 #### Gemma 4 packages do not carry Google's drafters, so no load can use them
 
@@ -431,7 +405,12 @@ on screen.
 
 #### Llama's prompt and tool grammar live in Chat and the inference server, not the library
 
-`open` · `llama` · `mila-src` · `apps`
+`in progress` · `llama` · `mila-src` · `apps`
+
+The library half is built: `LlamaChatProtocol` renders Meta's 3.1 and 3.2 templates byte-identical to their own
+Jinja (`Llama.ChatProtocol.cpp`), and parses a call in the template's own `{"name", "parameters"}` form. The server
+renders through it since `+68` and its copy is deleted; it is not yet run live, because no installed Llama package
+declares `architecture_version` (written at the L7 republish). What is left is Chat rendering through it.
 
 Gemma's and Qwen's templates and tool grammars are the library's, and both applications render through them;
 Llama's are written out twice instead — in Chat (`Chat.MessageFormatter.ixx`, `Chat.SystemPrompt.ixx`) and in the
@@ -448,7 +427,7 @@ Gate: the library renders Meta's template exactly, against its own Jinja renderi
 turns; Chat and the server render through it; and a Llama tool call parses through the library as Gemma's and
 Qwen's do.
 
-`Mila/Apps/Server/src/mila_llm_server/prompt.py` `_build_llama_prompt` · `Mila/Apps/Chat/Src/Chat.MessageFormatter.ixx`
+`Mila/Apps/Chat/Src/Chat.MessageFormatter.ixx`
 
 #### Nobody can say whether a published model scores like its original on standard benchmarks
 

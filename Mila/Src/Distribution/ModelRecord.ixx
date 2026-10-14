@@ -24,6 +24,9 @@ namespace Mila::Distribution
 
         std::string architecture;
 
+        /// Which of the family's architectures, as the manifest declared it ("3.1"). Empty when it did not.
+        std::string architecture_version;
+
         /// Display text. The name carries the precision; this says what the bytes are, and nothing keys on it.
         std::string variant;
 

@@ -32,6 +32,9 @@ namespace Mila::Tools
         /// Empty derives the variant from the weights themselves.
         std::string variant;
 
+        /// Which of the family's architectures, "3.1" for Llama 3.1. Names the chat template the model runs with.
+        std::string architecture_version;
+
         /// Lineage, published with the model.
         std::string base_model;
         std::string license_id;

@@ -1,5 +1,4 @@
 # protocols/utils.py
-DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 
 # The identifier clients see is config.loaded.name, read per request at the sites that
 # emit it. It was a constant here, bound to settings.model at import -- before the worker
@@ -80,6 +79,7 @@ class StopScanner:
 
 #: Why a reply ended, as the routes carry it. Each protocol adapter spells these its own way.
 END_TURN = "end_turn"
+TOOL_CALLS = "tool_calls"
 STOP_SEQUENCE = "stop_sequence"
 MAX_TOKENS = "max_tokens"
 CONTEXT_LIMIT = "context_limit"
@@ -104,12 +104,16 @@ def finish_reason_from_status(status: str, requested_tokens: int, allowed_tokens
 
 def openai_finish_reason(reason: str) -> str:
     """OpenAI's spelling. It has no value for a full context, and `length` is the one a client handles."""
+    if reason == TOOL_CALLS:
+        return "tool_calls"
+
     return "length" if reason in (MAX_TOKENS, CONTEXT_LIMIT) else "stop"
 
 
 def anthropic_stop_reason(reason: str) -> str:
     return {
         END_TURN: "end_turn",
+        TOOL_CALLS: "tool_use",
         STOP_SEQUENCE: "stop_sequence",
         MAX_TOKENS: "max_tokens",
         CONTEXT_LIMIT: "model_context_window_exceeded",
@@ -139,17 +143,3 @@ def parse_completion_prompt(prompt: str | list) -> tuple[str, list[int]]:
         raise ValueError(f"prompt holds a batch of {len(prompt)}; this server completes one prompt per request")
 
     return parse_completion_prompt(prompt[0])
-
-
-def extract_content(content: str | list) -> str:
-    if isinstance(content, str):
-        return content
-    # Responses API item content blocks: user turns carry "input_text", prior
-    # assistant turns carry "output_text". Both must be extracted or the model's
-    # own history collapses to empty turns.
-    text_parts = [
-        block.get("text", "")
-        for block in content
-        if isinstance(block, dict) and block.get("type") in ("input_text", "text", "output_text")
-    ]
-    return "".join(text_parts)

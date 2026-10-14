@@ -15,6 +15,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <stop_token>
@@ -25,6 +26,7 @@
 import Mila.Bindings;
 import Mila.Bindings.Runtime;
 import Mila.Bindings.Deployment;
+import Mila.Bindings.ChatProtocol;
 
 namespace py = pybind11;
 
@@ -1097,6 +1099,83 @@ static void bind_chat_protocol( py::module_& m )
 }
 
 // ============================================================================
+// ChatProtocol binding
+// ============================================================================
+
+static void bind_chat_protocol_object( py::module_& m )
+{
+    using Mila::Bindings::ChatProtocolHandle;
+
+    const auto json = []() { return py::module_::import( "json" ); };
+
+    py::class_<ChatProtocolHandle>( m, "ChatProtocol",
+        "A model's chat template: turns a conversation into the prompt the model was published with, and\n"
+        "its reply back into reasoning, text and tool calls.\n\n"
+        "ChatProtocol.for_model(name) gives the one an installed model runs with. ChatProtocol.gemma(),\n"
+        ".qwen(), .llama31() and .llama32() give a template by name." )
+        .def_static( "for_model", &ChatProtocolHandle::forInstalledModel, py::arg( "name" ),
+            "The chat template an installed model runs with, read from its manifest.\n\n"
+            "Raises ValueError for a model that is not installed, a base model, or one whose manifest\n"
+            "does not say which template it uses -- a Llama model must say 3.1 or 3.2." )
+        .def_static( "gemma", &ChatProtocolHandle::gemma, "Gemma 4's chat template." )
+        .def_static( "qwen", &ChatProtocolHandle::qwen, "Qwen 3.8's chat template." )
+        .def_static( "llama31", &ChatProtocolHandle::llama31, "Llama 3.1's chat template." )
+        .def_static( "llama32", &ChatProtocolHandle::llama32, "Llama 3.2's chat template." )
+        .def( "format_prompt",
+            [json]( const ChatProtocolHandle& self, const py::object& history,
+                const std::map<std::string, std::string>& template_variables, const std::string& tools_json ) {
+                const auto [ text, begins_in_reasoning ] = self.formatPrompt(
+                    json().attr( "dumps" )( history ).cast<std::string>(), template_variables, tools_json );
+
+                py::dict prompt;
+                prompt[ "text" ] = text;
+                prompt[ "reply_begins_in_reasoning" ] = begins_in_reasoning;
+
+                return prompt;
+            },
+            py::arg( "history" ),
+            py::arg( "template_variables" ) = std::map<std::string, std::string>{},
+            py::arg( "tools_json" ) = "",
+            "Render a conversation as the model's prompt, ready to generate from.\n\n"
+            "Args:\n"
+            "    history:            List of turns: {'role', 'content'}, where role is 'system', 'user',\n"
+            "                        'assistant' or 'tool'. An assistant turn may carry 'tool_calls', a\n"
+            "                        list of {'name', 'arguments'} with arguments a JSON object as text,\n"
+            "                        and 'reasoning', its kept reasoning text. A tool turn carries the\n"
+            "                        result as its content and 'tool_name', the tool that produced it.\n"
+            "    template_variables: The template's own settings, by its own names -- see\n"
+            "                        template_variables. Values are text: 'true', 'low'. Unset ones take\n"
+            "                        the template's default.\n"
+            "    tools_json:         JSON array of the tools offered, or '' for none.\n\n"
+            "Returns {'text', 'reply_begins_in_reasoning'}; pass it to parse_reply with the reply.\n"
+            "Raises ValueError for a setting the template does not accept or a conversation it cannot\n"
+            "render, naming what it accepts." )
+        .def( "parse_reply",
+            [json]( const ChatProtocolHandle& self, const std::string& text, const py::dict& prompt ) {
+                const bool begins_in_reasoning = prompt.contains( "reply_begins_in_reasoning" )
+                    && prompt[ "reply_begins_in_reasoning" ].cast<bool>();
+
+                return json().attr( "loads" )( self.parseReply( text, begins_in_reasoning ) );
+            },
+            py::arg( "text" ), py::arg( "prompt" ),
+            "Read a finished reply into {'reasoning', 'content', 'tool_calls', 'malformed_tool_calls'}.\n\n"
+            "tool_calls lists every call the model made, in order, as {'name', 'arguments'}.\n"
+            "malformed_tool_calls holds each call the model wrote that could not be read, as written:\n"
+            "it is never dispatched, and never silently dropped." )
+        .def( "format_tool_result", &ChatProtocolHandle::formatToolResult,
+            py::arg( "name" ), py::arg( "result" ),
+            "One tool result as the template writes it, for appending to a turn already in progress." )
+        .def_property_readonly( "markers",
+            [json]( const ChatProtocolHandle& self ) { return json().attr( "loads" )( self.markersJson() ); },
+            "Where reasoning and calls begin and end in the model's output, and the text after which\n"
+            "generation should stop." )
+        .def_property_readonly( "template_variables",
+            [json]( const ChatProtocolHandle& self ) { return json().attr( "loads" )( self.templateVariablesJson() ); },
+            "The template's own settings: [{'name', 'values', 'default'}]. An empty 'values' takes any\n"
+            "text; an empty 'default' is one the template works out when it renders, such as today's date." );
+}
+
+// ============================================================================
 // StopController binding
 // ============================================================================
 
@@ -1152,6 +1231,7 @@ PYBIND11_MODULE( _mila, m )
     bind_runtime( m );
     bind_stop_controller( m );
     bind_chat_protocol( m );
+    bind_chat_protocol_object( m );
     bind_distribution( m );
     bind_tokenizer( m );
     bind_llama_model( m );

@@ -300,23 +300,35 @@ export import Deployment.DeploymentPlanner;
 // ============================================================================
 // Models - Open Source Models
 // ============================================================================
-// The conversation a chat template renders, shared by every family's protocol module.
-// Reachable through each protocol's own re-export; named here too so a consumer that only
-// builds a history does not have to import a family to describe one.
+// The conversation a chat template renders, and the protocol interface each template implements.
+export import Dnn.Models.Conversation.Role;
+export import Dnn.Models.Conversation.ToolCall;
+export import Dnn.Models.Conversation.Turn;
+export import Dnn.Models.Conversation.TemplateVariable;
+export import Dnn.Models.Conversation.PromptOptions;
+export import Dnn.Models.Conversation.Prompt;
+export import Dnn.Models.Conversation.Reply;
+export import Dnn.Models.Conversation.ProtocolMarkers;
+export import Dnn.Models.Conversation.Protocol;
+export import Dnn.Models.Conversation.TemplateJson;
 export import Dnn.Models.Conversation;
 
 export import Dnn.Models.GptModel;
 
 export import Dnn.Models.LlamaModel;
 export import Dnn.Models.LlamaModelConfig;
+export import Dnn.Models.LlamaChatProtocol;
 
 export import Dnn.Models.GemmaModel;
 export import Dnn.Models.GemmaModelConfig;
 export import Dnn.Models.GemmaProtocol;
+export import Dnn.Models.GemmaChatProtocol;
 
 export import Dnn.Models.QwenModel;
 export import Dnn.Models.QwenModelConfig;
 export import Dnn.Models.QwenProtocol;
+export import Dnn.Models.QwenChatProtocol;
+export import Dnn.Models.ChatProtocolForArchitecture;
 
 // An installed model by its store name, and the family switch that plans it (Deployment.md 8.1).
 export import Deployment.InstalledModel;

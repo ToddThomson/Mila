@@ -1,5 +1,5 @@
 """
-Mila-native protocol adapter — minimal, no ceremony.
+Mila-native protocol adapter -- minimal, no ceremony.
   Chat:        POST /v1/chat/completions
   Completions: POST /v1/completions
 """
@@ -7,39 +7,72 @@ import json
 import time
 import uuid
 
-from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
-from mila_llm_server.protocols.base import ProtocolAdapter
+from mila_llm_server.conversation import RequestError, ServedReply, ServedRequest, assistant_turn, text_of
+from mila_llm_server.protocols.base import ChatEndpoint, CompletionsCapable, ProtocolAdapter, ReplyContext
 from mila_llm_server.protocols.utils import END_TURN, openai_finish_reason
-from mila_llm_server.prompt import build_instruct_prompt
+from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
 
 
-class MilaChatAdapter(ProtocolAdapter):
+class MilaChat(ChatEndpoint):
 
     @property
-    def chat_path(self) -> str:
+    def path(self) -> str:
         return "/v1/chat/completions"
+
+    def parse(self, body: dict, protocol) -> ServedRequest:
+        turns = []
+
+        if body.get("system_prompt"):
+            turns.append({"role": "system", "content": body["system_prompt"]})
+
+        for index, message in enumerate(body.get("messages") or []):
+            role = message.get("role")
+            content = text_of(message.get("content"), field_name=f"messages[{index}].content")
+
+            if role in ("system", "user"):
+                turns.append({"role": role, "content": content})
+            elif role == "assistant":
+                turns.append(assistant_turn(content))
+            else:
+                raise RequestError(f"messages[{index}].role '{role}' is not one this server reads")
+
+        return ServedRequest(
+            turns=turns,
+            max_new_tokens=body.get("max_new_tokens", 256),
+            temperature=body.get("temperature", 1.0),
+            top_k=body.get("top_k", 0),
+            stream=bool(body.get("stream", False)),
+        )
+
+    def format(self, reply: ServedReply, context: ReplyContext) -> dict:
+        return {
+            "id": context.response_id,
+            "object": "chat.completion",
+            "created": context.created,
+            "model": "mila",
+            "text": reply.content,
+            "reasoning": reply.reasoning,
+            "finish_reason": openai_finish_reason(reply.finish_reason),
+            "usage": {"prompt_tokens": reply.prompt_tokens, "completion_tokens": reply.completion_tokens},
+        }
+
+    def stream_open(self, context: ReplyContext) -> str:
+        return ""
+
+    def stream_keepalive(self, context: ReplyContext) -> str:
+        return ": keepalive\n\n"
+
+    def stream_reply(self, reply: ServedReply, context: ReplyContext) -> str:
+        chunk = {"text": reply.content, "done": True, "finish_reason": openai_finish_reason(reply.finish_reason)}
+
+        return f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n"
+
+
+class MilaCompletions(CompletionsCapable):
 
     @property
     def completions_path(self) -> str:
         return "/v1/completions"
-
-    def parse_chat_request(self, body: dict) -> tuple[str, InferenceRequest]:
-        messages = body.get("messages", [])
-        system_prompt = body.get("system_prompt", "You are a helpful assistant.")
-
-        history = [m for m in messages[:-1]]
-        user_message = messages[-1]["content"] if messages else ""
-
-        prompt_str = build_instruct_prompt(user_message, system_prompt, history)
-
-        req = InferenceRequest(
-            prompt_ids=[],
-            max_new_tokens=body.get("max_new_tokens", 256),
-            temperature=body.get("temperature", 1.0),
-            top_k=body.get("top_k", 0),
-            stream=body.get("stream", False),
-        )
-        return prompt_str, req
 
     def parse_completions_request(self, body: dict) -> tuple[str, InferenceRequest]:
         prompt_str = body.get("prompt", "")
@@ -51,20 +84,6 @@ class MilaChatAdapter(ProtocolAdapter):
             stream=body.get("stream", False),
         )
         return prompt_str, req
-
-    def format_chat_response(self, response: InferenceResponse) -> dict:
-        return {
-            "id": f"mila-{uuid.uuid4().hex}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": "mila",
-            "text": response.text,
-            "finish_reason": openai_finish_reason(response.finish_reason),
-            "usage": {
-                "prompt_tokens": response.prompt_token_count,
-                "completion_tokens": response.completion_token_count,
-            },
-        }
 
     def format_completions_response(self, response: InferenceResponse) -> dict:
         return {
@@ -81,10 +100,7 @@ class MilaChatAdapter(ProtocolAdapter):
         }
 
     def format_stream_chunk(self, text: str, done: bool, finish_reason: str = END_TURN) -> str:
-        chunk = {
-            "text": text,
-            "done": done,
-        }
+        chunk = {"text": text, "done": done}
 
         if done:
             chunk["finish_reason"] = openai_finish_reason(finish_reason)
@@ -93,3 +109,9 @@ class MilaChatAdapter(ProtocolAdapter):
 
     def format_stream_done(self) -> str:
         return "data: [DONE]\n\n"
+
+
+class MilaChatAdapter(MilaCompletions, ProtocolAdapter):
+
+    def chat_endpoints(self) -> list[ChatEndpoint]:
+        return [MilaChat()]

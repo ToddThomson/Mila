@@ -449,6 +449,7 @@ namespace Mila::Distribution
             record.name = firstNonEmpty(
                 options.name, manifest.name, package.directory().filename().string() );
             record.architecture = manifest.architecture;
+            record.architecture_version = manifest.architecture_version;
             record.variant = manifest.variant;
             record.weight_quantization = manifest.weight_quantization;
             record.minimum_mila_version = manifest.minimum_mila_version;
@@ -1219,6 +1220,11 @@ namespace Mila::Distribution
                 { "base_model", record.base_model },
                 { "license", record.license } };
 
+            if ( !record.architecture_version.empty() )
+            {
+                document[ "architecture_version" ] = record.architecture_version;
+            }
+
             writeCapabilities( document, record.capabilities );
 
             document[ "files" ] = files;
@@ -1238,6 +1244,7 @@ namespace Mila::Distribution
 
             record.name = json.value( "name", std::string{} );
             record.architecture = json.value( "architecture", std::string{} );
+            record.architecture_version = json.value( "architecture_version", std::string{} );
             record.variant = json.value( "variant", std::string{} );
             record.weight_quantization = json.value( "weight_quantization", std::string{} );
             record.minimum_mila_version = json.value( "minimum_mila_version", std::string{} );

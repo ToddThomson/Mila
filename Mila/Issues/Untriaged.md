@@ -10,6 +10,69 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Claude Code, and Codex with Qwen, are refused by the family-blind inference server
+
+`Mila/Apps/Server/src/mila_llm_server/protocols/anthropic/messages.py` `parse`, `protocols/openai/responses.py` @ `+68`
+
+Found 2026-10-14 running the harnesses against the rewritten endpoints (`InferenceServerWire.md` Phase 3), committed
+with the regression named (Todd). Codex with Gemma 4 12B and Chat Completions with Gemma and Qwen pass. Refused: Codex
+sends `instructions` and a `developer` message, two system turns where Qwen's template takes one, first; Claude Code
+sends a `system` message after the user's (its agent list), `thinking: {type: adaptive, display: omitted}`,
+`output_config: {effort: low}` -- Gemma's template has no effort -- and `context_management` keeping all thinking.
+At `+67` Claude Code drove the 26B. Each needs a decision under the honour-or-refuse rule before the gate passes again.
+
+## Qwen's prompt renderer differs from Qwen 3.8's own chat template in six places
+
+`Mila/Src/Dnn/Models/Qwen/Qwen.Protocol.ixx` `formatPrompt`, `formatTurn`, `serializeToolSignatures` @ `ec6aca9`
+
+Found 2026-10-14 recording the template's goldens (`Tools/ChatTemplates`). The template's default effort is
+`xhigh`, where the free functions call `Medium` the checkpoint's default; it groups consecutive tool results into one
+user turn; it separates a turn's second and later calls with `\n`; it writes tool signatures and non-string
+arguments through `tojson` (`", "`/`": "`, keys in the order given) where the free functions write compact, sorted
+JSON; it trims every message; and with `preserve_thinking` on, its default, it renders past reasoning back into
+history. `QwenChatProtocol` renders all six as the template does; Chat and the server still call the free
+functions. Not measured: how far each moves the model's behaviour.
+
+## Gemma's applications distill a JSON tool result that Google's template renders as text
+
+`Mila/Src/Dnn/Models/Gemma/Gemma.Protocol.ixx` `formatToolResponse` @ `ec6aca9`
+
+Found 2026-10-14 recording the template's goldens. The template renders a result given as text under `value:`,
+whole; `formatToolResponse` parses a JSON envelope and keeps one output field (added for Codex's envelope, whose
+chunk id the model echoed). `GemmaChatProtocol` renders it as the template does, so the distillation becomes the
+server's wire work, for the one client whose envelope needs it, when the server switches. In the same template, a
+calling turn's text renders after its results and the turn closes with no prompt after it, so a resume whose
+assistant turn carries both text and calls -- Claude Code sends that shape -- gets no open model turn.
+
+## Chat's Llama tool-call parser reads a key Meta's template does not ask for
+
+`Mila/Apps/Chat/Src/Chat.ToolCallParser.ixx:142` `parseJson` @ `ec6aca9`
+
+Found 2026-10-14 folding Llama's grammar into the library. Meta's 3.1 and 3.2 templates ask for
+`{"name": ..., "parameters": ...}` and replay a call that way; Chat's parser accepts only `"arguments"`, so a call the
+model writes as the template asks is not a call to Chat. Not checked: what Chat's own system prompt asks the model to
+write, and which key Llama 3.x emits under it. Two template facts a Llama consumer meets on switching: a plain-text
+tool result is written through `tojson`, so the model sees it JSON-quoted, and an assistant turn that made a call
+renders the call alone, its text dropped.
+
+## Gemma's drafter generation test fails on the RTX 4070 and passes on the 5060 Ti
+
+`Mila/Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp:367` `Gemma4_12B_GreedyGenerationIsUnchanged` @ `ec6aca9`
+
+Found 2026-10-14 running the full suite at `+68` (a change that touches no model code). Pinned by UUID, the same build
+passes on the 5060 Ti and fails on the 4070: drafted and plain greedy tokens part within the first 256, where the
+test's comment says the reply first parts at token 402, measured 2026-10-05. Not checked: on which card that was
+measured, and the token at which they part on the 4070.
+
+## Stopping a Gemma turn at its first closed call keeps only one of several calls
+
+`Mila/Apps/Server/src/mila_llm_server/model_worker.py:56` `_stop_markers_for` @ `ec6aca9`
+
+Found 2026-10-14 writing `ProtocolMarkers`. Generation stops at `<tool_call|>`, since left running the model repeats
+the call to the budget (`routes/factory.py` `_generate_buffered`), so a turn that would have made two calls makes
+one. `InferenceServerWire.md` W2 asks for both. Not checked: whether the model, unstopped, writes a second call or
+always repeats the first.
+
 ## The inference server's Chat Completions endpoint returns a tool call as reply text
 
 `Mila/Apps/Server/src/mila_llm_server/protocols/openai/chat.py` `format_chat_response` @ `bb27731`

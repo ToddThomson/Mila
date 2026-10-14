@@ -444,6 +444,7 @@ namespace Mila::Distribution
         requireDirectoryIsFree( request.directory, manifest.name, request.replace );
 
         manifest.architecture = request.architecture;
+        manifest.architecture_version = request.architecture_version;
         manifest.variant = request.variant;
         manifest.weight_quantization = request.weight_quantization;
         manifest.minimum_mila_version = request.minimum_mila_version;

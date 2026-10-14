@@ -1,13 +1,15 @@
-from .chat import OpenAIChatAdapter
-from .responses import OpenAIResponsesAdapter
+from mila_llm_server.protocols.base import ChatEndpoint, ProtocolAdapter
+
+from .chat import OpenAIChatCompletions, OpenAICompletions
 from .models import OpenAIModelsAdapter
+from .responses import OpenAIResponses
 
 
-class OpenAIAdapter(OpenAIChatAdapter, OpenAIResponsesAdapter, OpenAIModelsAdapter):
+class OpenAIAdapter(OpenAICompletions, OpenAIModelsAdapter, ProtocolAdapter):
     """
-    Unified OpenAI protocol adapter.
-    Satisfies ProtocolAdapter      (POST /v1/chat/completions, POST /v1/completions)
-              ResponsesCapable     (POST /v1/responses)
-              ModelsCapable        (GET  /v1/models)
+    The OpenAI protocol: POST /v1/chat/completions and POST /v1/responses, POST /v1/completions, and
+    GET /v1/models.
     """
-    pass
+
+    def chat_endpoints(self) -> list[ChatEndpoint]:
+        return [OpenAIChatCompletions(), OpenAIResponses()]
