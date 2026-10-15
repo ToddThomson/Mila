@@ -80,7 +80,7 @@ def store(monkeypatch):
     )
 
     def make_session(label):
-        def from_store(name, context_length, device_index):
+        def from_store(name, context_length, device_index, kv_cache):
             holder["session"] = label
             holder["loaded_name"] = name
             return FakeSession(name)
@@ -289,12 +289,13 @@ def test_both_adapters_are_models_capable():
     assert AnthropicAdapter().models_path == "/v1/models"
 
 
-def test_load_passes_the_configured_context_and_device(store, monkeypatch):
+def test_load_passes_the_configured_context_device_and_kv_cache(store, monkeypatch):
     captured = {}
 
-    def from_store(name, context_length, device_index):
+    def from_store(name, context_length, device_index, kv_cache):
         captured["context_length"] = context_length
         captured["device_index"] = device_index
+        captured["kv_cache"] = kv_cache
         return FakeSession(name, context_length)
 
     monkeypatch.setattr(mila.GemmaModel, "from_store", staticmethod(from_store))
@@ -302,10 +303,11 @@ def test_load_passes_the_configured_context_and_device(store, monkeypatch):
     monkeypatch.setattr(settings, "model", "gemma-4-12b-it-fp4")
     monkeypatch.setattr(settings, "context_length", 8192)
     monkeypatch.setattr(settings, "device_index", 1)
+    monkeypatch.setattr(settings, "kv_cache", "fp8")
 
     ModelWorker()._load()
 
-    assert captured == {"context_length": 8192, "device_index": 1}
+    assert captured == {"context_length": 8192, "device_index": 1, "kv_cache": "fp8"}
     assert loaded.context_length == 8192
 
 
@@ -318,7 +320,7 @@ def test_auto_context_is_the_default_and_the_card_reports_what_loaded(store, mon
 
     captured = {}
 
-    def from_store(name, context_length, device_index):
+    def from_store(name, context_length, device_index, kv_cache):
         captured["context_length"] = context_length
         return FakeSession(name, 121856)
 
@@ -355,3 +357,26 @@ def test_context_length_setting_refuses_anything_else(monkeypatch, value):
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_kv_cache_setting_defaults_to_bf16(monkeypatch):
+    from mila_llm_server.config import Settings
+
+    monkeypatch.delenv("MILA_KV_CACHE", raising=False)
+
+    assert Settings(_env_file=None).kv_cache == "bf16"
+
+
+@pytest.mark.parametrize("value, accepted", [("fp8", True), ("bf16", True), ("fp4", False), ("int8", False)])
+def test_kv_cache_setting_takes_bf16_or_fp8(monkeypatch, value, accepted):
+    from pydantic import ValidationError
+
+    from mila_llm_server.config import Settings
+
+    monkeypatch.setenv("MILA_KV_CACHE", value)
+
+    if accepted:
+        assert Settings(_env_file=None).kv_cache == value
+    else:
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)

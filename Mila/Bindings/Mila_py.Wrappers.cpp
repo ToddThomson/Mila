@@ -338,12 +338,26 @@ namespace Mila::Bindings
          * @brief The deployment request a session load sends, before its quantization is applied.
          *
          * Headroom stays the library's zero (Deployment.md 12.3): what else shares the device is known
-         * only to the program calling this binding.
+         * only to the program calling this binding. The KV cache is the caller's choice on every load,
+         * because it is a deployment decision rather than a property of the weights; a model that cannot
+         * serve it is refused by the library when the load plans.
          */
-        DeploymentRequest sessionRequest( std::optional<std::int64_t> context_length, int device_index )
+        DeploymentRequest sessionRequest(
+            std::optional<std::int64_t> context_length, int device_index, const std::string& kv_cache,
+            const std::string& subject )
         {
             DeploymentRequest request;
             request.withDevice( DeviceId{ DeviceType::Cuda, device_index } );
+
+            if ( kv_cache == "fp8" )
+            {
+                request.withKvCacheCompression( KvCacheCompression::FP8 );
+            }
+            else if ( kv_cache != "bf16" )
+            {
+                throw std::runtime_error( std::format(
+                    "{}: '{}' is not a KV cache format. Expected bf16 or fp8.", subject, kv_cache ) );
+            }
 
             if ( context_length.has_value() )
             {
@@ -737,10 +751,10 @@ namespace Mila::Bindings
 
     std::unique_ptr<LlamaSession> LlamaSession::load(
         const std::string& path, std::optional<std::int64_t> context_length, int device_index,
-        const std::string& quantization )
+        const std::string& quantization, const std::string& kv_cache )
     {
         const std::filesystem::path weights( path );
-        DeploymentRequest request = sessionRequest( context_length, device_index );
+        DeploymentRequest request = sessionRequest( context_length, device_index, kv_cache, "LlamaModel.load" );
 
         applyQuantizationName( request, quantization, "LlamaModel.load" );
 
@@ -752,12 +766,13 @@ namespace Mila::Bindings
     }
 
     std::unique_ptr<LlamaSession> LlamaSession::fromStore(
-        const std::string& name, std::optional<std::int64_t> context_length, int device_index )
+        const std::string& name, std::optional<std::int64_t> context_length, int device_index,
+        const std::string& kv_cache )
     {
         const auto model = requireInstalledModel( name, ModelType::Llama );
 
         // Names no weight format, so the library loads the one the weights are stored in.
-        const DeploymentRequest request = sessionRequest( context_length, device_index );
+        const DeploymentRequest request = sessionRequest( context_length, device_index, kv_cache, name );
 
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<LlamaCudaBf16>(
@@ -822,10 +837,10 @@ namespace Mila::Bindings
 
     std::unique_ptr<GemmaSession> GemmaSession::load(
         const std::string& path, std::optional<std::int64_t> context_length, int device_index,
-        const std::string& quantization )
+        const std::string& quantization, const std::string& kv_cache )
     {
         const std::filesystem::path weights( path );
-        DeploymentRequest request = sessionRequest( context_length, device_index );
+        DeploymentRequest request = sessionRequest( context_length, device_index, kv_cache, "GemmaModel.load" );
 
         applyQuantizationName( request, quantization, "GemmaModel.load" );
 
@@ -837,12 +852,13 @@ namespace Mila::Bindings
     }
 
     std::unique_ptr<GemmaSession> GemmaSession::fromStore(
-        const std::string& name, std::optional<std::int64_t> context_length, int device_index )
+        const std::string& name, std::optional<std::int64_t> context_length, int device_index,
+        const std::string& kv_cache )
     {
         const auto model = requireInstalledModel( name, ModelType::Gemma );
 
         // Names no weight format, so the library loads the one the weights are stored in.
-        const DeploymentRequest request = sessionRequest( context_length, device_index );
+        const DeploymentRequest request = sessionRequest( context_length, device_index, kv_cache, name );
 
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<GemmaCudaBf16>(
@@ -912,10 +928,10 @@ namespace Mila::Bindings
 
     std::unique_ptr<QwenSession> QwenSession::load(
         const std::string& path, std::optional<std::int64_t> context_length, int device_index,
-        const std::string& quantization )
+        const std::string& quantization, const std::string& kv_cache )
     {
         const std::filesystem::path weights( path );
-        DeploymentRequest request = sessionRequest( context_length, device_index );
+        DeploymentRequest request = sessionRequest( context_length, device_index, kv_cache, "QwenModel.load" );
 
         applyQuantizationName( request, quantization, "QwenModel.load" );
 
@@ -927,12 +943,13 @@ namespace Mila::Bindings
     }
 
     std::unique_ptr<QwenSession> QwenSession::fromStore(
-        const std::string& name, std::optional<std::int64_t> context_length, int device_index )
+        const std::string& name, std::optional<std::int64_t> context_length, int device_index,
+        const std::string& kv_cache )
     {
         const auto model = requireInstalledModel( name, ModelType::Qwen );
 
         // Names no weight format, so the library loads the one the weights are stored in.
-        const DeploymentRequest request = sessionRequest( context_length, device_index );
+        const DeploymentRequest request = sessionRequest( context_length, device_index, kv_cache, name );
 
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<QwenCudaBf16>(

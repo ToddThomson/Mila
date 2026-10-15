@@ -16,12 +16,6 @@
  *    (`GatedDeltaRule::prefill`, `CausalConv1d::prefill`), so a fresh generation cannot
  *    inherit the previous one's state. That is also why `prefillFrom` at a non-zero offset
  *    is reached only after a rewind to the saved position put the matching state back.
- *
- * REFERENCE PRECISION ONLY, for now. Section 5's allocation is a per-role PLAN over
- * codebook formats, and the artifact that carries it does not exist yet, so this entry
- * point accepts the BF16 reference plan and refuses the uniform quantization modes rather
- * than building something that is not the plan. That refusal is the Phase 4 / Phase 5
- * boundary, and it is named in the error.
  */
 
 export module Dnn.Models.QwenModel;
@@ -41,6 +35,7 @@ import Deployment.DeploymentRefusedError;
 import Deployment.DeploymentPlanner;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
+import Dnn.Models.QuantizationDispatch;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -92,16 +87,6 @@ namespace Mila::Dnn
     class QwenModel : public LanguageModel<TDeviceType, TPrecision>
     {
     public:
-        /**
-         * @brief KV policy for the full-attention layers.
-         *
-         * Qwen's cache-holding layers attend the FULL context -- there is no sliding window
-         * anywhere in this stack -- so a bounded ring has nothing to bound and the policy is
-         * NoKvCompression. The 48 DeltaNet layers hold no cache at all, which is the property
-         * that makes a 27B model plausible on 12 GiB (Qwen3.8.md section 3).
-         */
-        using QwenKvPolicy = NoKvCompression;
-
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
@@ -130,7 +115,7 @@ namespace Mila::Dnn
         {
             const DeviceId device = requested.getDevice().value_or( DeviceId{ TDeviceType, 0 } );
 
-            validateDeployment( "QwenModel::planDeployment", requested.getKvCacheCompression(), device );
+            validateDeployment( "QwenModel::planDeployment", device );
 
             if ( requested.getSpeculativeDecode() )
                 throw std::invalid_argument( "QwenModel::planDeployment: Qwen has no draft model to decode with" );
@@ -139,11 +124,11 @@ namespace Mila::Dnn
             const DeploymentRequest request =
                 requested.resolveWeightQuantization( WeightsReader( path ).getWeightQuantization() );
 
-            return dispatchQwenWeightPlan<std::expected<DeploymentPlans, DeploymentRefusal>>(
-                request.getWeightQuantization(), "QwenModel::planDeployment",
-                [&]<typename TWeightPlan>()
+            return dispatchChassis<std::expected<DeploymentPlans, DeploymentRefusal>>(
+                request.getWeightQuantization(), request.getKvCacheCompression(), "QwenModel::planDeployment",
+                [&]<typename TWeightPlan, KvCachePolicy TKvCachePolicy>()
                 {
-                    return planImpl<TWeightPlan>( path, request, device );
+                    return planImpl<TWeightPlan, TKvCachePolicy>( path, request, device );
                 } );
         }
 
@@ -158,13 +143,13 @@ namespace Mila::Dnn
             const std::filesystem::path& path,
             const DeploymentPlan& plan )
         {
-            validateDeployment( "QwenModel::load", plan.kvCacheCompression(), plan.device() );
+            validateDeployment( "QwenModel::load", plan.device() );
 
-            return dispatchQwenWeightPlan<std::unique_ptr<QwenModel<TDeviceType, TPrecision>>>(
-                plan.weightQuantization(), "QwenModel::load",
-                [&]<typename TWeightPlan>()
+            return dispatchChassis<std::unique_ptr<QwenModel<TDeviceType, TPrecision>>>(
+                plan.weightQuantization(), plan.kvCacheCompression(), "QwenModel::load",
+                [&]<typename TWeightPlan, KvCachePolicy TKvCachePolicy>()
                 {
-                    return loadImpl<TWeightPlan>( path, plan );
+                    return loadImpl<TWeightPlan, TKvCachePolicy>( path, plan );
                 } );
         }
 
@@ -252,12 +237,12 @@ namespace Mila::Dnn
             // The same dispatcher as load, deliberately: the footprint path and the
             // load path must reach the identical instantiation, or a model reports a figure it
             // does not allocate. At 2.90 bits against BF16 that error would be a factor of six.
-            return dispatchQwenWeightPlan<DeploymentFootprint>(
-                model_config.getWeightQuantization(),
+            return dispatchChassis<DeploymentFootprint>(
+                model_config.getWeightQuantization(), model_config.getKvCacheCompression(),
                 "QwenModel::getDeploymentFootprint",
-                [&]<typename TWeightPlan>()
+                [&]<typename TWeightPlan, KvCachePolicy TKvCachePolicy>()
                 {
-                    return deploymentFootprintImpl<TWeightPlan>(
+                    return deploymentFootprintImpl<TWeightPlan, TKvCachePolicy>(
                         path, model_config, device_id );
                 } );
         }
@@ -597,9 +582,33 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief The planning path, once the weight plan is a type.
+         * @brief The one runtime-to-compile-time bridge for planning, loading and the footprint.
+         *
+         * Every cache-holding layer here attends the full context -- the 48 DeltaNet layers hold none -- so the
+         * request's KV setting is every cached layer's. Every entry point reaches the identical instantiation
+         * through here, or a plan would price a network the load does not build.
          */
-        template<typename TWeightPlan>
+        template<typename TResult, typename TAction>
+        static TResult dispatchChassis(
+            WeightQuantization weight_quantization, KvCacheCompression kv_cache_compression,
+            std::string_view caller, TAction&& action )
+        {
+            return dispatchKvCacheCompression<TDeviceType, TPrecision, TResult>( kv_cache_compression, caller,
+                [&]<KvCachePolicy TKvCachePolicy>() -> TResult
+                {
+                    // Unconstrained: MSVC loses the concept's name in a constrained lambda nested in another.
+                    return dispatchQwenWeightPlan<TResult>( weight_quantization, caller,
+                        [&]<typename TWeightPlan>() -> TResult
+                        {
+                            return action.template operator()<TWeightPlan, TKvCachePolicy>();
+                        } );
+                } );
+        }
+
+        /**
+         * @brief The planning path, once the weight plan and the KV policy are types.
+         */
+        template<typename TWeightPlan, KvCachePolicy TKvCachePolicy>
         static std::expected<DeploymentPlans, DeploymentRefusal> planImpl(
             const std::filesystem::path& path,
             const DeploymentRequest& request,
@@ -615,7 +624,7 @@ namespace Mila::Dnn
 
             // Construction commits no device memory, but it creates the execution context, which holds some;
             // the reading is taken after it, as the load's build will find the device (Deployment.md 9).
-            const QwenTransformer<TDeviceType, TPrecision, TWeightPlan, QwenKvPolicy> network(
+            const QwenTransformer<TDeviceType, TPrecision, TWeightPlan, TKvCachePolicy> network(
                 metadata.model_name, network_config, device_id );
 
             return planOnDevice( network, request, DeviceReading::take( device_id ),
@@ -623,15 +632,15 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief The load path, once the weight plan is a type.
+         * @brief The load path, once the weight plan and the KV policy are types.
          */
-        template<typename TWeightPlan>
+        template<typename TWeightPlan, KvCachePolicy TKvCachePolicy>
         static std::unique_ptr<QwenModel<TDeviceType, TPrecision>> loadImpl(
             const std::filesystem::path& path,
             const DeploymentPlan& plan )
         {
             using ConcreteTransformerType =
-                QwenTransformer<TDeviceType, TPrecision, TWeightPlan, QwenKvPolicy>;
+                QwenTransformer<TDeviceType, TPrecision, TWeightPlan, TKvCachePolicy>;
 
             WeightsReader reader( path );
             const auto& metadata = reader.getWeightsMetadata();
@@ -665,14 +674,14 @@ namespace Mila::Dnn
          * artifact check, the geometry and the context-length validation must be the ones a
          * real load would apply, or the reported figure describes a model that would not load.
          */
-        template<typename TWeightPlan>
+        template<typename TWeightPlan, KvCachePolicy TKvCachePolicy>
         static DeploymentFootprint deploymentFootprintImpl(
             const std::filesystem::path& path,
             const QwenModelConfig& model_config,
             DeviceId device_id )
         {
             using ConcreteTransformerType =
-                QwenTransformer<TDeviceType, TPrecision, TWeightPlan, QwenKvPolicy>;
+                QwenTransformer<TDeviceType, TPrecision, TWeightPlan, TKvCachePolicy>;
 
             WeightsReader reader( path );
             const auto& metadata = reader.getWeightsMetadata();
@@ -707,7 +716,7 @@ namespace Mila::Dnn
             const QwenModelConfig& model_config,
             DeviceId device_id )
         {
-            validateDeployment( caller, model_config.getKvCacheCompression(), device_id );
+            validateDeployment( caller, device_id );
 
             if ( model_config.getContextLength() == 0 )
             {
@@ -718,7 +727,6 @@ namespace Mila::Dnn
 
         static void validateDeployment(
             std::string_view caller,
-            KvCacheCompression kv_cache_compression,
             DeviceId device_id )
         {
             if ( device_id.type != TDeviceType )
@@ -728,15 +736,6 @@ namespace Mila::Dnn
                     caller,
                     deviceTypeToString( TDeviceType ),
                     deviceTypeToString( device_id.type ) ) );
-            }
-
-            // The uniform modes are refused in dispatchQwenWeightPlan, where the reason is a
-            // scope boundary rather than a dispatch gap. Nothing to check here.
-
-            if ( kv_cache_compression == KvCacheCompression::FP8 )
-            {
-                throw std::runtime_error( std::format(
-                    "{}: FP8 KV cache compression is not yet supported", caller ) );
             }
         }
 

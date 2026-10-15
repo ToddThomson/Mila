@@ -156,10 +156,12 @@ class ModelWorker:
             record.name,
             settings.context_length,
             settings.device_index,
+            settings.kv_cache,
         )
 
         loaded.context_length = self._model.context_length
-        _log.info("Context length %d (configured %s)", loaded.context_length, settings.context_length)
+        _log.info("Context length %d (configured %s), %s KV cache",
+                  loaded.context_length, settings.context_length, settings.kv_cache.upper())
 
         loaded.mila_version = mila.version()
         loaded.device = _device_record(settings.device_index)

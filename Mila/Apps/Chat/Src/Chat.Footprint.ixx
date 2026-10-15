@@ -54,13 +54,14 @@ namespace Mila::ChatApp
      * @brief The deployment request a load sends, before its context length is set.
      *
      * Names a weight format only when the session quantizes on load; otherwise the library loads the format the
-     * weights are stored in (Deployment.md 12.6), so Chat never restates what the package already is.
+     * weights are stored in (Deployment.md 12.6), so Chat never restates what the package already is. The KV
+     * cache is always named: it is the session's choice, not the package's.
      */
     export inline DeploymentRequest deploymentRequestFor(
-        QuantizationMode quantization, bool quantization_applied_at_load, int device_index )
+        QuantizationMode quantization, bool quantization_applied_at_load, int device_index, KvCache kv_cache )
     {
         DeploymentRequest request;
-        request.withDevice( DeviceId{ DeviceType::Cuda, device_index } );
+        request.withDevice( DeviceId{ DeviceType::Cuda, device_index } ).withKvCacheCompression( kv_cache );
 
         if ( quantization_applied_at_load )
         {

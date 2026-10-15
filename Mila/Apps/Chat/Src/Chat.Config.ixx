@@ -9,6 +9,7 @@ import std;
 export import Chat.ModelType;
 export import Chat.ModelSize;
 export import Chat.QuantizationMode;
+export import Chat.KvCache;
 export import Chat.DetailLevel;
 
 namespace Mila::ChatApp
@@ -87,6 +88,9 @@ namespace Mila::ChatApp
          * rather than as a wrong-card message.
          */
         int                   device_index{ 0 };
+
+        /// How the context is held: a deployment decision like device_index, kept across a model switch.
+        KvCache               kv_cache{ KvCache::None };
 
         std::filesystem::path model_path;
         std::filesystem::path tokenizer_path;

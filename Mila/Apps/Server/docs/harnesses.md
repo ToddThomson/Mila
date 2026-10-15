@@ -148,7 +148,7 @@ with a tool and answering from it:
 | Harness | Version | Gemma 4 12B | Gemma 4 26B-A4B | Qwen 3.8 27B |
 |---|---|---|---|---|
 | Codex CLI | 0.162.1 | yes | yes | yes |
-| Claude Code | 2.1.300 | yes | yes | no: its first request is about 20,400 tokens, and a 16 GB card holds 11,264 for this model |
+| Claude Code | 2.1.300 | yes | yes | yes, with `MILA_KV_CACHE=fp8` and `MILA_CONTEXT_LENGTH=32768` |
 | Hermes Agent | 0.22.2 | yes | yes | yes |
 
 Claude Code fills most of the 26B-A4B's 27,648-token context on a 16 GB card, so a long
@@ -159,7 +159,21 @@ session there runs out of room sooner than on the 12B.
 MIS loads the model at the longest context the GPU can hold unless `MILA_CONTEXT_LENGTH`
 fixes one, and `/v1/models` reports it as `context_window`. The harnesses send large
 system prompts: 16,384 is the recommended minimum for Codex, and Claude Code's first
-request is about 20,400 tokens before any work is done.
+request is about 20,400 tokens before any work is done. `MILA_KV_CACHE=fp8` holds the
+context in half the memory, so the same card fits a longer one. On a 16 GB card, run Qwen 3.8
+27B for Claude Code with both:
+
+```bash
+MILA_MODEL=Qwen3.8-27B-fp4
+MILA_KV_CACHE=fp8
+MILA_CONTEXT_LENGTH=32768
+```
+
+That is room for short tasks, not long sessions. Claude Code does not read the context window
+MIS reports, and assumes 200,000 tokens, so it never compacts; when the conversation passes
+32,768 tokens MIS refuses the request. Do not set `CLAUDE_CODE_MAX_CONTEXT_TOKENS=32768` to
+compensate: Claude Code compacts before it reaches `window - 33,000` tokens, and its own
+instructions are about 20,000, so at 32,768 it compacts on every turn and never finishes.
 
 ### Tool Calls
 

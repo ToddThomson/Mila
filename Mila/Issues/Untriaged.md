@@ -10,15 +10,27 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
-## Claude Code cannot drive Qwen 3.8 27B on a 16 GB card
+## Claude Code assumes a 200,000-token window for a model served by Mila
+
+`Mila/Apps/Server/docs/harnesses.md` *Context Window* @ `+70`
+
+Found 2026-10-15 running Claude Code 2.1.300 against MIS on Qwen 3.8 27B FP4 at 32,768: its result reports
+`"contextWindow":200000` for `Qwen3.8-27B-fp4` and logs `unrecognized_model`. It does not read the `context_window`
+`/v1/models` returns, so it would not compact before MIS refuses a request for length.
+Read from the 2.1.300 binary the same day: a model whose name does not start `claude-` takes its window from
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS` (default 200,000), and compaction fires at window - min(max output tokens, 20,000)
+- 13,000; `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is clamped to the window. Set to 32,768 it compacts on every turn --
+measured: request 20,490 tokens, summary 21,946, resume 20,152, summary 21,661, ~70 s each, until killed. Claude
+Code's own request is ~20.5K, so a session with working room needs a window of about 33.5K + the output reserve
+(`CLAUDE_CODE_MAX_OUTPUT_TOKENS`) + the room. Not checked: how Codex and Hermes learn their window.
+
+## The Gemma 4 26B-A4B leaves Claude Code about 7,000 tokens of working room on a 16 GB card
 
 `Mila/Apps/Server/docs/harnesses.md` *Tested With* @ `+68`
 
-Found 2026-10-15 in the harness rerun. Claude Code 2.1.300's first request renders to about 20,400 tokens; Qwen 3.8
-27B FP4 loads on the 5060 Ti at 11,264 tokens of context, so every request is refused for length. Codex 0.162.1 and
-Hermes 0.22.2 fit and pass. Qwen 3.8 is one of the two agentic models, and 16 GB is the reference card. The
-26B-A4B's 27,648 leaves Claude Code about 7,000 tokens of working room. Not measured: Qwen on the 2.82-bit build,
-or the 12B's room.
+Found 2026-10-15 in the harness rerun. Claude Code 2.1.300's first request renders to about 20,400 tokens and the
+26B-A4B loads on the 5060 Ti at 27,648. Not measured: the 12B's room, or whether the 26B-A4B's context is held back
+for a full prefill chunk as Qwen's is (Qwen moved to `BACKLOG.md`, its KV-cache entry).
 
 ## Text parts of one message are joined with nothing between them
 

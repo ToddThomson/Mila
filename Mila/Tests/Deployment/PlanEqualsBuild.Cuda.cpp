@@ -207,10 +207,30 @@ namespace Mila::Tests::Deployment
         config.withWeightQuantization( WeightQuantization::FP4 );
 
         using Network = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
-            QwenOraclePrecisionPlan, QwenCudaModel::QwenKvPolicy>;
+            QwenOraclePrecisionPlan, Quant::KvCache::NoKvCompression>;
 
         expectPlanEqualsBuildOnThisDevice<QwenCudaModel, Network>(
             "qwen 3.8 27b fp4", weights, config, networkConfigOf<QwenCudaModel>( weights ) );
+    }
+
+    // The agentic target's context (Qwen3.8.md, "Agentic deployment on the 16 GB card").
+    TEST( PlanEqualsBuildCudaTests, Qwen38_27B_Fp4_Fp8Kv_Context32768 )
+    {
+        const fs::path weights = modelsDirectory() / "qwen" / "qwen38_27b_fp4.safetensors";
+
+        if ( !fs::exists( weights ) )
+        {
+            GTEST_SKIP() << "Not present: " << weights.string();
+        }
+
+        QwenModelConfig config( 32768 );
+        config.withWeightQuantization( WeightQuantization::FP4 ).withKvCacheCompression( KvCacheCompression::FP8 );
+
+        using Network = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            QwenOraclePrecisionPlan, Quant::KvCache::PerTokenKvFp8<>>;
+
+        expectPlanEqualsBuildOnThisDevice<QwenCudaModel, Network>(
+            "qwen 3.8 27b fp4, fp8 kv", weights, config, networkConfigOf<QwenCudaModel>( weights ) );
     }
 
     TEST( PlanEqualsBuildCudaTests, Qwen38_27B_Codebook_Context4096 )
@@ -226,7 +246,7 @@ namespace Mila::Tests::Deployment
         config.withPrecisionPlan();
 
         using Network = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
-            QwenPrecisionPlan, QwenCudaModel::QwenKvPolicy>;
+            QwenPrecisionPlan, Quant::KvCache::NoKvCompression>;
 
         expectPlanEqualsBuildOnThisDevice<QwenCudaModel, Network>(
             "qwen 3.8 27b cb2-3", weights, config, networkConfigOf<QwenCudaModel>( weights ) );

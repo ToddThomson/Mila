@@ -262,7 +262,8 @@ namespace Mila::Bindings
     //
     // A context length of nullopt is automatic: the library's planner chooses the longest that
     // fits the device (Specifications/Deployment.md). A fixed one that does not fit is refused
-    // before anything is allocated, never attempted.
+    // before anything is allocated, never attempted. kv_cache is "bf16" or "fp8" on every load:
+    // the cache is a deployment choice, not a property of the weights.
 
     export class LlamaSession
     {
@@ -274,7 +275,7 @@ namespace Mila::Bindings
          */
         static std::unique_ptr<LlamaSession> load(
             const std::string& path, std::optional<std::int64_t> context_length, int device_index,
-            const std::string& quantization );
+            const std::string& quantization, const std::string& kv_cache );
 
         /**
          * @brief Load an installed model by store name, as its weights already are.
@@ -289,7 +290,8 @@ namespace Mila::Bindings
          *         not fit the device at the context length asked for.
          */
         static std::unique_ptr<LlamaSession> fromStore(
-            const std::string& name, std::optional<std::int64_t> context_length, int device_index );
+            const std::string& name, std::optional<std::int64_t> context_length, int device_index,
+            const std::string& kv_cache );
 
         /**
          * @brief Generate from a prompt, streaming each token through on_token.
@@ -540,11 +542,12 @@ namespace Mila::Bindings
          */
         static std::unique_ptr<GemmaSession> load(
             const std::string& path, std::optional<std::int64_t> context_length, int device_index,
-            const std::string& quantization );
+            const std::string& quantization, const std::string& kv_cache );
 
         /// As LlamaSession::fromStore -- the record decides the quantization.
         static std::unique_ptr<GemmaSession> fromStore(
-            const std::string& name, std::optional<std::int64_t> context_length, int device_index );
+            const std::string& name, std::optional<std::int64_t> context_length, int device_index,
+            const std::string& kv_cache );
 
         /// As LlamaSession::generate -- tokens through the callback, why it stopped returned.
         std::string generate(
@@ -587,11 +590,12 @@ namespace Mila::Bindings
          */
         static std::unique_ptr<QwenSession> load(
             const std::string& path, std::optional<std::int64_t> context_length, int device_index,
-            const std::string& quantization );
+            const std::string& quantization, const std::string& kv_cache );
 
         /// As GemmaSession::fromStore -- the record decides the quantization.
         static std::unique_ptr<QwenSession> fromStore(
-            const std::string& name, std::optional<std::int64_t> context_length, int device_index );
+            const std::string& name, std::optional<std::int64_t> context_length, int device_index,
+            const std::string& kv_cache );
 
         /// As LlamaSession::generate -- tokens through the callback, why it stopped returned.
         std::string generate(

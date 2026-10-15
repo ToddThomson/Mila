@@ -60,7 +60,7 @@ namespace Mila::Tests::Dnn::Models
         };
 
         template<typename TWeightPlan>
-        using FixtureQwen = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16, TWeightPlan, QwenBf16::QwenKvPolicy>;
+        using FixtureQwen = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16, TWeightPlan, Quant::KvCache::NoKvCompression>;
 
         constexpr dim_t kContextLength = 512;
 

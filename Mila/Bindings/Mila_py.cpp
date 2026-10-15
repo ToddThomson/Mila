@@ -507,25 +507,29 @@ static void bind_llama_model( py::module_& m )
             []( const std::string& path,
                 const ContextLengthArgument& context_length,
                 int device_index,
-                const std::string& quantization ) -> std::unique_ptr<LlamaSession>
+                const std::string& quantization,
+                const std::string& kv_cache ) -> std::unique_ptr<LlamaSession>
             {
                 const std::optional<int64_t> length = parseContextLength( context_length );
 
                 py::gil_scoped_release _;
 
                 return LlamaSession::load(
-                    path, length, device_index, quantization );
+                    path, length, device_index, quantization, kv_cache );
             },
             py::arg( "path" ),
             py::arg( "context_length" ) = "auto",
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "bf16",
+            py::arg( "kv_cache" ) = "bf16",
             "Load Llama 3.x Instruct weights from an unquantized Mila weights file.\n\n"
             "Args:\n"
             "    path:           Path to a Mila weights file.\n"
             "    context_length: Tokens the model can hold, prompt and reply together,\n"
             "                    or 'auto' (default) for the longest that fits the GPU.\n"
             "    device_index:   CUDA device index (default: 0).\n"
+            "    kv_cache:       'bf16' (default) or 'fp8'. FP8 holds the context in half\n"
+            "                    the memory, so more of it fits.\n"
             "    quantization:   'bf16', 'fp8', 'fp4' or 'q4_0', applied at load time\n"
             "                    (default: 'bf16'). FP4 and Q4_0 require SM >= 8.0 (RTX 30xx\n"
             "                    or newer); FP8 requires SM >= 8.9 (RTX 40xx or newer).\n\n"
@@ -534,17 +538,19 @@ static void bind_llama_model( py::module_& m )
         .def_static( "from_store",
             []( const std::string& name,
                 const ContextLengthArgument& context_length,
-                int device_index ) -> std::unique_ptr<LlamaSession>
+                int device_index,
+                const std::string& kv_cache ) -> std::unique_ptr<LlamaSession>
             {
                 const std::optional<int64_t> length = parseContextLength( context_length );
 
                 py::gil_scoped_release _;
 
-                return LlamaSession::fromStore( name, length, device_index );
+                return LlamaSession::fromStore( name, length, device_index, kv_cache );
             },
             py::arg( "name" ),
             py::arg( "context_length" ) = "auto",
             py::arg( "device_index" ) = 0,
+            py::arg( "kv_cache" ) = "bf16",
             "Load an installed Llama model by store name, as its weights already are.\n\n"
             "The record settles the quantization, so a published FP4 or FP8 model\n"
             "loads without the caller knowing what it is. Nothing is downloaded: an\n"
@@ -554,7 +560,9 @@ static void bind_llama_model( py::module_& m )
             "    context_length: Tokens the model can hold, prompt and reply together,\n"
             "                    or 'auto' (default) for the longest that fits the GPU.\n"
             "                    The context_length property reports the one chosen.\n"
-            "    device_index:   CUDA device index (default: 0).\n\n"
+            "    device_index:   CUDA device index (default: 0).\n"
+            "    kv_cache:       'bf16' (default) or 'fp8'. FP8 holds the context in half\n"
+            "                    the memory, so more of it fits.\n\n"
             "Raises RuntimeError if the model does not fit the GPU at that length, naming\n"
             "what it needs and what is free." )
         .def( "generate",
@@ -630,25 +638,29 @@ static void bind_gemma_model( py::module_& m )
             []( const std::string& path,
                 const ContextLengthArgument& context_length,
                 int device_index,
-                const std::string& quantization ) -> std::unique_ptr<GemmaSession>
+                const std::string& quantization,
+                const std::string& kv_cache ) -> std::unique_ptr<GemmaSession>
             {
                 const std::optional<int64_t> length = parseContextLength( context_length );
 
                 py::gil_scoped_release _;
 
                 return GemmaSession::load(
-                    path, length, device_index, quantization );
+                    path, length, device_index, quantization, kv_cache );
             },
             py::arg( "path" ),
             py::arg( "context_length" ) = "auto",
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "fp4",
+            py::arg( "kv_cache" ) = "bf16",
             "Load Gemma 4 weights from an unquantized Mila weights file.\n\n"
             "Args:\n"
             "    path:           Path to a Mila weights file.\n"
             "    context_length: Tokens the model can hold, prompt and reply together,\n"
             "                    or 'auto' (default) for the longest that fits the GPU.\n"
             "    device_index:   CUDA device index (default: 0).\n"
+            "    kv_cache:       'bf16' (default) or 'fp8'. FP8 holds the context in half\n"
+            "                    the memory, so more of it fits.\n"
             "    quantization:   'bf16', 'fp8', 'fp4' or 'q4_0', applied at load time\n"
             "                    (default: 'fp4' -- a BF16 Gemma 4 12B needs ~24 GB\n"
             "                    and OOMs at load on the cards this targets).\n\n"
@@ -656,24 +668,28 @@ static void bind_gemma_model( py::module_& m )
         .def_static( "from_store",
             []( const std::string& name,
                 const ContextLengthArgument& context_length,
-                int device_index ) -> std::unique_ptr<GemmaSession>
+                int device_index,
+                const std::string& kv_cache ) -> std::unique_ptr<GemmaSession>
             {
                 const std::optional<int64_t> length = parseContextLength( context_length );
 
                 py::gil_scoped_release _;
 
-                return GemmaSession::fromStore( name, length, device_index );
+                return GemmaSession::fromStore( name, length, device_index, kv_cache );
             },
             py::arg( "name" ),
             py::arg( "context_length" ) = "auto",
             py::arg( "device_index" ) = 0,
+            py::arg( "kv_cache" ) = "bf16",
             "Load an installed Gemma model by store name, as its weights already are.\n\n"
             "Args:\n"
             "    name:           Store name, e.g. 'gemma-4-12b-it-fp4'.\n"
             "    context_length: Tokens the model can hold, prompt and reply together,\n"
             "                    or 'auto' (default) for the longest that fits the GPU.\n"
             "                    The context_length property reports the one chosen.\n"
-            "    device_index:   CUDA device index (default: 0).\n\n"
+            "    device_index:   CUDA device index (default: 0).\n"
+            "    kv_cache:       'bf16' (default) or 'fp8'. FP8 holds the context in half\n"
+            "                    the memory, so more of it fits.\n\n"
             "Raises RuntimeError if the model does not fit the GPU at that length, naming\n"
             "what it needs and what is free." )
         .def( "generate",
@@ -754,25 +770,29 @@ static void bind_qwen_model( py::module_& m )
             []( const std::string& path,
                 const ContextLengthArgument& context_length,
                 int device_index,
-                const std::string& quantization ) -> std::unique_ptr<QwenSession>
+                const std::string& quantization,
+                const std::string& kv_cache ) -> std::unique_ptr<QwenSession>
             {
                 const std::optional<int64_t> length = parseContextLength( context_length );
 
                 py::gil_scoped_release _;
 
                 return QwenSession::load(
-                    path, length, device_index, quantization );
+                    path, length, device_index, quantization, kv_cache );
             },
             py::arg( "path" ),
             py::arg( "context_length" ) = "auto",
             py::arg( "device_index" ) = 0,
             py::arg( "quantization" ) = "fp4",
+            py::arg( "kv_cache" ) = "bf16",
             "Load Qwen 3.8 weights from a Mila weights file.\n\n"
             "Args:\n"
             "    path:           Path to a Mila weights file.\n"
             "    context_length: Tokens the model can hold, prompt and reply together,\n"
             "                    or 'auto' (default) for the longest that fits the GPU.\n"
             "    device_index:   CUDA device index (default: 0).\n"
+            "    kv_cache:       'bf16' (default) or 'fp8'. FP8 holds the context in half\n"
+            "                    the memory, so more of it fits.\n"
             "    quantization:   'bf16', 'fp8', 'fp4' or 'cb2-3'\n"
             "                    (default: 'fp4' -- a BF16 27B fits no card this\n"
             "                    targets). 'cb2-3' names a codebook plan fitted\n"
@@ -782,24 +802,28 @@ static void bind_qwen_model( py::module_& m )
         .def_static( "from_store",
             []( const std::string& name,
                 const ContextLengthArgument& context_length,
-                int device_index ) -> std::unique_ptr<QwenSession>
+                int device_index,
+                const std::string& kv_cache ) -> std::unique_ptr<QwenSession>
             {
                 const std::optional<int64_t> length = parseContextLength( context_length );
 
                 py::gil_scoped_release _;
 
-                return QwenSession::fromStore( name, length, device_index );
+                return QwenSession::fromStore( name, length, device_index, kv_cache );
             },
             py::arg( "name" ),
             py::arg( "context_length" ) = "auto",
             py::arg( "device_index" ) = 0,
+            py::arg( "kv_cache" ) = "bf16",
             "Load an installed Qwen model by store name, as its weights already are.\n\n"
             "Args:\n"
             "    name:           Store name, e.g. 'Qwen3.8-27B-fp4'.\n"
             "    context_length: Tokens the model can hold, prompt and reply together,\n"
             "                    or 'auto' (default) for the longest that fits the GPU.\n"
             "                    The context_length property reports the one chosen.\n"
-            "    device_index:   CUDA device index (default: 0).\n\n"
+            "    device_index:   CUDA device index (default: 0).\n"
+            "    kv_cache:       'bf16' (default) or 'fp8'. FP8 holds the context in half\n"
+            "                    the memory, so more of it fits.\n\n"
             "Raises RuntimeError if the model does not fit the GPU at that length, naming\n"
             "what it needs and what is free." )
         .def( "generate",

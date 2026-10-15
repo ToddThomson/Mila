@@ -58,9 +58,9 @@ smaller first run.
 |---|---|
 | `mila.initialize` | `log_level` = `trace \| info \| warning \| error` |
 | `mila.BpeTokenizer` | `from_store(name)`, `load_llama32`, `load_gemma`, `load_qwen`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
-| `mila.GemmaModel` | `from_store(name, context_length="auto", device_index=0)`, `load(path, context_length="auto", device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config` |
-| `mila.LlamaModel` | `from_store(name, context_length="auto", device_index=0)`, `load(path, context_length="auto", device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config` |
-| `mila.QwenModel` | `from_store(name, context_length="auto", device_index=0)`, `load(path, context_length="auto", device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config` |
+| `mila.GemmaModel` | `from_store(name, context_length="auto", device_index=0, kv_cache="bf16")`, `load(path, context_length="auto", device_index=0, quantization="fp4", kv_cache="bf16")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config` |
+| `mila.LlamaModel` | `from_store(name, context_length="auto", device_index=0, kv_cache="bf16")`, `load(path, context_length="auto", device_index=0, quantization="bf16", kv_cache="bf16")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config` |
+| `mila.QwenModel` | `from_store(name, context_length="auto", device_index=0, kv_cache="bf16")`, `load(path, context_length="auto", device_index=0, quantization="fp4", kv_cache="bf16")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config` |
 | `mila.qwen_format_prompt` | `(history, enable_thinking=False, reasoning_effort=3, tools_json="")` — the runtime's own Qwen 3.8 template |
 | `mila.qwen_parse_tool_call` | `(response)` → `{call id, name, arguments}` or `None` |
 | `mila.qwen_protocol_tokens` | Qwen's control tokens, for a caller that streams |

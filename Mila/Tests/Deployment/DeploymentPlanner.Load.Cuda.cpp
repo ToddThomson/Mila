@@ -35,6 +35,7 @@ namespace Mila::Tests::Deployment
     {
         using GemmaCudaModel = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
         using LlamaCudaModel = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
+        using QwenCudaModel = QwenModel<DeviceType::Cuda, TensorDataType::BF16>;
 
         fs::path gemmaWeights()
         {
@@ -44,6 +45,11 @@ namespace Mila::Tests::Deployment
         fs::path llamaWeights()
         {
             return fs::path( TEST_DATA_DIR ) / "models" / "llama" / "llama31_8b_instruct_fp4.safetensors";
+        }
+
+        fs::path qwenWeights()
+        {
+            return fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_fp4.safetensors";
         }
 
         /**
@@ -182,6 +188,17 @@ namespace Mila::Tests::Deployment
         const Common::ScopedCurrentCudaDevice current( ordinal_ );
 
         expectFp8KvCacheBuiltAsPriced<LlamaCudaModel>( llamaWeights(), device_, "llama 3.1 8b fp4" );
+    }
+
+    // Only Qwen's 16 full-attention layers hold a cache; the request's setting is all of theirs.
+    TEST_F( DeploymentLoadCudaTests, AnFp8KvCacheRequestIsBuiltAsPriced_Qwen )
+    {
+        if ( !fs::exists( qwenWeights() ) )
+            GTEST_SKIP() << "Not present: " << qwenWeights().string();
+
+        const Common::ScopedCurrentCudaDevice current( ordinal_ );
+
+        expectFp8KvCacheBuiltAsPriced<QwenCudaModel>( qwenWeights(), device_, "qwen 3.8 27b fp4" );
     }
 
     // N4: a plan priced for one package is refused against another, naming both, before anything is built.

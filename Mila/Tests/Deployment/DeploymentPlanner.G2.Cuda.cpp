@@ -200,7 +200,7 @@ namespace Mila::Tests::Deployment
             GTEST_SKIP() << "Not present: " << weights.string();
 
         using Network = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
-            QwenOraclePrecisionPlan, QwenCudaModel::QwenKvPolicy>;
+            QwenOraclePrecisionPlan, Quant::KvCache::NoKvCompression>;
 
         // Chat recorded 4096 on the RTX 5060 Ti. Below 16384 the full-attention layers then ran cuBLASLt with a
         // full-context score buffer; flash at every length (ModelFamilyParity.md 8.4, L4) removed it from the
@@ -220,7 +220,7 @@ namespace Mila::Tests::Deployment
             GTEST_SKIP() << "Not present: " << weights.string();
 
         using Network = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
-            QwenPrecisionPlan, QwenCudaModel::QwenKvPolicy>;
+            QwenPrecisionPlan, Quant::KvCache::NoKvCompression>;
 
         // Chat recorded 3072 on the RTX 4070, for the reason Qwen38_27B_Fp4 gives. The RTX 5060 Ti's row was above
         // 16384 already, where flash ran then too. Both rose with the token embedding's output a chunk wide, and the

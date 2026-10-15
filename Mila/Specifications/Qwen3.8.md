@@ -126,7 +126,7 @@ conv ring = 48 layers * 10,240 channels * 4 taps * 4 bytes = 7.5 MiB, also flat
 ```
 
 A dense 64-layer model of this width would cost 4x the KV. At the 16K baseline the
-full-attention cache is 1.0 GiB at BF16 (0.5 GiB at FP8, a policy not yet in the tree —
+full-attention cache is 1.0 GiB at BF16 (0.5 GiB at FP8 —
 see Section 8) and the recurrent state is 0.141 GiB regardless. This is the property that
 makes a 27B model plausible on 12 GiB at all, and it is architectural, not an optimization
 Mila supplies.
@@ -393,6 +393,8 @@ Ordered by dependency, not priority. Nothing here is scheduled.
    *Host-resident embedding* below.
 7. **`PerChannelKvFp8` KV-cache policy.** Optional for the 16K baseline (BF16 KV fits) and
    the price of the 32K stretch (Section 5). Independently useful for Gemma and Llama.
+   *Built for Llama and Gemma as `PerTokenKvFp8` (2026-10-01); Qwen refuses it. On the 16 GB card it is the
+   agentic target's first lever -- see* Agentic deployment on the 16 GB card *below.*
 8. ~~**Qwen block types, model, config, converter.**~~ **Built**: blocks, model and config
    in Phase 3, the BF16 converter in Phase 4, and the quantizing packer in Phase 5 (see
    *The Qwen packer* below), which has now produced the full 15.09 GiB artifact. The
@@ -2671,6 +2673,101 @@ So the packed path computes exactly what the fitted weights say, at every policy
 model's own tensor shapes, and the misnaming is **in the fitted weights**: the GPTQ codebook fit, not the
 runtime. Not yet known: why these tokens. The packer calibrates on wikitext-2 train, which is prose; that it
 under-weights identifier copying is a hypothesis, untested.
+
+### Agentic deployment on the 16 GB card (2026-10-15)
+
+**Target: at least 32K tokens of context at a prefill chunk of at least 512 rows, for the FP4 build on the RTX
+5060 Ti 16 GB under Windows.** Qwen 3.8 is one of the two models Mila calls agentic, 16 GB is the reference card,
+and Claude Code 2.1.300's first request alone renders to about 20,400 tokens. Today the inference server loads
+the FP4 build at 11,264 and refuses every Claude Code request for length; Codex 0.162.1 and Hermes 0.22.2 fit.
+
+**What bounds it is the Windows budget, not a pricing error.** The card reports 16,311 MiB and nvidia-smi shows about
+1 GiB free with the model loaded. That GiB is not the process's: WDDM gives a process a budget below the card, and
+`cudaMemGetInfo` reports free memory against that budget. The Windows per-process counters
+(`\GPU Process Memory(pid_N*)\Dedicated Usage`, `Shared Usage`) settle it:
+
+| Context, chunk | Dedicated peak | Shared |
+|---|---|---|
+| 2,048, 1,024 | 14,842 MiB | 5,018 MiB |
+| 6,144, 1,024 | 15,098 MiB | 5,018 MiB |
+| 11,264, 1,024 (automatic) | 15,452 MiB | 5,018 MiB |
+| 20,480, 64 | 15,434 MiB | 5,018 MiB |
+
+Dedicated moves by exactly the KV price (+256 MiB for 4,096 tokens at 64 KiB), and the plan's reading at the
+automatic load -- 15,168 MiB free, plus the ~274 MiB the process already held -- is the 15,452 MiB peak. Shared
+does not move with context, so it is pinned host memory (the 2.37 GiB embedding and the reader's staging), not
+spilled device memory. A fit decision on Windows reads the budget, and the planner already does. On Linux the
+budget is the card; how much more that leaves is not measured.
+
+**The automatic 11,264 is the planner's prefill rule, not memory.** It stops at `FullPrefillChunk`: the largest
+context that keeps the 1,024-row chunk. A fixed request loads to about 21.5K. Measured on one ~8K-token prompt:
+
+| Context | Chunk | Prefill |
+|---|---|---|
+| 11,264 | 1,024 | 7.4 s |
+| 16,384 | 512 | 8.1 s |
+| 18,432 | 256 | 10.3 s |
+| 20,480 | 64 | 26.5 s |
+
+The rule gives up 5,120 tokens (31% of the context) to save 10% of prefill. The two points that bracket it fit one
+line: **everything but the KV cache costs ~13,811 MiB + 0.61 MiB per chunk row**, of which 13,025 MiB is weights
+(U8 codes 11.92 GiB, F32 group scales 0.745 GiB, BF16 0.05 GiB), 497 MiB the 2 MiB rounding of one allocation per
+weight tensor (`BACKLOG.md` Internal fixes), and ~158 MiB the recurrent state and conv ring. Against the 15,168 MiB
+budget, BF16 KV cannot reach the target at any chunk: 21.5K at the 64-row floor is the end.
+
+**The levers, priced with that line** (estimates, not runs, except the first row's 11,264):
+
+| | Chunk 1,024 | Chunk 512 |
+|---|---|---|
+| BF16 KV (today) | ~11.7K | ~16.7K |
+| BF16 KV, weights in one arena (+497 MiB) | ~19.7K | ~24.7K |
+| FP8 KV (32.5 KiB a token, scales included) | ~23K | ~33K |
+| **FP8 KV, weights in one arena** | **~38.7K** | **~48.6K** |
+| FP8 KV and BF16 group scales (-0.37 GiB) | ~36K | ~46K |
+| 2.82-bit build, BF16 KV | ~77K | -- |
+
+**FP8 KV with the weights in one arena meets the target at the full chunk**, and neither changes the package: both
+are load-time, so the published FP4 build serves it as it is. That makes them the plan, in that order; the planner
+rule and the scale format are held unless the measured context falls short.
+
+- **FP8 KV is built and Qwen refuses it.** `PerTokenKvFp8` reaches every Llama layer and Gemma's global layers
+  through `dispatchKvCacheCompression` (Quantization.md, *Wired, 2026-10-01*), and its packed flash kernel serves
+  head size 256. `QwenModel::validateDeployment` throws for it and `QwenKvPolicy` is fixed at `NoKvCompression`.
+  Only the 16 full-attention layers hold a cache, so the cache error reaches a quarter of the stack.
+- **The weight arena** is the open Internal-fixes item: one allocation per model or per layer, priced the way
+  it is laid out, so the plan still equals the build.
+- **A 512-row chunk** is a planner decision (Deployment.md section 5, rule 3) and applies to every family.
+- **BF16 group scales** change the weight format: a re-export, and ModelDistribution.md *Compatibility*.
+- **The 2.82-bit build** is blocked on the tool-name defect above.
+
+**FP8 KV, measured (2026-10-15).** `QwenModel` dispatches the KV policy as Llama does, and the binding (`kv_cache`),
+the inference server (`MILA_KV_CACHE`) and Chat (`kv_cache`) ask for it; BF16 stays the default. The plan equals the
+build at every rung (`PlanEqualsBuild` at 32,768). On the 5060 Ti:
+
+| | Context | Chunk | Prefill, ~17K-token prompt |
+|---|---|---|---|
+| BF16 KV, fixed | 20,480 | 64 | 52.8 s |
+| FP8 KV, automatic | 22,528 | 1,024 | -- |
+| FP8 KV, fixed | 32,768 | 512 | 17.0 s |
+
+At 32,768 the 512-row chunk is priced 15,897,077,760 bytes against 15,906,897,920 free, and the dedicated peak
+through that prefill is 15,468 MiB, inside the budget. The 1,024-row chunk needs 281 MiB more, which is what the
+weight arena returns. Automatic planning stops at 22,528 for the same reason BF16 stopped at 11,264: the
+full-chunk rule.
+
+Quality by the instruction-retention protocol Llama and Gemma ran (Quantization.md, decision 6): at 2,048, 8,192
+and 16,384 the BF16 cache holds 11 of 18 instructions and the FP8 cache 12, with 17 of 18 verdicts the same; at
+31,744, which only the FP8 cache reaches here, it still holds BANANA on both books.
+
+**32K serves Claude Code's short tasks, not its sessions.** Through the inference server at 32,768 with the FP8
+cache, Claude Code 2.1.300 read a file and answered (2 turns, 25 s) and summed a file into another (4 turns,
+35 s). But it compacts at window - min(max output tokens, 20,000) - 13,000 (read from its binary), and its own
+request is ~20.5K, so it needs a window of about 33.5K plus its output reserve plus working room -- roughly 54K
+with a 4K reserve and 16K of room. Told the 32,768 window it compacts every turn and never finishes; left at its
+200,000 default it never compacts and the server refuses it once a session passes 32,768. On this card the FP4
+build reaches ~49K with FP8 KV and the weight arena at a 512-row chunk, ~60K with BF16 scales as well. Only the
+2.82-bit build clears 64K (~77K at BF16 KV, about double at FP8), which makes its tool-name defect the agentic
+blocker on the 16 GB card, not just a publishing one.
 
 ---
 

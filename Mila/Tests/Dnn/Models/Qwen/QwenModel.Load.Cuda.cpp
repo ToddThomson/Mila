@@ -410,7 +410,7 @@ namespace Mila::Tests::Dnn::Models
         };
 
         template<typename TWeightPlan>
-        using MeasuredQwen = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16, TWeightPlan, QwenBf16::QwenKvPolicy>;
+        using MeasuredQwen = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16, TWeightPlan, Quant::KvCache::NoKvCompression>;
 
         /// The network geometry a load of `weights` builds, with the log-likelihood window a measurement asks for.
         static QwenConfig measuredQwenConfig( const fs::path& weights, dim_t window )

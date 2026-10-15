@@ -388,6 +388,16 @@ quality gate says they are worth most. v0.20 deliberately did not pre-empt that,
 this work rather than a consequence of it. The compressed cache has to be priced exactly by
 `getRequiredMemory`, since the planner reads that price.
 
+Decided 2026-10-15 (Todd): the margin goes to context, for agentic use. On the 16 GB card the FP4 build loads at
+11,264 tokens, and Claude Code's first request alone is about 20,400, so the inference server refuses every
+request it sends. Target: at least 32K at a prefill chunk of at least 512 rows on the RTX 5060 Ti under Windows,
+reached with this cache and the weight arena (Internal fixes) before the planner's chunk rule or the scale format
+is touched. Gate: the FP8 cache against BF16 on Qwen by the instruction-retention protocol Llama and Gemma ran,
+at lengths both reach and past BF16's; the plan's price equal to the build; and Claude Code completing a tool
+task against the FP4 build through the inference server.
+
+`Mila/Specifications/Qwen3.8.md` "Agentic deployment on the 16 GB card"
+
 #### Qwen answers in one block after a long silence
 
 `open` · `qwen` · `apps`
@@ -661,7 +671,9 @@ granule: Qwen 3.8 27B 2.82-bit loses 679 MiB of its weights to it, Qwen FP4 497,
 26B-A4B 225 (priced by `DISABLED_ParameterRounding_26B_Q4_0`), Llama 64-70. Layout changes nothing else
 measured (`Profiling/Microbenchmarks/AllocationLayout.cu`). Judged over-engineering for the bytes alone on
 2026-10-03; on 2026-10-04 the bytes became features -- the 26B-A4B is 87 MB short of the 96K its profile
-measures it reliable to, and every feature a deployment selects brings more such tensors.
+measures it reliable to, and every feature a deployment selects brings more such tensors. On 2026-10-15 Qwen FP4's
+497 MiB became about 15,600 tokens of FP8 context, half of what its agentic target needs on the 16 GB card
+(the Qwen KV-cache entry above).
 
 Work: an arena behind the weights' memory resource, one allocation per model or per layer, so tensors are
 placed rather than rounded. The planner's exactness is the constraint: what it prices must stay what the

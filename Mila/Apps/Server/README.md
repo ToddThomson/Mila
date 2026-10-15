@@ -150,6 +150,7 @@ up when you run MIS from the checkout.
 | `MILA_MODEL` | `gemma-4-12b-it-fp4` | Name of an installed model in the local store |
 | `MILA_PROTOCOL` | `openai` | API protocol to expose: `mila`, `openai`, or `anthropic` (one per launch) |
 | `MILA_CONTEXT_LENGTH` | `auto` | Tokens the model holds, prompt and reply together. `auto` takes the longest the GPU can hold; a number that does not fit stops startup, naming what it needs and what is free |
+| `MILA_KV_CACHE` | `bf16` | How the model holds its context: `bf16` or `fp8`. `fp8` takes half the memory, so `auto` fits a longer context |
 | `MILA_DEVICE_INDEX` | `0` | CUDA device ordinal |
 | `MILA_DEFAULT_MAX_NEW_TOKENS` | `1024` | Default token budget for generation |
 | `MILA_DEFAULT_TEMPERATURE` | `0.6` | Default sampling temperature |

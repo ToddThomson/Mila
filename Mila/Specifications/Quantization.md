@@ -980,12 +980,19 @@ holding, BF16 cache / FP8 cache, over the lengths both reach (six prompts per in
 | Gemma 4 26B-A4B, 2048, 16384, 31744 | 4 / 4 | 6 / 6 | 3, 3 / 3, 3 | 13 / 13 |
 | Gemma 4 12B, 2048, 16384, 64512 | 4 / 5 | 6 / 6 | 2, 4 / 2, 4 | 12 / 13 |
 | Llama 3.1 8B, 2048, 16384, 65536 | 1 / 2 | 4 / 4 | 2, 3 / 3, 1 | 7 / 9 |
+| Qwen 3.8 27B FP4, 2048, 8192, 16384 (2026-10-15) | 5 / 5 | 6 / 6 | 0, 6 / 1, 5 | 11 / 12 |
 
 **No instruction is lost with the FP8 cache that the BF16 cache keeps, beyond single cells in both directions.** On
 the 26B-A4B every one of the 18 verdicts matches; on the 12B three differ, two of them FP8's way; on Llama the cells
 differ both ways and FP8 holds two more. A first run with a 32-token budget cut every "ends OVER" reply mid-sentence;
 the counts above are from the 256-token harness, where only an end-judged reply can be cut.
 
+- **Qwen 3.8 27B FP4** (`QwenInstructionRetentionCudaTests.DISABLED_Bf16AgainstFp8Cache_Fp4`, reasoning off through the
+  library's own template; the BF16 arm at 17408, the FP8 arm at 32768): 17 of the 18 verdicts match, the one
+  difference FP8's way, and many replies are word for word the same. Both caches lose "three capital words" in one
+  cell (3608 at 8192, four words). Qwen answers at length, so "ends OVER" is cut in 11 of 12 replies and measures the
+  budget. At 31744, past the BF16 cache's reach on the 16 GB card, the FP8 cache holds BANANA on both books and three
+  words on 30312.
 - **Past the BF16 cache's reach.** The 26B-A4B with the FP8 global cache at 64512 holds BANANA on both books and
   three words on 30312; on 3608 it answers in four words, as both caches do at 16384 and 31744. Llama with the FP8
   cache at 130048 holds nothing, and neither did the BF16 cache at 65536.

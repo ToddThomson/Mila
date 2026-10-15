@@ -19,6 +19,7 @@ PUBLIC
         "Src/Chat.ModelType.ixx"
         "Src/Chat.ModelSize.ixx"
         "Src/Chat.QuantizationMode.ixx"
+        "Src/Chat.KvCache.ixx"
         "Src/Chat.DetailLevel.ixx"
         "Src/Chat.FamilyTraits.ixx"
         "Src/Chat.Settings.ixx"

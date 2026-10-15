@@ -34,6 +34,13 @@ class Settings(BaseSettings):
             "takes the longest the GPU can hold; the length actually loaded is loaded.context_length."
         ),
     )
+    kv_cache: Literal["bf16", "fp8"] = Field(
+        "bf16",
+        description=(
+            "How the model holds its context, passed to from_store(). 'fp8' holds it in half the memory, "
+            "so 'auto' fits more of it."
+        ),
+    )
     device_index: int = Field(0, description="CUDA device ordinal.")
 
     # Generation defaults

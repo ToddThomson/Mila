@@ -432,6 +432,8 @@ static void printUsage( const char* prog_name )
         << "  context_length     Maximum sequence length, or \"auto\" (the default) to measure\n"
         << "                     the largest that fits this device. An explicit number is\n"
         << "                     used as written, and a model that does not fit at it is not loaded.\n"
+        << "  kv_cache           bf16 (the default) | fp8. fp8 holds the context in half the\n"
+        << "                     memory, so \"auto\" fits a longer one.\n"
         << "  thinking_effort    1-5 token-budget scale for reasoning (default 3 = balanced).\n"
         << "                     Reasoning is surfaced whenever the model has that channel.\n"
         << "  verbose            display detail: off | thoughts | all (default off).\n"
@@ -924,6 +926,19 @@ static StartupConfig buildConfig( const CommandLine& line )
     // measured CUDA device 0 whatever --device named.
     if ( const auto device = readInteger( settings, "device" ) )
         config.device_index = *device;
+
+    // Read before the context below for the same reason: "auto" measures what fits with this cache.
+    if ( const std::string kv_cache = readString( settings, "kv_cache" ); !kv_cache.empty() )
+    {
+        const auto parsed = parseKvCache( kv_cache );
+
+        if ( !parsed )
+            throw ConfigError( std::format(
+                "kv_cache ({}): expected bf16 or fp8, but found '{}'.",
+                settings.describeOrigin( "kv_cache" ), kv_cache ) );
+
+        config.kv_cache = *parsed;
+    }
 
     // The one value resolved after the merge rather than by it, because the device is not a layer:
     // what fits the card is a value a key can TAKE, not a silent override that outranks what the

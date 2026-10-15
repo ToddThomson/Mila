@@ -1898,6 +1898,7 @@ namespace Mila::ChatApp
 
             std::cout << std::format( "  {:<16}{}\n", "Context window:", config_.context_length );
             std::cout << std::format( "  {:<16}{}\n", "Set by:", basis );
+            std::cout << std::format( "  {:<16}{}\n", "KV cache:", kvCacheName( config_.kv_cache ) );
 
             const ContextFloor floor = contextFloor();
 
@@ -2515,7 +2516,8 @@ namespace Mila::ChatApp
         DeploymentRequest activeDeploymentRequest() const
         {
             DeploymentRequest request =
-                deploymentRequestFor( config_.quantization_mode, config_.quantization_applied_at_load, config_.device_index );
+                deploymentRequestFor( config_.quantization_mode, config_.quantization_applied_at_load, config_.device_index,
+                    config_.kv_cache );
 
             if ( config_.context_is_automatic )
             {
