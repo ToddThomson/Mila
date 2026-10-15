@@ -167,6 +167,25 @@ API's default (`n: 1`, `frequency_penalty: 0`) is accepted too. No endpoint writ
 not send: the "You are a helpful assistant." each one supplied is gone, and an absent system message is the
 template's to render.
 
+**System text wherever an API places it** (decided 2026-10-15). Each API has more than one place for system
+text: Responses' `instructions` and `developer` / `system` items, Chat Completions' `system` and `developer`
+messages, Messages' `system` field and the `role: "system"` messages Anthropic defines inside `messages`
+([mid-conversation system messages](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages)).
+Templates take less: Qwen 3.8 accepts one system turn, first; Gemma 4 renders one anywhere. The harnesses send
+more -- Codex 0.162.1 opens with two `developer` messages, and Claude Code 2.1.300 sends a `system` message after
+the first user message on every request. So:
+
+- Every system turn before the model's first reply joins one leading system turn, in the order sent, separated by
+  a blank line. A system message applies from where it stands onward, and every reply the model writes stands
+  after it, so the joined turn is what each of them was told.
+- A system turn after a model reply stays where it was sent, for the template: Gemma renders it there, and Qwen's
+  refusal is a 400 naming it. Moving it ahead of the replies that preceded it would tell the model they followed
+  it.
+- A system turn with no text renders nothing and is dropped.
+- Messages' `role: "system"` is placed as Anthropic places it: after a `user` message, and last or before an
+  `assistant` message; any other position is a 400, as it is there. `clear_at` other than `never` and a
+  message's own `output_config` are refused.
+
 **Reasoning reaches the client in each API's own shape** (decided 2026-10-14): Chat Completions in
 `message.reasoning_content` (and `delta.reasoning_content` streamed), which OpenAI does not define and a client that
 does not know it ignores; Responses as a `reasoning` output item with its text as `summary_text`; Messages as a
@@ -188,7 +207,7 @@ Chat Completions:
 | `logprobs`, `top_logprobs` | refuse | not exposed by the binding |
 | `frequency_penalty`, `presence_penalty`, `logit_bias` other than their defaults | refuse | the sampler has none |
 | `response_format` other than `text` | refuse | Mila has no constrained decoding |
-| `reasoning_effort` | honour a value the model's template accepts for its own `reasoning_effort` variable; refuse any other, and refuse the field for a template without the variable, naming what is accepted | `ModelHandle.md` 3.4: no layer maps one model's levels onto another's. Absent: the template's default (10.6) |
+| `reasoning_effort` | `none` sets the template's `enable_thinking` false, and is met as sent by a template without it. A level: a template with its own `reasoning_effort` variable takes it by exact name and refuses any other, naming what is accepted; a template with only `enable_thinking` turns thinking on; a template with neither refuses it | Decided 2026-10-15. OpenAI's effort is its reasoning switch -- `none` is off, a level is on and how much. A level is never mapped onto another model's level (`ModelHandle.md` 3.4); a thinking-only template has one depth, so its levels are not told apart. Absent: the template's default (10.6) |
 | image or audio content parts | refuse | 3.1 |
 
 Responses:
@@ -209,12 +228,16 @@ Messages:
 
 | Field | Decided | Note |
 |---|---|---|
-| `messages` (text, `tool_use`, `tool_result`, `thinking` blocks), `system`, `tools` | honour | 3.1; a `tool_result` is split out of its user message as a `Tool` turn (5) |
+| `messages` (text, `tool_use`, `tool_result`, `thinking` blocks; `system` messages placed as above), `system`, `tools` | honour | 3.1; a `tool_result` is split out of its user message as a `Tool` turn (5) |
 | `tools` with a server-side `type` | not offered, logged | as Responses |
 | `max_tokens`, `temperature`, `top_p`, `top_k`, `stop_sequences`, `stream`, `metadata` | honour | |
 | `tool_choice` | honour `auto` and `none`; refuse `any` and `tool` | 10.3 |
 | `tool_choice.disable_parallel_tool_use` | honour | keeps the first call |
-| `thinking.type` | `disabled` sets the template's `enable_thinking` false; `enabled` needs `budget_tokens`, which is refused | no template has a thinking budget |
+| `thinking.type` | `adaptive` sets the template's `enable_thinking` true, `disabled` sets it false; for a template without the variable, both are met as sent -- the model does not think, which `adaptive` allows. `enabled` needs `budget_tokens`, which is refused | Decided 2026-10-15: `adaptive` is Anthropic's "on", with how much left to the model, and Claude Code sends it on every request; leaving `thinking` out is the template's default. No template has a thinking budget |
+| `thinking.display` | `omitted` returns the thinking block with empty text and the reasoning in its `signature`, from which a block sent back is read; `summarized` as absent | as Responses carries reasoning in `encrypted_content`: the client never reads it, and the template gets back what the model wrote |
+| `output_config.effort` | honour a level the template's own `reasoning_effort` variable names; refuse any other, and refuse the field for a template without the variable, naming what is accepted | Decided 2026-10-15. Anthropic's effort shapes all output and Qwen's variable only its reasoning: the nearest the template has, by exact name, both being guidance. Claude Code sends it only when an effort is set -- at `auto` it sends none |
+| `output_config.format`, any other `output_config` key | refuse | no constrained decoding, as Responses' `text.format` |
+| `context_management.edits` | `clear_thinking_20251015` with `keep: "all"` sets the template's `preserve_thinking` true, and is met as sent by a template without it; `keep` as a turn count, `clear_tool_uses_20250919` and any other edit are refused | Decided 2026-10-15. Claude Code sends keep-all on every request; `preserve_thinking` is the model's own switch for it. Gemma's keeps the reasoning of earlier turns that called tools, not of those that only answered -- the nearest its format has |
 | image and document blocks, `redacted_thinking` | refuse | 3.1 |
 
 ---

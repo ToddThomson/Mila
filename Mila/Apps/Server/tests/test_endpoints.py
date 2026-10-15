@@ -174,6 +174,43 @@ def test_reasoning_effort_sets_the_templates_own_variable(serve):
     assert "Reasoning effort is set to low." in fake.prompts[0]
 
 
+@pytest.mark.parametrize("effort", ["low", "high"])
+def test_a_level_turns_thinking_on_for_a_template_with_no_levels(serve, effort):
+    # Gemma has one depth: any level asks for reasoning, and reasoning is all it can give.
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.gemma(), "Hi.")
+
+    response = http.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "Hi"}], "reasoning_effort": effort})
+
+    assert response.status_code == 200
+    assert fake.prompts[0].startswith("<bos><|turn>system\n<|think|>")
+
+
+@pytest.mark.parametrize("protocol, ending", [
+    (mila.ChatProtocol.gemma, "<|channel>thought\n<channel|>"), (mila.ChatProtocol.qwen, "<think>\n\n</think>\n\n")])
+def test_reasoning_effort_none_turns_thinking_off(serve, protocol, ending):
+    http, fake = serve(OpenAIAdapter(), protocol(), "Hi.")
+
+    http.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "Hi"}], "reasoning_effort": "none"})
+
+    assert fake.prompts[0].endswith(ending)
+
+
+def test_a_template_that_cannot_reason_takes_none_and_refuses_a_level(serve):
+    http, _ = serve(OpenAIAdapter(), mila.ChatProtocol.llama31(), "Hi.")
+    body = {"messages": [{"role": "user", "content": "Hi"}]}
+
+    assert http.post("/v1/chat/completions", json={**body, "reasoning_effort": "none"}).status_code == 200
+    refused = http.post("/v1/chat/completions", json={**body, "reasoning_effort": "low"})
+    assert refused.status_code == 400 and "does not reason" in refused.text
+
+
+def test_responses_reasoning_effort_turns_gemmas_thinking_on(serve):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.gemma(), "Hi.")
+
+    assert http.post("/v1/responses", json={"input": "Hi", "reasoning": {"effort": "medium"}}).status_code == 200
+    assert fake.prompts[0].startswith("<bos><|turn>system\n<|think|>")
+
+
 def test_a_result_that_answers_no_call_is_refused(serve):
     http, _ = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
     body = {"messages": [{"role": "user", "content": "Hi"}, {"role": "tool", "tool_call_id": "nope", "content": "x"}]}
@@ -311,7 +348,10 @@ def test_messages_streams_each_block_with_its_own_index(serve):
 
 
 @pytest.mark.parametrize("extra", [
-    {"thinking": {"type": "enabled", "budget_tokens": 1024}}, {"tool_choice": {"type": "any"}},
+    {"thinking": {"type": "enabled", "budget_tokens": 1024}}, {"thinking": {"type": "adaptive", "display": "full"}},
+    {"tool_choice": {"type": "any"}},
+    {"output_config": {"format": {"type": "json_schema", "schema": {"type": "object"}}}},
+    {"output_config": {"task_budget": 1000}},
     {"messages": [{"role": "user", "content": [{"type": "image", "source": {}}]}]},
 ])
 def test_messages_refuses_what_it_cannot_do(serve, extra):
@@ -328,6 +368,226 @@ def test_thinking_disabled_sets_the_templates_switch(serve):
     http.post("/v1/messages", json=body)
 
     assert fake.prompts[0].endswith("<think>\n\n</think>\n\n")
+
+
+def test_adaptive_thinking_turns_the_templates_thinking_on(serve):
+    # Claude Code sends adaptive on every request; Gemma's template defaults to thinking off.
+    http, fake = serve(AnthropicAdapter(), mila.ChatProtocol.gemma(), "Hi.")
+    body = {"max_tokens": 64, "thinking": {"type": "adaptive"}, "messages": [{"role": "user", "content": "Hi"}]}
+
+    assert http.post("/v1/messages", json=body).status_code == 200
+    assert fake.prompts[0].startswith("<bos><|turn>system\n<|think|>")
+    assert not fake.prompts[0].endswith("<|channel>thought\n<channel|>")
+
+
+@pytest.mark.parametrize("kind", ["adaptive", "disabled"])
+def test_a_template_without_a_thinking_switch_meets_both_as_sent(serve, kind):
+    http, fake = serve(AnthropicAdapter(), mila.ChatProtocol.llama31(), "Hi.")
+    plain = {"max_tokens": 64, "messages": [{"role": "user", "content": "Hi"}]}
+
+    assert http.post("/v1/messages", json={**plain, "thinking": {"type": kind}}).status_code == 200
+    http.post("/v1/messages", json=plain)
+    assert fake.prompts[0] == fake.prompts[1]
+
+
+def test_effort_sets_the_templates_own_variable(serve):
+    http, fake = serve(AnthropicAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+    plain = {"max_tokens": 64, "messages": [{"role": "user", "content": "Hi"}]}
+
+    assert http.post("/v1/messages", json={**plain, "output_config": {"effort": "low"}}).status_code == 200
+    http.post("/v1/messages", json=plain)
+
+    assert "Reasoning effort is set to low" in fake.prompts[0]
+    assert "Reasoning effort is set to low" not in fake.prompts[1]
+
+
+@pytest.mark.parametrize("protocol, effort", [(mila.ChatProtocol.gemma, "low"), (mila.ChatProtocol.qwen, "high")])
+def test_an_effort_the_template_cannot_take_is_refused_by_name(serve, protocol, effort):
+    http, fake = serve(AnthropicAdapter(), protocol(), "Hi.")
+    body = {"max_tokens": 64, "output_config": {"effort": effort}, "messages": [{"role": "user", "content": "Hi"}]}
+
+    response = http.post("/v1/messages", json=body)
+
+    assert response.status_code == 400
+    assert "output_config.effort" in response.text
+    assert fake.prompts == []
+
+
+EARLIER_CALL = {"max_tokens": 64, "messages": [
+    {"role": "user", "content": "Weather in Paris?"},
+    {"role": "assistant", "content": [
+        {"type": "thinking", "thinking": "Plan the call.", "signature": ""},
+        {"type": "tool_use", "id": "t1", "name": "get_weather", "input": {"city": "Paris"}}]},
+    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "Sunny"}]},
+    {"role": "assistant", "content": "It is sunny."},
+    {"role": "user", "content": "And tomorrow?"},
+]}
+KEEP_ALL = {"context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]}}
+
+
+def test_keeping_all_thinking_sets_the_templates_preserve_thinking(serve):
+    # Gemma's default drops an earlier call's reasoning; preserve_thinking keeps it.
+    http, fake = serve(AnthropicAdapter(), mila.ChatProtocol.gemma(), "Hi.")
+
+    assert http.post("/v1/messages", json={**EARLIER_CALL, **KEEP_ALL}).status_code == 200
+    http.post("/v1/messages", json=EARLIER_CALL)
+
+    assert "Plan the call." in fake.prompts[0]
+    assert "Plan the call." not in fake.prompts[1]
+
+
+def test_a_clear_thinking_edit_with_no_keep_leaves_the_templates_default(serve):
+    http, fake = serve(AnthropicAdapter(), mila.ChatProtocol.gemma(), "Hi.")
+    body = {**EARLIER_CALL, "context_management": {"edits": [{"type": "clear_thinking_20251015"}]}}
+
+    assert http.post("/v1/messages", json=body).status_code == 200
+    assert "Plan the call." not in fake.prompts[0]
+
+
+def test_keeping_all_thinking_is_met_by_a_template_without_the_switch(serve):
+    http, _ = serve(AnthropicAdapter(), mila.ChatProtocol.llama31(), "Hi.")
+
+    assert http.post("/v1/messages", json={**EARLIER_CALL, **KEEP_ALL}).status_code == 200
+
+
+@pytest.mark.parametrize("edit", [
+    {"type": "clear_thinking_20251015", "keep": {"type": "thinking_turns", "value": 2}},
+    {"type": "clear_tool_uses_20250919"},
+    {"type": "compact_20260112"},
+])
+def test_a_context_edit_that_would_clear_history_is_refused(serve, edit):
+    http, fake = serve(AnthropicAdapter(), mila.ChatProtocol.gemma(), "Hi.")
+
+    response = http.post("/v1/messages", json={**EARLIER_CALL, "context_management": {"edits": [edit]}})
+
+    assert response.status_code == 400
+    assert "context_management.edits[0]" in response.text
+    assert fake.prompts == []
+
+
+def test_omitted_thinking_travels_in_the_signature(serve):
+    http, _ = serve(AnthropicAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+    body = {"max_tokens": 64, "thinking": {"type": "adaptive", "display": "omitted"},
+            "messages": [{"role": "user", "content": "Weather?"}]}
+
+    reply = http.post("/v1/messages", json=body).json()
+    events = _events(http.post("/v1/messages", json={**body, "stream": True}).text)
+    signatures = [event["delta"]["signature"] for event in events if event.get("delta", {}).get("type") == "signature_delta"]
+    thinking = [event["delta"]["thinking"] for event in events if event.get("delta", {}).get("type") == "thinking_delta"]
+
+    assert reply["content"][0] == {"type": "thinking", "thinking": "", "signature": "The tool says sunny."}
+    assert signatures == ["The tool says sunny."] and thinking == [""]
+
+
+def test_a_thinking_block_sent_back_with_only_a_signature_is_the_turns_reasoning(serve):
+    http, fake = serve(AnthropicAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+    body = {"max_tokens": 64, "messages": [
+        {"role": "user", "content": "Weather in Paris?"},
+        {"role": "assistant", "content": [
+            {"type": "thinking", "thinking": "", "signature": "Need the tool."},
+            {"type": "tool_use", "id": "t1", "name": "get_weather", "input": {"city": "Paris"}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "Sunny"}]},
+    ]}
+
+    http.post("/v1/messages", json=body)
+
+    assert "<think>\nNeed the tool.\n</think>" in fake.prompts[0]
+
+
+# ---------------------------------------------------------------------------
+# System text wherever an API places it (InferenceServerWire.md 3.6)
+# ---------------------------------------------------------------------------
+
+def test_claude_codes_system_message_after_the_user_joins_the_leading_turn(serve):
+    # Claude Code 2.1.300's shape: the system field, the user's message, then a system message with the environment.
+    http, fake = serve(AnthropicAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+    body = {"max_tokens": 64, "system": [{"type": "text", "text": "Be brief."}], "messages": [
+        {"role": "user", "content": [{"type": "text", "text": "Codename?"}]},
+        {"role": "system", "content": [{"type": "text", "text": "Working directory: /repo", "cache_control": {"type": "ephemeral"}}]},
+    ]}
+
+    response = http.post("/v1/messages", json=body)
+
+    assert response.status_code == 200
+    assert fake.prompts[0].count("<|im_start|>system") == 1
+    assert "Be brief.\n\nWorking directory: /repo<|im_end|>\n<|im_start|>user\nCodename?" in fake.prompts[0]
+
+
+def test_codexs_developer_messages_join_one_system_turn(serve):
+    # Codex 0.162.1's shape: two developer messages, then the environment and the task as user messages.
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+    body = {"input": [
+        {"type": "message", "role": "developer", "content": [{"type": "input_text", "text": "You are a coding agent."}]},
+        {"type": "message", "role": "developer", "content": [
+            {"type": "input_text", "text": "Skills."}, {"type": "input_text", "text": "Permissions."}]},
+        {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "<environment_context/>"}]},
+        {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Codename?"}]},
+    ]}
+
+    response = http.post("/v1/responses", json=body)
+
+    assert response.status_code == 200
+    assert fake.prompts[0].count("<|im_start|>system") == 1
+    assert "You are a coding agent.\n\nSkills.Permissions.<|im_end|>" in fake.prompts[0]
+
+
+LATER_SYSTEM = {"messages": [
+    {"role": "user", "content": "Hi"},
+    {"role": "assistant", "content": "Hello."},
+    {"role": "system", "content": "From now on, answer in French."},
+    {"role": "user", "content": "Weather?"},
+]}
+
+
+def test_a_system_message_after_a_reply_stays_where_it_was_sent(serve):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.gemma(), "Beau.")
+
+    assert http.post("/v1/chat/completions", json=LATER_SYSTEM).status_code == 200
+    assert "Hello.<turn|>\n<|turn>system\nFrom now on, answer in French.<turn|>" in fake.prompts[0]
+    assert not fake.prompts[0].startswith("<bos><|turn>system")
+
+
+def test_a_template_that_cannot_place_a_later_system_message_refuses_it(serve):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+
+    response = http.post("/v1/chat/completions", json=LATER_SYSTEM)
+
+    assert response.status_code == 400
+    assert "system turn must be the first" in response.text
+    assert fake.prompts == []
+
+
+def test_a_later_system_message_with_no_text_is_dropped(serve):
+    http, _ = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+    body = {"messages": [dict(message, content="") if message["role"] == "system" else message for message in LATER_SYSTEM["messages"]]}
+
+    assert http.post("/v1/chat/completions", json=body).status_code == 200
+
+
+@pytest.mark.parametrize("messages", [
+    [{"role": "system", "content": "First."}, {"role": "user", "content": "Hi"}],
+    [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello."}, {"role": "system", "content": "Late."}],
+    [{"role": "user", "content": "Hi"}, {"role": "system", "content": "Between."}, {"role": "user", "content": "Again"}],
+    [{"role": "user", "content": "Hi"}, {"role": "system", "content": "Turn.", "clear_at": "next_user_message"}],
+    [{"role": "user", "content": "Hi"}, {"role": "system", "content": "", "output_config": {"effort": "low"}}],
+])
+def test_messages_refuses_a_system_message_anthropic_would_refuse(serve, messages):
+    http, _ = serve(AnthropicAdapter(), mila.ChatProtocol.gemma(), "Hi.")
+
+    response = http.post("/v1/messages", json={"max_tokens": 64, "messages": messages})
+
+    assert response.status_code == 400
+    assert "messages[" in response.text
+
+
+def test_messages_places_consecutive_system_messages_together(serve):
+    http, fake = serve(AnthropicAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+    body = {"max_tokens": 64, "messages": [
+        {"role": "user", "content": "Hi"}, {"role": "system", "content": "One."}, {"role": "system", "content": "Two."}]}
+
+    assert http.post("/v1/messages", json=body).status_code == 200
+    assert fake.prompts[0].count("<|im_start|>system") == 1
+    assert "\n\nOne.\n\nTwo.<|im_end|>\n<|im_start|>user\nHi" in fake.prompts[0]
 
 
 # ---------------------------------------------------------------------------

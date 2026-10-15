@@ -18,8 +18,8 @@ from mila_llm_server.conversation import (
     assistant_turn,
     not_offered,
     offered_tool,
+    reasoning_effort_variables,
     refuse_unless_default,
-    template_variable,
     text_of,
     tool_turn,
 )
@@ -123,8 +123,7 @@ class OpenAIChatCompletions(ChatEndpoint):
         variables = {}
 
         if body.get("reasoning_effort") is not None:
-            name, value = template_variable(protocol, "reasoning_effort", body["reasoning_effort"], field_name="reasoning_effort")
-            variables[name] = value
+            variables.update(reasoning_effort_variables(protocol, body["reasoning_effort"], field_name="reasoning_effort"))
 
         stream_options = body.get("stream_options") or {}
 

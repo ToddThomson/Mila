@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from mila_llm_server.config import loaded, settings
-from mila_llm_server.conversation import RequestError, ServedCall, ServedReply, ServedRequest, call_id
+from mila_llm_server.conversation import RequestError, ServedCall, ServedReply, ServedRequest, call_id, placed_system_turns
 from mila_llm_server.model_worker import worker
 from mila_llm_server.protocols.base import ChatEndpoint, CompletionsCapable, ModelsCapable, ProtocolAdapter, ReplyContext
 from mila_llm_server.protocols.utils import (
@@ -85,7 +85,7 @@ async def _serve_chat(endpoint: ChatEndpoint, body: dict, http_req: Request) -> 
 
     try:
         request = endpoint.parse(body, protocol)
-        prompt = protocol.format_prompt(request.turns, request.template_variables, request.tools_json)
+        prompt = protocol.format_prompt(placed_system_turns(request.turns), request.template_variables, request.tools_json)
     except ValueError as error:
         # RequestError for what the endpoint refuses, ValueError for what the template refuses -- both name it.
         logger.warning("refused %s: %s; request shape: %s", endpoint.path, error, _shape(body))

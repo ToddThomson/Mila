@@ -16,7 +16,7 @@ from mila_llm_server.conversation import (
     assistant_turn,
     not_offered,
     offered_tool,
-    template_variable,
+    reasoning_effort_variables,
     text_of,
     tool_turn,
 )
@@ -130,8 +130,7 @@ class OpenAIResponses(ChatEndpoint):
         effort = (body.get("reasoning") or {}).get("effort")
 
         if effort is not None:
-            name, value = template_variable(protocol, "reasoning_effort", effort, field_name="reasoning.effort")
-            variables[name] = value
+            variables.update(reasoning_effort_variables(protocol, effort, field_name="reasoning.effort"))
 
         tools = []
 

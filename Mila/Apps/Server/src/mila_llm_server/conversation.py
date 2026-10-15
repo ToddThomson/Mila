@@ -75,6 +75,22 @@ def call_id(name: str, arguments: str) -> str:
     return f"call_{digest}"
 
 
+def placed_system_turns(turns: list[dict]) -> list[dict]:
+    """
+    The conversation with its system text where a template can take it (InferenceServerWire.md 3.6). Every system
+    turn before the model's first reply joins one leading turn, in the order sent: each reply stands after all of
+    them, so the joined turn is what every reply was told. A later one stays in place for the template to render
+    or refuse, and one with no text is dropped, as it renders nothing.
+    """
+    first_reply = next((index for index, turn in enumerate(turns) if turn["role"] == "assistant"), len(turns))
+    opening = turns[:first_reply]
+    system_texts = [turn["content"] for turn in opening if turn["role"] == "system" and turn["content"].strip()]
+    placed = [{"role": "system", "content": "\n\n".join(system_texts)}] if system_texts else []
+    placed += [turn for turn in opening if turn["role"] != "system"]
+
+    return placed + [turn for turn in turns[first_reply:] if turn["role"] != "system" or turn["content"].strip()]
+
+
 def offered_tool(name: str, description: str, parameters: dict | None) -> dict | None:
     """A tool in the OpenAI function shape every template reads, or None for one a client runs itself."""
     if not name or name in _CLIENT_SIDE_TOOLS:
@@ -154,6 +170,36 @@ def template_variable(protocol, name: str, value: str, *, field_name: str) -> tu
         return name, value
 
     raise RequestError(f"{field_name} is not a setting this model's template has")
+
+
+def has_template_variable(protocol, name: str) -> bool:
+    return any(variable["name"] == name for variable in protocol.template_variables)
+
+
+def reasoning_effort_variables(protocol, effort: str, *, field_name: str) -> dict[str, str]:
+    """
+    OpenAI's reasoning switch onto the template's own variables (InferenceServerWire.md 3.6): `none` is thinking
+    off, a level is the template's own level by exact name, or thinking on where the template has no levels.
+    """
+    if effort == "none":
+        if not has_template_variable(protocol, "enable_thinking"):
+            return {}
+
+        name, value = template_variable(protocol, "enable_thinking", "false", field_name=field_name)
+
+        return {name: value}
+
+    if has_template_variable(protocol, "reasoning_effort"):
+        name, value = template_variable(protocol, "reasoning_effort", effort, field_name=field_name)
+
+        return {name: value}
+
+    if has_template_variable(protocol, "enable_thinking"):
+        name, value = template_variable(protocol, "enable_thinking", "true", field_name=field_name)
+
+        return {name: value}
+
+    raise RequestError(f"{field_name} '{effort}' is not supported: this model does not reason. Send 'none' or omit it")
 
 
 def refuse_unless_default(body: dict, name: str, default) -> None:

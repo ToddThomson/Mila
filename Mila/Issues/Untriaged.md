@@ -10,16 +10,24 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
-## Claude Code, and Codex with Qwen, are refused by the family-blind inference server
+## Claude Code cannot drive Qwen 3.8 27B on a 16 GB card
 
-`Mila/Apps/Server/src/mila_llm_server/protocols/anthropic/messages.py` `parse`, `protocols/openai/responses.py` @ `+68`
+`Mila/Apps/Server/docs/harnesses.md` *Tested With* @ `+68`
 
-Found 2026-10-14 running the harnesses against the rewritten endpoints (`InferenceServerWire.md` Phase 3), committed
-with the regression named (Todd). Codex with Gemma 4 12B and Chat Completions with Gemma and Qwen pass. Refused: Codex
-sends `instructions` and a `developer` message, two system turns where Qwen's template takes one, first; Claude Code
-sends a `system` message after the user's (its agent list), `thinking: {type: adaptive, display: omitted}`,
-`output_config: {effort: low}` -- Gemma's template has no effort -- and `context_management` keeping all thinking.
-At `+67` Claude Code drove the 26B. Each needs a decision under the honour-or-refuse rule before the gate passes again.
+Found 2026-10-15 in the harness rerun. Claude Code 2.1.300's first request renders to about 20,400 tokens; Qwen 3.8
+27B FP4 loads on the 5060 Ti at 11,264 tokens of context, so every request is refused for length. Codex 0.162.1 and
+Hermes 0.22.2 fit and pass. Qwen 3.8 is one of the two agentic models, and 16 GB is the reference card. The
+26B-A4B's 27,648 leaves Claude Code about 7,000 tokens of working room. Not measured: Qwen on the 2.82-bit build,
+or the 12B's room.
+
+## Text parts of one message are joined with nothing between them
+
+`Mila/Apps/Server/src/mila_llm_server/conversation.py` `text_of` @ `+68`
+
+Found 2026-10-15 capturing the harnesses. Claude Code 2.1.300's `system` field is three text blocks, and the first
+(`x-anthropic-billing-header: ...;`) is joined straight onto the second ("You are a Claude agent..."); Codex
+0.162.1 sends its skills and permissions text as two parts of one `developer` message, joined the same way. Not
+checked: how Anthropic and OpenAI join a message's parts, or whether the billing line reaches Anthropic's models.
 
 ## Qwen's prompt renderer differs from Qwen 3.8's own chat template in six places
 
