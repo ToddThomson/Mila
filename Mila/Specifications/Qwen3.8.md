@@ -2674,12 +2674,126 @@ model's own tensor shapes, and the misnaming is **in the fitted weights**: the G
 runtime. Not yet known: why these tokens. The packer calibrates on wikitext-2 train, which is prose; that it
 under-weights identifier copying is a hypothesis, untested.
 
+**The test is a re-fit on calibration text of the kind the model is served (2026-10-15).** No published study
+measures calibration text against tool calling. The general findings point one way: vLLM's llm-compressor starts
+an instruct model on UltraChat rendered through its own chat template; wikitext calibration cost GPTQ about ten
+points on reasoning tasks against reasoning text ("Quantization Hurts Reasoning?", arXiv 2504.04823); task-matched
+calibration limits the loss at 3 and 2 bits (arXiv 2503.07103); and task text alone can hurt where general text
+added to it does not (arXiv 2607.00908). Unsloth's sub-4-bit Qwen 3.8 27B builds (Dynamic 3.0) calibrate on chat,
+agentic coding and multilingual text kept apart from their evaluation prompts, and their documentation calls
+text-only calibration ineffective for an instruct model; the text itself is not published, only the importance
+matrix computed from it, and their 2.0 set was over 1.5M tokens against the packer's 65K (32 samples of 2,048).
+How much the count matters for this fit is not measured. So the re-fit calibrates on a mix, each conversation rendered through
+Qwen 3.8's own chat template with its tools, so the fit sees the `<tool_call><function=...>` form the model is
+served in:
+
+| Part | Source | Licence |
+|---|---|---|
+| Tool-call conversations | `NousResearch/hermes-function-calling-v1` | Apache-2.0, ungated |
+| General chat | `HuggingFaceH4/ultrachat_200k` | MIT, ungated |
+| Prose | wikitext-2 train, as today | CC BY-SA |
+
+The proportions are a starting point to measure, not a finding. `Salesforce/xlam-function-calling-60k` is not
+used: it was made for BFCL, which `ModelEval.md` Phase 8 scores the build on, and its gate asks for an
+attribution form. Not taken up: generating the calibration text with the model itself (Williams et al.,
+"Self-calibration for Language Model Quantization and Pruning", arXiv 2410.17170), the next candidate if the mix
+does not clear the names. The packer reads one text file and samples windows from it, so the mix is a file it
+reads unchanged.
+
+**Measured (2026-10-15): the re-fit names every tool, and costs perplexity on wikitext.** The mix as above:
+611,673 tokens (300,718 tool-call, 180,373 chat, 130,582 prose), every other setting of the fit unchanged, on the
+same RTX 4070; 2.819 bits a weight, 11.05 GiB exported. Names, greedy, through the library's chat protocol, one
+card:
+
+| Build | Record twelve | Held-out twelve |
+|---|---|---|
+| 2.82-bit, re-fit | 12 / 12 | 12 / 12 |
+| 2.82-bit, published | 9 / 12 | 12 / 12 |
+| FP4 | 12 / 12 | 12 / 12 |
+
+The published build misses `get weather`, `fetch weather_data` and `create calendar event`; `get_current_weather`,
+wrong on 2026-10-13, comes out right through the chat protocol, which renders the template where the earlier run
+used the free function. No record name is in the calibration text. The held-out names do not separate the
+builds -- the published one passes them too -- so they show the re-fit broke no other names, and no more.
+
+`DISABLED_QualityGateAcrossContextLengths` against the re-fit (`MILA_QWEN_PACKED_ARTIFACT`), the 5060 Ti:
+
+| Context | Oracle 4.125 b | Re-fit 2.82 b | Ratio | Ratio of record |
+|---|---|---|---|---|
+| 4096 | 6.474 | 7.591 | 1.173 | 1.101 |
+| 8192 | 6.149 | 7.215 | 1.173 | 1.094 |
+| 16384 | 5.686 | 6.974 | **1.227** | 1.139 |
+
+Under the sweep's own 1.25, over the 1.139 the re-fit was gated against. The corpus is wikitext-2 test, and the
+re-fit moved four fifths of its calibration off wikitext, so the score now favours the build fitted on the
+scored text's own kind; how much of the gap that is, and how the two builds compare on served text, is not
+measured.
+
+**On served text, perplexity does not rank the builds (2026-10-15).** Held-out conversations
+(`calibration_text.py --held-out-tool`/`--held-out-chat`, none in the calibration text), each scored alone from
+its own start (`DISABLED_QualityOnConversations`, 5060 Ti; the BF16 row by
+`Tools/Converters/Qwen/qwen38_BF16/hf_qwen_conversation_loss.py`, layer-streamed through HuggingFace on the 4070,
+same token ids):
+
+| Build | Tool, 31 conversations | Chat, 38 conversations |
+|---|---|---|
+| BF16, HuggingFace | 89.7 | not run |
+| FP4 | 63.8 | 28.5 |
+| 2.82-bit, re-fit | 61.1 | 24.2 |
+| 2.82-bit, published | 13.1 | 8.0 |
+
+**The BF16 row is the original model, and FP4 departs from it on this text.** Per position
+(`--top-k-output`, read by `DISABLED_DivergenceOnConversations`, which feeds a build the reference's own ids
+teacher-forced, prefill for the first and decode for each next, and measures KL over the reference's top 32 plus a
+remainder, and top-1 agreement), over 4 tool conversations:
+
+| Build | Mean KL from BF16 | Top-1 agreement |
+|---|---|---|
+| FP4 | 1.19 nats | 0.778 |
+| 2.82-bit, re-fit | 1.80 nats | 0.742 |
+| 2.82-bit, published | 2.81 nats | 0.626 |
+
+FP4's gap is 0.89 nats already in the first 64 positions, the template's fixed preamble. Traced: after
+"...consider plausible alternatives, and" the reference gives `<|im_end|>` at logit 21.1 against 15.2, mid-sentence,
+where FP4 gives " minimize" -- and three independent paths agree with the reference: transformers' own
+`from_pretrained` forward (SDPA, offloaded across both cards and disk), the layer-streamed driver in BF16 and FP32,
+and **Mila's own BF16 stack** (`LayerStream_MatchesHuggingFaceReference` on that 28-token prompt via
+`MILA_QWEN_PARITY_REFERENCE`: argmax `<|im_end|>` on both, logits 2.69e-2 apart). So the original model does this,
+and the quantized builds do not: each smooths a sharp, sometimes odd distribution into something more fluent, which
+is also why each scores the text better than the original. The ranking is by distance from the original, not by
+fluency, and it measures decode's BF16 activations.
+
+**Against Unsloth's builds of the same model, on one reference (2026-10-16).** `hf_qwen_conversation_loss.py
+--llama-kl-base` writes the BF16 reference in the base format `llama-perplexity --kl-divergence` reads: the
+held-out conversations laid end to end in 8 chunks of 2,048 tokens, each opening with `<|endoftext|>`, positions
+1,024 to 2,046 of each stored whole (8,184 positions). llama.cpp b11216 scores Unsloth's GGUFs against it;
+`DISABLED_DivergenceAgainstLlamaBase` scores Mila's builds against the same file, with the KL counted as
+llama-perplexity counts it. All on the RTX 4070.
+
+| Build | File | Tool: mean / median KL | Tool: same top | Chat: mean / median KL | Chat: same top |
+|---|---|---|---|---|---|
+| Unsloth UD-IQ4_XS | 14.25 GB | 0.705 / 0.003 | 87.3% | 0.220 / 0.017 | 89.5% |
+| Unsloth UD-Q2_K_XL | 9.83 GB | 1.317 / 0.012 | 80.4% | 0.464 / 0.066 | 83.8% |
+| Mila 2.82-bit, re-fit | 11.87 GB | 1.435 / 0.018 | 78.9% | 0.695 / 0.171 | 76.2% |
+| Mila 2.82-bit, published | 11.87 GB | 1.842 / 0.068 | 73.1% | 1.642 / 0.564 | 60.3% |
+
+The 99th percentile sits at 17-21 nats on the tool text and 4-12 on chat for every build: about one position in a
+hundred is one where the original is all but certain and a quantized build is not, and those carry the mean, so the
+median is the better measure of a build's typical departure. On both texts the re-fit departs from the original a
+quarter to a third as much as the published build, typically; on tool text it is close to Unsloth's 2-bit build,
+on chat it trails it (median 0.171 against 0.066), and Unsloth's file is 2 GB smaller. One asymmetry: llama.cpp
+scores every position through its prefill, Mila prefills each chunk's first half and decodes the rest, with BF16
+activations where Mila's prefill rounds the FP4 roles' to FP8. Mila's FP4 build is not yet in the table.
+
 ### Agentic deployment on the 16 GB card (2026-10-15)
 
-**Target: at least 32K tokens of context at a prefill chunk of at least 512 rows, for the FP4 build on the RTX
-5060 Ti 16 GB under Windows.** Qwen 3.8 is one of the two models Mila calls agentic, 16 GB is the reference card,
-and Claude Code 2.1.300's first request alone renders to about 20,400 tokens. Today the inference server loads
-the FP4 build at 11,264 and refuses every Claude Code request for length; Codex 0.162.1 and Hermes 0.22.2 fit.
+**Target: at least 64K tokens of context, the minimum for an agentic workflow, at a prefill chunk of at least 512
+rows on the RTX 5060 Ti 16 GB under Windows** (Todd, 2026-10-15; it replaces the 32K set earlier that day, which
+the Claude Code measurement at the end of this section showed serves short tasks but not sessions). Qwen 3.8 is
+one of the two models Mila calls agentic, 16 GB is the reference card, and Claude Code 2.1.300's first request
+alone renders to about 20,400 tokens. Today the inference server loads the FP4 build at 11,264 and refuses every
+Claude Code request for length; Codex 0.162.1 and Hermes 0.22.2 fit. By the pricing below the FP4 build cannot
+reach 64K on this card by any load-time lever, so the build that meets the target here is the 2.82-bit one.
 
 **What bounds it is the Windows budget, not a pricing error.** The card reports 16,311 MiB and nvidia-smi shows about
 1 GiB free with the model loaded. That GiB is not the process's: WDDM gives a process a budget below the card, and

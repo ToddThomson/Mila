@@ -24,10 +24,13 @@
 #include <cuda_runtime.h>
 #include <filesystem>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <format>
 // C stdio rather than <fstream>: including any input-stream header in a TU that does
 // `import Mila;` leaves std::basic_istream::sentry incomplete, and the failure surfaces
@@ -317,8 +320,13 @@ namespace Mila::Tests::Dnn::Models
                 GTEST_SKIP() << "No CUDA device available";
             }
 
-            artifact_ = fs::path( TEST_DATA_DIR ) / "models" / "qwen"
-                / "qwen38_27b_cb2-3.safetensors";
+            // MILA_QWEN_PACKED_ARTIFACT names another packed build, so a re-fit is gated without
+            // overwriting the published one these tests otherwise read.
+            const char* const packed_override = std::getenv( "MILA_QWEN_PACKED_ARTIFACT" );
+
+            artifact_ = packed_override != nullptr
+                ? fs::path( packed_override )
+                : fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_cb2-3.safetensors";
 
             if ( !fs::exists( artifact_ ) )
             {
@@ -496,6 +504,415 @@ namespace Mila::Tests::Dnn::Models
                 result.mean_negative_log_probability =
                     -total.total_log_probability / static_cast<double>( total.scored_positions );
                 result.perplexity = std::exp( result.mean_negative_log_probability );
+            }
+
+            return result;
+        }
+
+        /**
+         * @brief Score separate sequences under one weight plan, each from its own start.
+         *
+         * scoreCorpus cuts one stream into segments; this scores each sequence as given, so nothing
+         * one sequence holds reaches the next.
+         */
+        template<typename TWeightPlan>
+        ArmResult scoreSequences( const fs::path& weights, dim_t window,
+            const std::vector<std::vector<int32_t>>& sequences, dim_t context_length )
+        {
+            std::cout << "  loading " << weights.filename().string()
+                << " at context " << context_length << " ...\n" << std::flush;
+
+            auto network = buildMeasuredQwen<TWeightPlan>( weights, window, context_length );
+
+            SequenceLogLikelihood total;
+
+            const auto start = std::chrono::steady_clock::now();
+
+            for ( const std::vector<int32_t>& sequence : sequences )
+            {
+                const SequenceLogLikelihood scored = Measurement::sequenceLogLikelihoodOf( *network, sequence );
+
+                total.total_log_probability += scored.total_log_probability;
+                total.scored_positions += scored.scored_positions;
+            }
+
+            ArmResult result;
+
+            result.elapsed_seconds =
+                std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
+            result.scored_positions = total.scored_positions;
+
+            if ( total.scored_positions > 0 )
+            {
+                result.mean_negative_log_probability =
+                    -total.total_log_probability / static_cast<double>( total.scored_positions );
+                result.perplexity = std::exp( result.mean_negative_log_probability );
+            }
+
+            return result;
+        }
+
+        /// The BF16 reference's most likely next tokens at every position, as hf_qwen_conversation_loss.py writes them.
+        struct ReferenceTopK
+        {
+            int k{ 0 };
+            std::vector<std::vector<int32_t>> tokens;
+            std::vector<std::vector<int32_t>> ids;
+            std::vector<std::vector<float>> log_probabilities;
+        };
+
+        static ReferenceTopK readReferenceTopK( const fs::path& path )
+        {
+            ReferenceTopK reference;
+            std::FILE* file = std::fopen( path.string().c_str(), "rb" );
+
+            if ( file == nullptr )
+            {
+                return reference;
+            }
+
+            char magic[ 4 ]{};
+            int32_t conversations = 0;
+            bool complete = std::fread( magic, 1, 4, file ) == 4 && std::string_view( magic, 4 ) == "MQTK"
+                && std::fread( &reference.k, sizeof( int32_t ), 1, file ) == 1
+                && std::fread( &conversations, sizeof( int32_t ), 1, file ) == 1;
+
+            for ( int32_t c = 0; complete && c < conversations; ++c )
+            {
+                int32_t length = 0;
+                complete = std::fread( &length, sizeof( int32_t ), 1, file ) == 1 && length >= 2;
+
+                if ( !complete )
+                {
+                    break;
+                }
+
+                const size_t entries = static_cast<size_t>( length - 1 ) * static_cast<size_t>( reference.k );
+                std::vector<int32_t> tokens( static_cast<size_t>( length ) );
+                std::vector<int32_t> ids( entries );
+                std::vector<float> log_probabilities( entries );
+
+                complete = std::fread( tokens.data(), sizeof( int32_t ), tokens.size(), file ) == tokens.size()
+                    && std::fread( ids.data(), sizeof( int32_t ), entries, file ) == entries
+                    && std::fread( log_probabilities.data(), sizeof( float ), entries, file ) == entries;
+
+                reference.tokens.push_back( std::move( tokens ) );
+                reference.ids.push_back( std::move( ids ) );
+                reference.log_probabilities.push_back( std::move( log_probabilities ) );
+            }
+
+            std::fclose( file );
+
+            if ( !complete )
+            {
+                return ReferenceTopK{};
+            }
+
+            return reference;
+        }
+
+        /// Where in a conversation a position falls, for divergence that grows or shrinks along it.
+        static constexpr size_t kPositionBandStarts[] = { 0, 64, 256, 1024 };
+
+        /// A build against the BF16 reference over the same positions.
+        struct ReferenceDivergence
+        {
+            double mean_kl{ 0.0 };
+            double top1_agreement{ 0.0 };
+            double perplexity{ 0.0 };
+            dim_t positions{ 0 };
+            double elapsed_seconds{ 0.0 };
+
+            std::array<double, std::size( kPositionBandStarts )> band_kl{};
+            std::array<double, std::size( kPositionBandStarts )> band_top1{};
+            std::array<dim_t, std::size( kPositionBandStarts )> band_positions{};
+
+            // The mean is carried by a few positions the reference is near-certain of, so the spread is reported too,
+            // at llama-perplexity's own percentiles.
+            double median_kl{ 0.0 };
+            double percentile_99_kl{ 0.0 };
+            double maximum_kl{ 0.0 };
+        };
+
+        /**
+         * @brief KL( reference || build ) and top-1 agreement at every position, teacher-forced.
+         *
+         * The build reads the reference's own token ids, the first by prefill and each next by decode, and is
+         * judged at every position on its full distribution. The KL is over the reference's top k plus the
+         * probability left outside them as one remainder: a lower bound on the full KL that loses only how the
+         * remainder splits. Decode runs BF16 activations where a served prompt's prefill does not, so this
+         * measures the weights under decode's arithmetic.
+         */
+        template<typename TWeightPlan>
+        ReferenceDivergence divergenceAgainstReference( const fs::path& weights, const ReferenceTopK& reference,
+            size_t conversations, dim_t context_length )
+        {
+            std::cout << "  loading " << weights.filename().string()
+                << " at context " << context_length << " ...\n" << std::flush;
+
+            auto network = buildMeasuredQwen<TWeightPlan>( weights, 1, context_length );
+
+            const size_t k = static_cast<size_t>( reference.k );
+
+            // MILA_QWEN_TRACE_POSITIONS prints the first conversation position by position, to see which side a
+            // divergence that starts at the first token comes from.
+            const char* const trace = std::getenv( "MILA_QWEN_TRACE_POSITIONS" );
+            const size_t trace_positions = trace != nullptr ? static_cast<size_t>( std::stoul( trace ) ) : 0;
+
+            double summed_kl = 0.0;
+            double summed_negative_log_probability = 0.0;
+            dim_t agreements = 0;
+            dim_t positions = 0;
+            ReferenceDivergence result;
+
+            const auto start = std::chrono::steady_clock::now();
+
+            for ( size_t c = 0; c < conversations; ++c )
+            {
+                const std::vector<int32_t>& tokens = reference.tokens[ c ];
+
+                std::vector<float> logits = Measurement::hostLogits(
+                    *network, network->prefill( Measurement::deviceTokens( *network, { tokens.front() } ) ) );
+
+                for ( size_t position = 0; position + 1 < tokens.size(); ++position )
+                {
+                    if ( position > 0 )
+                    {
+                        logits = Measurement::hostLogits( *network, network->decode(
+                            Measurement::deviceTokens( *network, { tokens[ position ] } ),
+                            static_cast<dim_t>( position ) ) );
+                    }
+
+                    const float maximum = *std::max_element( logits.begin(), logits.end() );
+                    double sum = 0.0;
+
+                    for ( const float logit : logits )
+                    {
+                        sum += std::exp( static_cast<double>( logit - maximum ) );
+                    }
+
+                    const double log_normalizer = static_cast<double>( maximum ) + std::log( sum );
+                    const int32_t* top_ids = reference.ids[ c ].data() + position * k;
+                    const float* top_log_probabilities = reference.log_probabilities[ c ].data() + position * k;
+
+                    double kl = 0.0;
+                    double reference_mass = 0.0;
+                    double build_mass = 0.0;
+
+                    for ( size_t i = 0; i < k; ++i )
+                    {
+                        const double reference_log_probability = top_log_probabilities[ i ];
+                        const double build_log_probability = logits[ static_cast<size_t>( top_ids[ i ] ) ] - log_normalizer;
+                        const double probability = std::exp( reference_log_probability );
+
+                        kl += probability * ( reference_log_probability - build_log_probability );
+                        reference_mass += probability;
+                        build_mass += std::exp( build_log_probability );
+                    }
+
+                    const double reference_rest = std::max( 0.0, 1.0 - reference_mass );
+                    const double build_rest = std::max( 1e-30, 1.0 - build_mass );
+
+                    if ( reference_rest > 0.0 )
+                    {
+                        kl += reference_rest * ( std::log( reference_rest ) - std::log( build_rest ) );
+                    }
+
+                    const bool agrees = Measurement::argMax( logits ) == top_ids[ 0 ];
+
+                    if ( c == 0 && position < trace_positions )
+                    {
+                        const int32_t build_top = Measurement::argMax( logits );
+
+                        std::cout << std::format(
+                            "    trace {:>4}: next {:>6} | reference top {:>6} at {:>8.4f} | build top {:>6} at {:>8.4f},"
+                            " reference top at {:>8.4f} | KL {:.4f}\n",
+                            position, tokens[ position + 1 ], top_ids[ 0 ], top_log_probabilities[ 0 ], build_top,
+                            logits[ static_cast<size_t>( build_top ) ] - log_normalizer,
+                            logits[ static_cast<size_t>( top_ids[ 0 ] ) ] - log_normalizer, kl );
+                    }
+
+                    size_t band = 0;
+
+                    while ( band + 1 < std::size( kPositionBandStarts ) && position >= kPositionBandStarts[ band + 1 ] )
+                    {
+                        ++band;
+                    }
+
+                    summed_kl += kl;
+                    agreements += agrees;
+                    result.band_kl[ band ] += kl;
+                    result.band_top1[ band ] += agrees;
+                    ++result.band_positions[ band ];
+                    summed_negative_log_probability +=
+                        log_normalizer - logits[ static_cast<size_t>( tokens[ position + 1 ] ) ];
+                    ++positions;
+                }
+            }
+
+            for ( size_t band = 0; band < std::size( kPositionBandStarts ); ++band )
+            {
+                if ( result.band_positions[ band ] > 0 )
+                {
+                    result.band_kl[ band ] /= static_cast<double>( result.band_positions[ band ] );
+                    result.band_top1[ band ] /= static_cast<double>( result.band_positions[ band ] );
+                }
+            }
+
+            result.elapsed_seconds = std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
+            result.positions = positions;
+
+            if ( positions > 0 )
+            {
+                result.mean_kl = summed_kl / static_cast<double>( positions );
+                result.top1_agreement = static_cast<double>( agreements ) / static_cast<double>( positions );
+                result.perplexity = std::exp( summed_negative_log_probability / static_cast<double>( positions ) );
+            }
+
+            return result;
+        }
+
+        /**
+         * @brief KL( reference || build ) against a llama-perplexity --kl-divergence base, over the full vocabulary.
+         *
+         * The base holds chunks of n_ctx tokens and, for positions n_ctx/2 to n_ctx-2 of each, the reference's
+         * whole distribution as llama.cpp's uint16 log_softmax stores it. The build prefills each chunk to the first
+         * of those positions and decodes the rest teacher-forced. KL, top-1 and the build's own loss are counted as
+         * llama-perplexity counts them -- the KL over reference log-probabilities above -16 -- so the numbers sit
+         * beside a GGUF build's measured against the same file. Empty when the file is unreadable.
+         */
+        template<typename TWeightPlan>
+        ReferenceDivergence divergenceAgainstLlamaBase( const fs::path& weights, const fs::path& base_path )
+        {
+            ReferenceDivergence result;
+            std::FILE* file = std::fopen( base_path.string().c_str(), "rb" );
+
+            if ( file == nullptr )
+            {
+                return result;
+            }
+
+            char magic[ 8 ]{};
+            int32_t n_ctx = 0;
+            int32_t n_vocab = 0;
+            int32_t n_chunk = 0;
+
+            const bool header_read = std::fread( magic, 1, 8, file ) == 8
+                && std::string_view( magic, 8 ) == "_logits_"
+                && std::fread( &n_ctx, sizeof( int32_t ), 1, file ) == 1
+                && std::fread( &n_vocab, sizeof( int32_t ), 1, file ) == 1
+                && std::fread( &n_chunk, sizeof( int32_t ), 1, file ) == 1;
+
+            std::vector<int32_t> tokens( header_read ? static_cast<size_t>( n_ctx ) * static_cast<size_t>( n_chunk ) : 0 );
+
+            if ( !header_read || std::fread( tokens.data(), sizeof( int32_t ), tokens.size(), file ) != tokens.size() )
+            {
+                std::fclose( file );
+
+                return result;
+            }
+
+            const size_t first = static_cast<size_t>( n_ctx / 2 );
+            const size_t rows = static_cast<size_t>( n_ctx ) - 1 - first;
+            const size_t row_words = 2 * ( ( static_cast<size_t>( n_vocab ) + 1 ) / 2 ) + 4;
+            std::vector<uint16_t> block( rows * row_words );
+
+            std::cout << "  loading " << weights.filename().string() << " at context " << n_ctx << " ...\n" << std::flush;
+
+            auto network = buildMeasuredQwen<TWeightPlan>( weights, 1, static_cast<dim_t>( n_ctx ) );
+
+            double summed_kl = 0.0;
+            double summed_negative_log_probability = 0.0;
+            dim_t agreements = 0;
+            std::vector<double> kl_values;
+
+            const auto start = std::chrono::steady_clock::now();
+
+            for ( int32_t c = 0; c < n_chunk; ++c )
+            {
+                if ( std::fread( block.data(), sizeof( uint16_t ), block.size(), file ) != block.size() )
+                {
+                    std::fclose( file );
+
+                    return ReferenceDivergence{};
+                }
+
+                const int32_t* chunk = tokens.data() + static_cast<size_t>( c ) * static_cast<size_t>( n_ctx );
+
+                std::vector<float> logits = Measurement::hostLogits( *network, network->prefill(
+                    Measurement::deviceTokens( *network, std::vector<int32_t>( chunk, chunk + first + 1 ) ) ) );
+
+                for ( size_t row = 0; row < rows; ++row )
+                {
+                    const size_t position = first + row;
+
+                    if ( row > 0 )
+                    {
+                        logits = Measurement::hostLogits( *network, network->decode(
+                            Measurement::deviceTokens( *network, { chunk[ position ] } ), static_cast<dim_t>( position ) ) );
+                    }
+
+                    const uint16_t* words = block.data() + row * row_words;
+                    float scale = 0.0f;
+                    float minimum_log_probability = 0.0f;
+
+                    std::memcpy( &scale, words, sizeof( float ) );
+                    std::memcpy( &minimum_log_probability, words + 2, sizeof( float ) );
+
+                    const uint16_t* quantized = words + 4;
+                    const float maximum = *std::max_element( logits.begin(), logits.end() );
+                    double sum = 0.0;
+
+                    for ( const float logit : logits )
+                    {
+                        sum += std::exp( static_cast<double>( logit - maximum ) );
+                    }
+
+                    const double log_normalizer = static_cast<double>( maximum ) + std::log( sum );
+                    double kl = 0.0;
+                    uint16_t reference_best = 0;
+                    int32_t reference_top = 0;
+
+                    for ( int32_t v = 0; v < n_vocab; ++v )
+                    {
+                        if ( quantized[ v ] > reference_best )
+                        {
+                            reference_best = quantized[ v ];
+                            reference_top = v;
+                        }
+
+                        const double reference_log_probability =
+                            static_cast<double>( scale ) * quantized[ v ] + minimum_log_probability;
+
+                        if ( reference_log_probability > -16.0 )
+                        {
+                            kl += std::exp( reference_log_probability )
+                                * ( reference_log_probability - ( logits[ static_cast<size_t>( v ) ] - log_normalizer ) );
+                        }
+                    }
+
+                    summed_kl += kl;
+                    kl_values.push_back( kl );
+                    agreements += Measurement::argMax( logits ) == reference_top;
+                    summed_negative_log_probability += log_normalizer - logits[ static_cast<size_t>( chunk[ position + 1 ] ) ];
+                    ++result.positions;
+                }
+            }
+
+            std::fclose( file );
+
+            result.elapsed_seconds = std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
+
+            if ( result.positions > 0 )
+            {
+                std::sort( kl_values.begin(), kl_values.end() );
+
+                result.median_kl = kl_values[ kl_values.size() / 2 ];
+                result.percentile_99_kl = kl_values[ static_cast<size_t>( 0.99 * static_cast<double>( kl_values.size() - 1 ) ) ];
+                result.maximum_kl = kl_values.back();
+                result.mean_kl = summed_kl / static_cast<double>( result.positions );
+                result.top1_agreement = static_cast<double>( agreements ) / static_cast<double>( result.positions );
+                result.perplexity = std::exp( summed_negative_log_probability / static_cast<double>( result.positions ) );
             }
 
             return result;
@@ -1725,6 +2142,198 @@ namespace Mila::Tests::Dnn::Models
             EXPECT_GT( packed.perplexity, oracle.perplexity )
                 << "fewer bits scoring BETTER is a defect in the measurement, not a result";
         }
+    }
+
+    // ====================================================================
+    // Served text: each conversation scored alone, from its own start, both arms.
+    //   MILA_QWEN_CONVERSATIONS=<held-out file> MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_QualityOnConversations
+    //
+    // The file is what Tools/Quantization/calibration_text.py --held-out-tool or --held-out-chat writes:
+    // conversations the calibration text never held, rendered through the chat template, separated by 0x1E.
+    // Laid end to end, the same conversations score worse the more of them precede (Untriaged.md), so each is
+    // its own sequence here. Reports the ratio and gates nothing; MILA_QWEN_PACKED_ARTIFACT picks the build.
+    // ====================================================================
+    TEST_F( QwenPackedArtifactTests, DISABLED_QualityOnConversations )
+    {
+        constexpr dim_t kWindow = 1;
+        constexpr dim_t kContextLength = 8192;
+
+        const char* const conversations_path = std::getenv( "MILA_QWEN_CONVERSATIONS" );
+        const fs::path tokenizer_path = fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_tokenizer.bin";
+        const fs::path reference_blob = fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_bf16.bin";
+
+        if ( conversations_path == nullptr || !fs::exists( conversations_path ) )
+        {
+            GTEST_SKIP() << "MILA_QWEN_CONVERSATIONS names no held-out conversation file";
+        }
+
+        if ( !fs::exists( tokenizer_path ) || !fs::exists( reference_blob ) )
+        {
+            GTEST_SKIP() << "Qwen tokenizer or reference BF16 blob not present";
+        }
+
+        std::FILE* file = std::fopen( conversations_path, "rb" );
+        ASSERT_NE( file, nullptr );
+
+        std::string text( static_cast<size_t>( fs::file_size( conversations_path ) ), '\0' );
+        text.resize( std::fread( text.data(), 1, text.size(), file ) );
+        std::fclose( file );
+
+        auto tokenizer = Mila::Data::BpeTokenizer::loadQwen( tokenizer_path );
+        std::vector<std::vector<int32_t>> conversations;
+        size_t too_long = 0;
+        size_t begin = 0;
+
+        while ( begin < text.size() )
+        {
+            const size_t end = std::min( text.find( '\x1e', begin ), text.size() );
+            std::vector<int32_t> tokens = tokenizer->encode( text.substr( begin, end - begin ) );
+            begin = end + 1;
+
+            if ( tokens.size() > static_cast<size_t>( kContextLength ) )
+            {
+                ++too_long;
+            }
+            else if ( tokens.size() >= 2 )
+            {
+                conversations.push_back( std::move( tokens ) );
+            }
+        }
+
+        ASSERT_FALSE( conversations.empty() );
+
+        const ArmResult oracle =
+            scoreSequences<QwenOraclePrecisionPlan>( reference_blob, kWindow, conversations, kContextLength );
+        const ArmResult packed = scoreSequences<QwenPrecisionPlan>( artifact_, kWindow, conversations, kContextLength );
+
+        ASSERT_EQ( oracle.scored_positions, packed.scored_positions );
+
+        std::cout << std::format(
+            "\n  {}: {} conversations ({} longer than {} left out)\n"
+            "  oracle 4.125b {:.3f} | plan 2.82b {:.3f} | ratio {:.3f} | {} positions\n",
+            fs::path( conversations_path ).filename().string(), conversations.size(), too_long, kContextLength,
+            oracle.perplexity, packed.perplexity, packed.perplexity / oracle.perplexity,
+            packed.scored_positions ) << std::flush;
+
+        EXPECT_GT( packed.perplexity, oracle.perplexity )
+            << "fewer bits scoring BETTER is a defect in the measurement, not a result";
+    }
+
+    // ====================================================================
+    // Served text against the BF16 reference: KL and top-1 at every position, one build.
+    //   MILA_QWEN_REFERENCE_TOPK=<file> MILA_QWEN_BUILD=fp4|packed MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_DivergenceOnConversations
+    //
+    // The file is Tools/Converters/Qwen/qwen38_BF16/hf_qwen_conversation_loss.py --top-k-output: HuggingFace
+    // BF16 on held-out conversations, layer-streamed. Perplexity cannot rank the builds on this text -- the
+    // original scores it worse than FP4 (Qwen3.8.md, "On served text, perplexity does not rank the builds") --
+    // so each is judged by how far its distribution sits from the original's. fp4 quantizes the BF16 blob at load;
+    // packed is the 2.82-bit build, MILA_QWEN_PACKED_ARTIFACT choosing which. MILA_QWEN_MAX_CONVERSATIONS
+    // bounds the run, one decode a position. Reports and gates nothing.
+    // ====================================================================
+    TEST_F( QwenPackedArtifactTests, DISABLED_DivergenceOnConversations )
+    {
+        constexpr dim_t kContextLength = 8192;
+
+        const char* const reference_path = std::getenv( "MILA_QWEN_REFERENCE_TOPK" );
+        const char* const build = std::getenv( "MILA_QWEN_BUILD" );
+        const char* const limit = std::getenv( "MILA_QWEN_MAX_CONVERSATIONS" );
+        const fs::path reference_blob = fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_bf16.bin";
+
+        if ( reference_path == nullptr || build == nullptr )
+        {
+            GTEST_SKIP() << "MILA_QWEN_REFERENCE_TOPK and MILA_QWEN_BUILD (fp4 or packed) are both needed";
+        }
+
+        const ReferenceTopK reference = readReferenceTopK( reference_path );
+        ASSERT_FALSE( reference.tokens.empty() ) << "no reference read from " << reference_path;
+
+        size_t conversations = reference.tokens.size();
+
+        if ( limit != nullptr )
+        {
+            conversations = std::min( conversations, static_cast<size_t>( std::stoul( limit ) ) );
+        }
+
+        for ( size_t c = 0; c < conversations; ++c )
+        {
+            ASSERT_LE( reference.tokens[ c ].size(), static_cast<size_t>( kContextLength ) );
+        }
+
+        ReferenceDivergence result;
+        const std::string_view build_name( build );
+
+        if ( build_name == "fp4" )
+        {
+            ASSERT_TRUE( fs::exists( reference_blob ) ) << reference_blob.string();
+            result = divergenceAgainstReference<QwenOraclePrecisionPlan>( reference_blob, reference, conversations, kContextLength );
+        }
+        else
+        {
+            ASSERT_EQ( build_name, "packed" ) << "MILA_QWEN_BUILD is fp4 or packed";
+            result = divergenceAgainstReference<QwenPrecisionPlan>( artifact_, reference, conversations, kContextLength );
+        }
+
+        std::cout << std::format(
+            "\n  {} against BF16, {}: {} conversations, {} positions, {:.0f} s\n"
+            "  mean KL {:.4f} nats | top-1 agreement {:.4f} | perplexity {:.3f}\n",
+            build_name == "fp4" ? "fp4" : fs::path( artifact_ ).filename().string(),
+            fs::path( reference_path ).filename().string(), conversations, result.positions,
+            result.elapsed_seconds, result.mean_kl, result.top1_agreement, result.perplexity ) << std::flush;
+
+        for ( size_t band = 0; band < std::size( kPositionBandStarts ); ++band )
+        {
+            std::cout << std::format( "    from position {:>5}: KL {:.4f} | top-1 {:.4f} | {} positions\n",
+                kPositionBandStarts[ band ], result.band_kl[ band ], result.band_top1[ band ],
+                result.band_positions[ band ] );
+        }
+
+        EXPECT_GT( result.positions, 0 );
+    }
+
+    // ====================================================================
+    // The same, against a llama-perplexity --kl-divergence base, so a GGUF build sits beside Mila's on one reference.
+    //   MILA_QWEN_LLAMA_BASE=<file> MILA_QWEN_BUILD=fp4|packed MilaTests --gtest_also_run_disabled_tests
+    //       --gtest_filter=QwenPackedArtifactTests.DISABLED_DivergenceAgainstLlamaBase
+    //
+    // The base is hf_qwen_conversation_loss.py --llama-kl-base: HuggingFace BF16, conversations laid end to end in
+    // chunks that open with <|endoftext|>. `llama-perplexity -m <gguf> --kl-divergence-base <file> --kl-divergence
+    // -c <n_ctx>` scores a GGUF build against the same positions. Reports and gates nothing.
+    // ====================================================================
+    TEST_F( QwenPackedArtifactTests, DISABLED_DivergenceAgainstLlamaBase )
+    {
+        const char* const base_path = std::getenv( "MILA_QWEN_LLAMA_BASE" );
+        const char* const build = std::getenv( "MILA_QWEN_BUILD" );
+        const fs::path reference_blob = fs::path( TEST_DATA_DIR ) / "models" / "qwen" / "qwen38_27b_bf16.bin";
+
+        if ( base_path == nullptr || build == nullptr )
+        {
+            GTEST_SKIP() << "MILA_QWEN_LLAMA_BASE and MILA_QWEN_BUILD (fp4 or packed) are both needed";
+        }
+
+        const std::string_view build_name( build );
+        ReferenceDivergence result;
+
+        if ( build_name == "fp4" )
+        {
+            ASSERT_TRUE( fs::exists( reference_blob ) ) << reference_blob.string();
+            result = divergenceAgainstLlamaBase<QwenOraclePrecisionPlan>( reference_blob, base_path );
+        }
+        else
+        {
+            ASSERT_EQ( build_name, "packed" ) << "MILA_QWEN_BUILD is fp4 or packed";
+            result = divergenceAgainstLlamaBase<QwenPrecisionPlan>( artifact_, base_path );
+        }
+
+        ASSERT_GT( result.positions, 0 ) << "no positions read from " << base_path;
+
+        std::cout << std::format(
+            "\n  {} against {}: {} positions, {:.0f} s\n"
+            "  mean KL {:.4f} nats | median {:.6f} | 99% {:.4f} | maximum {:.4f} | same top {:.4f} | perplexity {:.3f}\n",
+            build_name == "fp4" ? "fp4" : artifact_.filename().string(), fs::path( base_path ).filename().string(),
+            result.positions, result.elapsed_seconds, result.mean_kl, result.median_kl, result.percentile_99_kl,
+            result.maximum_kl, result.top1_agreement, result.perplexity ) << std::flush;
     }
 
     // ====================================================================

@@ -43,6 +43,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <format>
@@ -288,8 +289,13 @@ namespace Mila::Tests::Dnn::Models
             if ( getDeviceCount( DeviceType::Cuda ) == 0 )
                 GTEST_SKIP() << "No CUDA device available";
 
+            // MILA_QWEN_PARITY_REFERENCE names a reference made for another prompt; the FP32 truth
+            // belongs to the default one, so it is not read against an override.
+            const char* const reference_override = std::getenv( "MILA_QWEN_PARITY_REFERENCE" );
+
             artifact_ = artifactPath();
-            reference_ = referencePath();
+            reference_ = reference_override != nullptr ? fs::path( reference_override ) : referencePath();
+            overridden_ = reference_override != nullptr;
 
             if ( !fs::exists( artifact_ ) )
                 GTEST_SKIP() << "Qwen artifact not present at: " << artifact_.string();
@@ -301,6 +307,7 @@ namespace Mila::Tests::Dnn::Models
 
         fs::path artifact_;
         fs::path reference_;
+        bool overridden_{ false };
     };
 
     // The Phase 4 gate: every layer's last-token hidden state against the HuggingFace
@@ -314,7 +321,7 @@ namespace Mila::Tests::Dnn::Models
         // Optional FP32 truth. When present, every layer reports THREE numbers: Mila-BF16 and
         // HF-BF16 each against FP32, plus Mila against HF. The first two are what decide
         // whether a divergence is Mila's error or the reference's.
-        const bool has_fp32 = fs::exists( fp32ReferencePath() );
+        const bool has_fp32 = !overridden_ && fs::exists( fp32ReferencePath() );
         std::unique_ptr<WeightsReader> truth;
 
         if ( has_fp32 )

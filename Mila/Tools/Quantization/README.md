@@ -23,6 +23,8 @@ record live in the spec ("Phase 0 first results"); this file is how to reproduce
 | `pack_qwen.py` | the layer-streamed Qwen 3.8 packer: calibrate, quantize, emit, audit |
 | `streaming_safetensors.py` | a safetensors writer that never holds the artifact in memory |
 | `decode_codebook.py` | the BF16 twin of a packed artifact, which `QwenModel.Codebook.Cuda.cpp` checks the packed path against |
+| `calibration_text.py` | an instruct model's calibration text: tool calls, chat and prose, rendered through its chat template |
+| `tool_name_probe.py` | whether an installed build calls each tool by its declared name; the probe sets the calibration text excludes |
 
 `packing.py` is held to `Src/Dnn/Quantization/Weight/CodebookPacking.ixx`, which is the
 normative statement of the layout; regenerate the fixture after any layout change:
@@ -38,7 +40,36 @@ transformers, `gguf`, `accelerate`). The proxy model is `meta-llama/Llama-3.2-3B
 (HF cache); the baseline is `unsloth/Llama-3.2-3B-Instruct-GGUF` UD-IQ2_XXS.
 
 The corpus directory (`corpus/`, gitignored) holds wikitext-2-raw `wiki.test.raw` and
-`wiki.train.raw`, from the `ggml-org/ci` mirror on Hugging Face.
+`wiki.train.raw`, from the `ggml-org/ci` mirror on Hugging Face, and the sources of an
+instruct model's calibration text, each in its own directory:
+`hermes-function-calling-v1/func-calling.json` (`NousResearch/hermes-function-calling-v1`,
+Apache-2.0) and `ultrachat_200k/test_sft-00000-of-00001-f7dfac4afe5b93f4.parquet`
+(`HuggingFaceH4/ultrachat_200k`, MIT).
+
+## Calibration text for an instruct model
+
+Wikitext is prose, and an instruct model is served conversations in its own chat template;
+the 2.82-bit Qwen 3.8 build fitted on wikitext alone misnames tools (`Qwen3.8.md`).
+`calibration_text.py` renders tool-call conversations and chat through the model's
+template, mixes them with wikitext by token share, and interleaves the documents. It runs in
+the Evaluation venv (`Mila/Tools/Evaluation/.venv`), which has the parquet reader and
+bfcl-eval's data:
+
+```
+python calibration_text.py --hermes corpus/hermes-function-calling-v1/func-calling.json \
+    --ultrachat corpus/ultrachat_200k/test_sft-00000-of-00001-f7dfac4afe5b93f4.parquet \
+    --prose corpus/wiki.train.raw --output corpus/calibration_qwen38.txt
+```
+
+It drops any document that names a tool of `tool_name_probe.py`'s probe sets, and any
+conversation that asks a question BFCL asks, and refuses its output if a probed name
+survives. Defaults: 600K tokens, half tool calls, 30% chat, the rest prose. Hermes's
+structured-extraction records are not used: their calls are not valid JSON. The probe runs
+against an installed build through the binding (the MIS venv has it):
+
+```
+python tool_name_probe.py Qwen3.8-27B-cb2-3 --device 1
+```
 
 ## Modes
 
@@ -97,9 +128,9 @@ python pack_qwen.py --self-test
 python pack_qwen.py --model Qwen/Qwen3.8-27B --max-layers 4 --samples 4 --seqlen 2048 \
     --calib-text corpus/wiki.train.raw --output artifacts/qwen38_l4_2p9bit.safetensors
 
-# The full run.
+# The full run, on the instruct calibration text above.
 python pack_qwen.py --model Qwen/Qwen3.8-27B \
-    --calib-text corpus/wiki.train.raw \
+    --calib-text corpus/calibration_qwen38.txt \
     --output artifacts/qwen38_27b_2p9bit.safetensors
 
 # Audit an artifact against the checkpoint, without regenerating it.

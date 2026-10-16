@@ -353,7 +353,7 @@ Not before the build names the tools it is given correctly (the entry below).
 
 #### The 2.82-bit Qwen 3.8 27B calls some tools by the wrong name
 
-`open` · `qwen` · `quantization` · `distribution`
+`in progress` · `qwen` · `quantization` · `distribution`
 
 Asked to call a tool declared `get_weather`, the 2.82-bit build calls `get weather`, every time, greedy or
 sampled, so a client dispatching by name fails the call. Of twelve names probed, four come out wrong --
@@ -365,13 +365,16 @@ Mila's runtime is cleared: the tokenizer, embedding table and head are identical
 and decode agree, and the packed codebook path matches the same weights decoded to BF16 to rounding
 (`QwenCodebookPathTests`). The error is in the fitted weights. Why these tokens is not known; the packer
 calibrates on wikitext-2 train, which is prose, and that it under-weights identifier copying is the first
-hypothesis to test.
+hypothesis to test. The re-fit calibrates on a mix rendered through Qwen 3.8's own chat template: tool-call
+conversations, general chat and some wikitext.
 
-Gate: the twelve-name probe all correct on the 2.82-bit build, greedy, plus Claude Code and Codex completing a
-tool task against it through the inference server; and the build's perplexity ratio against FP4 no worse than
-the 1.139 at 16K of record.
+Gate: the twelve-name probe, and a second set of names absent from the calibration text, all correct on the
+2.82-bit build, greedy; the build's perplexity ratio against FP4 no worse than the 1.139 at 16K of record; and
+both Qwen builds through `ModelEval.md` Phase 8 -- BFCL single and multi-turn, RULER to 64K, ContextProfile to
+64K, and Claude Code, Codex and Hermes Agent sessions through the inference server.
 
-`Mila/Specifications/Qwen3.8.md` "The 2.82-bit build misnames tools, and the packed path is not why"
+`Mila/Specifications/Qwen3.8.md` "The 2.82-bit build misnames tools, and the packed path is not why" ·
+`Mila/Specifications/ModelEval.md` Phase 8
 
 #### Qwen's KV cache is uncompressed on a card its weights already fill
 
@@ -388,13 +391,15 @@ quality gate says they are worth most. v0.20 deliberately did not pre-empt that,
 this work rather than a consequence of it. The compressed cache has to be priced exactly by
 `getRequiredMemory`, since the planner reads that price.
 
-Decided 2026-10-15 (Todd): the margin goes to context, for agentic use. On the 16 GB card the FP4 build loads at
-11,264 tokens, and Claude Code's first request alone is about 20,400, so the inference server refuses every
-request it sends. Target: at least 32K at a prefill chunk of at least 512 rows on the RTX 5060 Ti under Windows,
-reached with this cache and the weight arena (Internal fixes) before the planner's chunk rule or the scale format
-is touched. Gate: the FP8 cache against BF16 on Qwen by the instruction-retention protocol Llama and Gemma ran,
-at lengths both reach and past BF16's; the plan's price equal to the build; and Claude Code completing a tool
-task against the FP4 build through the inference server.
+Decided 2026-10-15 (Todd): the margin goes to context, for agentic use, and the minimum context for an agentic
+workflow is 64K at a prefill chunk of at least 512 rows on the RTX 5060 Ti under Windows. On the 16 GB card the
+FP4 build loads at 11,264 tokens, and Claude Code's first request alone is about 20,400, so the inference server
+refuses every request it sends; at 32K it serves a short task but compacts every turn of a session. The FP4
+build tops out near 49K here even with this cache and the weight arena (Internal fixes), so on this card the
+target is met by the 2.82-bit build, and its tool-name defect (above) is what stands in the way. Gate: the FP8
+cache against BF16 on Qwen by the instruction-retention protocol Llama and Gemma ran, at lengths both reach and
+past BF16's; the plan's price equal to the build; and Claude Code completing a multi-turn session at 64K
+through the inference server.
 
 `Mila/Specifications/Qwen3.8.md` "Agentic deployment on the 16 GB card"
 
@@ -450,7 +455,8 @@ MMLU-Pro) on Mila, HuggingFace and llama.cpp from the same token ids, and compar
 
 Work, in `ModelEval.md`'s order: Phase 1, Mila BF16 against HuggingFace BF16 on Llama 3.2 3B, which sets the
 noise floor; Phase 2, each quantized build of that model against the same reference; then every published model
-of every family (Phase 6), which serves the Gemma 4 and Qwen 3.8 criteria as well as Llama's. Every model but the
+of every family (Phase 6), which serves the Gemma 4 and Qwen 3.8 criteria as well as Llama's, and both Qwen 3.8
+builds for agentic work (Phase 8). Every model but the
 Llama 3B has BF16 weights larger than the 16 GB card, so where their reference runs is decision 1, owed before
 their arms run. The card's table and its sentence follow section 8.
 

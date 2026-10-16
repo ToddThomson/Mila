@@ -6,7 +6,8 @@ over IFEval and GSM8K, then add BFCL, RULER and a llama.cpp arm. The tools for P
 (`+55`): Phase 1's two arms ran on real weights on CUDA for the first time, a 20-document smoke run per task on one
 card, which checks the setup and is not a result. No release admits this work; section 10 holds the decisions that would. Added 2026-10-08: scores
 for the Hugging Face Hub's benchmark leaderboards (section 11, Phase 7), built at `0.21.0-dev+43` and rehearsed
-against a stand-in server on MMLU-Pro's own definition.
+against a stand-in server on MMLU-Pro's own definition. Added 2026-10-15 (Todd): both Qwen 3.8 builds are measured
+for agentic work before either is published as agentic (section 7, Phase 8).
 
 **Area:** what Mila states about a model's quality on standard task benchmarks, and how such a statement is made
 comparable to anyone else's. Its uses: the "is it any good" answer on every model card; the measured cost of each
@@ -120,6 +121,7 @@ continuation (`loglikelihood`, which multiple-choice tasks use). MIS serves the 
 | `ifeval` | Instruction following, 541 prompts, rule-scored with no judge model | generation | 1 |
 | `gsm8k_cot_llama` | Grade-school maths, 1,319 problems, eight-shot chain of thought in Meta's form | generation | 1 |
 | BFCL, `python` collection | Function calling, single turn: simple, multiple, parallel, irrelevance, live and not; about 3,500 entries | generation | 4 |
+| BFCL, `multi_turn` collection | A task carried across turns: base, missing function, missing parameter, long context; 800 entries | generation | 8 |
 | RULER | Retrieval, tracing and aggregation at length, 13 tasks per band | generation | 4 |
 | `mmlu_pro` | Knowledge and reasoning, ten-way multiple choice | generation (CoT form) or log-likelihood | 5 |
 | `arc_challenge`, `hellaswag`, `winogrande` | The classic quantization-paper set | log-likelihood | 5 |
@@ -139,6 +141,13 @@ a separate question (section 9). The default selection is BFCL's `python` collec
 category; multi-turn, memory and web search are its agentic categories, and web search needs the network during a
 run. `compare_arms.py` reads BFCL's per-entry results: an entry passed unless its category's score file lists it.
 
+BFCL's **multi-turn** entries fit the controls of section 4 as they stand. The user turns are written in advance and
+reviewed by hand, not produced by a simulator, and an entry passes only if, at the end of every turn, the backend's
+state matches the expected state and the calls made contain the expected minimal path; a turn of more than 20 steps
+fails. No judge model is involved (Gorilla, "BFCL V3: Multi-Turn & Multi-Step Function Calling", 2024). Its memory
+and web-search categories are not used: web search needs the network, and the memory categories run backends
+whose behaviour has not been read.
+
 **RULER** is lm-eval's port (`ruler` group, 13 tasks). It generates its documents at run time with the tokenizer
 it is given, so every arm sees the same documents. Its bands are set with lm-eval's metadata
 (`max_seq_lengths`), and it generates 500 documents per band, laid end to end; `--limit` would take only the
@@ -149,8 +158,9 @@ for the `hf` arm (Llama 3.2 3B's BF16 cache is about 114 KB a token, 7.3 GB at 6
 formats is `ContextProfile.md`'s. Four of the 13 tasks fetch text at run time (essays and two QA sets).
 
 **Not in scope:** benchmarks scored by a judge model (MT-Bench, Arena-Hard), since the judge becomes a third engine
-in the comparison; and code benchmarks that execute generated code (HumanEval, MBPP), until there is a sandbox to run
-them in.
+in the comparison; agent benchmarks whose user is a simulating model (tau2-bench, whose leaderboard simulates the
+user with GPT-4.1), for the same reason; and code benchmarks that execute generated code (HumanEval, MBPP), until
+there is a sandbox to run them in.
 
 ## 6. Statistics
 
@@ -243,7 +253,8 @@ sharper parity test than Phase 1's.
 ### Phase 6 -- Every published model
 
 Llama 3.1 8B, Gemma 4 12B and 26B-A4B, and both Qwen 3.8 builds, on the tasks of Phases 1, 4 and 5. Blocked on
-section 10's reference decision for every model whose BF16 weights exceed the card.
+section 10's reference decision for every model whose BF16 weights exceed the card. The Qwen builds' agentic
+measurement is Phase 8.
 
 ### Phase 7 -- Hub benchmarks
 
@@ -258,6 +269,56 @@ has been read (section 11.3).
 stand-in server on MMLU-Pro's real `eval.yaml`, with stand-in rows in its schema (the container could not fetch
 the Hub's data files): two served arms paired and compared, the result file written, and every refusal of section
 11.4 exercised.
+
+### Phase 8 -- Qwen 3.8 27B for agentic work
+
+The FP4 build and the 2.82-bit build, the latter re-fitted on calibration text that carries tool calls
+(`Qwen3.8.md`, *The 2.82-bit build misnames tools, and the packed path is not why*), each measured as Mila calls a
+model agentic. Agentic work needs at least 64K of context (`Qwen3.8.md`, *Agentic deployment on the 16 GB card*):
+the 2.82-bit build is measured to 64K, and the FP4 build to the most its plan reaches on the 16 GB card, which is
+short of it.
+
+| Measurement | Owner | What it settles |
+|---|---|---|
+| BFCL `python` collection | this spec | Single-turn calls: names, arguments, parallel calls, knowing when not to call |
+| BFCL `multi_turn` collection | this spec | A task carried across turns, scored on the state it leaves |
+| RULER, bands to 64K | this spec | Retrieval and tracing at the length agentic work runs at |
+| Recall, retention and a tool call at depth, to 64K | `ContextProfile.md` | The reliable depth the `agentic` capability is granted on |
+| Claude Code, Codex and Hermes Agent through the inference server | `Apps/Server/docs/harnesses.md` | A real session finishes; for Claude Code, at 64K without compacting every turn |
+
+The first three are arms of this spec: the two quantized builds, the 2.82-bit build paired against the FP4 build,
+and each measured teacher-forced against the BF16 reference (decision 1). The last two are about the 16 GB card
+and run on it.
+
+The phase runs once, on final builds. The 2.82-bit build's re-fit is accepted or redone on its own fast gates
+first -- the name probes and the perplexity ratio below -- so no benchmark run waits inside that loop.
+
+Three things the calibration change brings into this phase, since the 2.82-bit build is fitted on text of the kind
+these benchmarks score:
+
+- The calibration text asks no question BFCL asks, which `Tools/Quantization/calibration_text.py` checks
+  against bfcl-eval's own data. RULER generates its documents at run time and `ContextProfile.md` plants its
+  own sentences, neither drawn from the calibration sources.
+- The twelve-name probe of the misnamed-tools item is joined by a second set of twelve
+  (`Tools/Quantization/tool_name_probe.py`), and the calibration text names neither set's tools, so passing
+  is not recall of calibration.
+- The re-fitted build's perplexity ratio against FP4 stays no worse than the 1.139 at 16K of record.
+
+**Gate:** decision 2's thresholds, which are not set. Until they are, the phase reports each build beside `hf` and
+beside the other build, and whether a build is published as agentic is decided against those numbers.
+
+**Built for decision 1's teacher-forced measurement (2026-10-16):**
+`Tools/Converters/Qwen/qwen38_BF16/hf_qwen_conversation_loss.py` scores held-out conversations under the BF16
+checkpoint, layer-streamed, and writes its predictions two ways: the top 32 per position (`--top-k-output`, read by
+`DISABLED_DivergenceOnConversations`), and the whole distribution in `llama-perplexity --kl-divergence`'s base format
+(`--llama-kl-base`, read by `DISABLED_DivergenceAgainstLlamaBase`), so a GGUF build of the same model is measured
+against the same reference on the same positions. Results are in `Qwen3.8.md`, after the 2.82-bit build's re-fit.
+Median and 99th-percentile KL are reported beside the mean, which a few near-certain positions carry.
+
+**To build:** a BFCL handler for Qwen 3.8. BFCL's handlers stop at Qwen3, whose calls are JSON; Qwen 3.8 writes
+`<tool_call><function=...>`, so the handler renders with Qwen 3.8's own chat template and parses that form, and
+section 4's control holds with the template as the prompt format. `run_bfcl.py` has not run the `multi_turn`
+collection, so the token-id request is unrehearsed across turns.
 
 ## 8. On the model card
 
@@ -298,7 +359,19 @@ Each was excluded from the comparison on purpose and is worth measuring on its o
    weights, Gemma 4 12B about 24, Qwen 3.8 27B about 54: none runs on the card the project measures on. Options: a
    larger card for the `hf` arm alone (a rented one is enough -- the reference does not need Mila); transformers
    with CPU offload, correct but slow; or Mila FP8 as a proxy reference, which is cheap but makes the anchor a Mila
-   build, against principle 2.
+   build, against principle 2. Qwen 3.8 has the further gap that Mila BF16 does not fit the card either, so the
+   card holds no floor for it under any option but the first. **A larger card is not available (Todd,
+   2026-10-15).** What this machine holds: 16 and 12 GB on its two cards and 32 GB of system memory, against
+   51.8 GB of BF16 Qwen 3.8 weights, so an offloaded transformers reference streams part of every forward pass from
+   disk. That rate suits teacher-forced work -- one forward over a whole sequence, as KL and top-1 against BF16
+   need -- and not a generated benchmark of thousands of replies. Unmeasured: transformers' offload of this
+   model at all, and its seconds a forward. **Decided for Qwen 3.8 (Todd, 2026-10-15):** each build is measured
+   against the offloaded BF16 reference teacher-forced -- KL and top-1 over chat and tool-call text -- and Phase
+   8's benchmarks pair the 2.82-bit build against the FP4 build, which the first measurement ties back to BF16.
+   The card says its benchmark scores are against the FP4 build. No floor exists for this model on this machine,
+   so its flips are read against Phase 1's. Held for later: BF16 greedy replies for a sample of entries, made by
+   the reference verifying the FP4 build's reply and generating only where they part, which gives the reference's
+   own greedy reply at a few forwards each.
 2. **The thresholds a published format must meet**, as a difference against the reference beyond the floor. Not
    set until Phases 1 and 2 have produced a floor and a cost to set them against.
 3. **Admission. Decided 2026-10-10 (Todd):** evaluation is part of each family's work in v0.21.0, every family

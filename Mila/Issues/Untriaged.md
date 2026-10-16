@@ -10,6 +10,31 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Qwen 3.8's perplexity on chat-template conversations rises with context, where on wikitext it falls
+
+`Mila/Tests/Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp` `DISABLED_QualityGateAcrossContextLengths` @ `1fbf7a5`
+
+Found 2026-10-15 scoring the 2.82-bit re-fit on served text (`MILA_QWEN_CORPUS`). On 31 Hermes tool-call
+conversations rendered through Qwen 3.8's own template and laid end to end (`Tools/Quantization/calibration_text.py
+--held-out-tool`), the FP4 arm scores 60.0, 223.2 and 534.5 at 4K, 8K and 16K, and the 2.82-bit arm 0.87-0.93 of
+that, below FP4 at every length, which the test asserts against. The same runs on wikitext-2 test score 6.47, 6.15
+and 5.69. Ruled out: line endings (CRLF and LF both), and the tokenizer (Mila's ids equal Hugging Face's over the
+first 30,635 tokens). Scored one conversation at a time from its own start (`DISABLED_QualityOnConversations`),
+FP4 reads 63.8 and the HuggingFace BF16 model 89.7 on the same conversations, so the level is the model's own on
+this text; transformers' own forward and Mila's BF16 stack both agree with that reference. Not measured: BF16 laid
+end to end at 8K and 16K, which is what says whether the rise with context is the model's or FP4's.
+
+## Mila's BF16 Qwen 3.8 drifts past the parity bound on a 28-token prompt
+
+`Mila/Tests/Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp` `kHiddenStateTolerance` @ `1fbf7a5`
+
+Found 2026-10-15 running `LayerStream_MatchesHuggingFaceReference` against a reference for
+`<|im_start|>system\nReasoning effort is set to xhigh...alternatives, and` (`MILA_QWEN_PARITY_REFERENCE`). The
+last-token relative error against HuggingFace BF16 grows from 5.4e-4 at layer 0 to 1.0e-2 by layer 20 and 4.2e-2 at
+layer 63, past the 2.0e-2 bound from layer 43 on; the argmax agrees, logits 2.69e-2 apart. The bound was set on the
+5-token prompt (peak 1.38e-2), where Mila also sat closer than HuggingFace to an FP32 reference. Not measured: an
+FP32 reference for this prompt, which says whose rounding the drift is.
+
 ## Claude Code assumes a 200,000-token window for a model served by Mila
 
 `Mila/Apps/Server/docs/harnesses.md` *Context Window* @ `+70`
@@ -30,7 +55,9 @@ Code's own request is ~20.5K, so a session with working room needs a window of a
 
 Found 2026-10-15 in the harness rerun. Claude Code 2.1.300's first request renders to about 20,400 tokens and the
 26B-A4B loads on the 5060 Ti at 27,648. Not measured: the 12B's room, or whether the 26B-A4B's context is held back
-for a full prefill chunk as Qwen's is (Qwen moved to `BACKLOG.md`, its KV-cache entry).
+for a full prefill chunk as Qwen's is (Qwen moved to `BACKLOG.md`, its KV-cache entry). Todd set the minimum context
+for an agentic workflow at 64K the same day, and the 26B-A4B is one of the two models Mila calls agentic; its
+27,648 is under half of that.
 
 ## Text parts of one message are joined with nothing between them
 
