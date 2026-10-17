@@ -17,6 +17,9 @@
  * float summation makes token equality unattainable in flat CDF regions) — the
  * bounded-ring oracle methodology.
  *
+ * The presence penalty and suppressed tokens are locked against the unadjusted draw over logits
+ * adjusted on the host, and top-k ties by tokens planted on the cut.
+ *
  * Compiled only under MILA_ENABLE_CUDA; SetUp() skips if no device at runtime.
  */
 
@@ -25,8 +28,11 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <memory>
+#include <numeric>
 #include <random>
+#include <set>
 #include <stdexcept>
 #include <vector>
 #include <cuda_runtime.h>
@@ -36,6 +42,7 @@ import Compute.CudaSamplingOp;
 import Compute.CudaExecutionContext;
 import Dnn.Samplers.SamplingConfig;
 import Dnn.Samplers.SpeculativeSampler;
+import Dnn.Samplers.TokenSampler;
 import Dnn.GenerateParams;
 
 namespace Mila::Tests::Dnn::Samplers
@@ -55,6 +62,8 @@ namespace Mila::Tests::Dnn::Samplers
         using DeviceLogits = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>;
         using DeviceToken = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>;
         using HostToken = Tensor<TensorDataType::INT32, CpuMemoryResource>;
+        using DeviceFlags = Tensor<TensorDataType::UINT8, CudaDeviceMemoryResource>;
+        using HostFlags = Tensor<TensorDataType::UINT8, CpuMemoryResource>;
 
         void SetUp() override
         {
@@ -73,13 +82,47 @@ namespace Mila::Tests::Dnn::Samplers
             }
         }
 
-        std::unique_ptr<OpType> makeOp( float softcap = 0.0f, int64_t vocab = kVocab )
+        std::unique_ptr<OpType> makeOp( float softcap = 0.0f, int64_t vocab = kVocab, std::vector<int32_t> suppressed = {} )
         {
             SamplingConfig config = SamplingConfig{}
                 .withVocabularySize( vocab )
-                .withFinalLogitSoftcap( softcap );
+                .withFinalLogitSoftcap( softcap )
+                .withSuppressedTokens( std::move( suppressed ) );
 
             return std::make_unique<OpType>( ctx_.get(), config );
+        }
+
+        // One UINT8 flag per token, set for each of `flagged`: the reply's produced tokens as the sampler reads them.
+        DeviceFlags deviceFlags( int64_t vocab, const std::vector<int32_t>& flagged )
+        {
+            HostFlags host( Device::Cpu(), shape_t{ vocab } );
+            std::fill( host.data(), host.data() + vocab, static_cast<uint8_t>( 0 ) );
+
+            for ( const int32_t token : flagged )
+                host.data()[ token ] = 1;
+
+            DeviceFlags device( Device::Cuda( 0 ), shape_t{ vocab } );
+            copy( host, device, ctx_.get() );
+            ctx_->synchronize();
+
+            return device;
+        }
+
+        std::vector<int32_t> flaggedTokens( const DeviceFlags& flags )
+        {
+            HostFlags host( Device::Cpu(), flags.shape() );
+            copy( flags, host, ctx_.get() );
+            ctx_->synchronize();
+
+            std::vector<int32_t> flagged;
+
+            for ( int64_t i = 0; i < flags.size(); ++i )
+            {
+                if ( host.data()[ i ] != 0 )
+                    flagged.push_back( static_cast<int32_t>( i ) );
+            }
+
+            return flagged;
         }
 
         DeviceLogits deviceLogits( const std::vector<float>& values )
@@ -98,28 +141,32 @@ namespace Mila::Tests::Dnn::Samplers
             return device;
         }
 
-        // Runs the op and reads the sampled token back. The op samples on the default
-        // stream; a context-free copy is a synchronous default-stream readback (mirrors
-        // the TokenSampler facade), so the host value is valid without an extra sync.
-        int32_t sample( OpType& op, const DeviceLogits& logits, const SamplingParams& params, float r )
+        // Runs the op and reads the sampled token back. The op samples on the context's stream, so the
+        // readback copies on it and synchronizes it, as the TokenSampler facade does.
+        int32_t sample( OpType& op, const DeviceLogits& logits, const SamplingParams& params, float r,
+            ITensor* produced = nullptr )
         {
             DeviceToken token_device( Device::Cuda( 0 ), shape_t{ 1, 1 } );
-            op.forward( logits, token_device, params, r );
+            op.forward( logits, token_device, params, r, produced );
 
-            HostToken token_host( Device::Cpu(), shape_t{ 1, 1 } );
-            copy( token_device, token_host );
-
-            return token_host.data()[ 0 ];
+            return readToken( token_device );
         }
 
         // Same readback through the retained single-block reference kernel.
-        int32_t sampleReference( OpType& op, const DeviceLogits& logits, const SamplingParams& params, float r )
+        int32_t sampleReference( OpType& op, const DeviceLogits& logits, const SamplingParams& params, float r,
+            ITensor* produced = nullptr )
         {
             DeviceToken token_device( Device::Cuda( 0 ), shape_t{ 1, 1 } );
-            op.forwardReference( logits, token_device, params, r );
+            op.forwardReference( logits, token_device, params, r, produced );
 
+            return readToken( token_device );
+        }
+
+        int32_t readToken( const DeviceToken& token_device )
+        {
             HostToken token_host( Device::Cpu(), shape_t{ 1, 1 } );
-            copy( token_device, token_host );
+            copy( token_device, token_host, ctx_.get() );
+            ctx_->synchronize();
 
             return token_host.data()[ 0 ];
         }
@@ -127,10 +174,11 @@ namespace Mila::Tests::Dnn::Samplers
         // Enqueued-path readback: the op samples on the context stream, copies the token
         // into its pinned slot asynchronously, and awaitToken() blocks on the recorded
         // event -- the decode-ahead half of the pipelined generation loop.
-        int32_t sampleEnqueued( OpType& op, const DeviceLogits& logits, const SamplingParams& params, float r )
+        int32_t sampleEnqueued( OpType& op, const DeviceLogits& logits, const SamplingParams& params, float r,
+            ITensor* produced = nullptr )
         {
             DeviceToken token_device( Device::Cuda( 0 ), shape_t{ 1, 1 } );
-            op.enqueueForward( logits, token_device, params, r );
+            op.enqueueForward( logits, token_device, params, r, produced );
 
             return op.awaitToken();
         }
@@ -422,11 +470,335 @@ namespace Mila::Tests::Dnn::Samplers
     }
 
     // ------------------------------------------------------------------
+    // Top-k ties: every token tied with the k-th survives (HuggingFace's TopKLogitsWarper)
+    // ------------------------------------------------------------------
+
+    // Three tokens tie at the 2nd-largest value, below a distinct largest one, so top_k = 2 keeps all four. The
+    // reference's bisection used to drop the tie whole and keep the largest alone.
+    TEST_F( SamplingCudaTests, TopK_KeepsEveryTokenTiedWithTheKth )
+    {
+        auto op = makeOp();
+        auto logits = deviceLogits( { 1, 2, 3, 5, 5, 5, 5.5f, 0 } );
+
+        SamplingParams params;
+        params.temperature = 1.0f;
+        params.top_k = 2;
+        params.top_p = 1.0f;
+
+        std::set<int32_t> pipeline_drawn;
+        std::set<int32_t> reference_drawn;
+
+        for ( int i = 0; i < 30; ++i )
+        {
+            const float r = static_cast<float>( i ) / 30.0f;
+            pipeline_drawn.insert( sample( *op, logits, params, r ) );
+            reference_drawn.insert( sampleReference( *op, logits, params, r ) );
+        }
+
+        EXPECT_EQ( pipeline_drawn, ( std::set<int32_t>{ 3, 4, 5, 6 } ) );
+        EXPECT_EQ( reference_drawn, ( std::set<int32_t>{ 3, 4, 5, 6 } ) );
+    }
+
+    // At the Gemma vocabulary: 30 tokens at 11 and 100 tied at 10 under top_k = 64, so the 64th is one of the tie and
+    // all 130 survive. A fine r sweep draws every one of them and nothing else.
+    TEST_F( SamplingCudaTests, TopK_KeepsTiesAcrossTheCut_AtGemmaVocab )
+    {
+        auto op = makeOp( 0.0f, kGemmaVocab );
+
+        std::vector<float> values( static_cast<size_t>( kGemmaVocab ), 0.0f );
+        std::set<int32_t> above;
+        std::set<int32_t> tied;
+
+        for ( int32_t i = 0; i < 130; ++i )
+        {
+            const int32_t token = 17 + i * 1999;
+            values[ static_cast<size_t>( token ) ] = ( i < 30 ) ? 11.0f : 10.0f;
+            ( i < 30 ? above : tied ).insert( token );
+        }
+
+        std::set<int32_t> survivors = above;
+        survivors.insert( tied.begin(), tied.end() );
+
+        auto logits = deviceLogits( values );
+
+        SamplingParams params;
+        params.temperature = 1.0f;
+        params.top_k = 64;
+        params.top_p = 1.0f;
+
+        std::set<int32_t> pipeline_drawn;
+        std::set<int32_t> reference_drawn;
+
+        for ( int i = 0; i < 2000; ++i )
+        {
+            const float r = ( static_cast<float>( i ) + 0.5f ) / 2000.0f;
+            pipeline_drawn.insert( sample( *op, logits, params, r ) );
+
+            if ( i % 4 == 0 )
+                reference_drawn.insert( sampleReference( *op, logits, params, r ) );
+        }
+
+        EXPECT_EQ( pipeline_drawn, survivors );
+
+        int tied_drawn = 0;
+
+        for ( const int32_t token : reference_drawn )
+        {
+            EXPECT_TRUE( survivors.contains( token ) ) << "reference drew token " << token << " outside the top 64";
+            tied_drawn += tied.contains( token ) ? 1 : 0;
+        }
+
+        EXPECT_GE( tied_drawn, 80 ) << "the reference keeps the tie";
+    }
+
+    // ------------------------------------------------------------------
+    // Presence penalty (TokenSampling.md 3.3)
+    // ------------------------------------------------------------------
+
+    // Greedy takes the penalty: the produced maximum falls below the runner-up.
+    TEST_F( SamplingCudaTests, PresencePenalty_Greedy_PassesOverAProducedMaximum )
+    {
+        auto op = makeOp();
+        auto logits = deviceLogits( { 1, 2, 3, 9, 8.5f, 4, 5, 6 } );
+
+        SamplingParams params;
+        params.temperature = 0.0f;
+        params.presence_penalty = 1.5f;
+
+        // Each penalized draw marks its token, so each gets its own produced tokens.
+        auto produced = deviceFlags( kVocab, { 3 } );
+        EXPECT_EQ( sample( *op, logits, params, 0.5f, &produced ), 4 );
+
+        auto produced_for_reference = deviceFlags( kVocab, { 3 } );
+        EXPECT_EQ( sampleReference( *op, logits, params, 0.5f, &produced_for_reference ), 4 );
+
+        params.presence_penalty = 0.0f;
+        auto produced_unread = deviceFlags( kVocab, { 3 } );
+
+        EXPECT_EQ( sample( *op, logits, params, 0.5f, &produced_unread ), 3 ) << "a zero penalty reads no flags";
+    }
+
+    // The penalty follows the softcap: 30 tanh(9 / 30) - 1.5 = 7.24 falls below 30 tanh(8.5 / 30) = 8.27.
+    TEST_F( SamplingCudaTests, PresencePenalty_Greedy_FollowsTheSoftcap )
+    {
+        auto op = makeOp( 30.0f );
+        auto logits = deviceLogits( { 1, 2, 3, 9, 8.5f, 4, 5, 6 } );
+        auto produced = deviceFlags( kVocab, { 3 } );
+
+        SamplingParams params;
+        params.temperature = 0.0f;
+        params.presence_penalty = 1.5f;
+
+        EXPECT_EQ( sample( *op, logits, params, 0.5f, &produced ), 4 );
+    }
+
+    // The penalized draw equals the unpenalized draw over logits with the penalty subtracted on the host -- the
+    // same float subtraction the kernel makes before temperature -- across the truncated filter matrix and the full
+    // multinomial, in the pipeline and the reference.
+    TEST_F( SamplingCudaTests, PresencePenalty_EqualsTheDrawOverPenalizedLogits_AtGemmaVocab )
+    {
+        constexpr float kPenalty = 1.5f;
+
+        auto op = makeOp( 0.0f, kGemmaVocab );
+        const std::vector<float> values = randomLogits( kGemmaVocab, 42 );
+
+        // The largest 40 logits and 400 others are produced, so the penalty moves the top of the distribution.
+        std::vector<int32_t> order( static_cast<size_t>( kGemmaVocab ) );
+        std::iota( order.begin(), order.end(), 0 );
+        std::partial_sort( order.begin(), order.begin() + 40, order.end(),
+            [&]( int32_t a, int32_t b ) { return values[ static_cast<size_t>( a ) ] > values[ static_cast<size_t>( b ) ]; } );
+
+        std::vector<int32_t> flagged( order.begin(), order.begin() + 40 );
+
+        for ( int32_t i = 0; i < 400; ++i )
+            flagged.push_back( order[ static_cast<size_t>( 1000 + i * 600 ) ] );
+
+        std::vector<float> penalized_values = values;
+
+        for ( const int32_t token : flagged )
+            penalized_values[ static_cast<size_t>( token ) ] -= kPenalty;
+
+        auto logits = deviceLogits( values );
+        auto penalized_logits = deviceLogits( penalized_values );
+
+        struct FilterCase { int top_k; float top_p; };
+        const FilterCase cases[] = { { 20, 0.8f }, { 64, 1.0f }, { 0, 0.95f }, { 0, 1.0f } };
+        const float r_grid[] = { 0.0f, 0.1f, 0.37f, 0.5f, 0.73f, 0.9f, 0.999f };
+
+        for ( const auto& filter : cases )
+        {
+            for ( const float r : r_grid )
+            {
+                SamplingParams params;
+                params.temperature = 0.7f;
+                params.top_k = filter.top_k;
+                params.top_p = filter.top_p;
+
+                const int32_t expected = sample( *op, penalized_logits, params, r );
+                const int32_t expected_reference = sampleReference( *op, penalized_logits, params, r );
+
+                params.presence_penalty = kPenalty;
+
+                // Each penalized draw marks its token, so each starts from the same produced tokens.
+                auto produced = deviceFlags( kGemmaVocab, flagged );
+                EXPECT_EQ( sample( *op, logits, params, r, &produced ), expected )
+                    << "top_k=" << filter.top_k << " top_p=" << filter.top_p << " r=" << r;
+
+                auto produced_for_reference = deviceFlags( kGemmaVocab, flagged );
+                EXPECT_EQ( sampleReference( *op, logits, params, r, &produced_for_reference ), expected_reference )
+                    << "reference top_k=" << filter.top_k << " top_p=" << filter.top_p << " r=" << r;
+            }
+        }
+    }
+
+    // Each draw marks its token on the device before the next is enqueued, with no host read between: the
+    // decode-ahead loop's case. Three greedy draws over the same logits walk down the three largest.
+    TEST_F( SamplingCudaTests, PresencePenalty_MarksEachDrawOnTheDevice )
+    {
+        auto op = makeOp();
+        auto logits = deviceLogits( { 1, 2, 3, 9, 8.5f, 8, 0, 0 } );
+        DeviceFlags produced( Device::Cuda( 0 ), shape_t{ kVocab } );
+        op->enqueueClearProduced( produced );
+
+        SamplingParams params;
+        params.temperature = 0.0f;
+        params.presence_penalty = 1.5f;
+
+        DeviceToken tokens( Device::Cuda( 0 ), shape_t{ 3 } );
+
+        for ( int64_t step = 0; step < 3; ++step )
+        {
+            auto slot = tokens.view( shape_t{ 1, 1 }, step );
+            op->enqueueForwardOnDevice( logits, slot, params, 0.5f, &produced );
+        }
+
+        HostToken host( Device::Cpu(), shape_t{ 3 } );
+        copy( tokens, host, ctx_.get() );
+        ctx_->synchronize();
+
+        EXPECT_EQ( std::vector<int32_t>( host.data(), host.data() + 3 ), ( std::vector<int32_t>{ 3, 4, 5 } ) );
+        EXPECT_EQ( flaggedTokens( produced ), ( std::vector<int32_t>{ 3, 4, 5 } ) );
+    }
+
+    // With the penalty off nothing is marked, and the enqueued path marks as the others do.
+    TEST_F( SamplingCudaTests, PresencePenalty_MarksOnlyWhenOn )
+    {
+        auto op = makeOp();
+        auto logits = deviceLogits( { 1, 2, 3, 9, 8.5f, 8, 0, 0 } );
+        auto produced = deviceFlags( kVocab, {} );
+
+        SamplingParams params;
+        params.temperature = 0.0f;
+
+        EXPECT_EQ( sampleEnqueued( *op, logits, params, 0.5f, &produced ), 3 );
+        EXPECT_TRUE( flaggedTokens( produced ).empty() );
+
+        params.presence_penalty = 1.5f;
+
+        EXPECT_EQ( sampleEnqueued( *op, logits, params, 0.5f, &produced ), 3 );
+        EXPECT_EQ( flaggedTokens( produced ), ( std::vector<int32_t>{ 3 } ) );
+    }
+
+    // A penalty with no produced tokens to read, or a non-finite one, is refused before any launch.
+    TEST_F( SamplingCudaTests, PresencePenalty_RefusesWhatItCannotApply )
+    {
+        auto op = makeOp();
+        auto logits = deviceLogits( { 1, 2, 3, 4, 5, 6, 7, 8 } );
+        auto too_small = deviceFlags( 4, {} );
+        DeviceToken token( Device::Cuda( 0 ), shape_t{ 1, 1 } );
+
+        SamplingParams params;
+        params.presence_penalty = 1.5f;
+
+        EXPECT_THROW( op->forward( logits, token, params, 0.5f ), std::invalid_argument );
+        EXPECT_THROW( op->forward( logits, token, params, 0.5f, &too_small ), std::invalid_argument );
+
+        auto produced = deviceFlags( kVocab, {} );
+        params.presence_penalty = std::numeric_limits<float>::infinity();
+
+        EXPECT_THROW( op->forward( logits, token, params, 0.5f, &produced ), std::invalid_argument );
+    }
+
+    // ------------------------------------------------------------------
+    // Suppressed tokens: never chosen
+    // ------------------------------------------------------------------
+
+    TEST_F( SamplingCudaTests, Suppressed_GreedyPassesOverASuppressedMaximum )
+    {
+        auto op = makeOp( 30.0f, kVocab, { 7, 2 } );
+        auto logits = deviceLogits( { 1, 2, 3, 4, 5, 6, 7, 8 } );
+
+        SamplingParams params;
+        params.temperature = 0.0f;
+
+        EXPECT_EQ( sample( *op, logits, params, 0.5f ), 6 );
+        EXPECT_EQ( sampleReference( *op, logits, params, 0.5f ), 6 );
+    }
+
+    // A suppressed token draws as one whose probability is exactly zero: the same token as the unsuppressed op over
+    // logits that put the suppressed ones far below everything, in every filter case and in the reference.
+    TEST_F( SamplingCudaTests, Suppressed_EqualsTheDrawWithThoseTokensRemoved_AtGemmaVocab )
+    {
+        const std::vector<float> values = randomLogits( kGemmaVocab, 99 );
+
+        // The ten largest logits and some ordinary ones, so suppression moves the top of the distribution.
+        std::vector<int32_t> order( static_cast<size_t>( kGemmaVocab ) );
+        std::iota( order.begin(), order.end(), 0 );
+        std::partial_sort( order.begin(), order.begin() + 10, order.end(),
+            [&]( int32_t a, int32_t b ) { return values[ static_cast<size_t>( a ) ] > values[ static_cast<size_t>( b ) ]; } );
+
+        std::vector<int32_t> suppressed( order.begin(), order.begin() + 10 );
+        suppressed.push_back( 255999 );
+        suppressed.push_back( 258884 );
+
+        std::vector<float> removed_values = values;
+
+        for ( const int32_t token : suppressed )
+            removed_values[ static_cast<size_t>( token ) ] = -1.0e4f;
+
+        auto suppressing_op = makeOp( 0.0f, kGemmaVocab, suppressed );
+        auto plain_op = makeOp( 0.0f, kGemmaVocab );
+        auto logits = deviceLogits( values );
+        auto removed_logits = deviceLogits( removed_values );
+
+        struct FilterCase { int top_k; float top_p; };
+        const FilterCase cases[] = { { 64, 0.95f }, { 20, 1.0f }, { 0, 0.9f }, { 0, 1.0f } };
+        const float r_grid[] = { 0.0f, 0.1f, 0.37f, 0.5f, 0.73f, 0.9f, 0.999f };
+
+        for ( const auto& filter : cases )
+        {
+            for ( const float r : r_grid )
+            {
+                SamplingParams params;
+                params.temperature = 1.0f;
+                params.top_k = filter.top_k;
+                params.top_p = filter.top_p;
+
+                const int32_t token = sample( *suppressing_op, logits, params, r );
+
+                EXPECT_FALSE( std::ranges::contains( suppressed, token ) ) << "drew suppressed token " << token;
+                EXPECT_EQ( token, sample( *plain_op, removed_logits, params, r ) )
+                    << "top_k=" << filter.top_k << " top_p=" << filter.top_p << " r=" << r;
+                EXPECT_EQ( sampleReference( *suppressing_op, logits, params, r ),
+                    sampleReference( *plain_op, removed_logits, params, r ) )
+                    << "reference top_k=" << filter.top_k << " top_p=" << filter.top_p << " r=" << r;
+            }
+        }
+    }
+
+    // A suppressed token outside the vocabulary is a configuration error.
+    TEST_F( SamplingCudaTests, Suppressed_RefusesATokenOutsideTheVocabulary )
+    {
+        EXPECT_THROW( makeOp( 0.0f, kVocab, { static_cast<int32_t>( kVocab ) } ), std::invalid_argument );
+        EXPECT_THROW( makeOp( 0.0f, kVocab, { -1 } ), std::invalid_argument );
+    }
+
+    // ------------------------------------------------------------------
     // Enqueued path (decode-ahead pipeline): enqueueForward + awaitToken
     // ------------------------------------------------------------------
 
-    // The enqueued path is the same kernel dispatch on a different stream with an
-    // async readback; greedy argmax must match the synchronous path exactly.
+    // The enqueued path is the same kernel dispatch with an async readback; greedy
+    // argmax must match the synchronous path exactly.
     TEST_F( SamplingCudaTests, Enqueued_MatchesForward_Greedy )
     {
         auto op = makeOp();
@@ -767,6 +1139,196 @@ namespace Mila::Tests::Dnn::Samplers
             EXPECT_EQ( std::vector<int32_t>( kept.begin(), kept.end() ), expected ) << "kept_drafts=" << kept_drafts;
             EXPECT_EQ( readTokens( tokens, 1 )[ 0 ], expected.back() );
         }
+    }
+
+    // With a presence penalty, row r of a verify also penalizes the round's drafts 1..r: each row's draw equals the
+    // one-row draw over that row with those drafts added to the produced tokens, greedy and sampled, softcap on.
+    TEST_F( SamplingRowsCudaTests, Rows_PresencePenaltyCountsTheDraftsBeforeEachRow )
+    {
+        constexpr float kPenalty = 2.0f;
+
+        auto rows_op = makeRowsOp( kRows, 30.0f );
+        auto one_row_op = makeOp( 30.0f, kGemmaVocab );
+        auto logits = deviceRows( kRows, kGemmaVocab, 700 );
+
+        // Draft r is row r's own unpenalized top, so counting it moves that row's draw.
+        SamplingParams greedy;
+        greedy.temperature = 0.0f;
+
+        const std::vector<int32_t> base_flagged = { 5, 77, 1234 };
+        std::vector<int32_t> round( static_cast<size_t>( kRows ) );
+        round[ 0 ] = 1234;
+
+        for ( int64_t row = 1; row < kRows; ++row )
+        {
+            auto view = logits.view( shape_t{ 1, 1, kGemmaVocab }, row * kGemmaVocab );
+            DeviceToken token( Device::Cuda( 0 ), shape_t{ 1, 1 } );
+            one_row_op->enqueueForwardOnDevice( view, token, greedy, 0.5f );
+            round[ static_cast<size_t>( row ) ] = readTokens( token, 1 )[ 0 ];
+        }
+
+        HostToken host_round( Device::Cpu(), shape_t{ kRows } );
+        std::copy( round.begin(), round.end(), host_round.data() );
+        DeviceToken round_tokens( Device::Cuda( 0 ), shape_t{ kRows } );
+        copy( host_round, round_tokens, ctx_.get() );
+
+        auto produced = deviceFlags( kGemmaVocab, base_flagged );
+
+        SamplingParams sampled;
+        sampled.temperature = 1.0f;
+        sampled.top_k = 64;
+        sampled.top_p = 0.95f;
+
+        for ( SamplingParams params : { greedy, sampled } )
+        {
+            params.presence_penalty = kPenalty;
+
+            const std::vector<float> uniforms = uniformsFrom( 21, kRows );
+            DeviceToken tokens( Device::Cuda( 0 ), shape_t{ kRows } );
+            rows_op->enqueueRowsOnDevice( logits, tokens, kRows, params, uniforms, &produced, &round_tokens );
+
+            std::vector<int32_t> expected;
+
+            for ( int64_t row = 0; row < kRows; ++row )
+            {
+                std::vector<int32_t> flagged = base_flagged;
+                flagged.insert( flagged.end(), round.begin() + 1, round.begin() + 1 + row );
+                auto row_produced = deviceFlags( kGemmaVocab, flagged );
+
+                auto view = logits.view( shape_t{ 1, 1, kGemmaVocab }, row * kGemmaVocab );
+                DeviceToken token( Device::Cuda( 0 ), shape_t{ 1, 1 } );
+                one_row_op->enqueueForwardOnDevice( view, token, params, uniforms[ static_cast<size_t>( row ) ], &row_produced );
+                expected.push_back( readTokens( token, 1 )[ 0 ] );
+            }
+
+            const std::vector<int32_t> drawn = readTokens( tokens, kRows );
+
+            EXPECT_EQ( drawn, expected ) << "temperature=" << params.temperature;
+            EXPECT_EQ( flaggedTokens( produced ), ( std::vector<int32_t>{ 5, 77, 1234 } ) ) << "rows mark nothing";
+
+            if ( params.temperature == 0.0f )
+            {
+                for ( int64_t row = 1; row < kRows; ++row )
+                    EXPECT_NE( drawn[ static_cast<size_t>( row ) ], round[ static_cast<size_t>( row ) ] )
+                        << "row " << row << " drew the draft it counts";
+            }
+        }
+
+        // Without the penalty, the round's drafts change nothing.
+        const std::vector<float> uniforms = uniformsFrom( 21, kRows );
+        DeviceToken with_round( Device::Cuda( 0 ), shape_t{ kRows } );
+        DeviceToken without_round( Device::Cuda( 0 ), shape_t{ kRows } );
+        rows_op->enqueueRowsOnDevice( logits, with_round, kRows, sampled, uniforms, &produced, &round_tokens );
+        rows_op->enqueueRowsOnDevice( logits, without_round, kRows, sampled, uniforms );
+
+        EXPECT_EQ( readTokens( with_round, kRows ), readTokens( without_round, kRows ) );
+    }
+
+    // The acceptance walk marks the drafts it keeps and the next token, never a rejected draft.
+    TEST_F( SamplingRowsCudaTests, Accept_MarksTheKeptTokensProduced )
+    {
+        auto op = makeRowsOp( kRows, 0.0f, kVocab * 16 );
+
+        HostToken host_tokens( Device::Cpu(), shape_t{ kRows } );
+        HostToken host_chosen( Device::Cpu(), shape_t{ kRows } );
+        const int32_t round[] = { 50, 11, 12, 13, 14 };
+        const int32_t chosen_at[] = { 11, 12, 77, 14, 15 };
+
+        for ( int64_t i = 0; i < kRows; ++i )
+        {
+            host_tokens.data()[ i ] = round[ i ];
+            host_chosen.data()[ i ] = chosen_at[ i ];
+        }
+
+        DeviceToken tokens( Device::Cuda( 0 ), shape_t{ kRows } );
+        DeviceToken chosen( Device::Cuda( 0 ), shape_t{ kRows } );
+        DeviceToken result( Device::Cuda( 0 ), shape_t{ kRows + 1 } );
+        copy( host_tokens, tokens, ctx_.get() );
+        copy( host_chosen, chosen, ctx_.get() );
+
+        auto produced = deviceFlags( kVocab * 16, { 50 } );
+        op->enqueueAcceptOnDevice( tokens, chosen, kRows, result, &produced );
+
+        EXPECT_EQ( readTokens( result, 4 ), ( std::vector<int32_t>{ 2, 11, 12, 77 } ) );
+        EXPECT_EQ( flaggedTokens( produced ), ( std::vector<int32_t>{ 11, 12, 50, 77 } ) );
+    }
+
+    // Suppressed tokens are never drawn by a rows call either, greedy or sampled.
+    TEST_F( SamplingRowsCudaTests, Rows_NeverDrawASuppressedToken )
+    {
+        auto logits = deviceRows( kRows, kGemmaVocab, 900 );
+        auto plain_op = makeRowsOp( kRows );
+
+        SamplingParams greedy;
+        greedy.temperature = 0.0f;
+
+        // Suppress each row's own greedy choice.
+        DeviceToken greedy_tokens( Device::Cuda( 0 ), shape_t{ kRows } );
+        plain_op->enqueueRowsOnDevice( logits, greedy_tokens, kRows, greedy, std::vector<float>( kRows, 0.5f ) );
+        const std::vector<int32_t> suppressed = readTokens( greedy_tokens, kRows );
+
+        SamplingConfig config = SamplingConfig{}
+            .withVocabularySize( kGemmaVocab )
+            .withMaximumRows( kRows )
+            .withSuppressedTokens( suppressed );
+        OpType op( ctx_.get(), config );
+
+        SamplingParams sampled;
+        sampled.temperature = 1.0f;
+        sampled.top_k = 64;
+        sampled.top_p = 0.95f;
+
+        for ( const SamplingParams& params : { greedy, sampled } )
+        {
+            for ( uint32_t trial = 0; trial < 8; ++trial )
+            {
+                DeviceToken tokens( Device::Cuda( 0 ), shape_t{ kRows } );
+                op.enqueueRowsOnDevice( logits, tokens, kRows, params, uniformsFrom( 40 + trial, kRows ) );
+
+                for ( const int32_t token : readTokens( tokens, kRows ) )
+                    EXPECT_FALSE( std::ranges::contains( suppressed, token ) ) << "drew suppressed token " << token;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // TokenSampler: the reply's produced tokens across draws
+    // ------------------------------------------------------------------
+
+    // A reply begun with a penalty starts from nothing produced, each draw counts, and the next reply starts over.
+    // The synchronous sample() reads its token back on the context's stream.
+    TEST_F( SamplingCudaTests, TokenSampler_ProducedTokensLastOneReply )
+    {
+        TokenSampler<DeviceType::Cuda, TensorDataType::FP32> sampler(
+            ctx_.get(), SamplingConfig{}.withVocabularySize( kVocab ) );
+        auto logits = deviceLogits( { 1, 2, 3, 9, 8.5f, 8, 0, 0 } );
+        DeviceToken token( Device::Cuda( 0 ), shape_t{ 1, 1 } );
+
+        SamplingParams params;
+        params.temperature = 0.0f;
+        params.presence_penalty = 1.5f;
+
+        EXPECT_THROW( sampler.sample( logits, token, params ), std::logic_error ) << "no reply begun with a penalty";
+
+        sampler.beginReply( params );
+
+        EXPECT_EQ( sampler.sample( logits, token, params ), 3 );
+
+        sampler.enqueueSample( logits, token, params );
+        EXPECT_EQ( sampler.awaitToken(), 4 );
+        EXPECT_EQ( sampler.sample( logits, token, params ), 5 );
+
+        sampler.beginReply( params );
+
+        EXPECT_EQ( sampler.sample( logits, token, params ), 3 ) << "a new reply counts nothing produced";
+
+        SamplingParams off = params;
+        off.presence_penalty = 0.0f;
+        sampler.beginReply( off );
+
+        EXPECT_EQ( sampler.producedTokens(), nullptr );
+        EXPECT_EQ( sampler.sample( logits, token, off ), 3 );
+        EXPECT_THROW( sampler.sample( logits, token, params ), std::logic_error );
     }
 
     // Timing, not a gate: one rows call against K + 1 one-row calls at the Gemma vocabulary and Google's sampling,

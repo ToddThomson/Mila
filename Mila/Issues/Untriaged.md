@@ -10,30 +10,14 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
-## Qwen 3.8's perplexity on chat-template conversations rises with context, where on wikitext it falls
+## GPT-2 samples on the host with its own sampler, which ignores top-p
 
-`Mila/Tests/Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp` `DISABLED_QualityGateAcrossContextLengths` @ `1fbf7a5`
+`Mila/Src/Dnn/Models/Gpt/GptModel.ixx` `onGenerating`, `sampleFromLogits` @ `52045ab`
 
-Found 2026-10-15 scoring the 2.82-bit re-fit on served text (`MILA_QWEN_CORPUS`). On 31 Hermes tool-call
-conversations rendered through Qwen 3.8's own template and laid end to end (`Tools/Quantization/calibration_text.py
---held-out-tool`), the FP4 arm scores 60.0, 223.2 and 534.5 at 4K, 8K and 16K, and the 2.82-bit arm 0.87-0.93 of
-that, below FP4 at every length, which the test asserts against. The same runs on wikitext-2 test score 6.47, 6.15
-and 5.69. Ruled out: line endings (CRLF and LF both), and the tokenizer (Mila's ids equal Hugging Face's over the
-first 30,635 tokens). Scored one conversation at a time from its own start (`DISABLED_QualityOnConversations`),
-FP4 reads 63.8 and the HuggingFace BF16 model 89.7 on the same conversations, so the level is the model's own on
-this text; transformers' own forward and Mila's BF16 stack both agree with that reference. Not measured: BF16 laid
-end to end at 8K and 16K, which is what says whether the rise with context is the model's or FP4's.
-
-## Mila's BF16 Qwen 3.8 drifts past the parity bound on a 28-token prompt
-
-`Mila/Tests/Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp` `kHiddenStateTolerance` @ `1fbf7a5`
-
-Found 2026-10-15 running `LayerStream_MatchesHuggingFaceReference` against a reference for
-`<|im_start|>system\nReasoning effort is set to xhigh...alternatives, and` (`MILA_QWEN_PARITY_REFERENCE`). The
-last-token relative error against HuggingFace BF16 grows from 5.4e-4 at layer 0 to 1.0e-2 by layer 20 and 4.2e-2 at
-layer 63, past the 2.0e-2 bound from layer 43 on; the argmax agrees, logits 2.69e-2 apart. The bound was set on the
-5-token prompt (peak 1.38e-2), where Mila also sat closer than HuggingFace to an FP32 reference. Not measured: an
-FP32 reference for this prompt, which says whose rounding the drift is.
+Found 2026-10-17 adding the presence penalty to the device sampler. `GptModel` copies the logits to the host and
+samples with temperature and top-k only; `params.sampling.top_p` is never read, so a top-p request runs the full
+distribution. It now refuses a presence penalty rather than drop it. Llama, Gemma and Qwen sample on the device
+through `TokenSampler`.
 
 ## Claude Code assumes a 200,000-token window for a model served by Mila
 
@@ -49,16 +33,6 @@ measured: request 20,490 tokens, summary 21,946, resume 20,152, summary 21,661, 
 Code's own request is ~20.5K, so a session with working room needs a window of about 33.5K + the output reserve
 (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`) + the room. Not checked: how Codex and Hermes learn their window.
 
-## The Gemma 4 26B-A4B leaves Claude Code about 7,000 tokens of working room on a 16 GB card
-
-`Mila/Apps/Server/docs/harnesses.md` *Tested With* @ `+68`
-
-Found 2026-10-15 in the harness rerun. Claude Code 2.1.300's first request renders to about 20,400 tokens and the
-26B-A4B loads on the 5060 Ti at 27,648. Not measured: the 12B's room, or whether the 26B-A4B's context is held back
-for a full prefill chunk as Qwen's is (Qwen moved to `BACKLOG.md`, its KV-cache entry). Todd set the minimum context
-for an agentic workflow at 64K the same day, and the 26B-A4B is one of the two models Mila calls agentic; its
-27,648 is under half of that.
-
 ## Text parts of one message are joined with nothing between them
 
 `Mila/Apps/Server/src/mila_llm_server/conversation.py` `text_of` @ `+68`
@@ -67,58 +41,6 @@ Found 2026-10-15 capturing the harnesses. Claude Code 2.1.300's `system` field i
 (`x-anthropic-billing-header: ...;`) is joined straight onto the second ("You are a Claude agent..."); Codex
 0.162.1 sends its skills and permissions text as two parts of one `developer` message, joined the same way. Not
 checked: how Anthropic and OpenAI join a message's parts, or whether the billing line reaches Anthropic's models.
-
-## Qwen's prompt renderer differs from Qwen 3.8's own chat template in six places
-
-`Mila/Src/Dnn/Models/Qwen/Qwen.Protocol.ixx` `formatPrompt`, `formatTurn`, `serializeToolSignatures` @ `ec6aca9`
-
-Found 2026-10-14 recording the template's goldens (`Tools/ChatTemplates`). The template's default effort is
-`xhigh`, where the free functions call `Medium` the checkpoint's default; it groups consecutive tool results into one
-user turn; it separates a turn's second and later calls with `\n`; it writes tool signatures and non-string
-arguments through `tojson` (`", "`/`": "`, keys in the order given) where the free functions write compact, sorted
-JSON; it trims every message; and with `preserve_thinking` on, its default, it renders past reasoning back into
-history. `QwenChatProtocol` renders all six as the template does; Chat and the server still call the free
-functions. Not measured: how far each moves the model's behaviour.
-
-## Gemma's applications distill a JSON tool result that Google's template renders as text
-
-`Mila/Src/Dnn/Models/Gemma/Gemma.Protocol.ixx` `formatToolResponse` @ `ec6aca9`
-
-Found 2026-10-14 recording the template's goldens. The template renders a result given as text under `value:`,
-whole; `formatToolResponse` parses a JSON envelope and keeps one output field (added for Codex's envelope, whose
-chunk id the model echoed). `GemmaChatProtocol` renders it as the template does, so the distillation becomes the
-server's wire work, for the one client whose envelope needs it, when the server switches. In the same template, a
-calling turn's text renders after its results and the turn closes with no prompt after it, so a resume whose
-assistant turn carries both text and calls -- Claude Code sends that shape -- gets no open model turn.
-
-## Chat's Llama tool-call parser reads a key Meta's template does not ask for
-
-`Mila/Apps/Chat/Src/Chat.ToolCallParser.ixx:142` `parseJson` @ `ec6aca9`
-
-Found 2026-10-14 folding Llama's grammar into the library. Meta's 3.1 and 3.2 templates ask for
-`{"name": ..., "parameters": ...}` and replay a call that way; Chat's parser accepts only `"arguments"`, so a call the
-model writes as the template asks is not a call to Chat. Not checked: what Chat's own system prompt asks the model to
-write, and which key Llama 3.x emits under it. Two template facts a Llama consumer meets on switching: a plain-text
-tool result is written through `tojson`, so the model sees it JSON-quoted, and an assistant turn that made a call
-renders the call alone, its text dropped.
-
-## Gemma's drafter generation test fails on the RTX 4070 and passes on the 5060 Ti
-
-`Mila/Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp:367` `Gemma4_12B_GreedyGenerationIsUnchanged` @ `ec6aca9`
-
-Found 2026-10-14 running the full suite at `+68` (a change that touches no model code). Pinned by UUID, the same build
-passes on the 5060 Ti and fails on the 4070: drafted and plain greedy tokens part within the first 256, where the
-test's comment says the reply first parts at token 402, measured 2026-10-05. Not checked: on which card that was
-measured, and the token at which they part on the 4070.
-
-## Stopping a Gemma turn at its first closed call keeps only one of several calls
-
-`Mila/Apps/Server/src/mila_llm_server/model_worker.py:56` `_stop_markers_for` @ `ec6aca9`
-
-Found 2026-10-14 writing `ProtocolMarkers`. Generation stops at `<tool_call|>`, since left running the model repeats
-the call to the budget (`routes/factory.py` `_generate_buffered`), so a turn that would have made two calls makes
-one. `InferenceServerWire.md` W2 asks for both. Not checked: whether the model, unstopped, writes a second call or
-always repeats the first.
 
 ## The inference server's Chat Completions endpoint returns a tool call as reply text
 
@@ -150,28 +72,6 @@ operation, for the CPU operations that accumulated into it. The CUDA kernels ass
 (`Gelu.Fp32.cu`, `Residual.Fp32.cu` / `.Bf16.cu`), so the zeroing is a memset per backward that nothing reads.
 Not checked: whether any caller reads past the range a narrower-than-built input writes, which the zeroing keeps
 at zero today.
-
-## The Qwen 4 tiny reference never reaches the n-gram hash's negative branch
-
-`Mila/Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py` @ `44778cd`
-
-Found 2026-10-11 mutation-checking the CUDA n-gram hash: a truncating `%` in place of the floor mod passed the capture
-gate, and only the hand-built `Hash_NegativeMixedValueMapsIntoTheHead` caught it. The capture's largest token id is 239
-and its largest multiplier 3.5e16, so every product stays below 2^63 and no mixed value is negative. Qwen 4's real
-vocabulary (about 250K ids) wraps them. The header says the n-gram base near 1,000 exercises the floor mod; it
-exercises collisions, not the negative branch. Token ids above about 2^63 / max(multiplier), 260 here, would.
-
-## The Qwen 4 tiny reference generator refuses its own capture under transformers 5.19
-
-`Mila/Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py:392` @ `44778cd`
-
-Found 2026-10-11 regenerating the capture locally (it had only been made in a cloud session, so the CPU gates had been
-skipping here). With transformers 5.19.0 the dense-exact prefix check requires the selected and dense passes to agree
-exactly and they differ by 1.192e-7, one float ulp; every file is written before the check raises. The capture used
-5.16. Whether the check is too strict for a different version or machine, or 5.19 changed the indexer, is not known.
-5.19 did change `qwen4_exp`: its config names the sparse layer type `indexed_attention` where 5.16 wrote
-`qwen_sparse_attention` (`convert_weights.py` treats every non-linear type as full attention, so the converter is
-unaffected). The tracked `hf_checkpoint/*.json` were left at their 5.16 contents; the local capture is 5.19's.
 
 ## The loss GPT-2 and MNIST train with has no test that runs
 
@@ -248,14 +148,6 @@ Found 2026-10-10 when Todd asked for evaluations to run overnight. Llama 3's cha
 into every prompt (transformers renders it with `strftime_now`), so a pair whose arms start on different days
 has no matching prompts and `compare_arms.py` refuses it. Phase 1 takes about 2.7 hours an arm on the 5060 Ti, so
 an overnight pair crosses midnight. The template takes a `date_string` when one is given.
-
-## The Qwen 3.8 2.82-bit model card says "residency"
-
-`Mila/Tools/ExportArtifact/ModelCards/Qwen3.8-27B-cb2-3/README.md:53` @ `539396e`
-
-Found 2026-10-07 reading the cards' quality sections for the evaluation discussion. "The cost of the smaller
-residency" -- a term `CLAUDE.md` lists as one only Mila uses. The section's numbers are also against Mila's own FP4
-build, not the upstream model.
 
 ## Qwen 4 27B is expected around November 2026 and Mila has no Qwen 4 chassis
 

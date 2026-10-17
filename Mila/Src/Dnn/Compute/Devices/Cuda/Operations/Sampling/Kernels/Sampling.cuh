@@ -13,26 +13,43 @@
 
 namespace Mila::Dnn::Compute::Cuda::Sampling
 {
+    // The most rows one call samples: a verify's K + 1 (Gemma4Mtp.md 4.8).
+    inline constexpr int kMaxSampleRows = 8;
+
+    // What changes a row's logits before its draw (TokenSampling.md 3.3). A token flagged in `suppressed` is never
+    // chosen. With a non-zero `presence_penalty`, it is subtracted after the softcap and before temperature from every
+    // token flagged in `produced` -- the reply's tokens so far -- and, in a rows call, row r also counts the round's
+    // tokens 1..r in `round_tokens`, the drafts before it. A null `suppressed` suppresses nothing; a zero penalty reads
+    // neither `produced` nor `round_tokens`.
+    struct SampleAdjustments
+    {
+        const uint8_t* suppressed = nullptr;
+        const uint8_t* produced = nullptr;
+        const int32_t* round_tokens = nullptr;
+        float presence_penalty = 0.0f;
+    };
+
     // Argmax over `vocab` logits; writes the winning index as int32 to token_out[0].
-    // Ties resolve to the lowest index, matching the host std::max_element baseline.
-    void cuda_sample_argmax_fp32( const float* logits, int32_t* token_out, int vocab, cudaStream_t stream );
-    void cuda_sample_argmax_bf16( const __nv_bfloat16* logits, int32_t* token_out, int vocab, cudaStream_t stream );
+    // Ties resolve to the lowest index, matching the host std::max_element baseline. With the penalty on, the
+    // argmax is over the softcapped, penalized logits; otherwise the softcap is skipped, since it is monotonic.
+    void cuda_sample_argmax_fp32( const float* logits, int32_t* token_out, int vocab, float softcap,
+        const SampleAdjustments& adjustments, cudaStream_t stream );
+    void cuda_sample_argmax_bf16( const __nv_bfloat16* logits, int32_t* token_out, int vocab, float softcap,
+        const SampleAdjustments& adjustments, cudaStream_t stream );
 
     // Header-visible templated dispatcher.
     template <typename TNative>
-    inline void cuda_sample_argmax( const TNative* logits, int32_t* token_out, int vocab, cudaStream_t stream )
+    inline void cuda_sample_argmax( const TNative* logits, int32_t* token_out, int vocab, float softcap,
+        const SampleAdjustments& adjustments, cudaStream_t stream )
     {
         static_assert( std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>,
                        "cuda_sample_argmax: unsupported precision" );
 
         if constexpr ( std::is_same_v<TNative, float> )
-            cuda_sample_argmax_fp32( logits, token_out, vocab, stream );
+            cuda_sample_argmax_fp32( logits, token_out, vocab, softcap, adjustments, stream );
         else
-            cuda_sample_argmax_bf16( logits, token_out, vocab, stream );
+            cuda_sample_argmax_bf16( logits, token_out, vocab, softcap, adjustments, stream );
     }
-
-    // The most rows one call samples: a verify's K + 1 (Gemma4Mtp.md 4.8).
-    inline constexpr int kMaxSampleRows = 8;
 
     // One host-drawn uniform per row, passed by value so a call carries every row's draw.
     struct SampleRowUniforms
@@ -41,21 +58,23 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
     };
 
     // Argmax of each of `rows` contiguous rows of `vocab` logits into token_out[row], one block per row.
-    void cuda_sample_rows_argmax_fp32( const float* logits, int32_t* token_out, int rows, int vocab, cudaStream_t stream );
-    void cuda_sample_rows_argmax_bf16(
-        const __nv_bfloat16* logits, int32_t* token_out, int rows, int vocab, cudaStream_t stream );
+    void cuda_sample_rows_argmax_fp32( const float* logits, int32_t* token_out, int rows, int vocab, float softcap,
+        const SampleAdjustments& adjustments, cudaStream_t stream );
+    void cuda_sample_rows_argmax_bf16( const __nv_bfloat16* logits, int32_t* token_out, int rows, int vocab,
+        float softcap, const SampleAdjustments& adjustments, cudaStream_t stream );
 
     template <typename TNative>
     inline void cuda_sample_rows_argmax(
-        const TNative* logits, int32_t* token_out, int rows, int vocab, cudaStream_t stream )
+        const TNative* logits, int32_t* token_out, int rows, int vocab, float softcap,
+        const SampleAdjustments& adjustments, cudaStream_t stream )
     {
         static_assert( std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>,
                        "cuda_sample_rows_argmax: unsupported precision" );
 
         if constexpr ( std::is_same_v<TNative, float> )
-            cuda_sample_rows_argmax_fp32( logits, token_out, rows, vocab, stream );
+            cuda_sample_rows_argmax_fp32( logits, token_out, rows, vocab, softcap, adjustments, stream );
         else
-            cuda_sample_rows_argmax_bf16( logits, token_out, rows, vocab, stream );
+            cuda_sample_rows_argmax_bf16( logits, token_out, rows, vocab, softcap, adjustments, stream );
     }
 
     // Stochastic pipeline scratch geometry. The op allocates one FP32 and one INT32
@@ -71,9 +90,9 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
     inline constexpr int kStochasticIndexScratchElements = 16 + kStochasticBins;
 
     // Stochastic multinomial: applies the optional logit softcap (softcap*tanh(x/softcap),
-    // skipped when softcap <= 0) and temperature, takes the FP32 softmax, optionally truncates
-    // to top-k (0 disables) and/or top-p (>= 1 disables) via histogram threshold refinement,
-    // then inverse-CDF samples against the host-drawn uniform `r` in token-index order.
+    // skipped when softcap <= 0), the adjustments and temperature, takes the FP32 softmax, optionally truncates
+    // to top-k (0 disables; every token tied with the k-th survives) and/or top-p (>= 1 disables) via histogram
+    // threshold refinement, then inverse-CDF samples against the host-drawn uniform `r` in token-index order.
     // `scratch` is a caller-owned device buffer of `vocab` floats (working store);
     // `reduction_scratch` / `index_scratch` are caller-owned device buffers sized by the
     // kStochastic*ScratchElements constants above. top_k == 0 && top_p == 1 is the full
@@ -81,27 +100,30 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
     void cuda_sample_stochastic_fp32(
         const float* logits, int32_t* token_out, float* scratch,
         float* reduction_scratch, int32_t* index_scratch,
-        int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream );
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleAdjustments& adjustments, float r, cudaStream_t stream );
     void cuda_sample_stochastic_bf16(
         const __nv_bfloat16* logits, int32_t* token_out, float* scratch,
         float* reduction_scratch, int32_t* index_scratch,
-        int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream );
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleAdjustments& adjustments, float r, cudaStream_t stream );
 
     template <typename TNative>
     inline void cuda_sample_stochastic(
         const TNative* logits, int32_t* token_out, float* scratch,
         float* reduction_scratch, int32_t* index_scratch,
-        int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream )
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleAdjustments& adjustments, float r, cudaStream_t stream )
     {
         static_assert( std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>,
                        "cuda_sample_stochastic: unsupported precision" );
 
         if constexpr ( std::is_same_v<TNative, float> )
             cuda_sample_stochastic_fp32( logits, token_out, scratch, reduction_scratch, index_scratch,
-                vocab, softcap, temperature, top_k, top_p, r, stream );
+                vocab, softcap, temperature, top_k, top_p, adjustments, r, stream );
         else
             cuda_sample_stochastic_bf16( logits, token_out, scratch, reduction_scratch, index_scratch,
-                vocab, softcap, temperature, top_k, top_p, r, stream );
+                vocab, softcap, temperature, top_k, top_p, adjustments, r, stream );
     }
 
     // The stochastic pipeline over `rows` contiguous rows of `vocab` logits at once, each launch serving every row:
@@ -111,37 +133,41 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         const float* logits, int32_t* token_out, float* scratch,
         float* reduction_scratch, int32_t* index_scratch, int rows,
         int vocab, float softcap, float temperature, int top_k, float top_p,
-        const SampleRowUniforms& uniforms, cudaStream_t stream );
+        const SampleAdjustments& adjustments, const SampleRowUniforms& uniforms, cudaStream_t stream );
     void cuda_sample_rows_stochastic_bf16(
         const __nv_bfloat16* logits, int32_t* token_out, float* scratch,
         float* reduction_scratch, int32_t* index_scratch, int rows,
         int vocab, float softcap, float temperature, int top_k, float top_p,
-        const SampleRowUniforms& uniforms, cudaStream_t stream );
+        const SampleAdjustments& adjustments, const SampleRowUniforms& uniforms, cudaStream_t stream );
 
     template <typename TNative>
     inline void cuda_sample_rows_stochastic(
         const TNative* logits, int32_t* token_out, float* scratch,
         float* reduction_scratch, int32_t* index_scratch, int rows,
         int vocab, float softcap, float temperature, int top_k, float top_p,
-        const SampleRowUniforms& uniforms, cudaStream_t stream )
+        const SampleAdjustments& adjustments, const SampleRowUniforms& uniforms, cudaStream_t stream )
     {
         static_assert( std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>,
                        "cuda_sample_rows_stochastic: unsupported precision" );
 
         if constexpr ( std::is_same_v<TNative, float> )
             cuda_sample_rows_stochastic_fp32( logits, token_out, scratch, reduction_scratch, index_scratch, rows,
-                vocab, softcap, temperature, top_k, top_p, uniforms, stream );
+                vocab, softcap, temperature, top_k, top_p, adjustments, uniforms, stream );
         else
             cuda_sample_rows_stochastic_bf16( logits, token_out, scratch, reduction_scratch, index_scratch, rows,
-                vocab, softcap, temperature, top_k, top_p, uniforms, stream );
+                vocab, softcap, temperature, top_k, top_p, adjustments, uniforms, stream );
     }
+
+    // Flags the token at token[0] in `produced`: the reply has now produced it.
+    void cuda_mark_produced( const int32_t* token, uint8_t* produced, cudaStream_t stream );
 
     // Speculative acceptance over a verified round (Gemma4Mtp.md 4.8). `tokens` holds the round's `rows` tokens --
     // the known one, then the drafts -- and `chosen` the token sampled at each row. A draft is kept while the row
     // before it chose it. Writes result[0] = kept count m, result[1..m] = the kept drafts, result[m + 1] = the token
-    // chosen at row m, and that next token into tokens[0] for the next round.
+    // chosen at row m, and that next token into tokens[0] for the next round. A non-null `produced` gains the kept
+    // drafts and the next token, never a rejected draft.
     void cuda_speculative_accept(
-        int32_t* tokens, const int32_t* chosen, int rows, int32_t* result, cudaStream_t stream );
+        int32_t* tokens, const int32_t* chosen, int rows, int32_t* result, uint8_t* produced, cudaStream_t stream );
 
     // Reference oracle: the original single-block stochastic kernel (bisection thresholds
     // + thread-0 serial inverse-CDF). Retained for new-vs-reference parity tests only —
@@ -149,22 +175,27 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
     // pipeline above up to float reduction order at truncation/CDF boundaries.
     void cuda_sample_stochastic_reference_fp32(
         const float* logits, int32_t* token_out, float* scratch,
-        int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream );
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleAdjustments& adjustments, float r, cudaStream_t stream );
     void cuda_sample_stochastic_reference_bf16(
         const __nv_bfloat16* logits, int32_t* token_out, float* scratch,
-        int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream );
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleAdjustments& adjustments, float r, cudaStream_t stream );
 
     template <typename TNative>
     inline void cuda_sample_stochastic_reference(
         const TNative* logits, int32_t* token_out, float* scratch,
-        int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream )
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleAdjustments& adjustments, float r, cudaStream_t stream )
     {
         static_assert( std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>,
                        "cuda_sample_stochastic_reference: unsupported precision" );
 
         if constexpr ( std::is_same_v<TNative, float> )
-            cuda_sample_stochastic_reference_fp32( logits, token_out, scratch, vocab, softcap, temperature, top_k, top_p, r, stream );
+            cuda_sample_stochastic_reference_fp32(
+                logits, token_out, scratch, vocab, softcap, temperature, top_k, top_p, adjustments, r, stream );
         else
-            cuda_sample_stochastic_reference_bf16( logits, token_out, scratch, vocab, softcap, temperature, top_k, top_p, r, stream );
+            cuda_sample_stochastic_reference_bf16(
+                logits, token_out, scratch, vocab, softcap, temperature, top_k, top_p, adjustments, r, stream );
     }
 }

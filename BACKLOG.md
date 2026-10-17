@@ -107,6 +107,15 @@ library as a module, since Clang can no longer compile Chat and no image can be 
 Scope grew on 2026-10-13 (Todd), the date held: under Qwen 3.8 Complete, the 2.82-bit build's misnamed tool calls,
 which stand between that build and its publish. No removal.
 
+Scope grew on 2026-10-17 at the triage of `Mila/Issues/Untriaged.md` (Todd), the date held: every model finding there
+moved to a new Model fixes and parity bucket, which like Internal fixes is admitted by the user with no ROADMAP
+criterion behind it -- ten entries across Qwen 3.8, Qwen 4 and Gemma 4. Chat's Llama tool-call parser went into the
+Llama grammar entry, whose work it is. No removal.
+
+Scope grew again on 2026-10-17 (Todd), the date held: under Applications Ship, a model's sampling defaults follow
+how it is configured, thinking on or off, and the sampler gains the presence penalty Qwen 3.8's non-thinking
+setting asks for. No removal.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -137,8 +146,9 @@ Image and audio reach applications through `Mila::AI`, not around it. Each is a 
 selects (Deployment Planning).
 
 A deployment without a modality should not sample its markers. On 2026-09-28 the 12B sampled `<image|>` (258882)
-mid-sentence in a text-only Chat session, losing the rest of a pun; Chat now hides all seven of Gemma 4's modality
-markers from display, but nothing masks them out of sampling, so the model can still spend a token on one.
+mid-sentence in a text-only Chat session, losing the rest of a pun. The sampler now never draws any of Gemma 4's
+seven markers (`GemmaModel::suppressedTokens`, `TokenSampling.md` 3.3); a deployment that selects a modality takes
+its own markers out of that list.
 
 Gate: embedder parity against HuggingFace, then token for token on an image prompt and on an audio
 prompt; Chat answers about an attached image and an attached clip.
@@ -438,6 +448,12 @@ Meta's writes a "Cutting Knowledge Date / Today Date" header. `Tools/Evaluation`
 and does not see it; a score taken through `/v1/chat/completions` — every Hub benchmark score
 (`ModelEval.md` section 11.2) — carries it.
 
+Chat's own parser (`Chat.ToolCallParser.ixx:121` `parseJson`) accepts only `"arguments"`, where Meta's templates ask
+for `{"name": ..., "parameters": ...}` and replay a call that way, so a call the model writes as the template asks is
+not a call to Chat. Not checked: what Chat's own system prompt asks the model to write, and which key Llama 3.x emits
+under it. Two template facts Chat meets on switching: a plain-text tool result is written through `tojson`, so the
+model sees it JSON-quoted, and an assistant turn that made a call renders the call alone, its text dropped.
+
 Gate: the library renders Meta's template exactly, against its own Jinja rendering, for plain, system and tool
 turns; Chat and the server render through it; and a Llama tool call parses through the library as Gemma's and
 Qwen's do.
@@ -551,27 +567,44 @@ still loads; every published model republished with them.
 Also the root of Codex's "Model metadata not found" warning against `/v1/models` — all three
 validated flows pass regardless, so that is a symptom of this gap rather than separate work.
 
-#### Chat samples every model at one fixed setting, not at the one its publisher recommends
+#### Mila samples every model at one fixed setting, not at the one its publisher recommends for how it is run
 
-`open` · `distribution` · `apps` · `binding`
+`in progress` · `distribution` · `apps` · `mila-src`
 
-Chat samples every model at temperature 0.8, top-k 40 and no top-p (`Chat.Config.ixx:104`), MIS at
-temperature 0.6 (`config.py:55`). No family's publisher recommends either. Their `generation_config.json`
-files say: Gemma 4, every size and both drafters, 1.0, top-k 64, top-p 0.95; Llama 3.1 and 3.2 Instruct 0.6,
-top-p 0.9, no top-k; Qwen 3.8 27B 1.0, top-k 20, top-p 0.95. `ChatConfiguration.md` section 5 already places
-the answer in the manifest -- `temperature`, `top_p` and `top_k`, optional, from the model card -- and none
-of it is built: no record carries them, `ExportArtifact` does not write them, and no adaptor reads them.
-Decided by Todd 2026-10-05: an adaptor's sampling defaults come from the model, and Chat's own are wrong.
+Chat samples every model at temperature 0.8, top-k 40 and no top-p (`Chat.Config.ixx:98`). The inference
+server's compiled defaults are 0.6, top-k 40 and top-p 0.9 (`config.py:48`), and the `.env` it ships overrides
+them with Gemma 4's 1.0, 64 and 0.95 for every model it serves; its Mila protocol and the binding default to 1.0
+with no truncation. No publisher recommends any of these for the models Mila runs, and none of them changes when
+thinking does.
 
-The exporter copies them from the source checkpoint's `generation_config.json`; Chat, MIS and the binding
-open a session at them, below the user's own layers (`/set`, the session file, the request), which still
-override. A manifest without them falls back to its family's published settings, section 5's family layer,
-not to an adaptor's constant; the adaptor-wide 0.8 / 40 and 0.6 are removed.
+The publishers' settings are tabled in `ChatConfiguration.md` section 5. Qwen 3.8 27B's card gives two -- thinking
+1.0, top-p 0.95, top-k 20; not thinking 0.7, top-p 0.80, top-k 20, presence penalty 1.5 -- and its
+`generation_config.json` carries only the first. Gemma 4's card gives 1.0, 64 and 0.95 for every use. Llama 3.1 and
+3.2's cards give none, and `generation_config.json` gives 0.6 and top-p 0.9.
 
-Gate: a Gemma 4 package exported on this tree carries 1.0, 64 and 0.95, and Chat, MIS and the binding open
-at them; an installed package without the fields loads and opens at its family's settings.
+Decided by Todd (2026-10-05, widened 2026-10-17): an application's sampling defaults come from the base model's
+publisher and follow how the model is configured. Work, in section 5's design: the manifest carries the
+publisher's settings, each with the configuration it applies to; `ExportArtifact` writes them from the card, with
+`generation_config.json` where the card says nothing; Chat, the inference server and the binding open a session at
+the setting that matches its configuration and move with it when thinking is switched -- per request in the
+server -- below the user's own layers (`/set`, the session file, the request), which still override. A manifest
+without them falls back to its family's published settings; the applications' constants and `.env`'s sampling
+lines are removed.
 
-`Mila/Apps/Chat/Src/Chat.Config.ixx:104` · `Mila/Specifications/ChatConfiguration.md` section 5
+The sampler half is built (`TokenSampling.md` 3.3): `SamplingParams::presence_penalty`, the reply's produced tokens
+kept on the device through the decode-ahead loop and a drafter's verify, and top-k keeping every token tied with the
+k-th in both kernels. What is left is everything above it: the manifest, the exporter, and Chat, the server and the
+binding reaching the penalty, which the server still refuses (`InferenceServerWire.md`) and the binding and Chat do
+not pass.
+
+Gate: a Qwen 3.8 package exported on this tree carries both settings, and Chat, the server and the binding open
+at the thinking one and move to the other, presence penalty included, when thinking is turned off; a Gemma 4
+package carries 1.0, 64 and 0.95; an installed package without the fields loads and opens at its family's
+settings; the presence penalty matches a host reference through the decode-ahead loop and a drafter's verify;
+and on logits with a tie at the k-th value, top-k keeps the whole tie in both kernels.
+
+`Mila/Apps/Chat/Src/Chat.Config.ixx:98` · `Mila/Specifications/ChatConfiguration.md` section 5 ·
+`Mila/Specifications/TokenSampling.md` 3.3
 
 ### Upgrades Keep Your Models
 
@@ -664,6 +697,137 @@ Gate: the script reruns every cell unattended and enforces the rules above, the 
 every cell from the script's data, and the landing page's performance claim links to that page and claims nothing
 the cells do not show.
 
+### Model fixes and parity
+
+A model's own defects, and gaps between the families, the user admitted to this release with no ROADMAP criterion
+behind them.
+
+#### Qwen 3.8's loss on chat conversations rises with context, where on prose it falls
+
+`open` · `qwen` · `quantization` · `measured`
+
+On 31 Hermes tool-call conversations rendered through Qwen 3.8's own template and laid end to end
+(`Tools/Quantization/calibration_text.py --held-out-tool`, `MILA_QWEN_CORPUS`), the FP4 build's perplexity is 60.0,
+223.2 and 534.5 at 4K, 8K and 16K, and the 2.82-bit build's 0.87-0.93 of that, below FP4 at every length, which the
+test asserts against. The same runs on wikitext-2 test score 6.47, 6.15 and 5.69. Ruled out: line endings (CRLF and
+LF both), and the tokenizer (Mila's ids equal HuggingFace's over the first 30,635 tokens). Scored one conversation at
+a time from its own start (`DISABLED_QualityOnConversations`), FP4 reads 63.8 and HuggingFace's BF16 model 89.7 on the
+same conversations, so the level is the model's own on this text; transformers' own forward and Mila's BF16 stack
+both agree with that reference. Not measured: BF16 laid end to end at 8K and 16K, which is what says whether the rise
+with context is the model's or FP4's.
+
+`Mila/Tests/Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp` `DISABLED_QualityGateAcrossContextLengths`
+
+#### Mila's BF16 Qwen 3.8 departs from HuggingFace's past the test's bound on a 28-token prompt
+
+`open` · `qwen` · `mila-src` · `measured`
+
+`LayerStream_MatchesHuggingFaceReference`, run against a reference for
+`<|im_start|>system\nReasoning effort is set to xhigh...alternatives, and` (`MILA_QWEN_PARITY_REFERENCE`): the
+last token's relative error against HuggingFace BF16 grows from 5.4e-4 at layer 0 to 1.0e-2 by layer 20 and 4.2e-2
+at layer 63, past the 2.0e-2 bound from layer 43 on; the argmax agrees, logits 2.69e-2 apart. The bound was set on
+the 5-token prompt (peak 1.38e-2), where Mila also sat closer than HuggingFace to an FP32 reference. Not measured: an
+FP32 reference for this prompt, which says whose rounding the drift is.
+
+`Mila/Tests/Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp` `kHiddenStateTolerance`
+
+#### The Gemma 4 26B-A4B leaves Claude Code about 7,000 tokens of working room on a 16 GB card
+
+`open` · `gemma` · `perf` · `measured`
+
+Claude Code 2.1.300's first request renders to about 20,400 tokens, and the 26B-A4B loads on the RTX 5060 Ti at
+27,648 -- under half of the 64K Todd set as the minimum context for an agentic workflow (the Qwen KV-cache entry), on
+one of the two models Mila calls agentic. Not measured: the 12B's room, or whether the 26B-A4B's context is held back
+for a full prefill chunk as Qwen's was.
+
+`Mila/Apps/Server/docs/harnesses.md` *Tested With*
+
+#### Chat renders Qwen 3.8's prompt differently from the model's own template in six places
+
+`open` · `qwen` · `apps` · `mila-src`
+
+The template's default effort is `xhigh`, where the free functions call `Medium` the checkpoint's default; it groups
+consecutive tool results into one user turn; it separates a turn's second and later calls with `\n`; it writes tool
+signatures and non-string arguments through `tojson` (`", "`/`": "`, keys in the order given) where the free functions
+write compact, sorted JSON; it trims every message; and with `preserve_thinking` on, its default, it renders past
+reasoning back into history. `QwenChatProtocol` renders all six as the template does, and the inference server
+renders through it; Chat (`Chat.ixx:1276`), the binding's wrappers (`Mila_py.Wrappers.cpp:98`) and
+`Tools/ContextProfile` still call the free functions. Not measured: how far each moves the model's behaviour.
+
+`Mila/Src/Dnn/Models/Qwen/Qwen.Protocol.ixx` `formatPrompt`, `formatTurn`, `serializeToolSignatures`
+
+#### Chat cuts a Gemma tool result down to one field, where Google's template gives the model the whole text
+
+`open` · `gemma` · `apps` · `mila-src`
+
+The template renders a result given as text under `value:`, whole; `formatToolResponse` parses a JSON envelope and
+keeps one output field (added for Codex's envelope, whose chunk id the model echoed). `GemmaChatProtocol` renders it
+as the template does and the inference server renders through it, so the distillation, for the one client whose
+envelope needs it, belongs in the server's wire work; not checked whether the server does it since it switched.
+Chat (`Chat.ixx:1239`), the binding's wrappers and `Tools/ContextProfile` still distil. In the same template, a
+calling turn's text renders after its results and the turn closes with no prompt after it, so a resume whose
+assistant turn carries both text and calls -- Claude Code sends that shape -- gets no open model turn.
+
+`Mila/Src/Dnn/Models/Gemma/Gemma.Protocol.ixx` `formatToolResponse`
+
+#### Gemma 4 12B's greedy reply changes early with its drafter on the RTX 4070
+
+`open` · `gemma` · `mila-src`
+
+Pinned by UUID, the same build at `+68` (a change that touches no model code) passes on the 5060 Ti and fails on the
+4070: drafted and plain greedy tokens part within the first 256, where the test's comment says the reply first parts
+at token 402, measured 2026-10-05. Not checked: on which card that was measured, and the token at which they part on
+the 4070.
+
+`Mila/Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp:367` `Gemma4_12B_GreedyGenerationIsUnchanged`
+
+#### A Gemma turn that would make several tool calls makes only the first
+
+`open` · `gemma` · `apps`
+
+Generation stops at `<tool_call|>`, Gemma's protocol's stop marker, since left running the model repeats the call to
+the budget (`routes/factory.py` `_generate_buffered`), so a turn that would have made two calls makes one.
+`InferenceServerWire.md` W2 asks for both. Not checked: whether the model, unstopped, writes a second call or always
+repeats the first.
+
+`Mila/Src/Dnn/Models/Gemma/Gemma.ChatProtocol.ixx:99` · `Mila/Apps/Server/src/mila_llm_server/model_worker.py:148`
+
+#### Qwen 4's tiny reference never exercises the n-gram hash's negative branch
+
+`open` · `qwen`
+
+Mutation-checking the CUDA n-gram hash, a truncating `%` in place of the floor mod passed the capture gate, and only
+the hand-built `Hash_NegativeMixedValueMapsIntoTheHead` caught it. The capture's largest token id is 239 and its
+largest multiplier 3.5e16, so every product stays below 2^63 and no mixed value is negative; Qwen 4's real vocabulary
+(about 250K ids) wraps them. The header says the n-gram base near 1,000 exercises the floor mod; it exercises
+collisions, not the negative branch. Token ids above about 2^63 / max(multiplier), 260 here, would.
+
+`Mila/Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py`
+
+#### Qwen 4's tiny reference generator refuses its own capture under transformers 5.19
+
+`open` · `qwen`
+
+With transformers 5.19.0 the dense-exact prefix check requires the selected and dense passes to agree exactly, and
+they differ by 1.192e-7, one float ulp; every file is written before the check raises. The capture used 5.16, and had
+only been made in a cloud session, so the CPU gates had been skipping locally. Whether the check is too strict for a
+different version or machine, or 5.19 changed the indexer, is not known. 5.19 did change `qwen4_exp`: its config
+names the sparse layer type `indexed_attention` where 5.16 wrote `qwen_sparse_attention` (`convert_weights.py`
+treats every non-linear type as full attention, so the converter is unaffected). The tracked `hf_checkpoint/*.json`
+are at their 5.16 contents; the local capture is 5.19's.
+
+`Mila/Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py:392`
+
+#### The 2.82-bit Qwen 3.8 27B's model card uses a word only Mila uses, and states its quality against Mila's own build
+
+`open` · `qwen` · `docs` · `distribution`
+
+"The cost of the smaller residency" -- a term `CLAUDE.md` lists as one only Mila uses. The quality section's numbers
+are against Mila's own FP4 build, not the upstream model. The card ships with the build's publish (Qwen 3.8
+Complete).
+
+`Mila/Tools/ExportArtifact/ModelCards/Qwen3.8-27B-cb2-3/README.md:53`
+
 ### Internal fixes
 
 Defects in the library the user admitted to this release with no ROADMAP criterion behind them.
@@ -707,24 +871,6 @@ Gate: free memory after a load and the first decode steps is at least the margin
 builds and on Gemma 4 12B; `PlanEqualsBuild` covers the context's own allocations.
 
 `Mila/Specifications/ModelFamilyParity.md` 8.3, Q4
-
-#### The synchronous token sampler is ordered after the model's work only by an accident of how its stream was created
-
-`open` · `ai` · `architecture` · `mila-src`
-
-`CudaSamplingOp::forward()` and `forwardReference()` launch on stream 0, and `TokenSampler::sample()` reads the
-token back with a copy given no context. They see finished logits only because the execution context creates its
-stream blocking (`cudaStreamDefault`, `CudaExecutionContext.ixx:650`), which makes stream 0 wait for it -- nothing
-states or checks it, and a non-blocking stream or a per-thread default stream would let `sample()` read logits
-still being written. Every other entry of the op runs on the context's stream. The change: both entries dispatch on
-the context's stream, `sample()` copies with the context and synchronizes it, the "Phase A, default stream"
-comments are rewritten to the contract, and `Sampling.Cuda.cpp`'s tests that read the token after `forward()`
-synchronize explicitly. `LanguageModel::sampleNext()` and `TokenSampler::sample()` have no caller outside tests --
-whether they stay is a separate decision.
-
-Gate: the sampling suite passes with the context's stream created non-blocking.
-
-`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/CudaSamplingOp.ixx:94` · `Mila/Src/Dnn/Samplers/TokenSampler.ixx:74`
 
 #### The FP8 batched path rounds every weight before it scales
 

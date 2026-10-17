@@ -81,16 +81,19 @@ namespace Mila::Dnn
          * @param rows     The round's K + 1, from 1 to maximumRows().
          * @param params   The caller's sampling settings, the same for every row.
          * @param uniforms One uniform in [0, 1) per row, in row order.
+         * @param produced The reply's produced tokens, the model's TokenSampler's, when the presence penalty is on:
+         *                 each row also penalizes the drafts before it, and the round's kept tokens are marked.
          */
         void enqueueRound(
             const ITensor& logits,
             TokenTensor& tokens,
             dim_t rows,
             const SamplingParams& params,
-            std::span<const float> uniforms )
+            std::span<const float> uniforms,
+            ITensor* produced = nullptr )
         {
-            op_->enqueueRowsOnDevice( logits, chosen_, rows, params, uniforms );
-            op_->enqueueAcceptOnDevice( tokens, chosen_, rows, result_ );
+            op_->enqueueRowsOnDevice( logits, chosen_, rows, params, uniforms, produced, &tokens );
+            op_->enqueueAcceptOnDevice( tokens, chosen_, rows, result_, produced );
 
             auto counted = result_.view( shape_t{ rows + 1 }, 0 );
             auto counted_on_host = host_result_.view( shape_t{ rows + 1 }, 0 );

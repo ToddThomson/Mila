@@ -79,6 +79,14 @@ namespace Mila::Dnn
             const GenerateParams& params = {},
             std::stop_token stop = {} )
         {
+            // Each call is one reply: a presence penalty counts only the tokens this call produces. A model that
+            // has never sampled under a penalty builds no sampler here; its first sample does.
+            if ( token_sampler_ || params.sampling.presence_penalty != 0.0f )
+            {
+                ensureSampler();
+                token_sampler_->beginReply( params.sampling );
+            }
+
             return onGenerating( prompt_tokens, on_token, params, stop );
         }
 
@@ -278,6 +286,17 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Tokens the sampler never chooses: none unless a model names them.
+         *
+         * Gemma names its image, audio and video markers, which a deployment without that modality must not spend a
+         * token on.
+         */
+        virtual std::vector<std::int32_t> suppressedTokens() const
+        {
+            return {};
+        }
+
+        /**
          * @brief Sample the next token from a logits row on the device.
          *
          * Lazily constructs the model-owned TokenSampler on first use (the network is
@@ -354,6 +373,7 @@ namespace Mila::Dnn
             SamplingConfig config = SamplingConfig{}
                 .withVocabularySize( this->vocabSize() )
                 .withFinalLogitSoftcap( this->finalLogitSoftcap() )
+                .withSuppressedTokens( this->suppressedTokens() )
                 .withMaximumRows( maximum_rows );
 
             speculative_sampler_ = std::make_unique<SpeculativeSampler<TDeviceType, TPrecision>>(
@@ -387,7 +407,7 @@ namespace Mila::Dnn
             for ( auto& uniform : uniforms )
                 uniform = token_sampler_->drawUniform();
 
-            speculative_sampler_->enqueueRound( logits, tokens, rows, params, uniforms );
+            speculative_sampler_->enqueueRound( logits, tokens, rows, params, uniforms, token_sampler_->producedTokens() );
         }
 
         /// Block until the last enqueueSpeculativeRound()'s choice is on the host: the kept drafts, then the next token.
@@ -468,7 +488,8 @@ namespace Mila::Dnn
             {
                 SamplingConfig config = SamplingConfig{}
                     .withVocabularySize( this->vocabSize() )
-                    .withFinalLogitSoftcap( this->finalLogitSoftcap() );
+                    .withFinalLogitSoftcap( this->finalLogitSoftcap() )
+                    .withSuppressedTokens( this->suppressedTokens() );
 
                 token_sampler_ = std::make_unique<TokenSampler<TDeviceType, TPrecision>>(
                     this->getNetwork().getExecutionContext(), config );

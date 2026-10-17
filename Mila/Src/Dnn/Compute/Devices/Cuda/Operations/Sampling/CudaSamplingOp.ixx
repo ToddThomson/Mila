@@ -44,12 +44,16 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
      * @brief CUDA token sampler op: maps a logits row to a single int32 token id.
      *
      * Reads the final `vocab_size` elements of @p logits (the last decode position)
-     * and writes the sampled token into @p token_out on the device. Two entry points:
-     * forward() is the synchronous contract (default stream; the caller synchronizes
-     * the network first and reads the token back itself), enqueueForward()/awaitToken()
-     * is the pipelined decode-ahead contract (execution context's stream, async pinned
-     * readback -- no host sync between forward pass and sampler), and enqueueForwardOnDevice()
-     * leaves the token on the device with no readback at all. Internal compute is FP32.
+     * and writes the sampled token into @p token_out on the device. Every entry runs on the
+     * execution context's stream. forward() leaves the readback to the caller, who copies the
+     * token with the same context; enqueueForward()/awaitToken() is the pipelined decode-ahead
+     * contract (async pinned readback -- no host sync between forward pass and sampler), and
+     * enqueueForwardOnDevice() leaves the token on the device with no readback at all. Internal
+     * compute is FP32.
+     *
+     * The presence penalty reads the reply's produced tokens, a vocabulary-sized UINT8 device
+     * tensor the caller owns and passes in; the op holds no state of its own across calls, and
+     * each single-row entry marks the token it drew there when the penalty is on.
      *
      * @tparam TPrecision Logits precision (FP32 or BF16).
      */
@@ -71,6 +75,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
                   shape_t{ config.getMaximumRows() * kStochasticIndexScratchElements } ),
               pinned_token_( context->getDeviceId(), shape_t{ 1, 1 } )
         {
+            uploadSuppressedTokens();
         }
 
         ~CudaSamplingOp() override
@@ -89,18 +94,19 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
          * @param token_out Device INT32 [1,1] tensor; written in place on the stream.
          * @param params    Per-call sampling parameters.
          * @param r         Host-drawn uniform in [0,1) (unused by the greedy branch).
+         * @param produced  The reply's produced tokens, required when the presence penalty is on and marked with the
+         *                  token drawn.
          */
         void forward(
             const ITensor& logits,
             ITensor& token_out,
             const SamplingParams& params,
-            float r ) const
+            float r,
+            ITensor* produced = nullptr ) const
         {
-            // Synchronous-contract path: runs on the default stream (0). The model
-            // synchronizes the network before sampling, so the logits are complete, and
-            // the TokenSampler reads the token back synchronously, so default-stream
-            // ordering is correct. The pipelined decode path uses enqueueForward().
-            dispatchSample( logits, token_out, params, r, 0 );
+            // On the context's stream, ordered after the forward pass that wrote the logits whatever
+            // the stream's flags; the caller reads the token back by a copy on the same context.
+            dispatchSample( logits, token_out, params, r, produced, context_->getStream() );
         }
 
         /**
@@ -118,11 +124,12 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             const ITensor& logits,
             ITensor& token_out,
             const SamplingParams& params,
-            float r ) const
+            float r,
+            ITensor* produced = nullptr ) const
         {
             cudaStream_t stream = context_->getStream();
 
-            dispatchSample( logits, token_out, params, r, stream );
+            dispatchSample( logits, token_out, params, r, produced, stream );
 
             if ( !token_ready_event_ )
             {
@@ -168,9 +175,10 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             const ITensor& logits,
             ITensor& token_out,
             const SamplingParams& params,
-            float r ) const
+            float r,
+            ITensor* produced = nullptr ) const
         {
-            dispatchSample( logits, token_out, params, r, context_->getStream() );
+            dispatchSample( logits, token_out, params, r, produced, context_->getStream() );
         }
 
         /**
@@ -178,20 +186,26 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
          * launch, the tokens left on the device.
          *
          * Row r is drawn against `uniforms[r]` into element r of @p tokens_out, exactly as enqueueForwardOnDevice()
-         * draws that row alone with that uniform -- the speculative sampler's first half (Gemma4Mtp.md 4.8).
+         * draws that row alone with that uniform -- the speculative sampler's first half (Gemma4Mtp.md 4.8). Nothing
+         * is marked produced: the acceptance walk marks what the round keeps.
          *
-         * @param logits     Device logits whose first `rows x vocab_size` elements are the rows, row-major.
-         * @param tokens_out Device INT32 of at least @p rows elements.
-         * @param rows       1 to the configured maximum rows.
-         * @param params     Per-call sampling parameters, the same for every row.
-         * @param uniforms   One host-drawn uniform in [0, 1) per row; unused by the greedy branch.
+         * @param logits       Device logits whose first `rows x vocab_size` elements are the rows, row-major.
+         * @param tokens_out   Device INT32 of at least @p rows elements.
+         * @param rows         1 to the configured maximum rows.
+         * @param params       Per-call sampling parameters, the same for every row.
+         * @param uniforms     One host-drawn uniform in [0, 1) per row; unused by the greedy branch.
+         * @param produced     The reply's produced tokens, required when the presence penalty is on.
+         * @param round_tokens The round's tokens, the known one then the drafts; with the penalty on, row r also
+         *                     penalizes drafts 1..r. Null penalizes no draft.
          */
         void enqueueRowsOnDevice(
             const ITensor& logits,
             ITensor& tokens_out,
             dim_t rows,
             const SamplingParams& params,
-            std::span<const float> uniforms ) const
+            std::span<const float> uniforms,
+            const ITensor* produced = nullptr,
+            const ITensor* round_tokens = nullptr ) const
         {
             const std::int64_t vocab = config_.getVocabularySize();
 
@@ -210,6 +224,15 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
                     rows, rows, rows * vocab, rows, uniforms.size(), logits.size(), tokens_out.size() ) );
             }
 
+            if ( round_tokens && round_tokens->size() < rows )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaSamplingOp::enqueueRowsOnDevice: {} rows need {} round tokens; given {}",
+                    rows, rows, round_tokens->size() ) );
+            }
+
+            const SampleAdjustments adjustments = adjustmentsFor( params, produced, round_tokens );
+
             const NativeType* first_row = static_cast<const NativeType*>( logits.rawData() );
             std::int32_t* out = static_cast<std::int32_t*>( tokens_out.rawData() );
             const int row_count = narrowToKernelIndex( rows );
@@ -219,7 +242,8 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
 
             if ( greedy )
             {
-                cuda_sample_rows_argmax<NativeType>( first_row, out, row_count, static_cast<int>( vocab ), stream );
+                cuda_sample_rows_argmax<NativeType>( first_row, out, row_count, static_cast<int>( vocab ),
+                    config_.getFinalLogitSoftcap(), adjustments, stream );
                 return;
             }
 
@@ -235,7 +259,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
                 static_cast<std::int32_t*>( index_scratch_.rawData() ),
                 row_count, static_cast<int>( vocab ),
                 config_.getFinalLogitSoftcap(), params.temperature,
-                params.top_k, params.top_p, row_uniforms, stream );
+                params.top_k, params.top_p, adjustments, row_uniforms, stream );
         }
 
         /**
@@ -246,16 +270,19 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
          * count kept, the kept drafts and the token chosen at row m -- and the next token into slot 0 of @p tokens,
          * where the next round's draft reads it.
          *
-         * @param tokens Device INT32 of the round's @p rows tokens: the known one, then the drafts.
-         * @param chosen Device INT32 of the token chosen at each of the @p rows rows (enqueueRowsOnDevice()).
-         * @param rows   1 to the configured maximum rows.
-         * @param result Device INT32 of at least `rows + 1` elements.
+         * @param tokens   Device INT32 of the round's @p rows tokens: the known one, then the drafts.
+         * @param chosen   Device INT32 of the token chosen at each of the @p rows rows (enqueueRowsOnDevice()).
+         * @param rows     1 to the configured maximum rows.
+         * @param result   Device INT32 of at least `rows + 1` elements.
+         * @param produced The reply's produced tokens, which gain the kept drafts and the next token; null when the
+         *                 presence penalty is off.
          */
         void enqueueAcceptOnDevice(
             ITensor& tokens,
             const ITensor& chosen,
             dim_t rows,
-            ITensor& result ) const
+            ITensor& result,
+            ITensor* produced = nullptr ) const
         {
             if ( rows < 1 || rows > config_.getMaximumRows() )
             {
@@ -272,12 +299,33 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
                     rows, rows, rows, rows + 1, tokens.size(), chosen.size(), result.size() ) );
             }
 
+            if ( produced )
+                requireProducedTokens( *produced, "enqueueAcceptOnDevice" );
+
             cuda_speculative_accept(
                 static_cast<std::int32_t*>( tokens.rawData() ),
                 static_cast<const std::int32_t*>( chosen.rawData() ),
                 narrowToKernelIndex( rows ),
                 static_cast<std::int32_t*>( result.rawData() ),
+                produced ? static_cast<std::uint8_t*>( produced->rawData() ) : nullptr,
                 context_->getStream() );
+        }
+
+        /**
+         * @brief Clear the reply's produced tokens on the execution context's stream, so a new reply starts with none.
+         */
+        void enqueueClearProduced( ITensor& produced ) const
+        {
+            requireProducedTokens( produced, "enqueueClearProduced" );
+
+            const cudaError_t status = cudaMemsetAsync(
+                produced.rawData(), 0, static_cast<std::size_t>( config_.getVocabularySize() ), context_->getStream() );
+
+            if ( status != cudaSuccess )
+            {
+                throw std::runtime_error( std::format(
+                    "CudaSamplingOp::enqueueClearProduced: clearing failed: {}", cudaGetErrorString( status ) ) );
+            }
         }
 
         /**
@@ -309,7 +357,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         }
 
         /**
-         * @brief forward() through the retained single-block reference kernel.
+         * @brief forward() through the retained single-block reference kernel, on the execution context's stream.
          *
          * Parity oracle for the multi-block stochastic pipeline (same semantics up
          * to float reduction order at truncation/CDF boundaries) — tests only,
@@ -319,7 +367,8 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             const ITensor& logits,
             ITensor& token_out,
             const SamplingParams& params,
-            float r ) const
+            float r,
+            ITensor* produced = nullptr ) const
         {
             const std::int64_t vocab = config_.getVocabularySize();
             const dim_t offset = logits.size() - vocab;
@@ -327,22 +376,27 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             const NativeType* row = static_cast<const NativeType*>( logits.rawData() ) + offset;
             std::int32_t* out = static_cast<std::int32_t*>( token_out.rawData() );
 
-            cudaStream_t stream = 0;
+            cudaStream_t stream = context_->getStream();
+            const SampleAdjustments adjustments = adjustmentsFor( params, produced, nullptr );
 
             const bool greedy = (params.temperature <= 0.0f || params.top_k == 1);
 
             if (greedy)
             {
-                cuda_sample_argmax<NativeType>( row, out, static_cast<int>( vocab ), stream );
-                return;
+                cuda_sample_argmax<NativeType>(
+                    row, out, static_cast<int>( vocab ), config_.getFinalLogitSoftcap(), adjustments, stream );
+            }
+            else
+            {
+                float* scratch = static_cast<float*>( prob_scratch_.rawData() );
+
+                cuda_sample_stochastic_reference<NativeType>(
+                    row, out, scratch, static_cast<int>( vocab ),
+                    config_.getFinalLogitSoftcap(), params.temperature,
+                    params.top_k, params.top_p, adjustments, r, stream );
             }
 
-            float* scratch = static_cast<float*>( prob_scratch_.rawData() );
-
-            cuda_sample_stochastic_reference<NativeType>(
-                row, out, scratch, static_cast<int>( vocab ),
-                config_.getFinalLogitSoftcap(), params.temperature,
-                params.top_k, params.top_p, r, stream );
+            markProduced( token_out, params, produced, stream );
         }
 
         OperationType getOperationType() const override
@@ -371,12 +425,93 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             return config;
         }
 
-        /// Kernel dispatch shared by the sync (default-stream) and enqueued (context-stream) paths.
+        /// The suppressed tokens as a vocabulary flag per token on the device, built once; none allocated when empty.
+        void uploadSuppressedTokens()
+        {
+            const auto& tokens = config_.getSuppressedTokens();
+
+            if ( tokens.empty() )
+                return;
+
+            const std::int64_t vocab = config_.getVocabularySize();
+            std::vector<std::uint8_t> flags( static_cast<std::size_t>( vocab ), 0 );
+
+            for ( const std::int32_t token : tokens )
+                flags[ static_cast<std::size_t>( token ) ] = 1;
+
+            suppressed_ = std::make_unique<Tensor<TensorDataType::UINT8, CudaDeviceMemoryResource>>(
+                context_->getDeviceId(), shape_t{ vocab } );
+
+            const cudaError_t status = cudaMemcpy(
+                suppressed_->rawData(), flags.data(), flags.size(), cudaMemcpyHostToDevice );
+
+            if ( status != cudaSuccess )
+            {
+                throw std::runtime_error( std::format(
+                    "CudaSamplingOp: uploading the suppressed tokens failed: {}", cudaGetErrorString( status ) ) );
+            }
+        }
+
+        void requireProducedTokens( const ITensor& produced, const char* entry ) const
+        {
+            if ( produced.getDataType() != TensorDataType::UINT8 || produced.size() < config_.getVocabularySize() )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaSamplingOp::{}: the produced tokens are one UINT8 flag per token of the {} in the vocabulary; "
+                    "given {} of {}",
+                    entry, config_.getVocabularySize(), produced.size(), produced.getDataTypeName() ) );
+            }
+        }
+
+        SampleAdjustments adjustmentsFor(
+            const SamplingParams& params, const ITensor* produced, const ITensor* round_tokens ) const
+        {
+            if ( !std::isfinite( params.presence_penalty ) )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaSamplingOp: the presence penalty must be finite; given {}", params.presence_penalty ) );
+            }
+
+            SampleAdjustments adjustments{};
+            adjustments.suppressed = suppressed_ ? static_cast<const std::uint8_t*>( suppressed_->rawData() ) : nullptr;
+
+            if ( params.presence_penalty != 0.0f )
+            {
+                if ( !produced )
+                {
+                    throw std::invalid_argument(
+                        "CudaSamplingOp: a presence penalty needs the reply's produced tokens" );
+                }
+
+                requireProducedTokens( *produced, "sample" );
+
+                adjustments.produced = static_cast<const std::uint8_t*>( produced->rawData() );
+                adjustments.round_tokens = round_tokens
+                    ? static_cast<const std::int32_t*>( round_tokens->rawData() ) : nullptr;
+                adjustments.presence_penalty = params.presence_penalty;
+            }
+
+            return adjustments;
+        }
+
+        /// With the presence penalty on, flags the token just drawn as produced, on the stream after the draw.
+        void markProduced(
+            ITensor& token_out, const SamplingParams& params, ITensor* produced, cudaStream_t stream ) const
+        {
+            if ( params.presence_penalty == 0.0f )
+                return;
+
+            cuda_mark_produced( static_cast<const std::int32_t*>( token_out.rawData() ),
+                static_cast<std::uint8_t*>( produced->rawData() ), stream );
+        }
+
+        /// Kernel dispatch shared by every single-row entry; each passes the execution context's stream.
         void dispatchSample(
             const ITensor& logits,
             ITensor& token_out,
             const SamplingParams& params,
             float r,
+            ITensor* produced,
             cudaStream_t stream ) const
         {
             const std::int64_t vocab = config_.getVocabularySize();
@@ -385,23 +520,29 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             const NativeType* row = static_cast<const NativeType*>( logits.rawData() ) + offset;
             std::int32_t* out = static_cast<std::int32_t*>( token_out.rawData() );
 
+            const SampleAdjustments adjustments = adjustmentsFor( params, produced, nullptr );
+
             const bool greedy = (params.temperature <= 0.0f || params.top_k == 1);
 
             if (greedy)
             {
-                cuda_sample_argmax<NativeType>( row, out, static_cast<int>( vocab ), stream );
-                return;
+                cuda_sample_argmax<NativeType>(
+                    row, out, static_cast<int>( vocab ), config_.getFinalLogitSoftcap(), adjustments, stream );
+            }
+            else
+            {
+                float* scratch = static_cast<float*>( prob_scratch_.rawData() );
+                float* reduction_scratch = static_cast<float*>( reduction_scratch_.rawData() );
+                std::int32_t* index_scratch = static_cast<std::int32_t*>( index_scratch_.rawData() );
+
+                cuda_sample_stochastic<NativeType>(
+                    row, out, scratch, reduction_scratch, index_scratch,
+                    static_cast<int>( vocab ),
+                    config_.getFinalLogitSoftcap(), params.temperature,
+                    params.top_k, params.top_p, adjustments, r, stream );
             }
 
-            float* scratch = static_cast<float*>( prob_scratch_.rawData() );
-            float* reduction_scratch = static_cast<float*>( reduction_scratch_.rawData() );
-            std::int32_t* index_scratch = static_cast<std::int32_t*>( index_scratch_.rawData() );
-
-            cuda_sample_stochastic<NativeType>(
-                row, out, scratch, reduction_scratch, index_scratch,
-                static_cast<int>( vocab ),
-                config_.getFinalLogitSoftcap(), params.temperature,
-                params.top_k, params.top_p, r, stream );
+            markProduced( token_out, params, produced, stream );
         }
 
         CudaExecutionContext* context_;
@@ -413,6 +554,9 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         mutable Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> prob_scratch_;
         mutable Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> reduction_scratch_;
         mutable Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> index_scratch_;
+
+        // One flag per vocabulary token no draw may choose; null when the configuration names none.
+        std::unique_ptr<Tensor<TensorDataType::UINT8, CudaDeviceMemoryResource>> suppressed_;
 
         // Enqueued-path readback state: the async 4-byte D2H lands in the pinned slot,
         // and the event marks it complete. Single-slot by contract -- one outstanding

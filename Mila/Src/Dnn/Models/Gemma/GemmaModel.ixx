@@ -1012,6 +1012,27 @@ namespace Mila::Dnn
             return config_.getFinalLogitSoftcapping();
         }
 
+        // Gemma 4's image, audio and video markers, the same ids at every size (each checkpoint's config.json:
+        // boi 255999, image 258880, eoi 258882, boa 256000, audio 258881, eoa 258883, video 258884). No deployment
+        // carries a modality yet (Gemma4Modality.md), so a text reply never spends a token on one; the 12B has sampled
+        // `<image|>` mid-sentence when nothing stopped it.
+        static constexpr std::array<std::int32_t, 7> kModalityMarkerTokens = {
+            255999, 258880, 258882, 256000, 258881, 258883, 258884 };
+
+        // A reduced test vocabulary has none of the markers.
+        std::vector<std::int32_t> suppressedTokens() const override
+        {
+            std::vector<std::int32_t> tokens;
+
+            for ( const std::int32_t token : kModalityMarkerTokens )
+            {
+                if ( token < vocabSize() )
+                    tokens.push_back( token );
+            }
+
+            return tokens;
+        }
+
         // ====================================================================
         // Generation helpers
         // ====================================================================

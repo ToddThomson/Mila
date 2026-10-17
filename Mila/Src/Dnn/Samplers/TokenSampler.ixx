@@ -32,12 +32,15 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Compute;
 
     /**
-     * @brief The standard token sampler: temperature / top-k / top-p multinomial.
+     * @brief The standard token sampler: temperature / top-k / top-p multinomial with a presence penalty.
      *
      * Dispatches to the device SamplingOp resolved by OperationTraits (CudaSamplingOp).
      * Shares the model's ExecutionContext so the op runs on the decode
      * stream and writes the token in place. The host-drawn uniform is generated here so
-     * the op stays pure and deterministic (Phase A: greedy only).
+     * the op stays pure and deterministic.
+     *
+     * Owns the reply's produced tokens, the state the presence penalty reads: beginReply() starts a
+     * reply, and every sample drawn under a penalty marks its token on the device.
      *
      * @tparam TDeviceType Device the logits reside on.
      * @tparam TPrecision  Logits precision (FP32 or BF16).
@@ -50,6 +53,8 @@ namespace Mila::Dnn
         using Base = Sampler<TDeviceType, TPrecision>;
         using TokenTensor = typename Base::TokenTensor;
         using SamplingOpType = typename OperationTraits<OperationType::SamplingOp, TDeviceType, TPrecision>::type;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using ProducedTensor = Tensor<TensorDataType::UINT8, MR>;
 
         TokenSampler( IExecutionContext* context, const SamplingConfig& config )
             : context_( context ),
@@ -66,6 +71,34 @@ namespace Mila::Dnn
             op_ = std::make_shared<SamplingOpType>( context_, config_ );
         }
 
+        /**
+         * @brief Start a reply sampled at @p params: with a presence penalty, no token counts as produced yet.
+         *
+         * Enqueued on the model's stream, so it needs no wait. A reply sampled with the penalty off tracks nothing,
+         * and a sample drawn under a penalty after one is refused.
+         */
+        void beginReply( const SamplingParams& params )
+        {
+            tracking_ = params.presence_penalty != 0.0f;
+
+            if ( !tracking_ )
+                return;
+
+            if ( !produced_ )
+            {
+                produced_ = std::make_unique<ProducedTensor>(
+                    context_->getDeviceId(), shape_t{ config_.getVocabularySize() } );
+            }
+
+            op_->enqueueClearProduced( *produced_ );
+        }
+
+        /// The reply's produced tokens, for the speculative sampler's rows and acceptance; null when nothing is tracked.
+        ITensor* producedTokens() noexcept
+        {
+            return tracking_ ? produced_.get() : nullptr;
+        }
+
         std::int32_t sample(
             const ITensor& logits,
             TokenTensor& token_out,
@@ -73,13 +106,12 @@ namespace Mila::Dnn
         {
             const float r = drawUniform();
 
-            op_->forward( logits, token_out, params, r );
+            op_->forward( logits, token_out, params, r, producedFor( params ) );
 
-            // 4-byte device->host readback. Phase A runs the sampling kernel on the default
-            // stream, so a synchronous copy is ordered after it and leaves the host token
-            // valid before the caller's stop-check / on_token callback. (Stream-sharing with
-            // the decode stream is Phase D.)
-            copy( token_out, host_token_ );
+            // The op runs on the context's stream, so the readback copies on it and waits for it: the
+            // host token is valid before the caller's stop-check / on_token callback.
+            copy( token_out, host_token_, context_ );
+            context_->synchronize();
 
             return host_token_.data()[ 0 ];
         }
@@ -101,7 +133,7 @@ namespace Mila::Dnn
         {
             const float r = drawUniform();
 
-            op_->enqueueForward( logits, token_out, params, r );
+            op_->enqueueForward( logits, token_out, params, r, producedFor( params ) );
         }
 
         /**
@@ -122,7 +154,7 @@ namespace Mila::Dnn
         {
             const float r = drawUniform();
 
-            op_->enqueueForwardOnDevice( logits, token_out, params, r );
+            op_->enqueueForwardOnDevice( logits, token_out, params, r, producedFor( params ) );
         }
 
         /**
@@ -157,10 +189,29 @@ namespace Mila::Dnn
         }
 
     private:
+
+        ITensor* producedFor( const SamplingParams& params ) const
+        {
+            if ( params.presence_penalty == 0.0f )
+                return nullptr;
+
+            if ( !tracking_ )
+            {
+                throw std::logic_error(
+                    "TokenSampler: a sample with a presence penalty outside a reply begun with one" );
+            }
+
+            return produced_.get();
+        }
+
         IExecutionContext* context_;
         SamplingConfig config_;
         Tensor<TensorDataType::INT32, CpuMemoryResource> host_token_;
         std::shared_ptr<SamplingOpType> op_;
         std::mt19937 rng_;
+
+        // One flag per vocabulary token the current reply has produced; allocated by the first reply with a penalty.
+        std::unique_ptr<ProducedTensor> produced_;
+        bool tracking_{ false };
     };
 }

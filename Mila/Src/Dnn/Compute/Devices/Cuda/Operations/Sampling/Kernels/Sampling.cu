@@ -16,17 +16,66 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         __device__ inline float to_float( float v ) { return v; }
         __device__ inline float to_float( __nv_bfloat16 v ) { return __bfloat162float( v ); }
 
+        __device__ inline float negative_infinity() { return __int_as_float( static_cast<int>( 0xff800000u ) ); }
+
+        __device__ inline bool is_suppressed( const SampleAdjustments& adjustments, int i )
+        {
+            return adjustments.suppressed && adjustments.suppressed[ i ];
+        }
+
+        // Stages the drafts row `row` of a verify also penalizes -- the round's tokens 1..row -- and returns how many:
+        // none outside a rows call or with the penalty off. Every thread of the block calls it.
+        __device__ inline int stage_round_tokens( const SampleAdjustments& adjustments, int row, int32_t* s_round )
+        {
+            const int count = ( adjustments.presence_penalty != 0.0f && adjustments.round_tokens ) ? row : 0;
+
+            if ( static_cast<int>( threadIdx.x ) < count )
+                s_round[ threadIdx.x ] = adjustments.round_tokens[ threadIdx.x + 1 ];
+
+            __syncthreads();
+
+            return count;
+        }
+
+        // A logit softcapped and then penalized, before temperature (TokenSampling.md 3.3). With the penalty off this
+        // is the softcap alone, the same arithmetic as before the penalty existed.
+        __device__ inline float penalized_logit(
+            float x, int i, float softcap, const SampleAdjustments& adjustments, const int32_t* s_round, int round_count )
+        {
+            if ( softcap > 0.0f )
+                x = softcap * tanhf( x / softcap );
+
+            if ( adjustments.presence_penalty != 0.0f )
+            {
+                bool produced = adjustments.produced[ i ] != 0;
+
+                for ( int j = 0; !produced && j < round_count; ++j )
+                    produced = s_round[ j ] == i;
+
+                if ( produced )
+                    x -= adjustments.presence_penalty;
+            }
+
+            return x;
+        }
+
         // One block per row: each thread strides the row keeping its local (max value,
         // lowest index), then a shared-memory tree reduction picks the row's winner.
-        // Ties resolve to the lowest index to match std::max_element.
+        // Ties resolve to the lowest index to match std::max_element. The softcap is monotonic, so it is applied
+        // only where the penalty, which follows it, needs it.
         template <typename TNative, int kBlock>
-        __global__ void argmax_kernel( const TNative* logits, int32_t* token_out, int vocab )
+        __global__ void argmax_kernel(
+            const TNative* logits, int32_t* token_out, int vocab, float softcap, SampleAdjustments adjustments )
         {
             __shared__ float s_val[kBlock];
             __shared__ int s_idx[kBlock];
+            __shared__ int32_t s_round[kMaxSampleRows];
 
             logits += static_cast<size_t>( blockIdx.x ) * vocab;
             token_out += blockIdx.x;
+
+            const int round_count = stage_round_tokens( adjustments, blockIdx.x, s_round );
+            const bool penalized = adjustments.presence_penalty != 0.0f;
 
             const int tid = threadIdx.x;
             float best = -FLT_MAX;
@@ -34,7 +83,13 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
 
             for ( int i = tid; i < vocab; i += kBlock )
             {
-                const float v = to_float( logits[i] );
+                if ( is_suppressed( adjustments, i ) )
+                    continue;
+
+                float v = to_float( logits[i] );
+
+                if ( penalized )
+                    v = penalized_logit( v, i, softcap, adjustments, s_round, round_count );
 
                 if ( v > best )
                 {
@@ -68,33 +123,46 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         }
 
         template <typename TNative>
-        inline void launch_argmax( const TNative* logits, int32_t* token_out, int rows, int vocab, cudaStream_t stream )
+        inline void launch_argmax( const TNative* logits, int32_t* token_out, int rows, int vocab, float softcap,
+            const SampleAdjustments& adjustments, cudaStream_t stream )
         {
             constexpr int kBlock = 256;
-            argmax_kernel<TNative, kBlock><<<rows, kBlock, 0, stream>>>( logits, token_out, vocab );
+            argmax_kernel<TNative, kBlock><<<rows, kBlock, 0, stream>>>( logits, token_out, vocab, softcap, adjustments );
+        }
+
+        __global__ void mark_produced_kernel( const int32_t* token, uint8_t* produced )
+        {
+            produced[ token[ 0 ] ] = 1;
         }
     }
 
-    void cuda_sample_argmax_fp32( const float* logits, int32_t* token_out, int vocab, cudaStream_t stream )
+    void cuda_sample_argmax_fp32( const float* logits, int32_t* token_out, int vocab, float softcap,
+        const SampleAdjustments& adjustments, cudaStream_t stream )
     {
-        launch_argmax( logits, token_out, 1, vocab, stream );
+        launch_argmax( logits, token_out, 1, vocab, softcap, adjustments, stream );
     }
 
-    void cuda_sample_argmax_bf16( const __nv_bfloat16* logits, int32_t* token_out, int vocab, cudaStream_t stream )
+    void cuda_sample_argmax_bf16( const __nv_bfloat16* logits, int32_t* token_out, int vocab, float softcap,
+        const SampleAdjustments& adjustments, cudaStream_t stream )
     {
-        launch_argmax( logits, token_out, 1, vocab, stream );
+        launch_argmax( logits, token_out, 1, vocab, softcap, adjustments, stream );
     }
 
-    void cuda_sample_rows_argmax_fp32(
-        const float* logits, int32_t* token_out, int rows, int vocab, cudaStream_t stream )
+    void cuda_sample_rows_argmax_fp32( const float* logits, int32_t* token_out, int rows, int vocab, float softcap,
+        const SampleAdjustments& adjustments, cudaStream_t stream )
     {
-        launch_argmax( logits, token_out, rows, vocab, stream );
+        launch_argmax( logits, token_out, rows, vocab, softcap, adjustments, stream );
     }
 
-    void cuda_sample_rows_argmax_bf16(
-        const __nv_bfloat16* logits, int32_t* token_out, int rows, int vocab, cudaStream_t stream )
+    void cuda_sample_rows_argmax_bf16( const __nv_bfloat16* logits, int32_t* token_out, int rows, int vocab,
+        float softcap, const SampleAdjustments& adjustments, cudaStream_t stream )
     {
-        launch_argmax( logits, token_out, rows, vocab, stream );
+        launch_argmax( logits, token_out, rows, vocab, softcap, adjustments, stream );
+    }
+
+    void cuda_mark_produced( const int32_t* token, uint8_t* produced, cudaStream_t stream )
+    {
+        mark_produced_kernel<<<1, 1, 0, stream>>>( token, produced );
     }
 
     // ========================================================================
@@ -104,11 +172,14 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
     // (one SM; 40-pass bisection searches + a thread-0 serial CDF walk). The
     // pipeline computes the same truncation semantics with device-wide kernels:
     //
-    //   1. scale:     softcap + temperature -> scratch; per-block max/min partials.
+    //   1. scale:     softcap + presence penalty + temperature -> scratch; per-block
+    //                 max/min partials. A suppressed token scales to -inf and is left
+    //                 out of max/min, so no truncation range or bin ever holds it.
     //   2. prepare:   finalize max/min, reset thresholds/bins.
     //   3. top-k:     4 rounds of 4096-bin count-histogram range refinement
     //                 (4096^4 = 2^48 -- strictly finer than the reference's 2^40
-    //                 bisection). Integer counts: exact and deterministic.
+    //                 bisection). Integer counts: exact and deterministic. Every
+    //                 token tied with the k-th survives.
     //   4. top-p:     same machinery on per-bin exp(x - max) mass, over the top-k
     //                 survivor domain. Probability is monotonic in the scaled
     //                 logit, so both filters collapse to one value threshold.
@@ -162,14 +233,17 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         template <typename TNative, int kBlock>
         __global__ void stochastic_scale_kernel(
             const TNative* logits, float* scratch, int vocab,
-            float softcap, float temperature, float* reduction_scratch )
+            float softcap, float temperature, SampleAdjustments adjustments, float* reduction_scratch )
         {
             __shared__ float s_max[kBlock];
             __shared__ float s_min[kBlock];
+            __shared__ int32_t s_round[kMaxSampleRows];
 
             logits += row_offset( vocab );
             scratch += row_offset( vocab );
             reduction_scratch += row_offset( kStochasticFloatScratchElements );
+
+            const int round_count = stage_round_tokens( adjustments, blockIdx.y, s_round );
 
             const int tid = threadIdx.x;
             const int stride = gridDim.x * kBlock;
@@ -178,10 +252,13 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
 
             for ( int i = blockIdx.x * kBlock + tid; i < vocab; i += stride )
             {
-                float x = to_float( logits[i] );
+                if ( is_suppressed( adjustments, i ) )
+                {
+                    scratch[i] = negative_infinity();
+                    continue;
+                }
 
-                if ( softcap > 0.0f )
-                    x = softcap * tanhf( x / softcap );
+                float x = penalized_logit( to_float( logits[i] ), i, softcap, adjustments, s_round, round_count );
 
                 x = x / temperature;
                 scratch[i] = x;
@@ -329,10 +406,12 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
 
         // Top-k refinement, select pass: walk bins from the top until the running
         // count reaches top_k; narrow the range to the boundary bin, or on the last
-        // round emit the value threshold. An exact count at the boundary keeps the
-        // boundary value; an overshoot means a tie cluster straddles the cut --
-        // exclude it, matching the reference kernel's bisection behavior. Bins and
-        // the above-count reset for the next round on the way out.
+        // round emit the value threshold. The boundary bin holds the k-th value, and
+        // the last round keeps it whole: an overshoot means a tie cluster straddles
+        // the cut, and every token tied with the k-th survives, as HuggingFace's
+        // TopKLogitsWarper keeps them -- by this rule, not by the upper bin edge
+        // happening to round onto the tied value. Bins and the above-count reset for
+        // the next round on the way out.
         template <int kBlock>
         __global__ void topk_select_kernel(
             float* reduction_scratch, int32_t* index_scratch, int top_k, int last_round )
@@ -383,9 +462,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
 
                     if ( last_round )
                     {
-                        const int kept_with_boundary = cumulative + s_bins[boundary];
-                        reduction_scratch[kSlotKThreshold] =
-                            ( kept_with_boundary == top_k ) ? bin_lo : bin_hi;
+                        reduction_scratch[kSlotKThreshold] = bin_lo;
                     }
                     else
                     {
@@ -702,7 +779,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             const TNative* logits, int32_t* token_out, float* scratch,
             float* reduction_scratch, int32_t* index_scratch, int rows,
             int vocab, float softcap, float temperature, int top_k, float top_p,
-            const SampleRowUniforms& uniforms, cudaStream_t stream )
+            const SampleAdjustments& adjustments, const SampleRowUniforms& uniforms, cudaStream_t stream )
         {
             constexpr int kBlock = kStochasticBlock;
 
@@ -718,7 +795,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             const dim3 row_grid( 1, rows );
 
             stochastic_scale_kernel<TNative, kBlock><<<scale_grid, kBlock, 0, stream>>>(
-                logits, scratch, vocab, softcap, temperature, reduction_scratch );
+                logits, scratch, vocab, softcap, temperature, adjustments, reduction_scratch );
             stochastic_prepare_kernel<kBlock><<<row_grid, kBlock, 0, stream>>>(
                 reduction_scratch, index_scratch, scale_blocks );
 
@@ -762,39 +839,41 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
     void cuda_sample_stochastic_fp32(
         const float* logits, int32_t* token_out, float* scratch,
         float* reduction_scratch, int32_t* index_scratch,
-        int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream )
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleAdjustments& adjustments, float r, cudaStream_t stream )
     {
         launch_stochastic( logits, token_out, scratch, reduction_scratch, index_scratch, 1,
-            vocab, softcap, temperature, top_k, top_p, one_row_uniform( r ), stream );
+            vocab, softcap, temperature, top_k, top_p, adjustments, one_row_uniform( r ), stream );
     }
 
     void cuda_sample_stochastic_bf16(
         const __nv_bfloat16* logits, int32_t* token_out, float* scratch,
         float* reduction_scratch, int32_t* index_scratch,
-        int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream )
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleAdjustments& adjustments, float r, cudaStream_t stream )
     {
         launch_stochastic( logits, token_out, scratch, reduction_scratch, index_scratch, 1,
-            vocab, softcap, temperature, top_k, top_p, one_row_uniform( r ), stream );
+            vocab, softcap, temperature, top_k, top_p, adjustments, one_row_uniform( r ), stream );
     }
 
     void cuda_sample_rows_stochastic_fp32(
         const float* logits, int32_t* token_out, float* scratch,
         float* reduction_scratch, int32_t* index_scratch, int rows,
         int vocab, float softcap, float temperature, int top_k, float top_p,
-        const SampleRowUniforms& uniforms, cudaStream_t stream )
+        const SampleAdjustments& adjustments, const SampleRowUniforms& uniforms, cudaStream_t stream )
     {
         launch_stochastic( logits, token_out, scratch, reduction_scratch, index_scratch, rows,
-            vocab, softcap, temperature, top_k, top_p, uniforms, stream );
+            vocab, softcap, temperature, top_k, top_p, adjustments, uniforms, stream );
     }
 
     void cuda_sample_rows_stochastic_bf16(
         const __nv_bfloat16* logits, int32_t* token_out, float* scratch,
         float* reduction_scratch, int32_t* index_scratch, int rows,
         int vocab, float softcap, float temperature, int top_k, float top_p,
-        const SampleRowUniforms& uniforms, cudaStream_t stream )
+        const SampleAdjustments& adjustments, const SampleRowUniforms& uniforms, cudaStream_t stream )
     {
         launch_stochastic( logits, token_out, scratch, reduction_scratch, index_scratch, rows,
-            vocab, softcap, temperature, top_k, top_p, uniforms, stream );
+            vocab, softcap, temperature, top_k, top_p, adjustments, uniforms, stream );
     }
 
     // ========================================================================
@@ -806,7 +885,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         // One thread: the walk is at most kMaxSampleRows compares. Reads every input before it writes slot 0 of
         // `tokens`, which is both the round's first token and, after this, the next round's.
         __global__ void speculative_accept_kernel(
-            int32_t* tokens, const int32_t* chosen, int rows, int32_t* result )
+            int32_t* tokens, const int32_t* chosen, int rows, int32_t* result, uint8_t* produced )
         {
             int accepted = 0;
 
@@ -821,14 +900,23 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
                 result[ i ] = tokens[ i ];
 
             result[ accepted + 1 ] = next;
+
+            if ( produced )
+            {
+                for ( int i = 1; i <= accepted; ++i )
+                    produced[ tokens[ i ] ] = 1;
+
+                produced[ next ] = 1;
+            }
+
             tokens[ 0 ] = next;
         }
     }
 
     void cuda_speculative_accept(
-        int32_t* tokens, const int32_t* chosen, int rows, int32_t* result, cudaStream_t stream )
+        int32_t* tokens, const int32_t* chosen, int rows, int32_t* result, uint8_t* produced, cudaStream_t stream )
     {
-        speculative_accept_kernel<<<1, 1, 0, stream>>>( tokens, chosen, rows, result );
+        speculative_accept_kernel<<<1, 1, 0, stream>>>( tokens, chosen, rows, result, produced );
     }
 
     // ========================================================================
@@ -875,23 +963,26 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         template <typename TNative, int kBlock>
         __global__ void stochastic_reference_kernel(
             const TNative* logits, int32_t* token_out, float* scratch,
-            int vocab, float softcap, float temperature, int top_k, float top_p, float r )
+            int vocab, float softcap, float temperature, int top_k, float top_p, SampleAdjustments adjustments, float r )
         {
             __shared__ float s_f[kBlock];
             __shared__ int s_i[kBlock];
 
             const int tid = threadIdx.x;
 
-            // Pass 0: scaled logits -> scratch; reduce max and min.
+            // Pass 0: scaled logits -> scratch; reduce max and min. A suppressed token is -inf and outside both.
             float local_max = -FLT_MAX;
             float local_min = FLT_MAX;
 
             for ( int i = tid; i < vocab; i += kBlock )
             {
-                float x = to_float( logits[i] );
+                if ( is_suppressed( adjustments, i ) )
+                {
+                    scratch[i] = negative_infinity();
+                    continue;
+                }
 
-                if ( softcap > 0.0f )
-                    x = softcap * tanhf( x / softcap );
+                float x = penalized_logit( to_float( logits[i] ), i, softcap, adjustments, nullptr, 0 );
 
                 x = x / temperature;
                 scratch[i] = x;
@@ -921,8 +1012,9 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
 
             // Top-k: binary-search a value threshold keeping the top_k largest scaled logits,
             // then mask everything below it to -inf so it drops out of the softmax. `lo`
-            // converges to count > top_k and `hi` to count <= top_k, so `hi` excludes the
-            // (top_k+1)-th value -- keeping exactly top_k for distinct logits.
+            // keeps count >= top_k and `hi` count < top_k, so `lo` converges on the k-th
+            // value from below -- keeping exactly top_k for distinct logits, and every token
+            // tied with the k-th where they tie.
             if ( top_k > 0 && top_k < vocab )
             {
                 float lo = min_val;
@@ -940,10 +1032,10 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
                     const int count = block_reduce_sum_i<kBlock>( s_i, tid );
                     __syncthreads();
 
-                    if ( count > top_k ) lo = mid; else hi = mid;
+                    if ( count >= top_k ) lo = mid; else hi = mid;
                 }
 
-                const float k_threshold = hi;
+                const float k_threshold = lo;
                 for ( int i = tid; i < vocab; i += kBlock )
                     if ( scratch[i] < k_threshold ) scratch[i] = -FLT_MAX;
                 __syncthreads();
@@ -1024,25 +1116,30 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         template <typename TNative>
         inline void launch_stochastic_reference(
             const TNative* logits, int32_t* token_out, float* scratch,
-            int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream )
+            int vocab, float softcap, float temperature, int top_k, float top_p,
+            const SampleAdjustments& adjustments, float r, cudaStream_t stream )
         {
             constexpr int kBlock = 256;
             stochastic_reference_kernel<TNative, kBlock><<<1, kBlock, 0, stream>>>(
-                logits, token_out, scratch, vocab, softcap, temperature, top_k, top_p, r );
+                logits, token_out, scratch, vocab, softcap, temperature, top_k, top_p, adjustments, r );
         }
     }
 
     void cuda_sample_stochastic_reference_fp32(
         const float* logits, int32_t* token_out, float* scratch,
-        int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream )
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleAdjustments& adjustments, float r, cudaStream_t stream )
     {
-        launch_stochastic_reference( logits, token_out, scratch, vocab, softcap, temperature, top_k, top_p, r, stream );
+        launch_stochastic_reference(
+            logits, token_out, scratch, vocab, softcap, temperature, top_k, top_p, adjustments, r, stream );
     }
 
     void cuda_sample_stochastic_reference_bf16(
         const __nv_bfloat16* logits, int32_t* token_out, float* scratch,
-        int vocab, float softcap, float temperature, int top_k, float top_p, float r, cudaStream_t stream )
+        int vocab, float softcap, float temperature, int top_k, float top_p,
+        const SampleAdjustments& adjustments, float r, cudaStream_t stream )
     {
-        launch_stochastic_reference( logits, token_out, scratch, vocab, softcap, temperature, top_k, top_p, r, stream );
+        launch_stochastic_reference(
+            logits, token_out, scratch, vocab, softcap, temperature, top_k, top_p, adjustments, r, stream );
     }
 }

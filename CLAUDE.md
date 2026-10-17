@@ -216,7 +216,9 @@ bucket and no Release body; a fix is not a goal, and its commit is its own recor
     for every other item too. **Exception: an internal fix the user admits** (a correctness or
     hygiene defect in the library, with no user-visible criterion behind it) needs no ROADMAP
     criterion -- the user's decision is its admission (Todd, 2026-10-05). It goes in the
-    `### Internal fixes` bucket at the end of the release, outside the theme join.
+    `### Internal fixes` bucket at the end of the release, outside the theme join -- or, when it is a
+    model's own defect or a gap between the families, in `### Model fixes and parity` just before it
+    (Todd, 2026-10-17).
   - **An item is a `####` heading that reads cold**, then a metadata line, then a body ending in an
     anchor. The heading states the problem in no term that exists only inside Mila; the body carries
     whatever detail the work needs, and says so plainly when the finding is an absence rather than a

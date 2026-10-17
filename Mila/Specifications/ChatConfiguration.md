@@ -190,8 +190,33 @@ gains recommendation:
 ```
 default_context_length          what to open at when the user asks for nothing
 maximum_context_length          what this checkpoint was trained to, which bounds "auto"
-temperature / top_p / top_k     (optional, when the model card states them)
+sampling                        the publisher's settings, each with the configuration it applies to
+                                (optional, when the model's publisher states them)
 ```
+
+**Sampling comes from the base model's publisher, and follows how the model is configured** (Todd,
+2026-10-05 and 2026-10-17). A publisher recommends one setting or several, keyed by how the model is run.
+Read 2026-10-17:
+
+| Model | Configuration | temperature | top_p | top_k | min_p | presence_penalty | Source |
+|---|---|---|---|---|---|---|---|
+| Qwen 3.8 27B | thinking | 1.0 | 0.95 | 20 | 0.0 | 0.0 | card, Best Practices |
+| Qwen 3.8 27B | not thinking | 0.7 | 0.80 | 20 | 0.0 | 1.5 | card, Best Practices |
+| Gemma 4, every size | any | 1.0 | 0.95 | 64 | -- | -- | card ("across all use cases") |
+| Llama 3.1 / 3.2 Instruct | any | 0.6 | 0.9 | -- | -- | -- | `generation_config.json`; the card states none |
+
+So `generation_config.json` is not the whole source: it holds one setting, and Qwen 3.8's is the thinking
+one. The exporter writes the card's settings, with `generation_config.json` where the card says nothing.
+Each setting names only the knobs its publisher states, and carries the configuration it applies to --
+thinking on or off is the only axis any card keys on today; Qwen's reasoning effort is not one, since its
+card gives one setting for thinking at every effort.
+
+An application opens a session at the setting that matches the session's configuration and moves with it
+when the configuration changes (`/think` in Chat; per request in the inference server, from the thinking
+the request asks for), below the user's own layers -- `/set`, the session file, a request's own fields --
+which still override. A knob the sampler lacks is built, not dropped: Qwen's non-thinking setting needs a
+presence penalty, a penalty over the tokens a reply has already produced, which is state across decode
+steps and is designed in `TokenSampling.md` before it is built.
 
 The two context fields are different questions and only one of them is a ceiling. A checkpoint
 trained to 8192 does not become a 128K model because the family's rotary embedding admits one,
@@ -204,7 +229,8 @@ model knows its own size; it carries its own recommendation. Absent fields fall 
 family layer, so existing published models keep working and can be republished later.
 
 MIS and the Python binding read the same record, so the recommendation is shared rather than
-duplicated per adaptor.
+duplicated per adaptor. Their own sampling constants -- Chat's 0.8 / 40, the server's compiled 0.6 / 40 /
+0.9 and the Gemma setting its `.env` ships for every model -- are removed, not kept as a fallback.
 
 ---
 

@@ -109,8 +109,39 @@ There is a single concrete `TokenSampler`, **not** a class per strategy (`TopK`,
 top-k, top-p, min-p, and repetition penalty are *composable filters* over one shared pipeline:
 
 ```
-softcap -> temperature -> [top-k] -> [top-p] -> [min-p / repetition penalty] -> normalize -> draw
+softcap -> [never-sampled -> -inf] -> [presence penalty] -> temperature -> [top-k] -> [top-p] -> normalize -> draw
 ```
+
+**The presence penalty** (Todd, 2026-10-17): Qwen 3.8's non-thinking setting asks for 1.5, and a model's sampling
+defaults are its publisher's (`ChatConfiguration.md` section 5). `SamplingParams::presence_penalty` (0 is off) is
+subtracted once from the logit of every token the current reply has produced, after the softcap and before
+temperature -- vLLM's definition, which counts the generated text and not the prompt. Greedy takes it too: with the
+penalty on, the argmax runs over the softcapped, penalized logits.
+
+It is the one input that reads state growing each step. The sampler sits outside decode replay (`DecodeGraph.md`
+4.5), but the decode-ahead loop enqueues the next sample before the host has read the last token, so the state lives
+on the device and is updated there:
+
+- The `TokenSampler` owns a vocabulary-sized UINT8 flag per token. `LanguageModel::generate` begins each reply, which
+  clears the flags on the stream when the reply's penalty is non-zero; every single-row entry marks the token it
+  wrote, on the device, right after drawing it. With the penalty off nothing is allocated, cleared or marked.
+- The op stays pure: the flags are an argument, as the logits are, and 4.3's determinism holds given them.
+- A verify's row r also penalizes the round's drafts 1..r -- slot 0, the known token, is marked already -- and the
+  acceptance walk marks the drafts it keeps and the next token, so a rejected draft never counts. The draft model's
+  own greedy proposals take no penalty: they are proposals, and every kept token is chosen by a penalized row.
+
+**Never-sampled tokens.** `SamplingConfig::withSuppressedTokens` names tokens the model must not spend a draw on, fixed
+for the model's lifetime. The op builds a vocabulary UINT8 mask on the device once; a flagged token's scaled logit is
+-inf, it is left out of the max and min the truncation ranges are built on, and the argmax skips it.
+`LanguageModel::suppressedTokens()` supplies them: Gemma 4 names its seven image, audio and video markers, since no
+deployment carries a modality yet (`Gemma4Modality.md`); one that does drops its markers from the list.
+
+**Top-k keeps every token tied with the k-th** (Todd, 2026-10-17), as HuggingFace's `TopKLogitsWarper` does --
+it removes only what is strictly below the k-th value, so a tie at the cut can keep more than k. The reference's
+bisection dropped a tie below the largest value whole and kept fewer than k -- measured: three tokens tied under a
+larger one, top-k 2, kept the larger one alone -- and now converges on the k-th value from below. The pipeline kept an
+exact tie only because its last round's upper bin edge rounds onto the tied value; it now keeps the boundary bin by
+rule, rounding aside. Both are locked by tokens planted on the cut (`Sampling.Cuda.cpp`).
 
 They stack (AND), not choose (XOR) — inference routinely applies `temperature`, `top_k`, and
 `top_p` together. Only the masking step differs; softcap, softmax, the multinomial draw, RNG, the
@@ -151,9 +182,9 @@ network's `decode()` step; "Sampler" is unambiguous.)
 Unlike `AdamWConfig` (all hyperparameters fixed at construction), sampling parameters are
 per-request and vary every call. The split:
 
-- **`SamplingConfig`** (construction-time): `vocab_size`, `final_logit_softcap` — fixed by the
-  model.
-- **`SamplingParams`** (per-call): `temperature`, `top_k`, `top_p`, ... — the per-call slice of
+- **`SamplingConfig`** (construction-time): `vocab_size`, `final_logit_softcap`, the suppressed tokens and
+  the maximum rows — fixed by the model.
+- **`SamplingParams`** (per-call): `temperature`, `top_k`, `top_p`, `presence_penalty` — the per-call slice of
   `GenerateParams` (`Dnn.GenerateParams`); the two should unify rather than duplicate.
 
 ### 4.2 The op contract

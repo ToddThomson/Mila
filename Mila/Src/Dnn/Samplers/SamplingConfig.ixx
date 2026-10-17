@@ -2,8 +2,8 @@
  * @file SamplingConfig.ixx
  * @brief Construction-time configuration for the token sampler.
  *
- * Holds the model-fixed sampling inputs (vocabulary size, final logit softcap).
- * Per-call knobs (temperature / top_k / top_p / seed) are GenerateParams, not here.
+ * Holds the model-fixed sampling inputs (vocabulary size, final logit softcap, suppressed tokens).
+ * Per-call knobs (temperature / top_k / top_p / presence_penalty) are GenerateParams, not here.
  */
 
 export module Dnn.Samplers.SamplingConfig;
@@ -49,9 +49,25 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        /**
+         * @brief Tokens no draw may choose, fixed for the model's lifetime -- a model's markers for a modality its
+         *        deployment does not carry. Each must be inside the vocabulary.
+         */
+        template<typename Self>
+        decltype(auto) withSuppressedTokens( this Self&& self, std::vector<std::int32_t> tokens )
+        {
+            self.suppressed_tokens_ = std::move( tokens );
+            return std::forward<Self>( self );
+        }
+
         std::int64_t getVocabularySize() const noexcept
         {
             return vocab_size_;
+        }
+
+        const std::vector<std::int32_t>& getSuppressedTokens() const noexcept
+        {
+            return suppressed_tokens_;
         }
 
         float getFinalLogitSoftcap() const noexcept
@@ -85,11 +101,21 @@ namespace Mila::Dnn
             {
                 throw std::invalid_argument( "SamplingConfig: maximum rows must be at least 1" );
             }
+
+            for ( const std::int32_t token : suppressed_tokens_ )
+            {
+                if ( token < 0 || token >= vocab_size_ )
+                {
+                    throw std::invalid_argument( std::format(
+                        "SamplingConfig: suppressed token {} is outside the vocabulary of {}", token, vocab_size_ ) );
+                }
+            }
         }
 
     private:
         std::int64_t vocab_size_{ 0 };
         float final_logit_softcap_{ 0.0f };
         dim_t maximum_rows_{ 1 };
+        std::vector<std::int32_t> suppressed_tokens_;
     };
 }

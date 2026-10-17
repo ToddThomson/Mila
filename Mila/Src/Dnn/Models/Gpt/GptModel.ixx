@@ -275,6 +275,12 @@ namespace Mila::Dnn
                 for ( auto id : params.stop_tokens )
                     stop_ids.insert( static_cast<std::int32_t>( id ) );
 
+            if ( params.sampling.presence_penalty != 0.0f )
+            {
+                throw std::invalid_argument(
+                    "GptModel::onGenerating: GPT-2's sampler has no presence penalty" );
+            }
+
             // Host sampler path (device-sampler migration deferred): time-seeded.
             std::mt19937 rng( static_cast<std::mt19937::result_type>(
                 std::chrono::high_resolution_clock::now().time_since_epoch().count() ) );
