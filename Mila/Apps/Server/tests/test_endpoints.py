@@ -19,6 +19,7 @@ from mila_llm_server.config import loaded
 from mila_llm_server.protocols.anthropic import AnthropicAdapter
 from mila_llm_server.protocols.openai import OpenAIAdapter
 from mila_llm_server.routes import factory
+from mila_llm_server.schemas.internal import Sampling
 
 QWEN_TWO_CALLS = (
     "The user wants both.\n</think>\n\n"
@@ -37,14 +38,17 @@ class FakeWorker:
         self.protocol = protocol
         self.raw = raw
         self.prompts = []
+        self.sampling = []
 
     async def encode(self, text):
         self.prompts.append(text)
 
         return [1, 2, 3, 4]
 
-    async def generate_streaming(self, prompt_ids, on_text, max_new_tokens, temperature, top_k,
-                                 top_p=1.0, stop_ctrl=None, stop_at_markers=True):
+    async def generate_streaming(self, prompt_ids, on_text, max_new_tokens, sampling, stop_ctrl=None,
+                                 stop_at_markers=True):
+        self.sampling.append(sampling)
+
         for piece in re.split(r"(?<=\n)", self.raw):
             on_text(piece)
 
@@ -164,6 +168,46 @@ def test_a_field_at_its_default_is_accepted(serve):
     body = {"messages": [{"role": "user", "content": "Hi"}], "n": 1, "frequency_penalty": 0, "user": "u1"}
 
     assert http.post("/v1/chat/completions", json=body).status_code == 200
+
+
+def test_a_knob_the_request_leaves_out_reaches_the_model_unset(serve):
+    # Unset is the model's recommended setting, which the binding reads; the server supplies no number of its own.
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
+
+    http.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "Hi"}], "top_p": 0.5})
+
+    assert fake.sampling[0] == Sampling(top_p=0.5)
+
+
+def test_presence_penalty_is_passed_and_refused_out_of_range(serve):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
+    body = {"messages": [{"role": "user", "content": "Hi"}]}
+
+    assert http.post("/v1/chat/completions", json={**body, "presence_penalty": 1.5}).status_code == 200
+    assert fake.sampling[0].presence_penalty == 1.5
+
+    refused = http.post("/v1/chat/completions", json={**body, "presence_penalty": 3})
+    assert refused.status_code == 400 and "presence_penalty" in refused.text
+
+
+@pytest.mark.parametrize("effort, thinking", [("none", False), ("low", None), (None, None)])
+def test_the_thinking_the_prompt_was_rendered_with_picks_the_models_sampling(serve, effort, thinking):
+    # Qwen's levels set reasoning_effort and leave enable_thinking at the template's default, which the binding reads.
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
+    body = {"messages": [{"role": "user", "content": "Hi"}]}
+
+    http.post("/v1/chat/completions", json=body if effort is None else {**body, "reasoning_effort": effort})
+
+    assert fake.sampling[0].thinking is thinking
+
+
+def test_messages_thinking_disabled_picks_the_sampling_for_thinking_off(serve):
+    http, fake = serve(AnthropicAdapter(), mila.ChatProtocol.qwen(), "Hi.")
+
+    http.post("/v1/messages", json={
+        "max_tokens": 64, "messages": [{"role": "user", "content": "Hi"}], "thinking": {"type": "disabled"}})
+
+    assert fake.sampling[0].thinking is False
 
 
 def test_reasoning_effort_sets_the_templates_own_variable(serve):

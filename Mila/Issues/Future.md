@@ -156,7 +156,7 @@ Add a session-level `forward()` returning logits, plus final hidden states, to
 today.
 
 Component, tensor and training bindings are ruled out: `TDeviceType x TPrecision x
-TWeightQuantization` is erased only at the session PIMPL. `Mila_py.Wrappers.ixx:362`
+TWeightQuantization` is erased only at the session PIMPL. `Mila_py.Wrappers.GemmaSession.ixx`
 
 ## API Coherence
 

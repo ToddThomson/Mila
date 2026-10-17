@@ -7,7 +7,8 @@ import json
 import time
 import uuid
 
-from mila_llm_server.conversation import RequestError, ServedReply, ServedRequest, assistant_turn, text_of
+from mila_llm_server.conversation import (
+    RequestError, ServedReply, ServedRequest, assistant_turn, presence_penalty_of, text_of)
 from mila_llm_server.protocols.base import ChatEndpoint, CompletionsCapable, ProtocolAdapter, ReplyContext
 from mila_llm_server.protocols.utils import END_TURN, openai_finish_reason
 from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
@@ -39,8 +40,10 @@ class MilaChat(ChatEndpoint):
         return ServedRequest(
             turns=turns,
             max_new_tokens=body.get("max_new_tokens", 256),
-            temperature=body.get("temperature", 1.0),
-            top_k=body.get("top_k", 0),
+            temperature=body.get("temperature"),
+            top_k=body.get("top_k"),
+            top_p=body.get("top_p"),
+            presence_penalty=presence_penalty_of(body),
             stream=bool(body.get("stream", False)),
         )
 
@@ -79,8 +82,10 @@ class MilaCompletions(CompletionsCapable):
         req = InferenceRequest(
             prompt_ids=[],
             max_new_tokens=body.get("max_new_tokens", 256),
-            temperature=body.get("temperature", 1.0),
-            top_k=body.get("top_k", 0),
+            temperature=body.get("temperature"),
+            top_k=body.get("top_k"),
+            top_p=body.get("top_p"),
+            presence_penalty=presence_penalty_of(body),
             stream=body.get("stream", False),
         )
         return prompt_str, req

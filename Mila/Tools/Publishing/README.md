@@ -13,8 +13,8 @@ python publish_model.py <package-dir> --repo <owner>/<name> [--dry-run]
 
 It takes a package directory built by `ExportArtifact --package`, and nothing else: the `mila.json`
 published is the one the package was assembled with, so there is no second copy of it to drift.
-`ModelCards/<name>/` holds only the hand-written sources — `README.md`, and `LICENSE` for a family
-with no directory under `Licenses/` — and is never published directly.
+`ModelCards/<name>/` holds only the hand-written sources — `README.md`, `sampling.json`, and `LICENSE`
+for a family with no directory under `Licenses/` — and is never published directly.
 
 The package must carry `README.md`. The card is not declared in the manifest, so the script refuses
 a package without one rather than publish a model with no description. The Qwen packages were
@@ -37,6 +37,11 @@ before publishing one, which changes no declared file.
    loadable only by Mila and deliberately not NVFP4 or MXFP4, and lists the modifications from the
    base model. The two Llama cards are the template.
 
+   Beside it, `ModelCards/<name>/sampling.json` transcribes the base model's publisher's sampling
+   settings, each with the thinking it applies to, and names where they were read: the card, or
+   `generation_config.json` where the card states none. Leave it out only when the publisher
+   recommends nothing.
+
 4. **Assemble the package.** The name given here is the published coordinate and is permanent once
    anything links to it:
 
@@ -46,6 +51,7 @@ before publishing one, which changes no declared file.
      --license  Licenses/<family>/LICENSE \
      --notice   Licenses/<family>/NOTICE \
      --model-card ModelCards/<name>/README.md \
+     --sampling ModelCards/<name>/sampling.json \
      --base-model <upstream-repo-id> \
      --license-id <license-id> \
      --as <name>

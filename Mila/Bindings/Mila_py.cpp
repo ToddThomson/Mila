@@ -15,6 +15,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <map>
 #include <memory>
 #include <optional>
@@ -440,6 +441,23 @@ static void bind_distribution( py::module_& m )
     m.def( "default_hub_owner", &Mila::Bindings::defaultHubOwner,
         "The hub owner Mila publishes under." );
 
+    py::class_<Mila::Bindings::SamplingSettingsInfo>( m, "SamplingSettings" )
+        .def_readonly( "temperature", &Mila::Bindings::SamplingSettingsInfo::temperature )
+        .def_readonly( "top_k", &Mila::Bindings::SamplingSettingsInfo::top_k )
+        .def_readonly( "top_p", &Mila::Bindings::SamplingSettingsInfo::top_p )
+        .def_readonly( "presence_penalty", &Mila::Bindings::SamplingSettingsInfo::presence_penalty )
+        .def( "__repr__", []( const Mila::Bindings::SamplingSettingsInfo& self ) {
+            return std::format( "SamplingSettings(temperature={}, top_k={}, top_p={}, presence_penalty={})",
+                self.temperature, self.top_k, self.top_p, self.presence_penalty );
+        } );
+
+    m.def( "recommended_sampling", &Mila::Bindings::recommendedSampling, py::arg( "name" ), py::arg( "thinking" ),
+        "The sampling an installed model's publisher recommends, with thinking on or off.\n\n"
+        "What a session's generate() uses for every knob it is not given. A setting the\n"
+        "publisher does not state is the sampler's neutral value: temperature 1.0, top_k 0,\n"
+        "top_p 1.0, presence_penalty 0.0.\n\n"
+        "Raises RuntimeError if no model of that name is installed." );
+
     m.def( "stored_weight_quantization", &Mila::Bindings::storedWeightQuantization, py::arg( "name" ),
         "The weight format an installed model is stored in: 'bf16', 'fp8', 'fp4', 'q4_0' or 'cb2-3'.\n\n"
         "Raises RuntimeError if no model of that name is installed." );
@@ -570,10 +588,12 @@ static void bind_llama_model( py::module_& m )
                 const std::vector<int32_t>& prompt_tokens,
                 py::function on_token,
                 std::size_t max_new_tokens,
-                float temperature,
-                int top_k,
-                float top_p,
-                StopController* stop_ctrl ) -> std::string
+                std::optional<float> temperature,
+                std::optional<int> top_k,
+                std::optional<float> top_p,
+                StopController* stop_ctrl,
+                std::optional<float> presence_penalty,
+                std::optional<bool> thinking ) -> std::string
             {
                 std::stop_token stop = stop_ctrl
                     ? stop_ctrl->get_token()
@@ -587,19 +607,26 @@ static void bind_llama_model( py::module_& m )
                         py::gil_scoped_acquire acquire;
                         on_token( tok );
                     },
-                    max_new_tokens, temperature, top_k, top_p,
+                    max_new_tokens, temperature, top_k, top_p, presence_penalty, thinking,
                     std::move( stop ) );
             },
             py::arg( "prompt_tokens" ),
             py::arg( "on_token" ),
             py::arg( "max_new_tokens" ) = 64,
-            py::arg( "temperature" ) = 1.0f,
-            py::arg( "top_k" ) = 0,
-            py::arg( "top_p" ) = 1.0f,
+            py::arg( "temperature" ) = py::none(),
+            py::arg( "top_k" ) = py::none(),
+            py::arg( "top_p" ) = py::none(),
             py::arg( "stop_controller" ) = py::none(),
+            py::arg( "presence_penalty" ) = py::none(),
+            py::arg( "thinking" ) = py::none(),
             "Generate token by token. on_token(id: int) is called for each generated\n"
             "token (EOS excluded). Blocks until generation completes or\n"
             "stop_controller.request_stop() is called.\n\n"
+            "Sampling: temperature, top_k, top_p and presence_penalty each default to the\n"
+            "model's recommended setting for thinking -- whether the prompt was rendered\n"
+            "with thinking on. thinking defaults to the chat template's own default.\n"
+            "temperature=0.0 is greedy; top_k=0 and top_p=1.0 turn that filter off;\n"
+            "presence_penalty is subtracted from each token the reply has already used.\n\n"
             "Returns why generation stopped, which the token stream cannot tell you:\n"
             "    'stop'           the model finished on its own (EOS)\n"
             "    'length'         max_new_tokens was reached\n"
@@ -697,10 +724,12 @@ static void bind_gemma_model( py::module_& m )
                 const std::vector<int32_t>& prompt_tokens,
                 py::function on_token,
                 std::size_t max_new_tokens,
-                float temperature,
-                int top_k,
-                float top_p,
-                StopController* stop_ctrl ) -> std::string
+                std::optional<float> temperature,
+                std::optional<int> top_k,
+                std::optional<float> top_p,
+                StopController* stop_ctrl,
+                std::optional<float> presence_penalty,
+                std::optional<bool> thinking ) -> std::string
             {
                 std::stop_token stop = stop_ctrl
                     ? stop_ctrl->get_token()
@@ -714,19 +743,26 @@ static void bind_gemma_model( py::module_& m )
                         py::gil_scoped_acquire acquire;
                         on_token( tok );
                     },
-                    max_new_tokens, temperature, top_k, top_p,
+                    max_new_tokens, temperature, top_k, top_p, presence_penalty, thinking,
                     std::move( stop ) );
             },
             py::arg( "prompt_tokens" ),
             py::arg( "on_token" ),
             py::arg( "max_new_tokens" ) = 64,
-            py::arg( "temperature" ) = 1.0f,
-            py::arg( "top_k" ) = 0,
-            py::arg( "top_p" ) = 1.0f,
+            py::arg( "temperature" ) = py::none(),
+            py::arg( "top_k" ) = py::none(),
+            py::arg( "top_p" ) = py::none(),
             py::arg( "stop_controller" ) = py::none(),
+            py::arg( "presence_penalty" ) = py::none(),
+            py::arg( "thinking" ) = py::none(),
             "Generate token by token. on_token(id: int) is called for each generated\n"
             "token (EOS excluded). For HF token-for-token parity use temperature=0.0\n"
             "(greedy argmax).\n\n"
+            "Sampling: temperature, top_k, top_p and presence_penalty each default to the\n"
+            "model's recommended setting for thinking -- whether the prompt was rendered\n"
+            "with thinking on. thinking defaults to the chat template's own default.\n"
+            "temperature=0.0 is greedy; top_k=0 and top_p=1.0 turn that filter off;\n"
+            "presence_penalty is subtracted from each token the reply has already used.\n\n"
             "Returns why generation stopped, which the token stream cannot tell you:\n"
             "    'stop'           the model finished on its own (EOS)\n"
             "    'length'         max_new_tokens was reached\n"
@@ -831,10 +867,12 @@ static void bind_qwen_model( py::module_& m )
                 const std::vector<int32_t>& prompt_tokens,
                 py::function on_token,
                 std::size_t max_new_tokens,
-                float temperature,
-                int top_k,
-                float top_p,
-                StopController* stop_ctrl ) -> std::string
+                std::optional<float> temperature,
+                std::optional<int> top_k,
+                std::optional<float> top_p,
+                StopController* stop_ctrl,
+                std::optional<float> presence_penalty,
+                std::optional<bool> thinking ) -> std::string
             {
                 std::stop_token stop = stop_ctrl
                     ? stop_ctrl->get_token()
@@ -848,18 +886,25 @@ static void bind_qwen_model( py::module_& m )
                         py::gil_scoped_acquire acquire;
                         on_token( tok );
                     },
-                    max_new_tokens, temperature, top_k, top_p,
+                    max_new_tokens, temperature, top_k, top_p, presence_penalty, thinking,
                     std::move( stop ) );
             },
             py::arg( "prompt_tokens" ),
             py::arg( "on_token" ),
             py::arg( "max_new_tokens" ) = 64,
-            py::arg( "temperature" ) = 1.0f,
-            py::arg( "top_k" ) = 0,
-            py::arg( "top_p" ) = 1.0f,
+            py::arg( "temperature" ) = py::none(),
+            py::arg( "top_k" ) = py::none(),
+            py::arg( "top_p" ) = py::none(),
             py::arg( "stop_controller" ) = py::none(),
+            py::arg( "presence_penalty" ) = py::none(),
+            py::arg( "thinking" ) = py::none(),
             "Generate token by token. on_token(id: int) is called for each generated\n"
             "token (EOS excluded).\n\n"
+            "Sampling: temperature, top_k, top_p and presence_penalty each default to the\n"
+            "model's recommended setting for thinking -- whether the prompt was rendered\n"
+            "with thinking on. thinking defaults to the chat template's own default.\n"
+            "temperature=0.0 is greedy; top_k=0 and top_p=1.0 turn that filter off;\n"
+            "presence_penalty is subtracted from each token the reply has already used.\n\n"
             "Returns why generation stopped, which the token stream cannot tell you:\n"
             "    'stop'           the model finished on its own (EOS)\n"
             "    'length'         max_new_tokens was reached\n"

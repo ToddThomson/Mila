@@ -99,6 +99,7 @@ namespace Mila::Distribution
             record.base_model = manifest.base_model;
             record.license = manifest.license;
             record.capabilities = manifest.capabilities;
+            record.sampling = manifest.sampling;
             record.hub = hub_.name();
             record.owner = coordinate.organization;
             record.repository = coordinate.repository;

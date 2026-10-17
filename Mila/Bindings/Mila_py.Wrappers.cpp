@@ -420,6 +420,86 @@ namespace Mila::Bindings
             return refusal.toString();
         }
 
+        /// What a session samples with when a knob is not given: the model's settings and its template's thinking.
+        struct SessionSampling
+        {
+            std::vector<Mila::Distribution::SamplingRecommendation> recommended;
+            bool default_thinking{ false };
+        };
+
+        /**
+         * @brief Whether a prompt rendered at the template's defaults has thinking on.
+         *
+         * The template's default rather than the manifest's thinking capability, because the prompt is what the
+         * sampling has to match: a package published before capabilities existed declares none, and its template
+         * still opens Qwen's reasoning. An architecture with no template here has no thinking switch to default on.
+         */
+        bool templateThinksByDefault( std::string_view architecture, std::string_view architecture_version )
+        {
+            std::unique_ptr<Conversation::Protocol> protocol;
+
+            try
+            {
+                protocol = chatProtocolFor( architecture, architecture_version );
+            }
+            catch ( const std::invalid_argument& )
+            {
+                return false;
+            }
+
+            for ( const auto& variable : protocol->templateVariables() )
+            {
+                if ( variable.name == "enable_thinking" )
+                {
+                    return variable.default_value == "true";
+                }
+            }
+
+            return false;
+        }
+
+        SessionSampling storedSampling( const Mila::Deployment::InstalledModel& model )
+        {
+            const auto& record = model.stored().record;
+
+            // A base model has no template, so nothing renders it thinking.
+            const bool thinking = model.capabilities().instruct
+                && templateThinksByDefault( record.architecture, record.architecture_version );
+
+            return { Mila::Distribution::recommendedSampling( record ), thinking };
+        }
+
+        /// A load from a file has no manifest, so its family's settings and template stand.
+        SessionSampling familySessionSampling( std::string_view architecture )
+        {
+            return { Mila::Distribution::familySampling( architecture ), templateThinksByDefault( architecture, {} ) };
+        }
+
+        /// The caller's knobs over the recommended setting for the thinking asked, over the sampler's neutral values.
+        SamplingParams resolveSampling(
+            const SessionSampling& session, std::optional<bool> thinking,
+            std::optional<float> temperature, std::optional<int> top_k, std::optional<float> top_p,
+            std::optional<float> presence_penalty )
+        {
+            SamplingParams sampling;
+
+            if ( const auto* recommended = Mila::Distribution::matchingSampling(
+                     session.recommended, thinking.value_or( session.default_thinking ) ) )
+            {
+                sampling.temperature = recommended->temperature.value_or( sampling.temperature );
+                sampling.top_k = recommended->top_k.value_or( sampling.top_k );
+                sampling.top_p = recommended->top_p.value_or( sampling.top_p );
+                sampling.presence_penalty = recommended->presence_penalty.value_or( sampling.presence_penalty );
+            }
+
+            sampling.temperature = temperature.value_or( sampling.temperature );
+            sampling.top_k = top_k.value_or( sampling.top_k );
+            sampling.top_p = top_p.value_or( sampling.top_p );
+            sampling.presence_penalty = presence_penalty.value_or( sampling.presence_penalty );
+
+            return sampling;
+        }
+
         /// Plan the request and load its best plan, with a refusal reworded for a Python caller.
         template<typename TModel>
         std::unique_ptr<TModel> loadDeployment(
@@ -505,6 +585,22 @@ namespace Mila::Bindings
 
             return std::make_shared<const DelegateHttpTransport>( delegate );
         }
+    }
+
+    SamplingSettingsInfo recommendedSampling( const std::string& name, bool thinking )
+    {
+        const auto installed = Mila::Deployment::InstalledModel::find( name );
+
+        if ( !installed.has_value() )
+        {
+            throw std::runtime_error( std::format( "No model named '{}' is installed.", name ) );
+        }
+
+        const SamplingParams sampling = resolveSampling(
+            { Mila::Distribution::recommendedSampling( installed->stored().record ), thinking },
+            thinking, std::nullopt, std::nullopt, std::nullopt, std::nullopt );
+
+        return { sampling.temperature, sampling.top_k, sampling.top_p, sampling.presence_penalty };
     }
 
     struct ModelStoreHandle::Impl
@@ -744,6 +840,7 @@ namespace Mila::Bindings
     struct LlamaSession::Impl
     {
         std::unique_ptr<LlamaCudaBf16> model;
+        SessionSampling sampling;
     };
 
     LlamaSession::LlamaSession( std::unique_ptr<Impl> impl ) : impl_( std::move( impl ) ) {}
@@ -761,6 +858,7 @@ namespace Mila::Bindings
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<LlamaCudaBf16>(
             weights, request, weights.filename().string(), device_index );
+        impl->sampling = familySessionSampling( "llama" );
 
         return std::unique_ptr<LlamaSession>( new LlamaSession( std::move( impl ) ) );
     }
@@ -777,6 +875,7 @@ namespace Mila::Bindings
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<LlamaCudaBf16>(
             model.weightsPath(), request, model.name(), device_index );
+        impl->sampling = storedSampling( model );
 
         return std::unique_ptr<LlamaSession>( new LlamaSession( std::move( impl ) ) );
     }
@@ -784,14 +883,15 @@ namespace Mila::Bindings
     std::string LlamaSession::generate(
         const std::vector<std::int32_t>& prompt_tokens,
         const std::function<void( std::int32_t )>& on_token,
-        std::size_t max_new_tokens, float temperature, int top_k, float top_p,
+        std::size_t max_new_tokens,
+        std::optional<float> temperature, std::optional<int> top_k, std::optional<float> top_p,
+        std::optional<float> presence_penalty, std::optional<bool> thinking,
         std::stop_token stop )
     {
         GenerateParams params;
         params.max_new_tokens = static_cast<int>( max_new_tokens );
-        params.sampling.temperature = temperature;
-        params.sampling.top_k = top_k;
-        params.sampling.top_p = top_p;
+        params.sampling = resolveSampling(
+            impl_->sampling, thinking, temperature, top_k, top_p, presence_penalty );
 
         const auto status = impl_->model->generate(
             prompt_tokens, on_token, params, std::move( stop ) );
@@ -830,6 +930,7 @@ namespace Mila::Bindings
     struct GemmaSession::Impl
     {
         std::unique_ptr<GemmaCudaBf16> model;
+        SessionSampling sampling;
     };
 
     GemmaSession::GemmaSession( std::unique_ptr<Impl> impl ) : impl_( std::move( impl ) ) {}
@@ -847,6 +948,7 @@ namespace Mila::Bindings
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<GemmaCudaBf16>(
             weights, request, weights.filename().string(), device_index );
+        impl->sampling = familySessionSampling( "gemma" );
 
         return std::unique_ptr<GemmaSession>( new GemmaSession( std::move( impl ) ) );
     }
@@ -863,6 +965,7 @@ namespace Mila::Bindings
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<GemmaCudaBf16>(
             model.weightsPath(), request, model.name(), device_index );
+        impl->sampling = storedSampling( model );
 
         return std::unique_ptr<GemmaSession>( new GemmaSession( std::move( impl ) ) );
     }
@@ -870,14 +973,15 @@ namespace Mila::Bindings
     std::string GemmaSession::generate(
         const std::vector<std::int32_t>& prompt_tokens,
         const std::function<void( std::int32_t )>& on_token,
-        std::size_t max_new_tokens, float temperature, int top_k, float top_p,
+        std::size_t max_new_tokens,
+        std::optional<float> temperature, std::optional<int> top_k, std::optional<float> top_p,
+        std::optional<float> presence_penalty, std::optional<bool> thinking,
         std::stop_token stop )
     {
         GenerateParams params;
         params.max_new_tokens = static_cast<int>( max_new_tokens );
-        params.sampling.temperature = temperature;
-        params.sampling.top_k = top_k;
-        params.sampling.top_p = top_p;
+        params.sampling = resolveSampling(
+            impl_->sampling, thinking, temperature, top_k, top_p, presence_penalty );
 
         const auto status = impl_->model->generate(
             prompt_tokens, on_token, params, std::move( stop ) );
@@ -921,6 +1025,7 @@ namespace Mila::Bindings
     struct QwenSession::Impl
     {
         std::unique_ptr<QwenCudaBf16> model;
+        SessionSampling sampling;
     };
 
     QwenSession::QwenSession( std::unique_ptr<Impl> impl ) : impl_( std::move( impl ) ) {}
@@ -938,6 +1043,7 @@ namespace Mila::Bindings
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<QwenCudaBf16>(
             weights, request, weights.filename().string(), device_index );
+        impl->sampling = familySessionSampling( "qwen" );
 
         return std::unique_ptr<QwenSession>( new QwenSession( std::move( impl ) ) );
     }
@@ -954,6 +1060,7 @@ namespace Mila::Bindings
         auto impl = std::make_unique<Impl>();
         impl->model = loadDeployment<QwenCudaBf16>(
             model.weightsPath(), request, model.name(), device_index );
+        impl->sampling = storedSampling( model );
 
         return std::unique_ptr<QwenSession>( new QwenSession( std::move( impl ) ) );
     }
@@ -961,14 +1068,15 @@ namespace Mila::Bindings
     std::string QwenSession::generate(
         const std::vector<std::int32_t>& prompt_tokens,
         const std::function<void( std::int32_t )>& on_token,
-        std::size_t max_new_tokens, float temperature, int top_k, float top_p,
+        std::size_t max_new_tokens,
+        std::optional<float> temperature, std::optional<int> top_k, std::optional<float> top_p,
+        std::optional<float> presence_penalty, std::optional<bool> thinking,
         std::stop_token stop )
     {
         GenerateParams params;
         params.max_new_tokens = static_cast<int>( max_new_tokens );
-        params.sampling.temperature = temperature;
-        params.sampling.top_k = top_k;
-        params.sampling.top_p = top_p;
+        params.sampling = resolveSampling(
+            impl_->sampling, thinking, temperature, top_k, top_p, presence_penalty );
 
         const auto status = impl_->model->generate(
             prompt_tokens, on_token, params, std::move( stop ) );

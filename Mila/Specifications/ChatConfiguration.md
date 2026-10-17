@@ -206,15 +206,23 @@ Read 2026-10-17:
 | Llama 3.1 / 3.2 Instruct | any | 0.6 | 0.9 | -- | -- | -- | `generation_config.json`; the card states none |
 
 So `generation_config.json` is not the whole source: it holds one setting, and Qwen 3.8's is the thinking
-one. The exporter writes the card's settings, with `generation_config.json` where the card says nothing.
+one. A card is prose, so the exporter cannot read it: each model's `ModelCards/<name>/sampling.json`
+transcribes the card's settings, or `generation_config.json`'s where the card says nothing, and names which it
+read; `ExportArtifact --package --sampling` writes them into the manifest (`ModelDistribution.md`, Sampling).
 Each setting names only the knobs its publisher states, and carries the configuration it applies to --
 thinking on or off is the only axis any card keys on today; Qwen's reasoning effort is not one, since its
-card gives one setting for thinking at every effort.
+card gives one setting for thinking at every effort. Qwen's `min_p` 0.0 is not transcribed: the sampler has no
+`min_p`, and 0.0 is what turns it off.
 
 An application opens a session at the setting that matches the session's configuration and moves with it
-when the configuration changes (`/think` in Chat; per request in the inference server, from the thinking
+when the configuration changes (`/thinking` in Chat; per request in the inference server, from the thinking
 the request asks for), below the user's own layers -- `/set`, the session file, a request's own fields --
-which still override. A knob the sampler lacks is built, not dropped: Qwen's non-thinking setting needs a
+which still override. **Built 2026-10-17.** Chat keeps the user's knobs apart from the model's and resolves
+them at every reply (`sessionSampling`), so `/thinking` moves the model's half and leaves the user's;
+`/set <key> model` hands a knob back. The binding's `generate()` takes each knob and `thinking` as optional,
+resolving what is left out against the record, and `mila.recommended_sampling(name, thinking)` answers the
+same question for a caller; the inference server passes the request's knobs and its `enable_thinking`, and
+owns no number of its own. A knob the sampler lacks is built, not dropped: Qwen's non-thinking setting needs a
 presence penalty, a penalty over the tokens a reply has already produced, which is state across decode
 steps and is designed in `TokenSampling.md` before it is built.
 
@@ -230,7 +238,9 @@ family layer, so existing published models keep working and can be republished l
 
 MIS and the Python binding read the same record, so the recommendation is shared rather than
 duplicated per adaptor. Their own sampling constants -- Chat's 0.8 / 40, the server's compiled 0.6 / 40 /
-0.9 and the Gemma setting its `.env` ships for every model -- are removed, not kept as a fallback.
+0.9 and the Gemma setting its `.env` ships for every model -- are removed, not kept as a fallback. The family
+layer for sampling is the library's (`Distribution.FamilySampling`), not Chat's `FamilyTraits`, because all
+three consumers fall back to it; the manifest's settings replace it whole, never knob by knob.
 
 ---
 
@@ -474,7 +484,7 @@ an assertion. **The chassis imposes no minimum of its own and should not** — `
 `min(context, …)`, so a short context degrades rather than breaking. A floor in `Mila/Src` would be
 an arbitrary number forbidding legitimate synthetic test configurations.
 
-**Sampling rides the same layer but not the same machinery.** `/set temperature|top_k|top_p` is layer
+**Sampling rides the same layer but not the same machinery.** `/set temperature|top_k|top_p|presence_penalty` is layer
 7 as well, and needs no rebuild — those reach the sampler per generate call. Bundling them into
 `/context`'s reload path would have made the cheap thing pay for the expensive one.
 

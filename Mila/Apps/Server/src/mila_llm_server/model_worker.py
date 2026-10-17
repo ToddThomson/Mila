@@ -13,6 +13,7 @@ from typing import Callable
 
 import mila
 from mila_llm_server.config import settings, loaded
+from mila_llm_server.schemas.internal import Sampling
 
 # Degeneration backstop. A bad sample can fail to emit a call or stop token and instead
 # spam empty reasoning channels / repeat one token for the whole budget (observed on Gemma:
@@ -206,9 +207,7 @@ class ModelWorker:
         self,
         prompt_tokens: list[int],
         max_new_tokens: int,
-        temperature: float,
-        top_k: int,
-        top_p: float = 1.0,
+        sampling: Sampling,
     ) -> tuple[list[int], str]:
         """Prompt and completion ids, and the binding's status: stop, length or context_limit."""
         loop = asyncio.get_running_loop()
@@ -217,8 +216,7 @@ class ModelWorker:
             # The binding streams tokens and returns why it stopped, so prompt + completion
             # is assembled here -- which is the shape this worker's callers slice.
             output = list(prompt_tokens)
-            status = self._model.generate(
-                prompt_tokens, output.append, max_new_tokens, temperature, top_k, top_p)
+            status = self._model.generate(prompt_tokens, output.append, max_new_tokens, **vars(sampling))
 
             return output, status
 
@@ -233,9 +231,7 @@ class ModelWorker:
         prompt_tokens: list[int],
         on_text: Callable[[str], None],
         max_new_tokens: int,
-        temperature: float,
-        top_k: int,
-        top_p: float = 1.0,
+        sampling: Sampling,
         stop_ctrl: mila.StopController | None = None,
         stop_at_markers: bool = True,
     ) -> str:
@@ -301,8 +297,7 @@ class ModelWorker:
 
         def _run() -> str:
             return self._model.generate(
-                prompt_tokens, _on_token, max_new_tokens, temperature, top_k, top_p, stop_ctrl
-            )
+                prompt_tokens, _on_token, max_new_tokens, **vars(sampling), stop_controller=stop_ctrl)
 
         status = await loop.run_in_executor(self._executor, _run)
 

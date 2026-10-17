@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <format>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -116,7 +117,8 @@ namespace Mila::Tests::Distribution
             const std::filesystem::path& directory,
             const std::string& name = "gemma-4-12b-it-fp4",
             bool with_license = true,
-            std::string_view weights_payload = kWeightsPayload )
+            std::string_view weights_payload = kWeightsPayload,
+            std::vector<SamplingRecommendation> sampling = {} )
         {
             writeWholeFile( directory / "sources" / "model.safetensors", weights_payload );
             writeWholeFile( directory / "sources" / "tokenizer.bin", kTokenizerPayload );
@@ -135,6 +137,7 @@ namespace Mila::Tests::Distribution
             request.weight_quantization = "per_group_fp4_128";
             request.minimum_mila_version = "0.20.0";
             request.capabilities.instruct = true;
+            request.sampling = std::move( sampling );
             request.weights = directory / "sources" / "model.safetensors";
             request.tokenizer = directory / "sources" / "tokenizer.bin";
 
@@ -190,6 +193,136 @@ namespace Mila::Tests::Distribution
         EXPECT_EQ( manifest.file( kWeightsRole )->sha256, "aaa" );
         EXPECT_EQ( manifest.file( kWeightsRole )->bytes, 40u );
         ASSERT_NE( manifest.file( kTokenizerRole ), nullptr );
+    }
+
+    // ================================================================
+    // The publisher's sampling settings
+    // ================================================================
+
+    namespace
+    {
+        /// Qwen 3.8's two settings, as its card states them.
+        std::vector<SamplingRecommendation> qwenSettings()
+        {
+            return {
+                { .thinking = true, .temperature = 1.0f, .top_p = 0.95f, .top_k = 20 },
+                { .thinking = false, .temperature = 0.7f, .top_p = 0.80f, .top_k = 20, .presence_penalty = 1.5f } };
+        }
+
+        std::string manifestWithSampling( std::string_view sampling )
+        {
+            std::string text = manifestJson( "aaa" );
+            text.insert( text.find( "\"files\"" ), std::format( "\"sampling\": {},\n", sampling ) );
+
+            return text;
+        }
+    }
+
+    TEST( ModelManifestSamplingTests, AManifestWithoutSamplingReadsNoneAndWritesNone )
+    {
+        const auto manifest = parseModelManifest( manifestJson( "aaa" ), "test" );
+
+        EXPECT_TRUE( manifest.sampling.empty() );
+        EXPECT_EQ( toJsonText( manifest ).find( "sampling" ), std::string::npos );
+    }
+
+    TEST( ModelManifestSamplingTests, SettingsRoundTripWithTheirConfiguration )
+    {
+        auto manifest = parseModelManifest( manifestJson( "aaa" ), "test" );
+        manifest.sampling = qwenSettings();
+
+        const std::string text = toJsonText( manifest );
+
+        // The publisher's numbers as they wrote them, not the double nearest each float.
+        EXPECT_NE( text.find( "0.95" ), std::string::npos );
+        EXPECT_EQ( text.find( "0.949" ), std::string::npos );
+
+        const auto read = parseModelManifest( text, "test" );
+
+        ASSERT_EQ( read.sampling.size(), 2u );
+        EXPECT_EQ( read.sampling[ 0 ].thinking, std::optional<bool>( true ) );
+        EXPECT_EQ( read.sampling[ 0 ].temperature, std::optional<float>( 1.0f ) );
+        EXPECT_EQ( read.sampling[ 0 ].top_p, std::optional<float>( 0.95f ) );
+        EXPECT_EQ( read.sampling[ 0 ].top_k, std::optional<int>( 20 ) );
+        EXPECT_FALSE( read.sampling[ 0 ].presence_penalty.has_value() );
+        EXPECT_EQ( read.sampling[ 1 ].thinking, std::optional<bool>( false ) );
+        EXPECT_EQ( read.sampling[ 1 ].presence_penalty, std::optional<float>( 1.5f ) );
+    }
+
+    TEST( ModelManifestSamplingTests, ASettingWithNoConditionAppliesEitherWay )
+    {
+        const auto read = parseModelManifest(
+            manifestWithSampling( R"([ { "temperature": 1.0, "top_p": 0.95, "top_k": 64 } ])" ), "test" );
+
+        ASSERT_EQ( read.sampling.size(), 1u );
+        EXPECT_FALSE( read.sampling[ 0 ].thinking.has_value() );
+        EXPECT_EQ( matchingSampling( read.sampling, true ), &read.sampling[ 0 ] );
+        EXPECT_EQ( matchingSampling( read.sampling, false ), &read.sampling[ 0 ] );
+    }
+
+    TEST( ModelManifestSamplingTests, TheSettingForTheThinkingAsked )
+    {
+        const auto settings = qwenSettings();
+
+        EXPECT_EQ( matchingSampling( settings, true ), &settings[ 0 ] );
+        EXPECT_EQ( matchingSampling( settings, false ), &settings[ 1 ] );
+
+        const std::vector<SamplingRecommendation> thinking_only{ settings[ 0 ] };
+
+        EXPECT_EQ( matchingSampling( thinking_only, false ), nullptr );
+    }
+
+    TEST( ModelManifestSamplingTests, AMalformedSettingIsDroppedWholeAndTheModelStillLoads )
+    {
+        const auto read = parseModelManifest( manifestWithSampling( R"([
+            { "when": { "thinking": true }, "temperature": "hot", "top_k": 20 },
+            { "when": { "thinking": false }, "top_p": 1.5 },
+            { "when": { "thinking": false }, "top_k": -1 },
+            { "when": "thinking" },
+            { "when": { "thinking": false }, "temperature": 0.7 }
+            ])" ), "test" );
+
+        ASSERT_EQ( read.sampling.size(), 1u );
+        EXPECT_EQ( read.sampling[ 0 ].thinking, std::optional<bool>( false ) );
+        EXPECT_EQ( read.sampling[ 0 ].temperature, std::optional<float>( 0.7f ) );
+        EXPECT_FALSE( read.sampling[ 0 ].top_k.has_value() );
+    }
+
+    TEST( ModelManifestSamplingTests, ANewerManifestsKnobIsIgnoredAndItsConditionDropsTheSetting )
+    {
+        const auto read = parseModelManifest( manifestWithSampling( R"([
+            { "when": { "thinking": true, "effort": "high" }, "temperature": 0.5 },
+            { "temperature": 1.0, "min_p": 0.05 }
+            ])" ), "test" );
+
+        // A condition this build cannot test would apply the setting where its publisher did not.
+        ASSERT_EQ( read.sampling.size(), 1u );
+        EXPECT_FALSE( read.sampling[ 0 ].thinking.has_value() );
+        EXPECT_EQ( read.sampling[ 0 ].temperature, std::optional<float>( 1.0f ) );
+    }
+
+    TEST( ModelManifestSamplingTests, AModelWithoutSettingsOpensAtItsFamilys )
+    {
+        ModelRecord record;
+        record.architecture = "qwen";
+
+        const auto family = recommendedSampling( record );
+
+        ASSERT_EQ( family.size(), 2u );
+        EXPECT_EQ( matchingSampling( family, false )->presence_penalty, std::optional<float>( 1.5f ) );
+        EXPECT_EQ( matchingSampling( family, true )->temperature, std::optional<float>( 1.0f ) );
+
+        EXPECT_EQ( matchingSampling( familySampling( "gemma" ), true )->top_k, std::optional<int>( 64 ) );
+        EXPECT_EQ( matchingSampling( familySampling( "llama" ), false )->temperature, std::optional<float>( 0.6f ) );
+        EXPECT_TRUE( familySampling( "gpt2" ).empty() );
+
+        // The manifest's settings replace the family's whole, never knob by knob.
+        record.sampling = { { .temperature = 0.3f } };
+
+        const auto declared = recommendedSampling( record );
+
+        ASSERT_EQ( declared.size(), 1u );
+        EXPECT_FALSE( declared[ 0 ].top_k.has_value() );
     }
 
     TEST( ModelManifestTests, AManifestWrittenBeforeArchitectureVersionReadsItEmpty )
@@ -519,6 +652,29 @@ namespace Mila::Tests::Distribution
     // Installing into the local store
     // ================================================================
 
+    TEST( ModelStoreInstallTests, ThePublishersSamplingTravelsFromThePackageToTheStoredRecord )
+    {
+        ScratchDirectory scratch( "package" );
+        ScratchDirectory store_root( "store" );
+
+        const auto package = buildScratchPackage(
+            scratch.path(), "Qwen3.8-27B-fp4", true, kWeightsPayload, qwenSettings() );
+
+        EXPECT_EQ( package.manifest().sampling.size(), 2u );
+
+        ModelStore store( store_root.path() );
+        store.install( package );
+
+        // Read back from the record on disk, not the one install returned.
+        const auto located = store.locate( "Qwen3.8-27B-fp4" );
+
+        ASSERT_TRUE( located.has_value() );
+        ASSERT_EQ( located->record.sampling.size(), 2u );
+        EXPECT_EQ( located->record.sampling[ 1 ].thinking, std::optional<bool>( false ) );
+        EXPECT_EQ( located->record.sampling[ 1 ].presence_penalty, std::optional<float>( 1.5f ) );
+        EXPECT_EQ( located->record.sampling[ 0 ].top_p, std::optional<float>( 0.95f ) );
+    }
+
     TEST( ModelStoreInstallTests, InstallsAPackageUnderItsName )
     {
         ScratchDirectory scratch( "package" );
@@ -540,6 +696,7 @@ namespace Mila::Tests::Distribution
         // prompt template, and nothing downstream can tell that it was dropped.
         EXPECT_TRUE( installed.record.capabilities.instruct );
         EXPECT_TRUE( store.locate( "gemma-4-12b-it-fp4" )->record.capabilities.instruct );
+        EXPECT_TRUE( store.locate( "gemma-4-12b-it-fp4" )->record.sampling.empty() );
 
         // Nothing served this, so it is local -- a field on the record, not a namespace.
         EXPECT_TRUE( installed.record.isLocal() );

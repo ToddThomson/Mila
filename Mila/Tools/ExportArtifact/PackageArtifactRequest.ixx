@@ -42,6 +42,9 @@ namespace Mila::Tools
         /// What the model was trained to do, and the modalities besides text this Mila runs for it.
         Mila::Distribution::ModelCapabilities capabilities;
 
+        /// The publisher's sampling settings, transcribed from the source model's card. Empty when it states none.
+        std::filesystem::path sampling;
+
         /// The draft model the package carries for speculative decoding. Empty when it carries none.
         std::filesystem::path drafter;
 

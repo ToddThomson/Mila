@@ -456,6 +456,7 @@ namespace Mila::Distribution
             record.base_model = manifest.base_model;
             record.license = manifest.license;
             record.capabilities = manifest.capabilities;
+            record.sampling = manifest.sampling;
 
             // hub, owner, repository and revision stay empty: nothing served this, and a record
             // naming a hub it did not come from would make a local build look published.
@@ -1226,6 +1227,7 @@ namespace Mila::Distribution
             }
 
             writeCapabilities( document, record.capabilities );
+            writeSampling( document, std::span<const SamplingRecommendation>( record.sampling ) );
 
             document[ "files" ] = files;
             document[ "installed" ] = {
@@ -1251,6 +1253,7 @@ namespace Mila::Distribution
             record.base_model = json.value( "base_model", std::string{} );
             record.license = json.value( "license", std::string{} );
             record.capabilities = readCapabilities( json );
+            record.sampling = readSampling( json );
 
             if ( json.contains( "installed" ) && json[ "installed" ].is_object() )
             {

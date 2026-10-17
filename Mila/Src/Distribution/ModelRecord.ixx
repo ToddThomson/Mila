@@ -8,6 +8,7 @@ export module Distribution.ModelRecord;
 import std;
 export import Distribution.ModelFile;
 export import Distribution.ModelCapabilities;
+export import Distribution.SamplingRecommendation;
 
 namespace Mila::Distribution
 {
@@ -38,6 +39,9 @@ namespace Mila::Distribution
 
         /// What the model was trained to do, as its manifest declared it.
         ModelCapabilities capabilities;
+
+        /// The base model's publisher's sampling settings, as the manifest declared them. Empty when it declared none.
+        std::vector<SamplingRecommendation> sampling;
 
         /**
          * @brief Where this copy came from. Never published, and never part of the path.

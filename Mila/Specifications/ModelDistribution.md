@@ -202,6 +202,30 @@ is declared, never read out of `base_model`. `ExportArtifact --package --archite
   its top-level `instruct`, which writers keep emitting so an older Mila still reads it. A published model is
   republished with the fields where that loses something it had.
 
+### Sampling
+
+*Decided 2026-10-05, widened 2026-10-17 (Todd).* The sampling the base model's publisher recommends, each setting
+with the configuration it applies to (`ChatConfiguration.md` section 5):
+
+```json
+"sampling": [
+  { "when": { "thinking": true }, "temperature": 1.0, "top_p": 0.95, "top_k": 20 },
+  { "when": { "thinking": false }, "temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5 }
+]
+```
+
+- **A setting names only the knobs its publisher states.** One left out is the sampler's neutral value, never
+  another setting's or the family's.
+- **`when` is the configuration.** Absent applies to every configuration; `thinking` is the only key any publisher
+  keys on today. The first setting whose `when` holds is the one used.
+- **The field is optional.** A manifest without it -- every one written before 0.21.0 -- samples at its family's
+  published settings (`Distribution.FamilySampling`), so republishing is not needed to get them.
+- **Never a reason to refuse a model.** A reader drops a malformed setting whole, ignores a knob it does not know,
+  and drops a setting whose `when` names a key it does not know, which would otherwise apply it too widely.
+- **The exporter is strict.** `ExportArtifact --package --sampling ModelCards/<name>/sampling.json` writes the
+  field from a transcription of the publisher's card that names its source, and refuses an unknown key or a value
+  out of range by name.
+
 `minimum_mila_version` is the version-skew guard. A newer artifact loaded by an older Mila fails with
 a version comparison rather than a parse error somewhere inside the tensor index.
 

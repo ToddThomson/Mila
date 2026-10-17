@@ -11,6 +11,8 @@ export import Chat.ModelSize;
 export import Chat.QuantizationMode;
 export import Chat.KvCache;
 export import Chat.DetailLevel;
+export import Distribution.SamplingRecommendation;
+export import Dnn.SamplingParams;
 
 namespace Mila::ChatApp
 {
@@ -95,12 +97,16 @@ namespace Mila::ChatApp
         std::filesystem::path model_path;
         std::filesystem::path tokenizer_path;
         std::size_t                max_new_tokens{ 2048 };
-        float                 temperature{ 0.8f };
-        int                   top_k{ 40 };
 
-        /// Nucleus truncation. 1.0 disables it, matching the runtime's own default -- Chat was the
-        /// only consumer of the sampler not passing this knob through.
-        float                 top_p{ 1.0f };
+        /// The user's own sampling, from the session file, a flag or /set. A knob left empty takes the model's.
+        std::optional<float>  temperature;
+        std::optional<int>    top_k;
+        std::optional<float>  top_p;
+        std::optional<float>  presence_penalty;
+
+        /// What the loaded model's publisher recommends, each setting with the thinking it applies to.
+        std::vector<Distribution::SamplingRecommendation> recommended_sampling;
+
         std::size_t                context_length{ 0 };
 
         /// What was asked for, kept apart from the live value because a model switch rewrites the
@@ -123,4 +129,32 @@ namespace Mila::ChatApp
 
         std::optional<std::filesystem::path> system_prompt_path;
     };
+
+    /**
+     * @brief What the sampler draws with now: the user's knobs over the setting the model's publisher
+     *        recommends for the thinking in effect, over the sampler's neutral values.
+     *
+     * Read at every generate, so the recommendation follows /thinking while the user's own knobs stay put.
+     */
+    export inline Dnn::SamplingParams sessionSampling( const ChatConfig& config )
+    {
+        Dnn::SamplingParams sampling;
+
+        const bool thinking = config.thinking_capable && config.show_thinking;
+
+        if ( const auto* recommended = Distribution::matchingSampling( config.recommended_sampling, thinking ) )
+        {
+            sampling.temperature = recommended->temperature.value_or( sampling.temperature );
+            sampling.top_k = recommended->top_k.value_or( sampling.top_k );
+            sampling.top_p = recommended->top_p.value_or( sampling.top_p );
+            sampling.presence_penalty = recommended->presence_penalty.value_or( sampling.presence_penalty );
+        }
+
+        sampling.temperature = config.temperature.value_or( sampling.temperature );
+        sampling.top_k = config.top_k.value_or( sampling.top_k );
+        sampling.top_p = config.top_p.value_or( sampling.top_p );
+        sampling.presence_penalty = config.presence_penalty.value_or( sampling.presence_penalty );
+
+        return sampling;
+    }
 }

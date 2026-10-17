@@ -198,14 +198,15 @@ Chat Completions:
 |---|---|---|
 | `messages`, `tools` | honour | 3.1; `developer` is `system`; an assistant's `reasoning_content` is its reasoning |
 | `max_completion_tokens`, `max_tokens` | honour | the first wins when both are sent |
-| `temperature`, `top_p`, `stop`, `stream` | honour | |
+| `temperature`, `top_p`, `stop`, `stream` | honour | a sampling knob left out is the model's recommended setting for the thinking the prompt was rendered with (`ChatConfiguration.md` section 5); the server has no sampling setting of its own |
+| `presence_penalty` | honour, from -2.0 to 2.0 | Decided 2026-10-17: the sampler has one (`TokenSampling.md` 3.3). Qwen 3.8 recommends 1.5 with thinking off, which a request leaving it out gets |
 | `stream_options.include_usage` | honour | a final usage chunk |
 | `tool_choice` | honour `auto` and `none`; refuse `required` and a named function | 10.3: asking is not doing |
 | `parallel_tool_calls` | honour | `false` keeps the first call of a turn |
 | `seed` | refuse | the binding takes no seed (10.4) |
 | `n` > 1 | refuse | one completion per request |
 | `logprobs`, `top_logprobs` | refuse | not exposed by the binding |
-| `frequency_penalty`, `presence_penalty`, `logit_bias` other than their defaults | refuse | the sampler has none |
+| `frequency_penalty`, `logit_bias` other than their defaults | refuse | the sampler has neither |
 | `response_format` other than `text` | refuse | Mila has no constrained decoding |
 | `reasoning_effort` | `none` sets the template's `enable_thinking` false, and is met as sent by a template without it. A level: a template with its own `reasoning_effort` variable takes it by exact name and refuses any other, naming what is accepted; a template with only `enable_thinking` turns thinking on; a template with neither refuses it | Decided 2026-10-15. OpenAI's effort is its reasoning switch -- `none` is off, a level is on and how much. A level is never mapped onto another model's level (`ModelHandle.md` 3.4); a thinking-only template has one depth, so its levels are not told apart. Absent: the template's default (10.6) |
 | image or audio content parts | refuse | 3.1 |

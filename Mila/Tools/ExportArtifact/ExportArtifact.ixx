@@ -15,6 +15,7 @@ export import Tools.ExportArtifact.InstallRequest;
 export import Tools.ExportArtifact.PackageArtifactRequest;
 
 import Mila;
+import nlohmann.json;
 
 namespace Mila::Tools
 {
@@ -829,6 +830,86 @@ namespace Mila::Tools
     }
 
     /**
+     * @brief The publisher's sampling settings, as a model card's sampling.json transcribes them.
+     *
+     * `{ "source": "<where the numbers were read>", "settings": [ <the manifest's sampling entries> ] }`. Strict
+     * where the manifest reader is lenient: this is the one writer, so a key it does not know or a value out of
+     * range is a mistake in the transcription, refused by name rather than dropped from the package.
+     *
+     * @throws std::runtime_error naming the file and what is wrong with it.
+     */
+    std::vector<Mila::Distribution::SamplingRecommendation> readSamplingFile( const std::filesystem::path& path )
+    {
+        std::ifstream file( path, std::ios::binary );
+
+        if ( !file )
+        {
+            throw std::runtime_error( std::format( "sampling file not found: {}", path.string() ) );
+        }
+
+        const std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+        const nlohmann::json json = nlohmann::json::parse( text, nullptr, false );
+
+        const auto refuse = [&path]( std::string_view problem )
+            {
+                return std::runtime_error( std::format( "{}: {}", path.string(), problem ) );
+            };
+
+        if ( json.is_discarded() || !json.is_object() )
+        {
+            throw refuse( "not a JSON object" );
+        }
+
+        if ( !json.contains( "source" ) || !json[ "source" ].is_string() || json[ "source" ].get<std::string>().empty() )
+        {
+            throw refuse( "names no \"source\": say where the settings were read, so a reviewer can check them" );
+        }
+
+        if ( !json.contains( "settings" ) || !json[ "settings" ].is_array() || json[ "settings" ].empty() )
+        {
+            throw refuse( "has no \"settings\" array" );
+        }
+
+        for ( const auto& entry : json.items() )
+        {
+            if ( entry.key() != "source" && entry.key() != "settings" )
+            {
+                throw refuse( std::format( "'{}' is not a key of a sampling file", entry.key() ) );
+            }
+        }
+
+        constexpr std::array<std::string_view, 5> known{ "when", "temperature", "top_p", "top_k", "presence_penalty" };
+
+        for ( const auto& setting : json[ "settings" ] )
+        {
+            if ( !setting.is_object() )
+            {
+                throw refuse( "a setting is not an object" );
+            }
+
+            for ( const auto& entry : setting.items() )
+            {
+                if ( std::ranges::find( known, entry.key() ) == known.end() )
+                {
+                    throw refuse( std::format( "'{}' is not a sampling knob Mila has", entry.key() ) );
+                }
+            }
+        }
+
+        const nlohmann::json manifest = { { "sampling", json[ "settings" ] } };
+        auto settings = Mila::Distribution::readSampling( manifest );
+
+        // The manifest reader drops a malformed setting whole; here a dropped one is a value out of range.
+        if ( settings.size() != json[ "settings" ].size() )
+        {
+            throw refuse( "a setting has a value out of range or of the wrong type, or a condition other than "
+                "\"when\": { \"thinking\": true|false }" );
+        }
+
+        return settings;
+    }
+
+    /**
      * @brief Assemble a package around an artifact that already exists.
      *
      * @return Process exit code.
@@ -880,6 +961,12 @@ namespace Mila::Tools
             package_request.base_model = request.base_model;
             package_request.license_id = request.license_id;
             package_request.capabilities = request.capabilities;
+
+            if ( !request.sampling.empty() )
+            {
+                package_request.sampling = readSamplingFile( request.sampling );
+            }
+
             package_request.drafter = request.drafter;
             package_request.weights = request.weights;
             package_request.tokenizer = request.tokenizer;

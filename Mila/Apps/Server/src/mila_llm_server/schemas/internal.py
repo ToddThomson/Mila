@@ -7,16 +7,36 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class Sampling:
+    """
+    The sampling a request asked for. Each knob left None is the model's publisher's setting for `thinking` --
+    whether the prompt was rendered with thinking on -- and None there is the template's default
+    (ChatConfiguration.md section 5). The binding resolves both.
+    """
+
+    temperature: float | None = None
+    top_k: int | None = None
+    top_p: float | None = None
+    presence_penalty: float | None = None
+    thinking: bool | None = None
+
+
+@dataclass
 class InferenceRequest:
     prompt_ids: list[int]
     max_new_tokens: int
-    temperature: float
-    top_k: int
     stream: bool
-    top_p: float = 1.0
+    temperature: float | None = None
+    top_k: int | None = None
+    top_p: float | None = None
+    presence_penalty: float | None = None
     # OpenAI's stop sequences. The reply is cut at the first one and the sequence itself is
     # not returned, streamed or buffered.
     stop: list[str] = field(default_factory=list)
+
+    @property
+    def sampling(self) -> Sampling:
+        return Sampling(self.temperature, self.top_k, self.top_p, self.presence_penalty)
 
 
 @dataclass

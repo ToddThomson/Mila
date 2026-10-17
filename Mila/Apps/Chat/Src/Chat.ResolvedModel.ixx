@@ -7,6 +7,7 @@ export module Chat.ResolvedModel;
 
 import std;
 import Chat.Config;
+import Distribution.SamplingRecommendation;
 
 namespace Mila::ChatApp
 {
@@ -41,6 +42,9 @@ namespace Mila::ChatApp
         /// Trained for tool calls, and Mila's measured verdict that it works as an agent, as the manifest declares.
         bool tools_capable{ false };
         bool agentic{ false };
+
+        /// What the model's publisher recommends sampling at: its manifest's settings, or its family's.
+        std::vector<Distribution::SamplingRecommendation> sampling;
 
         /// True when the quantization is a load-time choice rather than what the weights already
         /// are. Both land in the same field, but only this one is a fact the model's name omits.

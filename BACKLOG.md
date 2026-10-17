@@ -567,45 +567,6 @@ still loads; every published model republished with them.
 Also the root of Codex's "Model metadata not found" warning against `/v1/models` — all three
 validated flows pass regardless, so that is a symptom of this gap rather than separate work.
 
-#### Mila samples every model at one fixed setting, not at the one its publisher recommends for how it is run
-
-`in progress` · `distribution` · `apps` · `mila-src`
-
-Chat samples every model at temperature 0.8, top-k 40 and no top-p (`Chat.Config.ixx:98`). The inference
-server's compiled defaults are 0.6, top-k 40 and top-p 0.9 (`config.py:48`), and the `.env` it ships overrides
-them with Gemma 4's 1.0, 64 and 0.95 for every model it serves; its Mila protocol and the binding default to 1.0
-with no truncation. No publisher recommends any of these for the models Mila runs, and none of them changes when
-thinking does.
-
-The publishers' settings are tabled in `ChatConfiguration.md` section 5. Qwen 3.8 27B's card gives two -- thinking
-1.0, top-p 0.95, top-k 20; not thinking 0.7, top-p 0.80, top-k 20, presence penalty 1.5 -- and its
-`generation_config.json` carries only the first. Gemma 4's card gives 1.0, 64 and 0.95 for every use. Llama 3.1 and
-3.2's cards give none, and `generation_config.json` gives 0.6 and top-p 0.9.
-
-Decided by Todd (2026-10-05, widened 2026-10-17): an application's sampling defaults come from the base model's
-publisher and follow how the model is configured. Work, in section 5's design: the manifest carries the
-publisher's settings, each with the configuration it applies to; `ExportArtifact` writes them from the card, with
-`generation_config.json` where the card says nothing; Chat, the inference server and the binding open a session at
-the setting that matches its configuration and move with it when thinking is switched -- per request in the
-server -- below the user's own layers (`/set`, the session file, the request), which still override. A manifest
-without them falls back to its family's published settings; the applications' constants and `.env`'s sampling
-lines are removed.
-
-The sampler half is built (`TokenSampling.md` 3.3): `SamplingParams::presence_penalty`, the reply's produced tokens
-kept on the device through the decode-ahead loop and a drafter's verify, and top-k keeping every token tied with the
-k-th in both kernels. What is left is everything above it: the manifest, the exporter, and Chat, the server and the
-binding reaching the penalty, which the server still refuses (`InferenceServerWire.md`) and the binding and Chat do
-not pass.
-
-Gate: a Qwen 3.8 package exported on this tree carries both settings, and Chat, the server and the binding open
-at the thinking one and move to the other, presence penalty included, when thinking is turned off; a Gemma 4
-package carries 1.0, 64 and 0.95; an installed package without the fields loads and opens at its family's
-settings; the presence penalty matches a host reference through the decode-ahead loop and a drafter's verify;
-and on logits with a tie at the k-th value, top-k keeps the whole tie in both kernels.
-
-`Mila/Apps/Chat/Src/Chat.Config.ixx:98` · `Mila/Specifications/ChatConfiguration.md` section 5 ·
-`Mila/Specifications/TokenSampling.md` 3.3
-
 ### Upgrades Keep Your Models
 
 #### A model installed under v0.20 stops loading when Mila is upgraded

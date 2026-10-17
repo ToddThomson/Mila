@@ -381,14 +381,14 @@ of them specifications.
 spellings of one axis. Not a blind sweep — `GroupedQueryAttention.ixx` and `CudaRopeOp.ixx` use
 both. Same files throughout, so it is one pass.
 
-## Forty-five module files export more than one type
+## Forty-four module files export more than one type
 
 `architecture` · `apps` · `binding` · `mila-src`
 
 CLAUDE.md requires one exported type per module file, and 46 of 367 `.ixx` files predated the rule
 — about 105 new files to split fully (2026-09-19): `Mila/Src` 33 files (~60), Chat 8 (25), Bindings
 1 (16, all in `Mila_py.Wrappers.ixx`), Tools 2 (4). `Weight/Policies` was split in the Q4_0 work
-(`0.21.0-dev+12`), leaving 45. `Metal`/`Rocm` `MemoryResource` define one type twice across
+(`0.21.0-dev+12`) and `Mila_py.Wrappers.ixx` into partitions in `0.21.0-dev+73`, leaving 44. `Metal`/`Rocm` `MemoryResource` define one type twice across
 `#if`/`#else` and are not violations.
 
 Src shapes: a class plus its request/result structs (`ModelStore` has nine types); an enum beside

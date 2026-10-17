@@ -98,7 +98,7 @@ class FakeWorker:
     async def decode(self, ids):
         return "The final answer is 6\nQ: another question"
 
-    async def generate(self, prompt_ids, max_new_tokens, temperature, top_k, top_p=1.0):
+    async def generate(self, prompt_ids, max_new_tokens, sampling):
         self.generated_from = list(prompt_ids)
 
         return list(prompt_ids) + self.reply_ids, "stop"

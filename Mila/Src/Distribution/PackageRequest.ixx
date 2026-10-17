@@ -7,6 +7,7 @@ export module Distribution.PackageRequest;
 
 import std;
 export import Distribution.ModelCapabilities;
+export import Distribution.SamplingRecommendation;
 
 namespace Mila::Distribution
 {
@@ -38,6 +39,9 @@ namespace Mila::Distribution
 
         /// What the model was trained to do, and the modalities besides text this Mila runs for it.
         ModelCapabilities capabilities;
+
+        /// The base model's publisher's sampling settings, each with the configuration it applies to.
+        std::vector<SamplingRecommendation> sampling;
 
         std::filesystem::path weights;
         std::filesystem::path tokenizer;

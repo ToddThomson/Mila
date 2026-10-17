@@ -26,7 +26,7 @@ from mila_llm_server.protocols.utils import (
     finish_reason_from_status,
     truncate_at_stop,
 )
-from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
+from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse, Sampling
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ async def _serve_chat(endpoint: ChatEndpoint, body: dict, http_req: Request) -> 
 
     parts: list[str] = []
     status = await worker.generate_streaming(
-        prompt_ids, parts.append, allowed, *_sampling(request), mila.StopController())
+        prompt_ids, parts.append, allowed, _sampling(request), mila.StopController())
 
     reply = _reply(protocol, "".join(parts), prompt, status, request, requested, allowed, len(prompt_ids), len(parts))
 
@@ -146,12 +146,16 @@ def _shape(body: dict) -> str:
         f"{message.get('role') or message.get('type')}:{parts(message)}" for message in messages if isinstance(message, dict))
 
 
-def _sampling(request: ServedRequest) -> tuple[float, int, float]:
-    return (
-        settings.default_temperature if request.temperature is None else request.temperature,
-        settings.default_top_k if request.top_k is None else request.top_k,
-        settings.default_top_p if request.top_p is None else request.top_p,
-    )
+def _sampling(request: ServedRequest) -> Sampling:
+    """
+    The request's knobs, with the thinking its prompt was rendered with. A knob it did not set is the model's
+    recommended setting for that thinking, and thinking it did not set is the template's default.
+    """
+    thinking = request.template_variables.get("enable_thinking")
+
+    return Sampling(
+        request.temperature, request.top_k, request.top_p, request.presence_penalty,
+        None if thinking is None else thinking == "true")
 
 
 def _reply(protocol, raw: str, prompt: dict, status: str, request: ServedRequest, requested: int, allowed: int,
@@ -211,7 +215,7 @@ async def _stream_chat(endpoint: ChatEndpoint, request: ServedRequest, prompt: d
         loop.call_soon_threadsafe(queue.put_nowait, text)
 
     generation = asyncio.create_task(
-        worker.generate_streaming(prompt_ids, on_text, allowed, *_sampling(request), stop_ctrl))
+        worker.generate_streaming(prompt_ids, on_text, allowed, _sampling(request), stop_ctrl))
     generation.add_done_callback(lambda _: loop.call_soon_threadsafe(queue.put_nowait, None))
 
     yield endpoint.stream_open(context)
@@ -275,8 +279,7 @@ async def _serve_completion(prompt_str: str, inf_req: InferenceRequest, http_req
     if inf_req.stream:
         return StreamingResponse(_stream_completion(inf_req, http_req, adapter, requested_tokens), media_type="text/event-stream")
 
-    output_ids, status = await worker.generate(
-        inf_req.prompt_ids, inf_req.max_new_tokens, inf_req.temperature, inf_req.top_k, inf_req.top_p)
+    output_ids, status = await worker.generate(inf_req.prompt_ids, inf_req.max_new_tokens, inf_req.sampling)
     new_ids = output_ids[len(inf_req.prompt_ids):]
 
     response = InferenceResponse(
@@ -309,8 +312,7 @@ async def _stream_completion(inf_req: InferenceRequest, http_req: Request, adapt
         loop.call_soon_threadsafe(queue.put_nowait, text)
 
     generation = asyncio.create_task(worker.generate_streaming(
-        inf_req.prompt_ids, on_text, inf_req.max_new_tokens, inf_req.temperature, inf_req.top_k, inf_req.top_p,
-        stop_ctrl, stop_at_markers=False))
+        inf_req.prompt_ids, on_text, inf_req.max_new_tokens, inf_req.sampling, stop_ctrl, stop_at_markers=False))
     generation.add_done_callback(lambda _: loop.call_soon_threadsafe(queue.put_nowait, None))
 
     first_token = True

@@ -12,6 +12,7 @@ export module Distribution.ModelManifest;
 import std;
 export import Distribution.ModelFile;
 export import Distribution.ModelCapabilities;
+export import Distribution.SamplingRecommendation;
 
 import nlohmann.json;
 import Mila.Version;
@@ -57,6 +58,9 @@ namespace Mila::Distribution
 
         /// What the model was trained to do. `instruct` decides the prompt template, which nothing else can infer.
         ModelCapabilities capabilities;
+
+        /// The base model's publisher's sampling settings. Empty when the manifest carries none.
+        std::vector<SamplingRecommendation> sampling;
 
         std::vector<ModelFile> files;
 
@@ -160,6 +164,145 @@ namespace Mila::Distribution
     }
 
     /**
+     * @brief Read the sampling settings a manifest or a store record declares.
+     *
+     * A recommendation is never a reason to refuse a model, so a malformed setting is dropped whole rather than
+     * applied in part, and an empty list leaves the model at its family's settings. A knob this build does not
+     * know is ignored; a condition it does not know drops the setting, which would otherwise apply too widely.
+     */
+    export template<typename TJson>
+    std::vector<SamplingRecommendation> readSampling( const TJson& json )
+    {
+        std::vector<SamplingRecommendation> settings;
+
+        if ( !json.contains( "sampling" ) || !json[ "sampling" ].is_array() )
+        {
+            return settings;
+        }
+
+        const auto readFloat = []( const TJson& entry, const char* key, std::optional<float>& out ) -> bool
+            {
+                if ( !entry.contains( key ) )
+                {
+                    return true;
+                }
+
+                if ( !entry[ key ].is_number() || !std::isfinite( entry[ key ].template get<double>() ) )
+                {
+                    return false;
+                }
+
+                out = entry[ key ].template get<float>();
+
+                return true;
+            };
+
+        for ( const auto& entry : json[ "sampling" ] )
+        {
+            if ( !entry.is_object() )
+            {
+                continue;
+            }
+
+            SamplingRecommendation setting;
+            bool valid = true;
+
+            if ( entry.contains( "when" ) )
+            {
+                const auto& when = entry[ "when" ];
+                valid = when.is_object();
+
+                for ( auto condition = when.begin(); valid && condition != when.end(); ++condition )
+                {
+                    valid = condition.key() == "thinking" && condition.value().is_boolean();
+
+                    if ( valid )
+                    {
+                        setting.thinking = condition.value().template get<bool>();
+                    }
+                }
+            }
+
+            valid = valid
+                && readFloat( entry, "temperature", setting.temperature )
+                && readFloat( entry, "top_p", setting.top_p )
+                && readFloat( entry, "presence_penalty", setting.presence_penalty );
+
+            if ( valid && entry.contains( "top_k" ) )
+            {
+                valid = entry[ "top_k" ].is_number_integer() && entry[ "top_k" ].template get<long long>() >= 0;
+
+                if ( valid )
+                {
+                    setting.top_k = entry[ "top_k" ].template get<int>();
+                }
+            }
+
+            valid = valid
+                && setting.temperature.value_or( 0.0f ) >= 0.0f
+                && setting.top_p.value_or( 1.0f ) >= 0.0f && setting.top_p.value_or( 1.0f ) <= 1.0f;
+
+            if ( valid )
+            {
+                settings.push_back( setting );
+            }
+        }
+
+        return settings;
+    }
+
+    /**
+     * @brief Write the sampling settings into a manifest or a store record; nothing when there are none.
+     */
+    export template<typename TJson>
+    void writeSampling( TJson& json, std::span<const SamplingRecommendation> settings )
+    {
+        if ( settings.empty() )
+        {
+            return;
+        }
+
+        // The float's shortest spelling, so 0.95 is written as 0.95 rather than as the double nearest the float.
+        const auto shortest = []( float value ) { return std::stod( std::format( "{}", value ) ); };
+
+        TJson written = TJson::array();
+
+        for ( const auto& setting : settings )
+        {
+            TJson entry = TJson::object();
+
+            if ( setting.thinking.has_value() )
+            {
+                entry[ "when" ] = { { "thinking", *setting.thinking } };
+            }
+
+            if ( setting.temperature.has_value() )
+            {
+                entry[ "temperature" ] = shortest( *setting.temperature );
+            }
+
+            if ( setting.top_p.has_value() )
+            {
+                entry[ "top_p" ] = shortest( *setting.top_p );
+            }
+
+            if ( setting.top_k.has_value() )
+            {
+                entry[ "top_k" ] = *setting.top_k;
+            }
+
+            if ( setting.presence_penalty.has_value() )
+            {
+                entry[ "presence_penalty" ] = shortest( *setting.presence_penalty );
+            }
+
+            written.push_back( std::move( entry ) );
+        }
+
+        json[ "sampling" ] = std::move( written );
+    }
+
+    /**
      * @brief Parse a manifest, refusing anything a consumer would have to guess about.
      *
      * @param text The manifest's JSON text.
@@ -187,6 +330,7 @@ namespace Mila::Distribution
         manifest.base_model = json.value( "base_model", std::string{} );
         manifest.license = json.value( "license", std::string{} );
         manifest.capabilities = readCapabilities( json );
+        manifest.sampling = readSampling( json );
 
         if ( !json.contains( "files" ) || !json[ "files" ].is_object() )
         {
@@ -281,6 +425,7 @@ namespace Mila::Distribution
         }
 
         writeCapabilities( document, manifest.capabilities );
+        writeSampling( document, std::span<const SamplingRecommendation>( manifest.sampling ) );
         document[ "files" ] = files;
 
         return document.dump( 2 ) + "\n";

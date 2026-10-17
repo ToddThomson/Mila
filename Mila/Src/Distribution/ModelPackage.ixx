@@ -451,6 +451,7 @@ namespace Mila::Distribution
         manifest.base_model = request.base_model;
         manifest.license = request.license_id;
         manifest.capabilities = request.capabilities;
+        manifest.sampling = request.sampling;
 
         manifest.files.push_back(
             adoptIntoPackage( request.directory, request.weights, std::string( kWeightsRole ) ) );

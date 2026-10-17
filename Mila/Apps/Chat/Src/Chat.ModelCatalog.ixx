@@ -324,6 +324,7 @@ namespace Mila::ChatApp
         resolved.thinking_capable = capabilities.thinking;
         resolved.tools_capable = capabilities.tools;
         resolved.agentic = capabilities.agentic;
+        resolved.sampling = Distribution::recommendedSampling( installed->stored().record );
 
         return resolved;
     }

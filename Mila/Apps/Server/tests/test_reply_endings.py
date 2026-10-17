@@ -116,11 +116,11 @@ class FakeWorker:
     async def decode(self, ids):
         return "".join(self.chunks)
 
-    async def generate(self, prompt_ids, max_new_tokens, temperature, top_k, top_p=1.0):
+    async def generate(self, prompt_ids, max_new_tokens, sampling):
         return list(prompt_ids) + list(range(len(self.chunks))), self.status
 
-    async def generate_streaming(self, prompt_ids, on_text, max_new_tokens, temperature, top_k,
-                                 top_p=1.0, stop_ctrl=None, stop_at_markers=True):
+    async def generate_streaming(self, prompt_ids, on_text, max_new_tokens, sampling, stop_ctrl=None,
+                                 stop_at_markers=True):
         for chunk in self.chunks:
             if stop_ctrl is not None and stop_ctrl.stop_requested:
                 return "cancelled"

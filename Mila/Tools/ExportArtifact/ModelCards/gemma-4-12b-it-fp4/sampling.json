@@ -1,0 +1,6 @@
+{
+  "source": "huggingface.co/google/gemma-4-12b-it model card, \"across all use cases\", read 2026-10-17.",
+  "settings": [
+    { "temperature": 1.0, "top_p": 0.95, "top_k": 64 }
+  ]
+}

@@ -47,6 +47,8 @@ __all__ = [
     "LlamaModel",
     "QwenModel",
     "StopController",
+    "SamplingSettings",
+    "recommended_sampling",
     # Chat protocol: the model's own grammar, projected from the runtime rather than
     # reimplemented here. A host renders a conversation; it does not write a template.
     "ChatProtocol",
@@ -220,6 +222,7 @@ try:
         ModelStore,
         QwenModel,
         RemovalReport,
+        SamplingSettings,
         StopController,
         StoredModel,
         StoreUsage,
@@ -238,6 +241,7 @@ try:
         qwen_format_prompt,
         qwen_parse_tool_call,
         qwen_protocol_tokens,
+        recommended_sampling,
         stored_weight_quantization,
         version,
     )

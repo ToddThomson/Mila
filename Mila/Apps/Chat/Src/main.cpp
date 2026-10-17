@@ -440,7 +440,10 @@ static void printUsage( const char* prog_name )
         << "  system_prompt_path A prompt name (assistant, tools, tools-weather,\n"
         << "                     tools-single), or a path. A relative path resolves against\n"
         << "                     the directory of the file that set it.\n"
-        << "  temperature, top_k, top_p, max_new_tokens.\n"
+        << "  temperature, top_k, top_p, presence_penalty\n"
+        << "                     Sampling. Each one you leave out follows the model's\n"
+        << "                     recommended setting, which changes with /thinking.\n"
+        << "  max_new_tokens\n"
         << "\n"
         << "  quantization       none | fp8 | fp4 | q4_0. Quantizes unquantized weights on load;\n"
         << "                     a name ending -fp4/-fp8/-q4_0 is already quantized and refuses it.\n"
@@ -916,6 +919,7 @@ static StartupConfig buildConfig( const CommandLine& line )
         // reasoning channel, and offering the switch only ever misreported the ones without one.
         config.thinking_capable  = resolved->thinking_capable;
         config.show_thinking     = resolved->thinking_capable;
+        config.recommended_sampling = resolved->sampling;
         config.quantization_mode = resolved->quantization;
         config.quantization_applied_at_load = resolved->quantization_applied_at_load;
         config.model_path        = resolved->weights;
@@ -1027,6 +1031,15 @@ static StartupConfig buildConfig( const CommandLine& line )
 
     if ( const auto top_p = readNumber( settings, "top_p" ) )
         config.top_p = *top_p;
+
+    // Signed, unlike the knobs above: a negative penalty rewards repeating a token, as OpenAI's does.
+    if ( const nlohmann::json* penalty = findSetting( settings, "presence_penalty" ) )
+    {
+        if ( !penalty->is_number() || penalty->get<double>() < -2.0 || penalty->get<double>() > 2.0 )
+            throw badValue( settings, "presence_penalty", "a number from -2 to 2", *penalty );
+
+        config.presence_penalty = penalty->get<float>();
+    }
 
     if ( const std::string prompt_path = readString( settings, "system_prompt_path" );
          !prompt_path.empty() )

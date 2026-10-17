@@ -43,11 +43,9 @@ class Settings(BaseSettings):
     )
     device_index: int = Field(0, description="CUDA device ordinal.")
 
-    # Generation defaults
+    # Generation defaults. Sampling has none here: a knob a request leaves out is the model's own recommended
+    # setting, read from its manifest by the binding.
     default_max_new_tokens: int = Field(1024)
-    default_temperature: float = Field(0.6)
-    default_top_k: int = Field(40)
-    default_top_p: float = Field(0.9)
 
     # Streaming timeouts
     keepalive_interval: float = Field(15.0, description="Seconds between SSE keepalive pings during prefill.")

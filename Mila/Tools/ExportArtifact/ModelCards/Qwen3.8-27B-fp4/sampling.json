@@ -1,0 +1,7 @@
+{
+  "source": "huggingface.co/Qwen/Qwen3.8-27B model card, Best Practices, read 2026-10-17. min_p 0.0 is not written: Mila's sampler has no min_p, and 0.0 disables it.",
+  "settings": [
+    { "when": { "thinking": true }, "temperature": 1.0, "top_p": 0.95, "top_k": 20 },
+    { "when": { "thinking": false }, "temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5 }
+  ]
+}

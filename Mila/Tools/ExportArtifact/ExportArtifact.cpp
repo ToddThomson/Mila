@@ -65,6 +65,9 @@ namespace
             "                                 the checkpoint's.\n"
             "      --modality <name>          An input besides text this Mila runs for it.\n"
             "      --drafter <path>           The draft model to carry for speculative decoding.\n"
+            "      --sampling <path>          The base model's publisher's sampling settings, as\n"
+            "                                 the card's sampling.json transcribes them. Without\n"
+            "                                 it the model samples at its family's settings.\n"
             "      --base-model <id>          Lineage, published with the model.\n"
             "      --architecture-version <v> Which of the family's architectures, e.g. 3.1 for\n"
             "                                 Llama 3.1. Required for Llama, whose chat\n"
@@ -186,6 +189,10 @@ namespace
             else if ( argument == "--drafter" && index + 1 < argc )
             {
                 request.drafter = argv[ ++index ];
+            }
+            else if ( argument == "--sampling" && index + 1 < argc )
+            {
+                request.sampling = argv[ ++index ];
             }
             else if ( argument == "--replace" )
             {

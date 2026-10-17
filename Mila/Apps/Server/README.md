@@ -153,9 +153,6 @@ up when you run MIS from the checkout.
 | `MILA_KV_CACHE` | `bf16` | How the model holds its context: `bf16` or `fp8`. `fp8` takes half the memory, so `auto` fits a longer context |
 | `MILA_DEVICE_INDEX` | `0` | CUDA device ordinal |
 | `MILA_DEFAULT_MAX_NEW_TOKENS` | `1024` | Default token budget for generation |
-| `MILA_DEFAULT_TEMPERATURE` | `0.6` | Default sampling temperature |
-| `MILA_DEFAULT_TOP_K` | `40` | Default top-k (0 = disabled) |
-| `MILA_DEFAULT_TOP_P` | `0.9` | Default top-p (nucleus) |
 | `MILA_KEEPALIVE_INTERVAL` | `15.0` | Seconds between SSE keepalive pings during prefill |
 | `MILA_DECODE_TIMEOUT` | `30.0` | Seconds to wait for each subsequent token during decode |
 | `MILA_HOST` | `0.0.0.0` | Server bind address |
@@ -166,6 +163,11 @@ The identifier a client sees in API responses is the **store record's** name, no
 store matches case-insensitively, so the two can differ; what is reported is what was loaded. The
 same holds for the context: `/v1/models` reports the length the model loaded at as `context_window`,
 and a prompt longer than it is refused.
+
+Sampling has no setting. A request that leaves out `temperature`, `top_k`, `top_p` or `presence_penalty`
+gets the model's own recommended value, which can differ with thinking on and off: Qwen 3.8, for one,
+recommends a lower temperature and a presence penalty when it is not thinking. A request's own values always
+win.
 
 There is no family, path or quantization setting. All three are properties of the weights, which
 the store record already states — `gemma-4-12b-it-fp4` *is* FP4 weights, and a variable that said

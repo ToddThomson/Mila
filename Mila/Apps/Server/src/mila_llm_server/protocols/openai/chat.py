@@ -18,6 +18,7 @@ from mila_llm_server.conversation import (
     assistant_turn,
     not_offered,
     offered_tool,
+    presence_penalty_of,
     reasoning_effort_variables,
     refuse_unless_default,
     text_of,
@@ -77,8 +78,7 @@ class OpenAIChatCompletions(ChatEndpoint):
         if body.get("seed") is not None:
             raise RequestError("seed is not supported by this server")
 
-        for name in ("frequency_penalty", "presence_penalty"):
-            refuse_unless_default(body, name, 0)
+        refuse_unless_default(body, "frequency_penalty", 0)
 
         if body.get("logit_bias"):
             raise RequestError("logit_bias is not supported by this server")
@@ -135,6 +135,7 @@ class OpenAIChatCompletions(ChatEndpoint):
             temperature=body.get("temperature"),
             top_k=body.get("top_k"),
             top_p=body.get("top_p"),
+            presence_penalty=presence_penalty_of(body),
             stop=parse_stop(body.get("stop")),
             stream=bool(body.get("stream", False)),
             parallel_tool_calls=body.get("parallel_tool_calls", True) is not False,
@@ -233,9 +234,10 @@ class OpenAICompletions(CompletionsCapable):
         req = InferenceRequest(
             prompt_ids=prompt_ids,
             max_new_tokens=body.get("max_tokens", settings.default_max_new_tokens),
-            temperature=body.get("temperature", settings.default_temperature),
-            top_k=body.get("top_k", settings.default_top_k),
-            top_p=body.get("top_p", settings.default_top_p),
+            temperature=body.get("temperature"),
+            top_k=body.get("top_k"),
+            top_p=body.get("top_p"),
+            presence_penalty=presence_penalty_of(body),
             stream=body.get("stream", False),
             stop=parse_stop(body.get("stop")),
         )

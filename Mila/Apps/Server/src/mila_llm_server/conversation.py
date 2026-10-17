@@ -35,6 +35,7 @@ class ServedRequest:
     temperature: float | None = None
     top_k: int | None = None
     top_p: float | None = None
+    presence_penalty: float | None = None
     stop: list[str] = field(default_factory=list)
     stream: bool = False
     parallel_tool_calls: bool = True
@@ -200,6 +201,19 @@ def reasoning_effort_variables(protocol, effort: str, *, field_name: str) -> dic
         return {name: value}
 
     raise RequestError(f"{field_name} '{effort}' is not supported: this model does not reason. Send 'none' or omit it")
+
+
+def presence_penalty_of(body: dict) -> float | None:
+    """OpenAI's presence penalty, in OpenAI's own range; absent is None, the model's recommended setting."""
+    value = body.get("presence_penalty")
+
+    if value is None:
+        return None
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not -2.0 <= value <= 2.0:
+        raise RequestError("presence_penalty must be a number from -2.0 to 2.0")
+
+    return float(value)
 
 
 def refuse_unless_default(body: dict, name: str, default) -> None:

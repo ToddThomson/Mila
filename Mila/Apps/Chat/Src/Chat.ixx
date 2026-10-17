@@ -379,7 +379,7 @@ namespace Mila::ChatApp
                         if ( args.size() != 2 )
                         {
                             renderer_.printInfo(
-                                "Usage: /set <temperature|top_k|top_p> <value>." );
+                                "Usage: /set <temperature|top_k|top_p|presence_penalty> <value|model>." );
                             continue;
                         }
 
@@ -1042,9 +1042,7 @@ namespace Mila::ChatApp
 
             GenerateParams gen_params;
             gen_params.max_new_tokens = static_cast<int>( budget );
-            gen_params.sampling.temperature = config_.temperature;
-            gen_params.sampling.top_k = config_.top_k;
-            gen_params.sampling.top_p = config_.top_p;
+            gen_params.sampling = sessionSampling( config_ );
 
             // Gemma 4's <|tool_call>/<tool_call|> pair is a native protocol element, not a
             // text convention (GemmaChatProtocol.md): the model expects the harness to stop
@@ -1461,6 +1459,7 @@ namespace Mila::ChatApp
             // carrying a preference across a family that has no reasoning channel.
             config_.thinking_capable  = resolved.thinking_capable;
             config_.show_thinking     = resolved.thinking_capable;
+            config_.recommended_sampling = resolved.sampling;
             config_.quantization_mode = resolved.quantization;
             config_.quantization_applied_at_load = resolved.quantization_applied_at_load;
             config_.model_path        = resolved.weights;
@@ -2139,16 +2138,25 @@ namespace Mila::ChatApp
                 : std::format( "Context {}. Conversation kept.", length ) );
         }
 
-        /// The sampling knobs, which reach the sampler per call and so need no reload.
+        /// The sampling the next reply draws with, and which knobs are the user's rather than the model's.
         void reportSamplingSettings() const
         {
-            std::cout << std::format( "  {:<16}{}\n", "temperature:", config_.temperature );
-            std::cout << std::format( "  {:<16}{}\n", "top_k:", config_.top_k );
-            std::cout << std::format( "  {:<16}{}\n", "top_p:", config_.top_p );
+            const Dnn::SamplingParams sampling = sessionSampling( config_ );
+
+            const auto origin = []( bool yours ) { return yours ? "  (yours)" : ""; };
+
+            std::cout << std::format( "  {:<18}{}{}\n", "temperature:", sampling.temperature,
+                origin( config_.temperature.has_value() ) );
+            std::cout << std::format( "  {:<18}{}{}\n", "top_k:", sampling.top_k,
+                origin( config_.top_k.has_value() ) );
+            std::cout << std::format( "  {:<18}{}{}\n", "top_p:", sampling.top_p,
+                origin( config_.top_p.has_value() ) );
+            std::cout << std::format( "  {:<18}{}{}\n", "presence_penalty:", sampling.presence_penalty,
+                origin( config_.presence_penalty.has_value() ) );
 
             renderer_.printInfo(
-                "  Set with /set <key> <value>. temperature 0 is greedy, top_k 0 and top_p 1 "
-                "each disable that filter." );
+                "  Set with /set <key> <value>, or /set <key> model for the model's own. temperature 0 is "
+                "greedy, top_k 0 and top_p 1 each disable that filter." );
         }
 
         /**
@@ -2179,6 +2187,37 @@ namespace Mila::ChatApp
                     return result.ec == std::errc{}
                         && result.ptr == value.data() + value.size();
                 };
+
+            if ( value == "model" )
+            {
+                if ( key == "temperature" )
+                {
+                    config_.temperature.reset();
+                }
+                else if ( key == "top_k" )
+                {
+                    config_.top_k.reset();
+                }
+                else if ( key == "top_p" )
+                {
+                    config_.top_p.reset();
+                }
+                else if ( key == "presence_penalty" )
+                {
+                    config_.presence_penalty.reset();
+                }
+                else
+                {
+                    renderer_.printInfo( std::format(
+                        "'{}' is not a setting. Use temperature, top_k, top_p or presence_penalty.", key ) );
+
+                    return;
+                }
+
+                renderer_.printInfo( std::format( "{} follows the model.", key ) );
+
+                return;
+            }
 
             if ( key == "temperature" )
             {
@@ -2231,8 +2270,25 @@ namespace Mila::ChatApp
                 return;
             }
 
+            if ( key == "presence_penalty" )
+            {
+                float parsed = 0.0f;
+
+                if ( !parseFloat( parsed ) || parsed < -2.0f || parsed > 2.0f )
+                {
+                    renderer_.printInfo( "Usage: /set presence_penalty <-2..2>  (0 disables it)." );
+
+                    return;
+                }
+
+                config_.presence_penalty = parsed;
+                renderer_.printInfo( std::format( "presence_penalty set to {}.", parsed ) );
+
+                return;
+            }
+
             renderer_.printInfo( std::format(
-                "'{}' is not a setting. Use temperature, top_k or top_p.", key ) );
+                "'{}' is not a setting. Use temperature, top_k, top_p or presence_penalty.", key ) );
         }
 
         /// True once weights are actually on the device, which the session config cannot say --
@@ -2777,7 +2833,9 @@ Available commands:
   /context                           Show the context window and the largest that fits
   /context <n>|auto                  Set the context window (rebuilds, keeps the conversation)
   /thinking [on|off]                 Show or set the reasoning channel
-  /set <key> <value>                 Set temperature, top_k or top_p
+  /set                               Show the sampling the next reply uses
+  /set <key> <value>|model           Set temperature, top_k, top_p or presence_penalty,
+                                     or return it to the model's own
   /effort [1-5]                      Show or set the thinking token-budget level
   /verbose [off|thoughts|all]        Show or set display detail (reasoning, raw + logs)
   /stats                             Show per-round timing for the last turn
@@ -2791,6 +2849,8 @@ Quantization:   a name ending -fp4/-fp8/-q4_0 is already quantized. For an unqua
                 VRAM, but the full file is still read.
 Thinking:       Gemma's <|think|> mode. Toggling it does not reload weights. Effort
                 (length) is set with /effort 1-5.
+Sampling:       each model opens at its publisher's recommended setting, which can differ
+                with thinking on and off. What you /set stays until you set it to model.
 Context:        the primary VRAM lever, and it sizes buffers at build time -- so /context
                 rebuilds the model, though the conversation survives. auto measures the
                 largest that fits this card; a number you give is used exactly.
