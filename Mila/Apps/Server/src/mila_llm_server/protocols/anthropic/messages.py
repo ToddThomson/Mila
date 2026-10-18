@@ -272,6 +272,9 @@ class AnthropicMessages(ChatEndpoint):
     def stream_keepalive(self, context: ReplyContext) -> str:
         return _event("ping", {})
 
+    def stream_error(self, message: str, context: ReplyContext) -> str:
+        return _event("error", {"error": {"type": "api_error", "message": message}})
+
     def stream_reply(self, reply: ServedReply, context: ReplyContext) -> str:
         events = []
 

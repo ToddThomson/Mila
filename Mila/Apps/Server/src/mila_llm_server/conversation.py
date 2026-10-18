@@ -36,6 +36,7 @@ class ServedRequest:
     top_k: int | None = None
     top_p: float | None = None
     presence_penalty: float | None = None
+    seed: int | None = None
     stop: list[str] = field(default_factory=list)
     stream: bool = False
     parallel_tool_calls: bool = True
@@ -214,6 +215,22 @@ def presence_penalty_of(body: dict) -> float | None:
         raise RequestError("presence_penalty must be a number from -2.0 to 2.0")
 
     return float(value)
+
+
+def seed_of(body: dict) -> int | None:
+    """
+    OpenAI's sampling seed, a 64-bit signed integer, as the binding takes it: the same 64 bits read unsigned. Absent
+    is None, and sampling continues from the previous reply.
+    """
+    value = body.get("seed")
+
+    if value is None:
+        return None
+
+    if isinstance(value, bool) or not isinstance(value, int) or not -2**63 <= value < 2**63:
+        raise RequestError("seed must be a 64-bit integer")
+
+    return value % 2**64
 
 
 def refuse_unless_default(body: dict, name: str, default) -> None:

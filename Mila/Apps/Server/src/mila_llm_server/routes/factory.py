@@ -19,7 +19,6 @@ from mila_llm_server.conversation import RequestError, ServedCall, ServedReply, 
 from mila_llm_server.model_worker import worker
 from mila_llm_server.protocols.base import ChatEndpoint, CompletionsCapable, ModelsCapable, ProtocolAdapter, ReplyContext
 from mila_llm_server.protocols.utils import (
-    END_TURN,
     STOP_SEQUENCE,
     TOOL_CALLS,
     StopScanner,
@@ -98,8 +97,8 @@ async def _serve_chat(endpoint: ChatEndpoint, body: dict, http_req: Request) -> 
         return JSONResponse(status_code=400, content=endpoint.error(
             f"Prompt length {len(prompt_ids)} tokens exceeds context_length {loaded.context_length}."))
 
-    requested = request.max_new_tokens or settings.default_max_new_tokens
-    allowed = min(requested, remaining)
+    requested = request.max_new_tokens
+    allowed = remaining if requested is None else min(requested, remaining)
 
     context = ReplyContext(
         response_id=f"resp_{uuid.uuid4().hex}",
@@ -118,7 +117,8 @@ async def _serve_chat(endpoint: ChatEndpoint, body: dict, http_req: Request) -> 
 
     parts: list[str] = []
     status = await worker.generate_streaming(
-        prompt_ids, parts.append, allowed, _sampling(request), mila.StopController())
+        prompt_ids, parts.append, allowed, _sampling(request), mila.StopController(),
+        begins_in_reasoning=prompt["reply_begins_in_reasoning"])
 
     reply = _reply(protocol, "".join(parts), prompt, status, request, requested, allowed, len(prompt_ids), len(parts))
 
@@ -155,7 +155,7 @@ def _sampling(request: ServedRequest) -> Sampling:
 
     return Sampling(
         request.temperature, request.top_k, request.top_p, request.presence_penalty,
-        None if thinking is None else thinking == "true")
+        None if thinking is None else thinking == "true", request.seed)
 
 
 def _reply(protocol, raw: str, prompt: dict, status: str, request: ServedRequest, requested: int, allowed: int,
@@ -215,12 +215,14 @@ async def _stream_chat(endpoint: ChatEndpoint, request: ServedRequest, prompt: d
         loop.call_soon_threadsafe(queue.put_nowait, text)
 
     generation = asyncio.create_task(
-        worker.generate_streaming(prompt_ids, on_text, allowed, _sampling(request), stop_ctrl))
+        worker.generate_streaming(prompt_ids, on_text, allowed, _sampling(request), stop_ctrl,
+                                  begins_in_reasoning=prompt["reply_begins_in_reasoning"]))
     generation.add_done_callback(lambda _: loop.call_soon_threadsafe(queue.put_nowait, None))
 
     yield endpoint.stream_open(context)
 
     last_text = time.monotonic()
+    failure = None
 
     try:
         while True:
@@ -233,7 +235,7 @@ async def _stream_chat(endpoint: ChatEndpoint, request: ServedRequest, prompt: d
                 text = await asyncio.wait_for(queue.get(), timeout=settings.keepalive_interval)
             except asyncio.TimeoutError:
                 if parts and time.monotonic() - last_text > settings.decode_timeout:
-                    logger.warning("decode_timeout hit after waiting %.1fs", settings.decode_timeout)
+                    failure = _stalled()
                     stop_ctrl.request_stop()
                     break
 
@@ -251,11 +253,37 @@ async def _stream_chat(endpoint: ChatEndpoint, request: ServedRequest, prompt: d
             stop_ctrl.request_stop()
             await generation
 
-        status = END_TURN if generation.cancelled() or generation.exception() is not None else generation.result()
-        reply = _reply(worker.protocol, "".join(parts), prompt, status, request, requested, allowed,
-                       len(prompt_ids), len(parts))
+        failure = failure or _failed(generation)
 
-        yield endpoint.stream_reply(reply, context)
+        if failure is not None:
+            yield endpoint.stream_error(failure, context)
+        else:
+            reply = _reply(worker.protocol, "".join(parts), prompt, generation.result(), request, requested, allowed,
+                           len(prompt_ids), len(parts))
+
+            yield endpoint.stream_reply(reply, context)
+
+
+def _stalled() -> str:
+    """A generation that has produced no text for the decode timeout is stuck, not thinking; it is a server fault."""
+    message = f"the model produced no text for {settings.decode_timeout:.0f} s, so the server stopped it"
+    logger.error("stream failed: %s", message)
+
+    return message
+
+
+def _failed(generation: asyncio.Task) -> str | None:
+    """Why a finished generation failed, or None when it ran to an end of its own."""
+    if generation.cancelled():
+        message = "the generation was cancelled inside the server"
+    elif generation.exception() is not None:
+        message = f"the generation failed: {generation.exception()!r}"
+    else:
+        return None
+
+    logger.error("stream failed: %s", message)
+
+    return message
 
 
 # ----------------------------------------------------------------------
@@ -273,7 +301,7 @@ async def _serve_completion(prompt_str: str, inf_req: InferenceRequest, http_req
         return _prompt_too_long_error(len(prompt_ids), loaded.context_length)
 
     requested_tokens = inf_req.max_new_tokens
-    inf_req.max_new_tokens = min(inf_req.max_new_tokens, remaining)
+    inf_req.max_new_tokens = remaining if requested_tokens is None else min(requested_tokens, remaining)
     inf_req.prompt_ids = prompt_ids
 
     if inf_req.stream:
@@ -316,6 +344,7 @@ async def _stream_completion(inf_req: InferenceRequest, http_req: Request, adapt
     generation.add_done_callback(lambda _: loop.call_soon_threadsafe(queue.put_nowait, None))
 
     first_token = True
+    failure = None
 
     try:
         while True:
@@ -332,7 +361,8 @@ async def _stream_completion(inf_req: InferenceRequest, http_req: Request, adapt
                 if first_token:
                     yield ": keepalive\n\n"
                     continue
-                logger.warning("decode_timeout hit after waiting %.1fs", settings.decode_timeout)
+
+                failure = _stalled()
                 stop_ctrl.request_stop()
                 break
 
@@ -359,15 +389,18 @@ async def _stream_completion(inf_req: InferenceRequest, http_req: Request, adapt
         if held:
             yield adapter.format_stream_chunk(held, done=False)
 
-        if scanner.matched is not None:
-            finish_reason = STOP_SEQUENCE
-        elif generation.cancelled() or generation.exception() is not None:
-            finish_reason = END_TURN
-        else:
-            finish_reason = finish_reason_from_status(generation.result(), requested_tokens, inf_req.max_new_tokens)
+        failure = failure or _failed(generation)
 
-        yield adapter.format_stream_chunk("", done=True, finish_reason=finish_reason)
-        yield adapter.format_stream_done()
+        if failure is not None:
+            yield adapter.format_stream_error(failure)
+        else:
+            if scanner.matched is not None:
+                finish_reason = STOP_SEQUENCE
+            else:
+                finish_reason = finish_reason_from_status(generation.result(), requested_tokens, inf_req.max_new_tokens)
+
+            yield adapter.format_stream_chunk("", done=True, finish_reason=finish_reason)
+            yield adapter.format_stream_done()
 
 
 def _invalid_request_error(message: str) -> JSONResponse:

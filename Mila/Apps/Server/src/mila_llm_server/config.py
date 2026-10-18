@@ -7,7 +7,6 @@ from pydantic import Field
 
 
 class ProtocolMode(str, Enum):
-    mila = "mila"
     openai = "openai"
     anthropic = "anthropic"
 
@@ -43,9 +42,8 @@ class Settings(BaseSettings):
     )
     device_index: int = Field(0, description="CUDA device ordinal.")
 
-    # Generation defaults. Sampling has none here: a knob a request leaves out is the model's own recommended
-    # setting, read from its manifest by the binding.
-    default_max_new_tokens: int = Field(1024)
+    # No generation defaults. A sampling knob a request leaves out is the model's own recommended setting, read from
+    # its manifest by the binding, and a request that names no reply length may reply until the context is full.
 
     # Streaming timeouts
     keepalive_interval: float = Field(15.0, description="Seconds between SSE keepalive pings during prefill.")

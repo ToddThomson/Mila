@@ -146,6 +146,20 @@ streamed means forwarded as it arrives. The blocking `generate()` plus `decode()
 grammar and has no stop at the end of a call, is no longer used by the server: its differences from the
 streaming path are the class of defect in 1.2.
 
+The generation stops at the protocol's stop markers -- a closed call, the open of a result -- **only outside the
+reasoning**, where `parseReply` reads calls (fixed 2026-10-18). A call the model drafts while thinking is not a
+call; stopping there ended Qwen 3.8's replies inside their reasoning, which a client reads as an empty turn. Where
+the reply starts is the prompt's `reply_begins_in_reasoning`. A character split across tokens is held until it
+completes, for at most eight tokens; bytes that never form one are the model's, and pass on as U+FFFD, since
+holding them froze the stream until the decode timeout ended the reply. The worker logs why it ended each
+generation, and how many such runs it passed on.
+
+A streamed reply the server fails closes with the API's own error, never as an end of turn (decided 2026-10-18,
+Todd): Chat Completions and Completions a chunk carrying `error`, Responses `response.failed`, Messages an `error`
+event. A generation that produces no text for the decode timeout is stuck -- with the character hold above, a
+working model never goes that long without text -- and one that raises is a fault; both were once reported as the
+model finishing, which a client cannot tell from the model choosing to stop.
+
 ### 3.5 Streaming a turn that may contain a call
 
 Today a Gemma or Qwen turn streamed over Messages is held until the turn ends, because the block type --
@@ -197,13 +211,13 @@ Chat Completions:
 | Field | Decided | Note |
 |---|---|---|
 | `messages`, `tools` | honour | 3.1; `developer` is `system`; an assistant's `reasoning_content` is its reasoning |
-| `max_completion_tokens`, `max_tokens` | honour | the first wins when both are sent |
+| `max_completion_tokens`, `max_tokens` | honour | the first wins when both are sent. Absent, the reply may fill the context: the server keeps no length of its own (decided 2026-10-18, Todd -- a 1,024 default from before any reasoning model ran here cut Qwen 3.8 off while it was still thinking), and `/v1/models` reports the context length as `max_output_tokens` |
 | `temperature`, `top_p`, `stop`, `stream` | honour | a sampling knob left out is the model's recommended setting for the thinking the prompt was rendered with (`ChatConfiguration.md` section 5); the server has no sampling setting of its own |
 | `presence_penalty` | honour, from -2.0 to 2.0 | Decided 2026-10-17: the sampler has one (`TokenSampling.md` 3.3). Qwen 3.8 recommends 1.5 with thinking off, which a request leaving it out gets |
 | `stream_options.include_usage` | honour | a final usage chunk |
 | `tool_choice` | honour `auto` and `none`; refuse `required` and a named function | 10.3: asking is not doing |
 | `parallel_tool_calls` | honour | `false` keeps the first call of a turn |
-| `seed` | refuse | the binding takes no seed (10.4) |
+| `seed` | honour, any 64-bit integer | Decided 2026-10-18 (10.4): the binding's generate reseeds the sampler and prefills the whole prompt, so the same request gives the same reply whatever came before; a negative seed is its 64 bits read unsigned, the binding's type. Responses and Messages define no seed |
 | `n` > 1 | refuse | one completion per request |
 | `logprobs`, `top_logprobs` | refuse | not exposed by the binding |
 | `frequency_penalty`, `logit_bias` other than their defaults | refuse | the sampler has neither |
@@ -217,7 +231,7 @@ Responses:
 |---|---|---|
 | `input` (text, `message`, `function_call`, `function_call_output`, `reasoning` items), `instructions`, `tools` | honour | 3.1; any other item type is refused, naming it |
 | `tools` of a type other than `function` | not offered, logged | a built-in tool the server cannot run is never declared to the model |
-| `max_output_tokens`, `temperature`, `top_p`, `stream` | honour | |
+| `max_output_tokens`, `temperature`, `top_p`, `stream` | honour | absent `max_output_tokens` as Chat Completions' absent length |
 | `tool_choice`, `parallel_tool_calls` | as Chat Completions | |
 | `reasoning.effort` | as Chat Completions' `reasoning_effort` | |
 | `reasoning.summary` | honour | the reasoning is returned whole as its summary |
@@ -341,7 +355,9 @@ functions (`gemma_format_prompt`, `qwen_parse_tool_call` and the rest).
 3. **`tool_choice` beyond `auto` and `none`.** `required` and a named function can be asked of the model in the
    prompt, or enforced, which needs constrained decoding. Asking is not doing (3.6). Recommend refusing them
    until they can be enforced.
-4. **`seed`.** Honour it, which adds a seed to the binding's generate, or refuse it.
+4. **`seed`.** *Decided 2026-10-18 (Todd): honour it* -- the binding's generate takes a seed, reseeds the
+   sampler and prefills the whole prompt, so the reply does not depend on the request before it
+   (`PromptCaching.md` section 5: KV prefix reuse can change a sampled token).
 5. **Llama in the server.** Llama's tool grammar is the server's own copy until Phase 1 folds it. Recommend no
    Llama tool support on Chat Completions before then -- a Llama tool request is refused -- rather than built
    on the copy Phase 1 deletes.

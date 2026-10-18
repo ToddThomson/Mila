@@ -315,8 +315,19 @@ minimum on the 16 GB card, and what has been measured holds up; it is not called
 manifest, until it passes, in order: RULER at 32K and 64K at its defaults; `ContextProfile.md` at 64K with thinking
 on -- recall, instruction retention, a tool call at depth; and sustained sessions through MIS at 64K on the 16 GB
 card -- one real multi-step task each in Claude Code and Codex, and a set of real-world tasks in Hermes Agent, the
-same set for every build so the builds can be compared. The Hermes set is to be written: tasks a user would
-give an agent, each with a check that says whether it was done.
+same set for every build so the builds can be compared.
+
+**The Hermes set (written 2026-10-18; Todd agreed the categories).** Seventeen tasks a user would give an agent, each
+with a deterministic check of the files it left and its final reply, no model judging: coding (three), research over
+a frozen document set (two), debugging from a log (two), data work (two), terminal and ops (two), long context -- a
+generated codebase of about 50K tokens and a day's log of about 30K (two) -- tasks that cannot be done as asked
+(two), and recovering from a failing tool (two). All are written fresh, so none is in a model's training data.
+Research runs over a frozen corpus rather than the live web, which would make the same task a different task on
+the next build. Every check is proven before it counts: it fails on the untouched workdir and passes on a reference
+solution. For the bug-fix, debugging and data tasks the tempting wrong answers were also run against the check --
+one bug of two fixed, decode errors ignored, every date read day first, the local-time log read as UTC -- and each
+fails. One task a category is the short set, for a
+first pass; the full set runs overnight. `Tools/Evaluation/run_hermes_tasks.py`, described in its README.
 
 **Built for decision 1's teacher-forced measurement (2026-10-16):**
 `Tools/Converters/Qwen/qwen38_BF16/hf_qwen_conversation_loss.py` scores held-out conversations under the BF16

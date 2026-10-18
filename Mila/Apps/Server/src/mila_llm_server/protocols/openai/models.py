@@ -5,7 +5,7 @@ OpenAI Models API protocol adapter.
 import time
 
 from mila_llm_server.protocols.base import ModelsCapable
-from mila_llm_server.config import settings, loaded
+from mila_llm_server.config import loaded
 
 
 class OpenAIModelsAdapter(ModelsCapable):
@@ -27,7 +27,8 @@ class OpenAIModelsAdapter(ModelsCapable):
             "created": created,
             "owned_by": "mila",
             "context_window": loaded.context_length,
-            "max_output_tokens": settings.default_max_new_tokens,
+            # The model has no output limit of its own, so one reply may fill the context.
+            "max_output_tokens": loaded.context_length,
             "supports_parallel_tool_calls": False,
             "supports_reasoning": loaded.thinking,
             "reasoning_summary_format": "none",

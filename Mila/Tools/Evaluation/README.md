@@ -197,6 +197,29 @@ scores, beside the reply as written.
 On Windows, run BFCL with `PYTHONUTF8=1`: bfcl-eval reads its own score files in the system code page, and fails on
 the first non-ASCII character in one.
 
+## Hermes real-world tasks
+
+`run_hermes_tasks.py` gives Hermes Agent, pointed at MIS, seventeen tasks a user would hand an agent -- coding,
+research over a frozen document set, debugging from a log, data work, terminal and ops chores, questions about a
+large codebase or log, tasks that cannot be done as asked, and recovering from a failing tool -- and scores each with
+its own check of the files the agent left and its final reply. `hermes_tasks/` holds one module a task: the prompt,
+how its workdir is built, a reference solution and the check. Every task is written for this set, so none is in a
+model's training data. Run it inside WSL, where Hermes is installed:
+
+```
+python3 run_hermes_tasks.py --self-test
+python3 run_hermes_tasks.py --model Qwen3.8-27B-cb2-3-refit --base-url http://localhost:8002/v1 \
+    --out ~/hermes-runs/refit --short --run-budget 600
+```
+
+`--self-test` must pass first: every check fails on the untouched workdir and passes on the reference solution.
+`--short` runs one task a category (eight); the full set is for an overnight run. Each task gets a fresh workdir on
+the Linux filesystem, so file modes and line endings behave as on Linux, and every run uses one HERMES_HOME made fresh
+for it, so nothing of the user's own Hermes setup -- memory, skills, persona, rules -- reaches the model. The model
+runs at its defaults: no sampling knob or reasoning level is sent. `--run-budget` is the wall-clock seconds a task
+may take, and a task that fails runs until it, so the budget sets the length of a run. Results are appended to
+`<out>/results.jsonl`; each task's directory keeps the prompt, the workdir, the transcript and the final reply.
+
 ## Hugging Face Hub benchmarks
 
 A benchmark registered on the Hub carries an `eval.yaml` that fixes its prompt, solver and scorer. A model repo

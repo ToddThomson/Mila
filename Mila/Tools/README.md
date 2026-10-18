@@ -134,6 +134,7 @@ first use is Mila BF16 against transformers on Llama 3.2 3B, which is the noise 
 against. `run_inspect.py` runs a benchmark registered on the Hugging Face Hub (MMLU-Pro) through inspect-ai, to the
 benchmark's own `eval.yaml`, and `eval_results.py` writes the mila arm's score as the model repo's
 `.eval_results/<task>.yaml`, which the Hub shows on the model page and in the benchmark's leaderboard.
+`run_hermes_tasks.py` runs Hermes Agent through MIS on a fixed set of real-world tasks, each with its own check.
 `Evaluation/README.md` covers setup and the reading of a report; `Specifications/ModelEval.md` is the design.
 
 ## Publishing

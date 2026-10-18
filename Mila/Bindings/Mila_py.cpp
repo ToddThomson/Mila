@@ -593,7 +593,8 @@ static void bind_llama_model( py::module_& m )
                 std::optional<float> top_p,
                 StopController* stop_ctrl,
                 std::optional<float> presence_penalty,
-                std::optional<bool> thinking ) -> std::string
+                std::optional<bool> thinking,
+                std::optional<std::uint64_t> seed ) -> std::string
             {
                 std::stop_token stop = stop_ctrl
                     ? stop_ctrl->get_token()
@@ -607,7 +608,7 @@ static void bind_llama_model( py::module_& m )
                         py::gil_scoped_acquire acquire;
                         on_token( tok );
                     },
-                    max_new_tokens, temperature, top_k, top_p, presence_penalty, thinking,
+                    max_new_tokens, temperature, top_k, top_p, presence_penalty, thinking, seed,
                     std::move( stop ) );
             },
             py::arg( "prompt_tokens" ),
@@ -619,6 +620,7 @@ static void bind_llama_model( py::module_& m )
             py::arg( "stop_controller" ) = py::none(),
             py::arg( "presence_penalty" ) = py::none(),
             py::arg( "thinking" ) = py::none(),
+            py::arg( "seed" ) = py::none(),
             "Generate token by token. on_token(id: int) is called for each generated\n"
             "token (EOS excluded). Blocks until generation completes or\n"
             "stop_controller.request_stop() is called.\n\n"
@@ -627,6 +629,10 @@ static void bind_llama_model( py::module_& m )
             "with thinking on. thinking defaults to the chat template's own default.\n"
             "temperature=0.0 is greedy; top_k=0 and top_p=1.0 turn that filter off;\n"
             "presence_penalty is subtracted from each token the reply has already used.\n\n"
+            "seed reseeds the sampler and prefills the whole prompt, so the same prompt,\n"
+            "settings and seed give the same reply whatever ran before. Left out,\n"
+            "sampling continues from the last reply and a prompt that repeats the last\n"
+            "one's start skips prefilling it.\n\n"
             "Returns why generation stopped, which the token stream cannot tell you:\n"
             "    'stop'           the model finished on its own (EOS)\n"
             "    'length'         max_new_tokens was reached\n"
@@ -729,7 +735,8 @@ static void bind_gemma_model( py::module_& m )
                 std::optional<float> top_p,
                 StopController* stop_ctrl,
                 std::optional<float> presence_penalty,
-                std::optional<bool> thinking ) -> std::string
+                std::optional<bool> thinking,
+                std::optional<std::uint64_t> seed ) -> std::string
             {
                 std::stop_token stop = stop_ctrl
                     ? stop_ctrl->get_token()
@@ -743,7 +750,7 @@ static void bind_gemma_model( py::module_& m )
                         py::gil_scoped_acquire acquire;
                         on_token( tok );
                     },
-                    max_new_tokens, temperature, top_k, top_p, presence_penalty, thinking,
+                    max_new_tokens, temperature, top_k, top_p, presence_penalty, thinking, seed,
                     std::move( stop ) );
             },
             py::arg( "prompt_tokens" ),
@@ -755,6 +762,7 @@ static void bind_gemma_model( py::module_& m )
             py::arg( "stop_controller" ) = py::none(),
             py::arg( "presence_penalty" ) = py::none(),
             py::arg( "thinking" ) = py::none(),
+            py::arg( "seed" ) = py::none(),
             "Generate token by token. on_token(id: int) is called for each generated\n"
             "token (EOS excluded). For HF token-for-token parity use temperature=0.0\n"
             "(greedy argmax).\n\n"
@@ -763,6 +771,10 @@ static void bind_gemma_model( py::module_& m )
             "with thinking on. thinking defaults to the chat template's own default.\n"
             "temperature=0.0 is greedy; top_k=0 and top_p=1.0 turn that filter off;\n"
             "presence_penalty is subtracted from each token the reply has already used.\n\n"
+            "seed reseeds the sampler and prefills the whole prompt, so the same prompt,\n"
+            "settings and seed give the same reply whatever ran before. Left out,\n"
+            "sampling continues from the last reply and a prompt that repeats the last\n"
+            "one's start skips prefilling it.\n\n"
             "Returns why generation stopped, which the token stream cannot tell you:\n"
             "    'stop'           the model finished on its own (EOS)\n"
             "    'length'         max_new_tokens was reached\n"
@@ -872,7 +884,8 @@ static void bind_qwen_model( py::module_& m )
                 std::optional<float> top_p,
                 StopController* stop_ctrl,
                 std::optional<float> presence_penalty,
-                std::optional<bool> thinking ) -> std::string
+                std::optional<bool> thinking,
+                std::optional<std::uint64_t> seed ) -> std::string
             {
                 std::stop_token stop = stop_ctrl
                     ? stop_ctrl->get_token()
@@ -886,7 +899,7 @@ static void bind_qwen_model( py::module_& m )
                         py::gil_scoped_acquire acquire;
                         on_token( tok );
                     },
-                    max_new_tokens, temperature, top_k, top_p, presence_penalty, thinking,
+                    max_new_tokens, temperature, top_k, top_p, presence_penalty, thinking, seed,
                     std::move( stop ) );
             },
             py::arg( "prompt_tokens" ),
@@ -898,6 +911,7 @@ static void bind_qwen_model( py::module_& m )
             py::arg( "stop_controller" ) = py::none(),
             py::arg( "presence_penalty" ) = py::none(),
             py::arg( "thinking" ) = py::none(),
+            py::arg( "seed" ) = py::none(),
             "Generate token by token. on_token(id: int) is called for each generated\n"
             "token (EOS excluded).\n\n"
             "Sampling: temperature, top_k, top_p and presence_penalty each default to the\n"
@@ -905,6 +919,10 @@ static void bind_qwen_model( py::module_& m )
             "with thinking on. thinking defaults to the chat template's own default.\n"
             "temperature=0.0 is greedy; top_k=0 and top_p=1.0 turn that filter off;\n"
             "presence_penalty is subtracted from each token the reply has already used.\n\n"
+            "seed reseeds the sampler and prefills the whole prompt, so the same prompt,\n"
+            "settings and seed give the same reply whatever ran before. Left out,\n"
+            "sampling continues from the last reply and a prompt that repeats the last\n"
+            "one's start skips prefilling it.\n\n"
             "Returns why generation stopped, which the token stream cannot tell you:\n"
             "    'stop'           the model finished on its own (EOS)\n"
             "    'length'         max_new_tokens was reached\n"

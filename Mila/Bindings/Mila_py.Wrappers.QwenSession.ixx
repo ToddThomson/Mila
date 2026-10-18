@@ -42,6 +42,7 @@ namespace Mila::Bindings
             std::size_t max_new_tokens,
             std::optional<float> temperature, std::optional<int> top_k, std::optional<float> top_p,
             std::optional<float> presence_penalty, std::optional<bool> thinking,
+            std::optional<std::uint64_t> seed,
             std::stop_token stop );
 
         QwenConfigInfo getConfig() const;

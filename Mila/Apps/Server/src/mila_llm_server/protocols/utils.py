@@ -85,16 +85,16 @@ MAX_TOKENS = "max_tokens"
 CONTEXT_LIMIT = "context_limit"
 
 
-def finish_reason_from_status(status: str, requested_tokens: int, allowed_tokens: int) -> str:
+def finish_reason_from_status(status: str, requested_tokens: int | None, allowed_tokens: int) -> str:
     """
     The reason a reply ended, from the binding's generate() status. The routes lower a request's
     max_tokens to what the context has left, so a reply stopped at that lowered budget ran out of
-    context, not of the tokens it asked for. A cancelled generation is the model's turn ending: the
-    worker cancels at a protocol marker, and a route that cancels for a stop sequence or a dropped
-    client sets the reason itself.
+    context, not of the tokens it asked for -- as does one whose request named no length. A cancelled
+    generation is the model's turn ending: the worker cancels at a protocol marker, and a route that
+    cancels for a stop sequence or a dropped client sets the reason itself.
     """
     if status == "length":
-        return CONTEXT_LIMIT if allowed_tokens < requested_tokens else MAX_TOKENS
+        return CONTEXT_LIMIT if requested_tokens is None or allowed_tokens < requested_tokens else MAX_TOKENS
 
     if status == "context_limit":
         return CONTEXT_LIMIT

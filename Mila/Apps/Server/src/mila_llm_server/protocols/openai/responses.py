@@ -225,6 +225,12 @@ class OpenAIResponses(ChatEndpoint):
     def stream_keepalive(self, context: ReplyContext) -> str:
         return _event("response.in_progress", {"response": self._response(None, context, [])})
 
+    def stream_error(self, message: str, context: ReplyContext) -> str:
+        failed = {**self._response(None, context, []), "status": "failed",
+                  "error": {"code": "server_error", "message": message}}
+
+        return _event("response.failed", {"response": failed})
+
     def stream_reply(self, reply: ServedReply, context: ReplyContext) -> str:
         output = self._output(reply, context)
         events = []

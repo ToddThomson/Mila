@@ -1,18 +1,17 @@
 # Mila Inference Server (MIS)
 
 A FastAPI-based HTTP inference server for [Mila](https://github.com/ToddT/Mila). It imports the
-`mila` Python binding and serves a model over HTTP under a selectable API protocol (Mila native,
-OpenAI, or Anthropic Messages).
+`mila` Python binding and serves a model over HTTP under a selectable API protocol (OpenAI or
+Anthropic Messages).
 
 The default model is **`gemma-4-12b-it-fp4`**; any installed Llama 3.x or Qwen 3.8 model is served
 too. MIS loads by store name, so what it can serve is whatever is installed — not a list compiled
 into it. The record's architecture chooses the session and the prompt template, so nothing has to
 be configured to match it.
 
-Gemma's and Qwen's prompt templates and tool grammars come from the runtime, through the `mila`
-binding — `gemma_format_prompt` / `gemma_parse_tool_call`, `qwen_format_prompt` /
-`qwen_parse_tool_call`, and their siblings. MIS renders no template of its own, so it and the chat
-harness cannot send the same model different prompts.
+Every model's prompt template and tool grammar come from the runtime, through the `mila` binding's
+`ChatProtocol` for the loaded model. MIS renders no template of its own, so it and the chat harness
+cannot send the same model different prompts.
 
 ---
 
@@ -148,11 +147,10 @@ up when you run MIS from the checkout.
 | Variable | Default | Description |
 |---|---|---|
 | `MILA_MODEL` | `gemma-4-12b-it-fp4` | Name of an installed model in the local store |
-| `MILA_PROTOCOL` | `openai` | API protocol to expose: `mila`, `openai`, or `anthropic` (one per launch) |
+| `MILA_PROTOCOL` | `openai` | API protocol to expose: `openai` or `anthropic` (one per launch) |
 | `MILA_CONTEXT_LENGTH` | `auto` | Tokens the model holds, prompt and reply together. `auto` takes the longest the GPU can hold; a number that does not fit stops startup, naming what it needs and what is free |
 | `MILA_KV_CACHE` | `bf16` | How the model holds its context: `bf16` or `fp8`. `fp8` takes half the memory, so `auto` fits a longer context |
 | `MILA_DEVICE_INDEX` | `0` | CUDA device ordinal |
-| `MILA_DEFAULT_MAX_NEW_TOKENS` | `1024` | Default token budget for generation |
 | `MILA_KEEPALIVE_INTERVAL` | `15.0` | Seconds between SSE keepalive pings during prefill |
 | `MILA_DECODE_TIMEOUT` | `30.0` | Seconds to wait for each subsequent token during decode |
 | `MILA_HOST` | `0.0.0.0` | Server bind address |
@@ -164,10 +162,15 @@ store matches case-insensitively, so the two can differ; what is reported is wha
 same holds for the context: `/v1/models` reports the length the model loaded at as `context_window`,
 and a prompt longer than it is refused.
 
+Reply length has no setting. A request that names no length may reply until the context is full, and
+`/v1/models` reports the context length as `max_output_tokens`. A model that reasons spends much of its reply
+thinking, so a small length cuts it off before it answers.
+
 Sampling has no setting. A request that leaves out `temperature`, `top_k`, `top_p` or `presence_penalty`
 gets the model's own recommended value, which can differ with thinking on and off: Qwen 3.8, for one,
 recommends a lower temperature and a presence penalty when it is not thinking. A request's own values always
-win.
+win. A Chat Completions or Completions request that sends `seed` gets the same reply each time it is sent with
+the same seed and settings.
 
 There is no family, path or quantization setting. All three are properties of the weights, which
 the store record already states — `gemma-4-12b-it-fp4` *is* FP4 weights, and a variable that said
@@ -192,7 +195,6 @@ MILA_DEVICE_INDEX=0
 |---|---|
 | `openai` | `/v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/models` |
 | `anthropic` | `/v1/messages`, `/v1/models` |
-| `mila` | `/v1/chat/completions`, `/v1/completions` |
 
 On the `openai` protocol, `/v1/completions` takes a `prompt` as text or as token ids, one prompt per
 request. Token ids reach the model as sent, which is how an evaluation harness gives two engines the
@@ -200,7 +202,7 @@ same input. `stop` cuts a reply at the first stop sequence, streamed or not, on 
 Chat Completions; on `anthropic`, `stop_sequences` does the same.
 
 Every reply says why it ended. A reply cut off at `max_tokens`, or at the end of the context, reports
-`length` on `openai` and `mila`, and `max_tokens` or `model_context_window_exceeded` on `anthropic`;
+`length` on `openai`, and `max_tokens` or `model_context_window_exceeded` on `anthropic`;
 one cut at a stop sequence reports `stop`, or `stop_sequence` with the sequence. On `/v1/responses` a
 cut-off reply is `incomplete`, with `max_output_tokens` as the reason.
 

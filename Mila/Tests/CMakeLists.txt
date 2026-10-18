@@ -290,6 +290,9 @@ if(MILA_ENABLE_CUDA)
         # A built model reserves the scratch its footprint predicts and generation stays inside it.
         # Needs exported weights -- see Specifications/MemoryFootprint.md Phase 6 step 2.
         "Dnn/Models/ScratchReservation.Cuda.cpp"
+        # With KV prefix reuse off, a seeded reply does not depend on the prompt run before it -- PromptCaching.md
+        # section 5. Needs exported weights.
+        "Dnn/Models/PrefixReuse.Cuda.cpp"
         # Qwen against a TRUNCATED real artifact -- the full 27B is 50 GiB at BF16 and fits
         # no card here, so 4 layers (both block kinds) is what can be exercised. Skips
         # without the fixture; see the file header for how to produce it.

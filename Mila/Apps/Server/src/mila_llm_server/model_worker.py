@@ -23,6 +23,10 @@ from mila_llm_server.schemas.internal import Sampling
 _MAX_REASONING_CHANNELS = 24
 _MAX_TOKEN_REPEATS = 48
 
+# Tokens a partial character may be held for. Byte-level tokens can carry one byte each and a character has at most
+# four; twice that leaves room for a token that carries none.
+_MAX_HELD_TOKENS = 8
+
 _log = logging.getLogger(__name__)
 
 #: The binding's session class for each loader a store record names (StoredModel.family). The one place the
@@ -33,6 +37,96 @@ SESSION_FOR = {
     "llama": "LlamaModel",
     "qwen": "QwenModel",
 }
+
+
+class TokenText:
+    """
+    Token ids to text as they stream. A character split across tokens is held until its last byte arrives, as a
+    UTF-8 character spans at most four bytes; bytes that do not complete one within _MAX_HELD_TOKENS are the
+    model's own invalid output, passed on as U+FFFD -- holding them would freeze the stream for good, since every
+    later decode of the buffer fails too.
+    """
+
+    def __init__(self, decode: Callable[..., str]):
+        self._decode = decode
+        self._buffer: list[int] = []
+        self.invalid_runs = 0
+
+    def feed(self, token_id: int) -> str | None:
+        self._buffer.append(token_id)
+
+        try:
+            text = self._decode(self._buffer)
+        except UnicodeDecodeError:
+            if len(self._buffer) < _MAX_HELD_TOKENS:
+                return None
+
+            text = self._decode(self._buffer, "replace")
+            self.invalid_runs += 1
+
+        self._buffer.clear()
+
+        return text
+
+
+def _held_back(text: str, marker: str) -> int:
+    """How many trailing characters of text could be the start of marker, and so cannot be classified yet."""
+    for length in range(min(len(text), len(marker) - 1), 0, -1):
+        if marker.startswith(text[-length:]):
+            return length
+
+    return 0
+
+
+class StopMarkerScan:
+    """
+    Finds a protocol's stop markers in a reply as it streams in, outside its reasoning only. Every protocol's
+    parser reads calls outside the reasoning, so a call the model drafts while thinking is not a call, and stopping
+    there would end the reply inside its reasoning, with nothing for the client to read.
+    """
+
+    def __init__(self, markers, reasoning_open: str, reasoning_close: str, begins_in_reasoning: bool):
+        self._markers = tuple(markers)
+        self._open = reasoning_open
+        self._close = reasoning_close
+        self._inside = begins_in_reasoning and bool(reasoning_close)
+        self._pending = ""
+        self._outside = ""
+        self._longest = max((len(marker) for marker in self._markers), default=0)
+
+    def feed(self, text: str) -> str | None:
+        """The first stop marker the reply now has outside its reasoning, or None."""
+        self._pending += text
+        start = max(0, len(self._outside) - self._longest)
+
+        while self._pending:
+            if self._inside:
+                index = self._pending.find(self._close)
+
+                if index < 0:
+                    held = _held_back(self._pending, self._close)
+                    self._pending = self._pending[len(self._pending) - held:] if held else ""
+                    break
+
+                self._pending = self._pending[index + len(self._close):]
+                self._inside = False
+                continue
+
+            index = self._pending.find(self._open) if self._open else -1
+
+            if index < 0:
+                held = _held_back(self._pending, self._open) if self._open else 0
+                self._outside += self._pending[:len(self._pending) - held]
+                self._pending = self._pending[len(self._pending) - held:]
+                break
+
+            self._outside += self._pending[:index]
+            self._pending = self._pending[index + len(self._open):]
+            self._inside = True
+
+        window = self._outside[start:]
+
+        return next((marker for marker in self._markers if marker in window), None)
 
 
 def _session_of(record: "mila.StoredModel"):
@@ -89,6 +183,7 @@ class ModelWorker:
         # both from the protocol's own markers.
         self._stop_markers: tuple[str, ...] = ()
         self._reasoning_open: str = ""
+        self._reasoning_close: str = ""
 
     async def startup(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -148,6 +243,7 @@ class ModelWorker:
             markers = self.protocol.markers
             self._stop_markers = tuple(markers["stop_after"])
             self._reasoning_open = markers["reasoning_open"]
+            self._reasoning_close = markers["reasoning_close"]
 
         self._tokenizer = mila.BpeTokenizer.from_store(record.name)
 
@@ -234,6 +330,7 @@ class ModelWorker:
         sampling: Sampling,
         stop_ctrl: mila.StopController | None = None,
         stop_at_markers: bool = True,
+        begins_in_reasoning: bool = False,
     ) -> str:
         """
         Runs the binding's generate() on the worker thread, delivering the decoded text as the model wrote it,
@@ -241,24 +338,30 @@ class ModelWorker:
         callers must use thread-safe delivery (e.g. loop.call_soon_threadsafe into an asyncio.Queue). Token ids
         are buffered until they form a valid UTF-8 sequence, since a token can carry part of a code point.
 
-        With stop_at_markers, generation stops at the protocol's stop markers: a closed call, since left
-        running the model writes the result itself, and the open of a result, which is the engine's to write
-        and backstops a call the model failed to close.
+        With stop_at_markers, generation stops at the protocol's stop markers outside the reasoning: a closed
+        call, since left running the model writes the result itself, and the open of a result, which is the
+        engine's to write and backstops a call the model failed to close. begins_in_reasoning is the prompt's
+        `reply_begins_in_reasoning`: the reply opens inside the reasoning channel the template left open.
 
         Returns the binding's status. A stop this worker requested at a marker is the model's turn ending, and
         reads as `stop`; `cancelled` is left only for a stop the caller requested, whose reason the caller knows.
         """
         loop = asyncio.get_running_loop()
-        token_buffer: list[int] = []
+        stream = TokenText(self._tokenizer.decode)
         guard = {"channels": 0, "last": None, "repeats": 0}
         ended_by_marker = False
-        stop_markers = self._stop_markers if stop_at_markers else ()
+        scan = StopMarkerScan(self._stop_markers if stop_at_markers else (), self._reasoning_open,
+                              self._reasoning_close, begins_in_reasoning)
+        # Why the worker, rather than the model or the budget, ended the reply; logged, since a reply that stops
+        # inside its reasoning reads to a client as the model saying nothing.
+        cause = {"stopped_at": None}
 
         def _degenerating(raw_text: str) -> bool:
             # Runaway reasoning channels: no legitimate answer opens this many.
             if self._reasoning_open and self._reasoning_open in raw_text:
                 guard["channels"] += 1
                 if guard["channels"] > _MAX_REASONING_CHANNELS:
+                    cause["stopped_at"] = f"{_MAX_REASONING_CHANNELS} reasoning channels"
                     return True
 
             # A single token repeated far past any natural repetition.
@@ -267,6 +370,7 @@ class ModelWorker:
                 if stripped == guard["last"]:
                     guard["repeats"] += 1
                     if guard["repeats"] > _MAX_TOKEN_REPEATS:
+                        cause["stopped_at"] = f"{_MAX_TOKEN_REPEATS} repeats of {stripped!r}"
                         return True
                 else:
                     guard["repeats"] = 0
@@ -275,15 +379,16 @@ class ModelWorker:
             return False
 
         def _on_token(token_id: int) -> None:
-            token_buffer.append(token_id)
-            try:
-                text = self._tokenizer.decode(token_buffer)
-            except UnicodeDecodeError:
+            text = stream.feed(token_id)
+
+            if text is None:
                 return
 
-            token_buffer.clear()
+            matched = scan.feed(text)
+            stop_now = matched is not None
 
-            stop_now = any(marker in text for marker in stop_markers)
+            if stop_now and cause["stopped_at"] is None:
+                cause["stopped_at"] = f"marker {matched!r}"
 
             if stop_ctrl is not None and stop_at_markers and _degenerating(text):
                 stop_now = True
@@ -300,6 +405,10 @@ class ModelWorker:
                 prompt_tokens, _on_token, max_new_tokens, **vars(sampling), stop_controller=stop_ctrl)
 
         status = await loop.run_in_executor(self._executor, _run)
+        _log.info("generation ended: %s%s%s", status,
+                  f", stopped by the worker at {cause['stopped_at']}" if ended_by_marker else "",
+                  f"; {stream.invalid_runs} runs of tokens that are not UTF-8, passed on as U+FFFD"
+                  if stream.invalid_runs else "")
 
         return "stop" if ended_by_marker else status
 

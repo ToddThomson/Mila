@@ -206,7 +206,9 @@ reaches users only from a checkout or inside the container. A client is told eve
 its own, including one cut off at its token limit, and a streamed reply runs past the stop sequences a
 buffered one honours. Every application samples at a constant of its own rather than at the setting the
 model's publisher recommends, and infers what a model can do — a reasoning channel, its context limit,
-and now whether it takes an image — from its family's name rather than reading it from the model.
+and now whether it takes an image — from its family's name rather than reading it from the model. And
+the website, where a user arrives, says nothing about running either application: the server appears
+only in blog posts, and Chat only as one line of the build instructions.
 
 None of this is the rebuild on `Mila::AI` (v0.22.0), and all of it survives it: the server's package,
 its wire behaviour, and the fields a manifest declares are the same either side of the move.
@@ -215,8 +217,10 @@ its wire behaviour, and the fields a manifest declares are the same either side 
 README tells a user it does; Chat, the server and the binding open a session at the sampling settings
 the model's manifest carries, and at its family's published settings when it carries none; a model's
 reasoning channel, context limit and modality are read from its manifest, and a manifest that omits
-them still loads; and the foreign-harness tool flows established in v0.20 — Codex CLI and Claude Code
-CLI over the OpenAI and Anthropic wire shapes — still pass unchanged.
+them still loads; the foreign-harness tool flows established in v0.20 — Codex CLI and Claude Code
+CLI over the OpenAI and Anthropic wire shapes — still pass unchanged; and the website has a page for each
+application — Chat, the server with every harness it is tested with, and the model store — that takes a
+user from install to a running model.
 
 ### Upgrades Keep Your Models
 

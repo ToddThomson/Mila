@@ -1,0 +1,6 @@
+; Example: back up the shared drive's reports nightly.
+[sync]
+src = /mnt/shared/reports
+dst = /srv/backup/reports
+ignore = *.bak
+versions = 7

@@ -14,7 +14,7 @@ only the first, so the duty fell on a log line nobody reads.
 from datetime import datetime, timezone
 
 from mila_llm_server.protocols.base import ModelsCapable
-from mila_llm_server.config import settings, loaded
+from mila_llm_server.config import loaded
 
 
 class AnthropicModelsAdapter(ModelsCapable):
@@ -30,7 +30,8 @@ class AnthropicModelsAdapter(ModelsCapable):
             "display_name": loaded.name,
             "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "context_window": loaded.context_length,
-            "max_output_tokens": settings.default_max_new_tokens,
+            # The model has no output limit of its own, so one reply may fill the context.
+            "max_output_tokens": loaded.context_length,
             # Beyond Anthropic's model object, which carries no lineage, and matching the
             # OpenAI card field for field so a client does not have to learn two spellings.
             "base_model": loaded.base_model,

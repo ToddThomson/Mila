@@ -369,11 +369,12 @@ namespace Mila::Dnn
             // Prefix reuse returns to the position saved at the end of the previous prompt, so it
             // applies when this prompt starts with that whole prompt and extends it. Saved at the
             // end of the prompt rather than of the reply: the chat template drops a reply's
-            // reasoning from the history, so the next prompt diverges inside the reply. Otherwise
+            // reasoning from the history, so the next prompt diverges inside the reply. Otherwise,
+            // or when the caller turns reuse off for a reply independent of earlier calls,
             // a full prefill from position 0, which zeroes the recurrent state and starts the
             // convolution windows cold, so nothing carries over from what ran before.
             const std::int64_t saved = static_cast<std::int64_t>( saved_prompt_.size() );
-            const bool extends_saved = saved > 0 && saved < seq_len
+            const bool extends_saved = params.reuse_kv_prefix && saved > 0 && saved < seq_len
                 && std::equal( saved_prompt_.begin(), saved_prompt_.end(), prompt_tokens.begin() );
 
             const bool reused = extends_saved

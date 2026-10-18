@@ -10,7 +10,7 @@ import json
 import time
 import uuid
 
-from mila_llm_server.config import loaded, settings
+from mila_llm_server.config import loaded
 from mila_llm_server.conversation import (
     RequestError,
     ServedReply,
@@ -21,6 +21,7 @@ from mila_llm_server.conversation import (
     presence_penalty_of,
     reasoning_effort_variables,
     refuse_unless_default,
+    seed_of,
     text_of,
     tool_turn,
 )
@@ -74,9 +75,6 @@ class OpenAIChatCompletions(ChatEndpoint):
 
         if body.get("logprobs") or body.get("top_logprobs"):
             raise RequestError("logprobs are not supported by this server")
-
-        if body.get("seed") is not None:
-            raise RequestError("seed is not supported by this server")
 
         refuse_unless_default(body, "frequency_penalty", 0)
 
@@ -136,6 +134,7 @@ class OpenAIChatCompletions(ChatEndpoint):
             top_k=body.get("top_k"),
             top_p=body.get("top_p"),
             presence_penalty=presence_penalty_of(body),
+            seed=seed_of(body),
             stop=parse_stop(body.get("stop")),
             stream=bool(body.get("stream", False)),
             parallel_tool_calls=body.get("parallel_tool_calls", True) is not False,
@@ -218,6 +217,10 @@ class OpenAIChatCompletions(ChatEndpoint):
 
         return "".join(events)
 
+    def stream_error(self, message: str, context: ReplyContext) -> str:
+        # A chunk carrying `error` is what OpenAI's clients raise on mid-stream.
+        return f"data: {json.dumps({'error': {'type': 'server_error', 'message': message}})}\n\ndata: [DONE]\n\n"
+
     def error(self, message: str) -> dict:
         return {"error": {"type": "invalid_request_error", "message": message}}
 
@@ -233,11 +236,12 @@ class OpenAICompletions(CompletionsCapable):
         prompt_str, prompt_ids = parse_completion_prompt(body.get("prompt", ""))
         req = InferenceRequest(
             prompt_ids=prompt_ids,
-            max_new_tokens=body.get("max_tokens", settings.default_max_new_tokens),
+            max_new_tokens=body.get("max_tokens"),
             temperature=body.get("temperature"),
             top_k=body.get("top_k"),
             top_p=body.get("top_p"),
             presence_penalty=presence_penalty_of(body),
+            seed=seed_of(body),
             stream=body.get("stream", False),
             stop=parse_stop(body.get("stop")),
         )
@@ -269,3 +273,6 @@ class OpenAICompletions(CompletionsCapable):
 
     def format_stream_done(self) -> str:
         return "data: [DONE]\n\n"
+
+    def format_stream_error(self, message: str) -> str:
+        return f"data: {json.dumps({'error': {'type': 'server_error', 'message': message}})}\n\ndata: [DONE]\n\n"

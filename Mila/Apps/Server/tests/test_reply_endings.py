@@ -120,7 +120,7 @@ class FakeWorker:
         return list(prompt_ids) + list(range(len(self.chunks))), self.status
 
     async def generate_streaming(self, prompt_ids, on_text, max_new_tokens, sampling, stop_ctrl=None,
-                                 stop_at_markers=True):
+                                 stop_at_markers=True, begins_in_reasoning=False):
         for chunk in self.chunks:
             if stop_ctrl is not None and stop_ctrl.stop_requested:
                 return "cancelled"

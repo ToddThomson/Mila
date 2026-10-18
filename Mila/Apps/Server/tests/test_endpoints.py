@@ -39,6 +39,8 @@ class FakeWorker:
         self.raw = raw
         self.prompts = []
         self.sampling = []
+        self.lengths = []
+        self.begins_in_reasoning = []
 
     async def encode(self, text):
         self.prompts.append(text)
@@ -46,8 +48,10 @@ class FakeWorker:
         return [1, 2, 3, 4]
 
     async def generate_streaming(self, prompt_ids, on_text, max_new_tokens, sampling, stop_ctrl=None,
-                                 stop_at_markers=True):
+                                 stop_at_markers=True, begins_in_reasoning=False):
         self.sampling.append(sampling)
+        self.lengths.append(max_new_tokens)
+        self.begins_in_reasoning.append(begins_in_reasoning)
 
         for piece in re.split(r"(?<=\n)", self.raw):
             on_text(piece)
@@ -150,7 +154,7 @@ def test_no_system_turn_is_invented(serve):
 
 
 @pytest.mark.parametrize("field, value", [
-    ("n", 2), ("seed", 7), ("logprobs", True), ("frequency_penalty", 0.5), ("logit_bias", {"1": 2}),
+    ("n", 2), ("logprobs", True), ("frequency_penalty", 0.5), ("logit_bias", {"1": 2}),
     ("response_format", {"type": "json_object"}), ("tool_choice", "required"), ("reasoning_effort", "high"),
 ])
 def test_a_field_that_cannot_be_acted_on_is_refused_by_name(serve, field, value):
@@ -188,6 +192,58 @@ def test_presence_penalty_is_passed_and_refused_out_of_range(serve):
 
     refused = http.post("/v1/chat/completions", json={**body, "presence_penalty": 3})
     assert refused.status_code == 400 and "presence_penalty" in refused.text
+
+
+def test_a_request_naming_no_length_may_fill_the_context(serve):
+    # The fixture's context is 8192 and the fake prompt 4 tokens. A server length of its own once cut reasoning
+    # models off before they answered.
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
+    body = {"messages": [{"role": "user", "content": "Hi"}]}
+
+    http.post("/v1/chat/completions", json=body)
+    http.post("/v1/chat/completions", json={**body, "max_tokens": 100})
+    http.post("/v1/chat/completions", json={**body, "max_tokens": 100000})
+
+    assert fake.lengths == [8188, 100, 8188]
+
+
+def test_the_worker_is_told_whether_the_reply_opens_inside_the_reasoning(serve):
+    # Qwen 3.8's template opens the reasoning channel on the prompt when thinking is on, its default.
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+    body = {"messages": [{"role": "user", "content": "Hi"}]}
+
+    http.post("/v1/chat/completions", json=body)
+    http.post("/v1/chat/completions", json={**body, "reasoning_effort": "none", "stream": True})
+
+    assert fake.begins_in_reasoning == [True, False]
+
+
+def test_models_report_the_context_as_the_longest_reply(serve):
+    http, _ = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
+
+    card = http.get("/v1/models").json()["data"][0]
+
+    assert card["max_output_tokens"] == card["context_window"] == 8192
+
+
+@pytest.mark.parametrize("seed, passed", [(7, 7), (0, 0), (-1, 2**64 - 1), (2**63 - 1, 2**63 - 1), (None, None)])
+def test_seed_reaches_the_model_as_the_bindings_64_bits(serve, seed, passed):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
+
+    response = http.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "Hi"}], "seed": seed})
+
+    assert response.status_code == 200
+    assert fake.sampling[0].seed == passed
+
+
+@pytest.mark.parametrize("seed", [1.5, "7", True, 2**63, -2**63 - 1])
+def test_a_seed_that_is_not_a_64_bit_integer_is_refused(serve, seed):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
+
+    response = http.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "Hi"}], "seed": seed})
+
+    assert response.status_code == 400 and "seed" in response.json()["error"]["message"]
+    assert fake.prompts == []
 
 
 @pytest.mark.parametrize("effort, thinking", [("none", False), ("low", None), (None, None)])

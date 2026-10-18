@@ -886,10 +886,17 @@ namespace Mila::Bindings
         std::size_t max_new_tokens,
         std::optional<float> temperature, std::optional<int> top_k, std::optional<float> top_p,
         std::optional<float> presence_penalty, std::optional<bool> thinking,
+        std::optional<std::uint64_t> seed,
         std::stop_token stop )
     {
+        if ( seed )
+        {
+            impl_->model->seedSampler( *seed );
+        }
+
         GenerateParams params;
         params.max_new_tokens = static_cast<int>( max_new_tokens );
+        params.reuse_kv_prefix = !seed.has_value();
         params.sampling = resolveSampling(
             impl_->sampling, thinking, temperature, top_k, top_p, presence_penalty );
 
@@ -976,10 +983,17 @@ namespace Mila::Bindings
         std::size_t max_new_tokens,
         std::optional<float> temperature, std::optional<int> top_k, std::optional<float> top_p,
         std::optional<float> presence_penalty, std::optional<bool> thinking,
+        std::optional<std::uint64_t> seed,
         std::stop_token stop )
     {
+        if ( seed )
+        {
+            impl_->model->seedSampler( *seed );
+        }
+
         GenerateParams params;
         params.max_new_tokens = static_cast<int>( max_new_tokens );
+        params.reuse_kv_prefix = !seed.has_value();
         params.sampling = resolveSampling(
             impl_->sampling, thinking, temperature, top_k, top_p, presence_penalty );
 
@@ -1071,10 +1085,17 @@ namespace Mila::Bindings
         std::size_t max_new_tokens,
         std::optional<float> temperature, std::optional<int> top_k, std::optional<float> top_p,
         std::optional<float> presence_penalty, std::optional<bool> thinking,
+        std::optional<std::uint64_t> seed,
         std::stop_token stop )
     {
+        if ( seed )
+        {
+            impl_->model->seedSampler( *seed );
+        }
+
         GenerateParams params;
         params.max_new_tokens = static_cast<int>( max_new_tokens );
+        params.reuse_kv_prefix = !seed.has_value();
         params.sampling = resolveSampling(
             impl_->sampling, thinking, temperature, top_k, top_p, presence_penalty );
 

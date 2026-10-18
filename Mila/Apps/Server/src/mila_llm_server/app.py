@@ -1,7 +1,7 @@
 """
 Mila inference server.
 Start with: mila-server (or uvicorn mila_llm_server.app:app --host 0.0.0.0 --port 8000)
-Protocol is selected via MILA_PROTOCOL env var: mila | openai | anthropic
+Protocol is selected via MILA_PROTOCOL env var: openai | anthropic
 """
 import logging
 from contextlib import asynccontextmanager
@@ -17,7 +17,6 @@ from mila_llm_server.routes.factory import register_routes
 from mila_llm_server.routes.health import router as health_router
 from mila_llm_server.protocols.openai import OpenAIAdapter
 from mila_llm_server.protocols.anthropic import AnthropicAdapter
-from mila_llm_server.protocols.mila import MilaChatAdapter
 
 _LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s - %(message)s"
 logging.basicConfig(
@@ -30,7 +29,6 @@ logging.basicConfig(
 _ADAPTERS = {
     ProtocolMode.openai: OpenAIAdapter,
     ProtocolMode.anthropic: AnthropicAdapter,
-    ProtocolMode.mila: MilaChatAdapter,
 }
 
 @asynccontextmanager

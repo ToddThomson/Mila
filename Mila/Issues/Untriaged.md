@@ -10,6 +10,18 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Model evaluations are not published, and a user cannot rerun them
+
+`Mila/Tools/Evaluation/`, `Web/`, `Mila/Specifications/ModelEval.md` @ `2d6f61e`
+
+Raised 2026-10-18 (Todd), asked as "mila-evals as a release artifact for 0.21?": publish the results on the website,
+and give end users a tool that reproduces them. Today the evaluations live in `Tools/Evaluation`, which never ships,
+and the results only in specs and `Data/Evaluation`. Costs noted at the time: a shipped tool is a new app under
+`Mila/Apps/` with a `mila-` command, help text and tests; the lm-eval, bfcl-eval and inspect-ai arms bring heavy
+dependencies and the hf and llama.cpp arms need transformers or a llama.cpp build, while the Hermes task set is
+standard library only and talks only to MIS. Not decided: which release, which suites the tool carries, and whether
+v0.21.0's ROADMAP has a criterion it serves.
+
 ## An agent system around one main model with worker agents across several cards has no design
 
 `Mila/Specifications/LayerSplit.md`, `Mila/AI/` @ `4804dbc`
@@ -51,18 +63,6 @@ between attention layers. The weight arena (497 MiB measured on Qwen FP4) and FP
 tier to about 140 MiB by arithmetic. Not measured: the bus rate on the 5060 Ti, the arena on either model, Gemma at
 64K, the decode rate Todd will accept.
 
-## The inference server cuts a reply at 1,024 tokens unless asked otherwise, and tells clients it is the model's limit
-
-`Mila/Apps/Server/src/mila_llm_server/config.py:48`, `protocols/openai/models.py:30`, `protocols/anthropic/models.py:33` @ `4804dbc`
-
-Found 2026-10-18 at Todd's question. `default_max_new_tokens = 1024` came in at `2186e9d` (0.13.17-alpha.5,
-2026-05-14, "Update server default model parameters") with no reason recorded, before any reasoning model ran here,
-and has not been revisited. It bounds every reply whose request names no length (Chat Completions, Completions,
-Responses), and `/v1/models` reports it as `max_output_tokens` on both the OpenAI and Anthropic listings, so a client
-reads a server default as the model's own limit. The `mila` protocol's default is 256 (`protocols/mila/chat.py:42`,
-`:84`). Qwen 3.8 at `xhigh` can spend more than 1,024 tokens thinking, so a client that omits a length gets a reply
-cut before its answer. Not checked: which harnesses omit it, and what OpenAI's and Anthropic's APIs default to.
-
 ## A model installed before capabilities were recorded reads to clients as having no reasoning and no tools
 
 `Mila/Apps/Server/src/mila_llm_server/protocols/openai/models.py:32` @ `4804dbc`
@@ -95,15 +95,24 @@ there is no way to ask for a chunk, or a floor under one (the agentic target is 
 gives is a constraint the plan honours, as the fixed context already is. Not checked: what the request, Chat, the
 server and the binding would each carry.
 
-## The inference server refuses a sampling seed the library supports
+## A greedy reply through the server can depend on the request before it
 
-`Mila/Apps/Server/src/mila_llm_server/protocols/openai/chat.py:78`, `Mila/Bindings/` @ `4804dbc`
+`Mila/Bindings/Mila_py.Wrappers.cpp` (reuse off only with a seed), `Mila/Specifications/PromptCaching.md` section 5
+@ `2d6f61e`
 
-Found 2026-10-18 running BFCL at Qwen 3.8's recommended sampling: no run can be repeated, because MIS answers
-`seed` with "seed is not supported by this server". The library has it -- `LanguageModel::seedSampler` seeds the
-sampling stream once per run, and Chat's `/seed` and `Tools/Drafting` use it -- but the binding exposes no seed, so
-the server cannot reach it. Not checked: the Responses and Messages endpoints, and whether a reseed before each
-request is reproducible while the server takes one request at a time.
+Found 2026-10-18 fixing the seed: KV prefix reuse rounds a prompt differently from a whole prefill (Llama 3.2 3B
+BF16 departs at the tenth sampled token), and a seeded call now prefills whole. An unseeded greedy request still
+reuses, so at a near-tie its reply depends on what the server ran before -- the case an engine comparison at greedy
+through MIS is in. Not checked: how often greedy flips on real prompts, and whether greedy calls should also
+prefill whole.
+
+## A 64-bit sampling seed keeps only its low 32 bits
+
+`Mila/Src/Dnn/Samplers/TokenSampler.ixx` `reseed` @ `2d6f61e`
+
+Found 2026-10-18 reading the reseed for the MIS seed. `reseed( std::uint64_t )` casts to `std::mt19937::result_type`
+and `mt19937::seed` keeps 32 bits, so seeds 2^32 apart -- and OpenAI's -1 and 4294967295 -- give the same stream
+while the API says each is a different seed. A `std::seed_seq` of both halves would keep all 64.
 
 ## GPT-2 samples on the host with its own sampler, which ignores top-p
 

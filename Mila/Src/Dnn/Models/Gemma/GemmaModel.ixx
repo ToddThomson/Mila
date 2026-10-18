@@ -394,7 +394,9 @@ namespace Mila::Dnn
             // Transparent KV prefix reuse (PromptCaching.md): cache positions [0, n)
             // are a deterministic function of the first n tokens, so exact token
             // equality against what the caches already hold is the sole validity
-            // test -- reuse can never change outputs. Cap at seq_len - 1 so at least
+            // test. The reused prompt rounds differently from a whole one, so a
+            // caller that needs the reply independent of earlier calls turns reuse
+            // off. Cap at seq_len - 1 so at least
             // the final position prefills and the sampled logits are fresh. A refused
             // rewind (bounded-ring staleness, cold cache) falls back to the full
             // prefill, which positionally overwrites regardless of cache state.
@@ -407,7 +409,7 @@ namespace Mila::Dnn
 
             const std::int64_t reuse = std::min( common, seq_len - 1 );
 
-            const bool reused = reuse > 0
+            const bool reused = params.reuse_kv_prefix && reuse > 0
                 && this->getNetwork().rewindKvCache( reuse );
 
             auto& logits = reused

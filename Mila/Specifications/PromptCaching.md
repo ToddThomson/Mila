@@ -33,17 +33,21 @@ only rewinding `cached_seq_len_` to `n` and prefilling the new tokens from
 No snapshot buffers, no device-to-device copies, no additional device memory.
 
 K/V state at `[0, n)` is a deterministic function of the first `n` token ids and the
-fixed model weights — so **exact token equality is the sole validity test**, and reuse
-can never change outputs.
+fixed model weights — so **exact token equality is the sole validity test**. Reuse is
+exact in tokens, not in floats: the prompt prefilled from a reused prefix runs at other
+shapes than the same prompt prefilled whole, and rounds differently. Sampling can turn
+that into a different token (section 5).
 
 ---
 
 ## 3. Design — Transparent Model-Side Reuse
 
 The original draft threaded a `cacheable_prefix_len` hint through the generate surface.
-As shipped, there is **no hint and no API change** (decided 2026-07-03): `generate()`
-and `GenerateParams` are untouched. The model keeps a private token history and does
-the matching itself:
+As shipped, there is **no hint** (decided 2026-07-03): the model keeps a private token
+history and does the matching itself. The one switch is `GenerateParams::reuse_kv_prefix`
+(default on, decided 2026-10-18, Todd): off, the whole prompt prefills, for a reply that
+must not depend on what the model ran before. The 07-03 decision for no API change at all
+rested on reuse never changing outputs, which is false (section 5).
 
 ```
 GemmaModel::kv_token_history_   // the token ids whose K/V the caches hold, in
@@ -151,7 +155,8 @@ cancellation, context overflow) leave history == cache contents. A cache hit log
 | A refused/partial rewind needs no cleanup | full prefill positionally overwrites all caches and resets every fill counter |
 | `prefillFrom` never writes below `start_offset` | `kvcache_write_kv`'s `position_offset` argument enforces this |
 | `kv_token_history_` tracks the caches exactly | assigned after prefill, appended in lockstep with each decode |
-| Reuse never changes outputs | token equality + deterministic positional K/V; the only differences are float accumulation across chunk boundaries |
+| Reuse never changes which tokens the caches hold | token equality + deterministic positional K/V |
+| Reuse can change a reply | measured 2026-10-18, Llama 3.2 3B BF16, temperature 1.0, seed 42: the same prompt prefilled whole and from a reused prefix departs at the tenth token. A seeded caller turns reuse off (`reuse_kv_prefix`); the binding does whenever a seed is given. Pinned by `PrefixReuseCudaTests` |
 | Thread safety unchanged | the model is not thread-safe; MIS serializes per instance |
 
 ---

@@ -17,7 +17,8 @@ import mila
 from mila_llm_server.config import loaded
 from mila_llm_server.protocols.openai import OpenAIAdapter
 from mila_llm_server.protocols.openai.chat import OpenAIChatCompletions, OpenAICompletions
-from mila_llm_server.protocols.utils import parse_completion_prompt, parse_stop, truncate_at_stop
+from mila_llm_server.protocols.utils import (
+    CONTEXT_LIMIT, MAX_TOKENS, finish_reason_from_status, parse_completion_prompt, parse_stop, truncate_at_stop)
 from mila_llm_server.routes import factory
 
 
@@ -89,6 +90,8 @@ class FakeWorker:
         self.reply_ids = reply_ids
         self.encoded = []
         self.generated_from = None
+        self.sampling = None
+        self.length = None
 
     async def encode(self, text):
         self.encoded.append(text)
@@ -100,6 +103,8 @@ class FakeWorker:
 
     async def generate(self, prompt_ids, max_new_tokens, sampling):
         self.generated_from = list(prompt_ids)
+        self.sampling = sampling
+        self.length = max_new_tokens
 
         return list(prompt_ids) + self.reply_ids, "stop"
 
@@ -155,6 +160,33 @@ def test_without_stop_the_reply_is_whole(client):
     response = http.post("/v1/completions", json={"prompt": [1, 2], "max_tokens": 8})
 
     assert response.json()["choices"][0]["text"] == "The final answer is 6\nQ: another question"
+
+
+def test_a_completion_naming_no_length_may_fill_the_context(client):
+    http, fake = client
+
+    http.post("/v1/completions", json={"prompt": [1, 2, 3]})
+
+    assert fake.length == 4096 - 3
+
+
+def test_running_out_with_no_length_named_is_the_context_ending():
+    assert finish_reason_from_status("length", None, 500) == CONTEXT_LIMIT
+    assert finish_reason_from_status("length", 500, 500) == MAX_TOKENS
+    assert finish_reason_from_status("length", 900, 500) == CONTEXT_LIMIT
+
+
+def test_the_seed_reaches_the_model_and_a_malformed_one_is_refused(client):
+    http, fake = client
+
+    assert http.post("/v1/completions", json={"prompt": [1, 2], "max_tokens": 8, "seed": -2}).status_code == 200
+    assert fake.sampling.seed == 2**64 - 2
+
+    fake.sampling = None
+    refused = http.post("/v1/completions", json={"prompt": [1, 2], "max_tokens": 8, "seed": "7"})
+
+    assert refused.status_code == 400 and "seed" in refused.text
+    assert fake.sampling is None
 
 
 def test_a_batch_is_refused_as_an_invalid_request(client):

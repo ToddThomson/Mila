@@ -50,6 +50,13 @@ class ChatEndpoint(ABC):
     def stream_reply(self, reply: ServedReply, context: ReplyContext) -> str:
         """Every remaining event of a stream, the reply's and the close."""
 
+    @abstractmethod
+    def stream_error(self, message: str, context: ReplyContext) -> str:
+        """
+        The close of a stream the server failed, in the API's own error shape. Never a normal end of turn: a client
+        told the model finished cannot tell a server fault from the model choosing to stop.
+        """
+
     def error(self, message: str) -> dict:
         return {"type": "error", "error": {"type": "invalid_request_error", "message": message}}
 
@@ -72,6 +79,10 @@ class CompletionsCapable(ABC):
 
     @abstractmethod
     def format_stream_done(self) -> str: ...
+
+    @abstractmethod
+    def format_stream_error(self, message: str) -> str:
+        """The close of a stream the server failed, as ChatEndpoint.stream_error."""
 
 
 class ModelsCapable(ABC):

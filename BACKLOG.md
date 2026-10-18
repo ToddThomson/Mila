@@ -116,6 +116,9 @@ Scope grew again on 2026-10-17 (Todd), the date held: under Applications Ship, a
 how it is configured, thinking on or off, and the sampler gains the presence penalty Qwen 3.8's non-thinking
 setting asks for. No removal.
 
+Scope grew on 2026-10-18 (Todd), the date held: under Applications Ship, the website's pages for the applications,
+with a criterion clause added to that theme. No removal.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -544,6 +547,25 @@ still loads; every published model republished with them.
 
 Also the root of Codex's "Model metadata not found" warning against `/v1/models` — all three
 validated flows pass regardless, so that is a symptom of this gap rather than separate work.
+
+#### The website does not tell a user how to run Chat, the inference server or the model store
+
+`open` · `docs` · `apps`
+
+Someone who wants a local model behind Claude Code, Codex or Hermes Agent, or a chat in their terminal, finds
+nothing written for them: the server appears only in two blog posts, which go stale, and Chat only as one line of the
+build instructions. Admitted 2026-10-18 (Todd); the shape proposed the same day:
+
+- An Applications section in the site's navigation, with a page per application: Chat (built from source or run from
+  the image), the inference server (`pip install`), and `mila-store` (installing a model is step one for both).
+- The server's page covers each harness it is tested with -- install, start the server, the harness's own settings,
+  the models it is tested with and their limits. The harness instructions stay in one file,
+  `Mila/Apps/Server/docs/harnesses.md`, mounted into the site rather than copied.
+- A Get started tab for a user who wants a local model behind a coding agent, pointing at the server's page.
+- End-user prose throughout (`CLAUDE.md` *End-User Prose*), written after the harness baselines so every tested
+  version and limit it states is measured.
+
+`Web/hugo.toml` (navigation), `Web/layouts/index.html` (Get started tabs), `Mila/Apps/Server/docs/harnesses.md`
 
 ### Upgrades Keep Your Models
 

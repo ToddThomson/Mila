@@ -49,6 +49,9 @@ namespace Mila::Bindings
          *
          * @param thinking How the prompt was rendered, which picks the model's recommended setting for every
          *        knob not given. Empty is the template's default.
+         * @param seed Reseeds the sampler and prefills the whole prompt, so the same prompt, knobs and seed give
+         *        the same reply whatever ran before. Empty continues the stream the previous reply left, and
+         *        reuses the cached prefix.
          */
         std::string generate(
             const std::vector<std::int32_t>& prompt_tokens,
@@ -56,6 +59,7 @@ namespace Mila::Bindings
             std::size_t max_new_tokens,
             std::optional<float> temperature, std::optional<int> top_k, std::optional<float> top_p,
             std::optional<float> presence_penalty, std::optional<bool> thinking,
+            std::optional<std::uint64_t> seed,
             std::stop_token stop );
 
         LlamaConfigInfo getConfig() const;
