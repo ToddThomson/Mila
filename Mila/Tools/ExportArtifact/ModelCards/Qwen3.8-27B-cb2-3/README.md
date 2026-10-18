@@ -41,19 +41,23 @@ it is the more accurate of the two.
 
 ## Quality
 
-Measured against the FP4 build as the oracle, teacher-forced over ~31,650 positions of
-wikitext-2 test, each cell its own deployment:
+Measured against the original `Qwen/Qwen3.8-27B` in BF16. Both builds read the same held-out
+conversations, and at every position we check whether the build's most likely next token is the
+original's:
 
-| Context | FP4, 4.125 bits | This build, 2.82 bits | Ratio |
-|---|---|---|---|
-| 4096 | 6.439 | 7.089 | 1.101 |
-| 8192 | 6.126 | 6.704 | 1.094 |
-| 16384 | 5.686 | 6.478 | 1.139 |
+| Build | Tool-calling conversations | Chat conversations |
+|---|---|---|
+| This model, 2.82 bits | 78.9% | 76.2% |
+| [Qwen3.8-27B-fp4](https://huggingface.co/mila-llm/Qwen3.8-27B-fp4), 4.125 bits | 84.4% | 86.7% |
 
-Perplexity is **13.9% higher** than FP4 at 16K context — the cost of the smaller residency. The
-ratio is flat from 1K to 16K, so the gap does not widen as the context grows.
+The FP4 build agrees with the original more often: by 5 points on tool calls and 10 on chat.
 
-Codebooks were fitted on wikitext-2 train.
+### How this was measured
+
+8,184 positions per text, from conversations that played no part in fitting the codebooks. The
+median KL divergence from the original is 0.018 nats on tool calls and 0.171 on chat (FP4: 0.006
+and 0.042). The codebooks were fitted on tool-calling conversations, general chat and wikitext,
+rendered through the model's own chat template.
 
 ## Files
 
@@ -74,7 +78,7 @@ From the Mila chat harness:
 ```
 
 Installing is a deliberate step, and it is the only one that touches the network. It verifies
-each file against the digest in `mila.json` and leaves it in a content-addressed local store;
+each file against the digest in `mila.json` and leaves it in a local store;
 every load afterwards reads the store and nothing else. `/model list --online` lists what is
 published, and `/model list` lists what is already installed.
 

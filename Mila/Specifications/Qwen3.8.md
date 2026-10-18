@@ -1749,6 +1749,50 @@ and requiring a dot made the embedding load silently load nothing. Every layer t
 relative error of exactly 1.000e+00 — which is what a zero hidden state looks like, since the
 error equals the reference norm. The loader now refuses a prefix that matched no tensor.
 
+#### The drift past the bound is the prompt's, not Mila's (measured 2026-10-17)
+
+On the 28-token prompt `<|im_start|>system\nReasoning effort is set to xhigh...alternatives, and`, Mila's last
+token reaches 4.2e-2 from HuggingFace BF16 at layer 63, past the 2.0e-2 bound set on the 5-token prompt. Measured
+against an FP32 reference for that prompt (same weights, `hf_qwen_layer_stream.py --dtype float32 --all-positions`),
+and against a 1,024-token prompt (the first 1,024 tokens of the held-out tool conversations, which open with the same
+28), all on the 5060 Ti unless named:
+
+| Prompt | Last token, layer 63, vs FP32: Mila / HF | Logits vs FP32: Mila / HF | Argmax |
+|---|---|---|---|
+| 5 tokens (default) | 9.40e-3 / 1.33e-2 | 9.44e-3 / 1.39e-2 | all agree |
+| 28 tokens | 2.85e-2 / 2.83e-2 | 1.92e-2 / 2.46e-2 | all agree |
+| 1,024 tokens | 2.40e-1 / 1.48e-1 (HF on the 4070: 1.67e-1) | 1.16e-1 / 6.73e-2 (4070: 8.00e-2) | all agree |
+
+**Each layer adds the same rounding on both sides.** With every layer fed the FP32 reference's own input
+(`MILA_QWEN_PARITY_LOCAL` on the Mila side, a scratch driver doing the same in HuggingFace), a layer's error against
+FP32 is its own and not what arrived. Mila's is 0.98x HuggingFace's on the DeltaNet layers and 0.99-1.01x on the
+full-attention ones, at 28 and at 1,024 tokens, and it does not change along the sequence: 2.7e-3 to 2.8e-3 per
+DeltaNet layer from position 0 to position 1,023. **The recurrent state is not losing precision with length**, at
+least to 1,024 tokens, which was the lead suspect.
+
+**The stack amplifies that rounding about tenfold, and the amplification is the model's.** Local error is ~3e-3 per
+layer; propagated, the median over positions reaches 3.05e-2 at layer 63 for Mila and for HuggingFace alike at 1,024
+tokens. A few positions amplify far more than the rest, and which arm lands worst there is rounding luck: over all
+1,024 positions at layer 63,
+
+| Arm, vs FP32 | Mean | Median | 99th percentile |
+|---|---|---|---|
+| Mila BF16 | 5.42e-2 | 3.05e-2 | 5.54e-1 |
+| HuggingFace BF16, 5060 Ti | 5.03e-2 | 3.05e-2 | 4.35e-1 |
+| HuggingFace BF16, 4070 | 5.37e-2 | 3.19e-2 | 4.84e-1 |
+
+The two HuggingFace runs differ from each other by 5.58e-2 on average, more than Mila differs from FP32. Mila is
+further from FP32 than the 5060 Ti's HuggingFace run on only 45% of positions. Its 99th percentile is the highest of
+the three. That is still inside the spread the two HuggingFace runs show, but two references do not make it luck,
+and it is the one number worth watching.
+
+**So the test's bound measures how sensitive the prompt is.** `vs_hf` puts two independent BF16 errors of about the
+same size together. At 28 tokens each is 2.8e-2 from FP32, so the two are 3.5e-2 to 4.2e-2 apart, depending on
+which HuggingFace run is the reference. The 2.0e-2 bound held on the 5-token prompt only because there HuggingFace's
+own error peaks at 1.3e-2. A gate that judges Mila has to compare it with FP32 against what HuggingFace's own BF16
+gets: the propagated ratio, or the local ratio, which is the sharper of the two. The rotary-frequency defect above
+put `q_roped` 80x off at its layer; this measurement sits at 0.98-1.01x.
+
 ### Phase 3 status (2026-08-19)
 
 **The published 27B geometry constructs, builds, and runs** — prefill and decode end to end,
@@ -2774,6 +2818,7 @@ llama-perplexity counts it. All on the RTX 4070.
 |---|---|---|---|---|---|
 | Unsloth UD-IQ4_XS | 14.25 GB | 0.705 / 0.003 | 87.3% | 0.220 / 0.017 | 89.5% |
 | Unsloth UD-Q2_K_XL | 9.83 GB | 1.317 / 0.012 | 80.4% | 0.464 / 0.066 | 83.8% |
+| Mila FP4 (5060 Ti, 2026-10-17) | 16.19 GB | 0.939 / 0.006 | 84.4% | 0.313 / 0.042 | 86.7% |
 | Mila 2.82-bit, re-fit | 11.87 GB | 1.435 / 0.018 | 78.9% | 0.695 / 0.171 | 76.2% |
 | Mila 2.82-bit, published | 11.87 GB | 1.842 / 0.068 | 73.1% | 1.642 / 0.564 | 60.3% |
 
@@ -2783,7 +2828,16 @@ median is the better measure of a build's typical departure. On both texts the r
 quarter to a third as much as the published build, typically; on tool text it is close to Unsloth's 2-bit build,
 on chat it trails it (median 0.171 against 0.066), and Unsloth's file is 2 GB smaller. One asymmetry: llama.cpp
 scores every position through its prefill, Mila prefills each chunk's first half and decodes the rest, with BF16
-activations where Mila's prefill rounds the FP4 roles' to FP8. Mila's FP4 build is not yet in the table.
+activations where Mila's prefill rounds the FP4 roles' to FP8. Mila's FP4 build ran on the 5060 Ti, the only card that
+holds it, and the 2.82-bit builds on the 4070. What the change of card alone moves is not measured. FP4 sits between Unsloth's two builds, closer to the 4-bit one.
+
+**Decided (Todd, 2026-10-17): the re-fit is the 2.82-bit build, gated on divergence from the original, not on
+perplexity against FP4.** The wikitext ratio is dropped as a gate: it scores the text the old build was fitted on,
+and on served text perplexity ranks the original model last. The gate that replaces it is the one this section
+measures. A re-fit must depart from BF16 less than the build it replaces, by mean and by median KL, on both held-out
+texts. The re-fit does, on all four: tool 1.435 / 0.018 against 1.842 / 0.068, chat 0.695 / 0.171 against 1.642 /
+0.564. With every probed name correct, that closes the misnamed-tools defect. Whether either Qwen build is
+published as agentic is still `ModelEval.md` Phase 8's.
 
 ### Agentic deployment on the 16 GB card (2026-10-15)
 
@@ -2794,6 +2848,10 @@ one of the two models Mila calls agentic, 16 GB is the reference card, and Claud
 alone renders to about 20,400 tokens. Today the inference server loads the FP4 build at 11,264 and refuses every
 Claude Code request for length; Codex 0.162.1 and Hermes 0.22.2 fit. By the pricing below the FP4 build cannot
 reach 64K on this card by any load-time lever, so the build that meets the target here is the 2.82-bit one.
+
+**Status, 2026-10-18 (Todd): the 2.82-bit re-fit is an agentic candidate, not yet agentic.** What it must pass first
+-- RULER and the context profile at 64K with thinking on, then sustained Claude Code, Codex and Hermes Agent sessions
+at 64K, Hermes on a fixed set of real-world tasks -- is `ModelEval.md` Phase 8's.
 
 **What bounds it is the Windows budget, not a pricing error.** The card reports 16,311 MiB and nvidia-smi shows about
 1 GiB free with the model loaded. That GiB is not the process's: WDDM gives a process a budget below the card, and

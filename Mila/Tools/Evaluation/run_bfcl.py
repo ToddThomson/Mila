@@ -4,8 +4,9 @@ BFCL (the Berkeley Function Calling Leaderboard, Gorilla's bfcl-eval package) re
 with the model's own function-calling prompt and sends it to a server's Completions route. Every
 arm here is a server -- reference_server.py for `hf`, MIS for `mila`, llama-server for `llamacpp`
 -- and every arm is sent the same token ids: the request BFCL builds is replaced with one carrying
-the ids BFCL's own HuggingFace tokenizer produces. Decoding is greedy, one entry at a time.
-compare_arms.py pairs two arms by entry.
+the ids BFCL's own HuggingFace tokenizer produces, one entry at a time. Sampling is the model's recommended
+setting, which the server applies to every knob a request leaves unset; `--greedy` decodes greedily instead, for two
+engines compared on the same weights. compare_arms.py pairs two arms by entry.
 """
 
 import argparse
@@ -24,6 +25,13 @@ DEFAULT_MODEL = "meta-llama/Llama-3.2-3B-Instruct-FC"
 # memory and web search are BFCL's agentic categories; web search needs the network during a run.
 DEFAULT_CATEGORIES = "python"
 
+# A reasoning model's thinking is part of its reply; the server lowers this to what its context has left.
+REPLY_BUDGET = 32768
+
+# Set from --greedy. A model is measured at its publisher's recommended sampling, which the server applies to
+# every knob a request leaves unset; greedy is for comparing two engines on the same weights.
+GREEDY = False
+
 
 def query_with_token_ids(self, inference_data):
     """
@@ -34,20 +42,25 @@ def query_with_token_ids(self, inference_data):
     inference_data["inference_input_log"] = {"formatted_prompt": formatted_prompt}
     prompt_ids = self.tokenizer.encode(formatted_prompt, add_special_tokens=False)
     remaining = self.max_context_length - len(prompt_ids) - 2
-    max_tokens = min(4096, remaining) if remaining > 0 else 1000
+    max_tokens = min(REPLY_BUDGET, remaining) if remaining > 0 else 1000
     extra_body = {}
+    sampling = {}
 
     if hasattr(self, "stop_token_ids"):
         extra_body["stop_token_ids"] = self.stop_token_ids
 
+    # No knob sent is the server's model-recommended setting; greedy is sent only when asked for.
+    if GREEDY:
+        sampling["temperature"] = 0.0
+
     started = time.time()
     response = self.client.completions.create(
         model=self.model_path_or_id,
-        temperature=self.temperature,
         prompt=[prompt_ids],
         max_tokens=max_tokens,
         extra_body=extra_body,
         timeout=72000,
+        **sampling,
     )
 
     return response, time.time() - started
@@ -91,7 +104,12 @@ def main():
                         help="the model's HuggingFace files on disk, for the tokenizer, instead of the Hub")
     parser.add_argument("--limit", type=int, default=0,
                         help="first N entries of each category; for a smoke run, never for a result")
+    parser.add_argument("--greedy", action="store_true",
+                        help="decode greedily rather than at the model's recommended sampling: two engines, one model")
     arguments = parser.parse_args()
+
+    global GREEDY
+    GREEDY = arguments.greedy
 
     output = arguments.output / arguments.arm / "bfcl"
 
@@ -110,6 +128,10 @@ def main():
     from bfcl_eval.constants.model_config import MODEL_CONFIG_MAPPING
     from bfcl_eval.eval_checker.eval_runner import main as evaluate
 
+    import bfcl_qwen38
+
+    bfcl_qwen38.register()
+
     if arguments.model not in MODEL_CONFIG_MAPPING:
         sys.exit(f"BFCL has no model named {arguments.model}; `bfcl models` lists them.")
 
@@ -127,7 +149,8 @@ def main():
         "categories": arguments.categories,
         "tokenizer": tokenizer_name,
         "limit": arguments.limit,
-        "temperature": 0.0,
+        "sampling": "greedy" if arguments.greedy else "model-recommended",
+        "reply_budget": REPLY_BUDGET,
     }
     record = servers.environment(arguments.arm, "bfcl-eval", served, settings)
     servers.write_environment(output, record)

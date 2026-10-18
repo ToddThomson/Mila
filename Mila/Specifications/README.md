@@ -90,6 +90,7 @@ means a status line or target is out of date and the rest has not been re-read.
 | [SlidingWindowKvCache.md](SlidingWindowKvCache.md) | Design | The bounded KV ring for sliding-window layers | |
 | [PromptCaching.md](PromptCaching.md) | Design | KV prefix reuse across calls | |
 | [RopeInAttention.md](RopeInAttention.md) | Design | RoPE fused into attention, and what the cache would store | Draft; no code. Two measurements (its section 5) decide whether it becomes a design |
+| [TieredKvCache.md](TieredKvCache.md) | Design | One KV cache over device memory and pinned host memory, for a context the device alone cannot hold | Preliminary, 2026-10-18; no code. Its section 7 lists what must be measured before it is a design |
 
 ### Memory, deployment and devices
 
@@ -120,7 +121,7 @@ means a status line or target is out of date and the rest has not been re-read.
 | Document | Role | Decides or records | Notes |
 |---|---|---|---|
 | [ContextProfile.md](ContextProfile.md) | Design | Measuring a model configuration at each context length it holds: fit, loss by band, recall, instruction retention, tool calls, turn cost | Draft; no code |
-| [ModelEval.md](ModelEval.md) | Design | Standard task benchmarks run paired against a reference engine: arms, controls, statistics, the noise floor, and the model card's quality claim | Draft; the tools for Phases 1 to 4 built (`Tools/Evaluation`: IFEval, GSM8K, RULER, BFCL; transformers, MIS and llama.cpp arms), only a smoke run on real weights so far; Phase 8 (Qwen 3.8 for agentic work) planned, its BFCL handler not built |
+| [ModelEval.md](ModelEval.md) | Design | Standard task benchmarks run paired against a reference engine: arms, controls, statistics, the noise floor, and the model card's quality claim | Draft; the tools for Phases 1 to 4 built (`Tools/Evaluation`: IFEval, GSM8K, RULER, BFCL; transformers, MIS and llama.cpp arms), only a smoke run on real weights so far; Phase 8 (Qwen 3.8 for agentic work) planned, its BFCL handler built 2026-10-18 and run at the model's defaults |
 
 ### Distribution and serialization
 

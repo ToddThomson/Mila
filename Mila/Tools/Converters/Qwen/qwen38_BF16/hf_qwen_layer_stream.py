@@ -171,7 +171,7 @@ class StreamedReference:
     self-test can drive this over an in-memory random model with no checkpoint.
     """
 
-    def __init__( self, text_config, weights, device, dtype, dump_layer=-1 ):
+    def __init__( self, text_config, weights, device, dtype, dump_layer=-1, all_positions=False ):
         self.config = text_config
         self.weights = weights
         self.device = device
@@ -182,6 +182,10 @@ class StreamedReference:
         # stage instead of to a layer.
         self.dump_layer = dump_layer
         self.stages = {}
+
+        # Every layer's output at every position, not just the last: a recurrent layer's
+        # error can grow along the sequence, and the last token alone cannot show that.
+        self.all_positions = all_positions
 
         from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5TextRotaryEmbedding
 
@@ -332,6 +336,7 @@ class StreamedReference:
         position_embeddings = self.rotary( hidden, rope_position_ids )
 
         layer_hidden = []
+        layer_positions = []
 
         for i in range( num_layers ):
             layer_type = self.config.layer_types[ i ]
@@ -357,6 +362,9 @@ class StreamedReference:
 
             layer_hidden.append( hidden[ 0, -1 ].float().cpu().clone() )
 
+            if self.all_positions:
+                layer_positions.append( hidden[ 0 ].float().cpu().clone() )
+
             if i == self.dump_layer:
                 # The block INPUT too: a stage comparison is only meaningful if both sides
                 # started from the same hidden state, and this is what proves they did.
@@ -380,6 +388,7 @@ class StreamedReference:
 
         return {
             'layer_hidden': layer_hidden,
+            'layer_positions': layer_positions,
             'final_hidden': final_hidden,
             'logits': logits,
         }
@@ -544,7 +553,7 @@ def self_test( device: str ) -> int:
 # ============================================================================
 
 def run_reference( model_name: str, output_path: str, prompt_ids, max_layers: int,
-                   device: str, dtype_name: str, dump_layer: int = -1 ):
+                   device: str, dtype_name: str, dump_layer: int = -1, all_positions: bool = False ):
     from transformers.models.qwen3_5.configuration_qwen3_5 import Qwen3_5TextConfig
 
     checkpoint = resolve_checkpoint( model_name )
@@ -563,7 +572,7 @@ def run_reference( model_name: str, output_path: str, prompt_ids, max_layers: in
     print( f'Prompt ids: {list( prompt_ids )}\n' )
 
     weights = ShardedWeights( checkpoint )
-    driver = StreamedReference( text_config, weights, device, dtype, dump_layer )
+    driver = StreamedReference( text_config, weights, device, dtype, dump_layer, all_positions )
     result = driver.run( prompt_ids, num_layers )
     result[ 'stages' ] = driver.stages
 
@@ -599,6 +608,9 @@ def _write_reference( output_path, prompt_ids, num_layers, text_config, dtype_na
     for i, row in enumerate( result[ 'layer_hidden' ] ):
         writer.add_tensor( f'hidden_layer_{i}', row.numpy().astype( np.float32 ) )
 
+    for i, rows in enumerate( result.get( 'layer_positions', [] ) ):
+        writer.add_tensor( f'positions_layer_{i}', rows.numpy().astype( np.float32 ) )
+
     writer.add_tensor( 'hidden_final', result[ 'final_hidden' ].numpy().astype( np.float32 ) )
     writer.add_tensor( 'logits_last', result[ 'logits' ].numpy().astype( np.float32 ) )
 
@@ -629,6 +641,8 @@ if __name__ == '__main__':
     parser.add_argument( '--dump-layer', type=int, default=-1,
         help='Also capture every stage inside this layer at full [T, width], for stage-level '
              'attribution against the Mila harness' )
+    parser.add_argument( '--all-positions', action='store_true',
+        help='Also write every layer\'s output at every position (positions_layer_<i>, [T, width])' )
 
     args = parser.parse_args()
 
@@ -639,4 +653,4 @@ if __name__ == '__main__':
         parser.error( '--model and --output are required unless --self-test is given' )
 
     run_reference( args.model, args.output, args.prompt_ids, args.max_layers,
-                   args.device, args.dtype, args.dump_layer )
+                   args.device, args.dtype, args.dump_layer, args.all_positions )

@@ -19,7 +19,7 @@ not a format one.
 |---|---|
 | `run_arm.py` | Runs one arm of an lm-eval evaluation -- `hf`, `mila` or `llamacpp` -- with every setting fixed and shared |
 | `run_bfcl.py` | Runs one arm of a BFCL evaluation against a server, sending token ids |
-| `reference_server.py` | transformers behind a Completions route with MIS's semantics: BFCL's `hf` arm |
+| `bfcl_qwen38.py` | BFCL's handler for Qwen 3.8, registered by `run_bfcl.py` as `Qwen/Qwen3.8-27B-FC` || `reference_server.py` | transformers behind a Completions route with MIS's semantics: BFCL's `hf` arm |
 | `servers.py` | The preflight every served arm passes, and the environment record each arm writes |
 | `run_inspect.py` | Runs one arm of a Hugging Face Hub benchmark through inspect-ai, to the benchmark's own `eval.yaml` |
 | `eval_results.py` | Writes the mila arm's Hub benchmark score as the model repo's `.eval_results/<task>.yaml` |
@@ -164,7 +164,6 @@ python run_arm.py mila --output Data/Evaluation/llama32-3b-ruler --tasks ruler ^
 
 Start the server with a context of at least the `--max-length`. Each band is reported as its own
 row. Four of the 13 tasks fetch text at run time (Paul Graham's essays, SQuAD, HotpotQA).
-
 ## BFCL
 
 `run_bfcl.py` drives `bfcl-eval` against a server -- the reference server for `hf`, MIS for `mila`,
@@ -183,6 +182,20 @@ its `python` collection: every single-turn Python category, live and not, about 
 `--categories` takes BFCL's category or collection names, and `--limit 5` the first five entries of
 each category for a smoke run. Results go to `<output>/<arm>/bfcl`, beside the arm's lm-eval results,
 and `compare_arms.py` reads both.
+
+A model is measured at its defaults: `run_bfcl.py` sends no sampling knob, so MIS applies the model's recommended
+sampling, and asks for replies up to 32,768 tokens, which MIS lowers to what its context has left -- a reasoning
+model's thinking is part of its reply, so give the server room for it. `--greedy` decodes greedily instead, for two
+engines compared on the same weights.
+
+BFCL's own handlers stop at Qwen3, so `--model Qwen/Qwen3.8-27B-FC` is `bfcl_qwen38.py`'s. It renders each entry with
+Qwen 3.8's own chat template at its defaults (thinking on, `xhigh`), reads calls from the answer after `</think>` in
+the `<tool_call><function=...>` form the model writes, and types each argument by the entry's schema. BFCL scores a
+stored reply with no schema in reach, so this handler stores `{"calls": [...], "reply": "..."}`: the typed calls BFCL
+scores, beside the reply as written.
+
+On Windows, run BFCL with `PYTHONUTF8=1`: bfcl-eval reads its own score files in the system code page, and fails on
+the first non-ASCII character in one.
 
 ## Hugging Face Hub benchmarks
 

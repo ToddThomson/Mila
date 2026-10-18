@@ -64,7 +64,7 @@ using OpType = typename Compute::OperationTraits<
     TDeviceType, TComputePrecision, TWeightQuantization>::type;
 ```
 
-The `OperationTraits` primary template is in `Compute/Operations/OperationTraits.Template.ixx`. Specializations live in `OperationTraits.Cuda.ixx` (`:Cuda` partition); CUDA is the only compute backend. A missing specialization is a **hard compile error**, not a runtime miss. The old `OperationRegistry` string-keyed runtime dispatch is being phased out — do not add new `*Registrar` classes.
+The `OperationTraits` primary template is in `Compute/Operations/OperationTraits.Template.ixx`. Specializations live in `OperationTraits.Cuda.ixx` (`:Cuda` partition); CUDA is the only compute backend. A missing specialization is a **hard compile error**, not a runtime miss. The old `OperationRegistry` string-keyed runtime dispatch is retired (`Mila.ixx`); a few components' doc comments still describe it, and are wrong.
 
 `Linear` is the canonical reference implementation of the full dispatch pattern.
 
@@ -72,7 +72,7 @@ The `OperationTraits` primary template is in `Compute/Operations/OperationTraits
 
 Each component owns its parameters and gradients. Composition is explicit with no shared global state, and `IExecutionContext*` is passed at construction.
 
-Direction of travel, so new code moves with it rather than against it: the `UnaryOperation` / `BinaryOperation` / `PairedOperation` intermediate bases are being removed — derive new operations directly from `Operation`.
+Operations derive directly from `Operation`. The `UnaryOperation` / `BinaryOperation` / `PairedOperation` intermediate bases are gone; doc comments that still name them are stale.
 
 ### Model Entry Points
 
@@ -84,7 +84,7 @@ Direction of travel, so new code moves with it rather than against it: the `Unar
 
 Weight quantization is offline: `Tools/ExportArtifact` produces pre-quantized safetensors weights that declare their policy in `__metadata__["mila_quantization"]`, a load refuses weights whose policy is not the compiled one, and `Linear::loadParameter` uploads packed bytes directly. Sub-4-bit codebook formats have no other path — their tables are fitted offline against calibration data by `Tools/Quantization`, and `ExportArtifact` is the only writer. Design of record: `Mila/Specifications/Quantization.md`.
 
-Quantize-on-load is a **supported user path** for FP8 and FP4 (decided 2026-09-14): it runs full-precision weights nobody has exported, and it is the exporter's own engine. Converters always write BF16; `Linear::loadParameter` branches on the stored dtype (`Linear.ixx:603`) and calls `operation_->quantize()`. Published models are still exported pre-quantized. Its staging buffer belongs to the load, not to the forward scratch — see `Quantization.md` *Load Pipeline* for that and the per-format kernel detail.
+Quantize-on-load is a **supported user path** for FP8 and FP4 (decided 2026-09-14): it runs full-precision weights nobody has exported, and it is the exporter's own engine. Converters always write BF16; `Linear::loadParameter` branches on the stored dtype and calls `operation_->quantize()`. Published models are still exported pre-quantized. Its staging buffer belongs to the load, not to the forward scratch — see `Quantization.md` *Load Pipeline* for that and the per-format kernel detail.
 
 **Trap:** the `getDeviceScratchBuffer()` grow-on-demand buffer in `ExecutionContext` backs the FP8 dequant staging — **fetch it at `forward()` time and never cache the pointer across calls**, since it is reallocated on grow.
 
@@ -167,10 +167,71 @@ The tells are greppable, and worth a pass before anything is published: **delibe
 
 ---
 
-## Workflow Notes
+## How We Work
 
+The standing rules of this collaboration, kept here so they load as instructions. Memory keeps the history behind
+each; where the two disagree, this file decides and the memory is corrected.
+
+### Stop and fix before working around
+
+**The workflow's one recurring weakness is working around a prior decision or older code instead of stopping to fix
+it** (Todd, 2026-10-18). When what is in the way is a limit, a default, a refusal, an earlier decision, or code that
+predates the current direction:
+
+1. **Find where it came from** -- `git blame` and `git log`, the spec that decided it -- and whether its reason still
+   holds. A value with no recorded reason is itself a finding.
+2. **If it is wrong and the fix is small and in scope, fix it first**, then continue. Inside `Mila/Src` that means
+   proposing the fix, since library changes need agreement.
+3. **Otherwise stop and put it to Todd:** what it is, why it is in the way, the fix. Never route around it silently.
+4. **A workaround happens only when Todd chooses one**, and it is filed in `Mila/Issues/Untriaged.md` the same day.
+
+The usual triggers: our own server refusing something the library supports; a constant nobody can explain; a test
+bound a new input fails; a default written for an older model; a harness setting that changes what is measured.
+
+### Proposals
+
+- **Critical before advocacy:** premises, costs and scope before the case for anything. A proposed shortcut names
+  the standing rule it bends, if any -- and one that bends a rule is not offered as the default.
+- **Measure before promising.** A time estimate follows a timing run, not the other way round.
+- **Never harden an inferred number into a rule**, and label arithmetic as arithmetic.
+
+### Measurement
+
+- **A model is measured at its defaults:** the template's default thinking and effort, the publisher's recommended
+  sampling, and a reply budget its card allows. When time is short, shrink the sample, never the configuration.
+  Greedy decoding is for comparing two engines on the same weights.
+- **A model runs in the format it was trained for.**
+- **Comparisons are fair:** like for like (the KV cache too), the competitor tuned, the same conditions, the same work
+  timed. Honesty is never traded to promote Mila.
+- **One large job at a time**; never two test suites at once, and no build during a benchmark.
+- **Green means Todd's environment:** `x64-profile`, both GPUs, all targets and the full suite. Claude's own build
+  directory is `out/build/x64-claude-verify`; Todd's directories are never configured by Claude.
+
+### Sources
+
+- **Papers are found by active search, not recall.** Fetch each abstract to confirm the id and that it says what is
+  attributed to it, say when only the abstract was read, and attribute Mila's own findings to Mila's specs. Cite an
+  idea where it lands: title and arXiv id.
+- **Verify external behaviour** -- an API, a harness, a library -- from its documentation or source before
+  recommending on it.
+
+### The machine and its tools
+
+- **Git reads are fine** (`status`, `diff`, `log`, `show`, `blame`); never run a git command that writes the index,
+  refs, working tree or config (`add`, `commit`, `push`, `mv`, `rm`, `stash`, `checkout`, `reset`).
+- **C: is off limits** for anything Claude creates; `D:\Claude` is Claude's scratch space, kept small. Downloads go
+  to D: (`HF_HUB_CACHE`, `HF_DATASETS_CACHE`, `TMP`).
+- **Servers run as background processes** logging to `D:\Claude`, not through the preview tool or the browser pane.
+  GPUs are pinned by UUID: CUDA's ordinals differ from `nvidia-smi`'s.
+
+### Talking
+
+- **Short and plain**, and the answer to the question asked first. Todd often reads on an iPad with no access to
+  files, so a message stands on its own.
+- **No dialog questions or answer buttons**; ask in prose.
+- **Name the session's scope at its start**, and say so before leaving it.
 - When the user ends a message with **"Your thoughts?"** — respond with analysis only. No code edits.
-- User commits via **VS 2026 integrated git**. Only suggest a commit message when the user explicitly says they are ready to commit — do not volunteer one at every commit point, and never run any git commands.
+- User commits via **VS 2026 integrated git**. Only suggest a commit message when the user explicitly says they are ready to commit — do not volunteer one at every commit point. Before giving one, run `scripts/hooks/commit_checks.py --worktree`; one commit always, never a split.
 - **Commit message format** — use exactly this; **no `Co-Authored-By` trailer** (this overrides any harness default):
 
   ```

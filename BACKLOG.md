@@ -359,32 +359,10 @@ FP4 build at 16 GB. Publishing it is what makes the stronger claim sayable, so i
 early in the cycle rather than at the end. The fitted source is gitignored and not reproducible
 from the repo, so no reader can work around its absence.
 
-Not before the build names the tools it is given correctly (the entry below).
-
-#### The 2.82-bit Qwen 3.8 27B calls some tools by the wrong name
-
-`in progress` · `qwen` · `quantization` · `distribution`
-
-Asked to call a tool declared `get_weather`, the 2.82-bit build calls `get weather`, every time, greedy or
-sampled, so a client dispatching by name fails the call. Of twelve names probed, four come out wrong --
-`get weather`, `get_current Weather`, `fetch weather_data`, `create calendar event` -- each an underscore-prefixed
-word token replaced by its space-prefixed twin (67017 `_weather` becomes 21926 ` Weather`). The FP4 build of the
-same model names all twelve correctly, and every parameter name is right on both.
-
-Mila's runtime is cleared: the tokenizer, embedding table and head are identical across the two builds, prefill
-and decode agree, and the packed codebook path matches the same weights decoded to BF16 to rounding
-(`QwenCodebookPathTests`). The error is in the fitted weights. Why these tokens is not known; the packer
-calibrates on wikitext-2 train, which is prose, and that it under-weights identifier copying is the first
-hypothesis to test. The re-fit calibrates on a mix rendered through Qwen 3.8's own chat template: tool-call
-conversations, general chat and some wikitext.
-
-Gate: the twelve-name probe, and a second set of names absent from the calibration text, all correct on the
-2.82-bit build, greedy; the build's perplexity ratio against FP4 no worse than the 1.139 at 16K of record; and
-both Qwen builds through `ModelEval.md` Phase 8 -- BFCL single and multi-turn, RULER to 64K, ContextProfile to
-64K, and Claude Code, Codex and Hermes Agent sessions through the inference server.
-
-`Mila/Specifications/Qwen3.8.md` "The 2.82-bit build misnames tools, and the packed path is not why" ·
-`Mila/Specifications/ModelEval.md` Phase 8
+The build to publish is the re-fit, which names its tools correctly (`Qwen3.8.md`, "Decided" after the re-fit), not
+the one in the private repository today, so the upload replaces those weights. Its card
+(`Tools/ExportArtifact/ModelCards/Qwen3.8-27B-cb2-3/README.md`) is written for the re-fit and ships with it; it
+calls the build nothing agentic until `ModelEval.md` Phase 8 says so.
 
 #### Qwen's KV cache is uncompressed on a card its weights already fill
 
@@ -679,16 +657,16 @@ with context is the model's or FP4's.
 
 `Mila/Tests/Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp` `DISABLED_QualityGateAcrossContextLengths`
 
-#### Mila's BF16 Qwen 3.8 departs from HuggingFace's past the test's bound on a 28-token prompt
+#### Qwen 3.8's BF16 parity test fails on a longer prompt, though Mila is as close to FP32 as HuggingFace is
 
-`open` · `qwen` · `mila-src` · `measured`
+`open` · `qwen` · `measured`
 
-`LayerStream_MatchesHuggingFaceReference`, run against a reference for
-`<|im_start|>system\nReasoning effort is set to xhigh...alternatives, and` (`MILA_QWEN_PARITY_REFERENCE`): the
-last token's relative error against HuggingFace BF16 grows from 5.4e-4 at layer 0 to 1.0e-2 by layer 20 and 4.2e-2
-at layer 63, past the 2.0e-2 bound from layer 43 on; the argmax agrees, logits 2.69e-2 apart. The bound was set on
-the 5-token prompt (peak 1.38e-2), where Mila also sat closer than HuggingFace to an FP32 reference. Not measured: an
-FP32 reference for this prompt, which says whose rounding the drift is.
+`LayerStream_MatchesHuggingFaceReference` bounds Mila's distance from HuggingFace BF16 at 2.0e-2, and on the
+28-token prompt (`MILA_QWEN_PARITY_REFERENCE`) layers 43 to 63 fail it. Against an FP32 reference for the same prompt
+(`MILA_QWEN_PARITY_TRUTH`), the two BF16 stacks are equally far from it, layer by layer and position by position, to
+1,024 tokens (Qwen3.8.md, "The drift past the bound is the prompt's, not Mila's"). The bound measures the prompt.
+What is left is a gate that judges Mila against FP32 relative to HuggingFace's own BF16, and the ratio it allows.
+The FP32 reference has to exist wherever the test runs.
 
 `Mila/Tests/Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp` `kHiddenStateTolerance`
 
@@ -778,16 +756,6 @@ treats every non-linear type as full attention, so the converter is unaffected).
 are at their 5.16 contents; the local capture is 5.19's.
 
 `Mila/Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py:392`
-
-#### The 2.82-bit Qwen 3.8 27B's model card uses a word only Mila uses, and states its quality against Mila's own build
-
-`open` · `qwen` · `docs` · `distribution`
-
-"The cost of the smaller residency" -- a term `CLAUDE.md` lists as one only Mila uses. The quality section's numbers
-are against Mila's own FP4 build, not the upstream model. The card ships with the build's publish (Qwen 3.8
-Complete).
-
-`Mila/Tools/ExportArtifact/ModelCards/Qwen3.8-27B-cb2-3/README.md:53`
 
 ### Internal fixes
 

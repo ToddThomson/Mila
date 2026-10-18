@@ -10,6 +10,101 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## An agent system around one main model with worker agents across several cards has no design
+
+`Mila/Specifications/LayerSplit.md`, `Mila/AI/` @ `4804dbc`
+
+Raised 2026-10-18 (Todd): a system built around a main model that directs worker agents, each on its own card, in a
+multi-card machine -- the counterpart to trading time for quality with one large model on a 16 GB card. Related: the
+layer split across devices (`LayerSplit.md`, after v0.21.0), `Mila::AI`'s agent core, NVIDIA Dynamo's KV-as-agent-
+resource framing (memory reference). Not designed: which model directs and which work, what crosses between cards,
+and how a worker's context is managed.
+
+## Library doc comments still describe the retired operation registry and the removed operation bases
+
+`Mila/Src/Dnn/Components/Connections/Residual.ixx:8`, `Normalization/Softmax.ixx:44`, `Encodings/Lpe/Lpe.ixx:53`, `Losses/SoftmaxCrossEntropy.ixx:11` @ `4804dbc`
+
+Found 2026-10-18 reviewing `CLAUDE.md`. `Mila.ixx:108` records the runtime `OperationRegistry` as retired and no
+`UnaryOperation`, `BinaryOperation` or `PairedOperation` class exists, but those components' Doxygen still says they
+obtain a backend from the registry or derive from those bases (Residual, Softmax, Lpe, SoftmaxCrossEntropy, Gelu and
+others name them; a grep counts 28 mentions of the bases). Public Doxygen describing code that is not there.
+
+## Nobody can tell a user when a smaller model beats a larger one quantized harder on their card
+
+`Mila/Specifications/ModelEval.md` section 12 @ `4804dbc`
+
+Found 2026-10-18 (Todd's question): for a given use case and card, when is a smaller model of a family the better
+choice than a larger one at aggressive quantization, Gemma 4 26B-A4B against 12B for one? Captured as ModelEval's
+choice matrix: fit at the use case's minimum context first (the planner's answer), then quality at that context at
+the model's defaults, then rate by bytes read per token. Only one card answers it today, for one pair (Qwen 3.8 at
+12 and 16 GB). Not measured: any smaller model as an agent at 64K, or a smaller model at higher precision against a
+larger one at low bits on the same tasks. Open: the use cases, their thresholds, the candidate set.
+
+## No 26B-or-larger model at FP4 or better reaches the 64K agentic minimum on a 16 GB card
+
+`Mila/Specifications/TieredKvCache.md` @ `4804dbc`
+
+Found 2026-10-18 (Todd). Qwen 3.8 27B FP4 holds 32,768 with an FP8 cache at a 512-row chunk and is about 1 GiB short
+of 64K; Gemma 4 26B-A4B is not priced at 64K. Todd's proposal, captured as a preliminary spec: one KV pool over the
+device and pinned host memory, device first, the oldest positions in the host tier, prefetched under the layers
+between attention layers. The weight arena (497 MiB measured on Qwen FP4) and FP8 group scales would shrink the host
+tier to about 140 MiB by arithmetic. Not measured: the bus rate on the 5060 Ti, the arena on either model, Gemma at
+64K, the decode rate Todd will accept.
+
+## The inference server cuts a reply at 1,024 tokens unless asked otherwise, and tells clients it is the model's limit
+
+`Mila/Apps/Server/src/mila_llm_server/config.py:48`, `protocols/openai/models.py:30`, `protocols/anthropic/models.py:33` @ `4804dbc`
+
+Found 2026-10-18 at Todd's question. `default_max_new_tokens = 1024` came in at `2186e9d` (0.13.17-alpha.5,
+2026-05-14, "Update server default model parameters") with no reason recorded, before any reasoning model ran here,
+and has not been revisited. It bounds every reply whose request names no length (Chat Completions, Completions,
+Responses), and `/v1/models` reports it as `max_output_tokens` on both the OpenAI and Anthropic listings, so a client
+reads a server default as the model's own limit. The `mila` protocol's default is 256 (`protocols/mila/chat.py:42`,
+`:84`). Qwen 3.8 at `xhigh` can spend more than 1,024 tokens thinking, so a client that omits a length gets a reply
+cut before its answer. Not checked: which harnesses omit it, and what OpenAI's and Anthropic's APIs default to.
+
+## A model installed before capabilities were recorded reads to clients as having no reasoning and no tools
+
+`Mila/Apps/Server/src/mila_llm_server/protocols/openai/models.py:32` @ `4804dbc`
+
+Found 2026-10-18 serving Qwen3.8-27B-fp4 from Todd's store: `/v1/models` says `supports_reasoning: false` and
+`capabilities.tools: false`, for a model that reasons by default and calls tools. The record predates the
+capability fields, and an absent field reads as false rather than unknown. The BACKLOG entry "What a model can do is
+inferred from its family name, not read from its manifest" republishes every model with the fields; until then
+every older install reports the wrong answer.
+
+## The evaluation tools assumed greedy decoding and short replies
+
+`Mila/Tools/Evaluation/reference_server.py:138`, `:149`; `run_bfcl.py` (until 2026-10-18) @ `4804dbc`
+
+Found 2026-10-18 moving Phase 8 to the model's defaults. `run_bfcl.py` sent temperature 0 and capped a reply at
+4,096 tokens; it now sends no sampling knob (MIS applies the model's recommended setting), asks for 32,768, and
+greedy is `--greedy`. `reference_server.py`, the `hf` arm for BFCL, refuses any temperature above 0 and defaults a
+reply to 256 tokens: right for Phase 1's engine parity on one set of weights, but it cannot measure a model at its
+recommended setting. lm-eval's served arm sends the task's own `gen_kwargs` (greedy for IFEval, GSM8K and RULER), so
+`run_arm.py` measures greedy too. Results recorded before this with thinking off: `Data/Evaluation/qwen38-*-thinking-off*`.
+
+## A deployment request cannot fix the prefill chunk; the planner always chooses it
+
+`Mila/Src/Deployment/DeploymentRequest.ixx`, `Mila/Specifications/Deployment.md` section 5 @ `4804dbc`
+
+Found 2026-10-18 setting up Qwen 3.8 FP4 at 32,768 for the Phase 8 sample. Deployment.md decides "The chunk is not a
+request knob: the planner always chooses it", so a caller fixes the context and takes whatever chunk fits;
+there is no way to ask for a chunk, or a floor under one (the agentic target is at least 64K at a chunk of at least
+512, `Qwen3.8.md`). Todd, the same day: the planner needs to work around provided settings -- a value the caller
+gives is a constraint the plan honours, as the fixed context already is. Not checked: what the request, Chat, the
+server and the binding would each carry.
+
+## The inference server refuses a sampling seed the library supports
+
+`Mila/Apps/Server/src/mila_llm_server/protocols/openai/chat.py:78`, `Mila/Bindings/` @ `4804dbc`
+
+Found 2026-10-18 running BFCL at Qwen 3.8's recommended sampling: no run can be repeated, because MIS answers
+`seed` with "seed is not supported by this server". The library has it -- `LanguageModel::seedSampler` seeds the
+sampling stream once per run, and Chat's `/seed` and `Tools/Drafting` use it -- but the binding exposes no seed, so
+the server cannot reach it. Not checked: the Responses and Messages endpoints, and whether a reseed before each
+request is reproducible while the server takes one request at a time.
+
 ## GPT-2 samples on the host with its own sampler, which ignores top-p
 
 `Mila/Src/Dnn/Models/Gpt/GptModel.ixx` `onGenerating`, `sampleFromLogits` @ `52045ab`

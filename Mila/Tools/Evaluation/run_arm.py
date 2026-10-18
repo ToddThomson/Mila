@@ -69,15 +69,25 @@ def lm_eval_arguments(arm, arguments, served_name, output):
         model = "hf"
         model_args = f"pretrained={arguments.reference},dtype=bfloat16,max_length={arguments.max_length}"
     else:
-        model = "local-completions"
+        model = "served-defaults" if arguments.model_defaults else "local-completions"
         model_args = (
             f"model={served_name},base_url={arguments.url}/v1/completions,"
             f"tokenizer={arguments.reference},tokenizer_backend=huggingface,tokenized_requests=True,"
             f"max_length={arguments.max_length},num_concurrent=1,timeout=3600"
         )
 
+    if arguments.model_defaults:
+        model_args += f",raw_replies={output / 'raw_replies.jsonl'}"
+
+        if arguments.reasoning_end:
+            model_args += f",reasoning_end={arguments.reasoning_end}"
+
+    # served-defaults is registered by its own module, so lm-eval runs through it.
+    launcher = [str(pathlib.Path(__file__).with_name("served_defaults.py"))] if arguments.model_defaults \
+        else ["-m", "lm_eval"]
+
     command = [
-        sys.executable, "-m", "lm_eval", "run",
+        sys.executable, *launcher, "run",
         "--model", model,
         "--model_args", model_args,
         "--tasks", arguments.tasks,
@@ -127,7 +137,19 @@ def main():
                         help="first N documents of each task; for a smoke run, never for a result")
     parser.add_argument("--per-band", type=int, default=0,
                         help="RULER only: the first N documents of each band, the same N on every arm")
+    parser.add_argument("--model-defaults", action="store_true",
+                        help="served arms only: the model's own defaults -- the template's default prompt, the "
+                             "server's recommended sampling, a reply long enough to reason in -- not the task's")
+    parser.add_argument("--reasoning-end",
+                        help="with --model-defaults: the text that ends the template's reasoning (e.g. </think>); "
+                             "the answer scored is what follows it")
     arguments = parser.parse_args()
+
+    if arguments.model_defaults and arguments.arm == "hf":
+        sys.exit("--model-defaults is for a served arm; the hf arm runs the task's own generation settings.")
+
+    if arguments.reasoning_end and not arguments.model_defaults:
+        sys.exit("--reasoning-end applies with --model-defaults only.")
 
     if arguments.limit and arguments.per_band:
         sys.exit("--limit and --per-band select documents two ways; give one.")
@@ -158,6 +180,8 @@ def main():
         "max_length": arguments.max_length,
         "limit": arguments.limit,
         "per_band": arguments.per_band,
+        "model_defaults": arguments.model_defaults,
+        "reasoning_end": arguments.reasoning_end,
         "seed": SEED,
     }
 

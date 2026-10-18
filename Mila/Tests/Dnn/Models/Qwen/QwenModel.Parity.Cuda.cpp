@@ -20,6 +20,8 @@
  *       --output <repo>/Data/Models/Qwen/qwen38_ref.bin
  *
  * The reference is itself a MILA container, so it is read with the same reader the weights are.
+ * MILA_QWEN_PARITY_REFERENCE and MILA_QWEN_PARITY_TRUTH name a BF16 reference and its FP32 truth for
+ * another prompt; MILA_QWEN_PARITY_POSITIONS and MILA_QWEN_PARITY_LOCAL are read in SetUp.
  *
  * FOUR THINGS THIS DOES DIFFERENTLY FROM A REAL LOAD, each deliberate:
  *
@@ -47,6 +49,7 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -205,6 +208,13 @@ namespace Mila::Tests::Dnn::Models
             return std::vector<float>( values.end() - width, values.end() );
         }
 
+        std::vector<float> row( const std::vector<float>& values, dim_t position, dim_t width )
+        {
+            const auto begin = values.begin() + static_cast<std::ptrdiff_t>( position * width );
+
+            return std::vector<float>( begin, begin + static_cast<std::ptrdiff_t>( width ) );
+        }
+
         /// Load every artifact tensor under `prefix` into the component named for it.
         void loadComponentParameters(
             WeightsReader& reader, ComponentType& component, const std::string& prefix )
@@ -289,13 +299,28 @@ namespace Mila::Tests::Dnn::Models
             if ( getDeviceCount( DeviceType::Cuda ) == 0 )
                 GTEST_SKIP() << "No CUDA device available";
 
-            // MILA_QWEN_PARITY_REFERENCE names a reference made for another prompt; the FP32 truth
-            // belongs to the default one, so it is not read against an override.
+            // MILA_QWEN_PARITY_REFERENCE names a reference made for another prompt; the default FP32
+            // truth belongs to the default one, so an override reads only the truth
+            // MILA_QWEN_PARITY_TRUTH names, made for the same prompt.
             const char* const reference_override = std::getenv( "MILA_QWEN_PARITY_REFERENCE" );
+            const char* const truth_override = std::getenv( "MILA_QWEN_PARITY_TRUTH" );
 
             artifact_ = artifactPath();
             reference_ = reference_override != nullptr ? fs::path( reference_override ) : referencePath();
-            overridden_ = reference_override != nullptr;
+
+            if ( truth_override != nullptr )
+                truth_ = fs::path( truth_override );
+            else if ( reference_override == nullptr )
+                truth_ = fp32ReferencePath();
+
+            // MILA_QWEN_PARITY_POSITIONS names a CSV that receives every layer's error at every
+            // position, read from the references' positions_layer_<i> (--all-positions).
+            if ( const char* const positions = std::getenv( "MILA_QWEN_PARITY_POSITIONS" ) )
+                positions_csv_ = fs::path( positions );
+
+            // MILA_QWEN_PARITY_LOCAL feeds each layer the TRUTH's input for it rather than Mila's own
+            // previous output, so a layer's error is its own and not what arrived.
+            local_ = std::getenv( "MILA_QWEN_PARITY_LOCAL" ) != nullptr;
 
             if ( !fs::exists( artifact_ ) )
                 GTEST_SKIP() << "Qwen artifact not present at: " << artifact_.string();
@@ -307,7 +332,9 @@ namespace Mila::Tests::Dnn::Models
 
         fs::path artifact_;
         fs::path reference_;
-        bool overridden_{ false };
+        fs::path truth_;
+        fs::path positions_csv_;
+        bool local_{ false };
     };
 
     // The Phase 4 gate: every layer's last-token hidden state against the HuggingFace
@@ -321,11 +348,25 @@ namespace Mila::Tests::Dnn::Models
         // Optional FP32 truth. When present, every layer reports THREE numbers: Mila-BF16 and
         // HF-BF16 each against FP32, plus Mila against HF. The first two are what decide
         // whether a divergence is Mila's error or the reference's.
-        const bool has_fp32 = !overridden_ && fs::exists( fp32ReferencePath() );
         std::unique_ptr<WeightsReader> truth;
 
-        if ( has_fp32 )
-            truth = std::make_unique<WeightsReader>( fp32ReferencePath() );
+        if ( !truth_.empty() && fs::exists( truth_ ) )
+            truth = std::make_unique<WeightsReader>( truth_ );
+
+        if ( local_ )
+        {
+            ASSERT_TRUE( truth && truth->hasTensor( "positions_layer_0" ) )
+                << "MILA_QWEN_PARITY_LOCAL needs an FP32 truth written with --all-positions";
+        }
+
+        std::ofstream positions_csv;
+
+        if ( !positions_csv_.empty() )
+        {
+            positions_csv.open( positions_csv_ );
+            ASSERT_TRUE( positions_csv.is_open() ) << "cannot write " << positions_csv_.string();
+            positions_csv << "layer,type,position,mila_vs_hf,mila_vs_fp32,hf_vs_fp32\n";
+        }
 
         const QwenConfig config = QwenBf16::configFromMetadata( weights.getWeightsMetadata() );
 
@@ -383,6 +424,9 @@ namespace Mila::Tests::Dnn::Models
         {
             const std::string layer_name = std::format( "tf_layer_{}", i );
             const bool is_attention = config.isFullAttentionLayer( i );
+
+            if ( local_ && i > 0 )
+                hidden = readReferenceVector( *truth, std::format( "positions_layer_{}", i - 1 ) );
 
             DeviceTensor input( device, shape_t{ B, T, model_dim } );
             fromHost( hidden, 0, input );
@@ -446,6 +490,39 @@ namespace Mila::Tests::Dnn::Models
             }
 
             std::cout << line << "\n" << std::flush;
+
+            const std::string positions_name = std::format( "positions_layer_{}", i );
+
+            if ( positions_csv.is_open() && reference.hasTensor( positions_name ) )
+            {
+                const std::vector<float> want_all = readReferenceVector( reference, positions_name );
+                std::vector<float> exact_all;
+
+                if ( truth && truth->hasTensor( positions_name ) )
+                    exact_all = readReferenceVector( *truth, positions_name );
+
+                for ( dim_t p = 0; p < T; ++p )
+                {
+                    const std::vector<float> got_row = row( hidden, p, model_dim );
+                    const std::vector<float> want_row = row( want_all, p, model_dim );
+
+                    positions_csv << std::format( "{},{},{},{:.6e}", i,
+                        is_attention ? "full_attention" : "linear_attention", p,
+                        relativeError( got_row, want_row ) );
+
+                    if ( exact_all.empty() )
+                    {
+                        positions_csv << ",,\n";
+                    }
+                    else
+                    {
+                        const std::vector<float> exact_row = row( exact_all, p, model_dim );
+
+                        positions_csv << std::format( ",{:.6e},{:.6e}\n",
+                            relativeError( got_row, exact_row ), relativeError( want_row, exact_row ) );
+                    }
+                }
+            }
         }
 
         // ---- Final norm and head --------------------------------------------

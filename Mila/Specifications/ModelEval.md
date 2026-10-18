@@ -291,7 +291,7 @@ and each measured teacher-forced against the BF16 reference (decision 1). The la
 and run on it.
 
 The phase runs once, on final builds. The 2.82-bit build's re-fit is accepted or redone on its own fast gates
-first -- the name probes and the perplexity ratio below -- so no benchmark run waits inside that loop.
+first -- the name probes and the divergence from BF16 below -- so no benchmark run waits inside that loop.
 
 Three things the calibration change brings into this phase, since the 2.82-bit build is fitted on text of the kind
 these benchmarks score:
@@ -302,10 +302,21 @@ these benchmarks score:
 - The twelve-name probe of the misnamed-tools item is joined by a second set of twelve
   (`Tools/Quantization/tool_name_probe.py`), and the calibration text names neither set's tools, so passing
   is not recall of calibration.
-- The re-fitted build's perplexity ratio against FP4 stays no worse than the 1.139 at 16K of record.
+- The re-fitted build departs from the BF16 original less than the build it replaces: mean and median KL,
+  teacher-forced on the held-out tool and chat conversations. This replaced the perplexity ratio against FP4 at
+  16K (Todd, 2026-10-17). Perplexity on served text does not rank the builds -- the original scores worst of all
+  -- and a ratio scored on wikitext favours whichever build was fitted on wikitext (`Qwen3.8.md`, after the re-fit).
 
 **Gate:** decision 2's thresholds, which are not set. Until they are, the phase reports each build beside `hf` and
 beside the other build, and whether a build is published as agentic is decided against those numbers.
+
+**The 2.82-bit build is an agentic candidate (Todd, 2026-10-18).** It is the only Qwen 3.8 build that holds the 64K
+minimum on the 16 GB card, and what has been measured holds up; it is not called agentic, on a card or in its
+manifest, until it passes, in order: RULER at 32K and 64K at its defaults; `ContextProfile.md` at 64K with thinking
+on -- recall, instruction retention, a tool call at depth; and sustained sessions through MIS at 64K on the 16 GB
+card -- one real multi-step task each in Claude Code and Codex, and a set of real-world tasks in Hermes Agent, the
+same set for every build so the builds can be compared. The Hermes set is to be written: tasks a user would
+give an agent, each with a check that says whether it was done.
 
 **Built for decision 1's teacher-forced measurement (2026-10-16):**
 `Tools/Converters/Qwen/qwen38_BF16/hf_qwen_conversation_loss.py` scores held-out conversations under the BF16
@@ -315,10 +326,55 @@ checkpoint, layer-streamed, and writes its predictions two ways: the top 32 per 
 against the same reference on the same positions. Results are in `Qwen3.8.md`, after the 2.82-bit build's re-fit.
 Median and 99th-percentile KL are reported beside the mean, which a few near-certain positions carry.
 
-**To build:** a BFCL handler for Qwen 3.8. BFCL's handlers stop at Qwen3, whose calls are JSON; Qwen 3.8 writes
-`<tool_call><function=...>`, so the handler renders with Qwen 3.8's own chat template and parses that form, and
-section 4's control holds with the template as the prompt format. `run_bfcl.py` has not run the `multi_turn`
-collection, so the token-id request is unrehearsed across turns.
+**Built (2026-10-17): the BFCL handler for Qwen 3.8** (`Tools/Evaluation/bfcl_qwen38.py`, registered by
+`run_bfcl.py` as `Qwen/Qwen3.8-27B-FC`). BFCL's handlers stop at Qwen3, whose calls are JSON; Qwen 3.8 writes
+`<tool_call><function=...>` with every argument as text, so the handler renders with Qwen 3.8's own chat template
+at its defaults, and types each argument by the entry's schema as it parses the reply -- BFCL's checker sees only
+the stored result, where no schema is in reach. Calls are read from the answer after `</think>` only. It stores the
+typed calls beside the reply as written. Section 4's control holds with the template as the prompt format.
+
+**A model is measured at its defaults (Todd, 2026-10-18).** Thinking as the template defaults it -- for Qwen 3.8, on
+at `xhigh` -- and sampling at the publisher's recommendation, which MIS applies to every knob a request leaves
+unset; `run_bfcl.py` sends none unless `--greedy` asks, which is for two engines on one model. This reverses
+thinking off for this phase, agreed 2026-10-17 to keep the runs short and rejected on its first results: a score for
+a configuration nobody runs says nothing about the model a user gets. A run that must be short shrinks its sample,
+never its configuration. Rehearsed with thinking off before that, on the 4070, and still true of the tooling: every
+BFCL reply read, `multi_turn_base` rendering every call and tool result back through the template, RULER's 4K band
+running end to end.
+
+**A first sample at the model's defaults (2026-10-18).** BFCL's `python` collection, the first 10 entries a category
+(110), and `multi_turn_base`, the first 10, thinking on at `xhigh`, recommended sampling, no seed. FP4 on the 5060 Ti
+at 32,768 with an FP8 cache; the 2.82-bit re-fit on the 4070 at 10,240. Paired by entry:
+
+| | Single-turn right | Only this one right | Multi-turn right |
+|---|---|---|---|
+| FP4 | 85 / 110 | 6 | 4 / 10 |
+| 2.82-bit, re-fit | 90 / 110 | 11 (McNemar p ~0.3) | 5 / 10 |
+| 2.82-bit, thinking off and greedy, same card, same entries | 93 / 110 | 9 against the defaults' 6 (p ~0.6) | 5 / 10, the same five |
+
+At this size neither the format nor thinking moves BFCL detectably; with thinking on the model calls less where no
+tool fits (four of its six gains are irrelevance entries). Both builds miss the same kinds: several calls asked in
+one turn (made one, or values that do not match), and about half the multi-turn tasks, ending in the wrong state.
+Reasoning is mostly short -- a median of 193 tokens an entry, 835 at the 90th percentile -- with one irrelevance
+entry that reasoned for 31,726 tokens until the context ran out. Every miss but one is an answer finished and
+wrong; the exception is a multi-turn task whose prompt, carrying its earlier reasoning, outgrew the 4070's 10,240.
+A sampled run with no seed cannot be repeated, so a flip here mixes the build with the draw.
+
+**RULER at the model's defaults, timed (2026-10-18).** `run_arm.py --model-defaults --reasoning-end '</think>'`, two
+documents a task, both builds on the 5060 Ti: FP4 at 16K (its 32,768 context leaves no room to reason past a 32K
+document) took about 21 s a document; the 2.82-bit re-fit at 16K and 32K about 47 s a document across both bands.
+Two findings. RULER writes the start of the answer into the assistant's turn, so Qwen 3.8's template closes the
+reasoning block in the prompt: on RULER the model answers directly, whatever its default. And the run's scores are
+void -- the answer extraction dropped every reply that had no `</think>` of its own, which on RULER is all of them;
+fixed the same day (`served_defaults.py` reads whether the prompt left the block open). The raw replies read
+correct; the scores need the run again (`Data/Evaluation/qwen38-defaults-ruler-timing-*-scoring-defect`).
+At those rates, 13 tasks a band: 10 documents a task costs about 1.7 hours a band at 32K for the re-fit, and 64K,
+with attention's longer prefill, more than twice that -- arithmetic on two documents, not a measurement.
+
+**Owed before the long runs: RULER's documents a band for this phase.** Section 5's 100 a band costs the 2.82-bit
+build, on one card, roughly two and a half days to 64K, extrapolated from the 4K rehearsal and the 17-second 17K
+prefill of the agentic section, so not measured. Both builds are paired on the bands both reach, which is 32K for
+FP4 with an FP8 cache, and 64K is the 2.82-bit build's alone.
 
 ## 8. On the model card
 
@@ -350,8 +406,9 @@ Each was excluded from the comparison on purpose and is worth measuring on its o
 - **MIS's tool path.** BFCL measures tool calling from a prompt it renders itself. A user's agent goes through MIS's
   Responses or Messages route, which renders the declarations and parses the calls in each family's own grammar;
   BFCL's categories driven through that route, against Phase 4's run, measure what the route costs.
-- **Sampling.** Every arm here is greedy. A user samples; a sampled evaluation needs repeats and a different
-  statistic, and is not planned.
+- **Sampling.** Phases 1 to 4 are greedy, because they compare two engines on the same weights. A model measured as
+  a user runs it samples at its publisher's recommendation (Todd, 2026-10-18; Phase 8 does), which needs repeats and
+  a different statistic, and a seed the server does not yet take (`Mila/Issues/Untriaged.md`).
 
 ## 10. Open decisions
 
@@ -451,3 +508,67 @@ Enforced by the tools, as section 4's are:
 - `eval_results.py` writes only the mila arm, never a run made with `--limit`, never over an existing file, and
   links a gated benchmark's logs only when told the link is restricted to people who accepted its terms. Its notes
   name the Mila and inspect-ai versions and the decoding; the weight format is given with `--notes`.
+
+## 12. Which configuration to run: the choice matrix
+
+**Status:** captured 2026-10-18 from Todd's question -- when is a smaller model of a family the better choice for a
+user than a larger one quantized hard, for a given use case and card? Nothing has been measured for it as such.
+
+A **configuration** is a model, its weight format and its cache format, on one card. For each use case and card
+tier the matrix names the cheapest configuration that meets the use case's thresholds -- or says that none does,
+which is an answer too. It is the question a user brings to a model card and the website, and today only one card
+answers it, for one pair: the 2.82-bit Qwen 3.8 27B at 12 GB, its FP4 build at 16.
+
+### 12.1 What decides it, in order
+
+1. **Fit at the use case's minimum context.** The planner answers this exactly, with no measurement
+   (`Deployment.md`): weights and cache compete for one card, so a larger model at fewer bits often fails here
+   before quality is asked. A reasoning model's minimum includes its reasoning: one Qwen 3.8 reply at its default
+   effort ran to 31,726 tokens (2026-10-18), and its card recommends allowing far more.
+2. **Quality at that context**, measured at the model's defaults: section 7's benchmarks against the original,
+   `ContextProfile.md`'s reliable depth, and the teacher-forced divergence `Quantization.md` owns as support. The
+   abilities most fragile under quantization -- exact copying (tool names, identifiers) and long-context fidelity --
+   are the ones agentic work needs, so a short-prompt benchmark alone can rank wrongly.
+3. **Rate.** Decode is bound by the weight bytes read per token, so a mixture of experts is priced by its active
+   parameters: Gemma 4 26B-A4B reads about 4B a token whatever its total.
+
+### 12.2 What is known
+
+- **Near 4 bits and above, the larger model usually wins.** At a fixed number of weight bits, 4-bit is close to
+  optimal, and a larger model at 4 bits beats a smaller one at 16 (Dettmers and Zettlemoyer, "The case for 4-bit
+  precision: k-bit Inference Scaling Laws", arXiv 2212.09720, 2022); larger quantized models can outperform smaller
+  ones (Jin et al., "A Comprehensive Evaluation of Quantization Strategies for Large Language Models", arXiv
+  2402.16775, 2024). Both are post-training results.
+- **Trained low-bit models may move the line.** Ternary, 2- and 3-bit models hold the size-accuracy frontier as
+  well as or better than 4-bit, in a setting that fine-tunes the low-bit model (Liu et al., "ParetoQ", arXiv
+  2502.02631, revised 2025; read from the abstract, whose training details need the full paper). So the answer
+  depends on how a build was made, not only its bit width.
+- **A format the model was trained for is a different case.** Gemma 4's Q4_0 is Google's quantization-aware build;
+  Mila's post-training FP4 is the fallback where no such build exists.
+- **Below 4 bits it depends on the method.** Qwen 3.8 27B against BF16 on held-out tool conversations, the share of
+  positions whose top token is the original's: FP4 84.4%, 2.82-bit re-fit 78.9%, the build it replaced 73.1%
+  (`Qwen3.8.md`). The replaced build also misnamed tools.
+- **Low bits cost most at length, and a short-context ranking misses it.** At short context, FP4 hurts the MLP
+  projections most and attention least (Cim, Topcu and Kandemir, "Diagnosing FP4 inference", arXiv 2603.08747,
+  Qwen2.5, no long-context evaluation). Mila's Gemma 4 12B measurement agrees over the first 8K, and reverses with
+  length: attention at FP4 costs +0.11 at 8K and +0.47 at 32K while the FFN stays near +0.1 (`ModelFamilyParity.md`
+  8.2, G2).
+- **On the 16 GB card:** Qwen 3.8 27B FP4 holds 32,768 with an FP8 cache, the 2.82-bit build 74,752; the 26B-A4B
+  at Q4_0 left Claude Code about 7,000 tokens of working room. Only the 2.82-bit Qwen reaches the 64K agentic
+  minimum among models of 26B or more (`TieredKvCache.md`).
+- **Not measured:** whether any smaller model -- Gemma 4 12B, Llama 3.1 8B -- is good enough as an agent at 64K, or
+  any smaller model at higher precision against a larger one at low bits, on the same tasks.
+
+### 12.3 The axes
+
+Card tiers by memory, with the 16 GB card the reference. Use cases, each with a minimum context and its own
+thresholds: chat, tool calling and agentic work (64K, Todd 2026-10-15), and long-document work (retrieval at
+depth). Candidates: every configuration of every family the planner says fits, published or not.
+
+### 12.4 Open
+
+1. The use cases and their minimum contexts beyond agentic work.
+2. The thresholds per use case -- decision 2 in section 10, per use case rather than per format.
+3. Which smaller models enter the candidate set, and in which formats.
+4. Where the answer is published: each card's "choose this model when", and a page on the website.
+5. Whether a configuration that misses a threshold by less than the benchmark resolves counts as meeting it.
