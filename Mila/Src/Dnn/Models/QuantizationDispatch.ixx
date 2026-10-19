@@ -90,6 +90,7 @@ namespace Mila::Dnn
                 }
 
             case WeightQuantization::Plan:
+            case WeightQuantization::Fp4Codebook3:
                 // Explicit rather than left to the default: a per-role plan is a property of
                 // one family's design, and this dispatcher yields a single uniform policy. If
                 // Plan fell through it would build an UNQUANTIZED body and report success --

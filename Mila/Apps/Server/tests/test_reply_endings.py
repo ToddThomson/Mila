@@ -105,6 +105,8 @@ def test_any_split_of_a_reply_ends_where_the_whole_reply_is_cut(seed):
 class FakeWorker:
     """A reply as chunks, and the status the binding reports after it."""
 
+    failure = None
+
     def __init__(self, chunks, status):
         self.chunks = chunks
         self.status = status
@@ -116,7 +118,7 @@ class FakeWorker:
     async def decode(self, ids):
         return "".join(self.chunks)
 
-    async def generate(self, prompt_ids, max_new_tokens, sampling):
+    async def generate(self, prompt_ids, max_new_tokens, sampling, stop_ctrl=None):
         return list(prompt_ids) + list(range(len(self.chunks))), self.status
 
     async def generate_streaming(self, prompt_ids, on_text, max_new_tokens, sampling, stop_ctrl=None,

@@ -33,6 +33,9 @@ namespace Mila::Tools
      */
     inline constexpr const char* kPlanVariantName = "cb2-3";
 
+    /// The tag of the second designed allocation: FP4 with three-bit codebook roles (Qwen3.8.md section 5).
+    inline constexpr const char* kFp4Codebook3VariantName = "fp4-cb3";
+
     /**
      * @brief Bytes as gibibytes -- the unit every size this tool prints is divided by.
      *
@@ -56,6 +59,7 @@ namespace Mila::Tools
             case WeightQuantization::FP8:  return "fp8";
             case WeightQuantization::Q4_0: return "q4_0";
             case WeightQuantization::Plan: return kPlanVariantName;
+            case WeightQuantization::Fp4Codebook3: return kFp4Codebook3VariantName;
             default:                       return "bf16";
         }
     }
@@ -73,6 +77,13 @@ namespace Mila::Tools
         if ( text == "plan" || text == kPlanVariantName )
         {
             out = WeightQuantization::Plan;
+
+            return true;
+        }
+
+        if ( text == kFp4Codebook3VariantName )
+        {
+            out = WeightQuantization::Fp4Codebook3;
 
             return true;
         }
@@ -794,7 +805,7 @@ namespace Mila::Tools
         const std::string& quantization = reader.getWeightQuantization();
 
         for ( const auto candidate : { WeightQuantization::FP4, WeightQuantization::FP8,
-            WeightQuantization::Q4_0, WeightQuantization::Plan } )
+            WeightQuantization::Q4_0, WeightQuantization::Plan, WeightQuantization::Fp4Codebook3 } )
         {
             // FP4 is one variant at either group a family builds it at.
             for ( const int fp4_group_size : { 128, 64 } )

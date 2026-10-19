@@ -46,7 +46,9 @@ class Settings(BaseSettings):
     # its manifest by the binding, and a request that names no reply length may reply until the context is full.
 
     # Streaming timeouts
-    keepalive_interval: float = Field(15.0, description="Seconds between SSE keepalive pings during prefill.")
+    keepalive_interval: float = Field(15.0, description=(
+        "Seconds between SSE keepalive pings during prefill, and between checks that the client of a reply not "
+        "streamed is still there."))
     decode_timeout: float = Field(30.0, description="Seconds to wait for each subsequent token during decode.")
 
     # Server

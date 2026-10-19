@@ -45,6 +45,15 @@ namespace Mila::Dnn
          * policy, which is why dispatchWeightQuantization handles it explicitly.
          */
         Plan,
+
+        /**
+         * A second designed allocation, `fp4-cb3`: FP4 across the body with a few roles at three-bit codebooks.
+         *
+         * Qwen 3.8's quality-first allocation for agentic use on a 16 GB card, beside its compact `Plan` (cb2-3),
+         * which stays loadable for the weights already published. Like `Plan` it names the family's design, not a
+         * storage format, and a family without it refuses it.
+         */
+        Fp4Codebook3,
     };
 
     /**
@@ -69,9 +78,10 @@ namespace Mila::Dnn
 
             // A plan's weights scheme is the FAMILY's, not this enum's -- Qwen 3.8 writes
             // "codebook" because its sub-4-bit rows are what a load cannot reconstruct. One
-            // family has a plan today, so the mapping is stated here; a second one with a
+            // family has plans today, so the mapping is stated here; a second family with a
             // different scheme is what forces it to move behind a family accessor.
             case WeightQuantization::Plan: return "codebook";
+            case WeightQuantization::Fp4Codebook3: return "fp4_codebook3";
 
             case WeightQuantization::None:
             default:
@@ -103,6 +113,9 @@ namespace Mila::Dnn
 
         if ( scheme == weightQuantizationName( WeightQuantization::Plan ) )
             return WeightQuantization::Plan;
+
+        if ( scheme == weightQuantizationName( WeightQuantization::Fp4Codebook3 ) )
+            return WeightQuantization::Fp4Codebook3;
 
         return std::nullopt;
     }
@@ -167,12 +180,16 @@ namespace Mila::Dnn
                 || ( weights_are_quantized && stored_quantization != requested ) ) )
         {
             const std::string_view stored = weights_are_quantized ? stored_quantization : std::string_view{ "none" };
-            const std::string codebook = weightQuantizationName( WeightQuantization::Plan );
+            const std::optional<WeightQuantization> stored_format = parseWeightQuantization( stored );
+            const auto is_fitted_plan = []( WeightQuantization quantization )
+                {
+                    return quantization == WeightQuantization::Plan || quantization == WeightQuantization::Fp4Codebook3;
+                };
 
             throw std::runtime_error( std::format(
                 "{}: weights '{}' are stored as '{}' but this load requested '{}'. {}",
                 caller, weights_path, stored, requested,
-                stored == codebook || requested == codebook
+                is_fitted_plan( requested_quantization ) || ( stored_format && is_fitted_plan( *stored_format ) )
                     ? "A codebook cannot be loaded at reference precision and reference weights cannot be "
                       "decoded through one -- the codes are fitted offline against calibration data and are "
                       "not recoverable from weights"

@@ -12,8 +12,8 @@ import std;
 namespace Mila::Bindings
 {
     /**
-     * @brief The weight format an installed model is stored in, in the words a load takes: bf16, fp8, fp4, q4_0
-     *        or cb2-3.
+     * @brief The weight format an installed model is stored in, in the words a load takes: bf16, fp8, fp4, q4_0,
+     *        cb2-3 or fp4-cb3.
      *
      * @throws std::runtime_error when no model of that name is installed, or its record names a format this
      *         build does not read.

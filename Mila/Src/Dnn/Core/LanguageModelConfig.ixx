@@ -230,6 +230,20 @@ namespace Mila::Dnn
             return static_cast<TDerived&>(*this);
         }
 
+        /**
+         * @brief The family's quality-first allocation, fp4-cb3, from a pre-quantized artifact.
+         *
+         * As withPrecisionPlan: its three-bit codebooks are fitted offline, so the artifact must carry them, and a
+         * family that has no such allocation refuses it.
+         */
+        TDerived& withFp4Codebook3Plan()
+        {
+            weight_quantization_ = WeightQuantization::Fp4Codebook3;
+            weight_quantization_named_ = true;
+
+            return static_cast<TDerived&>(*this);
+        }
+
         // =====================================================================
         // Accessors
         // =====================================================================
@@ -281,6 +295,7 @@ namespace Mila::Dnn
                         case WeightQuantization::FP4:  return "FP4 (PerGroupFp4)";
                         case WeightQuantization::Q4_0: return "Q4_0 (PerGroupInt4<32>)";
                         case WeightQuantization::Plan: return "Plan (per-role allocation)";
+                        case WeightQuantization::Fp4Codebook3: return "Fp4Codebook3 (per-role allocation)";
                         default:                       return "Unknown";
                     }
                 };

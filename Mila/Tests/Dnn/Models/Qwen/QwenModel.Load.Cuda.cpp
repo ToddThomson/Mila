@@ -36,6 +36,7 @@
 // `import Mila;` leaves std::basic_istream::sentry incomplete, and the failure surfaces
 // inside <istream> rather than at the include.
 #include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <set>
@@ -659,6 +660,17 @@ namespace Mila::Tests::Dnn::Models
             const char* const trace = std::getenv( "MILA_QWEN_TRACE_POSITIONS" );
             const size_t trace_positions = trace != nullptr ? static_cast<size_t>( std::stoul( trace ) ) : 0;
 
+            // MILA_QWEN_POSITIONS_OUT writes every position as one CSV row, so a class of tokens -- closing brackets,
+            // say -- can be scored apart from the average that hides it.
+            const char* const positions_out = std::getenv( "MILA_QWEN_POSITIONS_OUT" );
+            std::ofstream rows;
+
+            if ( positions_out != nullptr )
+            {
+                rows.open( positions_out );
+                rows << "conversation,position,next,reference_top,build_top,build_log_probability_of_next\n";
+            }
+
             double summed_kl = 0.0;
             double summed_negative_log_probability = 0.0;
             dim_t agreements = 0;
@@ -719,6 +731,13 @@ namespace Mila::Tests::Dnn::Models
                     }
 
                     const bool agrees = Measurement::argMax( logits ) == top_ids[ 0 ];
+
+                    if ( rows.is_open() )
+                    {
+                        rows << std::format( "{},{},{},{},{},{:.5f}\n", c, position, tokens[ position + 1 ], top_ids[ 0 ],
+                            Measurement::argMax( logits ),
+                            logits[ static_cast<size_t>( tokens[ position + 1 ] ) ] - log_normalizer );
+                    }
 
                     if ( c == 0 && position < trace_positions )
                     {

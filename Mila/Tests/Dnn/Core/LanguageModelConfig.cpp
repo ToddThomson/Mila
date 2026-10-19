@@ -52,6 +52,15 @@ namespace Mila::Tests::Dnn::Core
     TEST( LanguageModelConfigQuantizationRule, ReferenceWeightsRefuseAPlan )
     {
         EXPECT_THROW( check( "", WeightQuantization::Plan ), std::runtime_error );
+        EXPECT_THROW( check( "", WeightQuantization::Fp4Codebook3 ), std::runtime_error );
+    }
+
+    // Two plans of one family share no layout: the roles that are codebooks in one are FP4 in the other, so
+    // weights fitted for either must be refused by a build compiled for the other.
+    TEST( LanguageModelConfigQuantizationRule, OnePlanRefusesTheOthersWeights )
+    {
+        EXPECT_THROW( check( "codebook", WeightQuantization::Fp4Codebook3 ), std::runtime_error );
+        EXPECT_THROW( check( "fp4_codebook3", WeightQuantization::Plan ), std::runtime_error );
     }
 
     // ====================================================================
@@ -63,6 +72,7 @@ namespace Mila::Tests::Dnn::Core
         EXPECT_NO_THROW( check( "per_group_fp4_128", WeightQuantization::FP4 ) );
         EXPECT_NO_THROW( check( "per_channel_fp8_e4m3", WeightQuantization::FP8 ) );
         EXPECT_NO_THROW( check( "codebook", WeightQuantization::Plan ) );
+        EXPECT_NO_THROW( check( "fp4_codebook3", WeightQuantization::Fp4Codebook3 ) );
         EXPECT_NO_THROW( check( "q4_0", WeightQuantization::Q4_0 ) );
     }
 
@@ -99,6 +109,7 @@ namespace Mila::Tests::Dnn::Core
         EXPECT_EQ( message( "q4_0", WeightQuantization::FP4 ).find( "codebook" ), std::string::npos );
         EXPECT_NE( message( "codebook", WeightQuantization::FP4 ).find( "fitted offline" ), std::string::npos );
         EXPECT_NE( message( "", WeightQuantization::Plan ).find( "fitted offline" ), std::string::npos );
+        EXPECT_NE( message( "fp4_codebook3", WeightQuantization::FP4 ).find( "fitted offline" ), std::string::npos );
     }
 
     // The group is part of the scheme: FP4 at group 64 and at 128 are both U8 with different

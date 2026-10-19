@@ -107,6 +107,30 @@ def final_reply(transcript: Path) -> str:
     return reply
 
 
+def broken_edits(transcript: Path) -> tuple[int, int]:
+    """
+    (files the agent wrote or patched, how many of them Hermes's lint found a SyntaxError in). A build that drops
+    brackets can still pass a task by fixing its own slips, so the count is reported beside the verdict.
+    """
+    edits = broken = 0
+
+    for line in transcript.read_text(errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        if not isinstance(event, dict) or event.get("name") not in ("write_file", "patch"):
+            continue
+
+        if event.get("type") == "tool_use":
+            edits += 1
+        elif event.get("type") == "tool_result" and "SyntaxError" in str(event.get("output")):
+            broken += 1
+
+    return edits, broken
+
+
 def prepare_home(out: Path, args: argparse.Namespace) -> Path:
     """
     One HERMES_HOME for the run, made fresh: Hermes installs its runtime into a new home, which is too slow to
@@ -156,8 +180,10 @@ def run_task(task: Task, out: Path, home: Path, args: argparse.Namespace) -> dic
     except Exception as error:  # a check that cannot read what the agent left is a failed task, not a crash
         passed, detail = False, f"check raised {type(error).__name__}: {error}"
 
+    edits, broken = broken_edits(transcript)
+
     return {"task": task.name, "category": task.category, "passed": passed, "detail": detail,
-            "exit_code": exit_code, "seconds": round(elapsed, 1)}
+            "exit_code": exit_code, "seconds": round(elapsed, 1), "edits": edits, "broken_edits": broken}
 
 
 def main() -> None:
@@ -191,13 +217,16 @@ def main() -> None:
         result = run_task(task, args.out, home, args)
         results.append(result)
         print(f"{'PASS' if result['passed'] else 'fail'}  {task.name:32} {result['seconds']:>7.1f} s  "
-              f"exit {result['exit_code']}  {result['detail'][:80]}", flush=True)
+              f"exit {result['exit_code']}  edits {result['broken_edits']}/{result['edits']} broken  "
+              f"{result['detail'][:80]}", flush=True)
 
         with (args.out / "results.jsonl").open("a") as log:
             log.write(json.dumps({"model": args.model, **result}) + "\n")
 
     passed = sum(result["passed"] for result in results)
-    print(f"{passed}/{len(results)} passed, {sum(result['seconds'] for result in results) / 60:.1f} min")
+    print(f"{passed}/{len(results)} passed, {sum(result['seconds'] for result in results) / 60:.1f} min, "
+          f"{sum(result['broken_edits'] for result in results)}/{sum(result['edits'] for result in results)} "
+          f"edits broken")
 
 
 if __name__ == "__main__":

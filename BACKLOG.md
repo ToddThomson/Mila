@@ -367,6 +367,10 @@ the one in the private repository today, so the upload replaces those weights. I
 (`Tools/ExportArtifact/ModelCards/Qwen3.8-27B-cb2-3/README.md`) is written for the re-fit and ships with it; it
 calls the build nothing agentic until `ModelEval.md` Phase 8 says so.
 
+2026-10-19: held. On agentic coding the 2.82-bit builds drop one closing bracket of a nested pair, traced to the
+2-bit FFN gate/up, and the agentic allocation is now `fp4-cb3` (`Qwen3.8.md` section 5). Agentic use is quality-first
+on 16 GB (Todd); whether this 12 GB build ships at all is Todd's to decide.
+
 #### Qwen's KV cache is uncompressed on a card its weights already fill
 
 `in progress` · `qwen` · `quantization` · `mila-src`
@@ -386,11 +390,13 @@ Decided 2026-10-15 (Todd): the margin goes to context, for agentic use, and the 
 workflow is 64K at a prefill chunk of at least 512 rows on the RTX 5060 Ti under Windows. On the 16 GB card the
 FP4 build loads at 11,264 tokens, and Claude Code's first request alone is about 20,400, so the inference server
 refuses every request it sends; at 32K it serves a short task but compacts every turn of a session. The FP4
-build tops out near 49K here even with this cache and the weight arena (Internal fixes), so on this card the
-target is met by the 2.82-bit build, and its tool-name defect (above) is what stands in the way. Gate: the FP8
-cache against BF16 on Qwen by the instruction-retention protocol Llama and Gemma ran, at lengths both reach and
-past BF16's; the plan's price equal to the build; and Claude Code completing a multi-turn session at 64K
-through the inference server.
+build tops out near 49K here even with this cache and the weight arena (Internal fixes). 2026-10-19 (Todd: quality
+first, 64K the floor): the build that meets the target is `fp4-cb3` -- FP4 but the FFN down and DeltaNet q/k at
+three-bit codebooks, chosen by measuring each role's cut (`Qwen3.8.md` section 5) -- with this cache and the arena;
+the 2.82-bit build is no longer the route. Gate: the FP8 cache against BF16 on Qwen by the instruction-retention
+protocol Llama and Gemma ran, at lengths both reach and past BF16's; the plan's price equal to the build; the
+closing-bracket check, the tool-name probes and the Hermes short set with broken edits counted; and Claude Code
+completing a multi-turn session at 64K through the inference server.
 
 `Mila/Specifications/Qwen3.8.md` "Agentic deployment on the 16 GB card"
 

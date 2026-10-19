@@ -149,7 +149,7 @@ with a tool and answering from it:
 |---|---|---|---|---|
 | Codex CLI | 0.162.1 | yes | yes | yes |
 | Claude Code | 2.1.300 | yes | yes | yes, with `MILA_KV_CACHE=fp8` and `MILA_CONTEXT_LENGTH=32768` |
-| Hermes Agent | 0.22.2 | yes | yes | yes |
+| Hermes Agent | 0.22.2 | yes | not yet tested at 64K | the 2.82-bit build only, with `MILA_CONTEXT_LENGTH=65792` |
 
 Claude Code fills most of the 26B-A4B's 27,648-token context on a 16 GB card, so a long
 session there runs out of room sooner than on the 12B.
@@ -174,6 +174,13 @@ MIS reports, and assumes 200,000 tokens, so it never compacts; when the conversa
 32,768 tokens MIS refuses the request. Do not set `CLAUDE_CODE_MAX_CONTEXT_TOKENS=32768` to
 compensate: Claude Code compacts before it reaches `window - 33,000` tokens, and its own
 instructions are about 20,000, so at 32,768 it compacts on every turn and never finishes.
+
+Hermes Agent reads the context window MIS reports and refuses a model below 64,000 tokens.
+On a 16 GB card that leaves Gemma 4 12B, which loads with its full window; the 2.82-bit
+Qwen 3.8 27B with `MILA_CONTEXT_LENGTH=65792`; and Gemma 4 26B-A4B with `MILA_KV_CACHE=fp8` and
+`MILA_CONTEXT_LENGTH=65536` (27,648 without the FP8 cache). Qwen 3.8 27B FP4 holds 32,768 there.
+Do not set Hermes's `context_length` above what MIS reports to get past the check: the
+conversation then outgrows the real window and MIS refuses it mid-task.
 
 ### Tool Calls
 

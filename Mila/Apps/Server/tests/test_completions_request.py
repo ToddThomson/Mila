@@ -86,6 +86,8 @@ def test_a_chat_request_carries_stop_too():
 class FakeWorker:
     """Records what the route sends and answers with a fixed reply."""
 
+    failure = None
+
     def __init__(self, reply_ids):
         self.reply_ids = reply_ids
         self.encoded = []
@@ -101,7 +103,7 @@ class FakeWorker:
     async def decode(self, ids):
         return "The final answer is 6\nQ: another question"
 
-    async def generate(self, prompt_ids, max_new_tokens, sampling):
+    async def generate(self, prompt_ids, max_new_tokens, sampling, stop_ctrl=None):
         self.generated_from = list(prompt_ids)
         self.sampling = sampling
         self.length = max_new_tokens

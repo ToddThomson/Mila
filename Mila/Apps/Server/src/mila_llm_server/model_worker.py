@@ -185,6 +185,23 @@ class ModelWorker:
         self._reasoning_open: str = ""
         self._reasoning_close: str = ""
 
+        #: Why the model is down, once a generation has failed; None while it serves.
+        self.failure: str | None = None
+
+        #: Called once, from the worker thread, when the model goes down; the server shuts down on it.
+        self.on_failure: Callable[[], None] = lambda: None
+
+    def _model_failed(self, error: BaseException) -> None:
+        """
+        A generation that raises leaves the model in a state nothing can vouch for -- a CUDA error is sticky, and the
+        KV cache the next prompt would reuse may be half written -- so the model goes down rather than serve again.
+        Nothing a request carries makes generate raise: requests are refused before it runs.
+        """
+        if self.failure is None:
+            self.failure = f"{type(error).__name__}: {error}"
+            _log.critical("the model failed and is going down: %s", self.failure)
+            self.on_failure()
+
     async def startup(self) -> None:
         self._loop = asyncio.get_running_loop()
         await self._loop.run_in_executor(self._executor, self._load)
@@ -304,15 +321,25 @@ class ModelWorker:
         prompt_tokens: list[int],
         max_new_tokens: int,
         sampling: Sampling,
+        stop_ctrl: mila.StopController | None = None,
     ) -> tuple[list[int], str]:
-        """Prompt and completion ids, and the binding's status: stop, length or context_limit."""
+        """Prompt and completion ids, and the binding's status: stop, length, context_limit or cancelled."""
         loop = asyncio.get_running_loop()
 
         def _run() -> tuple[list[int], str]:
             # The binding streams tokens and returns why it stopped, so prompt + completion
             # is assembled here -- which is the shape this worker's callers slice.
             output = list(prompt_tokens)
-            status = self._model.generate(prompt_tokens, output.append, max_new_tokens, **vars(sampling))
+            status = "failed"
+
+            try:
+                status = self._model.generate(
+                    prompt_tokens, output.append, max_new_tokens, **vars(sampling), stop_controller=stop_ctrl)
+            except BaseException as error:
+                self._model_failed(error)
+                raise
+            finally:
+                _log.info("generation ended: %s after %d tokens", status, len(output) - len(prompt_tokens))
 
             return output, status
 
@@ -355,6 +382,7 @@ class ModelWorker:
         # Why the worker, rather than the model or the budget, ended the reply; logged, since a reply that stops
         # inside its reasoning reads to a client as the model saying nothing.
         cause = {"stopped_at": None}
+        produced = {"tokens": 0}
 
         def _degenerating(raw_text: str) -> bool:
             # Runaway reasoning channels: no legitimate answer opens this many.
@@ -379,6 +407,7 @@ class ModelWorker:
             return False
 
         def _on_token(token_id: int) -> None:
+            produced["tokens"] += 1
             text = stream.feed(token_id)
 
             if text is None:
@@ -401,14 +430,25 @@ class ModelWorker:
                 stop_ctrl.request_stop()
 
         def _run() -> str:
-            return self._model.generate(
-                prompt_tokens, _on_token, max_new_tokens, **vars(sampling), stop_controller=stop_ctrl)
+            status = "failed"
+
+            # Logged on the worker thread: a caller cancelled while the model runs -- a client that left -- never
+            # resumes to log it, and the work it abandoned would leave no record.
+            try:
+                status = self._model.generate(
+                    prompt_tokens, _on_token, max_new_tokens, **vars(sampling), stop_controller=stop_ctrl)
+            except BaseException as error:
+                self._model_failed(error)
+                raise
+            finally:
+                _log.info("generation ended: %s after %d tokens%s%s", status, produced["tokens"],
+                          f", stopped by the worker at {cause['stopped_at']}" if ended_by_marker else "",
+                          f"; {stream.invalid_runs} runs of tokens that are not UTF-8, passed on as U+FFFD"
+                          if stream.invalid_runs else "")
+
+            return status
 
         status = await loop.run_in_executor(self._executor, _run)
-        _log.info("generation ended: %s%s%s", status,
-                  f", stopped by the worker at {cause['stopped_at']}" if ended_by_marker else "",
-                  f"; {stream.invalid_runs} runs of tokens that are not UTF-8, passed on as U+FFFD"
-                  if stream.invalid_runs else "")
 
         return "stop" if ended_by_marker else status
 

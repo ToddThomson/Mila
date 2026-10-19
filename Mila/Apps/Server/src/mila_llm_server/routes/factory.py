@@ -29,6 +29,9 @@ from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
 
 logger = logging.getLogger(__name__)
 
+# The status for a request whose client left before the reply; no client reads it, but the access log does.
+_CLIENT_CLOSED_REQUEST = 499
+
 
 def register_routes(app: FastAPI, adapter) -> None:
     if isinstance(adapter, ProtocolAdapter):
@@ -46,6 +49,9 @@ def _register_chat(app: FastAPI, endpoint: ChatEndpoint) -> None:
 
     @app.post(endpoint.path, response_model=None)
     async def chat_endpoint(http_req: Request) -> JSONResponse | StreamingResponse:
+        if worker.failure is not None:
+            return JSONResponse(status_code=503, content=endpoint.error(_model_down()))
+
         return await _serve_chat(endpoint, await http_req.json(), http_req)
 
 
@@ -53,6 +59,10 @@ def _register_completions(app: FastAPI, adapter: CompletionsCapable) -> None:
 
     @app.post(adapter.completions_path, response_model=None)
     async def completions_endpoint(http_req: Request) -> JSONResponse | StreamingResponse:
+        if worker.failure is not None:
+            return JSONResponse(status_code=503,
+                                content={"type": "error", "error": {"type": "server_error", "message": _model_down()}})
+
         body = await http_req.json()
 
         try:
@@ -116,10 +126,15 @@ async def _serve_chat(endpoint: ChatEndpoint, body: dict, http_req: Request) -> 
             media_type="text/event-stream")
 
     parts: list[str] = []
-    status = await worker.generate_streaming(
-        prompt_ids, parts.append, allowed, _sampling(request), mila.StopController(),
-        begins_in_reasoning=prompt["reply_begins_in_reasoning"])
+    stop_ctrl = mila.StopController()
+    generation = asyncio.create_task(worker.generate_streaming(
+        prompt_ids, parts.append, allowed, _sampling(request), stop_ctrl,
+        begins_in_reasoning=prompt["reply_begins_in_reasoning"]))
 
+    if await _unless_client_leaves(generation, stop_ctrl, http_req, parts):
+        return JSONResponse(status_code=_CLIENT_CLOSED_REQUEST, content=endpoint.error("the client disconnected"))
+
+    status = generation.result()
     reply = _reply(protocol, "".join(parts), prompt, status, request, requested, allowed, len(prompt_ids), len(parts))
 
     return JSONResponse(content=endpoint.format(reply, context))
@@ -219,17 +234,19 @@ async def _stream_chat(endpoint: ChatEndpoint, request: ServedRequest, prompt: d
                                   begins_in_reasoning=prompt["reply_begins_in_reasoning"]))
     generation.add_done_callback(lambda _: loop.call_soon_threadsafe(queue.put_nowait, None))
 
-    yield endpoint.stream_open(context)
-
-    last_text = time.monotonic()
-    failure = None
+    started = time.monotonic()
 
     try:
+        yield endpoint.stream_open(context)
+
+        last_text = time.monotonic()
+        failure = None
+
         while True:
             if await http_req.is_disconnected():
-                logger.info("client disconnected")
                 stop_ctrl.request_stop()
-                break
+                _client_left(started, parts)
+                return
 
             try:
                 text = await asyncio.wait_for(queue.get(), timeout=settings.keepalive_interval)
@@ -248,20 +265,57 @@ async def _stream_chat(endpoint: ChatEndpoint, request: ServedRequest, prompt: d
             parts.append(text)
             last_text = time.monotonic()
 
+    except (asyncio.CancelledError, GeneratorExit):
+        # Starlette cancels the stream when the client goes, or closes it when the client went between two sends.
+        # The generation is left to stop on its own thread: awaiting it here would be cancelled too.
+        stop_ctrl.request_stop()
+        _client_left(started, parts)
+        raise
+
     finally:
         if not generation.done():
             stop_ctrl.request_stop()
-            await generation
 
-        failure = failure or _failed(generation)
+    await asyncio.wait({generation})
+    failure = failure or _failed(generation)
 
-        if failure is not None:
-            yield endpoint.stream_error(failure, context)
-        else:
-            reply = _reply(worker.protocol, "".join(parts), prompt, generation.result(), request, requested, allowed,
-                           len(prompt_ids), len(parts))
+    if failure is not None:
+        yield endpoint.stream_error(failure, context)
+    else:
+        reply = _reply(worker.protocol, "".join(parts), prompt, generation.result(), request, requested, allowed,
+                       len(prompt_ids), len(parts))
 
-            yield endpoint.stream_reply(reply, context)
+        yield endpoint.stream_reply(reply, context)
+
+
+def _model_down() -> str:
+    return f"the model failed and the server is shutting down: {worker.failure}"
+
+
+def _client_left(started: float, parts: list[str]) -> None:
+    """A client that leaves mid-reply ends the generation; logged, since nothing else records the work it abandoned."""
+    logger.warning("client disconnected %.0f s into the reply, after %d chars of it; the generation was stopped",
+                   time.monotonic() - started, sum(len(part) for part in parts))
+
+
+async def _unless_client_leaves(generation: asyncio.Task, stop_ctrl: mila.StopController, http_req: Request,
+                                parts: list[str]) -> bool:
+    """
+    Waits for a reply that is not streamed, stopping it if the client goes first; True when the client went. Nothing
+    tells a request that is not streamed that its client left, so the server looks, at the keepalive interval.
+    """
+    started = time.monotonic()
+
+    while not generation.done():
+        await asyncio.wait({generation}, timeout=settings.keepalive_interval)
+
+        if not generation.done() and await http_req.is_disconnected():
+            stop_ctrl.request_stop()
+            _client_left(started, parts)
+
+            return True
+
+    return False
 
 
 def _stalled() -> str:
@@ -307,7 +361,16 @@ async def _serve_completion(prompt_str: str, inf_req: InferenceRequest, http_req
     if inf_req.stream:
         return StreamingResponse(_stream_completion(inf_req, http_req, adapter, requested_tokens), media_type="text/event-stream")
 
-    output_ids, status = await worker.generate(inf_req.prompt_ids, inf_req.max_new_tokens, inf_req.sampling)
+    stop_ctrl = mila.StopController()
+    generation = asyncio.create_task(
+        worker.generate(inf_req.prompt_ids, inf_req.max_new_tokens, inf_req.sampling, stop_ctrl))
+
+    # Ids, not text, so the log of a client that leaves cannot say how far the reply got; the worker's line does.
+    if await _unless_client_leaves(generation, stop_ctrl, http_req, []):
+        return JSONResponse(status_code=_CLIENT_CLOSED_REQUEST,
+                            content={"type": "error", "error": {"type": "client_closed", "message": "the client disconnected"}})
+
+    output_ids, status = generation.result()
     new_ids = output_ids[len(inf_req.prompt_ids):]
 
     response = InferenceResponse(
@@ -345,13 +408,15 @@ async def _stream_completion(inf_req: InferenceRequest, http_req: Request, adapt
 
     first_token = True
     failure = None
+    parts: list[str] = []
+    started = time.monotonic()
 
     try:
         while True:
             if await http_req.is_disconnected():
-                logger.info("client disconnected")
                 stop_ctrl.request_stop()
-                break
+                _client_left(started, parts)
+                return
 
             timeout = settings.keepalive_interval if first_token else settings.decode_timeout
 
@@ -370,6 +435,7 @@ async def _stream_completion(inf_req: InferenceRequest, http_req: Request, adapt
                 break
 
             first_token = False
+            parts.append(text)
             safe = scanner.feed(text)
 
             if safe:
@@ -379,28 +445,34 @@ async def _stream_completion(inf_req: InferenceRequest, http_req: Request, adapt
                 stop_ctrl.request_stop()
                 break
 
+    except (asyncio.CancelledError, GeneratorExit):
+        # As in _stream_chat: the client went, and the generation stops on its own thread.
+        stop_ctrl.request_stop()
+        _client_left(started, parts)
+        raise
+
     finally:
         if not generation.done():
             stop_ctrl.request_stop()
-            await generation
 
-        held = scanner.flush()
+    await asyncio.wait({generation})
+    held = scanner.flush()
 
-        if held:
-            yield adapter.format_stream_chunk(held, done=False)
+    if held:
+        yield adapter.format_stream_chunk(held, done=False)
 
-        failure = failure or _failed(generation)
+    failure = failure or _failed(generation)
 
-        if failure is not None:
-            yield adapter.format_stream_error(failure)
+    if failure is not None:
+        yield adapter.format_stream_error(failure)
+    else:
+        if scanner.matched is not None:
+            finish_reason = STOP_SEQUENCE
         else:
-            if scanner.matched is not None:
-                finish_reason = STOP_SEQUENCE
-            else:
-                finish_reason = finish_reason_from_status(generation.result(), requested_tokens, inf_req.max_new_tokens)
+            finish_reason = finish_reason_from_status(generation.result(), requested_tokens, inf_req.max_new_tokens)
 
-            yield adapter.format_stream_chunk("", done=True, finish_reason=finish_reason)
-            yield adapter.format_stream_done()
+        yield adapter.format_stream_chunk("", done=True, finish_reason=finish_reason)
+        yield adapter.format_stream_done()
 
 
 def _invalid_request_error(message: str) -> JSONResponse:

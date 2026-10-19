@@ -444,6 +444,7 @@ PUBLIC
         "Src/Dnn/Components/Transformers/Gemma/Gemma.ixx"
 
         "Src/Dnn/Components/Transformers/Qwen/Qwen.PrecisionPlan.ixx"
+        "Src/Dnn/Components/Transformers/Qwen/Qwen.Fp4Codebook3PrecisionPlan.ixx"
         "Src/Dnn/Components/Transformers/Qwen/Qwen.Config.ixx"
         "Src/Dnn/Components/Transformers/Qwen/Qwen.AttentionBlock.ixx"
         "Src/Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.ixx"

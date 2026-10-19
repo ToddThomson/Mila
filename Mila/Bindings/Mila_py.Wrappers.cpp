@@ -326,10 +326,14 @@ namespace Mila::Bindings
             {
                 request.withPrecisionPlan();
             }
+            else if ( name == "fp4-cb3" )
+            {
+                request.withFp4Codebook3Plan();
+            }
             else
             {
                 throw std::runtime_error( std::format(
-                    "{}: '{}' is not a weight format. Expected bf16, fp8, fp4, q4_0 or cb2-3.{}",
+                    "{}: '{}' is not a weight format. Expected bf16, fp8, fp4, q4_0, cb2-3 or fp4-cb3.{}",
                     subject, name, name == "fp32" ? " These sessions are BF16 instantiations." : "" ) );
             }
         }

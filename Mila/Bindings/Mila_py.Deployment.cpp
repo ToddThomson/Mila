@@ -37,6 +37,7 @@ namespace Mila::Bindings
                 case WeightQuantization::FP4: return "fp4";
                 case WeightQuantization::Q4_0: return "q4_0";
                 case WeightQuantization::Plan: return "cb2-3";
+                case WeightQuantization::Fp4Codebook3: return "fp4-cb3";
                 case WeightQuantization::None:
                 default:
                     return "bf16";

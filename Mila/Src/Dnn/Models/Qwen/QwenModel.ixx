@@ -46,6 +46,7 @@ import Dnn.RuntimeMode;
 import Dnn.Components.QwenTransformer;
 import Dnn.Components.QwenConfig;
 import Dnn.Components.QwenPrecisionPlan;
+import Dnn.Components.QwenFp4Codebook3PrecisionPlan;
 import Dnn.GenerateParams;
 import Dnn.GenerateStatus;
 import Dnn.PromptPrefixReuse;
@@ -566,6 +567,18 @@ namespace Mila::Dnn
                     {
                         throw std::runtime_error( std::format(
                             "{}: the Section 5 allocation stages its codebook weights through "
+                            "BF16 and requires BF16 compute precision", caller ) );
+                    }
+
+                case WeightQuantization::Fp4Codebook3:
+                    if constexpr ( TPrecision == TensorDataType::BF16 )
+                    {
+                        return action.template operator()<QwenFp4Codebook3PrecisionPlan>();
+                    }
+                    else
+                    {
+                        throw std::runtime_error( std::format(
+                            "{}: the fp4-cb3 allocation stages its codebook weights through "
                             "BF16 and requires BF16 compute precision", caller ) );
                     }
 

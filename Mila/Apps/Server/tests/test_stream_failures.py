@@ -20,8 +20,11 @@ from mila_llm_server.routes import factory
 class FailingWorker:
     """Writes a little reasoning, then either goes silent until stopped or raises."""
 
-    def __init__(self, failure):
-        self.failure = failure
+    # A fake that raises does not take itself down; the real worker's going down is test_model_failure's.
+    failure = None
+
+    def __init__(self, mode):
+        self.mode = mode
         self.protocol = mila.ChatProtocol.gemma()
 
     async def encode(self, text):
@@ -31,7 +34,7 @@ class FailingWorker:
                                  stop_at_markers=True, begins_in_reasoning=False):
         on_text("Let me think")
 
-        if self.failure == "raise":
+        if self.mode == "raise":
             raise RuntimeError("CUDA error: an illegal memory access was encountered")
 
         while not stop_ctrl.stop_requested:

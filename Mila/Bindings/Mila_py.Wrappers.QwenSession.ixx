@@ -23,7 +23,7 @@ namespace Mila::Bindings
         /**
          * @param quantization Defaults to FP4 at the binding layer for the same reason
          *        GemmaSession does: a BF16 27B does not fit any card this targets.
-         *        "cb2-3" names a plan fitted offline, so it selects packed
+         *        "cb2-3" and "fp4-cb3" name plans fitted offline, so they select packed
          *        weights' format rather than applying anything on the way in.
          */
         static std::unique_ptr<QwenSession> load(

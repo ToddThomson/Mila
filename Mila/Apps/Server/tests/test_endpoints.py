@@ -34,6 +34,8 @@ WEATHER = {"name": "get_weather", "description": "Weather", "parameters": {"type
 
 
 class FakeWorker:
+    failure = None
+
     def __init__(self, protocol, raw):
         self.protocol = protocol
         self.raw = raw

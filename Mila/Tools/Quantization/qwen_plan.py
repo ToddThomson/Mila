@@ -55,6 +55,28 @@ QWEN_ARTIFACT_POLICIES = {
     "lm_head": "fp4",
 }
 
+# The fp4-cb3 allocation, Qwen.Fp4Codebook3PrecisionPlan.ixx: FP4 everywhere the oracle quantizes but
+# the FFN down and DeltaNet q/k, the two roles measured to lose little at three bits (Qwen3.8.md
+# section 5). The gate/up pair at two bits drops closing brackets in code; v, gate and o at two
+# bits cost the most KL of the cuts measured.
+QWEN_FP4_CODEBOOK3_POLICIES = {
+    **QWEN_ARTIFACT_POLICIES,
+    "fc_gate_up": "fp4",
+    "fc_down": "cb8",
+    "fc_in_proj_qk": "cb8",
+    "fc_in_proj_v": "fp4",
+    "fc_in_proj_z": "fp4",
+    "fc_out_proj": "fp4",
+}
+
+# Recipe tag -> (policy table, the scheme its weights record). The scheme is weightQuantizationName's
+# for the matching WeightQuantization value, and a load refuses weights whose scheme is not the
+# compiled plan's.
+RECIPES = {
+    "cb2-3": (QWEN_ARTIFACT_POLICIES, "codebook"),
+    "fp4-cb3": (QWEN_FP4_CODEBOOK3_POLICIES, "fp4_codebook3"),
+}
+
 # Policy spelling as the C++ side names it, for the artifact's per-tensor policy map.
 POLICY_TYPE_NAMES = {
     "cb4": "PerGroupCodebook2<32>",
@@ -109,9 +131,9 @@ class Target:
 
 
 def layer_targets(num_layers, full_attention_interval, key_dim, value_dim,
-                  prefix="model."):
+                  prefix="model.", policies=QWEN_ARTIFACT_POLICIES):
     """{layer_index: [Target]} for every quantizable linear in the stack, plus a
-    "post" key holding lm_head.
+    "post" key holding lm_head, each at its policy in `policies` (a RECIPES table).
 
     Derived from the converter's own map rather than restated: the packer and the BF16
     converter must name and fuse a tensor identically or the artifact will not load.
@@ -126,12 +148,12 @@ def layer_targets(num_layers, full_attention_interval, key_dim, value_dim,
 
         stem = mapping.mila.removesuffix(".weight")
         short = stem.split(".", 1)[-1] if stem.startswith("tf_layer_") else stem
-        policy = QWEN_ARTIFACT_POLICIES.get(short)
+        policy = policies.get(short)
 
         if policy is None:
             raise KeyError(
                 f"{mapping.mila}: no bit allocation for this projection. Every linear "
-                f"tensor needs a deliberate policy in QWEN_ARTIFACT_POLICIES; there is "
+                f"tensor needs a deliberate policy in each recipe's table; there is "
                 f"no default.")
 
         pieces = tuple(

@@ -73,6 +73,7 @@ add_executable( MilaTests
     "Dnn/Components/Transformers/Gemma/Gemma.Config.cpp"
     "Dnn/Components/Transformers/Qwen/Qwen.Config.cpp"
     "Dnn/Components/Transformers/Qwen/Qwen.PrecisionPlan.cpp"
+    "Dnn/Components/Transformers/Qwen/Qwen.Fp4Codebook3PrecisionPlan.cpp"
     "Dnn/Compute/Operations/OperationTraits.cpp"
     "Dnn/Core/Component.cpp"
     "Dnn/Core/ComponentConfig.cpp"
@@ -84,6 +85,7 @@ add_executable( MilaTests
     "Dnn/Models/Qwen/Qwen.Protocol.cpp"
     # Each template's protocol against the checkpoint's own chat_template.jinja (ModelHandle.md P1).
     "Dnn/Models/ChatProtocolForArchitecture.cpp"
+    "Dnn/Models/QuantizationDispatch.cpp"
     "Dnn/Models/Gemma/Gemma.ChatProtocol.cpp"
     "Dnn/Models/LlaMa/Llama.ChatProtocol.cpp"
     "Dnn/Models/Qwen/Qwen.ChatProtocol.cpp"

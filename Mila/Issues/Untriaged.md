@@ -10,6 +10,80 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Hermes Agent refuses every Qwen 3.8 27B build but the 2.82-bit one on a 16 GB card
+
+`Mila/Apps/Server/docs/harnesses.md` *Tested With* @ `f610285`
+
+Found 2026-10-18 starting the Hermes task set on Qwen 3.8 27B FP4: Hermes 0.22.2 refuses a model whose reported
+window is under 64,000 tokens (`MINIMUM_CONTEXT_LENGTH` in its `agent/model_metadata.py`, enforced in
+`agent/agent_init.py`), and all eight tasks ended at start-up. FP4 at 65,792 with the FP8 KV cache is refused on the
+5060 Ti (needs 15.65 GB, 14.81 GB free); 32,768 fits. The 26B-A4B holds 27,648 with the BF16 cache and 65,536 with
+the FP8 one (`ContextProfile.md`), not yet run under Hermes. So the guide's +69 "yes" for Hermes on both was wrong: Hermes's own log for that run shows every request going out as `gemma-4-12b-it` with a 65,536-token
+`context_length` pin from the WSL `~/.hermes/config.yaml`, set 2026-07-06 to clear this check. Rows corrected the
+same day; Gemma 4 12B re-run with no pin (full 262,144 window) and passed. Consequence for evaluation: there is no FP4
+arm for the Hermes task set on a 16 GB card.
+
+## Mila's website, README and marketing do not yet say what Mila is
+
+`Web/`, `README.md`, model cards, blog @ `f610285`
+
+Raised 2026-10-19 (Todd): "This message needs to be published to the Mila website in the next 2 releases ... It is
+the whole Mila positioning message written for the end user. We've refined what Mila is over the last number of
+months and I feel it now consistent and achievable by 0.22. The website, README and other marketing messages need
+to catch up." The message as refined: a C++ library for compiling modern transformer architecture recipes; only a
+few models represent the best of local AI -- Gemma 4 and Qwen 3.8, then Qwen 4 -- and Mila serves those few deeply
+rather than many thinly; each published model carries a small set of measured builds; agentic use is quality-first on
+a 16 GB card with 64K context as the floor, pushed up along a measured quality curve; developers building on Mila can
+choose their own build; the 0.22 harness serves a model, a card and a workload with the best build the measurements
+support. Timing is Todd's (v0.21.0 and v0.22.0); what each release carries is for triage, and copy claims only what
+the release it ships in can do. Copy follows the end-user prose rules and the site's marketing voice. Todd, same day:
+"Each model card should have our quality measurements and the reasoning for our final model recipe" -- the
+measurements answer "is it any good", the recipe and what it holds on 16 GB "will it run", the reasoning under its
+own heading below the first screen, stated as measured fact; `.internal/Marketing/Positioning.md` is revised first,
+the other marketing docs from it.
+
+## The deployment planner cannot choose a model's bit allocation for the context asked of it
+
+`Mila/Specifications/Deployment.md`, `Mila/Src/Deployment/` @ `f610285`
+
+Raised 2026-10-19 (Todd), with the agentic formula: 64K is the floor, the context is pushed up along a measured quality
+curve, and the bit-allocation recipe is picked from it -- "it would be incredible if this could be dynamically chosen
+with the planner". Today a precision plan is a compile-time type and a package carries one allocation; the planner
+chooses context, chunk and KV format for it. Notes at capture: FP4 and FP8 roles quantize at load, so recipes that
+differ only there need no second package; codebook roles are fitted offline, so a recipe that differs there does;
+`dispatchKvCacheCompression` is the existing runtime-to-compile-time bridge such a choice would follow. Todd, same
+day: "This also ties directly into the vnext and overall Mila direction of a model harness for AI" -- a harness that
+serves a model, a card and a workload with the best recipe the measurements support. Not decided.
+
+## Qwen 3.8 27B's embedding table is stored at 16 bits where a 2-bit copy serves
+
+`Mila/Src/Dnn/Components/Transformers/Qwen/Qwen.PrecisionPlan.ixx` `EmbeddingTable` @ `f610285`
+
+Found 2026-10-18 reading both files: our 2.82-bit build keeps `temb.wte` (248,320 x 5,120) in BF16, 2.54 GB of its
+11.87 GB; Unsloth's Q2_K_XL stores the same table as Q2_K, 0.42 GB of 9.83 GB, and still passed the Hermes short set
+8/8 twice. Both keep it in host memory -- ours pinned, llama.cpp's `CPU_Mapped` (its load log: q2_K "cannot be used
+with preferred buffer type CUDA_Host, using CPU instead") -- so the saving is 2.1 GB of download, disk and pinned host
+RAM, not VRAM: on the device the builds are 8,894 MiB (ours, file less the table) against 8,631 MiB. The model reads
+one row of the table per token. The same plan keeps the head at FP4 (4.25 bits) against Q4_K's 4.5. Not measured:
+what a 2- or 4-bit table costs Qwen's quality, and whether the other families' tables are BF16 for a reason.
+
+## The inference server answers a request for any model name
+
+`Mila/Apps/Server/src/mila_llm_server/` @ `f610285`
+
+Found 2026-10-18: nothing compares a request's `model` with the model loaded, so a harness configured for one model is
+served by another without a word. It is how the false Hermes pin above went unnoticed -- requests named
+`gemma-4-12b-it` were answered by Qwen 3.8 27B FP4 and Gemma 4 26B-A4B. Not checked: what OpenAI and Anthropic return
+for an unknown model (OpenAI documents `model_not_found`), and whether a harness sends a name MIS could match.
+
+## Hermes Agent's session-title request is refused for its response format
+
+`Mila/Apps/Server/src/mila_llm_server/routes/factory.py` @ `f610285`
+
+Found 2026-10-18 in the Hermes task-set runs: once per task Hermes 0.22.2 sends a Chat Completions request with
+`response_format` `json_schema` (name `session_title`, `reasoning_effort` `none`), and MIS refuses it because it has no
+constrained decoding. The task itself goes on; not checked what Hermes does with the session after the refusal.
+
 ## Model evaluations are not published, and a user cannot rerun them
 
 `Mila/Tools/Evaluation/`, `Web/`, `Mila/Specifications/ModelEval.md` @ `2d6f61e`

@@ -275,6 +275,7 @@ export import Dnn.Components.GemmaDrafter;
 export import Dnn.Components.GemmaTransformer;
 
 export import Dnn.Components.QwenPrecisionPlan;
+export import Dnn.Components.QwenFp4Codebook3PrecisionPlan;
 export import Dnn.Components.QwenConfig;
 export import Dnn.Components.QwenAttentionBlock;
 export import Dnn.Components.QwenDeltaNetBlock;

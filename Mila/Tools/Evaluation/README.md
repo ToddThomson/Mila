@@ -219,6 +219,9 @@ for it, so nothing of the user's own Hermes setup -- memory, skills, persona, ru
 runs at its defaults: no sampling knob or reasoning level is sent. `--run-budget` is the wall-clock seconds a task
 may take, and a task that fails runs until it, so the budget sets the length of a run. Results are appended to
 `<out>/results.jsonl`; each task's directory keeps the prompt, the workdir, the transcript and the final reply.
+Beside each verdict the runner counts the files the agent wrote or patched and how many Hermes's own lint found a
+SyntaxError in: a build that drops brackets can still pass by fixing its slips, and the count is what shows it
+(`Qwen3.8.md`, 2026-10-18).
 
 ## Hugging Face Hub benchmarks
 

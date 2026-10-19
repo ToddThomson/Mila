@@ -111,7 +111,8 @@ namespace Mila::Tests::Deployment
     TEST( WeightQuantizationNames, ParseIsTheInverseOfTheName )
     {
         for ( const WeightQuantization format : { WeightQuantization::None, WeightQuantization::FP8,
-                  WeightQuantization::FP4, WeightQuantization::Q4_0, WeightQuantization::Plan } )
+                  WeightQuantization::FP4, WeightQuantization::Q4_0, WeightQuantization::Plan,
+                  WeightQuantization::Fp4Codebook3 } )
         {
             EXPECT_EQ( parseWeightQuantization( weightQuantizationName( format ) ), format )
                 << weightQuantizationName( format );

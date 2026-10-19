@@ -160,6 +160,20 @@ event. A generation that produces no text for the decode timeout is stuck -- wit
 working model never goes that long without text -- and one that raises is a fault; both were once reported as the
 model finishing, which a client cannot tell from the model choosing to stop.
 
+A client that leaves before its reply ends the generation, and the server logs it -- how far into the reply, and
+the worker's token count (fixed 2026-10-18, Todd: "silent behavior for an error condition is a bug"). A streamed
+reply learns it from Starlette, which cancels the stream; one not streamed is never told, so the server looks at
+the keepalive interval. Before, a cancelled stream also cancelled the worker's coroutine, so neither the disconnect
+nor the generation's end was logged, and a reply not streamed ran on to the end of the context for nobody.
+
+A generation that raises takes the model down (decided 2026-10-18, Todd: "We should catch the backend error
+condition"). Nothing a request carries makes `generate` raise -- requests are refused before it runs -- so an
+exception there is the engine failing: a CUDA error is sticky, and the KV cache the next prompt would reuse may be
+half written. The failing request gets the error as above, `/v1/health` answers 503 with the reason, later requests
+are refused with 503, and `mila-server` finishes the replies in flight and exits 1. Before, health answered `ok`
+unconditionally and the server served on. Time is not the test of a failure: the decode timeout stays as the
+watchdog once text flows, prefill has no limit, and no progress is reported over the wire (Todd, same day).
+
 ### 3.5 Streaming a turn that may contain a call
 
 Today a Gemma or Qwen turn streamed over Messages is held until the turn ends, because the block type --

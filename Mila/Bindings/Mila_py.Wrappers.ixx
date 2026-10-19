@@ -132,7 +132,7 @@ namespace Mila::Bindings
     export ProtocolTokens gemmaProtocolTokens();
 
     // Quantization is named the way the store names it -- "bf16", "fp8", "fp4", and for Qwen
-    // "cb2-3" -- by both session entry points, so a variant means the same thing
+    // "cb2-3" and "fp4-cb3" -- by both session entry points, so a variant means the same thing
     // whether it came from a record or from a caller. "fp32" is rejected rather than ignored:
     // these sessions are BF16 instantiations, and loading FP32 weights at BF16 is a
     // different model than the one asked for.

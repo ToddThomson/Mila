@@ -534,14 +534,15 @@ def verify_layer_kinds(text_config, geometry):
                 f"the model says {text_config.layer_types[index]}")
 
 
-def build_plan(geometry, prefix):
-    """(targets, layer_mappings, outer_mappings) for the whole stack."""
+def build_plan(geometry, prefix, recipe="cb2-3"):
+    """(targets, layer_mappings, outer_mappings) for the whole stack, at a qwen_plan.RECIPES allocation."""
     key_dim = geometry["linear_num_key_heads"] * geometry["linear_head_dim"]
     value_dim = geometry["linear_num_value_heads"] * geometry["linear_head_dim"]
     num_layers = geometry["num_hidden_layers"]
     interval = geometry["full_attention_interval"]
 
-    targets = qwen_plan.layer_targets(num_layers, interval, key_dim, value_dim, prefix)
+    targets = qwen_plan.layer_targets(num_layers, interval, key_dim, value_dim, prefix,
+                                      qwen_plan.RECIPES[recipe][0])
     mappings = expand_qwen_tensor_map(num_layers, interval, key_dim, value_dim, prefix)
 
     layer_mappings = {index: [] for index in range(num_layers)}
@@ -596,7 +597,7 @@ def calibration_samples(text, tokenizer, count, seqlen):
 
 
 def pack(model_name, output_path, calib_text_path, device, samples, seqlen,
-         max_layers):
+         max_layers, recipe="cb2-3"):
     from transformers import AutoTokenizer
     from transformers.models.qwen3_5.configuration_qwen3_5 import Qwen3_5TextConfig
 
@@ -620,9 +621,10 @@ def pack(model_name, output_path, calib_text_path, device, samples, seqlen,
     verify_layer_kinds(text_config, geometry)
 
     weights = CheckpointWeights(checkpoint)
-    targets, layer_mappings, outer_mappings = build_plan(geometry, prefix)
+    targets, layer_mappings, outer_mappings = build_plan(geometry, prefix, recipe)
 
     print(f"Checkpoint: {root}")
+    print(f"Recipe: {recipe}")
     print(f"Layers: {geometry['num_hidden_layers']} of {text_config.num_hidden_layers}, "
           f"device={device}")
     print(f"Calibration: {samples} samples x {seqlen} tokens\n")
@@ -642,7 +644,7 @@ def pack(model_name, output_path, calib_text_path, device, samples, seqlen,
                                   model_name.rsplit("/", 1)[-1].replace(".", "_").replace("-", "_"))
 
     writer = StreamingSafetensorsWriter(output_path,
-                                        artifact_metadata(metadata, targets))
+                                        artifact_metadata(metadata, targets, recipe))
     declare_artifact(writer, targets, layer_mappings, outer_mappings, weights.shape)
 
     print(f"\n  {len(writer._declared)} artifact tensors, "
@@ -663,7 +665,7 @@ def pack(model_name, output_path, calib_text_path, device, samples, seqlen,
     print(f"  {time.time() - started:.0f}s -> {output_path}")
 
 
-def artifact_metadata(config_metadata, targets):
+def artifact_metadata(config_metadata, targets, recipe="cb2-3"):
     """__metadata__ for the artifact: the architecture, the scheme, the per-tensor map.
 
     `mila_quantization` is one string and this artifact carries three policies, so the
@@ -686,7 +688,7 @@ def artifact_metadata(config_metadata, targets):
 
     return {
         "mila_config": json.dumps(config_metadata),
-        "mila_quantization": "codebook",
+        "mila_quantization": qwen_plan.RECIPES[recipe][1],
         "mila_codebook_policies": json.dumps(policies),
     }
 
@@ -695,7 +697,7 @@ def artifact_metadata(config_metadata, targets):
 # Verifying a produced artifact
 # ---------------------------------------------------------------------------
 
-def verify(model_name, artifact_path, max_layers):
+def verify(model_name, artifact_path, max_layers, recipe="cb2-3"):
     """Audit a packed artifact against the checkpoint it came from.
 
     Separate from the run because the run takes hours and this takes minutes: an
@@ -722,7 +724,7 @@ def verify(model_name, artifact_path, max_layers):
         json.loads((root / "config.json").read_text(encoding="utf-8")), max_layers)
 
     weights = CheckpointWeights(checkpoint)
-    targets, layer_mappings, outer_mappings = build_plan(geometry, prefix)
+    targets, layer_mappings, outer_mappings = build_plan(geometry, prefix, recipe)
 
     codebook_stems, fp4_names = {}, set()
 
@@ -837,8 +839,8 @@ def verify(model_name, artifact_path, max_layers):
 # Self-test
 # ---------------------------------------------------------------------------
 
-def self_test(device):
-    """Pack a small random Qwen model end to end and check three properties.
+def self_test(device, recipe="cb2-3"):
+    """Pack a small random Qwen model end to end at one recipe and check three properties.
 
     Each catches a different way the packer can run and still be wrong:
 
@@ -919,7 +921,8 @@ def self_test(device):
     }
 
     verify_layer_kinds(config, geometry)
-    targets, layer_mappings, outer_mappings = build_plan(geometry, TEXT_PREFIX)
+    targets, layer_mappings, outer_mappings = build_plan(geometry, TEXT_PREFIX, recipe)
+    print(f"Self-test, recipe {recipe}:")
 
     directory = Path(tempfile.mkdtemp())
     path = directory / "self_test.safetensors"
@@ -949,21 +952,13 @@ def self_test(device):
                       for target in layer_targets
                       if target.policy in qwen_plan.CODEBOOK_POLICIES}
 
-    # FP4 roles are packed too, so they are no longer pass-through -- they carry a
-    # scale companion and, unlike the codebook roles, no table: FP4 is data-free.
-    fp4_stems = {target.stem
-                 for layer_targets in targets.values()
-                 for target in layer_targets
-                 if target.policy == "fp4"}
-
-    packed_stems = codebook_stems | fp4_stems
+    # FP4 roles are written through at BF16 -- damaged in place, packed by ExportArtifact (fp4_record_shapes) --
+    # so only the codebook roles carry companions here.
+    packed_stems = codebook_stems
 
     for stem in codebook_stems:
         expected.update({f"{stem}.weight", f"{stem}.weight_scale",
                          f"{stem}.weight_codebook"})
-
-    for stem in fp4_stems:
-        expected.update({f"{stem}.weight", f"{stem}.weight_scale"})
 
     # framework="pt": numpy has no bfloat16, so the pass-through tensors can only be
     # read back as torch ones.
@@ -1080,6 +1075,8 @@ if __name__ == "__main__":
     parser.add_argument("--max-layers", type=int, default=0,
                         help="pack only the first N layers -- a structural smoke test, not a model")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--recipe", default="cb2-3", choices=sorted(qwen_plan.RECIPES),
+                        help="the allocation to fit (default: cb2-3); fp4-cb3 is the quality-first one")
 
     args = parser.parse_args()
 
@@ -1087,16 +1084,16 @@ if __name__ == "__main__":
     torch.manual_seed(GENERATOR_SEED)
 
     if args.self_test:
-        sys.exit(self_test(args.device))
+        sys.exit(max(self_test(args.device, recipe) for recipe in sorted(qwen_plan.RECIPES)))
 
     if args.verify:
         if not args.model:
             parser.error("--verify needs --model: the audit is against the checkpoint")
 
-        sys.exit(verify(args.model, Path(args.verify), args.max_layers))
+        sys.exit(verify(args.model, Path(args.verify), args.max_layers, args.recipe))
 
     if not (args.model and args.output and args.calib_text):
         parser.error("--model, --output and --calib-text are required unless --self-test")
 
     pack(args.model, Path(args.output), args.calib_text, args.device,
-         args.samples, args.seqlen, args.max_layers)
+         args.samples, args.seqlen, args.max_layers, args.recipe)

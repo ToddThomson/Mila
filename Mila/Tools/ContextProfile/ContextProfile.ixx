@@ -66,6 +66,8 @@ namespace Mila::Tools::ContextProfile
             WeightQuantization::FP4, KvCacheCompression::FP8 },
         { "qwen-3.8-27b-2.82-bit", Family::Qwen, "Qwen/qwen38_27b_cb2-3.safetensors", "2.82-bit codebook", "BF16",
             WeightQuantization::Plan, KvCacheCompression::None },
+        { "qwen-3.8-27b-fp4-cb3-fp8-kv", Family::Qwen, "Qwen/qwen38_27b_fp4-cb3.safetensors", "FP4, three-bit codebooks",
+            "FP8", WeightQuantization::Fp4Codebook3, KvCacheCompression::FP8 },
         { "llama-3.2-3b-fp4", Family::Llama, "LLaMa/llama32_3b_instruct_fp4.safetensors", "FP4", "BF16",
             WeightQuantization::FP4, KvCacheCompression::None },
         { "llama-3.1-8b-fp4", Family::Llama, "LLaMa/llama31_8b_instruct_fp4.safetensors", "FP4", "BF16",
@@ -91,6 +93,8 @@ namespace Mila::Tools::ContextProfile
         QwenOraclePrecisionPlan, Quant::KvCache::PerTokenKvFp8<>>;
     using QwenCodebookNetwork = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
         QwenPrecisionPlan, Quant::KvCache::NoKvCompression>;
+    using QwenFp4Codebook3Fp8CacheNetwork = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
+        QwenFp4Codebook3PrecisionPlan, Quant::KvCache::PerTokenKvFp8<>>;
     using LlamaFp4Network = LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
         Quant::Weight::PerGroupFp4<128>, Quant::KvCache::NoKvCompression>;
 
@@ -115,6 +119,9 @@ namespace Mila::Tools::ContextProfile
 
         if ( name == "qwen-3.8-27b-2.82-bit" )
             return action.template operator()<QwenCodebookNetwork, QwenCuda>();
+
+        if ( name == "qwen-3.8-27b-fp4-cb3-fp8-kv" )
+            return action.template operator()<QwenFp4Codebook3Fp8CacheNetwork, QwenCuda>();
 
         if ( name == "llama-3.2-3b-fp4" || name == "llama-3.1-8b-fp4" )
             return action.template operator()<LlamaFp4Network, LlamaCuda>();

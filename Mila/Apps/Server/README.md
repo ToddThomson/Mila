@@ -151,7 +151,7 @@ up when you run MIS from the checkout.
 | `MILA_CONTEXT_LENGTH` | `auto` | Tokens the model holds, prompt and reply together. `auto` takes the longest the GPU can hold; a number that does not fit stops startup, naming what it needs and what is free |
 | `MILA_KV_CACHE` | `bf16` | How the model holds its context: `bf16` or `fp8`. `fp8` takes half the memory, so `auto` fits a longer context |
 | `MILA_DEVICE_INDEX` | `0` | CUDA device ordinal |
-| `MILA_KEEPALIVE_INTERVAL` | `15.0` | Seconds between SSE keepalive pings during prefill |
+| `MILA_KEEPALIVE_INTERVAL` | `15.0` | Seconds between SSE keepalive pings during prefill, and between checks that the client of a reply not streamed is still there |
 | `MILA_DECODE_TIMEOUT` | `30.0` | Seconds to wait for each subsequent token during decode |
 | `MILA_HOST` | `0.0.0.0` | Server bind address |
 | `MILA_PORT` | `8000` | Server port |
@@ -205,6 +205,13 @@ Every reply says why it ended. A reply cut off at `max_tokens`, or at the end of
 `length` on `openai`, and `max_tokens` or `model_context_window_exceeded` on `anthropic`;
 one cut at a stop sequence reports `stop`, or `stop_sequence` with the sequence. On `/v1/responses` a
 cut-off reply is `incomplete`, with `max_output_tokens` as the reason.
+
+`/v1/health` answers `{"status": "ok"}` while the model serves. If the model fails during a
+reply -- a CUDA error, for example -- that reply ends with the error, `/v1/health` answers 503 with
+`{"status": "failed", "error": "..."}`, and every later request is refused with 503. `mila-server`
+then finishes the replies already in flight and exits with status 1, so a process manager can
+restart it. Under your own `uvicorn` invocation the server stays up but refuses every request
+until restarted.
 
 `/v1/models` answers in each protocol's own shape — OpenAI's `{"object": "list", "data": [...]}`
 against Anthropic's `{"data": [...], "has_more": false}` envelope — and both carry the same lineage

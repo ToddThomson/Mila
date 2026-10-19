@@ -14,7 +14,7 @@ namespace Mila::ChatApp
     export using QuantizationMode = Mila::Dnn::WeightQuantization;
 
     /**
-     * @brief Parse a quantization keyword ("none"/"fp8"/"fp4"/"q4_0"/"cb2-3").
+     * @brief Parse a quantization keyword ("none"/"fp8"/"fp4"/"q4_0"/"cb2-3"/"fp4-cb3").
      *
      * Returns std::nullopt for an unrecognized value. Shared by the session-config
      * loader and the in-session /model command so both accept the same vocabulary.
@@ -31,6 +31,7 @@ namespace Mila::ChatApp
         // error. Naming it for a model that is not one is refused where the weights are
         // known, which is the only place the difference can be seen.
         if ( s == "cb2-3" )              return QuantizationMode::Plan;
+        if ( s == "fp4-cb3" )            return QuantizationMode::Fp4Codebook3;
 
         return std::nullopt;
     }
@@ -46,6 +47,7 @@ namespace Mila::ChatApp
             case QuantizationMode::FP4: return "fp4";
             case QuantizationMode::Q4_0: return "q4_0";
             case QuantizationMode::Plan: return "cb2-3";
+            case QuantizationMode::Fp4Codebook3: return "fp4-cb3";
             case QuantizationMode::None: return "none";
         }
 

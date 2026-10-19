@@ -43,8 +43,10 @@ The corpus directory (`corpus/`, gitignored) holds wikitext-2-raw `wiki.test.raw
 `wiki.train.raw`, from the `ggml-org/ci` mirror on Hugging Face, and the sources of an
 instruct model's calibration text, each in its own directory:
 `hermes-function-calling-v1/func-calling.json` (`NousResearch/hermes-function-calling-v1`,
-Apache-2.0) and `ultrachat_200k/test_sft-00000-of-00001-f7dfac4afe5b93f4.parquet`
-(`HuggingFaceH4/ultrachat_200k`, MIT).
+Apache-2.0), `ultrachat_200k/test_sft-00000-of-00001-f7dfac4afe5b93f4.parquet`
+(`HuggingFaceH4/ultrachat_200k`, MIT) and `oasst1/train-00000-of-00001-b42a775f407cee45.parquet`
+(`OpenAssistant/oasst1`, Apache-2.0, with its `LICENSE`). Code comes from files already on the
+machine: the Python standard library's own source (PSF licence) and this repository.
 
 ## Calibration text for an instruct model
 
@@ -60,6 +62,27 @@ python calibration_text.py --hermes corpus/hermes-function-calling-v1/func-calli
     --ultrachat corpus/ultrachat_200k/test_sft-00000-of-00001-f7dfac4afe5b93f4.parquet \
     --prose corpus/wiki.train.raw --output corpus/calibration_qwen38.txt
 ```
+
+An agent's model also writes code, and the 2.82-bit build fitted on tool calls, chat and prose
+alone drops closing brackets when it does (`Qwen3.8.md`). Code and chat in other languages are
+added with their own sources; the run behind the code-calibrated build:
+
+```
+python calibration_text.py --hermes corpus/hermes-function-calling-v1/func-calling.json \
+    --ultrachat corpus/ultrachat_200k/test_sft-00000-of-00001-f7dfac4afe5b93f4.parquet \
+    --prose corpus/wiki.train.raw \
+    --python-source <python>/Lib --repository-source <mila checkout> \
+    --multilingual corpus/oasst1/train-00000-of-00001-b42a775f407cee45.parquet \
+    --tool-share 0.30 --chat-share 0.20 --code-share 0.30 --multilingual-share 0.10 \
+    --output corpus/calibration_qwen38_code.txt --held-out-code corpus/held_out_code_qwen38.txt
+```
+
+Code is rendered as an agent meets it -- the content of a `write_file` call, a file an
+`open_file` call returns, a fenced block in a chat answer, a short shell script as a `terminal`
+call -- two thirds from the standard library and a third from the repository's shell,
+configuration and C++, `Mila/Tools/Evaluation` excluded. Files are split between calibration and
+held-out before they are cut into pieces. Code draws from its own random generator, so the tool
+and chat documents chosen are a subset of the earlier build's and its held-out files stay unseen.
 
 It drops any document that names a tool of `tool_name_probe.py`'s probe sets, and any
 conversation that asks a question BFCL asks, and refuses its output if a probed name
@@ -136,7 +159,15 @@ python pack_qwen.py --model Qwen/Qwen3.8-27B \
 # Audit an artifact against the checkpoint, without regenerating it.
 python pack_qwen.py --model Qwen/Qwen3.8-27B \
     --verify artifacts/qwen38_27b_2p9bit.safetensors
+
+# The quality-first agentic allocation, fp4-cb3 (Qwen3.8.md section 5): only the FFN down and
+# the DeltaNet q/k are fitted; every other role is written through for FP4 at export.
+python pack_qwen.py --model Qwen/Qwen3.8-27B --recipe fp4-cb3 \
+    --calib-text corpus/calibration_qwen38_code.txt \
+    --output artifacts/qwen38_27b_fp4-cb3_fitted.safetensors
 ```
+
+`--recipe` defaults to `cb2-3`; `--self-test` packs the small model at every recipe.
 
 **What comes out is a fitted source, not the published model.** The step that finishes it
 is the same one every other Mila model goes through, and it is minutes rather than an hour:
@@ -144,6 +175,9 @@ is the same one every other Mila model goes through, and it is minutes rather th
 ```
 ExportArtifact artifacts/qwen38_27b_2p9bit.safetensors \
     artifacts/qwen38_27b_cb2-3.safetensors --quantization plan
+
+ExportArtifact artifacts/qwen38_27b_fp4-cb3_fitted.safetensors \
+    artifacts/qwen38_27b_fp4-cb3.safetensors --quantization fp4-cb3
 ```
 
 It loads under the Section 5 plan -- the codes upload as they are, the FP4 roles quantize on

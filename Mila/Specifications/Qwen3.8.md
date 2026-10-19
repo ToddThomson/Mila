@@ -233,6 +233,45 @@ Rationale for the assignments that are not simply "biggest group gets fewest bit
   overhead per weight. FP16 halves it. This is a free win for Gemma and Llama independently
   of this work.
 
+### The fp4-cb3 allocation: quality-first, for agentic use on 16 GB (2026-10-19)
+
+**Decided (Todd, 2026-10-19): agentic use is quality-first on the 16 GB card, 64K context the floor, and the
+allocation is chosen from a measured quality curve.** The table above was drawn for the 12 GB RTX 4070 and puts
+the FFN at 2 and 3 bits; on agentic coding that build drops one closing bracket of a nested pair (the section
+"The re-fit drops closing brackets" below). `fp4-cb3` (`QwenFp4Codebook3PrecisionPlan`, `WeightQuantization::
+Fp4Codebook3`, scheme `fp4_codebook3`, store tag `fp4-cb3`) starts from the FP4 oracle and takes only the cuts a
+measurement showed to be cheap. The table above stays as `cb2-3`, loadable for the weights already published.
+
+| Role | cb2-3 | fp4-cb3 |
+|---|---|---|
+| FFN gate + up | `PerGroupCodebook2<32>` | `PerGroupFp4<128>` |
+| FFN down | `PerGroupCodebook3<64>` | `PerGroupCodebook3<64>` |
+| DeltaNet v, gate, o | `PerGroupCodebook2<32>` | `PerGroupFp4<128>` |
+| DeltaNet q, k | `PerGroupCodebook3<64>` | `PerGroupCodebook3<64>` |
+| everything else | as the table above | as the table above |
+
+**How each role was chosen.** Each sub-4-bit role was cut alone from the FP4 oracle, its codebook taken from the
+code-calibrated 2.82-bit fit, and scored teacher-forced against HuggingFace BF16 on 12 held-out code conversations
+(14,662 positions, 726 of them closing brackets; `DISABLED_DivergenceOnConversations` with
+`MILA_QWEN_POSITIONS_OUT`):
+
+| Arm | Saves (arithmetic) | Mean KL | Brackets lost where BF16 is right | Other tokens lost |
+|---|---|---|---|---|
+| FP4 oracle | -- | 0.478 | 2.1% | 4.5% |
+| DeltaNet q, k at 3 bits | 0.11 GB | 0.481 | 2.2% | 5.1% |
+| FFN down at 3 bits | 0.62 GB | 0.505 | 3.7% | 5.9% |
+| DeltaNet v, gate, o at 2 bits | 0.92 GB | 0.761 | 3.7% | 6.9% |
+| **fp4-cb3 (the two cheap cuts)** | 0.73 GB | **0.511** | **4.1%** | 6.0% |
+| cb2-3 re-fit, code calibration | -- | 0.890 | 10.9% | 9.0% |
+
+The cuts combine almost exactly additively. fp4-cb3 gets closing brackets right as often as BF16 (81.7%), and
+the one-too-few confusion that defined the defect (`]]` written as `]`, 29 times in the cb2-3 re-fit) does not
+occur. The arms were stitched from one fit; the real build fits its three-bit roles with FP4 upstream.
+
+**What it needs to reach 64K.** FP4 with the FP8 KV cache was refused at 65,792 by 0.84 GB (15.65 GB needed,
+14.81 free); the two cuts save about 0.73 GB, so the weight arena (`BACKLOG.md` Internal fixes, ~0.5 GB) closes
+the rest. These are arithmetic; the planner's answer on the built package is the figure of record.
+
 ### Memory budget (GiB, as the device reports it)
 
 > **Revision 2026-08-16:** 16K is now the baseline (was 32K). That relaxation retires a
@@ -2838,6 +2877,30 @@ measures. A re-fit must depart from BF16 less than the build it replaces, by mea
 texts. The re-fit does, on all four: tool 1.435 / 0.018 against 1.842 / 0.068, chat 0.695 / 0.171 against 1.642 /
 0.564. With every probed name correct, that closes the misnamed-tools defect. Whether either Qwen build is
 published as agentic is still `ModelEval.md` Phase 8's.
+
+**The re-fit drops closing brackets when it writes code, and the gate above did not see it (2026-10-18).** On the
+Hermes Agent short set at 64K on the 5060 Ti the re-fit passed 5 of 8, and Hermes's lint found a SyntaxError in 28
+of its 70 file edits across its runs -- `glob("*.csv"):`, `int(parts[2], int(parts[0])`, the same slip in every later
+fix. Unsloth's Qwen3.8-27B-UD-Q2_K_XL (Dynamic v3.0, 2.875 bits over all parameters) on llama-server, same card,
+harness and tasks, passed 8 of 8 twice with no SyntaxError in 26 edits. Eliminated the same day: the server's tool-call
+parsing (the failing lines round-trip intact through `parse_reply`) and Mila's codebook path (the packed 4-layer
+fixture matches its offline-decoded twin, relative L2 2e-3). Left in the weights: the calibration text, which held
+no code, against Unsloth's, which its documentation says is "refined for agentic coding, chat, and multilingual
+performance"; and an allocation fixed per role against one chosen per tensor and layer, at nearly the same resident
+budget -- 2.90 bits per resident weight here, about 2.89 there. On the device the builds are 8,894 and 8,631 MiB.
+
+**Decided (Todd, 2026-10-18): calibrate for the intended use, and gate on behaviour.** Calibration text is defined by
+what the build is for, not by the last failure, and changes only by decision. `calibration_qwen38_code.txt` is 610K
+tokens: tool calls 30%, English chat 20%, code 30% (the Python standard library two thirds, this repository's shell,
+configuration and C++ a third, each rendered as `write_file` and `open_file` calls and as chat), oasst1 chat in other
+languages 10%, prose 10% (`Tools/Quantization/README.md`). A re-fit is accepted only if, beyond the KL rule above --
+now on held-out code too -- it names every probed tool and passes the Hermes short set with SyntaxErrors in its edits
+counted. Per-layer allocation waits on what calibration alone achieves.
+
+**Calibration alone did not fix it (2026-10-19).** The code-calibrated re-fit passed 6 of 8 on the Hermes short set
+but still broke 8 of 18 edits, and teacher-forced it still wrote `]]` as `]` 29 times where the old re-fit did 30.
+Per-role arms traced it to the 2-bit FFN gate/up, then the DeltaNet v/gate/o; the agentic allocation is now
+section 5's fp4-cb3, and the 2.82-bit build is no longer the agentic candidate.
 
 ### Agentic deployment on the 16 GB card (2026-10-15)
 

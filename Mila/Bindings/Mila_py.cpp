@@ -459,7 +459,7 @@ static void bind_distribution( py::module_& m )
         "Raises RuntimeError if no model of that name is installed." );
 
     m.def( "stored_weight_quantization", &Mila::Bindings::storedWeightQuantization, py::arg( "name" ),
-        "The weight format an installed model is stored in: 'bf16', 'fp8', 'fp4', 'q4_0' or 'cb2-3'.\n\n"
+        "The weight format an installed model is stored in: 'bf16', 'fp8', 'fp4', 'q4_0', 'cb2-3' or 'fp4-cb3'.\n\n"
         "Raises RuntimeError if no model of that name is installed." );
 
     m.def( "fitting_weight_quantizations",
@@ -841,10 +841,10 @@ static void bind_qwen_model( py::module_& m )
             "    device_index:   CUDA device index (default: 0).\n"
             "    kv_cache:       'bf16' (default) or 'fp8'. FP8 holds the context in half\n"
             "                    the memory, so more of it fits.\n"
-            "    quantization:   'bf16', 'fp8', 'fp4' or 'cb2-3'\n"
+            "    quantization:   'bf16', 'fp8', 'fp4', 'cb2-3' or 'fp4-cb3'\n"
             "                    (default: 'fp4' -- a BF16 27B fits no card this\n"
-            "                    targets). 'cb2-3' names a codebook plan fitted\n"
-            "                    offline, so it selects packed weights' format\n"
+            "                    targets). 'cb2-3' and 'fp4-cb3' name plans fitted\n"
+            "                    offline, so they select packed weights' format\n"
             "                    rather than quantizing anything on the way in.\n\n"
             "Prefer from_store(), which reads what the weights already are." )
         .def_static( "from_store",
