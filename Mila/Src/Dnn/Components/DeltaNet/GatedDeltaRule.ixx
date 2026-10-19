@@ -383,7 +383,7 @@ namespace Mila::Dnn
             if ( !A_log_ )
             {
                 stats.device_parameter_bytes +=
-                    2 * occupiedDeviceBytes( storageBytes<TPrecision>( config_.getNumValueHeads() ), granularity );
+                    2 * context.occupiedParameterBytes( storageBytes<TPrecision>( config_.getNumValueHeads() ) );
             }
 
             // Flat in context length -- the property the layer kind exists for.
@@ -441,10 +441,10 @@ namespace Mila::Dnn
 
             if ( !A_log_ )
             {
-                A_log_ = std::make_shared<TensorType>(
-                    device, shape_t{ heads }, this->getName() + ".A_log" );
-                dt_bias_ = std::make_shared<TensorType>(
-                    device, shape_t{ heads }, this->getName() + ".dt_bias" );
+                A_log_ = this->template makeParameter<TensorType>(
+                    build_context, shape_t{ heads }, this->getName() + ".A_log" );
+                dt_bias_ = this->template makeParameter<TensorType>(
+                    build_context, shape_t{ heads }, this->getName() + ".dt_bias" );
             }
 
             if ( build_context.shouldInitializeParameters() )

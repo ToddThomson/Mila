@@ -269,8 +269,13 @@ the one-too-few confusion that defined the defect (`]]` written as `]`, 29 times
 occur. The arms were stitched from one fit; the real build fits its three-bit roles with FP4 upstream.
 
 **What it needs to reach 64K.** FP4 with the FP8 KV cache was refused at 65,792 by 0.84 GB (15.65 GB needed,
-14.81 free); the two cuts save about 0.73 GB, so the weight arena (`BACKLOG.md` Internal fixes, ~0.5 GB) closes
+14.81 free); the two cuts save about 0.73 GB, so the weight arena (`MemoryFootprint.md` 11.8.1, ~0.5 GB) closes
 the rest. These are arithmetic; the planner's answer on the built package is the figure of record.
+
+**Measured 2026-10-19 on the built package.** Before the arena, fp4-cb3 with the FP8 cache was refused at 65,536
+by 0.13 GB on the 5060 Ti (16.03 GB needed, 15.90 free), its 12,876 MiB of device weights carrying 657 MiB of
+rounding. With it, ContextProfile plans 65,536 and 65,792 at a 512-row chunk: weights 12,230 MiB, 15,009 MiB in
+all at 65,792. The 1,024-row chunk is 27 MB short. `PlanEqualsBuild` builds what it prices at 65,536.
 
 ### Memory budget (GiB, as the device reports it)
 
@@ -2969,8 +2974,8 @@ rule and the scale format are held unless the measured context falls short.
   through `dispatchKvCacheCompression` (Quantization.md, *Wired, 2026-10-01*), and its packed flash kernel serves
   head size 256. `QwenModel::validateDeployment` throws for it and `QwenKvPolicy` is fixed at `NoKvCompression`.
   Only the 16 full-attention layers hold a cache, so the cache error reaches a quarter of the stack.
-- **The weight arena** is the open Internal-fixes item: one allocation per model or per layer, priced the way
-  it is laid out, so the plan still equals the build.
+- **The weight arena** is built (2026-10-19, `MemoryFootprint.md` 11.8.1): one allocation per block, priced the
+  way it is laid out, so the plan still equals the build.
 - **A 512-row chunk** is a planner decision (Deployment.md section 5, rule 3) and applies to every family.
 - **BF16 group scales** change the weight format: a re-export, and ModelDistribution.md *Compatibility*.
 - **The 2.82-bit build** is blocked on the tool-name defect above.

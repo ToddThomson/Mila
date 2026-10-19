@@ -22,6 +22,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Compute.MemoryResource;
+import Compute.DeviceArena;
 import Compute.MemoryResourceTracker;
 import Compute.CpuMemoryResource;
 #ifdef MILA_HAS_CUDA
@@ -234,6 +235,41 @@ namespace Mila::Dnn
 		}
 
 		/**
+		 * @brief Constructs a buffer placed in `arena` rather than allocated alone.
+		 *
+		 * The buffer frees nothing: its bytes belong to the arena, which it holds alive. It cannot be resized.
+		 * See Specifications/MemoryFootprint.md 11.8.1.
+		 *
+		 * @param device_id    Device identifier; the arena must be on the same device.
+		 * @param logical_size Number of logical elements to store in the buffer.
+		 * @param arena        The arena to place it in. Must not be null.
+		 * @param name         The tensor's name, for the error an overfull arena raises.
+		 *
+		 * @throws std::invalid_argument If arena is null.
+		 * @throws std::logic_error      If the arena cannot hold the buffer.
+		 */
+		TensorBuffer( int device_id, std::size_t logical_size, std::shared_ptr<Compute::DeviceArena> arena,
+			std::string_view name )
+			: device_id_( device_id ), logical_size_( logical_size ), storage_bytes_( 0 ), arena_( std::move( arena ) ) {
+
+			if ( !arena_ ) {
+				throw std::invalid_argument( "TensorBuffer: a placed buffer needs an arena" );
+			}
+
+			static_assert( Compute::kArenaPlacementAlignmentBytes % alignment == 0,
+				"an arena placement must satisfy the buffer's own alignment" );
+
+			if ( logical_size_ == 0 ) {
+				data_ = nullptr;
+				return;
+			}
+
+			storage_bytes_ = Detail::getStorageSize<TDataType>( logical_size_ );
+			aligned_size_ = calculateAlignedSize( storage_bytes_ );
+			data_ = static_cast<std::byte*>( arena_->place( storage_bytes_, name ) );
+		}
+
+		/**
 		 * @brief Destructor with automatic memory cleanup via RAII
 		 *
 		 * Automatically deallocates owned memory through the memory resource.
@@ -270,7 +306,8 @@ namespace Mila::Dnn
 			storage_bytes_( other.storage_bytes_ ),
 			aligned_size_( other.aligned_size_ ),
 			data_( other.data_ ),
-			mr_( std::move( other.mr_ ) ) {
+			mr_( std::move( other.mr_ ) ),
+			arena_( std::move( other.arena_ ) ) {
 
 			other.device_id_ = 0;
 			other.logical_size_ = 0;
@@ -298,6 +335,7 @@ namespace Mila::Dnn
 				aligned_size_ = other.aligned_size_;
 				data_ = other.data_;
 				mr_ = std::move( other.mr_ );
+				arena_ = std::move( other.arena_ );
 
 				// Reset source
 				other.device_id_ = -1;
@@ -484,6 +522,13 @@ namespace Mila::Dnn
 			return mr_.get();
 		}
 
+		/**
+		 * @brief True if the buffer's bytes are placed in an arena rather than allocated alone.
+		 */
+		bool isPlacedInArena() const noexcept {
+			return arena_ != nullptr;
+		}
+
 	private:
 		int device_id_{ -1 }; ///< Device Id for memory resource operations
 		std::size_t logical_size_{ 0 };                                      ///< Number of logical elements in buffer
@@ -491,6 +536,7 @@ namespace Mila::Dnn
 		std::size_t aligned_size_{ 0 };                                      ///< Total allocated bytes including alignment
 		std::byte* data_{ nullptr };                                    ///< Pointer to allocated memory buffer
 		std::unique_ptr<Compute::MemoryResource> mr_{ nullptr };        ///< Memory resource for allocation (null for external)
+		std::shared_ptr<Compute::DeviceArena> arena_{ nullptr };       ///< The arena a placed buffer's bytes belong to
 
 		/**
 		 * @brief Calculates aligned size for given storage requirements

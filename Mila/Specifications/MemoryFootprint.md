@@ -1469,6 +1469,36 @@ Carried to the Phase 6 step 3 gate, to confirm there: rounding is applied per al
 workspace); the granularity is read from the device, not written as a constant; the rounded bytes are reported
 in the existing `MemoryStats` fields rather than a new one; and Linux takes the same rule (11.10).
 
+### 11.8.1 A layer's weights are one allocation
+
+**Decided with Todd, 2026-10-19: one parameter arena per transformer block.** Rounding each weight tensor to the
+granularity cost Qwen 3.8 fp4-cb3 657 MiB of its 12,876 MiB of device weights (12,219 MiB of tensors), more than
+the 0.13 GB its 64K deployment was refused by on the RTX 5060 Ti with the FP8 cache. Placing a block's parameters
+in one allocation rounds once per block instead: at most 2 MiB a block, 128 MiB over Qwen's 64 (arithmetic).
+
+- **Who owns one.** A composite opts in (`placeParametersInOneAllocation()`): the Qwen attention and DeltaNet
+  blocks, the Llama block and the Gemma block. Per block rather than per model so a layer split across devices
+  (multi-GPU) keeps each layer's weights on its own device in one piece, and no single allocation is the size of
+  the model. The embedding, the final norm and the head stay outside, allocated as before. GPT's block is not
+  priced (`getRequiredMemory` is not implemented there) and does not opt in.
+- **How it travels.** On the `BuildContext`, never in shared state: the owner creates the arena before its own
+  `onBuilding` and hands children a context carrying it, which `withShape` and `forChild` both keep. A
+  component allocates a parameter through `Component::makeParameter`, which places it in the context's arena
+  when there is one and allocates it alone otherwise. Gradients, state and scratch are never placed.
+- **Placement.** Each tensor starts at a 256-byte boundary, `cudaMalloc`'s own alignment, so every kernel
+  assumption about a weight's address holds; it occupies its storage bytes rounded up to 256. Every
+  `TensorBuffer` alignment (32 elements) divides 256.
+- **Pricing.** A context flagged for the arena prices each parameter at its placed size
+  (`BuildContext::occupiedParameterBytes`) rather than its rounded one; the owner sums its children and rounds
+  the sum once (`occupiedDeviceBytes`). Built, a placed tensor reports its placed size through
+  `occupiedTensorBytes`, and the owner replaces its children's sum by the arena's rounded capacity. The arena
+  is sized from that same pricing, so plan and build agree by construction.
+- **The check that keeps it exact.** After the owner's `onBuilding`, the arena must be exactly full. A child
+  that priced a parameter as placed but allocated it alone (or the reverse) leaves it short or overflows it,
+  and the build throws naming the block. A partial migration therefore cannot pass silently.
+- **Gate.** `PlanEqualsBuild` unchanged; every published model's weights within one granule per block of their
+  bytes, measured before and after.
+
 ### 11.9 What the rule picks on the measured models
 
 Predicted footprint plus the scratch measured for each model, identical on both cards. Free memory was

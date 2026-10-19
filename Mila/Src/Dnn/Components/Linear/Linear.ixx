@@ -921,22 +921,22 @@ namespace Mila::Dnn
                     : input_features;
 
                 stats.device_parameter_bytes +=
-                    occupiedDeviceBytes( storageBytes<kWeightDtype>( output_features * weight_cols ), granularity );
+                    context.occupiedParameterBytes( storageBytes<kWeightDtype>( output_features * weight_cols ) );
 
                 if constexpr ( kIsQuantized )
                 {
                     if constexpr ( TWeightQuant::kPerChannel )
                     {
                         stats.device_parameter_bytes +=
-                            occupiedDeviceBytes( storageBytes<TWeightQuant::kScaleDtype>( output_features ), granularity );
+                            context.occupiedParameterBytes( storageBytes<TWeightQuant::kScaleDtype>( output_features ) );
                     }
                     else
                     {
                         const dim_t num_groups =
                             input_features / TWeightQuant::kQuantizationGroupSize;
 
-                        stats.device_parameter_bytes +=
-                            occupiedDeviceBytes( storageBytes<TWeightQuant::kScaleDtype>( output_features * num_groups ), granularity );
+                        stats.device_parameter_bytes += context.occupiedParameterBytes(
+                            storageBytes<TWeightQuant::kScaleDtype>( output_features * num_groups ) );
                     }
                 }
 
@@ -944,21 +944,21 @@ namespace Mila::Dnn
                 // this function against a real build.
                 if constexpr ( HasCodebookTable<TWeightQuant> )
                 {
-                    stats.device_parameter_bytes +=
-                        occupiedDeviceBytes( storageBytes<TensorDataType::FP32>( TWeightQuant::kCodebookEntries ), granularity );
+                    stats.device_parameter_bytes += context.occupiedParameterBytes(
+                        storageBytes<TensorDataType::FP32>( TWeightQuant::kCodebookEntries ) );
                 }
 
                 if constexpr ( HasHighBitPlane<TWeightQuant> )
                 {
-                    stats.device_parameter_bytes +=
-                        occupiedDeviceBytes( storageBytes<TensorDataType::UINT8>( output_features * ( input_features / 8 ) ), granularity );
+                    stats.device_parameter_bytes += context.occupiedParameterBytes(
+                        storageBytes<TensorDataType::UINT8>( output_features * ( input_features / 8 ) ) );
                 }
             }
 
             if ( config_.hasBias() )
             {
                 stats.device_parameter_bytes +=
-                    occupiedDeviceBytes( storageBytes<TComputePrecision>( output_features ), granularity );
+                    context.occupiedParameterBytes( storageBytes<TComputePrecision>( output_features ) );
             }
 
             // An installed shared output slot is owned and counted by the installer.
@@ -1185,7 +1185,6 @@ namespace Mila::Dnn
         {
             std::int64_t input_features = config_.getInputFeatures();
             std::int64_t output_features = config_.getOutputFeatures();
-            auto device = this->getExecutionContext()->getDeviceId();
 
             // A weight (and scales) installed before build -- a tied lm_head adopting the
             // token embedding table -- must NOT be self-allocated: that redundant weight is
@@ -1196,8 +1195,8 @@ namespace Mila::Dnn
             {
                 if ( config_.hasBias() )
                 {
-                    bias_ = std::make_shared<TensorType>(
-                        device, shape_t{ output_features }, this->getName() + ".bias" );
+                    bias_ = this->template makeParameter<TensorType>(
+                        context, shape_t{ output_features }, this->getName() + ".bias" );
 
                     if ( context.shouldInitializeParameters() )
                         zero( *bias_, this->getExecutionContext() );
@@ -1217,23 +1216,23 @@ namespace Mila::Dnn
                 ? input_features * TWeightQuant::kStorageBitsPerElement / 8
                 : input_features;
 
-            weight_ = std::make_shared<WeightTensorType>(
-                device, shape_t{ output_features, weight_cols }, this->getName() + ".weight" );
+            weight_ = this->template makeParameter<WeightTensorType>(
+                context, shape_t{ output_features, weight_cols }, this->getName() + ".weight" );
 
             if constexpr ( kIsQuantized )
             {
                 if constexpr ( TWeightQuant::kPerChannel )
                 {
                     // Per-channel: one scale per output channel -- shape [out_features].
-                    weight_scales_ = std::make_shared<WeightScaleTensorType>(
-                        device, shape_t{ output_features }, this->getName() + ".weight.scales" );
+                    weight_scales_ = this->template makeParameter<WeightScaleTensorType>(
+                        context, shape_t{ output_features }, this->getName() + ".weight.scales" );
                 }
                 else
                 {
                     // Per-group: one scale per (output channel, K-group) -- shape [out_features, K/group_size].
                     const std::int64_t num_groups = input_features / TWeightQuant::kQuantizationGroupSize;
-                    weight_scales_ = std::make_shared<WeightScaleTensorType>(
-                        device, shape_t{ output_features, num_groups }, this->getName() + ".weight.scales" );
+                    weight_scales_ = this->template makeParameter<WeightScaleTensorType>(
+                        context, shape_t{ output_features, num_groups }, this->getName() + ".weight.scales" );
                 }
             }
 
@@ -1241,18 +1240,16 @@ namespace Mila::Dnn
             {
                 // One table per tensor, not per group -- it amortizes to nothing and is
                 // what lets the format carry asymmetry without a zero point.
-                weight_codebook_ = std::make_shared<CodebookTensorType>(
-                    device, shape_t{ TWeightQuant::kCodebookEntries },
-                    this->getName() + ".weight.codebook" );
+                weight_codebook_ = this->template makeParameter<CodebookTensorType>(
+                    context, shape_t{ TWeightQuant::kCodebookEntries }, this->getName() + ".weight.codebook" );
             }
 
             if constexpr ( HasHighBitPlane<TWeightQuant> )
             {
                 // One bit per element, byte-aligned per row -- its extent does NOT follow
                 // kStorageBitsPerElement, which describes the primary tensor only.
-                weight_high_plane_ = std::make_shared<HighBitPlaneTensorType>(
-                    device, shape_t{ output_features, input_features / 8 },
-                    this->getName() + ".weight.high_plane" );
+                weight_high_plane_ = this->template makeParameter<HighBitPlaneTensorType>(
+                    context, shape_t{ output_features, input_features / 8 }, this->getName() + ".weight.high_plane" );
             }
 
             if constexpr ( !kIsQuantized )
@@ -1265,8 +1262,8 @@ namespace Mila::Dnn
 
             if ( config_.hasBias() )
             {
-                bias_ = std::make_shared<TensorType>(
-                    device, shape_t{ output_features }, this->getName() + ".bias" );
+                bias_ = this->template makeParameter<TensorType>(
+                    context, shape_t{ output_features }, this->getName() + ".bias" );
 
                 if ( context.shouldInitializeParameters() )
                 {

@@ -85,8 +85,9 @@ a selection that does not fit is refused naming the feature and what fits withou
 selected allocates nothing. The weight format remains the caller's.
 
 **The bytes a selection spends are recovered first.** One `cudaMalloc` per weight tensor, each rounded to
-the 2 MiB granule, costs a model 64 to 679 MiB (`BACKLOG.md`, Internal fixes, in v0.21.0); an arena removes it,
-priced so that what the planner reads stays what the build allocates. Gemma's keys stored once
+the 2 MiB granule, cost a model 64 to 679 MiB. Since 2026-10-19 a block's weights are one allocation
+(`MemoryFootprint.md` 11.8.1), priced so that what the planner reads stays what the build allocates, and what
+rounding remains is 11 to 75 MiB a model. Gemma's keys stored once
 (`RopeInAttention.md`) is the family's own lever.
 
 ---
@@ -468,7 +469,9 @@ fail once. Bounds are written here before any run.
   plan 19456 and 50176; once its blocks shared one activation slot set and its top rung rose to 1024 (the same
   pass), 38912 and 69632 at chunk 1024. Qwen's rows below 16384 moved for the same reason when its flash threshold went:
   qwen3.8-27b-fp4 on the 5060 Ti plans 10240, and qwen3.8-27b-cb2-3 on the 4070 plans 8192.
-  `DeploymentPlanner.G2.Cuda.cpp` holds the new figures.
+  When a block's weights became one allocation (`MemoryFootprint.md` 11.8.1, 2026-10-19) Qwen's rows rose
+  again: FP4 on the 5060 Ti to 18432, cb2-3 to 19456 on the 4070 and 84992 on the 5060 Ti. Gemma's and
+  Llama's did not move. `DeploymentPlanner.G2.Cuda.cpp` holds the new figures.
 
   Qwen FP4 on the 4070 has no plan: the scan found no fitting context, fell back to 4096, and Chat
   attempted the load anyway and failed on allocation (exit 5, weights 13.20 GB against 10.85 GB). After

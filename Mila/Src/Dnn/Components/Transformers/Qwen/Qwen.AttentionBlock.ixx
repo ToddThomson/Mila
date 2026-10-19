@@ -264,6 +264,8 @@ namespace Mila::Dnn
                     "is plain grouped-query attention", name ) );
             }
 
+            this->placeParametersInOneAllocation();
+
             createGraph();
 
             if ( device_id.has_value() )
@@ -418,7 +420,7 @@ namespace Mila::Dnn
                 }
             }
 
-            return stats;
+            return this->foldBuiltParameterArena( stats );
         }
 
         /**
@@ -432,7 +434,7 @@ namespace Mila::Dnn
         {
             validateBuildContext( context );
 
-            const BlockBuildContexts contexts = resolveBlockBuildContexts( context );
+            const BlockBuildContexts contexts = resolveBlockBuildContexts( this->parameterArenaPricing( context ) );
             const std::string n = this->getName();
 
             // workspace_installed_ is still false here: the transformer calls
@@ -478,7 +480,7 @@ namespace Mila::Dnn
                 stats.device_state_bytes += kv_bytes;  // v
             }
 
-            return stats;
+            return this->foldParameterArena( stats, context );
         }
 
         std::string toString() const override

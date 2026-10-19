@@ -17,8 +17,11 @@ import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorTypes;
 import Compute.Device;
+import Compute.DeviceAllocation;
+import Compute.DeviceArena;
 import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.Observation;
 import Serialization.ModelArchive;
@@ -754,6 +757,100 @@ namespace Mila::Dnn
 
     protected:
 
+        // ====================================================================
+        // Parameter arena (MemoryFootprint.md 11.8.1)
+        // ====================================================================
+
+        /**
+         * @brief Place every parameter of this composite's subtree in one allocation it owns.
+         *
+         * Called from a transformer block's constructor. The block then prices its children through
+         * parameterArenaPricing() and returns foldParameterArena() from getRequiredMemory(), and returns
+         * foldBuiltParameterArena() from getMemoryStats(). Only a CUDA build places; on any other device the
+         * calls change nothing.
+         */
+        void placeParametersInOneAllocation() noexcept
+        {
+            owns_parameter_arena_ = true;
+        }
+
+        /**
+         * @brief The context this composite prices its children with: parameters placed when it owns the arena.
+         */
+        BuildContext parameterArenaPricing( const BuildContext& context ) const
+        {
+            return ownsParameterArenaFor( context ) ? context.withParametersInArena() : context;
+        }
+
+        /**
+         * @brief Round the children's placed parameter bytes once, as the one allocation they are built into.
+         *
+         * @param stats   What the children priced under parameterArenaPricing( context ).
+         * @param context The context this composite was priced with.
+         */
+        MemoryStats foldParameterArena( MemoryStats stats, const BuildContext& context ) const
+        {
+            if ( ownsParameterArenaFor( context ) )
+            {
+                stats.device_parameter_bytes =
+                    occupiedDeviceBytes( stats.device_parameter_bytes, context.getAllocationGranularity() );
+            }
+
+            return stats;
+        }
+
+        /**
+         * @brief Replace the placed bytes the children report with the arena they live in, rounded once.
+         */
+        MemoryStats foldBuiltParameterArena( MemoryStats stats ) const
+        {
+            if ( parameter_arena_ )
+            {
+                const std::size_t capacity = parameter_arena_->capacity();
+
+                stats.device_parameter_bytes = stats.device_parameter_bytes - capacity
+                    + occupiedDeviceBytes( capacity, allocationGranularity( this->getDeviceId() ) );
+            }
+
+            return stats;
+        }
+
+        /**
+         * @brief Create the arena, sized by this composite's own pricing, and hand it to the build.
+         */
+        BuildContext prepareBuildContext( const BuildContext& context ) override
+        {
+            if ( !ownsParameterArenaFor( context ) )
+            {
+                return context;
+            }
+
+            // Granularity zero: only the placed parameter bytes are read, and they are not rounded.
+            const std::size_t capacity = this->getRequiredMemory(
+                context.withAllocationGranularity( 0 ).withParametersInArena() ).device_parameter_bytes;
+
+            using MemoryResourceType = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+
+            parameter_arena_ = std::make_shared<DeviceArena>(
+                std::make_unique<MemoryResourceType>( this->getDeviceId().index ), capacity, this->getName() );
+
+            return context.withParameterArena( parameter_arena_ );
+        }
+
+        /**
+         * @brief The arena must be exactly full: what was priced as placed is what was placed.
+         */
+        void verifyBuild() const override
+        {
+            if ( parameter_arena_ && !parameter_arena_->isFull() )
+            {
+                throw std::logic_error( std::format(
+                    "'{}' priced {} parameter bytes in its arena and placed {} -- a child allocates a parameter "
+                    "alone that it prices as placed (MemoryFootprint.md 11.8.1)",
+                    this->getName(), parameter_arena_->capacity(), parameter_arena_->usedBytes() ) );
+            }
+        }
+
         /**
          * @brief Virtual hook for graph optimization after construction.
          *
@@ -935,6 +1032,19 @@ namespace Mila::Dnn
         }
 
     private:
+
+        bool owns_parameter_arena_{ false };
+        std::shared_ptr<DeviceArena> parameter_arena_;
+
+        /**
+         * @brief True if this composite owns the arena for a build or pricing under `context`.
+         *
+         * Not when an enclosing composite already owns one: that arena holds this subtree too.
+         */
+        bool ownsParameterArenaFor( const BuildContext& context ) const noexcept
+        {
+            return owns_parameter_arena_ && TDeviceType == DeviceType::Cuda && !context.placesParametersInArena();
+        }
 
         /**
          * @brief Glob match, where `*` stands for any run of characters including none, dots

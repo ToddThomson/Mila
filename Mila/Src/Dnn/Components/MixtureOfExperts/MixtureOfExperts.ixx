@@ -369,8 +369,8 @@ namespace Mila::Dnn
                 const dim_t hidden = config_.getHiddenSize();
                 const dim_t intermediate = config_.getExpertIntermediateSize();
 
-                stats.device_parameter_bytes += projectionBytes( 2 * intermediate, hidden, granularity )
-                    + projectionBytes( hidden, intermediate, granularity );
+                stats.device_parameter_bytes += projectionBytes( 2 * intermediate, hidden, context )
+                    + projectionBytes( hidden, intermediate, context );
                 stats.device_inactive_parameter_bytes = inactiveBytes( stats.device_parameter_bytes );
             }
 
@@ -422,17 +422,17 @@ namespace Mila::Dnn
 
             if ( !gate_up_proj_ )
             {
-                gate_up_proj_ = std::make_shared<WeightTensorType>(
-                    device, shape_t{ experts, 2 * intermediate, storedColumns( hidden ) }, this->getName() + ".gate_up_proj" );
-                down_proj_ = std::make_shared<WeightTensorType>(
-                    device, shape_t{ experts, hidden, storedColumns( intermediate ) }, this->getName() + ".down_proj" );
+                gate_up_proj_ = this->template makeParameter<WeightTensorType>(
+                    context, shape_t{ experts, 2 * intermediate, storedColumns( hidden ) }, this->getName() + ".gate_up_proj" );
+                down_proj_ = this->template makeParameter<WeightTensorType>(
+                    context, shape_t{ experts, hidden, storedColumns( intermediate ) }, this->getName() + ".down_proj" );
 
                 if constexpr ( kIsPacked )
                 {
-                    gate_up_scale_ = std::make_shared<ScaleTensorType>(
-                        device, shape_t{ experts, 2 * intermediate, groupsPerRow( hidden ) }, this->getName() + ".gate_up_proj_scale" );
-                    down_scale_ = std::make_shared<ScaleTensorType>(
-                        device, shape_t{ experts, hidden, groupsPerRow( intermediate ) }, this->getName() + ".down_proj_scale" );
+                    gate_up_scale_ = this->template makeParameter<ScaleTensorType>(
+                        context, shape_t{ experts, 2 * intermediate, groupsPerRow( hidden ) }, this->getName() + ".gate_up_proj_scale" );
+                    down_scale_ = this->template makeParameter<ScaleTensorType>(
+                        context, shape_t{ experts, hidden, groupsPerRow( intermediate ) }, this->getName() + ".down_proj_scale" );
                 }
             }
 
@@ -548,14 +548,14 @@ namespace Mila::Dnn
             }
         }
 
-        // The stacked weight and its scales are two allocations.
-        std::size_t projectionBytes( dim_t rows, dim_t columns, std::size_t granularity ) const
+        // The stacked weight and its scales are two parameter tensors.
+        std::size_t projectionBytes( dim_t rows, dim_t columns, const BuildContext& context ) const
         {
             const dim_t experts = config_.getNumExperts();
 
-            return occupiedDeviceBytes( storageBytes<kWeightDtype>( experts * rows * storedColumns( columns ) ), granularity )
-                + occupiedDeviceBytes(
-                    storageBytes<TWeightQuantization::kScaleDtype>( experts * rows * groupsPerRow( columns ) ), granularity );
+            return context.occupiedParameterBytes( storageBytes<kWeightDtype>( experts * rows * storedColumns( columns ) ) )
+                + context.occupiedParameterBytes(
+                    storageBytes<TWeightQuantization::kScaleDtype>( experts * rows * groupsPerRow( columns ) ) );
         }
 
         // One gated row per token and selected expert, as wide as an expert's intermediate.

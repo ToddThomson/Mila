@@ -205,11 +205,12 @@ namespace Mila::Tests::Deployment
         // Chat recorded 4096 on the RTX 5060 Ti. Below 16384 the full-attention layers then ran cuBLASLt with a
         // full-context score buffer; flash at every length (ModelFamilyParity.md 8.4, L4) removed it from the
         // footprint, and the same reading buys this, with the token embedding's output a chunk wide rather than the
-        // context. The rule that chooses is unchanged.
+        // context. It rose again, from 11264, when a block's weights became one allocation and stopped rounding each
+        // tensor (MemoryFootprint.md 11.8.1). The rule that chooses is unchanged.
         expectRecordedChoices<Network>( "qwen3.8-27b-fp4", weights, networkConfigOf<QwenCudaModel>( weights ),
             DeploymentRequest{}.withWeightQuantization( WeightQuantization::FP4 ).withAutomaticContextLength( 1024, kQwenCeiling ),
             Recorded{ kRtx4070FreeBytes, std::nullopt },
-            Recorded{ kRtx5060TiFreeBytes, 11264, 1024, true } );
+            Recorded{ kRtx5060TiFreeBytes, 18432, 1024, true } );
     }
 
     TEST_F( DeploymentPlannerG2CudaTests, Qwen38_27B_Codebook )
@@ -224,10 +225,11 @@ namespace Mila::Tests::Deployment
 
         // Chat recorded 3072 on the RTX 4070, for the reason Qwen38_27B_Fp4 gives. The RTX 5060 Ti's row was above
         // 16384 already, where flash ran then too. Both rose with the token embedding's output a chunk wide, and the
-        // RTX 5060 Ti's by one step more (73728) when RoPE stopped holding a table (MemoryFootprint.md 8.4).
+        // RTX 5060 Ti's by one step more (73728) when RoPE stopped holding a table (MemoryFootprint.md 8.4). Both rose
+        // again, from 10240 and 74752, when a block's weights became one allocation (MemoryFootprint.md 11.8.1).
         expectRecordedChoices<Network>( "qwen3.8-27b-cb2-3", weights, networkConfigOf<QwenCudaModel>( weights ),
             DeploymentRequest{}.withPrecisionPlan().withAutomaticContextLength( 1024, kQwenCeiling ),
-            Recorded{ kRtx4070FreeBytes, 10240, 1024, true },
-            Recorded{ kRtx5060TiFreeBytes, 74752, 1024, true } );
+            Recorded{ kRtx4070FreeBytes, 19456, 1024, true },
+            Recorded{ kRtx5060TiFreeBytes, 84992, 1024, true } );
     }
 }

@@ -144,6 +144,8 @@ namespace Mila::Dnn
         {
             config_.validate();
 
+            this->placeParametersInOneAllocation();
+
             createGraph();
 
             if ( device_id.has_value() )
@@ -354,14 +356,14 @@ namespace Mila::Dnn
                 }
             }
 
-            return stats;
+            return this->foldBuiltParameterArena( stats );
         }
 
         MemoryStats getRequiredMemory( const BuildContext& context ) const override
         {
             validateBuildContext( context );
 
-            const BlockContexts contexts = resolveBlockContexts( context );
+            const BlockContexts contexts = resolveBlockContexts( this->parameterArenaPricing( context ) );
             const std::string n = this->getName();
 
             MemoryStats stats;
@@ -409,7 +411,7 @@ namespace Mila::Dnn
                     context.getAllocationGranularity() );
             }
 
-            return stats;
+            return this->foldParameterArena( stats, context );
         }
 
         std::string toString() const override

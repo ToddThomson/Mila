@@ -89,6 +89,7 @@ export import Compute.DeviceRegistryHelpers;
 // A caller pricing a network supplies the device's allocation granularity and free memory in the
 // BuildContext, since a prediction never reads the device it is bound to (Deployment.md section 4).
 export import Compute.DeviceAllocation;
+export import Compute.DeviceArena;
 
 // ====================================================================
 // Compute - Memory Resources

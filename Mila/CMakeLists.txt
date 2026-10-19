@@ -298,6 +298,7 @@ PUBLIC
         #---------------------------------------------------------------
         "Src/Dnn/Compute/Device.ixx"
         "Src/Dnn/Compute/DeviceAllocation.ixx"
+        "Src/Dnn/Compute/DeviceArena.ixx"
         "Src/Dnn/Compute/DeviceType.ixx"
         "Src/Dnn/Compute/DeviceId.ixx"
 

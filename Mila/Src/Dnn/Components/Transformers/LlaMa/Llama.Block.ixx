@@ -96,7 +96,9 @@ namespace Mila::Dnn
             : CompositeComponentBase( name ), config_( config )
         {
             config_.validate();
-            
+
+            this->placeParametersInOneAllocation();
+
             createGraph();
 
             if ( device_id.has_value() )
@@ -537,7 +539,7 @@ namespace Mila::Dnn
                 stats.device_gradient_bytes += occupiedTensorBytes( *d_input_ );
             }
 
-            return stats;
+            return this->foldBuiltParameterArena( stats );
         }
 
         /**
@@ -553,7 +555,7 @@ namespace Mila::Dnn
         {
             validateBuildContext( context );
 
-            const BlockBuildContexts contexts = resolveBlockBuildContexts( context );
+            const BlockBuildContexts contexts = resolveBlockBuildContexts( this->parameterArenaPricing( context ) );
             const std::string n = this->getName();
 
             // workspace_installed_ is still false here: the transformer calls installSharedWorkspace between
@@ -598,7 +600,7 @@ namespace Mila::Dnn
                     storageBytes<TPrecision>( elementCount( contexts.main.inputShape() ) ), granularity );
             }
 
-            return stats;
+            return this->foldParameterArena( stats, context );
         }
 
     protected:

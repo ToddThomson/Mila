@@ -336,3 +336,13 @@ spec. Its section 9 phases 0 to 2 (the tiny reference, the converter skeleton, g
 CausalConv1d, the DeltaNet gate activation, and the gated residual, n-gram, PLE and QSA indexer components)
 need no 27B checkpoint. 2026-10-08: Phases 0 and 1 are built and their CPU gates passed; Phase 2 has
 `GatedResidual` and `NgramEmbedding` on CPU, gated against the tiny reference.
+
+## Qwen 3.8 fp4-cb3's real fit sits further from BF16 than the arm that predicted it
+
+`Mila/Tests/Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp` `DISABLED_DivergenceOnConversations` @ 4494e766
+
+2026-10-19, 12 held-out code conversations on the 5060 Ti: the fitted and exported fp4-cb3 scores mean KL 0.563
+against BF16, where the 2026-10-19 arm that simulated it (down and DeltaNet q/k at three-bit codebooks taken from the
+codecal fit, everything else FP4 by `bracket/hybrid.py`) scored 0.511 and FP4 0.478. Closing brackets are fine: 2.3%
+lost where BF16 is right (FP4 2.1%, the arm 4.1%), no `]]` read as `]`; other tokens 5.4% (FP4 4.5%). One run each.
+The real fit's three-bit roles were fitted with FP4 upstream, which was expected to help rather than cost.

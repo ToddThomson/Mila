@@ -120,6 +120,8 @@ namespace Mila::Dnn
                     name, config_.hasMixtureOfExperts() ? "has" : "has no", kRouted ? "routed" : "dense" ) );
             }
 
+            this->placeParametersInOneAllocation();
+
             createGraph();
 
             if ( device_id.has_value() )
@@ -509,7 +511,7 @@ namespace Mila::Dnn
                 }
             }
 
-            return stats;
+            return this->foldBuiltParameterArena( stats );
         }
 
         /**
@@ -525,7 +527,7 @@ namespace Mila::Dnn
         {
             validateBuildContext( context );
 
-            const BlockBuildContexts contexts = resolveBlockBuildContexts( context );
+            const BlockBuildContexts contexts = resolveBlockBuildContexts( this->parameterArenaPricing( context ) );
             const std::string n = this->getName();
 
             // workspace_installed_ is set by installSharedWorkspace(), which the transformer
@@ -573,7 +575,7 @@ namespace Mila::Dnn
                 }
             }
 
-            return stats;
+            return this->foldParameterArena( stats, context );
         }
 
         std::vector<std::string> getParameterNames() const override

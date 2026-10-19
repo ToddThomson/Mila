@@ -2241,14 +2241,15 @@ namespace Mila::Tests::Dnn::Models
 
     // ====================================================================
     // Served text against the BF16 reference: KL and top-1 at every position, one build.
-    //   MILA_QWEN_REFERENCE_TOPK=<file> MILA_QWEN_BUILD=fp4|packed MilaTests --gtest_also_run_disabled_tests
+    //   MILA_QWEN_REFERENCE_TOPK=<file> MILA_QWEN_BUILD=fp4|packed|fp4-cb3 MilaTests --gtest_also_run_disabled_tests
     //       --gtest_filter=QwenPackedArtifactTests.DISABLED_DivergenceOnConversations
     //
     // The file is Tools/Converters/Qwen/qwen38_BF16/hf_qwen_conversation_loss.py --top-k-output: HuggingFace
     // BF16 on held-out conversations, layer-streamed. Perplexity cannot rank the builds on this text -- the
     // original scores it worse than FP4 (Qwen3.8.md, "On served text, perplexity does not rank the builds") --
     // so each is judged by how far its distribution sits from the original's. fp4 quantizes the BF16 blob at load;
-    // packed is the 2.82-bit build, MILA_QWEN_PACKED_ARTIFACT choosing which. MILA_QWEN_MAX_CONVERSATIONS
+    // packed is the 2.82-bit build and fp4-cb3 the FP4 one with three-bit codebook roles, MILA_QWEN_PACKED_ARTIFACT
+    // naming the file for either (fp4-cb3 has no default). MILA_QWEN_MAX_CONVERSATIONS
     // bounds the run, one decode a position. Reports and gates nothing.
     // ====================================================================
     TEST_F( QwenPackedArtifactTests, DISABLED_DivergenceOnConversations )
@@ -2262,7 +2263,7 @@ namespace Mila::Tests::Dnn::Models
 
         if ( reference_path == nullptr || build == nullptr )
         {
-            GTEST_SKIP() << "MILA_QWEN_REFERENCE_TOPK and MILA_QWEN_BUILD (fp4 or packed) are both needed";
+            GTEST_SKIP() << "MILA_QWEN_REFERENCE_TOPK and MILA_QWEN_BUILD (fp4, packed or fp4-cb3) are both needed";
         }
 
         const ReferenceTopK reference = readReferenceTopK( reference_path );
@@ -2288,9 +2289,15 @@ namespace Mila::Tests::Dnn::Models
             ASSERT_TRUE( fs::exists( reference_blob ) ) << reference_blob.string();
             result = divergenceAgainstReference<QwenOraclePrecisionPlan>( reference_blob, reference, conversations, kContextLength );
         }
+        else if ( build_name == "fp4-cb3" )
+        {
+            ASSERT_NE( std::getenv( "MILA_QWEN_PACKED_ARTIFACT" ), nullptr ) << "fp4-cb3 reads MILA_QWEN_PACKED_ARTIFACT";
+            result = divergenceAgainstReference<QwenFp4Codebook3PrecisionPlan>( artifact_, reference, conversations,
+                kContextLength );
+        }
         else
         {
-            ASSERT_EQ( build_name, "packed" ) << "MILA_QWEN_BUILD is fp4 or packed";
+            ASSERT_EQ( build_name, "packed" ) << "MILA_QWEN_BUILD is fp4, packed or fp4-cb3";
             result = divergenceAgainstReference<QwenPrecisionPlan>( artifact_, reference, conversations, kContextLength );
         }
 

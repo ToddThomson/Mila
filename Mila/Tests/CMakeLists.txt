@@ -313,6 +313,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Optimizers/AdamW.MixedPrecision.Cuda.cpp"
         "Dnn/Samplers/Sampling.Cuda.cpp"
         "Dnn/Core/SequenceLogLikelihood.Cuda.cpp"
+        "Dnn/Compute/DeviceArena.Cuda.cpp"
         "Dnn/Tensors/Tensor.Constructors.Cuda.cpp"
         "Dnn/Tensors/Tensor.DataAccess.Cuda.cpp"
         "Dnn/Tensors/Tensor.MemoryProperties.Cuda.cpp"

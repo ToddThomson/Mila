@@ -228,9 +228,11 @@ namespace Mila::Dnn
                         getName() ) );
             }
 
-            build_context_ = context;
+            build_context_ = prepareBuildContext( context );
 
             onBuilding( build_context_ );
+
+            verifyBuild();
 
             built_ = true;
         }
@@ -999,7 +1001,38 @@ namespace Mila::Dnn
         virtual void onBuilding( const BuildContext& /*config*/ )
         {
         }
- 
+
+        /**
+         * @brief Hook that may extend the context build() hands onBuilding(), before anything is allocated.
+         *
+         * A composite that owns its children's parameter arena returns the context carrying it
+         * (MemoryFootprint.md 11.8.1). The default returns the context unchanged.
+         */
+        virtual BuildContext prepareBuildContext( const BuildContext& context )
+        {
+            return context;
+        }
+
+        /**
+         * @brief Hook called after onBuilding() returns, to check what it built. The default checks nothing.
+         */
+        virtual void verifyBuild() const
+        {
+        }
+
+        /**
+         * @brief Allocate one parameter tensor: placed in the context's arena when it carries one, alone otherwise.
+         *
+         * Every parameter a component prices through BuildContext::occupiedParameterBytes() is allocated here, so
+         * pricing and building agree on where it lives.
+         */
+        template<typename TTensor>
+        std::shared_ptr<TTensor> makeParameter( const BuildContext& context, const shape_t& shape, std::string name ) const
+        {
+            return std::make_shared<TTensor>(
+                this->getExecutionContext()->getDeviceId(), shape, std::move( name ), context.getParameterArena() );
+        }
+
         /**
          * @brief Hook called before TrainingMode transitions.
          *

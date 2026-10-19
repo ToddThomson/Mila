@@ -394,12 +394,12 @@ namespace Mila::Dnn
                 const NormalizedPartition partition = resolveNormalizedPartition( &input_shape );
 
                 stats.device_parameter_bytes +=
-                    occupiedDeviceBytes( storageBytes<TPrecision>( partition.channels ), granularity );
+                    context.occupiedParameterBytes( storageBytes<TPrecision>( partition.channels ) );
 
                 if ( config_.hasBias() )
                 {
                     stats.device_parameter_bytes +=
-                        occupiedDeviceBytes( storageBytes<TPrecision>( partition.channels ), granularity );
+                        context.occupiedParameterBytes( storageBytes<TPrecision>( partition.channels ) );
                 }
             }
 
@@ -459,7 +459,7 @@ namespace Mila::Dnn
             const auto& input_shape = build_context.inputShape();
 
             validateInputShape( input_shape );
-            allocateParameters( &input_shape );
+            allocateParameters( build_context, &input_shape );
 
             if ( build_context.shouldInitializeParameters() )
             {
@@ -631,7 +631,7 @@ namespace Mila::Dnn
             return partition;
         }
 
-        void allocateParameters( const shape_t* input_shape )
+        void allocateParameters( const BuildContext& context, const shape_t* input_shape )
         {
             if ( weight_ )
             {
@@ -642,13 +642,13 @@ namespace Mila::Dnn
 
             outer_shape_ = partition.outer_shape;
 
-            auto device = this->getExecutionContext()->getDeviceId();
-
-            weight_ = std::make_shared<TensorType>( device, shape_t{ partition.channels }, this->getName() + ".weight" );
+            weight_ = this->template makeParameter<TensorType>(
+                context, shape_t{ partition.channels }, this->getName() + ".weight" );
 
             if ( config_.hasBias() )
             {
-                bias_ = std::make_shared<TensorType>( device, shape_t{ partition.channels }, this->getName() + ".bias" );
+                bias_ = this->template makeParameter<TensorType>(
+                    context, shape_t{ partition.channels }, this->getName() + ".bias" );
             }
         }
 

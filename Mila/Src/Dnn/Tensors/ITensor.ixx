@@ -45,6 +45,12 @@ namespace Mila::Dnn
         virtual bool isView() const = 0;
 
         /**
+         * @brief True if the tensor's storage is placed in an arena rather than allocated alone
+         *        (MemoryFootprint.md 11.8.1).
+         */
+        virtual bool isPlacedInArena() const noexcept = 0;
+
+        /**
          * @brief Check if the tensor is a scalar (rank 0).
          */
         virtual bool isScalar() const noexcept = 0;

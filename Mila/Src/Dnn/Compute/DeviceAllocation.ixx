@@ -9,6 +9,7 @@ export module Compute.DeviceAllocation;
 
 import std;
 import Compute.Device;
+import Compute.DeviceArena;
 import Compute.DeviceId;
 import Compute.DeviceRegistry;
 
@@ -74,10 +75,21 @@ namespace Mila::Dnn::Compute
     }
 
     /**
-     * @brief Bytes one tensor's allocation occupies on its own device.
+     * @brief Bytes one tensor occupies on its own device: rounded alone, or its placed size in an arena.
+     *
+     * A placed tensor is not an allocation of its own; its arena's owner reports the arena's rounding once
+     * (MemoryFootprint.md 11.8.1).
      */
     export std::size_t occupiedTensorBytes( const auto& tensor )
     {
+        if constexpr ( requires { tensor.isPlacedInArena(); } )
+        {
+            if ( tensor.isPlacedInArena() )
+            {
+                return arenaPlacedBytes( tensor.getStorageSize() );
+            }
+        }
+
         return occupiedDeviceBytes( tensor.getStorageSize(), allocationGranularity( tensor.getDeviceId() ) );
     }
 

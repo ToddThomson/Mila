@@ -390,7 +390,8 @@ Decided 2026-10-15 (Todd): the margin goes to context, for agentic use, and the 
 workflow is 64K at a prefill chunk of at least 512 rows on the RTX 5060 Ti under Windows. On the 16 GB card the
 FP4 build loads at 11,264 tokens, and Claude Code's first request alone is about 20,400, so the inference server
 refuses every request it sends; at 32K it serves a short task but compacts every turn of a session. The FP4
-build tops out near 49K here even with this cache and the weight arena (Internal fixes). 2026-10-19 (Todd: quality
+build was estimated to top out near 49K here even with this cache and a block's weights in one allocation
+(`MemoryFootprint.md` 11.8.1). 2026-10-19 (Todd: quality
 first, 64K the floor): the build that meets the target is `fp4-cb3` -- FP4 but the FFN down and DeltaNet q/k at
 three-bit codebooks, chosen by measuring each role's cut (`Qwen3.8.md` section 5) -- with this cache and the arena;
 the 2.82-bit build is no longer the route. Gate: the FP8 cache against BF16 on Qwen by the instruction-retention
@@ -788,26 +789,6 @@ are at their 5.16 contents; the local capture is 5.19's.
 ### Internal fixes
 
 Defects in the library the user admitted to this release with no ROADMAP criterion behind them.
-
-#### Each weight tensor over 1 MiB is its own allocation, and the rounding costs a model up to 679 MiB of its card
-
-`open` · `models` · `mila-src` · `measured`
-
-`CudaDeviceMemoryResource::do_allocate` makes one `cudaMalloc` per tensor, each rounded to the device's 2 MiB
-granule: Qwen 3.8 27B 2.82-bit loses 679 MiB of its weights to it, Qwen FP4 497, Gemma 4 12B Q4_0 318, the
-26B-A4B 225 (priced by `DISABLED_ParameterRounding_26B_Q4_0`), Llama 64-70. Layout changes nothing else
-measured (`Profiling/Microbenchmarks/AllocationLayout.cu`). Judged over-engineering for the bytes alone on
-2026-10-03; on 2026-10-04 the bytes became features -- the 26B-A4B is 87 MB short of the 96K its profile
-measures it reliable to, and every feature a deployment selects brings more such tensors. On 2026-10-15 Qwen FP4's
-497 MiB became about 15,600 tokens of FP8 context, half of what its agentic target needs on the 16 GB card
-(the Qwen KV-cache entry above).
-
-Work: an arena behind the weights' memory resource, one allocation per model or per layer, so tensors are
-placed rather than rounded. The planner's exactness is the constraint: what it prices must stay what the
-build allocates, so the arena's own layout is priced the same way. Gate: every published model's weights
-within one granule of their bytes, measured per model before and after; `PlanEqualsBuild` unchanged.
-
-`Mila/Profiling/Microbenchmarks/AllocationLayout.cu`
 
 #### A load can take more of the card than its plan priced
 

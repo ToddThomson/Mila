@@ -11,13 +11,15 @@ export module Dnn.Component:BuildContext;
 import std;
 import Dnn.RuntimeMode;
 import Dnn.TensorTypes;
+import Compute.DeviceAllocation;
+import Compute.DeviceArena;
 
 namespace Mila::Dnn
 {
     /**
      * @brief Build-time context for Component::build().
      *
-     * Carries five orthogonal concerns down the Component hierarchy, plus the per-component
+     * Carries six orthogonal concerns down the Component hierarchy, plus the per-component
      * declarations a composite makes for its children (installed output, fused decode, decode tokens):
      *
      * 1. **Input shape**             -- the full input shape the component receives.
@@ -54,6 +56,11 @@ namespace Mila::Dnn
      *                                   and prices at the chunk its caller resolved, and
      *                                   stamps it onto the contexts of its children. No
      *                                   component reads free memory to choose one.
+     *
+     * 6. **Parameter arena**         -- whether parameters are placed in one allocation of
+     *                                   the block that owns them (MemoryFootprint.md 11.8.1):
+     *                                   priced at their placed size, and built into the arena
+     *                                   the owner carries here. Kept by withShape and forChild.
      *
      * ## Caller responsibility
      *
@@ -170,16 +177,82 @@ namespace Mila::Dnn
         /**
          * @brief A context for a child component with a different input shape.
          *
-         * Carries the runtime mode, parameter initialization and the allocation granularity, and
-         * none of the per-component declarations -- prefill size, installed output, fused decode, decode tokens --
-         * which the composite states for each child itself. withShape() is the call that keeps those.
+         * Carries the runtime mode, parameter initialization, the allocation granularity and the parameter
+         * arena, and none of the per-component declarations -- prefill size, installed output, fused decode,
+         * decode tokens -- which the composite states for each child itself. withShape() is the call that keeps
+         * those.
          */
         [[nodiscard]] BuildContext forChild( shape_t input_shape ) const
         {
             BuildContext child( std::move( input_shape ), runtime_mode_, initialize_parameters_ );
             child.allocation_granularity_ = allocation_granularity_;
+            child.parameters_in_arena_ = parameters_in_arena_;
+            child.parameter_arena_ = parameter_arena_;
 
             return child;
+        }
+
+        // ====================================================================
+        // Parameter arena
+        // ====================================================================
+
+        /**
+         * @brief Return a copy that prices parameters as placed in their block's arena.
+         *
+         * The owning block sets this on what it gives its children when it prices, and sums and rounds what
+         * they report (MemoryFootprint.md 11.8.1).
+         */
+        [[nodiscard]] BuildContext withParametersInArena() const
+        {
+            BuildContext copy( *this );
+            copy.parameters_in_arena_ = true;
+
+            return copy;
+        }
+
+        /**
+         * @brief Return a copy that builds parameters into `arena`, and prices them as placed in it.
+         */
+        [[nodiscard]] BuildContext withParameterArena( std::shared_ptr<Compute::DeviceArena> arena ) const
+        {
+            BuildContext copy( *this );
+            copy.parameters_in_arena_ = true;
+            copy.parameter_arena_ = std::move( arena );
+
+            return copy;
+        }
+
+        /**
+         * @brief True if parameters are placed in their block's arena, when built and when priced.
+         */
+        bool placesParametersInArena() const noexcept
+        {
+            return parameters_in_arena_;
+        }
+
+        /**
+         * @brief The arena parameters are built into, or null when they are allocated alone or this context
+         *        only prices.
+         */
+        const std::shared_ptr<Compute::DeviceArena>& getParameterArena() const noexcept
+        {
+            return parameter_arena_;
+        }
+
+        /**
+         * @brief What one parameter tensor of `storage_bytes` costs under this context.
+         *
+         * Its placed size when parameters are placed in an arena; otherwise its own allocation, rounded to the
+         * granularity, which must then have been given.
+         */
+        std::size_t occupiedParameterBytes( std::size_t storage_bytes ) const
+        {
+            if ( parameters_in_arena_ )
+            {
+                return Compute::arenaPlacedBytes( storage_bytes );
+            }
+
+            return Compute::occupiedDeviceBytes( storage_bytes, getAllocationGranularity() );
         }
 
         // ====================================================================
@@ -413,5 +486,7 @@ namespace Mila::Dnn
         bool                     fused_decode_{ false };
         std::int64_t                  decode_tokens_{ 1 };
         std::optional<std::size_t> allocation_granularity_;
+        bool                     parameters_in_arena_{ false };
+        std::shared_ptr<Compute::DeviceArena> parameter_arena_;
     };
 }

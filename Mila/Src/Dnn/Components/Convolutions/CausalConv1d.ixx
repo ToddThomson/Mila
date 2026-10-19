@@ -390,13 +390,13 @@ namespace Mila::Dnn
 
             if ( !weight_ )
             {
-                stats.device_parameter_bytes += occupiedDeviceBytes(
-                    storageBytes<TPrecision>( config_.getChannels() * config_.getKernelWidth() ), granularity );
+                stats.device_parameter_bytes += context.occupiedParameterBytes(
+                    storageBytes<TPrecision>( config_.getChannels() * config_.getKernelWidth() ) );
 
                 if ( config_.hasBias() )
                 {
                     stats.device_parameter_bytes +=
-                        occupiedDeviceBytes( storageBytes<TPrecision>( config_.getChannels() ), granularity );
+                        context.occupiedParameterBytes( storageBytes<TPrecision>( config_.getChannels() ) );
                 }
             }
 
@@ -456,13 +456,13 @@ namespace Mila::Dnn
 
             if ( !weight_ )
             {
-                weight_ = std::make_shared<TensorType>(
-                    device, shape_t{ channels, kernel_width }, this->getName() + ".weight" );
+                weight_ = this->template makeParameter<TensorType>(
+                    build_context, shape_t{ channels, kernel_width }, this->getName() + ".weight" );
 
                 if ( config_.hasBias() )
                 {
-                    bias_ = std::make_shared<TensorType>(
-                        device, shape_t{ channels }, this->getName() + ".bias" );
+                    bias_ = this->template makeParameter<TensorType>(
+                        build_context, shape_t{ channels }, this->getName() + ".bias" );
                 }
             }
 

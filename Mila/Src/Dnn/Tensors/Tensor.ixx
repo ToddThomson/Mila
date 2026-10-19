@@ -18,6 +18,7 @@ import Dnn.TensorHostTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.MemoryResource;
+import Compute.DeviceArena;
 import Compute.CpuMemoryResource;
 #ifdef MILA_HAS_CUDA
 import Compute.CudaDeviceMemoryResource;
@@ -150,6 +151,38 @@ namespace Mila::Dnn
             strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
 
             allocateBuffer();
+        }
+
+        /**
+         * @brief Creates a tensor placed in `arena` instead of allocated alone.
+         *
+         * A block's parameters are placed in its one arena so the block rounds once (MemoryFootprint.md 11.8.1).
+         * A null arena allocates alone, as the constructor above does.
+         *
+         * @throws std::logic_error If the arena cannot hold the tensor.
+         */
+        Tensor( Compute::DeviceId device_id, const shape_t& shape, std::string name,
+            std::shared_ptr<Compute::DeviceArena> arena )
+            : device_id_( validateDeviceId( device_id ) ), uid_( setUId() ), shape_( shape ), name_( std::move( name ) ),
+            strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
+
+            if ( arena && size_ > 0 )
+            {
+                buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>(
+                    device_id_.index, static_cast<std::size_t>( size_ ), std::move( arena ), name_ );
+            }
+            else
+            {
+                allocateBuffer();
+            }
+        }
+
+        /**
+         * @brief True if the tensor's storage is placed in an arena rather than allocated alone.
+         */
+        bool isPlacedInArena() const noexcept override
+        {
+            return buffer_ && buffer_->isPlacedInArena();
         }
 
         /**

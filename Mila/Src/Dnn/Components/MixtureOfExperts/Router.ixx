@@ -293,8 +293,8 @@ namespace Mila::Dnn
             if ( !scale_ )
             {
                 stats.device_parameter_bytes +=
-                    occupiedDeviceBytes( storageBytes<TPrecision>( config_.getHiddenSize() ), granularity )
-                    + occupiedDeviceBytes( storageBytes<TPrecision>( config_.getNumExperts() ), granularity );
+                    context.occupiedParameterBytes( storageBytes<TPrecision>( config_.getHiddenSize() ) )
+                    + context.occupiedParameterBytes( storageBytes<TPrecision>( config_.getNumExperts() ) );
             }
 
             // Installed slots are owned and counted by the installer; the children read the same declaration.
@@ -346,8 +346,9 @@ namespace Mila::Dnn
 
             if ( !scale_ )
             {
-                scale_ = std::make_shared<TensorType>( device, shape_t{ config_.getHiddenSize() }, n + ".scale" );
-                per_expert_scale_ = std::make_shared<TensorType>( device, shape_t{ config_.getNumExperts() }, n + ".per_expert_scale" );
+                scale_ = this->template makeParameter<TensorType>( context, shape_t{ config_.getHiddenSize() }, n + ".scale" );
+                per_expert_scale_ = this->template makeParameter<TensorType>(
+                    context, shape_t{ config_.getNumExperts() }, n + ".per_expert_scale" );
             }
 
             if ( context.shouldInitializeParameters() )

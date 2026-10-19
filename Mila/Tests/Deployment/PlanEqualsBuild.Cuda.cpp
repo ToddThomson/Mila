@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <optional>
 #include <string>
 
 #include "Common/CudaDeviceScope.h"
@@ -143,9 +144,68 @@ namespace Mila::Tests::Deployment
             EXPECT_GT( rungs_built, 0 ) << label << ": no rung fits, so nothing was compared";
         }
 
+        // Outside the blocks each model allocates a few parameter tensors alone: the embedding table, the final norm,
+        // the head and its scales. Each may round by up to one granule.
+        constexpr std::size_t kAllocationsOutsideBlocks = 4;
+
+        // MemoryFootprint.md 11.8.1 gate: a block's weights are one allocation, so a model's weights round by at most
+        // one granule a block (plus the few outside them), where one allocation a tensor rounded by hundreds of MiB.
+        // Pricing reads no weights, so only the file's metadata is needed.
+        template<typename TModel, typename TNetwork>
+        void expectWeightsRoundOncePerBlock( const std::string& label, const fs::path& weights, dim_t context_length )
+        {
+            if ( !fs::exists( weights ) )
+            {
+                std::cout << "[rounding] " << label << ": not present, " << weights.string() << "\n";
+
+                return;
+            }
+
+            Serialization::WeightsReader reader( weights );
+            const auto network_config = TModel::configFromMetadata( reader.getWeightsMetadata() );
+
+            int ordinal = 0;
+            ASSERT_EQ( cudaGetDevice( &ordinal ), cudaSuccess );
+            const DeviceId device{ DeviceType::Cuda, ordinal };
+            const std::size_t granularity = allocationGranularity( device );
+
+            const BuildContext context = BuildContext( shape_t{ 1, context_length }, RuntimeMode::Inference, false )
+                .withPrefillSize( TNetwork::kPrefillChunkRungs[ 0 ] );
+
+            const std::size_t rounded =
+                predictedAt<TNetwork>( network_config, device, context.withAllocationGranularity( granularity ) )
+                    .device_parameter_bytes;
+            const std::size_t placed =
+                predictedAt<TNetwork>( network_config, device, context.withAllocationGranularity( 0 ) )
+                    .device_parameter_bytes;
+
+            const std::size_t blocks = static_cast<std::size_t>( network_config.getNumLayers() );
+            const std::size_t bound = ( blocks + kAllocationsOutsideBlocks ) * granularity;
+
+            std::cout << std::format( "[rounding] {}: weights {:.1f} MiB, rounding {:.1f} MiB over {} blocks (bound {:.1f})\n",
+                label, rounded / 1048576.0, ( rounded - placed ) / 1048576.0, blocks, bound / 1048576.0 ) << std::flush;
+
+            EXPECT_LE( rounded - placed, bound ) << label;
+        }
+
         using GemmaCudaModel = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
         using LlamaCudaModel = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
         using QwenCudaModel = QwenModel<DeviceType::Cuda, TensorDataType::BF16>;
+
+        // The 26B-A4B has no file under Data/Models; it is read where a user has it, installed in the model store.
+        // Read only. Empty when it is not installed.
+        fs::path installedWeights( const std::string& name )
+        {
+            const std::optional<Mila::Distribution::StoredModel> stored = Mila::Distribution::ModelStore().locate( name );
+
+            return stored ? stored->weights_path : fs::path{};
+        }
+
+        constexpr const char* kGemma26BStoreName = "gemma-4-26B-A4B-it-q4_0";
+
+        template<typename TKvCache>
+        using Gemma26BNetwork = GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            Quant::Weight::PerGroupInt4<32>, GemmaCudaModel::GemmaSlidingKvPolicy, GemmaFeedForward::Routed, TKvCache>;
 
         template<typename TModel>
         auto networkConfigOf( const fs::path& weights )
@@ -250,5 +310,93 @@ namespace Mila::Tests::Deployment
 
         expectPlanEqualsBuildOnThisDevice<QwenCudaModel, Network>(
             "qwen 3.8 27b cb2-3", weights, config, networkConfigOf<QwenCudaModel>( weights ) );
+    }
+
+    // The quality-first agentic build at its target, on the 16 GB card (Qwen3.8.md, "Agentic deployment on the 16 GB
+    // card"). Skips on a card that cannot hold the weights.
+    TEST( PlanEqualsBuildCudaTests, Qwen38_27B_Fp4Codebook3_Fp8Kv_Context65536 )
+    {
+        const fs::path weights = modelsDirectory() / "qwen" / "qwen38_27b_fp4-cb3.safetensors";
+
+        if ( !fs::exists( weights ) )
+        {
+            GTEST_SKIP() << "Not present: " << weights.string();
+        }
+
+        QwenModelConfig config( 65536 );
+        config.withFp4Codebook3Plan().withKvCacheCompression( KvCacheCompression::FP8 );
+
+        using Network = QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            QwenFp4Codebook3PrecisionPlan, Quant::KvCache::PerTokenKvFp8<>>;
+
+        expectPlanEqualsBuildOnThisDevice<QwenCudaModel, Network>(
+            "qwen 3.8 27b fp4-cb3, fp8 kv", weights, config, networkConfigOf<QwenCudaModel>( weights ) );
+    }
+
+    // The 26B-A4B, from the model store. Its routed blocks carry the Q4_0 expert banks and their scales.
+    TEST( PlanEqualsBuildCudaTests, Gemma4_26B_A4B_Q4_0_Context8192 )
+    {
+        const fs::path weights = installedWeights( kGemma26BStoreName );
+
+        if ( weights.empty() )
+        {
+            GTEST_SKIP() << kGemma26BStoreName << " is not installed in the model store";
+        }
+
+        GemmaModelConfig config;
+        config.withContextLength( 8192 ).withWeightQuantization( WeightQuantization::Q4_0 );
+
+        expectPlanEqualsBuildOnThisDevice<GemmaCudaModel, Gemma26BNetwork<Quant::KvCache::NoKvCompression>>(
+            "gemma 4 26b-a4b q4_0", weights, config, networkConfigOf<GemmaCudaModel>( weights ) );
+    }
+
+    // Its agentic deployment: the FP8 cache at 64K (ContextProfile.md).
+    TEST( PlanEqualsBuildCudaTests, Gemma4_26B_A4B_Q4_0_Fp8Kv_Context65536 )
+    {
+        const fs::path weights = installedWeights( kGemma26BStoreName );
+
+        if ( weights.empty() )
+        {
+            GTEST_SKIP() << kGemma26BStoreName << " is not installed in the model store";
+        }
+
+        GemmaModelConfig config;
+        config.withContextLength( 65536 ).withWeightQuantization( WeightQuantization::Q4_0 )
+            .withKvCacheCompression( KvCacheCompression::FP8 );
+
+        expectPlanEqualsBuildOnThisDevice<GemmaCudaModel, Gemma26BNetwork<Quant::KvCache::PerTokenKvFp8<>>>(
+            "gemma 4 26b-a4b q4_0, fp8 kv", weights, config, networkConfigOf<GemmaCudaModel>( weights ) );
+    }
+
+    // ====================================================================
+    // Weights round once per block (MemoryFootprint.md 11.8.1), on every published family.
+    // ====================================================================
+
+    TEST( PlanEqualsBuildCudaTests, WeightsRoundOncePerBlock )
+    {
+        const fs::path models = modelsDirectory();
+
+        expectWeightsRoundOncePerBlock<GemmaCudaModel, GemmaTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            Quant::Weight::PerGroupFp4<128>, GemmaCudaModel::GemmaSlidingKvPolicy>>(
+            "gemma 4 12b fp4", models / "gemma" / "gemma4_12b_it_fp4.safetensors", 8192 );
+
+        expectWeightsRoundOncePerBlock<GemmaCudaModel, Gemma26BNetwork<Quant::KvCache::NoKvCompression>>(
+            "gemma 4 26b-a4b q4_0", installedWeights( kGemma26BStoreName ), 8192 );
+
+        expectWeightsRoundOncePerBlock<LlamaCudaModel, LlamaTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            Quant::Weight::PerGroupFp4<128>, Quant::KvCache::NoKvCompression>>(
+            "llama 3.1 8b fp4", models / "llama" / "llama31_8b_instruct_fp4.safetensors", 8192 );
+
+        expectWeightsRoundOncePerBlock<QwenCudaModel, QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            QwenOraclePrecisionPlan, Quant::KvCache::NoKvCompression>>(
+            "qwen 3.8 27b fp4", models / "qwen" / "qwen38_27b_fp4.safetensors", 8192 );
+
+        expectWeightsRoundOncePerBlock<QwenCudaModel, QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            QwenPrecisionPlan, Quant::KvCache::NoKvCompression>>(
+            "qwen 3.8 27b cb2-3", models / "qwen" / "qwen38_27b_cb2-3.safetensors", 8192 );
+
+        expectWeightsRoundOncePerBlock<QwenCudaModel, QwenTransformer<DeviceType::Cuda, TensorDataType::BF16,
+            QwenFp4Codebook3PrecisionPlan, Quant::KvCache::PerTokenKvFp8<>>>(
+            "qwen 3.8 27b fp4-cb3", models / "qwen" / "qwen38_27b_fp4-cb3.safetensors", 8192 );
     }
 }

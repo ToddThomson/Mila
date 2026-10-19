@@ -35,7 +35,7 @@ What frees device memory costs nothing at decode, so the host tier carries only 
 
 | Lever | Frees on Qwen FP4 | Where it is tracked |
 |---|---|---|
-| A weight arena: one allocation per model or layer, not one per tensor rounded to 2 MiB | 497 MiB, measured | BACKLOG, "Each weight tensor over 1 MiB is its own allocation" |
+| A weight arena: one allocation per block, not one per tensor rounded to 2 MiB | 422 MiB, measured (rounding 497 to 75) | built 2026-10-19, `MemoryFootprint.md` 11.8.1 |
 | FP8 group scales in place of BF16 | ~0.37 GiB, estimated | a weight-format change: re-export and measure |
 | A 256-row prefill chunk in place of 512 | ~156 MiB, from the footprint model | prefill 8.1 s to 10.3 s on an ~8K prompt, measured |
 
