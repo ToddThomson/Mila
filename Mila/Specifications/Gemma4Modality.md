@@ -173,7 +173,8 @@ The converter keeps `model.vision_embedder.`, `model.embed_vision.` and `model.e
 (`convert_weights.py` skips them today), at BF16. The manifest declares the modalities the package
 carries, and the handle reads them from there rather than from the family's name (`BACKLOG.md`, Model
 Handle). Adding tensors to a package leaves it readable by the previous minor (`ModelDistribution.md`
-*Compatibility*). The 12B's one republish carries them (`ModelFamilyParity.md` G6).
+*Compatibility*). They arrive as a revision of the Q4_0 12B's repository, `gemma-4-12B-it-q4_0`, the model
+that supersedes the FP4 package (`ModelFamilyParity.md` G6).
 
 ### 5.6 Footprint
 

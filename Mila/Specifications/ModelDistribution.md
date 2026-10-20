@@ -550,6 +550,30 @@ commit, as for any pull, so a tag is never moved or deleted once published.
 0.20.0 predates the rule and has no fallback: it refuses by version, and the answer it gives is to
 upgrade.
 
+### A model replaced by another
+
+Decided 2026-10-20 (Todd). **A build that changes the variant or the base model is a new model, not a
+republish.** The naming rule puts the quantization in the repository's name and the base model behind it, so
+a different format or a different source checkpoint cannot live in the old repository without the name lying.
+It is published in a repository of its own. The first case is the Gemma 4 12B, from FP4 of
+`google/gemma-4-12b-it` to Q4_0 of Google's quantization-aware checkpoint (`gemma-4-12B-it-q4_0`). The Llama
+packages are the next if L7's format decision changes their variant (`ModelFamilyParity.md` 8.4).
+
+The model it replaces is **superseded**, and stays published as it is:
+
+- Its repository is never deleted and its tags never move, because installed records pin its commits.
+- Its manifest gains `superseded_by`, the successor's hub coordinate, in a commit that changes nothing else.
+  Every reader since 0.20 reads a manifest's fields by name and ignores the rest, so the commit leaves
+  `minimum_mila_version` alone and tags nothing.
+- Its card opens with one line naming the successor.
+- `mila-store` and Chat say so where they show the model -- `list`, `describe`, and a `pull` of it -- and name
+  the successor. A superseded model still installs and loads.
+- It gets no further builds. Its weights keep loading under the one-minor rule above; when that reader goes,
+  the refusal names the successor's install.
+
+A model's own later builds -- a new revision of the same weights, or an input the same weights gain, such as
+the 12B's image and audio embedders -- stay revisions of its repository, under the rule above.
+
 ### The release gate
 
 Both rules are checked where a release still costs nothing to fix: the release build loads every

@@ -1462,21 +1462,23 @@ namespace Mila::Data
         read_special( st.pad_token );
         read_special( st.unk_token );
 
-        // Register the Gemma 4 control tokens from the loaded vocabulary so their
-        // ids come from the checkpoint and the encode pre-pass matches them
-        // atomically rather than as subword pieces. This covers the turn-boundary
-        // tokens (<|turn>/<turn|>), the thinking-mode trigger (<|think|>), the
-        // channel markers, and the tool-calling tokens. Gemma 4 does NOT use the
-        // Gemma 3-style <start_of_turn>/<end_of_turn> (absent from its vocabulary).
-        // A token absent from this vocabulary is skipped and warned about below.
+        // The rest of the tokens Gemma 4's tokenizer.json marks special (its added_tokens), registered from the loaded
+        // vocabulary so their ids come from the checkpoint and the encode pre-pass matches each whole, as HuggingFace
+        // does. The tokenizer file does not mark which pieces are special, so the set is named here; a token missing
+        // from it reaches the model spelled as subword pieces it never saw -- the tool-call string delimiter <|"|>
+        // did, in every tool declaration, call and result. Gemma 4 does NOT use the Gemma 3-style
+        // <start_of_turn>/<end_of_turn> (absent from its vocabulary). A token absent from this vocabulary is skipped
+        // and warned about below.
         std::string registered_list;
         std::string missing_list;
 
         for ( const char* name : {
+                "<mask>",
                 "<|turn>", "<turn|>", "<|think|>",
                 "<|channel>", "<channel|>",
                 "<|tool>", "<tool|>", "<|tool_call>", "<tool_call|>",
-                "<|tool_response>", "<tool_response|>" } )
+                "<|tool_response>", "<tool_response|>", "<|\"|>",
+                "<|image>", "<|audio>", "<|image|>", "<|audio|>", "<image|>", "<audio|>", "<|video|>" } )
         {
             auto it = vocab.token_to_id_.find( name );
 
@@ -1493,16 +1495,16 @@ namespace Mila::Data
             }
         }
 
-        Logging::Logger::info( "Gemma control tokens registered: " +
+        Logging::Logger::info( "Gemma special tokens registered: " +
             (registered_list.empty() ? std::string( "(none)" ) : registered_list) );
 
         // A WARNING (visible even at the default quiet log level) when an expected
-        // control token is not in the checkpoint's vocabulary: it will encode as
+        // special token is not in the checkpoint's vocabulary: it will encode as
         // subword fragments, so any feature that depends on it (e.g. <|think|>
         // activating the reasoning channel) will silently not work.
         if ( !missing_list.empty() )
             Logging::Logger::warning(
-                "Gemma control tokens absent from vocabulary (will encode as subwords): " + missing_list );
+                "Gemma special tokens absent from vocabulary (will encode as subwords): " + missing_list );
 
         vocab.buildMergeMap();
         vocab.buildSpecialTokenList();

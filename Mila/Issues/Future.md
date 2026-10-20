@@ -962,4 +962,32 @@ layer split across devices (`LayerSplit.md`), `Mila::AI`'s agent core, NVIDIA Dy
 Not designed: which model directs and which work, what crosses between cards, and how a worker's context is managed.
 Todd 2026-10-19: Future or Vnext.
 
+Noodled 2026-10-20 (Todd): the main model -- Qwen 3.8 or the Gemma 4 26B-A4B -- on the 16 GB card, Gemma 4 12B
+workers on the 12 GB one. Same day's numbers on the 5060 Ti: the 26B-A4B generates at about 116 tokens a second and
+the dense 12B Q4_0 at about 48, so the worker is slower as well as weaker; it earns its place as a second stream on
+its own card with its own context, not as cheaper tokens. The prize is the main model's context: a worker reads tens
+of thousands of tokens of files or logs and returns a few hundred, where the 26B leaves Claude Code about 7,000 tokens
+of room on 16 GB. The 12B Q4_0 is about 6.5 GiB, so measuring it for the agentic tag on the 4070 measures it for
+this job too. Only text crosses -- a task in, a summary out -- so it is two servers, one per card, and the design
+is in the orchestration: when to delegate, how far a worker's summary is trusted. Measured as the Hermes set is:
+main model alone against main model with a worker, pass rate and wall time.
+
 `Mila/Specifications/LayerSplit.md` · `Mila/AI/`
+
+## Mila runs no image-generation model
+
+`models` · `architecture` · `quantization`
+
+Noodled 2026-10-20 (Todd), on `Qwen/Qwen-Image-2.1` (model page read that day): a 7B diffusion transformer, 32
+layers, that generates and edits (up to 10 reference images; 2048x2048 in its examples; RGBA output), BF16 weights,
+diffusers `QwenImage21Pipeline`, about 40 steps in its examples, no VRAM figure given. Licence: Qwen Research
+License, non-commercial unless licensed otherwise -- read before assuming it can be republished under `mila-llm`.
+The transformer blocks, attention, Linear with FP8/FP4 weights, norms and RoPE are Mila's already; what a
+diffusion transformer typically adds -- not checked against this model, whose page names neither its text encoder
+nor its decoder -- is the denoising loop and its scheduler, timestep conditioning of each block, two-dimensional
+positions, the text encoder and a convolutional decoder from latents to pixels. A step runs a whole image's latent tokens at
+once, so it is compute-bound like prefill rather than bandwidth-bound like decode, and the BF16 transformer alone is
+about 14 GB, so a 16 GB card needs it quantized. The question before any of that is scope: Mila is a library for
+local LLMs, and a second model class with no next-token loss to measure against is a direction decision.
+
+`https://huggingface.co/Qwen/Qwen-Image-2.1`

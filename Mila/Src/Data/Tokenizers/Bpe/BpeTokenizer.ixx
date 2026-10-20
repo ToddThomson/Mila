@@ -9,13 +9,14 @@
  *   2. Pre-tokenize each plain text segment with the configured regex pattern.
  *   3. Byte-encode each pre-token using the GPT-2 style byte encoder.
  *   4a. BPE path (GPT-2 / trained vocabularies): apply explicit merge rules
- *       greedily, lowest priority index first.
+ *       greedily, lowest priority index first, the leftmost of equal priority.
  *   4b. Rank path (Llama 3.x / TikToken): a pre-token held whole is one token;
  *       otherwise adjacent units merge lowest rank first, a token's rank being its
  *       ID. Used when no merge rules are present.
- *   4c. SentencePiece path (Gemma): Metaspace pre-tokenization (space -> U+2581),
- *       UTF-8 character initial units with <0xNN> byte fallback, then the merge
- *       rules by rank. Selected when the vocabulary uses PreTokenizationMode::SentencePiece.
+ *   4c. SentencePiece path (Gemma): space -> U+2581 with no split, so a segment between
+ *       special tokens is one pre-token, UTF-8 character initial units with <0xNN> byte
+ *       fallback, then the merge rules by rank. Selected when the vocabulary uses
+ *       PreTokenizationMode::SentencePiece.
  *   5. Map final tokens to IDs; fall back to 0 on a miss.
  *
  * Decode pipeline:
@@ -112,7 +113,7 @@ namespace Mila::Data
          * @brief Load a Gemma 4 tokenizer from the binary produced by convert_tokenizer.py.
          *
          * Gemma uses SentencePiece BPE: byte_level=false (raw UTF-8 pieces, U+2581
-         * for spaces) with a Metaspace pre-tokenization and byte fallback.
+         * for spaces, merged across the marks) with byte fallback.
          *
          * @param path Path to the Gemma tokenizer binary.
          * @return Shared tokenizer instance.
@@ -180,41 +181,49 @@ namespace Mila::Data
             }
             else
             {
+                // Where each special token next occurs at or after `pos`, searched for again only once `pos` has
+                // passed it: searching every token at every boundary rescans the rest of a long prompt once per
+                // token it never contains.
+                std::vector<std::size_t> next_found( special_list.size() );
+
+                for ( std::size_t k = 0; k < special_list.size(); ++k )
+                {
+                    next_found[ k ] = text.find( special_list[ k ].first );
+                }
+
                 std::size_t pos = 0;
 
                 while ( pos < text.size() )
                 {
-                    // Try to match a special token at the current position (longest first).
-                    bool matched = false;
+                    std::size_t next_special = text.size();
 
-                    for ( const auto& [token_str, token_id] : special_list )
+                    for ( std::size_t k = 0; k < special_list.size(); ++k )
                     {
-                        if ( text.compare( pos, token_str.size(), token_str ) == 0 )
+                        if ( next_found[ k ] != std::string::npos && next_found[ k ] < pos )
                         {
-                            out.push_back( token_id );
-                            pos += token_str.size();
-                            matched = true;
-                            break;
+                            next_found[ k ] = text.find( special_list[ k ].first, pos );
                         }
+
+                        next_special = std::min( next_special, next_found[ k ] );
                     }
 
-                    if ( !matched )
+                    if ( next_special > pos )
                     {
-                        // Advance to the next special token boundary (or end of string).
-                        std::size_t next_special = text.size();
-
-                        for ( const auto& [token_str, token_id] : special_list )
-                        {
-                            const std::size_t found = text.find( token_str, pos );
-
-                            if ( found != std::string::npos && found < next_special )
-                            {
-                                next_special = found;
-                            }
-                        }
-
                         encodeSegment( text.substr( pos, next_special - pos ), out );
                         pos = next_special;
+
+                        continue;
+                    }
+
+                    // A special token starts here; the list is longest-first, so the first that does is the match.
+                    for ( std::size_t k = 0; k < special_list.size(); ++k )
+                    {
+                        if ( next_found[ k ] == pos )
+                        {
+                            out.push_back( special_list[ k ].second );
+                            pos += special_list[ k ].first.size();
+                            break;
+                        }
                     }
                 }
             }
@@ -593,39 +602,104 @@ namespace Mila::Data
         }
 
         /**
-         * @brief Greedily apply merge rules to a unit sequence, lowest priority first.
+         * @brief Greedily apply merge rules to a unit sequence, lowest priority first and, among equal
+         *        priorities, leftmost first -- HuggingFace's BPE order.
          *
          * Shared by the GPT-2 byte-level BPE path and the Gemma SentencePiece BPE
-         * path; only the construction of the initial unit sequence differs.
+         * path; only the construction of the initial unit sequence differs. Candidate
+         * pairs wait in a priority queue and the units in a linked list, so a Gemma
+         * segment -- a whole tool result between two special tokens -- merges in
+         * O(n log n) rather than one rescan per merge.
          *
          * @param tokens In/out unit sequence; merged in place until no rule applies.
          */
         void applyMerges( std::vector<std::string>& tokens )
         {
-            while ( tokens.size() > 1 )
+            if ( tokens.size() < 2 )
             {
-                int    best_idx = -1;
-                std::size_t best_priority = std::numeric_limits<std::size_t>::max();
-
-                for ( std::size_t i = 0; i < tokens.size() - 1; ++i )
-                {
-                    auto priority = vocab_.getMergePriority( tokens[ i ], tokens[ i + 1 ] );
-
-                    if ( priority && *priority < best_priority )
-                    {
-                        best_priority = *priority;
-                        best_idx = static_cast<int>( i );
-                    }
-                }
-
-                if ( best_idx == -1 )
-                {
-                    break;
-                }
-
-                tokens[ best_idx ] += tokens[ best_idx + 1 ];
-                tokens.erase( tokens.begin() + best_idx + 1 );
+                return;
             }
+
+            constexpr std::size_t kNone = std::numeric_limits<std::size_t>::max();
+            const std::size_t count = tokens.size();
+
+            std::vector<std::size_t> next( count );
+            std::vector<std::size_t> previous( count );
+            std::vector<bool> alive( count, true );
+
+            for ( std::size_t i = 0; i < count; ++i )
+            {
+                next[ i ] = i + 1 < count ? i + 1 : kNone;
+                previous[ i ] = i > 0 ? i - 1 : kNone;
+            }
+
+            // (priority, left unit's original index): positions keep their order, so the smallest index of a
+            // priority is its leftmost pair.
+            using Candidate = std::pair<std::size_t, std::size_t>;
+            std::priority_queue<Candidate, std::vector<Candidate>, std::greater<Candidate>> queue;
+
+            auto enqueue = [&]( std::size_t left )
+                {
+                    if ( left == kNone || next[ left ] == kNone )
+                    {
+                        return;
+                    }
+
+                    if ( auto priority = vocab_.getMergePriority( tokens[ left ], tokens[ next[ left ] ] ) )
+                    {
+                        queue.emplace( *priority, left );
+                    }
+                };
+
+            for ( std::size_t i = 0; i < count; ++i )
+            {
+                enqueue( i );
+            }
+
+            while ( !queue.empty() )
+            {
+                const auto [priority, left] = queue.top();
+                queue.pop();
+
+                const std::size_t right = next[ left ];
+
+                if ( !alive[ left ] || right == kNone )
+                {
+                    continue;
+                }
+
+                // A priority names exactly one pair, so a candidate whose pair has since changed is stale.
+                const auto current = vocab_.getMergePriority( tokens[ left ], tokens[ right ] );
+
+                if ( !current || *current != priority )
+                {
+                    continue;
+                }
+
+                tokens[ left ] += tokens[ right ];
+                tokens[ right ].clear();
+                alive[ right ] = false;
+
+                next[ left ] = next[ right ];
+
+                if ( next[ right ] != kNone )
+                {
+                    previous[ next[ right ] ] = left;
+                }
+
+                enqueue( previous[ left ] );
+                enqueue( left );
+            }
+
+            // Unit 0 is never merged away: a merge removes the right unit of its pair.
+            std::vector<std::string> merged;
+
+            for ( std::size_t i = 0; i != kNone; i = next[ i ] )
+            {
+                merged.push_back( std::move( tokens[ i ] ) );
+            }
+
+            tokens = std::move( merged );
         }
 
         /**
@@ -636,7 +710,7 @@ namespace Mila::Data
          * SentencePiece byte-fallback pieces (<0xNN> per byte). The shared merge
          * loop then builds up the final pieces by rank.
          *
-         * @param words Pre-tokens from the Metaspace split (each is "<piece-run>").
+         * @param words Pre-tokens from preTokenizeSentencePiece (one per segment).
          * @param out   Accumulator for output token IDs.
          */
         void encodeSegmentSentencePiece( const std::vector<std::string>& words, std::vector<TokenId>& out )
@@ -725,15 +799,19 @@ namespace Mila::Data
         }
 
         /**
-         * @brief SentencePiece Metaspace pre-tokenization (Gemma).
+         * @brief SentencePiece pre-tokenization (Gemma): the whole segment as one pre-token.
          *
          * Replaces ASCII spaces with the metaspace mark U+2581 ('lower one eighth
-         * block'), then splits so each mark begins a new pre-token. No leading mark
-         * is prepended (Gemma's tokenizer does not add a prefix space -- confirmed by
-         * the HF round-trip: "The capital" -> ["The", "_capital"]).
+         * block') and does not split, which is what Gemma 4's tokenizer.json computes:
+         * its normalizer makes the replacement, and its split on ' ' then has nothing
+         * to match. Merges therefore cross the marks, so a run of spaces -- code's
+         * indentation -- becomes one piece (four spaces are id 140) where a split
+         * before every mark would give one piece per space. No leading mark is
+         * prepended (Gemma's tokenizer adds no prefix space: "The capital" ->
+         * ["The", "_capital"]).
          *
          * @param text Plain text segment (no special tokens).
-         * @return Pre-tokens, each a contiguous run beginning at a mark (or the lead).
+         * @return One pre-token, the segment with its spaces marked.
          */
         std::vector<std::string> preTokenizeSentencePiece( const std::string& text ) const
         {
@@ -754,26 +832,7 @@ namespace Mila::Data
                 }
             }
 
-            std::vector<std::string> words;
-            std::size_t i = 0;
-
-            while ( i < marked.size() )
-            {
-                const std::size_t start = i;
-
-                // Consume the first character of this pre-token (possibly the mark).
-                i += utf8CharLength( static_cast<unsigned char>( marked[ i ] ) );
-
-                // Extend until the next mark boundary.
-                while ( i < marked.size() && marked.compare( i, MARK.size(), MARK ) != 0 )
-                {
-                    i += utf8CharLength( static_cast<unsigned char>( marked[ i ] ) );
-                }
-
-                words.push_back( marked.substr( start, i - start ) );
-            }
-
-            return words;
+            return { std::move( marked ) };
         }
 
         /**

@@ -231,10 +231,13 @@ v0.20 published the Gemma 4 12B with its feed-forward tensors named as this tree
 and its tied table in FP8, which the planner now refuses: an upgrade would stop the model a user
 installed. And a pull refuses outright when the newest build of a model needs a newer Mila, even when
 an earlier build in the same repository is one this Mila reads. The promise in `ModelDistribution.md`
-*Compatibility* is made in this release, so both are kept here.
+*Compatibility* is made in this release, so both are kept here. The 12B itself is replaced: Google's
+quantization-aware weights in Q4_0 are a different model from the FP4 package v0.20 published, so a user
+who has the old one is told which model replaces it, and the old one keeps working.
 
 **Success criteria:** every model v0.20 published loads on v0.21 as installed and answers a factual
-prompt; and a pull whose newest build needs a later Mila installs the newest one this Mila can read.
+prompt; a pull whose newest build needs a later Mila installs the newest one this Mila can read; and a
+model another replaces names its successor wherever the store and Chat show it.
 
 ### Performance Next to llama.cpp
 

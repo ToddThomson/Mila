@@ -31,103 +31,9 @@ rather than inventing a location.
 **The gate is the entry count, and it only goes down.** A release in flight burns down, so an
 addition is paired with a removal, or it is a deliberate admission that scope grew. **What bounds
 this file is the release it describes and the date that release carries, not a fixed number.**
-v0.21.0 opened against 2026-10-31 and was widened on 2026-09-23, before its work started, to take in
-`Direction.md` section 5, re-dated to **2026-12-15** — a deliberate admission that scope grew, made
-once at the start of the cycle. Whatever has not landed by then goes back to
-[`Vnext.md`](Mila/Issues/Vnext.md) and the release ships narrowed, rather than the date moving to
+The release's date and what drains first are in [ROADMAP.md](ROADMAP.md). Whatever has not landed by that date
+goes back to [`Vnext.md`](Mila/Issues/Vnext.md) and the release ships narrowed, rather than the date moving to
 accommodate the list. A backlog that grows while the date holds is the signal to drain it early.
-
-Scope grew a second time on 2026-09-29: the Gemma 4 26B-A4B's bar rose from a published package to parity
-with every other model Mila publishes, admitting three entries under Gemma 4 Complete with no removal. It
-is scope the parity survey found rather than scope invented, and it is held to the same date.
-
-Scope grew a third time on 2026-10-03: installed models now survive an upgrade
-(`ModelDistribution.md` *Compatibility*), admitting two entries under Model Handle with no removal,
-held to the same date. Later the same day (Todd): agentic quality measured for every published model in every
-family, admitting one entry under Mila::AI, and the 2.82-bit Qwen build's prefill and decode efficiency,
-admitting two under Qwen 3.8 Complete -- each with a success criterion written first, none with a removal,
-all held to the same date.
-
-Scope was re-weighted on 2026-10-04 (Todd), the date held: on the 16 GB card the main effort is Gemma 4,
-and Qwen's own tuning waits for a 24 or 32 GB card. Admitted, each against a criterion written first:
-deployment by use case and the allocation lever under Deployment Planning, use-case presets under
-Mila::AI, and under Gemma 4 Complete the 26B-A4B's vision tower, keys stored once, the sliding ring
-kept across a rewind, and the drafter's loop where its measurement says it pays. Removed to `Vnext.md`:
-four Qwen 3.8 entries -- the 2.82-bit build's prefill and decode efficiency, its 16K perplexity gate and
-the head-width note -- with the FP4 build's long-context loss beside them. Capabilities stay shared across
-the families; how deeply each is optimized follows the card it is for. If the date presses, the 26B's
-vision tower drains first, then audio.
-
-Scope grew on 2026-10-05 (Todd), the date held: the token sampler's synchronous entry moves onto the model's
-stream, admitted under Internal fixes with no removal.
-
-Scope grew again on 2026-10-05 (Todd: "Chat defaults must be model based"), the date held: a model's recommended
-sampling is read from its manifest, admitted under Model Handle with no removal.
-
-Scope grew on 2026-10-06 (Todd), the date held: each Gemma 4 package carries its drafter, and the planner and Chat
-turn it on by default where it is measured to pay, written into the Deployment Planning feature-selection entry with
-no removal.
-
-Scope grew on 2026-10-07 at the triage of `Mila/Issues/Untriaged.md` (Todd), the date held: under Mila::AI, a program
-that skips initialization fails as if it had no device; under Deployment Planning, the device allocations no plan
-prices; and under Internal fixes, the FP8 batched path's early scale, model paths outside the Windows code page, and
-the deployment type names. None with a removal.
-
-Scope grew on 2026-10-10 at the MIS triage (Todd), the date held: under Internal fixes, MIS's finish reasons and
-streamed stop sequences. No removal.
-
-Scope grew on 2026-10-10 (Todd), the date held: under Applications, the inference server published to PyPI beside
-the binding, with a criterion clause added to that theme. No removal.
-
-**Split on 2026-10-10 (Todd): the release was re-dated to 2026-11-20 and drained.** `Direction.md` section 5 — the
-model handle, the deployment request, `Mila::AI`, and the applications rebuilt on it — became v0.22.0, and its 15 entries
-went to `Vnext.md` with its narrative in ROADMAP's Future tail. What stayed is the families finished and measured: Gemma 4,
-Qwen 3.8 and a new Llama 3 theme, each with its evaluation and context profile in its criteria; the applications' work
-that survives the rebuild (Applications Ship); the two upgrade entries; the llama.cpp comparison; and Internal fixes,
-which took the two allocation entries from Deployment Planning. Gemma's drafter stays as its own entry, the package and
-the default, with choosing it in a request left to v0.22.0. Admitted with the split: Llama's grammar in the library, and
-benchmark evaluation of every published model. The 12B's image and audio are committed; the 26B-A4B's tower is
-tentative and drains first.
-
-Scope grew on 2026-10-10 (Todd), the date held: under Internal fixes, the move to CUDA 13.4.2 for the images,
-the wheels and CI. No removal.
-
-Scope grew again on 2026-10-10 (Todd), the date held: under Internal fixes, the release script finished through
-publishing. No removal.
-
-Scope grew on 2026-10-11 (Todd), the date held: under Internal fixes, `Mila/Adaptors/` becomes `Mila/Apps/` and
-the user's commands take one naming form, brought forward from v0.22.0's rebuild (`Vnext.md`). No removal.
-
-Scope grew again on 2026-10-11 (Todd), the date held: under Internal fixes, the CPU compute operations are
-retired, after the training path's tests move to CUDA. No removal.
-
-Scope grew again on 2026-10-12 (Todd), the date held: under Internal fixes, the library imports the standard
-library as a module, since Clang can no longer compile Chat and no image can be built. No removal.
-
-Scope grew on 2026-10-13 (Todd), the date held: under Qwen 3.8 Complete, the 2.82-bit build's misnamed tool calls,
-which stand between that build and its publish. No removal.
-
-Scope grew on 2026-10-17 at the triage of `Mila/Issues/Untriaged.md` (Todd), the date held: every model finding there
-moved to a new Model fixes and parity bucket, which like Internal fixes is admitted by the user with no ROADMAP
-criterion behind it -- ten entries across Qwen 3.8, Qwen 4 and Gemma 4. Chat's Llama tool-call parser went into the
-Llama grammar entry, whose work it is. No removal.
-
-Scope grew again on 2026-10-17 (Todd), the date held: under Applications Ship, a model's sampling defaults follow
-how it is configured, thinking on or off, and the sampler gains the presence penalty Qwen 3.8's non-thinking
-setting asks for. No removal.
-
-Scope grew on 2026-10-18 (Todd), the date held: under Applications Ship, the website's pages for the applications,
-with a criterion clause added to that theme. No removal.
-
-Scope grew on 2026-10-19 at the triage of `Mila/Issues/Untriaged.md` (Todd), the date held: under Applications Ship,
-the server answering any model name and joining a message's text parts with nothing; under Internal fixes, the
-32-bit seed, the greedy reply that depends on the request before it, the doc comments naming the retired registry,
-the retired code still in the tree, Clang's warning on the random-fill operation, and CI compiling the CUDA build.
-Three findings folded into the entries whose work they are. No removal.
-
-Scope grew again on 2026-10-19 (Todd), the date held: under Model fixes and parity, Qwen 3.8's four-bit builds
-predicting a long text worse with all of it in context, from `Vnext.md`, since the agentic build now carries it at
-64K. No removal.
 
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
@@ -234,7 +140,7 @@ rest of `Gemma.md` §10.7's bar: quality
 across the planner's range, by the method `ModelFamilyParity.md` §9 item 18 settles; decode replay gated
 equal to the called path on a routed network; active parameter bytes in the plan and in Chat's display;
 the model run through Chat, the inference server and the Python binding, tool calls included. Then the
-package, its card and the capability row. A first publish, so it is not held for the 12B's republish.
+package, its card and the capability row. A first publish, so it is not held for the 12B's.
 
 `Mila/Specifications/ModelFamilyParity.md` §8.2, G6
 
@@ -297,7 +203,8 @@ and rounded by the Q4_0 reference rule -- the rule Google's own GGUF was made wi
 same code that serves `ExportArtifact` and quantize-on-load. The tied
 embedding goes to six bits per 32 from BF16 (`Quantization.md` Part II, "The tied table"). Delivered as a Mila package, not rounded at install: Google's only complete
 source is 22 GiB, and its 6.5 GiB GGUF lacks the image and audio weights (`ModelFamilyParity.md` §9, item 14).
-Ships in G4's single republish of the 12B.
+Ships as a model of its own, `gemma-4-12B-it-q4_0`, which supersedes the FP4 package rather than republishing
+it (`ModelDistribution.md`, *A model replaced by another*).
 
 Gate: every Q4_0 tensor bit-identical to `google/gemma-4-12B-it-qat-q4_0-gguf`; then G2 re-run in Mila on the
 Q4_0 build, cost over BF16 by band, on a second book as well as 30312.
@@ -625,8 +532,29 @@ pull lists the repository's tags on that refusal and installs the highest one it
 `IModelHub` has no query for a repository's tags today (`ModelHub.ixx:93` lists models only).
 
 Gate: against a hub whose `main` needs 9.0 and that carries a `mila-0.21` tag, a pull installs the
-tagged commit and records it; with no tag it refuses as it does now. The 12B's republish with the
-six-bit table is the first real use, and tags its v0.20 build `mila-0.20`.
+tagged commit and records it; with no tag it refuses as it does now. The 12B no longer exercises it: its
+Q4_0 build is a new model, and marking the FP4 package superseded leaves its minimum alone.
+
+#### A user with the Gemma 4 12B FP4 package is never told that a better 12B replaces it
+
+`open` · `distribution` · `gemma` · `apps` · `mila-src`
+
+Nothing in a manifest, the store or Chat can say a model has been replaced. The Gemma 4 12B in Q4_0 of
+Google's quantization-aware weights is a different model from the FP4 package v0.20 published, and the
+better one by a wide margin at length (`ModelFamilyParity.md` §9, item 14), so it is published as its own
+repository and the FP4 one is superseded (`ModelDistribution.md`, *A model replaced by another*; Todd,
+2026-10-20). Work: a `superseded_by` hub coordinate on the manifest and the store record, read and written
+like `base_model`; `mila-store list`, `describe` and a `pull` of the model name the successor, and so does
+Chat where it shows the model; `publish_model.py` commits the field alone to the replaced repository, and its
+card's first line names the successor. A superseded model still installs and loads.
+
+Gate: a manifest carrying `superseded_by` is read by this tree and by v0.20.0's reader alike, its minimum
+unchanged; `list`, `describe`, `pull` and Chat name the successor for it and say nothing for a model without
+it; `mila-llm/gemma-4-12b-it-fp4` carries the field and the card line once `gemma-4-12B-it-q4_0` is published.
+
+`Mila/Src/Distribution/ModelManifest.ixx:330` · `Mila/Src/Distribution/ModelStore.ixx:1253` ·
+`Mila/Apps/Tools/Store/Store.ixx:346` · `Mila/Apps/Chat/Src/Chat.ModelCatalog.ixx:796` ·
+`Mila/Tools/Publishing/publish_model.py`
 
 ### Performance Next to llama.cpp
 

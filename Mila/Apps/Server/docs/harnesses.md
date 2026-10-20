@@ -149,7 +149,7 @@ with a tool and answering from it:
 |---|---|---|---|---|
 | Codex CLI | 0.162.1 | yes | yes | yes |
 | Claude Code | 2.1.300 | yes | yes | yes, with `MILA_KV_CACHE=fp8` and `MILA_CONTEXT_LENGTH=32768` |
-| Hermes Agent | 0.22.2 | yes | not yet tested at 64K | the 2.82-bit build only, with `MILA_CONTEXT_LENGTH=65792` |
+| Hermes Agent | 0.22.2 | yes | yes, with `MILA_KV_CACHE=fp8` | the 2.82-bit build only, with `MILA_CONTEXT_LENGTH=65792` |
 
 Claude Code fills most of the 26B-A4B's 27,648-token context on a 16 GB card, so a long
 session there runs out of room sooner than on the 12B.

@@ -101,6 +101,7 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 | Capability | Llama | Gemma | Qwen | Anchor |
 |---|---|---|---|---|
 | Token-for-token agreement with HuggingFace, in the suite | Y | Y | Y | `GemmaModel.Parity.Cuda.cpp`, `QwenModel.Parity.Cuda.cpp`; Llama's `Llama.HuggingFaceReference.Cuda.cpp` (tiny model, in the suite) and `Llama.LogLikelihood.Cuda.cpp` (the real 3.2 1B, opt-in) |
+| Tokenizer ids equal HuggingFace's on agentic text (indentation, runs of spaces, tool-call delimiters), in the suite | partial | Y | partial | `BpeTokenizer.Gemma.cpp`; Llama and Qwen matched HuggingFace on such text 2026-10-20 (8.2), with no suite test holding them to it |
 | Throughput harness | -- | Y | Y | `GemmaModel.Rates.Cuda.cpp`; Qwen's `DISABLED_PrefillRate` / `DISABLED_DecodeRate*` |
 | Quality measured across the planner's range | -- | -- | partial | Qwen to 16K (`Qwen3.8.md` §8) while the planner chooses up to 64512 for cb2-3 on 16 GB; Gemma unmeasured above 131072 against a header of 262144; Llama as the RoPE row above |
 | Agentic quality profiled across the planner's range: recall at depth, instruction retention, tool-call fidelity, reliable depth | -- | -- | -- | `ContextProfile.md`, not built; row added 2026-10-03 when the measurement was admitted to v0.21 for every model in section 2 that the release publishes, the 26B-A4B included (Todd). Llama's tool-call cell also needs its grammar in `Mila/Src` (3.3) |
@@ -143,7 +144,7 @@ each row is in scope unless it cannot fit 16 GB; the last column says whether th
 | Gemma 4 12B | Image and audio input, encoder-free: patches and waveforms projected into the decoder, no vision tower | -- the converter skips `embed_vision` and `embed_audio` | not priced; about 52M parameters, 105 MB at BF16 (derived) | BACKLOG, Gemma 4 Complete; `Gemma4Modality.md` |
 | Gemma 4 12B | Multi-token prediction: a dedicated draft model for speculative decoding | -- | not priced; about 0.85 GB at BF16 (derived), no cache of its own | BACKLOG, Gemma 4 Complete (the measurement, then the loop where it pays); `Gemma4Mtp.md` |
 | Gemma 4 12B | 262144-token context | planner allows it; Chat caps 131072; quality unmeasured above 131072 | yes, at FP4 | `ModelHandle.md` 10.3 |
-| Gemma 4 12B | Quantization-aware 4-bit checkpoint (int4, group 32) | Y, `PerGroupInt4<32>` since `0.21.0-dev+12`; its package rides G4's republish | yes | `Quantization.md`, Q4_0 |
+| Gemma 4 12B | Quantization-aware 4-bit checkpoint (int4, group 32) | Y, `PerGroupInt4<32>` since `0.21.0-dev+12`; ships as its own package, `gemma-4-12B-it-q4_0` (G6) | yes | `Quantization.md`, Q4_0 |
 | Gemma 4 26B-A4B | Multi-token prediction: its own draft model | -- | not priced | BACKLOG, Gemma 4 Complete (the same measurement as the 12B's, Todd 2026-10-04); `Gemma4Mtp.md` |
 | Gemma 4 26B-A4B | Mixture of experts | Y, in `Mila/Src`, unpublished | yes, at 8192 and the 12B's chunk, since the routed buffers were pooled (3.6) | BACKLOG, "Announce the Gemma 4 26B-A4B mixture of experts" |
 | Gemma 4 26B-A4B | Quantization-aware 4-bit checkpoint (Q4_0, instruct only) | Y, `PerGroupInt4<32>` in the bank since `0.21.0-dev+24`; unpublished | yes, the same bytes as `PerGroupFp4<64>` | `Gemma4MoE.md` Phase 9; 8.2, G5 |
@@ -675,14 +676,18 @@ harness for the card's quality line.
   item 18 settles; decode replay equal to the called path on a routed network; active parameter bytes in the plan
   and Chat's display; the model run through Chat, the inference server and the Python binding, tool calls
   included; then the package, its card and the capability row.
-- The 26B-A4B is a first publish, so it is not held for the 12B. The 12B's republish -- G4's rename, plus the
-  image and audio embedders if G7 stays in the release -- happens once, when both are known.
+- The 26B-A4B is a first publish, so it is not held for the 12B. Neither is the 12B's Q4_0 build, since
+  2026-10-20 (Todd): it changes the variant and the base model, so it is a new model, `gemma-4-12B-it-q4_0`, and
+  the FP4 package is superseded rather than republished (`ModelDistribution.md`, *A model replaced by
+  another*). It ships when its own gates pass; G7's image and audio embedders, if they stay in the release,
+  come later as a revision of its repository.
 
 **G7 -- Image and audio input.** *Closes:* "Two questions decide the size of Gemma's image path" and "Gemma 4
 12B is multimodal and Mila drops its image and audio weights".
 
-- The two questions are reading, not building, and they decide what the 12B's one republish carries, so they
-  are answered early -- before G4 lands. The build follows its BACKLOG entry and is the first item to drain
+- The two questions are reading, not building, and they decided what the 12B's one republish would carry, so
+  they were answered early -- before G4 lands. Since 2026-10-20 the embedders are a revision of the Q4_0 12B's
+  own repository (G6). The build follows its BACKLOG entry and is the first item to drain
   if the answers make it large.
 - **Answered 2026-10-04** (`Gemma4Modality.md` section 1): image soft tokens take ordinary positions, and they
   attend bidirectionally within their run. The second is a mask change in every prefill attention path, and
@@ -702,6 +707,38 @@ CUTLASS path also needs NVFP4 activations, which `Gemma4MoE.md` keeps off this m
 is no longer deferred: it was, as performance work with no parity cell, until the 26B-A4B was held to the 12B in
 every respect (2026-09-29), and the 12B's prefill rate is a cell. Codebook weights and KV-cache compression stay
 as section 9 item 1 records.
+
+**Gemma's tokenizer departed from HuggingFace's on agentic text, 2026-10-20.** On 2026-10-19 both Gemma models
+failed the Hermes short set through MIS (26B-A4B 2 of 8, 12B FP4 1 of 8) where llama.cpp b11216 passed 8 of 8 on
+Google's GGUF, the replies' tool-call strings malformed. The render was byte-identical to llama.cpp's; the token ids
+were not: the t01 prompt was 1,414 tokens in Mila and 1,096 in HuggingFace's `tokenizer.json` and llama.cpp alike.
+`<|"|>`, the tool-call string delimiter, was not among the special tokens `loadGemma` matched whole (11 of
+HuggingFace's 24), and the SentencePiece pre-tokenization split before every metaspace mark, so a run of spaces --
+code's indentation -- never merged. Since the first Gemma 4 work; the tokenizer's test was one single-spaced
+sentence. Fixed: `loadGemma` names all 24, the segment between special tokens is BPE'd whole as HuggingFace does,
+merging through a priority queue (a 74,700-character segment in 0.02 s), and
+`BpeTokenizer.Gemma.cpp` holds the ids to HuggingFace's on agentic text, each half mutation-checked. Qwen and Llama
+matched HuggingFace on the same kind of text the same day. Ruled out on the way: the FP8 cache, the softcap, the
+sampler.
+
+After the fix, RTX 5060 Ti, against llama.cpp v0.7.0 (build 11669) on Google's QAT Q4_0 GGUFs; t01 sampled 40 times at
+Gemma's settings (1.0, 0.95, 64), 450 tokens, where a miss is a call not closed within them; the Hermes short set
+once per arm:
+
+| | t01 well-formed, of 40 | Hermes short set | Edits broken | Decode, tokens a second |
+|---|---|---|---|---|
+| 26B-A4B, Mila, FP8 cache, 75,776 | 36 (was 20) | 8/8 in 5.5 min (was 2/8) | 0/12 | about 116 |
+| 26B-A4B, llama.cpp, q8_0 cache, 65,536 | 38 | 8/8 in 7.0 min | 0/14 | -- |
+| 12B Q4_0, Mila, BF16 cache, 262,144 | -- | 6/8 in 18.8 min | 1/26 | about 48 |
+| 12B Q4_0, llama.cpp, BF16 cache, 262,144 | -- | 6/8 in 14.5 min | 0/13 | about 47 |
+
+Every miss of t01 on either engine was a patch longer than 450 tokens; none was malformed. A row's cache and context
+are its Hermes run's; Mila's 26B probe ran with the BF16 cache at 8,192, as its 20-of-40 before the fix did. Both 12B arms answer t12 with the same wrong number, so that miss is the model's; Mila's other
+was t01 over its time budget after 17 edits, llama.cpp's t16 declared blocked after the fetch's deliberate first
+failure. One run per arm, so the arms' times are not a ranking. The 12B Q4_0 ran from a scratch store (G6 has not
+published it); the FP4 12B, run first on the fixed tokenizer, had passed 2 of its first 3 tasks when it was stopped as the wrong
+build. Decode rates
+are from the servers' logs over the run, Mila's including prefill.
 
 ### 8.3 Qwen 3.8
 
@@ -1332,9 +1369,9 @@ streaming in Chat.
     is full precision. **The fallback corrected 2026-09-28 (Todd):** "FP4 with all of attention at FP8" was
     Gemma's measurement, not a rule. Llama 3.1 8B, with no quantization-aware checkpoint, loses no long context at
     4 bits, and Q4_0 matches FP8 attention there within 0.004 nats per token in fewer bytes (8.4, L3). Without quantization-aware
-    weights, the format is chosen per family by the long-context measurement. The change rides G4's
-    single republish, and before it: a second book, and G2 re-run in Mila on the Q4_0 build, with its prefill's
-    activation precision gated by the curve.
+    weights, the format is chosen per family by the long-context measurement. The 12B's Q4_0 build ships as
+    its own package (G6, since 2026-10-20), and before it: a second book, and G2 re-run in Mila on the Q4_0
+    build, with its prefill's activation precision gated by the curve.
 15. ~~**G2's gate.**~~ **Decided 2026-09-27 (Todd):** three tests replace "the top band within 1.05 of the band
     below", which failed on book 30312 (1.67) because the loss rises from 16K, not past 131072 (8.2, G2). A
     gate against BF16 at every length, as first proposed here, cannot run: BF16 has no reference past 32K on

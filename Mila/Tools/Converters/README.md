@@ -176,9 +176,11 @@ python Gemma/convert_weights.py --model google/gemma-4-26B-A4B-it-qat-q4_0-unqua
 > **Tokenizer:** `convert_tokenizer.py` writes the Gemma vocabulary in the shared Mila tokenizer binary
 > format (same layout as the Llama tokenizer). Gemma uses a SentencePiece tokenizer (262K vocab) with
 > `▁` (U+2581) spaces and byte fallback, so the Mila *runtime* loader (`BpeVocabulary::loadGemma`, with a
-> SentencePiece pre-tokenization) is the piece that makes it usable end-to-end — that loader is the
-> follow-up to this converter and is validated by an encode round-trip against the HF tokens the script
-> prints.
+> SentencePiece pre-tokenization) is the piece that makes it usable end-to-end. The binary does not mark
+> which pieces are special, so the loader names `tokenizer.json`'s 24 added tokens itself.
+> `Tests/Data/Tokenizers/Bpe/BpeTokenizer.Gemma.cpp` holds it to HuggingFace's ids on agentic text --
+> indentation, runs of spaces and the tool-call delimiter `<|"|>` -- which a single-spaced sentence, the
+> check the script prints, cannot catch.
 
 ---
 

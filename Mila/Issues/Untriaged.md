@@ -20,18 +20,14 @@ traceback, and the next request was served normally; Codex's five turns all comp
 loop reporting a peer that reset an idle keep-alive connection. Not checked: whether uvicorn's own loop setting or a
 handler for that one exception removes it, and whether it appears on Linux.
 
-## Gemma 4 writes malformed tool calls and broken code through Mila's sampler that llama.cpp does not on the same weights
+## Three Gemma 26B-A4B tests fail on a 32 KB stub of its BF16 weights instead of skipping
 
-`Mila/Src/Dnn/Samplers/` and the Gemma decode path, through the inference server @ d3c1debf
+`Data/Models/Gemma/gemma4_26b_a4b_it_qat_bf16.bin`, `Mila/Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Load.Cuda.cpp:76` @ 2a673ec5
 
-Found 2026-10-19 running the harnesses on Gemma 4 26B-A4B Q4_0 (5060 Ti, files `D:\Claude\gemma26b-gates`). Hermes short
-set: Mila 2/8 (FP8 cache, 75,776 auto; six calls that do not parse -- a closing `<|"|>` dropped, `<|"|]`, a plain
-quote), llama.cpp b11216 on Google's Q4_0 GGUF with the 8-bit cache 8/8 in 7.9 min, 0 of 13 edits broken. Codex five
-turns: 1 of 7 checks with the FP8 cache (patches degenerate into repeated `- ` lines, the summary claims changes never
-made), 1 of 7 with BF16 (invalid Python, a 238-command loop, then over the 37,888 window). Gemma 4 12B FP4: 1/8 at
-+77 and 3/8 at +76, so not the weight arena; 2/8 on the 26B with every request prefilled whole, so not prefix reuse.
-Not the prompt: Mila's render equals llama.cpp's `/apply-template` byte for byte but `<bos>` and thinking. On one
-1,415-token t01 prompt greedy decoding is well-formed on both engines, but sampled 20 times at the model's settings
-(1.0, top-p 0.95, top-k 64) Mila writes a well-formed patch 11 times and llama.cpp 18. Every Gemma model gate against
-HuggingFace skips: `Data/Models/Gemma/gemma4_12b_it_bf16.bin` and `gemma4_26b_a4b_it_qat_bf16.bin` are not on disk.
-Not checked: per-token probabilities against llama.cpp, which separates the sampler from numerics greedy hides.
+Found 2026-10-20 in the full suite: `Fp4Load_...`, `Q4_0Load_...` and `GemmaMixtureOfExpertsParityCudaTests.
+LayerStream_MatchesHuggingFaceReference` fail in milliseconds with "Failed to read rank of 'tf_layer_24...'". The file
+is 32,734 bytes, written 2026-10-19 22:44 by a 26B conversion that crashed (0xC0000005 in 5 s, empty log,
+`D:\Claude\gemma26b-gates\convert-26b.log`) while restoring the Gemma BF16 checkpoints; the 12B's re-conversion
+succeeded. The tests gate on the file existing, so a stub turns a skip into a failure. Not checked: why the
+converter crashed (the HF cache holds the 49 GB QAT checkpoint), and whether a converter that dies should leave no
+file behind.
