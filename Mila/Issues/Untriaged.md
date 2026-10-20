@@ -31,3 +31,16 @@ is 32,734 bytes, written 2026-10-19 22:44 by a 26B conversion that crashed (0xC0
 succeeded. The tests gate on the file existing, so a stub turns a skip into a failure. Not checked: why the
 converter crashed (the HF cache holds the 49 GB QAT checkpoint), and whether a converter that dies should leave no
 file behind.
+
+## Gemma 4's template moves a reply's text after its tool results and starts the next reply outside a model turn
+
+`Mila/Apps/Server/tests/reference/gemma4_12b_chat_template.jinja:323-389` @ c8ad34d5
+
+Found 2026-10-20 in a Codex session on the 26B with thinking on. Codex sends back an assistant message that holds both
+the text the model wrote and its call. Google's template renders the call, then the results, then the text, closes
+the turn with `<turn|>`, and, because the last thing rendered was a result, opens the next reply with only
+`<|channel>thought\n` (or nothing, with thinking off) and no `<|turn>model`. So the text the model wrote before its
+call reaches it again after the results, and the reply after it starts outside any turn. Mila's port matches the
+template, and llama.cpp rendered Gemma prompts byte-identically on 2026-10-19. Not checked: whether Google's own
+serving renders it this way, and whether moving the text before the call (or dropping it) changes Gemma's agentic
+results.

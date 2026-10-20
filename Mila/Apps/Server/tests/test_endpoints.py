@@ -149,7 +149,8 @@ def test_parallel_tool_calls_false_keeps_the_first(serve):
 def test_no_system_turn_is_invented(serve):
     http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.gemma(), "Hi.")
 
-    http.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "Hello"}]})
+    # Thinking on is the template's own system turn, so this asks for it off.
+    http.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "Hello"}], "reasoning_effort": "none"})
 
     assert "helpful assistant" not in fake.prompts[0]
     assert not fake.prompts[0].startswith("<bos><|turn>system")
@@ -178,11 +179,12 @@ def test_a_field_at_its_default_is_accepted(serve):
 
 def test_a_knob_the_request_leaves_out_reaches_the_model_unset(serve):
     # Unset is the model's recommended setting, which the binding reads; the server supplies no number of its own.
+    # Thinking is on because the request named none.
     http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
 
     http.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "Hi"}], "top_p": 0.5})
 
-    assert fake.sampling[0] == Sampling(top_p=0.5)
+    assert fake.sampling[0] == Sampling(top_p=0.5, thinking=True)
 
 
 def test_presence_penalty_is_passed_and_refused_out_of_range(serve):
@@ -248,7 +250,7 @@ def test_a_seed_that_is_not_a_64_bit_integer_is_refused(serve, seed):
     assert fake.prompts == []
 
 
-@pytest.mark.parametrize("effort, thinking", [("none", False), ("low", None), (None, None)])
+@pytest.mark.parametrize("effort, thinking", [("none", False), ("low", None), (None, True)])
 def test_the_thinking_the_prompt_was_rendered_with_picks_the_models_sampling(serve, effort, thinking):
     # Qwen's levels set reasoning_effort and leave enable_thinking at the template's default, which the binding reads.
     http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
@@ -313,6 +315,31 @@ def test_responses_reasoning_effort_turns_gemmas_thinking_on(serve):
     assert fake.prompts[0].startswith("<bos><|turn>system\n<|think|>")
 
 
+@pytest.mark.parametrize("adapter, path, body", [
+    (OpenAIAdapter, "/v1/chat/completions", {"messages": [{"role": "user", "content": "Hi"}]}),
+    # Codex's shape: a reasoning block that asks for a summary and names no effort.
+    (OpenAIAdapter, "/v1/responses", {"input": "Hi", "reasoning": {"summary": "auto"}}),
+    (AnthropicAdapter, "/v1/messages", {"max_tokens": 64, "messages": [{"role": "user", "content": "Hi"}]}),
+])
+def test_a_request_naming_no_thinking_gets_the_models_thinking(serve, adapter, path, body):
+    # Gemma's template defaults to thinking off; the server's clients are agents.
+    http, fake = serve(adapter(), mila.ChatProtocol.gemma(), "Hi.")
+
+    assert http.post(path, json=body).status_code == 200
+    assert fake.prompts[0].startswith("<bos><|turn>system\n<|think|>")
+    assert fake.sampling[0].thinking is True
+
+
+def test_thinking_by_default_is_at_the_templates_default_level(serve):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+    body = {"messages": [{"role": "user", "content": "Hi"}]}
+
+    http.post("/v1/chat/completions", json=body)
+    http.post("/v1/chat/completions", json={**body, "reasoning_effort": "xhigh"})
+
+    assert fake.prompts[0] == fake.prompts[1]
+
+
 def test_a_result_that_answers_no_call_is_refused(serve):
     http, _ = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
     body = {"messages": [{"role": "user", "content": "Hi"}, {"role": "tool", "tool_call_id": "nope", "content": "x"}]}
@@ -356,11 +383,12 @@ RESPONSES_RESUME = {
 
 
 def test_responses_resumes_the_model_turn_after_a_result(serve):
-    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.gemma(), "It is sunny.")
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.gemma(), "The tool answered.<channel|>It is sunny.")
 
     output = http.post("/v1/responses", json=RESPONSES_RESUME).json()["output"]
 
-    assert fake.prompts[0].endswith('response:get_weather{value:<|"|>Sunny<|"|>}<tool_response|>')
+    # With thinking on, the request naming none, the same turn reopens the reasoning channel after the result.
+    assert fake.prompts[0].endswith('response:get_weather{value:<|"|>Sunny<|"|>}<tool_response|><|channel>thought\n')
     assert output[-1]["content"][0]["text"] == "It is sunny."
 
 
@@ -646,7 +674,8 @@ def test_a_system_message_after_a_reply_stays_where_it_was_sent(serve):
 
     assert http.post("/v1/chat/completions", json=LATER_SYSTEM).status_code == 200
     assert "Hello.<turn|>\n<|turn>system\nFrom now on, answer in French.<turn|>" in fake.prompts[0]
-    assert not fake.prompts[0].startswith("<bos><|turn>system")
+    # The leading system turn is the template's thinking switch alone; the later message was not moved into it.
+    assert fake.prompts[0].startswith("<bos><|turn>system\n<|think|>\n<turn|>")
 
 
 def test_a_later_system_message_joins_the_next_message_where_the_template_cannot_place_it(serve):

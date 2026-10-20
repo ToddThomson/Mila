@@ -233,6 +233,24 @@ def reasoning_effort_variables(protocol, effort: str, *, field_name: str) -> dic
     raise RequestError(f"{field_name} '{effort}' is not supported: this model does not reason. Send 'none' or omit it")
 
 
+def with_thinking_by_default(protocol, variables: dict[str, str]) -> dict[str, str]:
+    """
+    The template variables with thinking on where the request said nothing about it (InferenceServerWire.md 10.6).
+    The server's clients are agents, so a request naming neither thinking nor an effort gets the model's thinking
+    at the template's own default level. A request that names either is left as it asked, and a template with no
+    thinking switch is unchanged.
+    """
+    if "enable_thinking" in variables or "reasoning_effort" in variables:
+        return variables
+
+    if not has_template_variable(protocol, "enable_thinking"):
+        return variables
+
+    name, value = template_variable(protocol, "enable_thinking", "true", field_name="enable_thinking")
+
+    return {**variables, name: value}
+
+
 def presence_penalty_of(body: dict) -> float | None:
     """OpenAI's presence penalty, in OpenAI's own range; absent is None, the model's recommended setting."""
     value = body.get("presence_penalty")

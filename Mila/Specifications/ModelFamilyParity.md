@@ -740,6 +740,21 @@ published it); the FP4 12B, run first on the fixed tokenizer, had passed 2 of it
 build. Decode rates
 are from the servers' logs over the run, Mila's including prefill.
 
+**Codex's five-turn session on the 26B-A4B needs thinking, on either engine, 2026-10-20.** Same card, cache and
+context as the Hermes rows (Mila FP8 at 75,776; llama.cpp v0.7.0 q8_0 at 75,776), Gemma's settings, Codex 0.162.1,
+the seven-check fixture once per arm:
+
+| | Thinking off | Thinking on |
+|---|---|---|
+| 26B-A4B, Mila | 2/7 (was 1/7 before the tokenizer fix) | 7/7 in 2.5 min |
+| 26B-A4B, llama.cpp | 1/7 | 7/7 in 1.8 min |
+
+With thinking off both engines failed the same way in kind -- Mila looped on `sed` and claimed a README edit it never
+made, llama.cpp wrote a 133,000-character call argument that outgrew the context -- so the misses are the model's.
+Codex names no effort for a model it does not know, which gave Gemma its template's default, off, until the server
+began turning thinking on when a request names none (`InferenceServerWire.md` 10.6, amended the same day).
+llama.cpp's `--reasoning auto` thinks for such a request already. One run per arm; the times are not a ranking.
+
 ### 8.3 Qwen 3.8
 
 Started 2026-10-03 (Todd), as Gemma's was: measure first, against llama.cpp, then reconcile. Several of Qwen's

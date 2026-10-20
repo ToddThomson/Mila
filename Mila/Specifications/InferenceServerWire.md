@@ -245,7 +245,7 @@ Chat Completions:
 | `logprobs`, `top_logprobs` | refuse | not exposed by the binding |
 | `frequency_penalty`, `logit_bias` other than their defaults | refuse | the sampler has neither |
 | `response_format` other than `text` | refuse | Mila has no constrained decoding |
-| `reasoning_effort` | `none` sets the template's `enable_thinking` false, and is met as sent by a template without it. A level: a template with its own `reasoning_effort` variable takes it by exact name and refuses any other, naming what is accepted; a template with only `enable_thinking` turns thinking on; a template with neither refuses it | Decided 2026-10-15. OpenAI's effort is its reasoning switch -- `none` is off, a level is on and how much. A level is never mapped onto another model's level (`ModelHandle.md` 3.4); a thinking-only template has one depth, so its levels are not told apart. Absent: the template's default (10.6) |
+| `reasoning_effort` | `none` sets the template's `enable_thinking` false, and is met as sent by a template without it. A level: a template with its own `reasoning_effort` variable takes it by exact name and refuses any other, naming what is accepted; a template with only `enable_thinking` turns thinking on; a template with neither refuses it | Decided 2026-10-15. OpenAI's effort is its reasoning switch -- `none` is off, a level is on and how much. A level is never mapped onto another model's level (`ModelHandle.md` 3.4); a thinking-only template has one depth, so its levels are not told apart. Absent: thinking on at the template's default level, where the template has the switch (10.6) |
 | image or audio content parts | refuse | 3.1 |
 
 Responses:
@@ -271,7 +271,7 @@ Messages:
 | `max_tokens`, `temperature`, `top_p`, `top_k`, `stop_sequences`, `stream`, `metadata` | honour | |
 | `tool_choice` | honour `auto` and `none`; refuse `any` and `tool` | 10.3 |
 | `tool_choice.disable_parallel_tool_use` | honour | keeps the first call |
-| `thinking.type` | `adaptive` sets the template's `enable_thinking` true, `disabled` sets it false; for a template without the variable, both are met as sent -- the model does not think, which `adaptive` allows. `enabled` needs `budget_tokens`, which is refused | Decided 2026-10-15: `adaptive` is Anthropic's "on", with how much left to the model, and Claude Code sends it on every request; leaving `thinking` out is the template's default. No template has a thinking budget |
+| `thinking.type` | `adaptive` sets the template's `enable_thinking` true, `disabled` sets it false; for a template without the variable, both are met as sent -- the model does not think, which `adaptive` allows. `enabled` needs `budget_tokens`, which is refused | Decided 2026-10-15: `adaptive` is Anthropic's "on", with how much left to the model, and Claude Code sends it on every request; leaving `thinking` out turns it on where the template has the switch (10.6). No template has a thinking budget |
 | `thinking.display` | `omitted` returns the thinking block with empty text and the reasoning in its `signature`, from which a block sent back is read; `summarized` as absent | as Responses carries reasoning in `encrypted_content`: the client never reads it, and the template gets back what the model wrote |
 | `output_config.effort` | honour a level the template's own `reasoning_effort` variable names; refuse any other, and refuse the field for a template without the variable, naming what is accepted | Decided 2026-10-15. Anthropic's effort shapes all output and Qwen's variable only its reasoning: the nearest the template has, by exact name, both being guidance. Claude Code sends it only when an effort is set -- at `auto` it sends none |
 | `output_config.format`, any other `output_config` key | refuse | no constrained decoding, as Responses' `text.format` |
@@ -390,3 +390,13 @@ functions (`gemma_format_prompt`, `qwen_parse_tool_call` and the rest).
    With the template's default Qwen 3.8 thinks and Gemma 4 does not, which changes what Codex and Claude Code
    receive from Qwen, so it lands with Phase 3, once the reasoning channel reaches the client as the API's
    reasoning block rather than as text.
+   *Amended 2026-10-20 (Todd): thinking on, as a fallback.* The server's clients are agents
+   (`MilaProductFamily.md`), and the template's default was chosen for a general chat model: Gemma 4's is off,
+   so Codex 0.162.1, which sends `reasoning: {summary: auto}` and no effort for a model it does not know, got
+   Gemma with no thinking while Claude Code (`adaptive`) and Hermes (`effort: medium`) got it on. Now a request
+   that sets neither the template's `enable_thinking` nor its `reasoning_effort` -- by any field of any API --
+   has `enable_thinking` set true, and the level stays the template's own default (Qwen 3.8 `xhigh`). A request
+   that names either is left as it asked, and a template without the switch is unchanged
+   (`conversation.with_thinking_by_default`). It is still no made-up setting: the switch and the level are the
+   template's. Measured through the server, a model's defaults are therefore thinking on. llama.cpp's
+   `--reasoning auto` comes to the same for a request that names nothing.

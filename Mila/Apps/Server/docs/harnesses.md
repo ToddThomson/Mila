@@ -182,6 +182,14 @@ Qwen 3.8 27B with `MILA_CONTEXT_LENGTH=65792`; and Gemma 4 26B-A4B with `MILA_KV
 Do not set Hermes's `context_length` above what MIS reports to get past the check: the
 conversation then outgrows the real window and MIS refuses it mid-task.
 
+### Thinking
+
+A model that can think does, unless the harness asks otherwise: a request that names no
+thinking setting and no effort gets the model's thinking at its own default level. A request
+that names one gets what it named, and an effort of `none` turns thinking off. Qwen 3.8 thinks
+at `xhigh` unless an effort names another of its levels; Gemma 4 has a single depth; Llama
+does not think.
+
 ### Tool Calls
 
 Each model calls tools in its own native format, on every API MIS serves: the model emits a

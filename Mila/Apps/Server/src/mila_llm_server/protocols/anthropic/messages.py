@@ -179,7 +179,7 @@ class AnthropicMessages(ChatEndpoint):
         elif kind is not None:
             raise RequestError(
                 f"thinking.type '{kind}' is not supported: this model's template has no thinking budget. "
-                "Send 'adaptive' or 'disabled', or omit thinking for the template's default")
+                "Send 'adaptive' or 'disabled', or omit thinking")
 
         display = thinking.get("display")
 

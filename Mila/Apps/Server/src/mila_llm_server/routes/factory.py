@@ -15,7 +15,15 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from mila_llm_server.config import loaded, settings
-from mila_llm_server.conversation import RequestError, ServedCall, ServedReply, ServedRequest, call_id, placed_system_turns
+from mila_llm_server.conversation import (
+    RequestError,
+    ServedCall,
+    ServedReply,
+    ServedRequest,
+    call_id,
+    placed_system_turns,
+    with_thinking_by_default,
+)
 from mila_llm_server.model_worker import worker
 from mila_llm_server.protocols.base import ChatEndpoint, CompletionsCapable, ModelsCapable, ProtocolAdapter, ReplyContext
 from mila_llm_server.protocols.utils import (
@@ -94,6 +102,7 @@ async def _serve_chat(endpoint: ChatEndpoint, body: dict, http_req: Request) -> 
 
     try:
         request = endpoint.parse(body, protocol)
+        request.template_variables = with_thinking_by_default(protocol, request.template_variables)
         turns = placed_system_turns(request.turns, protocol.renders_later_system_turns)
         prompt = protocol.format_prompt(turns, request.template_variables, request.tools_json)
     except ValueError as error:
@@ -165,7 +174,8 @@ def _shape(body: dict) -> str:
 def _sampling(request: ServedRequest) -> Sampling:
     """
     The request's knobs, with the thinking its prompt was rendered with. A knob it did not set is the model's
-    recommended setting for that thinking, and thinking it did not set is the template's default.
+    recommended setting for that thinking. Thinking it did not set is on where the template has the switch
+    (with_thinking_by_default), and the template's default where only a level was named.
     """
     thinking = request.template_variables.get("enable_thinking")
 
