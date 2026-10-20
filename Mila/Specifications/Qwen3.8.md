@@ -1472,8 +1472,10 @@ Two limits of the current state, neither blocking:
 
 - **The NFC normalizer is dropped.** Mila has no normalization stage, so text that is not
   already composed may encode differently than in HuggingFace. ASCII is unaffected.
-- **The Unicode pattern never compiles under MSVC**, so the ASCII fallback is always what runs
-  (the pre-existing `\p{...}` gap, not a Qwen one). Under that fallback Qwen's pattern and
+- **The Unicode pattern compiles in no standard `std::regex`**, so the ASCII fallback is always what
+  runs (the pre-existing `\p{...}` gap, not a Qwen one). Non-ASCII text therefore tokenizes differently
+  from HuggingFace -- two thirds of the non-ASCII pieces of the calibration corpus, measured 2026-10-20;
+  `Vnext.md` holds the fix. Under that fallback Qwen's pattern and
   Llama's produce *identical* pretokens on ASCII, because the digit rule — the only remaining
   difference — is inert here: this vocabulary holds no multi-digit piece and no digit-digit
   merge rule, so the merge loop cannot join digits however they were grouped. **No ASCII test

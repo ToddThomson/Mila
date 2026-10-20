@@ -448,15 +448,21 @@ Moving this out narrowed two published claims in the same commit — the ROADMAP
 `README.md`'s Llama section — so nothing now asserts it. Related: HuggingFace token parity, which is the other half of what
 "validated lineage" is asked to mean, is held in the suite since `ModelFamilyParity.md` 8.4 L1.
 
-## GPT-2 and Llama 3 tokenize by approximation on every build and platform
+## Llama, Qwen and GPT-2 tokenize non-ASCII text differently from HuggingFace
 
-`tokenizer` · `gpt` · `llama` · `mila-src`
+`tokenizer` · `gpt` · `llama` · `qwen` · `mila-src`
 
 `\p{L}` and `\p{N}` (`BpePreTokenizationMode.ixx:33`, `:57`) compile in no standard `std::regex`, so
 `BpeTokenizer.ixx:344` throws and falls back to an ASCII scanner — in every build, the published
-Linux container included. No parity test catches it, which raises a second question to settle in the
-same pass: whether the tokenizer fixtures are English-only, because if they are, nothing here was
-ever measurable.
+Linux container included. The tokenizer fixtures were English-only, so no parity test caught it: the
+agentic-text tests (`BpeTokenizerLlama32` and `BpeTokenizerQwen`, `Encode_AgenticText_*`) are held to
+HuggingFace on ASCII alone for this reason, and gain a non-ASCII part with the fix.
+
+Measured 2026-10-20 on `Tools/Quantization/corpus/calibration_qwen38_code.txt` cut into 1,191 pieces of
+about 2,000 characters: every ASCII piece matches HuggingFace's ids for both families, and of the 368
+pieces holding any non-ASCII text 247 differ for Llama (token count off by 4,797 of 199,137) and 243 for
+Qwen (5,814 of 188,280). Qwen also has no NFC normalization stage (`Qwen3.8.md`), which may account for
+some of what remains once the pattern is exact; measure after, not before.
 
 The fix is PCRE2, RE2, or a hand-written Unicode scanner, which makes this a vendored-dependency
 decision as much as a tokenizer one — the same ground the curl pin sits on.

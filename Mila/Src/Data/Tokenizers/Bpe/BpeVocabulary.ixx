@@ -159,7 +159,9 @@ namespace Mila::Data
          * @endcode
          *
          * Llama 3.x vocabularies carry no explicit BPE merges; the merge order is
-         * encoded implicitly in the token ID assignment.
+         * encoded implicitly in the token ID assignment. Every added token the
+         * checkpoint carries is registered as special, so encode matches each whole
+         * as HuggingFace does.
          *
          * @param path Path to the converted Llama 3.2 tokenizer binary.
          * @return Loaded BpeVocabulary instance.
@@ -205,8 +207,8 @@ namespace Mila::Data
          * encoder) with Qwen's own split pattern, and takes the merge-list path:
          * Qwen's `ignore_merges` is false, so a pre-token the vocabulary holds whole
          * is still built by its merges, where Llama's rank path emits it as one
-         * token. Chat, thinking and tool-calling markers are registered from the
-         * loaded vocabulary.
+         * token. Every added token the checkpoint carries is registered as special,
+         * so encode matches each whole as HuggingFace does.
          *
          * @param path Path to the converted Qwen tokenizer binary.
          * @throws std::runtime_error on I/O errors or a non-BPE model type.
@@ -447,6 +449,18 @@ namespace Mila::Data
 
         void buildMergeMap();
         void buildSpecialTokenList();
+
+        /**
+         * @brief Register as special every token from @p first_added_token to the end of the vocabulary.
+         *
+         * For a family whose checkpoint appends its added tokens as one block after the learned pieces, which the
+         * tokenizer file does not otherwise mark. HuggingFace matches each added token whole wherever it occurs in
+         * text, so a token left out encodes as pieces the model never saw in its place.
+         *
+         * @throws std::runtime_error if @p first_added_token is not in the vocabulary.
+         */
+        void registerAddedTokensFrom( const std::string& first_added_token );
+
         std::vector<std::string> preTokenize( const std::string& text ) const;
 
         std::unordered_map<std::pair<std::string, std::string>, std::size_t, PairHash>
@@ -847,6 +861,26 @@ namespace Mila::Data
                 return a.first.size() > b.first.size();
             }
         );
+    }
+
+    void BpeVocabulary::registerAddedTokensFrom( const std::string& first_added_token )
+    {
+        auto first = token_to_id_.find( first_added_token );
+
+        if ( first == token_to_id_.end() )
+        {
+            throw std::runtime_error(
+                "BpeVocabulary: the tokenizer file has no " + first_added_token +
+                ", the first of the checkpoint's added tokens" );
+        }
+
+        for ( std::size_t id = static_cast<std::size_t>(first->second); id < id_to_token_.size(); ++id )
+        {
+            if ( !id_to_token_[ id ].empty() )
+            {
+                special_token_ids_[ id_to_token_[ id ] ] = static_cast<TokenId>(id);
+            }
+        }
     }
 
     std::vector<std::string> BpeVocabulary::preTokenize( const std::string& text ) const
@@ -1315,12 +1349,9 @@ namespace Mila::Data
             vocab.special_token_ids_[ st.unk_token ] = static_cast<TokenId>(unk_id);
         }
 
-        // Register extended special tokens from config (chat template tokens).
-        for ( const auto& [token_str, id] : st.extended_special_tokens )
-        {
-            vocab.special_token_ids_[ token_str ] = static_cast<TokenId>(id);
-        }
-
+        // Llama 3's 256 added tokens follow its 128,000 learned pieces, beginning at <|begin_of_text|>: the chat
+        // markers and the reserved tokens alike.
+        vocab.registerAddedTokensFrom( st.bos_token );
         vocab.buildSpecialTokenList();
 
         Logging::Logger::info( std::format(
@@ -1660,11 +1691,12 @@ namespace Mila::Data
         read_special( st.pad_token );
         read_special( st.unk_token );
 
-        // Register Qwen's ChatML and reasoning markers from the loaded vocabulary so their
-        // ids come from the checkpoint rather than a constant, and so the encode pre-pass
-        // matches them atomically instead of as subword pieces. <|im_end|> and
-        // <|endoftext|> are QwenModel's stop set, and <think>/</think> gate the reasoning
-        // channel -- a token that encodes as fragments takes those features down silently.
+        // Qwen's 33 added tokens follow its learned pieces, beginning at <|endoftext|>. The markers named below are the
+        // ones features depend on: <|im_end|> and <|endoftext|> are QwenModel's stop set, <think>/</think> gate the
+        // reasoning channel, and the tool markers delimit calls -- one that encodes as fragments takes its feature down
+        // silently, so a vocabulary that lacks one is warned about.
+        vocab.registerAddedTokensFrom( "<|endoftext|>" );
+
         std::string missing_list;
 
         for ( const char* name : {
@@ -1673,13 +1705,7 @@ namespace Mila::Data
                 "<tool_call>", "</tool_call>",
                 "<tool_response>", "</tool_response>" } )
         {
-            auto it = vocab.token_to_id_.find( name );
-
-            if ( it != vocab.token_to_id_.end() )
-            {
-                vocab.special_token_ids_[ name ] = it->second;
-            }
-            else
+            if ( !vocab.special_token_ids_.contains( name ) )
             {
                 missing_list += missing_list.empty() ? "" : " ";
                 missing_list += name;

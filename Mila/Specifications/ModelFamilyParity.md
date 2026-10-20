@@ -101,7 +101,7 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 | Capability | Llama | Gemma | Qwen | Anchor |
 |---|---|---|---|---|
 | Token-for-token agreement with HuggingFace, in the suite | Y | Y | Y | `GemmaModel.Parity.Cuda.cpp`, `QwenModel.Parity.Cuda.cpp`; Llama's `Llama.HuggingFaceReference.Cuda.cpp` (tiny model, in the suite) and `Llama.LogLikelihood.Cuda.cpp` (the real 3.2 1B, opt-in) |
-| Tokenizer ids equal HuggingFace's on agentic text (indentation, runs of spaces, tool-call delimiters), in the suite | partial | Y | partial | `BpeTokenizer.Gemma.cpp`; Llama and Qwen matched HuggingFace on such text 2026-10-20 (8.2), with no suite test holding them to it |
+| Tokenizer ids equal HuggingFace's on agentic text (indentation, runs of spaces, tool-call delimiters), in the suite | partial | Y | partial | `BpeTokenizer.Gemma.cpp`, `BpeTokenizer.Llama32.cpp`, `BpeTokenizer.Qwen.cpp`, each with every added token matched whole; Llama and Qwen are held on ASCII text only, since their non-ASCII text differs from HuggingFace (`Vnext.md`, "Llama, Qwen and GPT-2 tokenize non-ASCII text differently from HuggingFace") |
 | Throughput harness | -- | Y | Y | `GemmaModel.Rates.Cuda.cpp`; Qwen's `DISABLED_PrefillRate` / `DISABLED_DecodeRate*` |
 | Quality measured across the planner's range | -- | -- | partial | Qwen to 16K (`Qwen3.8.md` §8) while the planner chooses up to 64512 for cb2-3 on 16 GB; Gemma unmeasured above 131072 against a header of 262144; Llama as the RoPE row above |
 | Agentic quality profiled across the planner's range: recall at depth, instruction retention, tool-call fidelity, reliable depth | -- | -- | -- | `ContextProfile.md`, not built; row added 2026-10-03 when the measurement was admitted to v0.21 for every model in section 2 that the release publishes, the 26B-A4B included (Todd). Llama's tool-call cell also needs its grammar in `Mila/Src` (3.3) |
@@ -718,7 +718,11 @@ code's indentation -- never merged. Since the first Gemma 4 work; the tokenizer'
 sentence. Fixed: `loadGemma` names all 24, the segment between special tokens is BPE'd whole as HuggingFace does,
 merging through a priority queue (a 74,700-character segment in 0.02 s), and
 `BpeTokenizer.Gemma.cpp` holds the ids to HuggingFace's on agentic text, each half mutation-checked. Qwen and Llama
-matched HuggingFace on the same kind of text the same day. Ruled out on the way: the FP8 cache, the softcap, the
+matched HuggingFace on the same kind of text the same day, as far as that text went: it was ASCII. Measured later
+that day, both match on every ASCII piece of the Qwen calibration corpus and differ on two thirds of the pieces
+holding any non-ASCII text (`Vnext.md`), and both loaders matched few of their checkpoint's added tokens whole --
+Llama 7 of 256, Qwen 9 of 33 -- Gemma's defect again. The loaders now register every added token, and the suite
+holds both on ASCII agentic text and on every added token. Ruled out on the way: the FP8 cache, the softcap, the
 sampler.
 
 After the fix, RTX 5060 Ti, against llama.cpp v0.7.0 (build 11669) on Google's QAT Q4_0 GGUFs; t01 sampled 40 times at

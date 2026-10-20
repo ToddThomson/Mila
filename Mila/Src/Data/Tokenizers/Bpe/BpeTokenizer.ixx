@@ -364,8 +364,8 @@ namespace Mila::Data
                         "Non-ASCII text tokenized through the ASCII fallback: std::regex on this "
                         "toolchain has no Unicode property support, so this text WILL tokenize "
                         "differently from the HuggingFace reference. Permanent, not occasional. "
-                        "Affects GPT-2 and Llama 3; SentencePiece models (Gemma) do not use this "
-                        "path." );
+                        "Affects GPT-2, Llama 3 and Qwen; SentencePiece models (Gemma) do not use "
+                        "this path." );
                 } );
         }
 

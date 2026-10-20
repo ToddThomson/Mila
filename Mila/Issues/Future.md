@@ -425,17 +425,6 @@ An injected per-operation progress facility for long-lived ops — BPE vocab tra
 `WeightsReader` load, load-time quantization. `BpeVocabulary.ixx:624` is the concrete call site:
 an every-100-merges elapsed-time print asking to become an async callback.
 
-## The BPE ASCII-fallback warning fires for every Llama and GPT-2 session
-
-`tokenizer` · `apps` · `mila-src`
-
-`BpeTokenizer.ixx:378` warns at construction under `std::call_once`, so an evaluator typing English
-is told about a path they never take, as the first thing after the welcome box.
-
-The claim is true and should not be softened — it should be timely, warning on first non-ASCII
-input. Touches `Mila/Src` and needs agreement; a cheaper interim is one console line with the detail
-in docs.
-
 ## If C1128 recurs, move `/bigobj` project-wide
 
 `build`
