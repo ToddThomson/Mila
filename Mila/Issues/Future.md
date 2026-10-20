@@ -30,6 +30,18 @@ carries the output-head difference (FP8 in Mila's package, Q6_K in the GGUF).
 The dense decoder, thinking-mode suppression, model-agnostic tool calling, and FP8 KV cache. The
 `OperationTraits<GqaOp, Cuda, BF16, PerChannelKvFp8<>>` specialization lands here.
 
+## Qwen 3.8 27B at 2.82 bits, so a 12 GB card can run a 27B model
+
+`qwen` · `quantization` · `distribution` · `measured`
+
+Out of `BACKLOG.md` at `+83` (Todd, 2026-10-20: no 2.82-bit model is published for now; `fp4-cb3` is). The
+`cb2-3` package is 11.1 GiB against 15.1 GiB for FP4, which is what would let a 12 GB card run a 27B model at
+all. Its repository, `mila-llm/Qwen3.8-27B-cb2-3`, answers 401 anonymously. The build to publish would be
+the re-fit (`Qwen3.8.md`, "Decided" after the re-fit), and its card
+(`Tools/ExportArtifact/ModelCards/Qwen3.8-27B-cb2-3/README.md`) is written for it. On agentic code it drops
+one closing bracket of a nested pair, 10.9% lost where BF16 is right against FP4's 2.1%, traced to the 2-bit
+FFN gate/up (`Qwen3.8.md` section 5). The fitted source is gitignored and not reproducible from the repository.
+
 ## Qwen 3.8 FP4 — FP8 the embedding table
 
 `models` · `quantization` · `mila-src`

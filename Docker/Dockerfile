@@ -15,7 +15,7 @@
 # Model weights are converted offline (Mila/Tools/Converters) and bind-mounted at
 # run time under Data/Models -- never baked into the image (they are gigabytes and
 # separately licensed). See Docker/README.md.
-FROM nvidia/cuda:13.4.2-devel-ubuntu26.04
+FROM nvidia/cuda:13.4.3-devel-ubuntu26.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 

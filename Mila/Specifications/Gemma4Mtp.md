@@ -7,8 +7,8 @@ parity with HuggingFace, its acceptance and the verify cost. The 12B's loop is b
 replayed (4.7); the 26B-A4B's is built and measured, 1.1x to 1.26x at K = 1 to 2 (4.7, step 5); the speculative sampler, which draws every
 row at once and walks acceptance on the device, is built (4.8). Supersedes `SpeculativeDecoding.md` for Gemma: that document
 proposed a drafter with its own KV cache and a compile-time drafter axis, and Google's drafter is
-neither. The work is `BACKLOG.md`, Gemma 4 Complete, "Nobody knows whether Google's drafters would make
-Gemma 4 decode faster".*
+neither. What is left is `BACKLOG.md`, Gemma 4 Complete, "Gemma 4 packages do not carry Google's drafters, so no
+load can use them".*
 
 ---
 

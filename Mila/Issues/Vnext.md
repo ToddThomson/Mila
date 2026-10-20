@@ -1277,9 +1277,27 @@ Qwen3.8-Flash-Next, the Qwen 4 architecture preview, was compared against the Qw
 Its section 9 phases 0 to 2 (the tiny reference, the converter skeleton, grouped RmsNorm, dilated CausalConv1d, the
 DeltaNet gate activation, and the gated residual, n-gram, PLE and QSA indexer components) need no 27B checkpoint.
 2026-10-08: phases 0 and 1 are built and their CPU gates passed; phase 2 has `GatedResidual` and `NgramEmbedding` on
-CPU, gated against the tiny reference. Two of its defects are already in `BACKLOG.md` (Model fixes and parity).
+CPU, gated against the tiny reference.
 
-`Mila/Specifications/Qwen4.md`
+Two defects in the tiny reference, moved out of `BACKLOG.md` at `+83` with the chassis they serve (Todd, 2026-10-20:
+Qwen 4 is the next release's):
+
+- **It never exercises the n-gram hash's negative branch.** Mutation-checking the CUDA n-gram hash, a truncating `%`
+  in place of the floor mod passed the capture gate, and only the hand-built `Hash_NegativeMixedValueMapsIntoTheHead`
+  caught it. The capture's largest token id is 239 and its largest multiplier 3.5e16, so every product stays below
+  2^63 and no mixed value is negative; Qwen 4's real vocabulary (about 250K ids) wraps them. The header says the
+  n-gram base near 1,000 exercises the floor mod; it exercises collisions, not the negative branch. Token ids above
+  about 2^63 / max(multiplier), 260 here, would. `hf_qwen4_tiny_reference.py`
+- **Its generator refuses its own capture under transformers 5.19.** The dense-exact prefix check requires the
+  selected and dense passes to agree exactly, and they differ by 1.192e-7, one float ulp; every file is written
+  before the check raises. The capture used 5.16, and had only been made in a cloud session, so the CPU gates had
+  been skipping locally. Whether the check is too strict for a different version or machine, or 5.19 changed the
+  indexer, is not known. 5.19 did change `qwen4_exp`: its config names the sparse layer type `indexed_attention`
+  where 5.16 wrote `qwen_sparse_attention` (`convert_weights.py` treats every non-linear type as full attention, so
+  the converter is unaffected). The tracked `hf_checkpoint/*.json` are at their 5.16 contents; the local capture is
+  5.19's. `hf_qwen4_tiny_reference.py:392`
+
+`Mila/Specifications/Qwen4.md` · `Mila/Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py`
 
 ## Qwen 3.8 27B's embedding table is stored at 16 bits where a 2-bit copy serves
 
@@ -1294,6 +1312,32 @@ row of the table per token. The same plan keeps the head at FP4 (4.25 bits) agai
 "Qwen 3.8 FP4 -- FP8 the embedding table" is the same table at 8 bits.
 
 `Mila/Src/Dnn/Components/Transformers/Qwen/Qwen.PrecisionPlan.ixx` `EmbeddingTable`
+
+## Nobody knows whether NVFP4 would make an FP4 model's prefill faster on Blackwell at a quality it can keep
+
+`models` · `quantization` · `perf` · `measured`
+
+Raised 2026-10-20 (Todd: "I do want to measure this"). cuBLASLt multiplies NVFP4 natively on the RTX 5060 Ti at
+329-361 TFLOP/s against 183-197 for the FP8 path Mila's FP4 prefill takes today, Gemma 4 12B shapes at M = 1024, CUDA
+13.3 (`MixtureOfExperts.md` 7.1a, `Profiling/Microbenchmarks/CublasLtScaleModes.cu`): about 1.8x at the matrix
+multiply, through one descriptor attribute rather than a kernel. That number is the GEMM alone. Native NVFP4 is
+W4A4, where Mila's FP4 prefill rounds activations to FP8 per token, so the open question is numerics, not throughput.
+
+What has to be measured before anything is designed around it, on an FP4 model with no quantization-aware release
+(Qwen 3.8 `fp4-cb3`'s FP4 roles, Llama 3.1 8B's FP4 default): the whole prefill's rate, since only the FP4 roles'
+matrix multiplies gain; long-context loss against BF16 by band (Gemma's G2 protocol, Llama's L3), and for Qwen the
+closing-bracket and KL arms `fp4-cb3` was chosen by (`Qwen3.8.md` section 5); and decode, where NVFP4's 4.5 bits per
+weight against `PerGroupFp4<128>`'s 4.25 (arithmetic) says it reads more, not less. Not checked: whether cuBLASLt
+pairs FP4 weights with FP8 activations under a block scale, which would keep today's activation precision.
+
+What it would be: a sibling weight policy, not a retuning of `PerGroupFp4<128>` -- block-16 E2M1, an FP8 E4M3 scale
+per block and a per-tensor FP32 scale, its scale plane carried by the companion-tensor traits the codebooks use
+(`MixtureOfExperts.md` 7.1). Blackwell only: the RTX 4070 has no FP4 tensor cores, so the same weights need an Ada
+path. Step 0 is the architecture list: block-scaled MMA needs `120f`, and plain `120`, which Mila builds, omits it
+silently (`MixtureOfExperts.md` 7.2(b); `Future.md`, the `120f` entry). It never displaces a producer's trained
+format: Gemma 4 stays on Google's Q4_0.
+
+`Mila/Specifications/MixtureOfExperts.md` 7.1-7.2 · `Mila/Profiling/Microbenchmarks/CublasLtScaleModes.cu`
 
 ## The deployment planner cannot choose a model's bit allocation for the context asked of it
 

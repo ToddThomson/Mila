@@ -2900,7 +2900,7 @@ Available commands:
   /model list [--online]             List installed models, or what can be installed
   /model load <name> [quant]         Load a model (clears history). quant quantizes
                                      unquantized weights on load: none, fp8, fp4, q4_0.
-  /model install <name>              Download and install a published model
+  /model install <name>              Install a published model
   /model remove <name>               Remove an installed model and reclaim its blobs
   /context                           Show the context window and the largest that fits
   /context <n>|auto                  Set the context window (rebuilds, keeps the conversation)

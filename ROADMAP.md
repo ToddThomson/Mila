@@ -21,8 +21,7 @@ is.** Gemma 4, Qwen 3.8 and Llama 3 each run every capability their checkpoints 
 release names, at the rates and the quality a reader can check against the original model and
 against llama.cpp, from packages that install with `pip` and keep loading when Mila is upgraded.
 
-**Finished means what v0.20 left over.** Qwen 3.8 and Gemma 4 shipped with parts missing — a 2.82-bit
-build nobody can fetch, a KV cache left uncompressed on a card the weights already fill, a checkpoint
+**Finished means what v0.20 left over.** Qwen 3.8 and Gemma 4 shipped with parts missing — a KV cache left uncompressed on a card the weights already fill, a checkpoint
 whose image and audio weights the loader drops, a 26B-A4B that runs at a fraction of llama.cpp's rates
 and cannot load the weights Google trained it for. Most of that work is built or under way, and this
 release ships it rather than holding it for the API that will sit on top of it.
@@ -62,22 +61,19 @@ is one v0.22.0 must read, and each is decided before it ships.
 currently discards.*
 
 Gemma 4 is the family with the most Mila behind it and the most left on the table. The 26B-A4B
-mixture of experts **runs** — router, expert bank, FP4 expert bank and streaming converter, gated
-against HuggingFace at BF16 and FP4 — but as a correctness baseline: it reaches 8192 tokens on the 16 GB
-card only by prefilling 256 tokens at a time, cannot load the Q4_0 weights Google trained it for, and
-prefills and generates at a small fraction of llama.cpp's rates on the same card. **It ships level with every other model Mila publishes, or not at all** —
-the trained format, the reference card, rates beside llama.cpp's, quality across the planner's range,
-and every application. Two protocol defects survive into multi-step tool use: a model working through a
-sequence loses the reasoning that led to each step, and a malformed call parses as a call with no
-arguments rather than as prose, which a client that executes `{}` would act on.
+mixture of experts **runs** — router, expert bank in FP4 and in the Q4_0 Google trained it for, and a
+streaming converter, gated against HuggingFace at BF16, FP4 and Q4_0, its kernels at llama.cpp's rates or above
+(`ModelFamilyParity.md` §8.2) — but no end user can install it yet. **It ships level with every other model Mila
+publishes, or not at all** — the trained format, the reference card, rates beside llama.cpp's, quality across
+the planner's range, and every application.
 
 **Modality is the largest single item in the release, and the two models differ in it.** The 12B is a
 unified transformer and encoder-free — no vision tower — so images enter through `vision_embedder` and
 an embedding projection directly into the decoder at up to 280 soft tokens, and audio through
 `embed_audio`, a single projection of raw 40 ms frames rather than an encoder. The converter skips both
 today. Image tokens take ordinary positions, but the tokens of one picture attend each other in both
-directions, while every attention path in Mila is causal: that mask change, in every prefill path, is the
-work (`Gemma4Modality.md`). Chat accepts both an image and an audio clip. **The 26B-A4B is a mixture of
+directions; that mask, the largest piece, is built, and the embedders, the prompt that carries media and the
+applications remain (`Gemma4Modality.md`). Chat accepts both an image and an audio clip. **The 26B-A4B is a mixture of
 experts with a vision tower** — 27 layers, about 411 million parameters, about 410 MB at FP8 — which its
 loader skips today (`Gemma4MoE.md`), and on the 16 GB card those bytes are context: about 39K tokens of the
 26B's cache. Everything the 12B's image path builds carries over, leaving the tower as the new piece. **The
@@ -110,10 +106,8 @@ reasoning reply -- leaves nothing to rewind to, and the next turn pays a full pr
 state, removes that.
 
 **Finished also means level with the other families** (`ModelFamilyParity.md`). Gemma is the
-furthest along of the three, and its gaps are few but one of them is sharp: it cannot score a text,
-so its quality above 131072 tokens has never been measured, while the planner may now choose up to
-the 262144 its weights declare. And Chat still renders Gemma's prompt with its own copy of a
-template the library already has, so the two can drift. Both models' BF16 weights exceed the 16 GB
+furthest along of the three, and its gaps are few but one of them is sharp: the planner may choose up
+to the 262144 its weights declare, and Gemma's quality has not been gated across that range. Both models' BF16 weights exceed the 16 GB
 card, so where their benchmark reference runs is `ModelEval.md` decision 1, as it is for Qwen.
 
 **Success criteria:** Gemma 4 12B accepts an image and answers about it, with the embedder gated
@@ -142,12 +136,13 @@ and, tentatively, the 26B-A4B accepts an image through its tower, at a context t
 *Everything the family was specced to be, including the parts v0.20 shipped around.*
 
 v0.20 promoted Qwen 3.8 out of a research track and into the release, and the promotion was earned —
-but it shipped the model rather than the family. Two things were left: the 2.82-bit build is finished,
-validated and **unpublished**, so the claim the release was written around had to be narrowed to the FP4
-build at 16 GB; and the KV cache is uncompressed on a card the weights already fill, which is what bounds
-the context the model is actually sold at. The dense members, which reuse Llama blocks rather than the
-DeltaNet chassis, are new building rather than finishing, and wait for v0.22.0, where a member arriving
-after the handle is the first test of the claim that a new model is added in one place.
+but it shipped the model rather than the family. Its KV cache was uncompressed on a card the weights already
+fill, which is what bounded the context the model was actually sold at. With the cache at FP8 and two
+measured cuts to three bits, `fp4-cb3` holds 65,792 tokens on the 16 GB card and stays close to FP4 on
+agentic code (`Qwen3.8.md` section 5): 64K is the floor for agentic work, and quality comes first. The
+dense members, which reuse Llama blocks rather than the DeltaNet chassis, are new building rather than
+finishing, and wait for v0.22.0, where a member arriving after the handle is the first test of the claim
+that a new model is added in one place.
 
 The user-visible one is smaller and worse: a 27B answers in a single block after a long silence,
 because the per-token router was written against Gemma's four control tokens and Qwen's
@@ -156,24 +151,25 @@ screen.
 
 **This release finishes what Qwen shares with the other families, not its tuning.** The 2.82-bit
 build's prefill and generation are measurably less efficient than they could be (`ModelFamilyParity.md`
-8.3, Q9), and the FP4 build predicts a book worse with more of it in context from 8K on, for a reason
-not yet known (`ContextProfile.md` section 8). Both are work on a model that does not fit a 16 GB card
-with room to spare, and both wait in `Vnext.md` for the 24 or 32 GB card where a 27B has that room.
-The 2.82-bit build is healthy at every context it fits, 74,752 on the 16 GB card, and it is the Qwen
-this release publishes; the FP4 build v0.20 published stays installable and is not published again.
+8.3, Q9), and that waits in `Vnext.md` for the 24 or 32 GB card where a 27B has room. The FP4 build
+predicts a book worse with more of it in context from 8K on, for a reason not yet known
+(`ContextProfile.md` section 8), and `fp4-cb3` carries it to 64K; finding the reason is this release's,
+under the model fixes. `fp4-cb3` is the Qwen this release publishes. The 2.82-bit build, which a 12 GB
+card would need, is not published: on agentic code it drops a closing bracket of a nested pair. The FP4
+build v0.20 published stays installable.
 
-**Publishing the 2.82-bit build is not release work** — weights publish on their own schedule and a
-release never re-publishes them — but the claim below depends on it, which is why it is named here.
+**Publishing `fp4-cb3` is not release work** — weights publish on their own schedule and a release never
+re-publishes them — but the claims below depend on it, which is why it is named here.
 
 **Measured as the other families are.** A 27B's BF16 weights are about 54 GB, so its benchmark
 reference cannot run on the card Mila measures on; where that reference runs is `ModelEval.md`
 decision 1, and the comparison below waits on it rather than substituting a Mila build for the original.
 
-**Success criteria:** a 27B model runs on a 12 GB card from a package a stranger can fetch;
+**Success criteria:** end users install Qwen 3.8 27B from a published package and run it at 64K on the 16 GB card;
 FP8 KV cache compression measured against BF16 at the context the model is claimed for, by the same
 protocol the weight allocation used, priced exactly by the footprint the planner reads, and the freed
 margin spent deliberately rather than absorbed; Qwen streams its reasoning and its answer as separate
-channels; the published build states its benchmark scores beside the original's, from the same harness,
+channels; `fp4-cb3` states its benchmark scores beside the original's, from the same harness,
 read against the floor Llama 3.2 3B measures; and it has a context profile on the 16 GB card.
 
 ### Llama 3 Measured

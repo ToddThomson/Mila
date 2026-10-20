@@ -187,11 +187,12 @@ The 26B's tower also prices its encoder's activations over 2,520 patches.
 - **Chat** accepts an image or an audio clip and attaches it to the next message: `/image <path>` and
   `/audio <path>` (PNG and JPEG; WAV at any rate, mixed to mono and resampled to 16 kHz in Chat).
   For a model whose manifest declares no such modality, Chat refuses the attachment by name. Chat renders
-  Gemma's prompt through the library's template first (`BACKLOG.md`, "Chat renders Gemma's prompt itself"),
-  since that template is what expands the runs.
+  Gemma's prompt through the library's template (since `+82`), which is what expands the runs.
 - **The inference server** accepts image and audio content blocks in both wire protocols.
 - **The Python binding** passes media with the prompt.
-- All three reach the model through `Mila::AI`, not around it.
+- In v0.21.0 all three pass media to the model directly. Reaching it through `Mila::AI`, and selecting a
+  modality in a deployment request (5.3), are v0.22.0's (decided 2026-10-20, Todd: the release split of
+  2026-10-10 put `Mila::AI` and the deployment request in v0.22.0).
 
 ## 6. Gates
 

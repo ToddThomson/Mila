@@ -56,13 +56,14 @@ The 12B is **encoder-free** (`Gemma4UnifiedForConditionalGeneration`): no vision
 encoder. An image is resized and cut into 48-pixel patches, at most 280 soft tokens, each through a
 small embedder (about 50M parameters) into the decoder; an audio clip is 40 ms frames of raw 16 kHz
 samples, each through one projection. `convert_weights.py` skips both. The image tokens of one picture
-attend each other in both directions, and every Mila attention path is causal: that mask change, in every
-prefill path, is the largest piece. Work, in `Gemma4Modality.md` section 7's order: the mask; the image
-embedder, soft-token placement, a prompt that carries media, and prefix reuse keyed on the media rather
-than its token ids; audio; Chat accepting an image or a clip (`/image`, `/audio`, Todd 2026-10-04), the
-inference server's content blocks in both protocols, the binding; converter, manifest and footprint.
-Image and audio reach applications through `Mila::AI`, not around it. Each is a feature a deployment
-selects (Deployment Planning).
+attend each other in both directions; that mask, the largest piece, is built (`+35`, `Gemma4Modality.md` 5.4):
+Gemma's two flash prefill kernels take per-row key bounds, and every other prefill path refuses an image run.
+Work left, in section 7's order: the image embedder (about 50M parameters), soft-token placement, a prompt that
+carries media, prefill chunks that never split an image's run, and prefix reuse keyed on the media rather than
+its token ids; the resize, matched to torchvision's; audio, a 40 ms framing and one projection; Chat accepting an
+image or a clip (`/image`, `/audio`, Todd 2026-10-04), the inference server's content blocks in both protocols,
+the binding; converter, manifest and footprint. In this release the applications pass media to the model
+directly; reaching it through `Mila::AI`, and selecting a modality in a deployment request, are v0.22.0's.
 
 A deployment without a modality should not sample its markers. On 2026-09-28 the 12B sampled `<image|>` (258882)
 mid-sentence in a text-only Chat session, losing the rest of a pun. The sampler now never draws any of Gemma 4's
@@ -129,47 +130,21 @@ tokens equal to a fresh prefill's.
 
 `in progress` · `gemma` · `distribution`
 
-Landed in `Mila/Src` during rc.1 — the router and expert bank on CPU and CUDA, wired into
-`GemmaModel` with FP4 and Q4_0 expert banks and a streaming converter, gated against HuggingFace at BF16,
-FP4 and Q4_0. It appears in no README capability row, no CLAUDE.md target and no release note, because
-no published package uses it, so a user cannot run it.
+Landed in `Mila/Src` during rc.1 — the router and expert bank, wired into `GemmaModel` with FP4 and Q4_0
+expert banks and a streaming converter, gated against HuggingFace at BF16, FP4 and Q4_0. It appears in no README
+capability row, no CLAUDE.md target and no release note, because no published package uses it, so no end user
+can install it.
 
 Held out of v0.20.0 (Todd, 2026-09-21). A package alone would have published it below every other model Mila
 ships; its kernels now run at llama.cpp's rates or above (`ModelFamilyParity.md` §8.2, G5b), and it waits on the
 rest of `Gemma.md` §10.7's bar: quality
 across the planner's range, by the method `ModelFamilyParity.md` §9 item 18 settles; decode replay gated
 equal to the called path on a routed network; active parameter bytes in the plan and in Chat's display;
-the model run through Chat, the inference server and the Python binding, tool calls included. Then the
+the model run through Chat, the inference server and the Python binding, tool calls included -- the server with
+Codex and Hermes (`+79`, `+80`) and Chat (`+82`) have run it live; the binding is not checked. Then the
 package, its card and the capability row. A first publish, so it is not held for the 12B's.
 
 `Mila/Specifications/ModelFamilyParity.md` §8.2, G6
-
-#### Nobody knows whether Google's drafters would make Gemma 4 decode faster
-
-`in progress` · `gemma` · `perf` · `measured`
-
-Every Gemma 4 size ships a dedicated draft model for speculative decoding (ai.google.dev/gemma/docs/core,
-read 2026-09-17), and the QAT targets ship QAT drafters (`google/gemma-4-12B-it-qat-q4_0-unquantized-assistant`),
-so the pair measured is that drafter and the Q4_0 12B. The drafter is four layers and its own head, about
-0.85 GB at BF16, and keeps no cache: it attends the 12B's last sliding and last global layer's caches.
-Three measurements predict the speedup: what a drafter step costs, what a verify of K + 1 tokens costs
-against one decode on the 5060 Ti, and how many drafts the 12B accepts. Acceptance is measured in Mila,
-with the drafter's forward built and gated first, because the BF16 12B does not fit the card that
-HuggingFace's loop would need. If too few drafts are accepted, or a verify costs too much, there is no
-win, and the recorded result is "not worth doing".
-
-The loop is in this release where the measurement says it pays (Todd, 2026-10-04), as a feature a
-deployment selects: draft, verify, accept, rewind. Sampled as well as greedy, since Chat samples by
-default. The rewind is a few tokens and the sliding ring already allows it. The verify is a decode of K + 1
-tokens with one tensor-core product per Linear, which reads the weights once for all of them
-(`Gemma4Mtp.md` 4.7). Gate: with the drafter selected, the 12B's verify logits are within its decode's own
-numerical noise -- token-for-token equality holds only if decode moves to the same kernels, 4.7's option
-(a) -- and it decodes faster by the measured amount; if the measurement says "not worth doing", that result
-is recorded and the loop stays out. The 26B-A4B gets its own drafter by the same measurement and gate (Todd,
-2026-10-04): Google says a mixture of experts gains little at batch 1, and a community report measured 1.46x
-on it, so it is measured on the 16 GB card, FP8 global cache included.
-
-`ROADMAP.md`, Gemma 4 Complete success criteria · `Mila/Specifications/Gemma4Mtp.md`
 
 #### Gemma 4 12B at 4 bits predicts worse the longer the context, and Mila cannot run the weights Google trained to prevent it
 
@@ -201,7 +176,7 @@ Q4_0 build, cost over BF16 by band, on a second book as well as 30312.
 
 `Mila/Specifications/ModelFamilyParity.md` §9, item 14 · `Mila/Specifications/Quantization.md`, "Q4_0"
 
-#### Gemma's quality above 131072 tokens has never been measured, and the planner may choose up to 262144
+#### Gemma's quality has not been gated across the 262144 tokens the planner may choose
 
 `in progress` · `gemma`
 
@@ -223,45 +198,47 @@ application.
 
 `open` · `gemma` · `distribution` · `mila-src`
 
-Decided 2026-10-06 (Todd): every Gemma 4 package carries its own drafter, so one install
-gets both. A load gets it with the measured K wherever its speedup is
-measured and the planned context still fits with it loaded -- on the 16 GB card the 26B-A4B's drafter is context
-it gives up. Chat takes that default from the deployment, as it takes the model's sampling, with a setting to turn
-it off. The drafter's format is measured before a package ships it: BF16 as Google ships it, against its head at the
-12B's six-bit table format (`Gemma4Mtp.md` decision 2).
+The speculative loop is built and measured for both models (`Gemma4Mtp.md` 4.7, 4.8): draft, verify as one
+multi-row decode, accept, rewind, greedy and sampled, replayed. With the drafter's head at the six-bit table format
+the 12B decodes 1.59 / 2.02 / 2.15x faster greedy on prose / code / chat and 1.45 / 1.88 / 1.96x sampled, the
+26B-A4B 1.20 / 1.28 / 1.36x and 1.11 / 1.27 / 1.29x, each at its best K (RTX 5060 Ti). The six-bit head keeps
+acceptance within 0.02 of BF16's and makes a draft step a third cheaper, so it is the format a package carries
+(`Gemma4Mtp.md` decision 2), about 0.53 GB rather than 0.85. Greedy output parts from plain greedy only at
+near-ties; the RTX 4070 parts earlier than that, under Model fixes and parity.
+
+What is not done: decided 2026-10-06 (Todd), every Gemma 4 package carries its own drafter, so one install gets
+both. A load gets it with the measured K wherever its speedup is measured and the planned context still fits with
+it loaded -- on the 16 GB card the 26B-A4B's drafter is context it gives up -- so the planner prices it and
+`PlanEqualsBuild` holds with it built. Chat takes that default, as it takes the model's sampling, with a setting to
+turn it off. Selecting it in a deployment request is v0.22.0's.
 
 Gate: each Gemma 4 package exported on this tree carries its drafter as a manifest role; a load decodes with it
-token-for-token as without it, at the measured speedup, wherever the planned context fits with it resident; and
-Chat's setting turns it off.
+token-for-token as without it, at the measured speedup, wherever the planned context fits with it resident;
+`PlanEqualsBuild` holds with it; and Chat's setting turns it off.
 
 `ROADMAP.md`, Gemma 4 Complete success criteria · `Mila/Specifications/Gemma4Mtp.md` 4.7
 
 ### Qwen 3.8 Complete
 
-#### Publish the 2.82-bit Qwen 3.8 27B so a 12 GB card can run a 27B model
+#### End users cannot install the Qwen 3.8 27B build that holds 64K of context on a 16 GB card
 
 `open` · `distribution` · `quantization` · `qwen`
 
-The package exists and is validated; nobody outside can fetch it.
-`https://huggingface.co/api/models/mila-llm/Qwen3.8-27B-cb2-3` answers 401 anonymously, where
-every other published model answers 200. It is 11.1 GiB against 15.1 GiB for the FP4 build of the
-same model, which is what would let a 12 GB card run a 27B model at all — the FP4 build needs 16 GB.
+`fp4-cb3` is the Qwen 3.8 this release publishes (Todd, 2026-10-20): FP4 with two measured cuts to three bits,
+FFN down and DeltaNet query/key (`Qwen3.8.md` section 5). With the FP8 KV cache and the weight arena it plans 65,792 on
+the RTX 5060 Ti, loses 2.3% of the closing brackets BF16 gets right (FP4 2.1%, the 2.82-bit build 10.9%), and
+passes the tool-name probes, recall to 64K and the Hermes, Codex and Claude Code sessions. The package is built and lives only on this machine. No card exists:
+the cards under `Tools/ExportArtifact/ModelCards/` are FP4's and the 2.82-bit build's. The 2.82-bit build is not
+published (Todd, 2026-10-20; `Future.md`).
 
-Held out of v0.20.0 deliberately (Todd, 2026-09-21): a capability with no published package is not
-announced, the same rule that kept the Gemma 4 MoE work unannounced. The cost is that
-**`ROADMAP.md`'s v0.20 headline claim was written around this model** and had to be narrowed to the
-FP4 build at 16 GB. Publishing it is what makes the stronger claim sayable, so it wants to land
-early in the cycle rather than at the end. The fitted source is gitignored and not reproducible
-from the repo, so no reader can work around its absence.
+Work: its card, its repository under the model naming rule, the upload, and its manifest. Not decided: whether it
+supersedes the v0.20 FP4 model (`ModelDistribution.md`, *A model replaced by another*). The benchmark and context
+profile criteria name this build.
 
-The build to publish is the re-fit, which names its tools correctly (`Qwen3.8.md`, "Decided" after the re-fit), not
-the one in the private repository today, so the upload replaces those weights. Its card
-(`Tools/ExportArtifact/ModelCards/Qwen3.8-27B-cb2-3/README.md`) is written for the re-fit and ships with it; it
-calls the build nothing agentic until `ModelEval.md` Phase 8 says so.
+Gate: `https://huggingface.co/api/models/mila-llm/<its repository>` answers 200 anonymously, and a clean store
+installs and runs it at 64K on the 16 GB card.
 
-2026-10-19: held. On agentic coding the 2.82-bit builds drop one closing bracket of a nested pair, traced to the
-2-bit FFN gate/up, and the agentic allocation is now `fp4-cb3` (`Qwen3.8.md` section 5). Agentic use is quality-first
-on 16 GB (Todd); whether this 12 GB build ships at all is Todd's to decide.
+`ROADMAP.md`, Qwen 3.8 Complete success criteria · `Mila/Specifications/Qwen3.8.md` section 5
 
 #### Qwen answers in one block after a long silence
 
@@ -285,18 +262,10 @@ on screen.
 The library half is built: `LlamaChatProtocol` renders Meta's 3.1 and 3.2 templates byte-identical to their own
 Jinja (`Llama.ChatProtocol.cpp`), and parses a call in the template's own `{"name", "parameters"}` form. The server
 renders through it since `+68` and its copy is deleted; it is not yet run live, because no installed Llama package
-declares `architecture_version` (written at the L7 republish). What is left is Chat rendering through it.
-
-Gemma's and Qwen's templates and tool grammars are the library's, and both applications render through them;
-Llama's are written out twice instead — in Chat (`Chat.MessageFormatter.ixx`, `Chat.SystemPrompt.ixx`) and in the
-server (`prompt.py` `_build_llama_prompt`). So the library cannot render a Llama tool conversation, and Llama's
-context profile cannot ask its tool-call question.
-
-The server's copy differs from Meta's template: a Chat
-Completions request with no system message gets "You are a helpful assistant." as its system turn, where
-Meta's writes a "Cutting Knowledge Date / Today Date" header. `Tools/Evaluation` measures through token ids
-and does not see it; a score taken through `/v1/chat/completions` — every Hub benchmark score
-(`ModelEval.md` section 11.2) — carries it.
+declares `architecture_version` (written at the L7 republish). What is left is Chat rendering through it, which
+waits on the same republish: since `+82` Gemma and Qwen render and parse in Chat through the template the library
+chooses from the manifest, and Llama keeps Chat's own grammar (`Chat.MessageFormatter.ixx`, `Chat.SystemPrompt.ixx`)
+until its packages declare the version. Llama's context profile cannot ask its tool-call question until then.
 
 Chat's own parser (`Chat.ToolCallParser.ixx:121` `parseJson`) accepts only `"arguments"`, where Meta's templates ask
 for `{"name": ..., "parameters": ...}` and replay a call that way, so a call the model writes as the template asks is
@@ -321,8 +290,8 @@ MMLU-Pro) on Mila, HuggingFace and llama.cpp from the same token ids, and compar
 
 Work, in `ModelEval.md`'s order: Phase 1, Mila BF16 against HuggingFace BF16 on Llama 3.2 3B, which sets the
 noise floor; Phase 2, each quantized build of that model against the same reference; then every published model
-of every family (Phase 6), which serves the Gemma 4 and Qwen 3.8 criteria as well as Llama's, and both Qwen 3.8
-builds for agentic work (Phase 8). Every model but the
+of every family (Phase 6), which serves the Gemma 4 and Qwen 3.8 criteria as well as Llama's, and `fp4-cb3`, the
+Qwen 3.8 this release publishes, for agentic work (Phase 8). Every model but the
 Llama 3B has BF16 weights larger than the 16 GB card, so where their reference runs is decision 1, owed before
 their arms run. The card's table and its sentence follow section 8.
 
@@ -352,7 +321,7 @@ across the contexts its planner can choose. Admitted 2026-10-03 for every family
 
 In scope: Phase 1 (fit, loss by band, recall at depth) and Phase 2 (instruction retention, tool-call
 fidelity), for every model the release publishes -- Llama 3.2 3B and 3.1 8B, Gemma 4 12B and 26B-A4B
-in Q4_0, Qwen 3.8 27B at 2.82 bits -- at every band each fits on the 16 GB card, against section 9's decisions and
+in Q4_0, Qwen 3.8 27B as `fp4-cb3` -- at every band each fits on the 16 GB card, against section 9's decisions and
 thresholds, from 16K (Todd, 2026-10-03; section 3). Added 2026-10-04 (Todd): thinking as a configuration
 axis, profiled off and on (section 4.3), and a recovery arm beside Phase 2's -- whether an agent with the
 tool declared ends up right -- since recall alone measures one unaided lookup.
@@ -381,7 +350,7 @@ Llama 3.1 8B loses a system instruction by 65536 in BF16 and FP8 cache alike, an
 loses it the same way (`Quantization.md` Part III, decision 6's behavioral arm), while its planner may choose up to
 131072. It is the model's, so its profile is where a Llama user is told it.
 
-`ROADMAP.md`, Mila::AI success criteria · `Mila/Specifications/ContextProfile.md`
+`ROADMAP.md`, each family's success criteria · `Mila/Specifications/ContextProfile.md`
 
 ### Applications Ship
 
@@ -552,8 +521,8 @@ help says Qwen refuses an FP8 cache, which the code no longer does. Run internal
 
 One script in the repository drives both engines and writes the data the site shows. The target, fixed 2026-09-29:
 
-- **Rows:** every model published at the tag -- Llama 3.2 3B, Llama 3.1 8B, Gemma 4 12B, Qwen 3.8 27B in each of
-  its builds, and the Gemma 4 26B-A4B.
+- **Rows:** every model published at the tag -- Llama 3.2 3B, Llama 3.1 8B, Gemma 4 12B, Qwen 3.8 27B in FP4 and
+  `fp4-cb3`, and the Gemma 4 26B-A4B.
 - **Prefill:** 512, 2K, 8K and 32K tokens, and the longest context both engines fit.
 - **Generation:** 128 tokens (llama-bench's `tg128`) with an empty context, at 8K and 32K, and at the longest.
 - **The longest cell** is the largest multiple of 8K that both engines load on the card with that cell's KV
@@ -659,13 +628,13 @@ The FP32 reference has to exist wherever the test runs.
 `open` · `gemma` · `perf` · `measured`
 
 Claude Code 2.1.300's first request renders to about 20,400 tokens, and the 26B-A4B loads on the RTX 5060 Ti at
-27,648 -- under half of the 64K Todd set as the minimum context for an agentic workflow (the Qwen KV-cache entry), on
+27,648 -- under half of the 64K Todd set as the minimum context for an agentic workflow (`Qwen3.8.md` section 5), on
 one of the two models Mila calls agentic. Not measured: the 12B's room, or whether the 26B-A4B's context is held back
 for a full prefill chunk as Qwen's was.
 
 `Mila/Apps/Server/docs/harnesses.md` *Tested With*
 
-#### Chat renders Qwen 3.8's prompt differently from the model's own template in six places
+#### The Python binding and Mila's context measurements render Qwen 3.8's prompt differently from its own template in six places
 
 `open` · `qwen` · `apps` · `mila-src`
 
@@ -674,22 +643,30 @@ consecutive tool results into one user turn; it separates a turn's second and la
 signatures and non-string arguments through `tojson` (`", "`/`": "`, keys in the order given) where the free functions
 write compact, sorted JSON; it trims every message; and with `preserve_thinking` on, its default, it renders past
 reasoning back into history. `QwenChatProtocol` renders all six as the template does, and the inference server
-and Chat render through it; the binding's wrappers (`Mila_py.Wrappers.cpp:98`) and `Tools/ContextProfile` still
-call the free functions. Not measured: how far each moves the model's behaviour.
+and Chat (since `+82`) render through it; the binding's wrappers (`Mila_py.Wrappers.cpp:98`) and
+`Tools/ContextProfile` (`ContextProfile.ixx:379`, `:885`) still call the free functions, so a context profile is
+measured on a prompt the model's template would not write. Not measured: how far each moves the model's behaviour.
 
 `Mila/Src/Dnn/Models/Qwen/Qwen.Protocol.ixx` `formatPrompt`, `formatTurn`, `serializeToolSignatures`
 
-#### Chat cuts a Gemma tool result down to one field, where Google's template gives the model the whole text
+#### The Python binding and Mila's context measurements cut a Gemma tool result down to one field, where Google's template gives the model the whole text
 
 `open` · `gemma` · `apps` · `mila-src`
 
 The template renders a result given as text under `value:`, whole; `formatToolResponse` parses a JSON envelope and
 keeps one output field (added for Codex's envelope, whose chunk id the model echoed). `GemmaChatProtocol` renders it
-as the template does and the inference server renders through it, so the distillation, for the one client whose
-envelope needs it, belongs in the server's wire work; not checked whether the server does it since it switched.
-The binding's wrappers and `Tools/ContextProfile` still distil; Chat renders through `GemmaChatProtocol`. In the same template, a
-calling turn's text renders after its results and the turn closes with no prompt after it, so a resume whose
-assistant turn carries both text and calls -- Claude Code sends that shape -- gets no open model turn.
+as the template does, and the inference server and Chat (since `+82`) render through it, so the distillation, for
+the one client whose envelope needs it, belongs in the server's wire work; not checked whether the server does it
+since it switched. The binding's wrappers (`Mila_py.Wrappers.cpp:147`, `:179`) and `Tools/ContextProfile`
+(`ContextProfile.ixx:863`) still distil.
+
+In the same template, a calling turn's text renders after its results and the turn closes with `<turn|>`; because
+the last thing rendered was a result, the next reply opens with only `<|channel>thought\n` (or nothing, with
+thinking off) and no `<|turn>model`. So a resume whose assistant turn carries both text and calls -- Codex and
+Claude Code send that shape -- shows the model its own text again after the results and starts the reply outside
+any turn (found 2026-10-20 in a Codex session on the 26B-A4B, thinking on). Mila's port matches the template, and
+llama.cpp rendered Gemma prompts byte-identically on 2026-10-19. Not checked: whether Google's own serving renders
+it this way, and whether moving the text before the call, or dropping it, changes Gemma's agentic results.
 
 `Mila/Src/Dnn/Models/Gemma/Gemma.Protocol.ixx` `formatToolResponse`
 
@@ -704,32 +681,6 @@ the 4070.
 
 `Mila/Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp:367` `Gemma4_12B_GreedyGenerationIsUnchanged`
 
-#### Qwen 4's tiny reference never exercises the n-gram hash's negative branch
-
-`open` · `qwen`
-
-Mutation-checking the CUDA n-gram hash, a truncating `%` in place of the floor mod passed the capture gate, and only
-the hand-built `Hash_NegativeMixedValueMapsIntoTheHead` caught it. The capture's largest token id is 239 and its
-largest multiplier 3.5e16, so every product stays below 2^63 and no mixed value is negative; Qwen 4's real vocabulary
-(about 250K ids) wraps them. The header says the n-gram base near 1,000 exercises the floor mod; it exercises
-collisions, not the negative branch. Token ids above about 2^63 / max(multiplier), 260 here, would.
-
-`Mila/Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py`
-
-#### Qwen 4's tiny reference generator refuses its own capture under transformers 5.19
-
-`open` · `qwen`
-
-With transformers 5.19.0 the dense-exact prefix check requires the selected and dense passes to agree exactly, and
-they differ by 1.192e-7, one float ulp; every file is written before the check raises. The capture used 5.16, and had
-only been made in a cloud session, so the CPU gates had been skipping locally. Whether the check is too strict for a
-different version or machine, or 5.19 changed the indexer, is not known. 5.19 did change `qwen4_exp`: its config
-names the sparse layer type `indexed_attention` where 5.16 wrote `qwen_sparse_attention` (`convert_weights.py`
-treats every non-linear type as full attention, so the converter is unaffected). The tracked `hf_checkpoint/*.json`
-are at their 5.16 contents; the local capture is 5.19's.
-
-`Mila/Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py:392`
-
 ### Internal fixes
 
 Defects in the library the user admitted to this release with no ROADMAP criterion behind them.
@@ -741,12 +692,12 @@ Defects in the library the user admitted to this release with no ROADMAP criteri
 Measured 2026-10-03 on the RTX 5060 Ti (`ProfileModel --model qwen --quantization fp4`): from the post-initialization
 baseline, Qwen 3.8 27B FP4 consumed 14,962 MiB at context 8192 against a footprint of 14,920; at 16384 the plan left a
 26 MiB margin and the card read zero free after the load -- the condition the planner's exactness exists to prevent.
-Not yet attributed, and the 2.82-bit build, the Qwen this release publishes, was not checked.
+Not yet attributed, and `fp4-cb3`, the Qwen this release publishes, was not checked.
 
 Two device allocations are known to sit outside every price. `CudaExecutionContext` allocates the decode position
 (`setDecodePosition`, one `int`) on its first decode step and the prefill key bounds (`key_bounds_`, `:456`) on first
 use, each by its own `cudaMalloc`, outside `reserveScratch` and outside every `getMemoryStats` a plan reads; a small
-allocation can cost a whole granule. Work: attribute the Qwen gap, measure the 2.82-bit build the same way, and bring
+allocation can cost a whole granule. Work: attribute the Qwen gap, measure `fp4-cb3` the same way, and bring
 each allocation a load or a decode step makes under the plan's price.
 
 Gate: free memory after a load and the first decode steps is at least the margin the plan states, on Qwen at both
@@ -790,21 +741,17 @@ Gate: a model installed under a store path with characters outside the code page
 
 `in progress` · `build` · `ci` · `distribution`
 
-Move the declared toolkit to 13.4.2, between pieces of native work. Docker Hub has carried
-`nvidia/cuda:13.4.2-{base,runtime,devel}-ubuntu{22,24,26}.04` since 2026-09-29 (read on Docker Hub that
-day). The move was decided for 13.4.1 on 2026-09-24 (Todd) -- the minor is where behaviour and the driver
-floor move, so it should surface early in the cycle, with 13.4.2 a later patch bump -- but it never
-happened, and 13.4.2 now exists: one move to it replaces both. The local toolkit is 13.4.1 and needs
-13.4.2 installed first.
+The declared toolkit is 13.4.3 in the tree; what remains is building and verifying on it. Docker Hub has
+carried `nvidia/cuda:13.4.3-{base,runtime,devel}-ubuntu{22,24,26}.04` since 2026-10-17 (read on Docker Hub
+2026-10-20), and the local toolkit is 13.4.3 (nvcc 13.4.92). The move was decided for 13.4.1 on 2026-09-24
+(Todd) -- the minor is where behaviour and the driver floor move, so it should surface early in the cycle --
+and each later patch replaced the one before it rather than adding a second move.
 
-Moves together (RELEASING.md, toolkit paragraph): `$cudaVersion` in
-`scripts/pypi/build-wheel-windows.ps1:59`, `Docker/Dockerfile.wheel:23`, `Docker/Dockerfile.runtime:21`,
-`Docker/Dockerfile:9`, `:18`, `Docker/build-chat.sh:12`, `Docker/build-all.sh:26`,
-`build-pipeline.yml:54`, `:57`, and the docs naming 13.3 — `README.md:276`, `:286`, `:327`, `:341`,
-`getting-started.md:25`, `:33`, `:116-131` (the WSL installer URL and filename change with the
-patch level), `:183-191`, `:238`, `CONTRIBUTING.md:46`, `:113`, `:140`, `Docker/README.md:15`,
-`:20`, `Web/content/start.md:15`, `RELEASING.md:508`. `RELEASING.md:529` records what the
-`0.20.0b3` wheels were built on and stays.
+The sites (RELEASING.md, toolkit paragraph): the base images in `Docker/Dockerfile.wheel`,
+`Docker/Dockerfile.runtime`, `Docker/Dockerfile` and `build-pipeline.yml` name the patch; `$cudaVersion` in
+`scripts/pypi/build-wheel-windows.ps1` names the `v13.4` directory, so the Windows wheel takes whatever 13.4
+patch is installed there. The docs name the minor, except `getting-started.md`'s WSL installer URL and
+filename, which carry the patch. `RELEASING.md` records what the `0.20.0b3` wheels were built on and stays.
 
 Consequences to carry into the work. Wheel users see nothing — the `nvidia-*` dependencies and
 minor version compatibility, and this is now checked rather than assumed: a 13.3-built wheel loads
@@ -812,18 +759,18 @@ and generates correctly against the `>=13.0` floor those dependencies declare, o
 empirically and on Linux by symbol (`RELEASING.md`, *What the declared toolkit is not*). Moving the
 build to 13.4 does not disturb that, but re-check the floor if the cuBLASLt surface grows. Image
 users' driver floor rises: the base image's `NVIDIA_REQUIRE_CUDA`
-becomes `cuda>=13.4`, and the container toolkit refuses a GeForce driver below it. Every local build
-directory is configured against v13.3 while `CUDA_PATH` names v13.4 (13.4.1 installed), so a fresh
-configure already drifts — reconfigure all of them deliberately. Published tok/s figures and the
-cuBLASLt findings in the specs are 13.3 measurements; re-measure them once, just before the
-release, on the 13.4.x that ships. CI's first run
-starts with a cold ccache. The patch levels already differ today: Windows pins resolve to 13.3.1,
-the Linux images to 13.3.0.
+becomes `cuda>=13.4`, and the container toolkit refuses a GeForce driver below it; the driver a 13.x
+toolkit needs under minor version compatibility is 580 or later on every patch. `x64-validate`,
+`x64-wheel`, `claude-gate` and `x64-claude-validate` are still configured against v13.3 while
+`CUDA_PATH` names v13.4 — reconfigure them deliberately. Published tok/s figures and the cuBLASLt
+findings in the specs are 13.3 measurements; re-measure them once, just before the release, on the
+13.4.3 that ships. CI's first run starts with a cold ccache.
 
 Admitted 2026-10-10 (Todd): the Docker Hub images move to 13.4 for v0.21.0, and with them every site above, as one move.
 
-Gate: every image `publish-image.sh` pushes is built `FROM` `nvidia/cuda:13.4.2-*` and passes `verify-image.sh`; the
-wheels are built on 13.4.2 and pass the clean room; no document names 13.3 except `RELEASING.md:529`'s record.
+Gate: every image `publish-image.sh` pushes is built `FROM` `nvidia/cuda:13.4.3-*` and passes `verify-image.sh`; the
+wheels are built on 13.4.3 and pass the clean room; no document declares a toolkit other than 13.4 except
+`RELEASING.md`'s records of what earlier wheels were built on.
 
 `RELEASING.md`, the toolkit paragraph · `Docker/Dockerfile.runtime:21`
 
@@ -836,7 +783,7 @@ Windows and Linux wheels, their install tests, both images and their checks, nin
 hour — and `prepare` / `finish` set the version, merge `dev` into `master` and tag, all in the local repository.
 What it does not do is everything a publish is (`RELEASING.md`, steps 1 and 8 to 11), and what has changed since:
 
-- The server's wheel, a fifth file since `+56`, and the CUDA 13.4.2 base images are not in its stages.
+- The server's wheel, a fifth file since `+56`, and the CUDA 13.4.3 base images are not in its stages.
 - No Linux clang build and full suite from the export (ReleaseAutomation.md ring 2), so a patch tag builds nothing.
 - Publishing: the TestPyPI upload and the wait for the index before the clean room is dispatched, the PyPI
   upload, the Docker Hub push behind a real approval rather than a piped prompt, the Hub overview through its
@@ -869,7 +816,7 @@ Gate: the types, the binding's projection and `Deployment.md` use the short name
 
 `in progress` · `api` · `distribution` · `apps` · `binding` · `mila-src`
 
-The library stores and fetches models, but nothing in it loads one by its store name. Chat
+The library installs and stores models, but nothing in it loads one by its store name. Chat
 (`Chat.ModelCatalog.ixx:130-260`), the binding (`Mila_py.Wrappers.cpp:296-381`, two parsers) and the inference
 server (`model_worker.py:66`) each map a record's `architecture` to a family and its `variant` to a weight format,
 and the copies disagree: Chat loads `cb2-3` and `q4_0` where the binding's shared parser refuses both and its Qwen
@@ -1004,8 +951,7 @@ This is the bounded part of `Vnext.md`'s "Public Doxygen still describes a world
 
 Retired code is deleted and git history is the archive (Todd, 2026-10-11). Wholly retired files, out of the build:
 `Gqa.Decode.Bf16.cu`, `Gqa.Flash.Wmma.cu`, `Gqa.Flash.Bf16.cu`, `CudaRopeOp.Cache.ixx`, `MLP.Dispatch.ixx`,
-`CpuLinearOpTypeMap.ixx`, Chat's `Chat.GemmaToolCallParser.ixx` and `Chat.QwenProtocol.ixx`, the server's
-`gemma_protocol.py`, and the tests `CudaRopeOp.Calculated.Cuda.cpp` and `Gemma.DelegatedFeedForward.Cuda.cpp`, with
+Chat's `Chat.GemmaToolCallParser.ixx` and `Chat.QwenProtocol.ixx`, and the tests `CudaRopeOp.Calculated.Cuda.cpp` and `Gemma.DelegatedFeedForward.Cuda.cpp`, with
 their commented-out entries in `Mila/CMakeLists.txt:276` and `Mila/Tests/CMakeLists.txt:253`. Retired functions
 inside live modules: `Tools/Quantization/pack_qwen.py:162` and `artifact.py:181`. Specs that cite a retired file as a
 reference are reread when it goes.
@@ -1034,3 +980,40 @@ builds without running catches that class in the code users get. It needs the CU
 image already carries it (`Docker/Dockerfile`).
 
 `.github/workflows/build-pipeline.yml:198`
+
+#### Three Gemma 4 26B-A4B tests fail instead of skipping when its BF16 weights are a partial file
+
+`open` · `gemma`
+
+Found 2026-10-20 in the full suite: `Fp4Load_...`, `Q4_0Load_...` and `GemmaMixtureOfExpertsParityCudaTests.
+LayerStream_MatchesHuggingFaceReference` fail in milliseconds with "Failed to read rank of 'tf_layer_24...'".
+`Data/Models/Gemma/gemma4_26b_a4b_it_qat_bf16.bin` is 32,734 bytes, written 2026-10-19 22:44 by a 26B conversion
+that crashed (0xC0000005 in 5 s, empty log, `D:\Claude\gemma26b-gates\convert-26b.log`) while the Gemma BF16
+checkpoints were being restored; the 12B's re-conversion succeeded. The tests decide to run on the file existing,
+so a partial file turns a skip into a failure. Not known: why the converter crashed (the HF cache holds the 49 GB
+QAT checkpoint). Admitted 2026-10-20 (Todd), out of `Untriaged.md`.
+
+Work: the 26B's BF16 weights reconverted; the three tests skip, naming the reason, when the file is not a complete
+weights file; the Gemma converter writes beside its destination and renames on success, so a converter that dies
+leaves no file.
+
+Gate: the full suite passes with the 26B's BF16 weights absent, partial and complete, and a conversion killed part
+way leaves no file at its destination.
+
+`Mila/Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Load.Cuda.cpp:76` · `Mila/Tools/Converters/Gemma/`
+
+#### The inference server logs a client's dropped connection on Windows as an error with a traceback
+
+`open` · `apps`
+
+Found 2026-10-19 in the Codex session against Qwen 3.8 `fp4-cb3`: between two requests asyncio logged `ERROR
+Exception in callback _ProactorBasePipeTransport._call_connection_lost()` with a `ConnectionResetError` [WinError
+10054] traceback, and the next request was served normally; Codex's five turns all completed. It is the Windows
+proactor loop reporting a peer that reset an idle keep-alive connection. Not checked: whether uvicorn's own loop
+setting or a handler for that one exception removes it, and whether it appears on Linux. Admitted 2026-10-20 (Todd),
+out of `Untriaged.md`.
+
+Gate: a client that resets an idle keep-alive connection leaves no error and no traceback in the server's log, and
+an exception in a request still logs one.
+
+`Mila/Apps/Server/src/mila_llm_server/app.py` (event loop)

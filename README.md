@@ -1,6 +1,6 @@
 # Mila
 
-**A C++23 library for open LLMs at the metal — inference and training, built from explicit neural-network components you can read and understand.**
+**A C++23 library for local LLMs at the metal — inference and training, built from explicit neural-network components you can read and understand.**
 
 *Mila is a **craft project** — built for working at the metal: understanding exactly what every forward pass, gradient, and kernel does, which is also how you make them fast. Mastery is what that craft leads to.*
 
@@ -20,25 +20,22 @@ dispatch magic. Just C++23, CUDA, and full control.
 
 ## What Mila Is
 
-Mila is a component-based neural-network library for open LLMs, crafted so that **device and precision are chosen at compile
+Mila is a component-based neural-network library for local LLMs, crafted so that **device and precision are chosen at compile
 time, every forward and backward pass is explicit, and every gradient is yours to inspect**.
 
 There is no hidden execution engine. When you call `forward()`, you know exactly what runs.
 When you call `backward()`, you know exactly what accumulates. The architecture is designed
 to be read, understood, extended, and challenged.
 
-That philosophy fixes Mila's product shape: an **inference runtime library plus a small family of
-adaptors**, distinguished by who closes the generation loop. The **Chat** harness closes it
-in-process with a human in the gate; the **Mila Inference Server (MIS)** exports it over an
-OpenAI/Anthropic-compatible wire so best-in-class foreign harnesses (Codex, Claude Code) can drive
-Mila — and double as a ruthless validation oracle; a future **Agentic** adaptor will close the
-loop on itself, on-device. Mila is a **library, not a framework**: your application owns `main()`,
-the loop, and the tools — Mila makes the model an ordinary C++ object inside them. The full
-positioning lives in
-[MilaProductFamily.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Specifications/MilaProductFamily.md).
+That philosophy fixes Mila's product shape: a **library plus a small family of apps**,
+distinguished by who closes the generation loop. **Chat** closes it in-process with a human at the
+prompt; the **Mila Inference Server (MIS)** serves it over OpenAI- and Anthropic-compatible APIs, so
+agent harnesses such as Codex and Claude Code can drive Mila. Mila is a **library, not a
+framework**: your application owns `main()`, the loop, and the tools — Mila makes the model an
+ordinary C++ object inside them.
 
 Mila does not try to run everything the way the industry standards do — llama.cpp and vLLM already
-do that. It aims instead to *crest the wave*: to bring up the current best open models as they arrive
+do that. It aims instead to *crest the wave*: to run the current best local models as they arrive
 and put them within reach on home and edge hardware — a 12 GB card on your desk, not a rack in a
 datacenter. A short, curated set, each one raised from the metal and held to parity or better. Not a
 model zoo, and not second-best on the models it runs.
@@ -81,14 +78,13 @@ they load. FP8
 with cuBLASLt mixed-precision GEMM, and needs SM 8.9 or newer. FP4 E2M1 (`PerGroupFp4<128>`)
 halves weight storage again — packed nibbles dequantized per group inside the GEMM, on SM 8.0
 and newer. Below four bits, codebook policies (`PerGroupCodebook2`, `PerGroupCodebook3`) carry
-tables fitted offline against calibration data; a mixed 2/3-bit Qwen 3.8 27B averages 2.82 bits
-per weight.
+tables fitted offline against calibration data.
 
 ---
 
 ## Model Families
 
-Mila's validated targets, in priority order — the current best open models that fit home and edge
+Mila's validated targets, in priority order — the current best local models that fit home and edge
 hardware.
 
 ### Qwen 3.8 27B — the largest
@@ -112,11 +108,10 @@ GeGLU, RMSNorm, and final logit softcap — validated **token-for-token against 
   a bounded-KV sliding-window ring cache holds persistent KV growth to the global layers, so long
   chats stay inside the budget.
 - **Tensor-core flash-attention prefill** — a warp-tiled flash-attention kernel on the sliding local
-  layers. Prefill lands within 1.14x of llama.cpp at long context.
-- **On-device sampling** — logits never leave the GPU; only the sampled token is read back, at
-  49 tok/s FP4 decode at 32K context on a 12 GB card — within 1.03x of llama.cpp.
+  layers.
+- **On-device sampling** — logits never leave the GPU; only the sampled token is read back.
 - **Native tool calling** — Gemma's trained tool grammar, reconciled byte-for-byte to Google's
-  canonical chat template, driven end-to-end through MIS by foreign harnesses (Codex CLI, Claude Code)
+  canonical chat template, driven end-to-end through MIS by agent harnesses (Codex CLI, Claude Code)
   across plain-chat, single-tool, and tool-result-resume flows.
 
 ### Llama 3.x
@@ -167,10 +162,10 @@ tokenizers, and tooling beneath them.
 | Qwen 3.8 27B — hidden-state parity against HuggingFace | Validated — one decoder block at a time |
 | Gemma 4 12B Instruct inference — greedy decode | Validated against HuggingFace (token-for-token) |
 | Gemma 4 12B Instruct — FP4 E2M1 per-group quantization | Validated — runs a large context window in 12 GB (weight-tying + bounded-KV ring) |
-| Llama 3.1 8B inference — FP4 E2M1 per-group quantization | Validated — ~6 GB, ~57 tok/s decode, fits 12 GB |
+| Llama 3.1 8B inference — FP4 E2M1 per-group quantization | Validated — ~6 GB, fits 12 GB |
 | Llama 3.1 8B inference — FP8 E4M3 per-channel quantization | Validated — ~11.6 GB at ctx 8192 |
-| Llama 3.2 3B inference — FP4 E2M1 per-group quantization | Validated — coherent generation, 44–48 tok/s decode |
-| Llama 3.2 3B inference — FP8 E4M3 per-channel quantization | Validated — coherent generation, ~41 tok/s decode |
+| Llama 3.2 3B inference — FP4 E2M1 per-group quantization | Validated — coherent generation |
+| Llama 3.2 3B inference — FP8 E4M3 per-channel quantization | Validated — coherent generation |
 | Llama 3.2 3B inference — greedy decode at BF16 | Validated against HuggingFace |
 | Llama 3.2 1B inference — greedy decode at FP32 | Validated against HuggingFace |
 | GPT-2 inference — greedy and sampled | Validated against HuggingFace |
@@ -179,7 +174,7 @@ tokenizers, and tooling beneath them.
 | HuggingFace Llama weight converter | Complete |
 | HuggingFace GPT-2 weight converter | Complete |
 | Model store — install, list, remove; shared by Chat and MIS as separate processes | Complete |
-| Model retrieval from HuggingFace — digest-verified pull | Validated — pulled independently on Windows (C++) and Linux (Python), byte-identical blobs |
+| Model install from HuggingFace — digest-verified | Validated — installed independently on Windows (C++) and Linux (Python), byte-identical files |
 | Published models — Qwen 3.8 27B FP4, Gemma 4 12B FP4, Llama 3.1 8B FP4, Llama 3.2 3B FP4 (`mila-llm`) | Complete — ungated; licence and notice travel with the weights |
 | Model packaging and publishing — manifest, package, publish | Complete |
 | Instruction following — Llama 3.2 3B Instruct | Validated |
@@ -210,8 +205,7 @@ the precision at load.
 
 The library plus a small family of apps, each closing the generation loop for a different
 consumer, and `mila-store`, which installs and removes the models they run. See
-[Mila/Apps/README.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Apps/README.md) and the full
-positioning in [MilaProductFamily.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Specifications/MilaProductFamily.md).
+[Mila/Apps/README.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Apps/README.md).
 
 ### Chat — a human at a prompt
 
@@ -222,20 +216,17 @@ Mila: It stores the key and value tensors from earlier tokens so each new token 
 ```
 
 Located under `Mila/Apps/Chat`. An instruction-following chat harness that closes the
-loop in-process with a human in the gate — models load through the two-phase (prefill + decode)
+loop in-process with a human at the prompt — models load through the two-phase (prefill + decode)
 KV-cache pipeline, with model hot-switching (`/model load <name> [quant]`) and tool calling. Models
 come from the local store, and a fresh store has none: `/model list --online` lists what Mila
-publishes, `/model install <name>` downloads one, and `/model list` shows what is installed and
-what each costs in memory. On a 12 GB card, Gemma 4 12B FP4 runs a large context
-window — its two memory-fit gates, weight-tying and the bounded-KV sliding-window ring cache, landed
-in the alpha.6 line.
+publishes, `/model install <name>` installs one, and `/model list` shows what is installed and
+what each costs in memory. On a 12 GB card, Gemma 4 12B FP4 runs a large context window.
 
-### Mila Inference Server (MIS) — a foreign harness over the wire
+### Mila Inference Server (MIS) — an agent harness over the wire
 
-Located under `Mila/Apps/Server`. Exports the generation loop over an
-OpenAI/Anthropic-compatible wire (a pybind11 bridge plus a Python server) so a best-in-class
-harness you did not write — Codex, Claude Code — can drive Mila from another process, and
-double as a ruthless validation oracle.
+Located under `Mila/Apps/Server`. Serves the generation loop over OpenAI- and Anthropic-compatible
+APIs, so an agent harness you did not write — Codex, Claude Code — can drive Mila from another
+process.
 
 ---
 
@@ -262,8 +253,7 @@ long-form version, including building Mila from a clone.
 the full training loop: data loading, forward pass, loss, backward pass, AdamW step.
 
 **Bard** (`Mila/Samples/Bard`) trains a small GPT-2-style transformer on Tiny Shakespeare to
-coherent, Shakespeare-structured text — the transformer counterpart to MNIST's MLP, revived to the
-current API as part of v0.20 Training Revival.
+coherent, Shakespeare-structured text — the transformer counterpart to MNIST's MLP.
 
 ---
 
@@ -277,8 +267,7 @@ current API as part of v0.20 Training Revival.
 | CUDA Toolkit | 13.4 |
 | CMake | 4.0 or newer |
 | Git | 2.x or newer (validated on 2.54.0) |
-| GTest | 1.17.0 |
-| Doxygen + Graphviz | latest (optional — docs only) |
+| Doxygen | latest (optional — docs only) |
 | C++ Standard | C++23 |
 
 Ninja is the recommended generator — significantly faster than MSBuild for
@@ -302,7 +291,7 @@ optional convenience, not a requirement.
 
 `MILA_ENABLE_DOCS` is `ON` by default, and building the API docs needs Doxygen. Without it
 installed you still get a normal library build — the configure prints a warning and offers no
-`docs` target. Graphviz is not needed; the Doxyfile disables the call graphs.
+`docs` target.
 
 ### Quick Start
 
@@ -380,12 +369,11 @@ publish rather than the last release.
 
 ## Contributing
 
-Mila welcomes contributors who share its philosophy.
-Good starting points are CPU reference ops, test coverage, and new encoding strategies
-under /Components/Encodings/. Mila is GPU-first by design: the CUDA backend is the
-validated inference path, and CPU op coverage beyond the GPT-2 lineage is intentionally
-demand-driven — implementing a CPU op for Llama (RmsNorm, SwiGLU, RoPE, token embedding)
-is a well-scoped, self-contained first contribution, not a gap to apologize for.
+Mila welcomes contributors who share its philosophy. Work offered to new contributors is on GitHub
+under the [`good first issue`](https://github.com/ToddThomson/Mila/labels/good%20first%20issue)
+label; [BACKLOG.md](https://github.com/ToddThomson/Mila/blob/dev/BACKLOG.md) and
+[ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) show the work that moves the
+current release.
 
 1. Fork the repository and create a branch from dev
 2. Make changes with clear, focused commits
@@ -394,7 +382,7 @@ is a well-scoped, self-contained first contribution, not a gap to apologize for.
 
 New contributors: [getting-started.md](https://github.com/ToddThomson/Mila/blob/dev/getting-started.md) walks through a fresh clone,
 build, running inference, and opening your first PR.
-See CONTRIBUTING.md for coding standards and the pull request process.
+See [CONTRIBUTING.md](https://github.com/ToddThomson/Mila/blob/dev/CONTRIBUTING.md) for coding standards and the pull request process.
 
 ---
 

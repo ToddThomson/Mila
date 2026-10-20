@@ -18,7 +18,7 @@
 #
 # Driven by scripts/build-wheel.{ps1,sh} -- see Docker/README.md.
 #
-FROM nvidia/cuda:13.4.2-devel-ubuntu24.04
+FROM nvidia/cuda:13.4.3-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
