@@ -728,7 +728,8 @@ is kept in step across both wheel presets and `scripts/dockerhub/publish-image.s
 ROCm and Metal; `DeviceType::Rocm` / `::Metal` are reserved and unimplemented.
 
 Metal, 2026-09-29: aspirational, gated on hardware -- Todd is trying to get an Apple M1, for a Metal backend running
-Llama. What exists is scaffolding --
+Llama. As of 2026-10-20 an M1-or-later loaner is expected at the end of October or early November, and macOS is also
+wanted for Chat's desktop window (`ChatDesktop.md` section 9). What exists is scaffolding --
 `Compute/Devices/Metal/` has a device, memory resource, execution context and plugin, and no ops. The order that
 follows from the tree: Mila has never been built on ARM (the next entry), so a CPU-only build on the M1 comes first,
 and with `Vnext.md` "Llama 3.2 runs on the CPU backend" it already runs Llama there; then the Llama op set in Metal,
@@ -867,10 +868,15 @@ format at equal or fewer bytes serves them better is unmeasured. `Quantization.m
 
 `apps` · `architecture`
 
-Raised by Todd 2026-09-27: a Windows GUI, `MilaStudio.exe`, whose core comes from Chat. Chat's session logic --
-model resolution, the deployment request, the turn loop, tool dispatch and the streaming display's channel routing
--- lives in console-bound modules (`Chat.ixx`, `Chat.Renderer.ixx`), so a second front end shares it only once it is
-separated from the console; v0.21's move onto `Mila::AI` takes most of it there.
+Raised by Todd 2026-09-27: a Windows GUI whose core comes from Chat, laid out as a sidebar of conversations and a
+main pane (2026-10-20), for media and saved conversations, and as a showcase to developers of what Mila can build --
+not an end-user product. It needs nothing from `Mila::AI`:
+Chat's session is split from its console at the presentation line v0.22.0 also draws, and the window is a WebView2
+page speaking a JSON schema to a thin Win32 host -- WebView2 rather than WinUI 3 because the same page is to run on
+macOS (Todd, 2026-10-20). Phase 1, the page against a mock, is being built on a branch. Open: the executable's name
+and which release takes phases 2 and 3.
+
+`Mila/Specifications/ChatDesktop.md`
 
 ## Qwen 3.8 27B FP4 at 64K would need part of its cache in host memory
 
