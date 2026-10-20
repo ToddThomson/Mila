@@ -869,29 +869,6 @@ Moved from `BACKLOG.md` on 2026-10-04, as above. Same weights, same corpus: widt
 width. Probably already recorded at `Qwen3.8.md:509` and `:546` -- verify, and if so delete this entry rather
 than work it.
 
-## Qwen 3.8 27B FP4 predicts a book worse with the whole book before it than with 1024 tokens of it, from 8K on
-
-`qwen` · `quantization` · `measured`
-
-Moved from `Untriaged.md` on 2026-10-04 with Qwen's tuning (Todd); the FP4 build is not published again in v0.21.
-Anchor: `QwenOraclePrecisionPlan` (`Qwen.PrecisionPlan.ixx:141`), ContextProfile's loss arm @ `0.21.0-dev+34`
-
-Found 2026-10-03 by the first ContextProfile run of `qwen-3.8-27b-fp4` (RTX 5060 Ti, files `D:\Claude\context_profile\
-provisional`, `qwen_loss`). Five PG-19 books at 16384, window 64: gate 1 fails in 9 of 10 book-bands, pooled 2.835 /
-2.739 at 0-8K and 3.013 / 2.685 at 8K-16K (whole book / 1024 tokens of it); book 10356 reads 3.61 / 2.49 at 8K-16K.
-The 2.82-bit build on the same books passes but for 0.015 on one band -- 3.341 / 3.459 on book 10321 at 8K-16K, where
-FP4 reads 3.39-3.46 -- although FP4 has more bits on every role where the two plans differ (feed-forward, DeltaNet
-query/key, value/gate/output); both share FP4 attention and head and BF16 gating. Not the prefill chunk: 64, 256 and
-1024 move it by 0.05. Not the exported file: quantized on load from the BF16 blob it scores identically. Not mainly
-FP8 activations: `QwenPackedArtifactTests.DISABLED_DecodeAgainstPrefillAlongTheBook` (added `+34`) scores 257
-targets by decode (BF16 activations) and by prefill -- book 10356 after 12288 reads 5.10 decode / 5.25 prefill for
-FP4 against 2.59 / 2.59 for the 2.82-bit build; after 2048, 2.87 / 2.87 against 3.03 / 3.02. In August FP4 improved
-with context on wikitext to 16K (`Qwen3.8.md` section 8, 5.686 at 16K), segments scored cold, no chat turn. Recall
-at 11K and 16K is 99-100% on the same build. One difference left between the plans besides bits: the codebooks
-were fitted by GPTQ on calibration text, FP4 is round to nearest. The reference that would separate format from
-defect is HuggingFace BF16 and HuggingFace with the same weights rounded to FP4, layer-streamed
-(`hf_qwen_layer_stream.py` scores one prompt's last token today), at those positions.
-
 ## Gemma's small kernels between the large ones are 4 to 7% of its time
 
 `gemma` · `perf` · `mila-src` · `measured`
@@ -1285,3 +1262,124 @@ it, and so the first test of "a new architecture is added in one place".
 
 The finding is an absence — there is no partial implementation to point at. Gate: a dense member
 decodes token-for-token against HuggingFace at BF16 and FP8.
+
+## Qwen 4 27B is expected around November 2026 and Mila has no Qwen 4 chassis
+
+`qwen` · `architecture` · `mila-src`
+
+Qwen3.8-Flash-Next, the Qwen 4 architecture preview, was compared against the Qwen 3.8 chassis and the spec written.
+Its section 9 phases 0 to 2 (the tiny reference, the converter skeleton, grouped RmsNorm, dilated CausalConv1d, the
+DeltaNet gate activation, and the gated residual, n-gram, PLE and QSA indexer components) need no 27B checkpoint.
+2026-10-08: phases 0 and 1 are built and their CPU gates passed; phase 2 has `GatedResidual` and `NgramEmbedding` on
+CPU, gated against the tiny reference. Two of its defects are already in `BACKLOG.md` (Model fixes and parity).
+
+`Mila/Specifications/Qwen4.md`
+
+## Qwen 3.8 27B's embedding table is stored at 16 bits where a 2-bit copy serves
+
+`qwen` · `quantization` · `mila-src`
+
+The 2.82-bit build keeps `temb.wte` (248,320 x 5,120) in BF16, 2.54 GB of its 11.87 GB; Unsloth's Q2_K_XL stores the
+same table as Q2_K, 0.42 GB of 9.83 GB, and passed the Hermes short set 8/8 twice (found 2026-10-18). Both keep it in
+host memory -- ours pinned, llama.cpp's `CPU_Mapped` -- so the saving is 2.1 GB of download, disk and pinned host RAM,
+not VRAM: on the device the builds are 8,894 MiB (ours, file less the table) against 8,631 MiB. The model reads one
+row of the table per token. The same plan keeps the head at FP4 (4.25 bits) against Q4_K's 4.5. Not measured: what a
+2- or 4-bit table costs Qwen's quality, and whether the other families' tables are BF16 for a reason. `Future.md`'s
+"Qwen 3.8 FP4 -- FP8 the embedding table" is the same table at 8 bits.
+
+`Mila/Src/Dnn/Components/Transformers/Qwen/Qwen.PrecisionPlan.ixx` `EmbeddingTable`
+
+## The deployment planner cannot choose a model's bit allocation for the context asked of it
+
+`architecture` · `quantization` · `mila-src`
+
+Raised 2026-10-19 (Todd), with the agentic formula: 64K is the floor, the context is pushed up along a measured
+quality curve, and the bit-allocation recipe is picked from it -- "it would be incredible if this could be dynamically
+chosen with the planner", tying directly into v0.22's harness that serves a model, a card and a workload with the best
+recipe the measurements support. Today a precision plan is a compile-time type and a package carries one allocation;
+the planner chooses context, chunk and KV format for it. FP4 and FP8 roles quantize at load, so recipes that differ
+only there need no second package; codebook roles are fitted offline, so a recipe that differs there does;
+`dispatchKvCacheCompression` is the existing runtime-to-compile-time bridge such a choice would follow. Not decided;
+Todd 2026-10-19: Vnext, possibly Future.
+
+`Mila/Specifications/Deployment.md` · `Mila/Src/Deployment/`
+
+## A deployment request cannot fix the prefill chunk; the planner always chooses it
+
+`architecture` · `mila-src`
+
+`Deployment.md` decides "the chunk is not a request knob: the planner always chooses it", so a caller fixes the
+context and takes whatever chunk fits; there is no way to ask for a chunk, or a floor under one, and the agentic
+target is at least 64K at a chunk of at least 512 (`Qwen3.8.md`). Todd, 2026-10-18: the planner needs to work around
+provided settings -- a value the caller gives is a constraint the plan honours, as the fixed context already is. Not
+checked: what the request, Chat, the server and the binding would each carry.
+
+`Mila/Src/Deployment/DeploymentRequest.ixx` · `Mila/Specifications/Deployment.md` section 5
+
+## Nobody can tell a user when a smaller model beats a larger one quantized harder on their card
+
+`models` · `measured`
+
+Todd's question, 2026-10-18: for a given use case and card, when is a smaller model of a family the better choice
+than a larger one at aggressive quantization -- Gemma 4 26B-A4B against 12B, for one? Captured as `ModelEval.md`'s
+choice matrix: fit at the use case's minimum context first (the planner's answer), then quality at that context at
+the model's defaults, then rate by bytes read per token. Only one card answers it today, for one pair (Qwen 3.8 at 12
+and 16 GB). Not measured: any smaller model as an agent at 64K, or a smaller model at higher precision against a
+larger one at low bits on the same tasks. Open: the use cases, their thresholds, the candidate set.
+
+`Mila/Specifications/ModelEval.md` section 12
+
+## Model evaluations are not published, and a user cannot rerun them
+
+`models` · `apps` · `docs`
+
+Raised 2026-10-18 (Todd): publish the results on the website, and give end users a tool that reproduces them. Today
+the evaluations live in `Tools/Evaluation`, which never ships, and the results only in specs and `Data/Evaluation`.
+A shipped tool is a new app under `Mila/Apps/` with a `mila-` command, help text and tests; the lm-eval, bfcl-eval and
+inspect-ai arms bring heavy dependencies and the hf and llama.cpp arms need transformers or a llama.cpp build, while
+the Hermes task set is standard library only and talks only to the server. Not decided: which suites the tool
+carries.
+
+`Mila/Tools/Evaluation/` · `Web/` · `Mila/Specifications/ModelEval.md`
+
+## Nothing shows whether Mila keeps pace with llama.cpp in agentic use
+
+`perf` · `models` · `measured`
+
+Todd, 2026-10-19: add full agentic-use metrics against llama.cpp -- "we just need to be sure we are at parity or
+better". The Hermes task set already ran Unsloth's UD-Q2_K_XL on llama-server (2026-10-18, 8/8 twice), so that
+harness has a llama.cpp arm; Claude Code and Codex have none. The rate comparison is `BACKLOG.md`'s Performance Next
+to llama.cpp item. Internal runs; published numbers only at a release.
+
+`Mila/Tools/Evaluation/run_hermes_tasks.py`
+
+## Hermes Agent's session-title request is refused for its response format
+
+`apps`
+
+Once per task Hermes 0.22.2 sends a Chat Completions request with `response_format` `json_schema` (name
+`session_title`, `reasoning_effort` `none`), and the server refuses it because it has no constrained decoding (found
+2026-10-18 in the Hermes task-set runs). The task itself goes on; not checked what Hermes does with the session after
+the refusal.
+
+`Mila/Apps/Server/src/mila_llm_server/routes/factory.py`
+
+## Mila's website, README and marketing do not yet say what Mila is
+
+`docs`
+
+Raised 2026-10-19 (Todd): "This message needs to be published to the Mila website in the next 2 releases ... It is
+the whole Mila positioning message written for the end user. We've refined what Mila is over the last number of
+months and I feel it now consistent and achievable by 0.22. The website, README and other marketing messages need to
+catch up." The message as refined: a C++ library for compiling modern transformer architecture recipes; only a few
+models represent the best of local AI -- Gemma 4 and Qwen 3.8, then Qwen 4 -- and Mila serves those few deeply rather
+than many thinly; each published model carries a small set of measured builds; agentic use is quality-first on a 16
+GB card with 64K context as the floor, pushed up along a measured quality curve; developers building on Mila can
+choose their own build; the 0.22 harness serves a model, a card and a workload with the best build the measurements
+support. Copy claims only what the release it ships in can do, follows the end-user prose rules and the site's
+marketing voice. Todd, same day: "Each model card should have our quality measurements and the reasoning for our
+final model recipe" -- the measurements answer "is it any good", the recipe and what it holds on 16 GB "will it run",
+the reasoning under its own heading below the first screen; `.internal/Marketing/Positioning.md` is revised first,
+the other marketing docs from it.
+
+`Web/` · `README.md` · model cards

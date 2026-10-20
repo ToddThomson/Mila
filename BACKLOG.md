@@ -119,6 +119,16 @@ setting asks for. No removal.
 Scope grew on 2026-10-18 (Todd), the date held: under Applications Ship, the website's pages for the applications,
 with a criterion clause added to that theme. No removal.
 
+Scope grew on 2026-10-19 at the triage of `Mila/Issues/Untriaged.md` (Todd), the date held: under Applications Ship,
+the server answering any model name and joining a message's text parts with nothing; under Internal fixes, the
+32-bit seed, the greedy reply that depends on the request before it, the doc comments naming the retired registry,
+the retired code still in the tree, Clang's warning on the random-fill operation, and CI compiling the CUDA build.
+Three findings folded into the entries whose work they are. No removal.
+
+Scope grew again on 2026-10-19 (Todd), the date held: under Model fixes and parity, Qwen 3.8's four-bit builds
+predicting a long text worse with all of it in context, from `Vnext.md`, since the agentic build now carries it at
+64K. No removal.
+
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
 never committed.
 
@@ -371,36 +381,6 @@ calls the build nothing agentic until `ModelEval.md` Phase 8 says so.
 2-bit FFN gate/up, and the agentic allocation is now `fp4-cb3` (`Qwen3.8.md` section 5). Agentic use is quality-first
 on 16 GB (Todd); whether this 12 GB build ships at all is Todd's to decide.
 
-#### Qwen's KV cache is uncompressed on a card its weights already fill
-
-`in progress` · `qwen` · `quantization` · `mila-src`
-
-`PerTokenKvFp8<>` is built in the shared attention operation, gated on Llama and Gemma, and reached by
-their loads on request (`dispatchKvCacheCompression`); Qwen refuses it (`QwenModel::validateDeployment`)
-and its layers do not use it. On a 27B at FP4 the weights take the card, so the KV cache is what
-buys context back, and halving it is the difference between the context length that fits and the one
-the model is sold at.
-
-The freed margin is then a decision rather than a windfall — more context, or more bits where the
-quality gate says they are worth most. v0.20 deliberately did not pre-empt that, so it is part of
-this work rather than a consequence of it. The compressed cache has to be priced exactly by
-`getRequiredMemory`, since the planner reads that price.
-
-Decided 2026-10-15 (Todd): the margin goes to context, for agentic use, and the minimum context for an agentic
-workflow is 64K at a prefill chunk of at least 512 rows on the RTX 5060 Ti under Windows. On the 16 GB card the
-FP4 build loads at 11,264 tokens, and Claude Code's first request alone is about 20,400, so the inference server
-refuses every request it sends; at 32K it serves a short task but compacts every turn of a session. The FP4
-build was estimated to top out near 49K here even with this cache and a block's weights in one allocation
-(`MemoryFootprint.md` 11.8.1). 2026-10-19 (Todd: quality
-first, 64K the floor): the build that meets the target is `fp4-cb3` -- FP4 but the FFN down and DeltaNet q/k at
-three-bit codebooks, chosen by measuring each role's cut (`Qwen3.8.md` section 5) -- with this cache and the arena;
-the 2.82-bit build is no longer the route. Gate: the FP8 cache against BF16 on Qwen by the instruction-retention
-protocol Llama and Gemma ran, at lengths both reach and past BF16's; the plan's price equal to the build; the
-closing-bracket check, the tool-name probes and the Hermes short set with broken edits counted; and Claude Code
-completing a multi-turn session at 64K through the inference server.
-
-`Mila/Specifications/Qwen3.8.md` "Agentic deployment on the 16 GB card"
-
 #### Qwen answers in one block after a long silence
 
 `open` · `qwen` · `apps`
@@ -467,7 +447,16 @@ their arms run. The card's table and its sentence follow section 8.
 Gate: Phase 1's — every paired interval contains zero and every task's median divergence is past the first
 sentence; then each published build's scores beside the original's, its flips read against that floor.
 
-`Mila/Specifications/ModelEval.md` · `Mila/Tools/Evaluation/README.md`
+Two harness limits found on the way. The tools assumed greedy decoding and short replies: `run_bfcl.py` now sends no
+sampling knob and asks for 32,768 tokens (greedy is `--greedy`), but `reference_server.py`, BFCL's `hf` arm, refuses
+any temperature above 0 and defaults a reply to 256 tokens -- right for Phase 1's engine parity, unable to measure a
+model at its recommended setting -- and lm-eval's served arm sends each task's own greedy `gen_kwargs`; results
+recorded before 2026-10-18 with thinking off are under `Data/Evaluation/qwen38-*-thinking-off*`. And Llama 3's
+template writes today's date into every prompt, so `compare_arms.py` refuses a pair whose arms start either side of
+midnight; Phase 1 takes about 2.7 hours an arm, and the template takes a `date_string` when one is given.
+
+`Mila/Specifications/ModelEval.md` · `Mila/Tools/Evaluation/README.md` · `reference_server.py:138` ·
+`run_arm.py` `lm_eval_arguments`
 
 #### Nobody knows how deep into a conversation each model still finds a fact, obeys its instructions and calls a tool correctly
 
@@ -555,6 +544,11 @@ still loads; every published model republished with them.
 Also the root of Codex's "Model metadata not found" warning against `/v1/models` — all three
 validated flows pass regardless, so that is a symptom of this gap rather than separate work.
 
+Found 2026-10-18 serving Qwen3.8-27B-fp4 from an install that predates the fields: `/v1/models` says
+`supports_reasoning: false` and `capabilities.tools: false` for a model that reasons by default and calls tools,
+because an absent field reads as false rather than unknown. Until every model is republished, each older install
+reports the wrong answer. `Mila/Apps/Server/src/mila_llm_server/protocols/openai/models.py:32`
+
 #### The website does not tell a user how to run Chat, the inference server or the model store
 
 `open` · `docs` · `apps`
@@ -573,6 +567,29 @@ build instructions. Admitted 2026-10-18 (Todd); the shape proposed the same day:
   version and limit it states is measured.
 
 `Web/hugo.toml` (navigation), `Web/layouts/index.html` (Get started tabs), `Mila/Apps/Server/docs/harnesses.md`
+
+#### The inference server answers a request for any model name with the model it has loaded
+
+`open` · `apps`
+
+Nothing compares a request's `model` with the model loaded, so a harness configured for one model is served by
+another without a word. It is how a stale Hermes setting went unnoticed for three months (found 2026-10-18):
+requests naming `gemma-4-12b-it` were answered by Qwen 3.8 27B FP4 and the Gemma 4 26B-A4B, and the harness guide
+recorded both as passing. Not checked: what OpenAI and Anthropic return for an unknown model (OpenAI documents
+`model_not_found`), and whether every harness sends a name the server could match.
+
+`Mila/Apps/Server/src/mila_llm_server/`
+
+#### The inference server joins the text parts of one message with nothing between them
+
+`open` · `apps`
+
+Claude Code 2.1.300's `system` field is three text blocks, and the first (`x-anthropic-billing-header: ...;`) is
+joined straight onto the second ("You are a Claude agent..."); Codex 0.162.1 sends its skills and permissions text
+as two parts of one `developer` message, joined the same way (found 2026-10-15 capturing the harnesses). Not
+checked: how Anthropic and OpenAI join a message's parts, or whether the billing line reaches Anthropic's models.
+
+`Mila/Apps/Server/src/mila_llm_server/conversation.py` `text_of`
 
 ### Upgrades Keep Your Models
 
@@ -623,6 +640,12 @@ before this release's kernels. The measurements that replace it come from the co
 (`Mila/Profiling/Benchmarks/benchmark_comparison.py`), which runs Llama 3.1 8B and Gemma 4 12B today; the
 Llama 3.2 3B row needs its Q4_0 GGUF and the Qwen 3.8 rows a GGUF of their own (llama.cpp knows the
 architecture).
+
+For Qwen 3.8 (agreed 2026-10-19, Todd): `fp4-cb3` and FP4 against Unsloth's UD-IQ4_XS, about the same size on the
+card, with the 8-bit cache on both sides; both GGUFs are in the HF cache and llama.cpp b11216 loads them. Missing: an
+`fp4-cb3` row, Qwen GGUF paths, and a KV column -- the script always runs llama.cpp with an FP16 cache, so an
+FP8-cache cell cannot be matched with `-ctk q8_0 -ctv q8_0`; `ProfileModel` has no `fp4-cb3` quantization, and its
+help says Qwen refuses an FP8 cache, which the code no longer does. Run internally first, against b11216.
 
 One script in the repository drives both engines and writes the data the site shows. The target, fixed 2026-09-29:
 
@@ -685,6 +708,35 @@ both agree with that reference. Not measured: BF16 laid end to end at 8K and 16K
 with context is the model's or FP4's.
 
 `Mila/Tests/Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp` `DISABLED_QualityGateAcrossContextLengths`
+
+#### Qwen 3.8 27B at four bits predicts a long text worse with all of it in context than with its last 1,024 tokens
+
+`open` · `qwen` · `quantization` · `measured`
+
+Found 2026-10-03 by the first ContextProfile run of `qwen-3.8-27b-fp4` (RTX 5060 Ti, files `D:\Claude\context_profile\
+provisional`, `qwen_loss`). Five PG-19 books at 16384, window 64: gate 1 fails in 9 of 10 book-bands, pooled 2.835 /
+2.739 at 0-8K and 3.013 / 2.685 at 8K-16K (whole book / 1024 tokens of it); book 10356 reads 3.61 / 2.49 at 8K-16K.
+The 2.82-bit build on the same books passes but for 0.015 on one band -- 3.341 / 3.459 on book 10321 at 8K-16K, where
+FP4 reads 3.39-3.46 -- although FP4 has more bits on every role where the two plans differ (feed-forward, DeltaNet
+query/key, value/gate/output); both share FP4 attention and head and BF16 gating. Not the prefill chunk: 64, 256 and
+1024 move it by 0.05. Not the exported file: quantized on load from the BF16 blob it scores identically. Not mainly
+FP8 activations: `QwenPackedArtifactTests.DISABLED_DecodeAgainstPrefillAlongTheBook` (added `+34`) scores 257
+targets by decode (BF16 activations) and by prefill -- book 10356 after 12288 reads 5.10 decode / 5.25 prefill for
+FP4 against 2.59 / 2.59 for the 2.82-bit build; after 2048, 2.87 / 2.87 against 3.03 / 3.02. In August FP4 improved
+with context on wikitext to 16K (`Qwen3.8.md` section 8, 5.686 at 16K), segments scored cold, no chat turn. Recall
+at 11K and 16K is 99-100% on the same build. One difference left between the plans besides bits: the codebooks
+were fitted by GPTQ on calibration text, FP4 is round to nearest. The reference that would separate format from
+defect is HuggingFace BF16 and HuggingFace with the same weights rounded to FP4, layer-streamed
+(`hf_qwen_layer_stream.py` scores one prompt's last token today), at those positions.
+
+The agentic build carries it at the length it is chosen for (2026-10-19, `qwen-3.8-27b-fp4-cb3-fp8-kv`, 5060 Ti, same
+five books at 65,536, chunk 512): whole book / 1024 tokens of it 2.908 / 2.866 at 0-8K, 2.945 / 2.768 at 8K-16K,
+3.061 / 2.773 at 16K-32K and 3.452 / 2.760 at 32K-64K, where the 2.82-bit build falls from 2.980 to 2.809 over the
+same bands. Recall on the same run is 100% at every depth and band, and Hermes, Codex and the tool-name probes pass;
+the longest of those sessions reached about 24K tokens. Related: the chat-conversation loss entry above, on
+different text.
+
+`QwenOraclePrecisionPlan` (`Qwen.PrecisionPlan.ixx:141`) · ContextProfile's loss arm
 
 #### Qwen 3.8's BF16 parity test fails on a longer prompt, though Mila is as close to FP32 as HuggingFace is
 
@@ -1019,3 +1071,74 @@ passing; `QuickStart/Cpp` builds through FetchContent with no `import std` setti
 `getting-started.md` and the images state the new Clang floor.
 
 `Mila/CMakeLists.txt` · GitHub #30
+
+#### A 64-bit sampling seed keeps only its low 32 bits
+
+`open` · `mila-src`
+
+`reseed( std::uint64_t )` casts to `std::mt19937::result_type` and `mt19937::seed` keeps 32 bits, so seeds 2^32
+apart -- and OpenAI's -1 and 4294967295 -- give the same stream while the API says each is a different seed. A
+`std::seed_seq` of both halves would keep all 64.
+
+`Mila/Src/Dnn/Samplers/TokenSampler.ixx` `reseed`
+
+#### A greedy reply through the inference server can depend on the request before it
+
+`open` · `mila-src` · `binding` · `apps`
+
+Reusing a cached prompt prefix rounds a prompt differently from a whole prefill (Llama 3.2 3B BF16 departs at the
+tenth sampled token), so since 2026-10-18 a seeded call prefills whole. An unseeded greedy request still reuses, so
+at a near-tie its reply depends on what the server ran before -- the case an engine comparison at greedy through the
+server is in. Not checked: how often greedy flips on real prompts, and whether greedy calls should also prefill
+whole.
+
+`Mila/Bindings/Mila_py.Wrappers.cpp` (reuse off only with a seed) · `Mila/Specifications/PromptCaching.md` section 5
+
+#### Library doc comments still describe the retired operation registry and the removed operation bases
+
+`open` · `docs` · `mila-src`
+
+`Mila.ixx:108` records the runtime `OperationRegistry` as retired, and no `UnaryOperation`, `BinaryOperation` or
+`PairedOperation` class exists, but the Doxygen of Residual, Softmax, Lpe, SoftmaxCrossEntropy, Gelu and others still
+says they obtain a backend from the registry or derive from those bases; a grep counts 28 mentions of the bases.
+This is the bounded part of `Vnext.md`'s "Public Doxygen still describes a world that was refactored away".
+
+`Connections/Residual.ixx:8` · `Normalization/Softmax.ixx:44` · `Encodings/Lpe/Lpe.ixx:53` ·
+`Losses/SoftmaxCrossEntropy.ixx:11`
+
+#### Code retired under the old keep-it-in-the-tree rule still sits in the tree
+
+`open` · `mila-src` · `build`
+
+Retired code is deleted and git history is the archive (Todd, 2026-10-11). Wholly retired files, out of the build:
+`Gqa.Decode.Bf16.cu`, `Gqa.Flash.Wmma.cu`, `Gqa.Flash.Bf16.cu`, `CudaRopeOp.Cache.ixx`, `MLP.Dispatch.ixx`,
+`CpuLinearOpTypeMap.ixx`, Chat's `Chat.GemmaToolCallParser.ixx` and `Chat.QwenProtocol.ixx`, the server's
+`gemma_protocol.py`, and the tests `CudaRopeOp.Calculated.Cuda.cpp` and `Gemma.DelegatedFeedForward.Cuda.cpp`, with
+their commented-out entries in `Mila/CMakeLists.txt:276` and `Mila/Tests/CMakeLists.txt:253`. Retired functions
+inside live modules: `Tools/Quantization/pack_qwen.py:162` and `artifact.py:181`. Specs that cite a retired file as a
+reference are reread when it goes.
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/`
+
+#### A consumer build on Clang warns that a random-fill operation uses a cudaMalloc local to another translation unit
+
+`open` · `mila-src` · `build`
+
+Building QuickStart inside the devel image with Clang 22 (2026-10-13) gives four
+`-Wreference-tu-local-entity-in-other-tu` warnings, from `fill_uniform` and `fill_normal` instantiating
+`cudaMalloc<float>`, the CUDA runtime header's template, which the module's global fragment declares. Not checked:
+whether Clang 21 warned too, and whether it is only a warning or a real ODR hazard.
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Random.ixx:266`
+
+#### CI never compiles the CUDA build, so Clang portability defects in the code users run go unseen
+
+`open` · `ci` · `build`
+
+The CPU-only job compiles a different module graph -- the CUDA modules are absent -- so a missing `#include` that
+MSVC resolves transitively in CUDA-side or model code reaches Linux only when someone builds the GPU configuration
+there. nvcc and Clang compile CUDA code on a runner with no GPU, so a job that configures `MILA_ENABLE_CUDA=ON` and
+builds without running catches that class in the code users get. It needs the CUDA toolkit on the runner; the dev
+image already carries it (`Docker/Dockerfile`).
+
+`.github/workflows/build-pipeline.yml:198`

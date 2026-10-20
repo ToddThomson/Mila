@@ -345,6 +345,11 @@ namespace Mila::Dnn::Gemma
             return variables_;
         }
 
+        bool rendersLaterSystemTurns() const noexcept override
+        {
+            return true;
+        }
+
     private:
 
         std::vector<Conversation::TemplateVariable> variables_;

@@ -882,6 +882,7 @@ namespace Mila::Tests::Dnn::Models
     TEST( QwenChatProtocolRefusal, ASystemTurnAfterTheFirstIsRefused )
     {
         EXPECT_THROW( (void)render( { user( kCapital ), system( kSystem ) } ), std::invalid_argument );
+        EXPECT_FALSE( QwenChatProtocol{}.rendersLaterSystemTurns() );
     }
 
     TEST( QwenChatProtocolRefusal, AHistoryWithNoUserQuestionIsRefused )

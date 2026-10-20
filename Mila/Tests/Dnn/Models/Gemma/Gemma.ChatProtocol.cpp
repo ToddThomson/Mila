@@ -262,6 +262,14 @@ namespace Mila::Tests::Dnn::Models
         EXPECT_EQ( render( { system( kSystem ), user( kCapital ) } ), kSystemGolden );
     }
 
+    TEST( GemmaChatProtocol, ASystemTurnAfterAReplyRendersWhereItStands )
+    {
+        const auto prompt = render( { user( kCapital ), assistant( "Canberra." ), system( kSystem ), user( kCapital ) } );
+
+        EXPECT_NE( prompt.find( "Canberra.<turn|>\n<|turn>system\n" + kSystem ), std::string::npos );
+        EXPECT_TRUE( GemmaChatProtocol{}.rendersLaterSystemTurns() );
+    }
+
     TEST( GemmaChatProtocolParity, ContentIsTrimmed )
     {
         EXPECT_EQ( render( { system( "  Be brief.\n" ), user( "  hi  \n" ) } ), kTrimmed );

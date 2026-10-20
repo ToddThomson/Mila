@@ -82,6 +82,21 @@ def test_markers_carry_the_stops():
     assert markers["reasoning_close"] == "</think>"
 
 
+@pytest.mark.parametrize("factory", ["gemma", "qwen", "llama31", "llama32"])
+def test_each_template_says_whether_it_renders_a_later_system_turn(factory):
+    protocol = getattr(mila.ChatProtocol, factory)()
+    history = [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello."},
+               {"role": "system", "content": "Answer in French."}, {"role": "user", "content": "Weather?"}]
+
+    if protocol.renders_later_system_turns:
+        assert "Answer in French." in protocol.format_prompt(history)["text"]
+    else:
+        with pytest.raises(ValueError, match="system"):
+            protocol.format_prompt(history)
+
+    assert protocol.renders_later_system_turns == (factory != "qwen")
+
+
 def test_an_unknown_role_is_refused():
     with pytest.raises(ValueError, match="role"):
         mila.ChatProtocol.gemma().format_prompt([{"role": "developer", "content": "hi"}])

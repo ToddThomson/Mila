@@ -94,7 +94,8 @@ async def _serve_chat(endpoint: ChatEndpoint, body: dict, http_req: Request) -> 
 
     try:
         request = endpoint.parse(body, protocol)
-        prompt = protocol.format_prompt(placed_system_turns(request.turns), request.template_variables, request.tools_json)
+        turns = placed_system_turns(request.turns, protocol.renders_later_system_turns)
+        prompt = protocol.format_prompt(turns, request.template_variables, request.tools_json)
     except ValueError as error:
         # RequestError for what the endpoint refuses, ValueError for what the template refuses -- both name it.
         logger.warning("refused %s: %s; request shape: %s", endpoint.path, error, _shape(body))

@@ -60,5 +60,13 @@ namespace Mila::Dnn::Conversation
 
         /// The template's own variables, each with the values it accepts and its default. Empty when it takes none.
         virtual std::span<const TemplateVariable> templateVariables() const noexcept = 0;
+
+        /**
+         * @brief Whether a system turn after the first renders where it stands.
+         *
+         * False for a template that accepts one system turn, first, and refuses any other: formatPrompt
+         * throws for it, and a consumer whose API places system text later carries that text another way.
+         */
+        virtual bool rendersLaterSystemTurns() const noexcept = 0;
     };
 }

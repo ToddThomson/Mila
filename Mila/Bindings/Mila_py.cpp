@@ -1259,7 +1259,10 @@ static void bind_chat_protocol_object( py::module_& m )
         .def_property_readonly( "template_variables",
             [json]( const ChatProtocolHandle& self ) { return json().attr( "loads" )( self.templateVariablesJson() ); },
             "The template's own settings: [{'name', 'values', 'default'}]. An empty 'values' takes any\n"
-            "text; an empty 'default' is one the template works out when it renders, such as today's date." );
+            "text; an empty 'default' is one the template works out when it renders, such as today's date." )
+        .def_property_readonly( "renders_later_system_turns", &ChatProtocolHandle::rendersLaterSystemTurns,
+            "Whether a system message after the first renders where it stands. When False, format_prompt\n"
+            "refuses a history with one, and the text has to reach the model another way." );
 }
 
 // ============================================================================

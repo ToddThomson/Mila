@@ -289,6 +289,12 @@ namespace Mila::Dnn::Qwen
             return variables_;
         }
 
+        // The template raises "System message must be at the beginning." for any other.
+        bool rendersLaterSystemTurns() const noexcept override
+        {
+            return false;
+        }
+
     private:
 
         std::vector<Conversation::TemplateVariable> variables_;

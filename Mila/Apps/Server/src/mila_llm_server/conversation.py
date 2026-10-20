@@ -77,20 +77,49 @@ def call_id(name: str, arguments: str) -> str:
     return f"call_{digest}"
 
 
-def placed_system_turns(turns: list[dict]) -> list[dict]:
+def placed_system_turns(turns: list[dict], renders_later_system_turns: bool = True) -> list[dict]:
     """
     The conversation with its system text where a template can take it (InferenceServerWire.md 3.6). Every system
     turn before the model's first reply joins one leading turn, in the order sent: each reply stands after all of
-    them, so the joined turn is what every reply was told. A later one stays in place for the template to render
-    or refuse, and one with no text is dropped, as it renders nothing.
+    them, so the joined turn is what every reply was told. A later one stays in place where the template renders
+    it, and is folded into the conversation where it does not; one with no text is dropped, as it renders nothing.
     """
     first_reply = next((index for index, turn in enumerate(turns) if turn["role"] == "assistant"), len(turns))
     opening = turns[:first_reply]
     system_texts = [turn["content"] for turn in opening if turn["role"] == "system" and turn["content"].strip()]
     placed = [{"role": "system", "content": "\n\n".join(system_texts)}] if system_texts else []
     placed += [turn for turn in opening if turn["role"] != "system"]
+    later = [turn for turn in turns[first_reply:] if turn["role"] != "system" or turn["content"].strip()]
 
-    return placed + [turn for turn in turns[first_reply:] if turn["role"] != "system" or turn["content"].strip()]
+    return placed + (later if renders_later_system_turns else _folded_system_turns(later))
+
+
+def _folded_system_turns(turns: list[dict]) -> list[dict]:
+    """
+    Each system turn's text joined to the end of the user message or tool result before it, or, after a reply, to
+    the start of the next one. It keeps its place after the replies that preceded it, and no turn is added: a new
+    user turn would move the template's last query and change how the replies before it render. One with no turn
+    to join stays in place, for the template to refuse.
+    """
+    folded: list[dict] = []
+    waiting: list[str] = []
+
+    for turn in turns:
+        if turn["role"] == "system":
+            if folded and folded[-1]["role"] in ("user", "tool"):
+                folded[-1] = dict(folded[-1], content=f"{folded[-1]['content']}\n\n{turn['content']}")
+            else:
+                waiting.append(turn["content"])
+
+            continue
+
+        if waiting and turn["role"] in ("user", "tool"):
+            turn = dict(turn, content="\n\n".join([*waiting, turn["content"]]))
+            waiting = []
+
+        folded.append(turn)
+
+    return folded + [{"role": "system", "content": text} for text in waiting]
 
 
 def offered_tool(name: str, description: str, parameters: dict | None) -> dict | None:

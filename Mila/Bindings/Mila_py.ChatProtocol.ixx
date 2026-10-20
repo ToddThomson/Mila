@@ -60,6 +60,9 @@ namespace Mila::Bindings
         /// The template's variables as JSON: [{name, values, default}].
         std::string templateVariablesJson() const;
 
+        /// Whether a system turn after the first renders where it stands; formatPrompt refuses one where it does not.
+        bool rendersLaterSystemTurns() const;
+
     private:
 
         struct Implementation;

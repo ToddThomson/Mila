@@ -211,4 +211,9 @@ namespace Mila::Bindings
 
         return variables.dump();
     }
+
+    bool ChatProtocolHandle::rendersLaterSystemTurns() const
+    {
+        return implementation_->protocol->rendersLaterSystemTurns();
+    }
 }

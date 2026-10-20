@@ -870,3 +870,96 @@ Raised by Todd 2026-09-27: a Windows GUI, `MilaStudio.exe`, whose core comes fro
 model resolution, the deployment request, the turn loop, tool dispatch and the streaming display's channel routing
 -- lives in console-bound modules (`Chat.ixx`, `Chat.Renderer.ixx`), so a second front end shares it only once it is
 separated from the console; v0.21's move onto `Mila::AI` takes most of it there.
+
+## Qwen 3.8 27B FP4 at 64K would need part of its cache in host memory
+
+`qwen` · `mila-src` · `perf`
+
+Proposed by Todd 2026-10-18 when no 26B-or-larger model at FP4 reached 64K on a 16 GB card: one KV pool over the
+device and pinned host memory, device first, the oldest positions in the host tier, prefetched under the layers
+between attention layers. Since then `fp4-cb3` with the FP8 cache and the weight arena holds 65,792, and the 26B-A4B
+65,536 with the FP8 cache, so the pool is only for more context than those, or for FP4 itself. Not measured: the bus
+rate on the 5060 Ti and the decode rate a user would accept.
+
+`Mila/Specifications/TieredKvCache.md`
+
+## Gelu and Residual zero a gradient buffer the CUDA kernels overwrite
+
+`training` · `perf` · `mila-src`
+
+Both components `zero()` their input gradient before calling the operation, for the CPU operations that accumulated
+into it (found 2026-10-11 retiring them). The CUDA kernels assign every element in range (`Gelu.Fp32.cu`,
+`Residual.Fp32.cu` / `.Bf16.cu`), so the zeroing is a memset per backward that nothing reads. Not checked: whether
+any caller reads past the range a narrower-than-built input writes, which the zeroing keeps at zero today.
+
+`Mila/Src/Dnn/Components/Activations/Gelu/Gelu.ixx` and `Connections/Residual.ixx`, `backward`
+
+## The loss GPT-2 and MNIST train with has no test that runs
+
+`training` · `mila-src`
+
+`SoftmaxCrossEntropy.Cuda.cpp` sits in the CMake list's parked section ("loss-on-device milestone"), and the empty
+`CrossEntropy.Cpu.cpp` went with the CPU operations, so no built test reaches the softmax cross-entropy component or
+its CUDA operation (found 2026-10-11).
+
+`Mila/Tests/CMakeLists.txt` (the parked `SoftmaxCrossEntropy.Cuda.cpp` line)
+
+## No model Mila runs can be post-trained, even with LoRA on a 16 GB card
+
+`training` · `architecture` · `mila-src`
+
+Raised 2026-10-11 (Todd), whose intent is to triage this into a full specification written from the discussions
+still to come. Training runs only along the GPT-2 line (MHA, LayerNorm, GELU, AdamW). A full AdamW fine-tune costs
+about 16 bytes a parameter, which caps 16 GB below 1B parameters. LoRA over a frozen base fits: Llama 3.2 3B with a
+BF16 base (~6.4 GB), and Llama 3.1 8B (~4.5 GB) or Gemma 4 12B (Q4_0 QAT, ~7 GB) with a 4-bit base (QLoRA). The two
+~27B models leave no room for activations. Missing: GQA backward (it throws; the retired expanded-layout sketch in
+that file is the cheap way back), BF16 training (SwiGLU's BF16 backward is a known skip, "Training (advanced)"
+here), LoRA adapters on `Linear`, and the input gradient through quantized weights for a QLoRA base. DPO with
+reference log-probs computed offline adds no memory; GRPO also needs generation. A LoRA trained over Gemma's Q4_0 QAT
+base fits the "run in the format it was trained for" direction.
+
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx:366`
+
+## GPT-2 samples on the host with its own sampler, which ignores top-p
+
+`gpt` · `mila-src`
+
+`GptModel` copies the logits to the host and samples with temperature and top-k only; `params.sampling.top_p` is never
+read, so a top-p request runs the full distribution (found 2026-10-17). It refuses a presence penalty rather than drop
+it. Llama, Gemma and Qwen sample on the device through `TokenSampler`.
+
+`Mila/Src/Dnn/Models/Gpt/GptModel.ixx` `onGenerating`, `sampleFromLogits`
+
+## No model-level test runs anywhere but Todd's machine
+
+`ci` · `models`
+
+Every family's model tests -- generation, log-likelihood, decode replay, prefix reuse, multi-token decode -- are
+`.Cuda.cpp`, and the hosted runners have no GPU, so CI never runs a Llama, Gemma or Qwen forward pass. A GPU runner
+would: self-hosted on Todd's machine, or sponsored compute, which the sponsorship plan already asks for. A CPU path
+for the families was considered and rejected (`Specifications/Notebooks/CpuOperationsRetirement.md` section 2).
+
+`Mila/Tests/Dnn/Models/`
+
+## The CPU device reports no memory, so no plan can be priced against it
+
+`mila-src` · `architecture`
+
+Only `CudaDevice` overrides `getMemoryInfo`; the CPU device inherits the base's empty reading, and `DeviceReading`
+treats zero as "not a full device" (found 2026-10-11 reviewing a "will this model fit" command). The planner reads
+devices through the registry without naming a backend, so on a machine with no CUDA device it has nothing to plan
+against. Separate from, and needed alongside, the families having no CPU path (grouped-query attention has none).
+
+`Mila/Src/Dnn/Compute/Device.ixx:78` · `Mila/Src/Deployment/DeviceReading.ixx:43`
+
+## An agent system around one main model with worker agents across several cards has no design
+
+`ai` · `architecture`
+
+Raised 2026-10-18 (Todd): a system built around a main model that directs worker agents, each on its own card, in a
+multi-card machine -- the counterpart to trading time for quality with one large model on a 16 GB card. Related: the
+layer split across devices (`LayerSplit.md`), `Mila::AI`'s agent core, NVIDIA Dynamo's KV-as-agent-resource framing.
+Not designed: which model directs and which work, what crosses between cards, and how a worker's context is managed.
+Todd 2026-10-19: Future or Vnext.
+
+`Mila/Specifications/LayerSplit.md` · `Mila/AI/`

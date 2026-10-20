@@ -649,10 +649,58 @@ def test_a_system_message_after_a_reply_stays_where_it_was_sent(serve):
     assert not fake.prompts[0].startswith("<bos><|turn>system")
 
 
-def test_a_template_that_cannot_place_a_later_system_message_refuses_it(serve):
+def test_a_later_system_message_joins_the_next_message_where_the_template_cannot_place_it(serve):
     http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
 
-    response = http.post("/v1/chat/completions", json=LATER_SYSTEM)
+    assert http.post("/v1/chat/completions", json=LATER_SYSTEM).status_code == 200
+    prompt = fake.prompts[0]
+    assert "Hello.<|im_end|>\n<|im_start|>user\nFrom now on, answer in French.\n\nWeather?<|im_end|>" in prompt
+    assert prompt.count("<|im_start|>system") == 1
+    assert "French" not in prompt[:prompt.index("<|im_start|>user")]
+
+
+def _claude_code_tool_round(rounds: int) -> dict:
+    # Claude Code 2.1.300 since 2026-10-19: a system message with the tokens left after every tool result.
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "Read notes.txt"}]},
+        {"role": "system", "content": [{"type": "text", "text": "Working directory: /repo"}]},
+    ]
+
+    for index in range(rounds):
+        messages += [
+            {"role": "assistant", "content": [{"type": "tool_use", "id": f"toolu_{index}", "name": "Read", "input": {"file_path": "notes.txt"}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"toolu_{index}", "content": f"line {index}"}]},
+            {"role": "system", "content": [{"type": "text", "text": f"<total_tokens>{900 - index} tokens left</total_tokens>"}]},
+        ]
+
+    return {"max_tokens": 64, "system": "Be brief.", "tools": [{"name": "Read", "description": "Read a file",
+        "input_schema": {"type": "object", "properties": {"file_path": {"type": "string"}}}}], "messages": messages}
+
+
+def test_claude_codes_system_message_after_a_tool_result_joins_that_result_on_qwen(serve):
+    http, fake = serve(AnthropicAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+
+    assert http.post("/v1/messages", json=_claude_code_tool_round(1)).status_code == 200
+    assert fake.prompts[0].count("<|im_start|>system") == 1
+    assert "<tool_response>\nline 0\n\n<total_tokens>900 tokens left</total_tokens>\n</tool_response><|im_end|>" in fake.prompts[0]
+
+
+def test_a_folded_system_message_leaves_the_earlier_prompt_unchanged(serve):
+    # The next request re-sends the conversation with one more round, so the first prompt, up to the reply it
+    # primed, must open the second unchanged: anything folded earlier in the prompt would re-prefill all of it.
+    http, fake = serve(AnthropicAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+
+    assert http.post("/v1/messages", json=_claude_code_tool_round(1)).status_code == 200
+    assert http.post("/v1/messages", json=_claude_code_tool_round(2)).status_code == 200
+    first, second = fake.prompts
+    assert second.startswith(first[:first.rindex("<|im_start|>assistant")])
+
+
+def test_a_system_message_with_no_message_to_join_is_refused_where_the_template_cannot_place_it(serve):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), QWEN_ANSWER)
+    body = {"messages": LATER_SYSTEM["messages"][:3]}
+
+    response = http.post("/v1/chat/completions", json=body)
 
     assert response.status_code == 400
     assert "system turn must be the first" in response.text

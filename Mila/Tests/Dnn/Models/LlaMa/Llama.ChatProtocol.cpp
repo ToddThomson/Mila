@@ -495,6 +495,20 @@ namespace Mila::Tests::Dnn::Models
         expectGolden( { system( kSystem ), user( kCapital ) }, {}, kSystemGolden );
     }
 
+    TEST( LlamaChatProtocol, ASystemTurnAfterAReplyRendersWhereItStands )
+    {
+        const std::vector<Conversation::Turn> history{ user( kCapital ), assistant( "Canberra." ), system( kSystem ), user( kCapital ) };
+
+        for ( const auto& protocol : { LlamaChatProtocol::llama31(), LlamaChatProtocol::llama32() } )
+        {
+            const auto prompt = protocol.formatPrompt( history, {} ).text;
+
+            EXPECT_NE( prompt.find( "Canberra.<|eot_id|><|start_header_id|>system<|end_header_id|>\n\n" + kSystem ),
+                std::string::npos );
+            EXPECT_TRUE( protocol.rendersLaterSystemTurns() );
+        }
+    }
+
     TEST( LlamaChatProtocolParity, ContentIsTrimmed )
     {
         expectGolden( { system( "  Be brief.\n" ), user( "  hi  \n" ) }, {}, kTrimmed );

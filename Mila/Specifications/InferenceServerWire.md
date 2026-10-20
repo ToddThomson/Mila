@@ -206,9 +206,18 @@ the first user message on every request. So:
 - Every system turn before the model's first reply joins one leading system turn, in the order sent, separated by
   a blank line. A system message applies from where it stands onward, and every reply the model writes stands
   after it, so the joined turn is what each of them was told.
-- A system turn after a model reply stays where it was sent, for the template: Gemma renders it there, and Qwen's
-  refusal is a 400 naming it. Moving it ahead of the replies that preceded it would tell the model they followed
-  it.
+- A system turn after a model reply stays where it was sent wherever the template renders one there
+  (`Conversation::Protocol::rendersLaterSystemTurns`): Gemma and Llama do. Moving it ahead of the replies that
+  preceded it would tell the model they followed it, and would change the opening of every later prompt.
+- Where the template does not -- Qwen 3.8 accepts one system turn, first -- its text is folded into the
+  conversation where it stands (decided 2026-10-19, Todd): appended, after a blank line, to the user message or tool
+  result before it, or, when a reply is before it, put at the start of the next user message or tool result. No
+  turn is added, since a new user turn would move the template's last query and re-render the replies before it.
+  Claude Code 2.1.300 sends `<total_tokens>N tokens left</total_tokens>` as a system message after every tool
+  result, a different N each time, so only a fold at the end of the prompt keeps its cached prefix; merging it into
+  the leading turn, as vLLM's Anthropic endpoint does where a template refuses (vLLM #46025, #58727), re-prefills
+  the whole conversation on every request. One with no message after a reply to join stays in place, and the
+  template refuses it with a 400.
 - A system turn with no text renders nothing and is dropped.
 - Messages' `role: "system"` is placed as Anthropic places it: after a `user` message, and last or before an
   `assistant` message; any other position is a 400, as it is there. `clear_at` other than `never` and a

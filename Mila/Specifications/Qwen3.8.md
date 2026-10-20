@@ -268,6 +268,11 @@ The cuts combine almost exactly additively. fp4-cb3 gets closing brackets right 
 the one-too-few confusion that defined the defect (`]]` written as `]`, 29 times in the cb2-3 re-fit) does not
 occur. The arms were stitched from one fit; the real build fits its three-bit roles with FP4 upstream.
 
+The real fit, exported, sits further from BF16 than the arm that predicted it (2026-10-19, same 12 conversations,
+one run each): mean KL 0.563 against the arm's 0.511 and FP4's 0.478, though fitting with FP4 upstream was expected
+to help. Closing brackets hold: 2.3% lost where BF16 is right (FP4 2.1%), no `]]` read as `]`; other tokens 5.4%
+(FP4 4.5%). Not explained.
+
 **What it needs to reach 64K.** FP4 with the FP8 KV cache was refused at 65,792 by 0.84 GB (15.65 GB needed,
 14.81 free); the two cuts save about 0.73 GB, so the weight arena (`MemoryFootprint.md` 11.8.1, ~0.5 GB) closes
 the rest. These are arithmetic; the planner's answer on the built package is the figure of record.
@@ -2970,10 +2975,10 @@ budget, BF16 KV cannot reach the target at any chunk: 21.5K at the 64-row floor 
 are load-time, so the published FP4 build serves it as it is. That makes them the plan, in that order; the planner
 rule and the scale format are held unless the measured context falls short.
 
-- **FP8 KV is built and Qwen refuses it.** `PerTokenKvFp8` reaches every Llama layer and Gemma's global layers
-  through `dispatchKvCacheCompression` (Quantization.md, *Wired, 2026-10-01*), and its packed flash kernel serves
-  head size 256. `QwenModel::validateDeployment` throws for it and `QwenKvPolicy` is fixed at `NoKvCompression`.
-  Only the 16 full-attention layers hold a cache, so the cache error reaches a quarter of the stack.
+- **FP8 KV was built and Qwen refused it** until 2026-10-15 (measured below). `PerTokenKvFp8` reaches every Llama
+  layer and Gemma's global layers through `dispatchKvCacheCompression` (Quantization.md, *Wired, 2026-10-01*), and
+  its packed flash kernel serves head size 256. Only the 16 full-attention layers hold a cache, so the cache error
+  reaches a quarter of the stack.
 - **The weight arena** is built (2026-10-19, `MemoryFootprint.md` 11.8.1): one allocation per block, priced the
   way it is laid out, so the plan still equals the build.
 - **A 512-row chunk** is a planner decision (Deployment.md section 5, rule 3) and applies to every family.
@@ -3005,9 +3010,31 @@ cache, Claude Code 2.1.300 read a file and answered (2 turns, 25 s) and summed a
 request is ~20.5K, so it needs a window of about 33.5K plus its output reserve plus working room -- roughly 54K
 with a 4K reserve and 16K of room. Told the 32,768 window it compacts every turn and never finishes; left at its
 200,000 default it never compacts and the server refuses it once a session passes 32,768. On this card the FP4
-build reaches ~49K with FP8 KV and the weight arena at a 512-row chunk, ~60K with BF16 scales as well. Only the
-2.82-bit build clears 64K (~77K at BF16 KV, about double at FP8), which makes its tool-name defect the agentic
-blocker on the 16 GB card, not just a publishing one.
+build reaches ~49K with FP8 KV and the weight arena at a 512-row chunk, ~60K with BF16 scales as well; the build
+that clears 64K at FP4's quality is `fp4-cb3` (section 5), measured next.
+
+**`fp4-cb3` at 65,792 with the FP8 cache, the harness gates (2026-10-19).** RTX 5060 Ti, the weight arena, a 512-row
+chunk, the plan 14,913 MiB at 65,536; the build from the scratch store, through the inference server, every model
+at its defaults. Files in `D:\Claude\qwen-fp4cb3\gates`.
+
+| Gate | Result |
+|---|---|
+| Tool-name probes (`tool_name_probe.py`) | 12 of 12 record, 12 of 12 held out |
+| ContextProfile recall, 16K / 32K / 64K | 100% at every depth, 96 trials a cell |
+| ContextProfile loss, whole book / last 1,024 | 2.908 / 2.866 at 0-8K up to 3.452 / 2.760 at 32K-64K |
+| Hermes Agent short set | 8 of 8, 18.1 min, 0 of 10 edits broken |
+| Codex CLI, five-turn session | 7 of 7 checks, 600 s, longest prompt 23,797 tokens |
+| Claude Code, five-turn session | 7 of 7 checks, 501 s, longest prompt 29,938 tokens |
+
+The Hermes set is the one the 2.82-bit builds failed (5 or 6 of 8, 44-45% of edits broken) and Unsloth's
+UD-Q2_K_XL passed 8 of 8 on llama-server. The two sessions are one task -- explain a small project, fix a failing
+test in the code, add two command-line options with tests, document them, summarize the changes -- scored by
+`D:\Claude\qwen-fp4cb3\harness\make_fixture.py check`, which fails 6 of 7 on the untouched project. Neither session
+reached Claude Code's compaction point (about 32.8K at this window), so neither measures a session longer than one
+compaction. Claude Code first failed at its second request: since 2026-10-19 it sends a system message with the
+tokens left after every tool result, which Qwen's template refuses; the server now folds it into the result before it
+(`InferenceServerWire.md` 3.6), and the cached prefix held across the session. The loss rising with context is
+`BACKLOG.md`'s "Qwen 3.8 27B at four bits predicts a long text worse with all of it in context".
 
 ---
 

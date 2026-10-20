@@ -227,6 +227,11 @@ namespace Mila::Dnn::Llama
             return variables_;
         }
 
+        bool rendersLaterSystemTurns() const noexcept override
+        {
+            return true;
+        }
+
     private:
 
         std::vector<Conversation::TemplateVariable> variables_;
