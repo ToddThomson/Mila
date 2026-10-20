@@ -453,6 +453,21 @@ namespace Mila::ChatApp
             return TokenAction::Continue;
         }
 
+        /**
+         * @brief A round whose prompt left the reasoning channel open, its label already written: what the
+         *        model writes next is reasoning, until it closes the channel.
+         *
+         * @return ThinkingStarted when thoughts are hidden, so the caller labels the spinner, as onToken does.
+         */
+        TokenAction beginRoundInReasoning()
+        {
+            deliverText( detokenizer_.flush() );
+            header_.clear();
+            beginThoughtBody();
+
+            return showThoughts() ? TokenAction::Continue : TokenAction::ThinkingStarted;
+        }
+
         /// Round boundary: surrender any incomplete UTF-8 tail (no next token in
         /// this round will complete it).
         void onRoundEnd()

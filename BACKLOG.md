@@ -144,16 +144,6 @@ package, its card and the capability row. A first publish, so it is not held for
 
 `Mila/Specifications/ModelFamilyParity.md` §8.2, G6
 
-#### Gemma loses its own reasoning between tool calls in a turn
-
-`open` · `gemma` · `apps`
-
-Google's multi-turn rule is to strip thoughts from *prior* turns and keep the current turn's.
-`extractAnswer` (`Gemma.Protocol.ixx:1288`) removes every channel span from a response rather than a
-leading run, so a model working through a multi-step tool sequence starts each step without the
-reasoning that led to it. Moved out of v0.20 at `rc.1+24` (Todd): a behaviour change inside Gemma's
-protocol is too late in the cycle.
-
 #### Nobody knows whether Google's drafters would make Gemma 4 decode faster
 
 `in progress` · `gemma` · `perf` · `measured`
@@ -228,21 +218,6 @@ at every length, the cost over BF16 stays within 0.05 nats per token to 32K, and
 llama.cpp on Google's GGUF to 262144. The result decides `ModelHandle.md` 10.3: if all three hold, Chat's
 cap is deleted; if not, the ceiling comes down to the last band where they hold, in the library, not in an
 application.
-
-#### Chat renders Gemma's prompt itself, and its template and the library's have drifted apart
-
-`in progress` · `gemma` · `mila-src` · `apps`
-
-`formatGemmaPrompt` (`Chat.ixx:1359`) renders thinking on — the `<|think|>` trigger in the system
-turn — and the library's `Gemma::formatPrompt` (`Gemma.Protocol.ixx:1132`), which the inference
-server uses, cannot: it always primes the empty thought channel. The library's has the tool
-declarations and `continue_open` that Chat's lacks. Each is missing half of the other.
-
-The library half is built: `GemmaChatProtocol` renders every variable of Google's template, thinking on
-included, byte-identical to the checkpoint's own `chat_template.jinja` (`Gemma.ChatProtocol.cpp`). What is
-left is Chat rendering through it. Chat's effort sentences go rather than move: Gemma 4's thinking is a
-switch with no budget, and no layer writes an effort level a template does not have (Todd, 2026-10-14,
-`ModelHandle.md` 10.6).
 
 #### Gemma 4 packages do not carry Google's drafters, so no load can use them
 
@@ -699,8 +674,8 @@ consecutive tool results into one user turn; it separates a turn's second and la
 signatures and non-string arguments through `tojson` (`", "`/`": "`, keys in the order given) where the free functions
 write compact, sorted JSON; it trims every message; and with `preserve_thinking` on, its default, it renders past
 reasoning back into history. `QwenChatProtocol` renders all six as the template does, and the inference server
-renders through it; Chat (`Chat.ixx:1276`), the binding's wrappers (`Mila_py.Wrappers.cpp:98`) and
-`Tools/ContextProfile` still call the free functions. Not measured: how far each moves the model's behaviour.
+and Chat render through it; the binding's wrappers (`Mila_py.Wrappers.cpp:98`) and `Tools/ContextProfile` still
+call the free functions. Not measured: how far each moves the model's behaviour.
 
 `Mila/Src/Dnn/Models/Qwen/Qwen.Protocol.ixx` `formatPrompt`, `formatTurn`, `serializeToolSignatures`
 
@@ -712,7 +687,7 @@ The template renders a result given as text under `value:`, whole; `formatToolRe
 keeps one output field (added for Codex's envelope, whose chunk id the model echoed). `GemmaChatProtocol` renders it
 as the template does and the inference server renders through it, so the distillation, for the one client whose
 envelope needs it, belongs in the server's wire work; not checked whether the server does it since it switched.
-Chat (`Chat.ixx:1239`), the binding's wrappers and `Tools/ContextProfile` still distil. In the same template, a
+The binding's wrappers and `Tools/ContextProfile` still distil; Chat renders through `GemmaChatProtocol`. In the same template, a
 calling turn's text renders after its results and the turn closes with no prompt after it, so a resume whose
 assistant turn carries both text and calls -- Claude Code sends that shape -- gets no open model turn.
 
@@ -728,17 +703,6 @@ at token 402, measured 2026-10-05. Not checked: on which card that was measured,
 the 4070.
 
 `Mila/Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp:367` `Gemma4_12B_GreedyGenerationIsUnchanged`
-
-#### A Gemma turn that would make several tool calls makes only the first
-
-`open` · `gemma` · `apps`
-
-Generation stops at `<tool_call|>`, Gemma's protocol's stop marker, since left running the model repeats the call to
-the budget (`routes/factory.py` `_generate_buffered`), so a turn that would have made two calls makes one.
-`InferenceServerWire.md` W2 asks for both. Not checked: whether the model, unstopped, writes a second call or always
-repeats the first.
-
-`Mila/Src/Dnn/Models/Gemma/Gemma.ChatProtocol.ixx:99` · `Mila/Apps/Server/src/mila_llm_server/model_worker.py:148`
 
 #### Qwen 4's tiny reference never exercises the n-gram hash's negative branch
 

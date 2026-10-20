@@ -234,9 +234,10 @@ Built at `0.21.0-dev+68` as `Dnn.Models.Conversation.*`, one module per type, wi
 `GemmaChatProtocol` beside each family's free functions. **The reply is read against its prompt**: whether it
 begins inside the reasoning channel is a fact of the rendering -- Qwen's primer leaves `<think>` open while
 thinking is on, Gemma's leaves its channel open only on a resume after a result with thinking on -- so
-`formatPrompt` returns it and `parseReply` takes it. **Stopping at a call's close keeps only the first of
-several** in a Gemma turn that would have made more; the markers carry today's stops, and choosing between
-them and parallel calls is the server's (`InferenceServerWire.md` W2).
+`formatPrompt` returns it and `parseReply` takes it. **The stop is the open of a result, never a call's
+close** (2026-10-20): stopping at a call's close kept only the first of several, and both families write every
+call a turn needs before handing over -- Gemma 4 with `<|tool_response>`, its own stop, Qwen 3.8 by ending the
+turn (`InferenceServerWire.md` 3.4 and W2).
 
 Each member answers one of section 1's seven decisions: `formatPrompt` renders and declares tools,
 `parseReply` parses, `markers()` gives the stop and the channel routing, `formatToolResult` renders a

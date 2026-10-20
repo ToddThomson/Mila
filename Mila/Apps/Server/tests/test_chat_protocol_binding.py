@@ -78,8 +78,9 @@ def test_a_reply_read_against_its_prompt_splits_its_reasoning():
 def test_markers_carry_the_stops():
     markers = mila.ChatProtocol.qwen().markers
 
-    assert markers["stop_after"] == ["</tool_call>", "<tool_response>"]
+    assert markers["stop_after"] == ["<tool_response>"]
     assert markers["reasoning_close"] == "</think>"
+    assert mila.ChatProtocol.gemma().markers["stop_after"] == ["<|tool_response>"]
 
 
 @pytest.mark.parametrize("factory", ["gemma", "qwen", "llama31", "llama32"])

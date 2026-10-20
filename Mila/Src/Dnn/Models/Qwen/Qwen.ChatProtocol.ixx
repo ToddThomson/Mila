@@ -65,7 +65,7 @@ namespace Mila::Dnn::Qwen
             markers_{
                 std::string( kThinkOpen ), std::string( kThinkClose ),
                 std::string( kToolCallOpen ), std::string( kToolCallClose ), std::string( kToolResponseOpen ),
-                { std::string( kToolCallClose ), std::string( kToolResponseOpen ) } }
+                { std::string( kToolResponseOpen ) } }
         {
         }
 

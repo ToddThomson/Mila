@@ -276,6 +276,8 @@ if(MILA_ENABLE_CUDA)
         # the FP8 global cache.
         "Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp"
         "Dnn/Models/Gemma/Gemma.InstructionRetention.Cuda.cpp"
+        # A turn needing two calls makes both and stops at Gemma's own <|tool_response>. Needs exported weights.
+        "Dnn/Models/Gemma/Gemma.ToolCallStop.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Footprint.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Generation.Cuda.cpp"
         # The most fewer launches can buy a decode step -- ModelFamilyParity.md 8.4, L5.

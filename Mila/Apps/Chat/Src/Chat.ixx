@@ -2,15 +2,9 @@
  * @file Chat.ixx
  * @brief Mila chat application.
  *
- * Supports the instruct families -- Llama, Gemma and Qwen, at BF16 compute --
- * selected at construction via ChatConfig. The active model is stored
- * as a std::variant so each template instantiation retains its full
- * static type through the generate path. Llama instruct models use
- * structured ChatMessage history formatted via MessageFormatter.
- * Tool calling is supported for Llama instruct models via ToolCallParser and for Gemma 4
- * via its native <|tool_call>/<tool_response> protocol (see generateResponse() and
- * GemmaChatProtocol.md), both against registered handler functions. The Gemma path is a
- * probe grammar pending more empirical validation, not a hardened implementation.
+ * Supports the instruct families -- Llama, Gemma and Qwen, at BF16 compute. Gemma and Qwen render and parse
+ * through the model's own template in the library (Conversation::Protocol); Llama through Chat's
+ * MessageFormatter and ToolCallParser until its packages declare which template they carry.
  */
 
 export module Mila.Chat;
@@ -302,6 +296,13 @@ namespace Mila::ChatApp
                     }
                     if ( cmd == "effort" || cmd.starts_with( "effort " ) )
                     {
+                        if ( !templateHasEffortLevels() )
+                        {
+                            renderer_.printInfo( std::format(
+                                "{}'s thinking has no effort levels: it is on or off (/thinking).", modelName() ) );
+                            continue;
+                        }
+
                         if ( cmd == "effort" )
                         {
                             const ThinkingEffort& e = thinkingEffort( config_.thinking_effort );
@@ -562,11 +563,9 @@ namespace Mila::ChatApp
          */
         void handleResponse( const std::string& response )
         {
-            // Gemma's tool round trip (stop at <tool_call|>, dispatch, splice
-            // <|tool_response>, resume) already ran inside generateResponse() -- the Llama
-            // ToolCallParser grammar below does not apply and would misparse the leftover
-            // <|tool_call>/<|tool_response> braces in the accumulated text.
-            if ( tool_handlers_.empty() || config_.model_type == ModelType::Gemma )
+            // A model whose template the library renders had its tool rounds inside generateResponse(),
+            // read by its own grammar; the Llama ToolCallParser below is Chat's own.
+            if ( tool_handlers_.empty() || protocol_ )
             {
                 emitAssistantResponse( response );
                 return;
@@ -576,13 +575,7 @@ namespace Mila::ChatApp
 
             try
             {
-                // Qwen's <tool_call> span is its own trained grammar, and the Llama parser
-                // would not find a call inside it. Both round-trip through history the same
-                // way from here -- an Assistant turn holding the call, then a Tool turn
-                // holding the result -- so only the grammar differs.
-                tool_call = config_.model_type == ModelType::Qwen
-                    ? Mila::Dnn::Qwen::parseToolCall( response )
-                    : ToolCallParser::parse( response );
+                tool_call = ToolCallParser::parse( response );
             }
             catch ( const std::runtime_error& e )
             {
@@ -667,19 +660,18 @@ namespace Mila::ChatApp
             if ( config_.detail == DetailLevel::All )
                 renderer_.printRaw( raw );
 
-            // Gemma tool exchanges (if any ran) leave <|tool_call>/<|tool_response> spans
-            // embedded mid-turn; strip them before channel-splitting so they don't leak into
-            // the displayed answer as raw call syntax.
-            const std::string without_tool_spans = stripToolExchangeSpans( raw );
-            const std::string clean = stripSpecialTokens( without_tool_spans );
-            const ParsedResponse parsed = ChannelParser::parse( clean, activeChannel() );
+            // A turn the template's grammar read round by round is shown as it read it; Llama's raw
+            // text is split here, its tool spans stripped first so no call syntax reaches the answer.
+            const ParsedResponse parsed = turn_display_.has_value()
+                ? *turn_display_
+                : ChannelParser::parse( stripSpecialTokens( stripToolExchangeSpans( raw ) ), activeChannel() );
 
             // One shot renders nothing: the caller gets the answer on standard output in the
             // format it asked for, and a painted block would be in the middle of it.
             if ( one_shot_ )
             {
                 stream_display_.reset();
-                history_.push_back( { MessageRole::Assistant, parsed.answer } );
+                pushAnswer( parsed );
 
                 return;
             }
@@ -697,7 +689,29 @@ namespace Mila::ChatApp
             }
 
             stream_display_.reset();
-            history_.push_back( { MessageRole::Assistant, parsed.answer } );
+            pushAnswer( parsed );
+        }
+
+        /**
+         * @brief The turn's answer joins the history.
+         *
+         * Read through the template, it is the last round's reply with its reasoning, which the template decides
+         * whether to render again; a turn whose last round dispatched calls has already joined the history as those
+         * calls and their results. Llama's is the answer Chat split out of the raw text.
+         */
+        void pushAnswer( const ParsedResponse& parsed )
+        {
+            if ( !protocol_ )
+            {
+                history_.push_back( { MessageRole::Assistant, parsed.answer } );
+
+                return;
+            }
+
+            if ( turn_answer_.has_value() )
+            {
+                history_.push_back( { MessageRole::Assistant, turn_answer_->content, {}, {}, turn_answer_->reasoning } );
+            }
         }
 
         /**
@@ -977,9 +991,9 @@ namespace Mila::ChatApp
          * @brief The tools worth telling the model about: those with a registered handler.
          *
          * Describing an unhandled tool primes the model to emit a call it will never get a
-         * result for. Read from two places -- the system turn the history opens with, and
-         * Qwen's formatter, which builds its own -- so the filter lives here rather than in
-         * whichever of them happens to run first.
+         * result for. Read from two places -- the tools a template renders (promptOptions())
+         * and Llama's system turn -- so the filter lives here rather than in whichever of them
+         * happens to run first.
          */
         std::vector<ToolDefinition> activeTools() const
         {
@@ -1024,9 +1038,45 @@ namespace Mila::ChatApp
             return arr.dump( 2 );
         }
 
+        /// A round's reasoning and text join the turn's display, in the order the rounds ran.
+        void appendToTurnDisplay( const Mila::Dnn::Conversation::Reply& reply )
+        {
+            ParsedResponse& display = turn_display_.has_value() ? *turn_display_ : turn_display_.emplace();
+
+            const auto append = []( std::string& into, const std::string& part )
+                {
+                    if ( part.empty() )
+                    {
+                        return;
+                    }
+
+                    into += into.empty() ? "" : "\n\n";
+                    into += part;
+                };
+
+            append( display.thinking, reply.reasoning );
+            append( display.answer, reply.content );
+        }
+
+        /// A call the template's grammar could not read is said, never dropped: the model meant to call something.
+        void reportMalformedCalls( const Mila::Dnn::Conversation::Reply& reply )
+        {
+            for ( const auto& call : reply.malformed_tool_calls )
+            {
+                if ( stream_display_ )
+                    stream_display_->suspendForTrace();
+
+                renderer_.printError( std::format( "[tool call not understood: {}]", call ) );
+            }
+        }
+
         void generateResponse( std::string& response )
         {
-            std::vector<std::int32_t> input_tokens = buildInputTokens();
+            turn_display_.reset();
+            turn_answer_.reset();
+
+            Mila::Dnn::Conversation::Prompt prompt = renderPrompt();
+            std::vector<std::int32_t> input_tokens = encodePrompt( prompt );
 
             const std::size_t budget = generationBudget( input_tokens.size() );
 
@@ -1044,17 +1094,10 @@ namespace Mila::ChatApp
             gen_params.max_new_tokens = static_cast<int>( budget );
             gen_params.sampling = sessionSampling( config_ );
 
-            // Gemma 4's <|tool_call>/<tool_call|> pair is a native protocol element, not a
-            // text convention (GemmaChatProtocol.md): the model expects the harness to stop
-            // generation right after <tool_call|>, execute the real tool, and splice a genuine
-            // <|tool_response>...<tool_response|> back in before it continues. Left alone, it
-            // free-runs past its own tool call and fabricates the rest (confirmed empirically --
-            // see the discovery session this loop was built to validate).
-            const bool watch_gemma_tool_call =
-                config_.model_type == ModelType::Gemma
-                && !tool_handlers_.empty()
-                && gemma_tool_call_close_token_.has_value();
-
+            // A round ends where the model hands over to its tools, having written every call it
+            // needs: Gemma 4 at <|tool_response>, in its stop set, and Qwen 3.8 by ending its turn.
+            // Each call is dispatched, the calls and their results join the history, and the
+            // template renders the history again -- for Gemma, as the same model turn resumed.
             constexpr int kMaxToolRounds = 4;
 
             last_turn_rounds_.clear();
@@ -1078,7 +1121,15 @@ namespace Mila::ChatApp
 
                 renderer_.startSpinner( {}, &live_token_count );
                 stop_src_ = std::stop_source{};
-                bool tool_call_stop = false;
+                const std::size_t round_begin = response.size();
+
+                // The template left this round's reply inside the reasoning channel (a resume with
+                // thinking on), so the display starts there too.
+                if ( stream_display_ && prompt.reply_begins_in_reasoning
+                    && stream_display_->beginRoundInReasoning() == StreamingResponseDisplay::TokenAction::ThinkingStarted )
+                {
+                    renderer_.startSpinner( "Thinking...", &live_token_count );
+                }
 
                 // Per-round timing: each round has its own prefill (a full re-prefill on
                 // rounds after a tool call) so the numbers stay meaningful across the turn.
@@ -1125,12 +1176,6 @@ namespace Mila::ChatApp
                                     // user knows Mila is thinking. The first answer word stops it.
                                     else if ( action == StreamingResponseDisplay::TokenAction::ThinkingStarted )
                                         renderer_.startSpinner( "Thinking...", &live_token_count );
-                                }
-
-                                if ( watch_gemma_tool_call && tok == *gemma_tool_call_close_token_ )
-                                {
-                                    tool_call_stop = true;
-                                    stop_src_.request_stop();
                                 }
                             },
                             gen_params,
@@ -1204,45 +1249,57 @@ namespace Mila::ChatApp
                         : "Response stopped at the context limit (finish: context_limit)." );
                 }
 
-                std::optional<ToolCall> call;
-
-                if ( tool_call_stop )
+                // Llama's reply is read after the turn, by handleResponse().
+                if ( !protocol_ )
                 {
-                    if ( auto parsed = Mila::Dnn::Gemma::parseToolCall( response ) )
-                        call = ToolCall{ .name = std::move( parsed->name ),
-                            .arguments = std::move( parsed->arguments ) };
+                    last_turn_rounds_.push_back( std::move( round_stats ) );
+                    break;
                 }
 
-                if ( !call.has_value() )
+                const Mila::Dnn::Conversation::Reply reply =
+                    protocol_->parseReply( std::string_view( response ).substr( round_begin ), prompt );
+
+                appendToTurnDisplay( reply );
+                reportMalformedCalls( reply );
+
+                // A round cut short by the budget or the context is not dispatched: a call it ends in
+                // is not one the model finished.
+                if ( reply.tool_calls.empty() || tool_handlers_.empty() || round_status != GenerateStatus::Success )
                 {
-                    // Either a normal finish or an unparseable stop -- surface the text as-is
-                    // rather than looping forever on a call we cannot dispatch.
+                    turn_answer_ = reply;
                     last_turn_rounds_.push_back( std::move( round_stats ) );
                     break;
                 }
 
                 round_stats.ended_in_tool_call = true;
-                round_stats.tool_name = call->name;
-                last_turn_rounds_.push_back( std::move( round_stats ) );
 
-                const std::string tool_result = dispatchTool( *call );
+                for ( const auto& call : reply.tool_calls )
+                {
+                    round_stats.tool_name += round_stats.tool_name.empty() ? "" : ", ";
+                    round_stats.tool_name += call.name;
+                }
+
+                last_turn_rounds_.push_back( std::move( round_stats ) );
 
                 // The trace lines print between streamed blocks; make sure the
                 // display's visual line is closed first.
                 if ( stream_display_ )
                     stream_display_->suspendForTrace();
 
-                emitToolCall( *call, tool_result );
+                history_.push_back( { MessageRole::Assistant, reply.content, reply.tool_calls, {}, reply.reasoning } );
 
-                response += Mila::Dnn::Gemma::formatToolResponse( call->name, tool_result );
+                for ( const auto& call : reply.tool_calls )
+                {
+                    const std::string tool_result = dispatchTool( call );
 
-                // Continue the SAME assistant turn: the model's protocol splices the tool
-                // response into the turn it already opened, not a fresh history entry (unlike
-                // Llama's ipython-role round trip). Re-prefill prompt + everything generated
-                // so far -- the harness has no incremental-KV-cache continuation entry point.
-                input_tokens = buildInputTokens();
-                const auto continuation = tokenizer_->encode( response );
-                input_tokens.insert( input_tokens.end(), continuation.begin(), continuation.end() );
+                    emitToolCall( call, tool_result );
+
+                    history_.push_back( { MessageRole::Tool, tool_result, {}, call.name } );
+                    response += protocol_->formatToolResult( call.name, tool_result );
+                }
+
+                prompt = renderPrompt();
+                input_tokens = encodePrompt( prompt );
             }
 
             if ( stream_display_ )
@@ -1260,136 +1317,145 @@ namespace Mila::ChatApp
          */
         std::vector<std::int32_t> buildInputTokens() const
         {
-            std::string prompt;
+            return encodePrompt( renderPrompt() );
+        }
 
-            if ( config_.model_type == ModelType::Gemma )
-                prompt = formatGemmaPrompt( history_, config_.show_thinking, config_.thinking_effort );
-            else if ( config_.model_type == ModelType::Qwen )
-            {
-                // Effort goes through the model's own trained parameter rather than Gemma's
-                // prose scale: the checkpoint defines three levels and the exact wording for
-                // each, so a sentence of ours would be a prompt it was never tuned against.
-                const std::vector<ToolDefinition> tools = activeTools();
-
-                prompt = Mila::Dnn::Qwen::formatPrompt(
-                    history_,
-                    config_.show_thinking,
-                    Mila::Dnn::Qwen::reasoningEffortFromScale( config_.thinking_effort ),
-                    tools.empty()
-                        ? std::string{}
-                        : Mila::Dnn::Qwen::serializeToolSignatures( serializeTools( tools ) ) );
-            }
-            else
-                prompt = MessageFormatter::format( history_ );
-
-            auto token_ids = tokenizer_->encode( prompt );
+        std::vector<std::int32_t> encodePrompt( const Mila::Dnn::Conversation::Prompt& prompt ) const
+        {
+            const auto token_ids = tokenizer_->encode( prompt.text );
 
             return std::vector<std::int32_t>( token_ids.begin(), token_ids.end() );
         }
 
+        /// The history as the model's template renders it, primed for the reply.
+        Mila::Dnn::Conversation::Prompt renderPrompt() const
+        {
+            if ( !protocol_ )
+            {
+                return { MessageFormatter::format( history_ ), false };
+            }
+
+            return protocol_->formatPrompt( history_, promptOptions() );
+        }
+
         /**
-         * @brief Render a conversation history into the Gemma instruct chat template.
+         * @brief The session's settings as the template's own variables, and the tools offered.
          *
-         * Gemma 4 wraps each turn as <|turn>{role}\n{content}<turn|>\n with roles
-         * "system", "user", and "model" (the assistant), and terminates with a
-         * <|turn>model\n primer to prime generation. The Gemma tokenizer encodes
-         * the control tokens as atomic specials, so they are emitted as literal
-         * text here. (The checkpoint uses <|turn>/<turn|>, not the Gemma 3-style
-         * <start_of_turn>/<end_of_turn>, which are absent from its vocabulary.)
-         *
-         * When enable_thinking is set, the <|think|> trigger leads a dedicated
-         * system turn per the Gemma 4 protocol; the model then emits a populated
-         * <|channel>thought...<channel|> reasoning section. The trigger must sit in
-         * the system turn — folding it into the user turn does not activate thinking.
+         * Thinking is the template's switch. Effort is set only where the template has levels -- Qwen 3.8's
+         * three -- and Gemma 4 has none, so no layer writes one for it (ModelHandle.md 10.6).
          */
+        Mila::Dnn::Conversation::PromptOptions promptOptions() const
+        {
+            Mila::Dnn::Conversation::PromptOptions options;
+            const std::vector<ToolDefinition> tools = activeTools();
+
+            if ( !tools.empty() )
+            {
+                options.tools_json = toolsJson( tools );
+            }
+
+            for ( const auto& variable : protocol_->templateVariables() )
+            {
+                if ( variable.name == "enable_thinking" )
+                {
+                    options.template_variables[ variable.name ] = config_.show_thinking ? "true" : "false";
+                }
+                else if ( variable.name == "reasoning_effort" && config_.show_thinking )
+                {
+                    options.template_variables[ variable.name ] = qwenEffortName(
+                        Mila::Dnn::Qwen::reasoningEffortFromScale( config_.thinking_effort ) );
+                }
+            }
+
+            return options;
+        }
+
+        /// False where the model's template has a thinking switch and no levels; Llama's, which Chat renders, has neither.
+        bool templateHasEffortLevels() const
+        {
+            if ( !protocol_ )
+            {
+                return true;
+            }
+
+            return std::ranges::any_of( protocol_->templateVariables(),
+                []( const auto& variable ) { return variable.name == "reasoning_effort"; } );
+        }
+
+        static std::string qwenEffortName( Mila::Dnn::Qwen::ReasoningEffort effort )
+        {
+            switch ( effort )
+            {
+                case Mila::Dnn::Qwen::ReasoningEffort::Low:
+                    return "low";
+
+                case Mila::Dnn::Qwen::ReasoningEffort::Medium:
+                    return "medium";
+
+                case Mila::Dnn::Qwen::ReasoningEffort::Xhigh:
+                    return "xhigh";
+            }
+
+            return "xhigh";
+        }
+
+        /// The tools as OpenAI-style function schemas, keys in the order a request writes them.
+        static std::string toolsJson( const std::vector<ToolDefinition>& tools )
+        {
+            nlohmann::ordered_json array = nlohmann::ordered_json::array();
+
+            for ( const auto& tool : tools )
+            {
+                nlohmann::ordered_json properties = nlohmann::ordered_json::object();
+
+                for ( const auto& [name, property] : tool.parameters.properties )
+                {
+                    properties[ name ] = { { "type", property.type }, { "description", property.description } };
+                }
+
+                nlohmann::ordered_json parameters = nlohmann::ordered_json::object();
+                parameters[ "type" ] = tool.parameters.type;
+                parameters[ "properties" ] = std::move( properties );
+                parameters[ "required" ] = tool.parameters.required;
+
+                nlohmann::ordered_json function = nlohmann::ordered_json::object();
+                function[ "name" ] = tool.name;
+                function[ "description" ] = tool.description;
+                function[ "parameters" ] = std::move( parameters );
+
+                nlohmann::ordered_json entry = nlohmann::ordered_json::object();
+                entry[ "type" ] = "function";
+                entry[ "function" ] = std::move( function );
+                array.push_back( std::move( entry ) );
+            }
+
+            return array.dump();
+        }
+
         /**
-         * @brief A point on the thinking-effort scale: a token budget plus the
-         *        instruction that communicates it to the model.
+         * @brief A point on the thinking-effort scale: its name and the reasoning tokens a context should leave room for.
          *
-         * Gemma 4's <|think|> is a boolean toggle with no native budget argument, so
-         * effort is steered through the system instruction. The budget is the
-         * user-facing scale value; the instruction is what the model actually reads.
+         * The model reads the level only where its template has levels: Qwen 3.8's reasoning_effort. Gemma 4's
+         * thinking is a switch, so its prompt carries no effort at all.
          */
         struct ThinkingEffort
         {
             int              budget;
             std::string_view name;
-            std::string_view instruction;
         };
 
         static constexpr ThinkingEffort kThinkingEfforts[ 5 ] = {
-            { 128,  "minimal",    "Think briefly before answering; keep your reasoning to a sentence or two." },
-            { 256,  "low",        "Think before answering, keeping your reasoning concise." },
-            { 512,  "balanced",   "Think step by step before answering." },
-            { 1024, "high",       "Think carefully and thoroughly before answering, and check your reasoning." },
-            { 2048, "exhaustive", "Think exhaustively before answering: explore alternatives and verify each step." },
+            { 128,  "minimal" },
+            { 256,  "low" },
+            { 512,  "balanced" },
+            { 1024, "high" },
+            { 2048, "exhaustive" },
         };
 
         /// Resolve a 1..5 effort level (clamped) to its scale entry.
         static const ThinkingEffort& thinkingEffort( int level )
         {
             return kThinkingEfforts[ std::clamp( level, 1, 5 ) - 1 ];
-        }
-
-        static std::string formatGemmaPrompt( const std::vector<ChatMessage>& history, bool enable_thinking, int effort_level )
-        {
-            constexpr std::string_view kThinkToken = "<|think|>";
-
-            std::string prompt = "<bos>";
-
-            // Gemma collapses to a single system instruction; the last System turn wins.
-            std::string system_content;
-
-            for ( const auto& message : history )
-            {
-                if ( message.role == MessageRole::System )
-                    system_content = message.content;
-            }
-
-            // Emit a dedicated system turn when there is a system instruction or when
-            // thinking is enabled (the <|think|> trigger must lead the system turn).
-            if ( enable_thinking || !system_content.empty() )
-            {
-                prompt += "<|turn>system\n";
-
-                if ( enable_thinking )
-                {
-                    const ThinkingEffort& effort = thinkingEffort( effort_level );
-                    prompt += kThinkToken;
-                    prompt += effort.instruction;
-                    prompt += std::format( " Limit your internal reasoning to about {} tokens.", effort.budget );
-
-                    if ( !system_content.empty() )
-                        prompt += "\n\n";
-                }
-
-                prompt += system_content;
-                prompt += "<turn|>\n";
-            }
-
-            for ( const auto& message : history )
-            {
-                if ( message.role == MessageRole::System )
-                    continue;
-
-                const bool is_model = (message.role == MessageRole::Assistant);
-                prompt += is_model ? "<|turn>model\n" : "<|turn>user\n";
-                prompt += message.content;
-                prompt += "<turn|>\n";
-            }
-
-            prompt += "<|turn>model\n";
-
-            // The 12B/26B/31B Gemma 4 sizes prime an empty <|channel>thought<channel|> onto
-            // the prompt itself when thinking is off -- this suppresses "ghost" thought
-            // channels the model may otherwise emit even when deactivated (vendor
-            // prompt-formatting doc; the smaller E2B/E4B sizes do not need this, and are
-            // not offered by this harness today). When thinking is ON, the model generates
-            // this section itself -- priming it here would pre-empt real reasoning.
-            if ( !enable_thinking )
-                prompt += "<|channel>thought\n<channel|>";
-
-            return prompt;
         }
 
         static std::vector<std::string_view> splitWhitespace( std::string_view text )
@@ -2451,11 +2517,13 @@ namespace Mila::ChatApp
             // no reasoning mode describes a budget for tokens it will never emit.
             if ( config_.thinking_capable )
             {
-                std::cout << std::format(
-                    "  Thinking:       {}\n"
-                    "  Effort:         {} ({}, ~{} tokens)\n",
-                    config_.show_thinking ? "on" : "off",
-                    config_.thinking_effort, effort.name, effort.budget );
+                std::cout << std::format( "  Thinking:       {}\n", config_.show_thinking ? "on" : "off" );
+
+                if ( templateHasEffortLevels() )
+                {
+                    std::cout << std::format( "  Effort:         {} ({}, ~{} tokens)\n",
+                        config_.thinking_effort, effort.name, effort.budget );
+                }
             }
 
             std::cout << std::format( "  Detail:         {}\n",
@@ -2490,9 +2558,18 @@ namespace Mila::ChatApp
 
                 Logging::Logger::info( std::format( "Tokenizer loaded. Vocab size: {}", tokenizer_->getVocabSize() ) );
 
-                // Cache the Gemma control-token ids: <tool_call|> lets generateResponse()
-                // detect the tool-call boundary by raw token id rather than text scanning,
-                // and the full set drives the streaming display's channel router. Only
+                // The model's own chat template, chosen by the library from what the manifest declares. Llama's
+                // packages do not declare the version that tells Meta's two templates apart until they are
+                // republished (BACKLOG, "Llama's prompt and tool grammar live in Chat and the inference server"),
+                // so Chat still renders and parses Llama itself.
+                const auto& record = installed->stored().record;
+
+                protocol_ = config_.model_type == ModelType::Llama
+                    ? nullptr
+                    : Mila::Dnn::chatProtocolFor( record.architecture, record.architecture_version );
+
+                // Cache the Gemma control-token ids: the set drives the streaming display's
+                // channel router. Only
                 // genuine single-token vocab entries (per GemmaChatProtocol.md) are trusted;
                 // a multi-token encode means the checkpoint lacks the registered special
                 // token. Streaming requires all four routing ids or it stays buffered.
@@ -2500,19 +2577,18 @@ namespace Mila::ChatApp
 
                 if ( config_.model_type == ModelType::Gemma )
                 {
-                    gemma_tool_call_close_token_ = probeSingleTokenId( "<tool_call|>" );
-
                     const auto channel_open = probeSingleTokenId( "<|channel>" );
                     const auto channel_close = probeSingleTokenId( "<channel|>" );
                     const auto tool_call_open = probeSingleTokenId( "<|tool_call>" );
+                    const auto tool_call_close = probeSingleTokenId( "<tool_call|>" );
 
-                    if ( channel_open && channel_close && tool_call_open && gemma_tool_call_close_token_ )
+                    if ( channel_open && channel_close && tool_call_open && tool_call_close )
                     {
                         GemmaStreamTokens tokens;
                         tokens.channel_open = *channel_open;
                         tokens.channel_close = *channel_close;
                         tokens.tool_call_open = *tool_call_open;
-                        tokens.tool_call_close = *gemma_tool_call_close_token_;
+                        tokens.tool_call_close = *tool_call_close;
 
                         // Control tokens with no display form: the buffered pipeline strips
                         // their text post-hoc (stripSpecialTokens); the router drops them live.
@@ -2537,10 +2613,6 @@ namespace Mila::ChatApp
                         Logging::Logger::warning(
                             "Streaming display disabled: Gemma control tokens not in the vocabulary." );
                     }
-                }
-                else
-                {
-                    gemma_tool_call_close_token_ = std::nullopt;
                 }
             }
             catch ( const std::exception& e )
@@ -2800,9 +2872,9 @@ namespace Mila::ChatApp
                 // than shown as "off" -- off reads as a setting the user could turn on.
                 if ( config_.thinking_capable )
                 {
-                    const std::string thinking_display = config_.show_thinking
-                        ? std::string( thinkingEffort( config_.thinking_effort ).name )
-                        : "off";
+                    const std::string thinking_display = !config_.show_thinking
+                        ? "off"
+                        : templateHasEffortLevels() ? std::string( thinkingEffort( config_.thinking_effort ).name ) : "on";
 
                     renderer_.printInfo( std::format( "  Model: {}  ·  Context window: {}  ·  Thinking: {}",
                         modelName(), context_display, thinking_display ) );
@@ -2885,38 +2957,20 @@ Examples:
 
             const std::vector<ToolDefinition> active_tools = activeTools();
 
-            // Qwen's system turn is assembled by its own formatter, which orders the reasoning
-            // instruction, the tools section and the configured prompt the way the checkpoint's
-            // template does. Concatenating them here would fix an order it then could not change.
-            if ( !active_tools.empty() && config_.model_type != ModelType::Qwen )
+            // A template the library renders places the tools itself, from promptOptions(). Only
+            // Llama's, which Chat still renders, carries them in the system turn.
+            if ( !active_tools.empty() && !protocol_ )
             {
-                if ( config_.model_type == ModelType::Llama )
-                {
-                    // Instruction text precedes the tool list per the Llama 3.2 zero-shot
-                    // tool-calling format the model was fine-tuned on.
-                    system_content +=
-                        "\n\nIf you decide to invoke any of the function(s), you MUST put it in the "
-                        "format of [func_name1(params_name1=params_value1, params_name2=params_value2...), "
-                        "func_name2(params)]\n"
-                        "You SHOULD NOT include any other text in the response.\n\n"
-                        "Here is a list of functions in JSON format that you can invoke:\n";
+                // Instruction text precedes the tool list per the Llama 3.2 zero-shot
+                // tool-calling format the model was fine-tuned on.
+                system_content +=
+                    "\n\nIf you decide to invoke any of the function(s), you MUST put it in the "
+                    "format of [func_name1(params_name1=params_value1, params_name2=params_value2...), "
+                    "func_name2(params)]\n"
+                    "You SHOULD NOT include any other text in the response.\n\n"
+                    "Here is a list of functions in JSON format that you can invoke:\n";
 
-                    system_content += serializeTools( active_tools );
-                }
-                else
-                {
-                    // Gemma's own trained declaration grammar, rendered by the runtime. No
-                    // prose and no call-syntax instructions: the model emits calls through its
-                    // <|tool_call> protocol, and <|tool> is an atomic token so the
-                    // declarations need no separator from the prompt above them.
-                    //
-                    // This used to be the same prose-plus-JSON-array the Llama branch sends,
-                    // which is not a Gemma format at all -- and the inference server was
-                    // already rendering the trained form, so one model was being given two
-                    // materially different prompts depending on which adaptor built them.
-                    system_content += Mila::Dnn::Gemma::serializeToolDeclarations(
-                        serializeTools( active_tools ) );
-                }
+                system_content += serializeTools( active_tools );
             }
 
             history_.push_back( { MessageRole::System, std::move( system_content ) } );
@@ -2937,8 +2991,15 @@ Examples:
         std::unordered_map<std::string, std::function<std::string( const std::string& )>> tool_handlers_;
         ConsoleRenderer renderer_;
 
-        // Gemma 4 tool-call protocol probe state (see generateResponse()).
-        std::optional<std::int32_t> gemma_tool_call_close_token_;
+        // The loaded model's chat template: it renders every prompt and reads every reply. Null for Llama, which
+        // Chat still renders and parses itself (see initializeTokenizer()).
+        std::unique_ptr<Mila::Dnn::Conversation::Protocol> protocol_;
+
+        // The turn generateResponse() just ran, read through protocol_ round by round: every round's reasoning
+        // and text, for the display, and the last round's reply when it made no call, which history keeps.
+        // Empty for a model Chat parses itself.
+        std::optional<ParsedResponse> turn_display_;
+        std::optional<Mila::Dnn::Conversation::Reply> turn_answer_;
 
         // Streaming display state: control-token ids resolved at tokenizer load
         // (absent when the vocabulary lacks them — streaming falls back to the

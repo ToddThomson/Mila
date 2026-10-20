@@ -96,7 +96,7 @@ namespace Mila::Dnn::Gemma
             markers_{
                 std::string( kChannelOpen ), std::string( kChannelClose ),
                 std::string( kToolCallOpen ), std::string( kToolCallClose ), std::string( kToolResponseOpen ),
-                { std::string( kToolCallClose ), std::string( kToolResponseOpen ) } }
+                { std::string( kToolResponseOpen ) } }
         {
         }
 

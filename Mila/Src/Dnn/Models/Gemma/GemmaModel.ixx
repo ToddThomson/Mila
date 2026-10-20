@@ -989,12 +989,13 @@ namespace Mila::Dnn
         // bounded by the deployment context length.
         std::vector<std::int32_t> kv_token_history_;
 
-        // Gemma 4 instruct stop tokens: <eos> = 1, <end_of_turn> = 106 (validated by the
-        // token-for-token HF parity run + the live chat). These are the MODEL defaults; the
-        // library does not parse the tokenizer -- a harness that owns the tokenizer may
-        // override the stop set per call via GenerateParams::stop_tokens.
+        // Gemma 4's stop set, as every checkpoint's generation_config.json declares it: <eos> = 1, <turn|> = 106, and
+        // <|tool_response> = 50, which the model writes once it has made every call it means to make before seeing a
+        // result. These are the MODEL defaults; the library does not parse the tokenizer -- a harness that owns the
+        // tokenizer may override the stop set per call via GenerateParams::stop_tokens.
         static constexpr std::int32_t kEosToken = 1;
         static constexpr std::int32_t kEndOfTurnToken = 106;
+        static constexpr std::int32_t kToolResponseToken = 50;
 
         std::int32_t eosToken() const noexcept override
         {
@@ -1003,7 +1004,7 @@ namespace Mila::Dnn
 
         std::unordered_set<std::int32_t> stopTokens() const override
         {
-            return { kEosToken, kEndOfTurnToken };
+            return { kEosToken, kEndOfTurnToken, kToolResponseToken };
         }
 
         /**

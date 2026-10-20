@@ -164,8 +164,9 @@ and it fights prompt caching. See `MilaISCodexAgent.md`, `PromptCaching.md`.
 
 ### Native Agent Core (shared by Chat + Agentic; to be extracted)
 
-The in-process loop: stop generation at `<tool_call|>`, parse the native call, dispatch, splice
-the result back into an OPEN model turn, resume. Mila already does the intra-turn splice via the
+The in-process loop: stop generation where the model hands over to its tools (Gemma's
+`<|tool_response>`), parse every native call, dispatch each, splice the results back into an OPEN
+model turn, resume. Mila already does the intra-turn splice via the
 `continue_open` trick. The core holds the model and its KV cache **warm across the whole session**
 and prefills only the delta — O(new tokens) per turn, not O(context). This is the concrete,
 quantifiable advantage the wire cannot match, and it is structurally unavailable to a stateless

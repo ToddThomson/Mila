@@ -151,30 +151,26 @@ the runtime grammar drops everything up to and including the last
 match the registered handler and the tool never runs (the model then apologizes
 that it cannot access the tool -- graceful, but wrong).
 
-**The model does not stop cleanly at `<tool_call|>` on its own.** Given a single
-uninterrupted `generate()` call, it free-runs past the tool call and hallucinates
-a plausible-looking `<|tool_response>...` continuation of its own invention
-(observed: fabricated temperature/condition values that did not match the
-registered tool handler's real return, and a malformed response missing the
-`<tool_response|>` close tag). The protocol expects the harness to stop generation
-right after `<tool_call|>`, dispatch the real tool, splice a genuine
-`<|tool_response>...<tool_response|>` into the token stream, and resume the *same*
-assistant turn (not a fresh history entry the way Llama's `ipython` role is).
+**The model hands over at `<|tool_response>`, after every call it means to make.**
+Google's `generation_config.json` stops on `<eos>`, `<turn|>` and `<|tool_response>`
+(ids 1, 106, 50). Left running past that marker, the model writes a plausible-looking
+result of its own invention (observed: fabricated temperature/condition values that
+did not match the registered tool handler's real return, and a malformed response
+missing the `<tool_response|>` close tag). The harness stops there, dispatches every
+call the turn made, splices a genuine `<|tool_response>...<tool_response|>` per call
+into the token stream, and resumes the *same* assistant turn (not a fresh history
+entry the way Llama's `ipython` role is). Mila first stopped at each `<tool_call|>`
+instead, which kept only the first of several calls; measured 2026-10-20, the model
+makes exactly the calls a turn needs and then writes the marker (`InferenceServerWire.md` 3.4).
 
-**Mila implementation (probe, not hardened):** `Chat::generateResponse()` detects
-the `<tool_call|>` token by raw id (cached once via `tokenizer_->encode()`, checked
-in the per-token callback) and calls `stop_src_.request_stop()` — no core-library
-change needed, since the token is not in the model's own default stop set and so
-reaches the callback normally. The grammar itself lives in the runtime, not the
-harness: `Mila::Dnn::Gemma::parseToolCall` (module `Dnn.Models.GemmaProtocol`,
-`Src/Dnn/Models/Gemma/Gemma.Protocol.ixx`) extracts the call from the
-accumulated text; `Mila::Dnn::Gemma::formatToolResponse` mirrors the dispatched result
-back into the `key:value` grammar for the spliced response, surfacing the primary
-output field (or the `error` field on a failed tool) and rendering string values in
-the trained `<|"|>` delimiter. A non-JSON result passes through under the `value:` key,
-matching the canonical template's non-mapping response form. The harness then re-prefills prompt + full accumulated
-turn text and resumes generation, looping up to a small round cap. (This runtime module
-replaced the retired `Chat.GemmaToolCallParser.ixx` on 2026-07-07.)
+**Mila implementation:** `<|tool_response>` is in `GemmaModel`'s own stop set, so
+generation ends there for every consumer. Both applications render through
+`GemmaChatProtocol` and read the reply with its `parseReply`: the inference server returns
+every call, and `Chat::generateResponse()` dispatches every call, adds the calls and their
+results to the history, and renders it again, which resumes the same model turn, looping
+up to a small round cap. A result is rendered as the template renders text, whole under
+`value:`. (The runtime grammar replaced the retired `Chat.GemmaToolCallParser.ixx` on
+2026-07-07; Chat rendered its own prompt until 2026-10-20.)
 
 **The whole grammar now lives in that module, and "shared with both adaptors" is finally
 literal.** It was not: the value grammar came down first while the turn template, the

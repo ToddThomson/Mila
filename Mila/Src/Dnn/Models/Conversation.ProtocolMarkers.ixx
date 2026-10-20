@@ -25,11 +25,11 @@ namespace Mila::Dnn::Conversation
         std::string tool_response_open;
 
         /**
-         * @brief Text that ends a turn early.
+         * @brief Text that ends a turn early: the open of a result, which is the engine's to write.
          *
-         * A closed call, since left running the model writes the result itself; and the open of a
-         * result, which is the engine's to write and never the model's, as a backstop for a call
-         * the model failed to close.
+         * Never a closed call. A turn may hold several calls, and the model makes all of them before
+         * the result marker -- Gemma 4 writes it as its own stop, Qwen ends the turn instead -- so
+         * stopping at a call's close keeps only the first.
          */
         std::vector<std::string> stop_after;
     };

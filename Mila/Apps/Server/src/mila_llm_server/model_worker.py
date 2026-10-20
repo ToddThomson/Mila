@@ -365,9 +365,8 @@ class ModelWorker:
         callers must use thread-safe delivery (e.g. loop.call_soon_threadsafe into an asyncio.Queue). Token ids
         are buffered until they form a valid UTF-8 sequence, since a token can carry part of a code point.
 
-        With stop_at_markers, generation stops at the protocol's stop markers outside the reasoning: a closed
-        call, since left running the model writes the result itself, and the open of a result, which is the
-        engine's to write and backstops a call the model failed to close. begins_in_reasoning is the prompt's
+        With stop_at_markers, generation stops at the protocol's stop markers outside the reasoning: the open of
+        a result, which is the engine's to write, so a turn keeps every call the model makes before it. begins_in_reasoning is the prompt's
         `reply_begins_in_reasoning`: the reply opens inside the reasoning channel the template left open.
 
         Returns the binding's status. A stop this worker requested at a marker is the model's turn ending, and

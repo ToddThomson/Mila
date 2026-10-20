@@ -146,8 +146,14 @@ streamed means forwarded as it arrives. The blocking `generate()` plus `decode()
 grammar and has no stop at the end of a call, is no longer used by the server: its differences from the
 streaming path are the class of defect in 1.2.
 
-The generation stops at the protocol's stop markers -- a closed call, the open of a result -- **only outside the
-reasoning**, where `parseReply` reads calls (fixed 2026-10-18). A call the model drafts while thinking is not a
+The generation stops at the protocol's stop marker -- the open of a result, never a call's close -- **only outside
+the reasoning**, where `parseReply` reads calls (fixed 2026-10-18). Stopping at a closed call kept only the first of
+several, and W2 failed for every family that writes several: Gemma 4 writes all its calls and then
+`<|tool_response>`, which its `generation_config.json` declares a stop, and Qwen 3.8 writes all its calls and then
+ends the turn (measured 2026-10-20, 26B-A4B and Qwen 3.8 fp4-cb3, a prompt needing one, two, three and two
+dependent calls, ten samples each, thinking on and off: the expected count in 160 of 160, except that Gemma with
+thinking on read three files one at a time in 4 of 10, a valid order; no call repeated, and Gemma's marker never
+inside its reasoning). A call the model drafts while thinking is not a
 call; stopping there ended Qwen 3.8's replies inside their reasoning, which a client reads as an empty turn. Where
 the reply starts is the prompt's `reply_begins_in_reasoning`. A character split across tokens is held until it
 completes, for at most eight tokens; bytes that never form one are the model's, and pass on as U+FFFD, since
