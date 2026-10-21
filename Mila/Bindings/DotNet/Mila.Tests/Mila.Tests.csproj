@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- xUnit v3 test projects are executables, run by dotnet test through Microsoft Testing Platform (global.json). -->
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- The tests are the library's own consumer of its experimental API. -->
+    <NoWarn>$(NoWarn);MILA0001</NoWarn>
+    <!-- Where the mock's CMake build put MilaNative; override with -p:MilaNativeMockDirectory=... -->
+    <MilaNativeMockDirectory Condition="'$(MilaNativeMockDirectory)' == ''">$(MSBuildThisFileDirectory)../Mock/build</MilaNativeMockDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Mila/Mila.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="MilaNativeMockDirectory" Value="$([System.IO.Path]::GetFullPath('$(MilaNativeMockDirectory)'))" />
+  </ItemGroup>
+
+</Project>

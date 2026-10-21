@@ -1,0 +1,73 @@
+name: Mila .NET Binding
+
+# The C ABI (Mila/Bindings/Native/mila.h) and the C# library over it (Mila/Bindings/DotNet/,
+# DotNetBinding.md), phase 1a: everything runs against the C17 mock of the ABI, so there is no CUDA
+# and no C++ build here. Its own workflow for the reason desktop.yml is: minutes not an hour, and
+# build-pipeline.yml's triggers would leave a change here untested on the `dev` push that makes it.
+
+on:
+  push:
+    paths:
+      - 'Mila/Bindings/DotNet/**'
+      - 'Mila/Bindings/Native/mila.h'
+      - '.github/workflows/dotnet.yml'
+  pull_request:
+    paths:
+      - 'Mila/Bindings/DotNet/**'
+      - 'Mila/Bindings/Native/mila.h'
+      - '.github/workflows/dotnet.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: dotnet-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+  TESTINGPLATFORM_TELEMETRY_OPTOUT: 1
+
+jobs:
+  mock-and-tests:
+    name: Mock (C17, GCC and Clang) and dotnet test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: Mila/Bindings/DotNet
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: Mila/Bindings/DotNet/global.json
+
+      # Clang only proves the mock and the header build warning-free under it too; the tests load GCC's.
+      - name: Build the mock with Clang
+        run: |
+          CC=clang cmake -S Mock -B Mock/build-clang
+          cmake --build Mock/build-clang
+
+      - name: Build the mock with GCC
+        run: |
+          CC=gcc cmake -S Mock -B Mock/build
+          cmake --build Mock/build
+
+      - name: Restore the pinned packages
+        run: dotnet restore --locked-mode
+
+      - name: Build (warnings are errors)
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test against the mock
+        run: dotnet test --no-build --configuration Release
+
+      - name: Run the sample against the mock
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/Mila/Bindings/DotNet/Mock/build
+        run: |
+          printf 'Hello\n\n' | dotnet run --project Samples/Chat --no-build --configuration Release -- mock-gemma-it | tee sample.log
+          grep -q 'Hello from the Mila mock.' sample.log

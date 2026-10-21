@@ -182,7 +182,12 @@ typedef void ( *mila_token_callback )( int32_t token, void* user_data );
   was rendered with, as the surface already decides (`ChatConfiguration.md` 5). The mask is what makes
   "not given" crossable without `std::optional`.
 - **`generate` is synchronous.** It calls `on_token` on the calling thread, once per token, before it
-  returns. The callback may call `mila_stop_source_request_stop` and nothing else in the ABI.
+  returns. The callback may call `mila_stop_source_request_stop` and any function on another handle --
+  decoding the token with a tokenizer is what a streaming caller does there, as Python's `on_token` does --
+  but nothing on the model that is generating. A failure inside the callback leaves `generate`'s own
+  status and message unaffected, since the callback's calls finish before `generate` reports.
+- **`max_new_tokens` is always given and greater than zero**; it is a bound, not a sampling knob, so the
+  mask does not cover it. A null `options` is `MILA_ERROR_INVALID_ARGUMENT`.
 - **One model handle, not three -- the bend of rule 5.** The surface has a session class per family and
   Python projects each. The ABI opens one `mila_model` by store name and picks the session from the record's
   `family`, which is the selection `ChatProtocolHandle::forInstalledModel` already makes for the template.
@@ -233,7 +238,11 @@ written the same way.
 | Records | `CudaDevice`, `StoredModel`, `ChatTurn`, `ToolCall`, `FormattedPrompt`, `ParsedReply`, `LoadOptions`, `GenerateOptions` (each knob `T?`), enums `LogLevel`, `FinishReason`, `MilaStatus` |
 
 `Model.Generate` throws `InvalidOperationException` when called while another `Generate` on the same model
-is running. Names are the Python projection's in .NET casing, without abbreviation (CLAUDE.md): a reader
+is running, including from its own `onToken`. `GenerateOptions.MaxNewTokens` is a `long` defaulting to 64,
+Python's `max_new_tokens` default; the sampling knobs are each `T?`. Every string out of the ABI is decoded
+as strict UTF-8, so `Tokenizer.Decode` of ids that end part-way through a character throws
+`DecoderFallbackException`, as Python's `decode` raises `UnicodeDecodeError`: a streaming caller holds the
+ids and retries. Names are the Python projection's in .NET casing, without abbreviation (CLAUDE.md): a reader
 who knows one knows the other.
 
 ### 4.3 Layout
@@ -243,6 +252,9 @@ Mila/Bindings/DotNet/
   Mila.slnx                       solution: the library, its tests, the sample
   Directory.Build.props           net10.0, Nullable, TreatWarningsAsErrors, the version from Version.txt
   Directory.Packages.props        central package management: every test package pinned exactly
+  global.json                     the SDK band, and `dotnet test` in Microsoft Testing Platform mode,
+                                  which xUnit v3 4.x requires on the .NET 10 SDK
+  */packages.lock.json            every transitive package pinned; CI restores in locked mode
   Mila/                           the library (Mila.csproj)
   Mila.Tests/                     xUnit, over the mock (section 5)
   Samples/Chat/                   a console chat: store name in, streamed reply out
@@ -270,7 +282,9 @@ tested against, as Chat's desktop window was built against its mock session (`Ch
   `struct_size` it does not know is `MILA_ERROR_ABI`; each sets the thread's message.
 
 The tests point the library at the mock with `NativeLibrary.SetDllImportResolver` on the `Mila` assembly,
-from the test project. The shipped library has no resolver and reads no environment variable.
+from the test project, which is given the mock's build directory at build time. The shipped library has
+no resolver and reads no environment variable; the sample finds the mock as it would find `MilaNative`,
+through the platform's library search (`LD_LIBRARY_PATH` on Linux, `PATH` on Windows).
 
 ## 6. `MilaNative` (`Mila/Bindings/Native/`)
 

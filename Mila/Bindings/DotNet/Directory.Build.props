@@ -1,0 +1,14 @@
+<Project>
+
+  <!-- Every project under Mila/Bindings/DotNet: the library, its tests and the sample. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../../../Version.txt').Trim())</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+
+</Project>

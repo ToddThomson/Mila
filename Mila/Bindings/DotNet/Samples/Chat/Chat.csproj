@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- Mila is experimental (MILA0001); a consumer suppresses the diagnostic to use it. -->
+    <NoWarn>$(NoWarn);MILA0001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../Mila/Mila.csproj" />
+  </ItemGroup>
+
+</Project>

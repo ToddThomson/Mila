@@ -1,0 +1,13 @@
+<Project>
+
+  <!-- Every package pinned exactly; the lock files pin what these bring in. Test dependencies only: the
+       library ships with no third-party package. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageVersion Include="xunit.v3" Version="[4.0.2]" />
+  </ItemGroup>
+
+</Project>

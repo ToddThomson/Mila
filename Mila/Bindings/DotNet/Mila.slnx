@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Mila/Mila.csproj" />
+  <Project Path="Mila.Tests/Mila.Tests.csproj" />
+  <Project Path="Samples/Chat/Chat.csproj" />
+</Solution>
