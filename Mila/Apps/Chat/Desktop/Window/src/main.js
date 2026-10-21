@@ -10,6 +10,7 @@ import { startSessionProcess } from './session-process.js';
 
 const here = path.dirname( fileURLToPath( import.meta.url ) );
 const pageRoot = app.isPackaged ? path.join( process.resourcesPath, 'Ui' ) : path.resolve( here, '..', '..', 'Ui' );
+const iconPath = path.join( here, '..', 'icons', 'icon.png' );
 const allowedPermissions = [ 'clipboard-sanitized-write' ];
 const externalProtocols = [ 'https:', 'http:', 'mailto:' ];
 
@@ -212,6 +213,10 @@ function createWindow()
         backgroundColor: nativeTheme.shouldUseDarkColors ? '#121215' : '#ffffff',
         webPreferences
     };
+
+    // Windows and Linux take the window's icon from here; macOS takes it from the app bundle.
+    if ( process.platform !== 'darwin' )
+        options.icon = iconPath;
 
     mainWindow = new BrowserWindow( options );
 

@@ -113,6 +113,7 @@ const actions = {
     closeOverlay,
     newConversation,
     openLink,
+    transmit: ( message ) => transport.send( message ),
     pathForFile: ( file ) => transport.pathForFile( file ),
     getState: () => state
 };

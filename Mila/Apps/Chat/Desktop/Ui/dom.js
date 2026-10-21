@@ -40,6 +40,22 @@ export function setIcon( target, icon )
     target.innerHTML = icons[ icon ];
 }
 
+/**
+ * An attached image's thumbnail while the page still has the file, and the kind's icon otherwise:
+ * a conversation opened from the store carries the name only.
+ */
+export function previewOrIcon( attachment, icon )
+{
+    if ( attachment.previewUrl === undefined || attachment.previewUrl === null )
+        return icon;
+
+    const thumbnail = element( 'img', 'attachment-thumbnail' );
+    thumbnail.src = attachment.previewUrl;
+    thumbnail.alt = '';
+
+    return thumbnail;
+}
+
 export function clear( target )
 {
     target.replaceChildren();

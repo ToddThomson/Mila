@@ -136,6 +136,19 @@ function sendingAddsTheUserTurnAndTakesThePendingAttachmentsWithIt()
 
 test( 'sending adds the user turn and takes the pending attachments with it', sendingAddsTheUserTurnAndTakesThePendingAttachmentsWithIt );
 
+function anImagePreviewFollowsTheAttachmentIntoTheUserTurn()
+{
+    const add = { type: 'attachment.add', attachment_id: 'a1', kind: 'image', name: 'cat.png', path: '/cat.png', previewUrl: 'blob:mila://chat/1' };
+    const send = { type: 'turn.send', text: 'Look', attachment_ids: [ 'a1' ] };
+    const pending = apply( [ add ] );
+    const sent = apply( [ add, send ] );
+
+    assert.equal( pending.attachments[ 0 ].previewUrl, 'blob:mila://chat/1' );
+    assert.equal( sent.transcript[ 0 ].attachments[ 0 ].previewUrl, 'blob:mila://chat/1' );
+}
+
+test( 'an image preview follows the attachment into the user turn', anImagePreviewFollowsTheAttachmentIntoTheUserTurn );
+
 function loadingAnotherModelClearsTheTranscript()
 {
     const first = sessionState( 'gemma-4-12b-it-fp4', 'c1' );

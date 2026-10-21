@@ -405,6 +405,8 @@ kbd {
 
 .attachment-icon svg { width: 15px; height: 15px; }
 
+.attachment-thumbnail { width: 28px; height: 28px; margin-left: -5px; border-radius: 5px; object-fit: cover; }
+
 .notice { margin: 0 0 22px; font-size: 13px; color: var(--muted); text-align: center; }
 
 .notice.error {

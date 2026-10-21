@@ -207,8 +207,10 @@ line, `/model list` is `models.refresh`. The composer does not parse slash comma
 ## 5. The page (`Mila/Apps/Chat/Desktop/Ui/`)
 
 - **Plain HTML, CSS and JavaScript modules. No build step, no framework, no network.** The page loads
-  only its own files: a `Content-Security-Policy` of `default-src 'self'` in `index.html`, no CDN, no web
-  fonts fetched. It ships as files inside the window's package.
+  only its own files: a `Content-Security-Policy` of `default-src 'self'; img-src 'self' blob:` in
+  `index.html`, no CDN, no web fonts fetched. `blob:` is the attachment previews of section 6.4, object
+  URLs over files the user picked; `media-src` gains it when audio has a preview. It ships as files
+  inside the window's package.
 - **The markdown renderer is hand-written** for the subset in section 3, in phase 1. A vendored library
   would need its licence read at its source and a `NOTICE.md` entry, as Chat's image decoder does
   (`Gemma4Modality.md` 8, decision 3), which is a decision for a local change, not phase 1.
@@ -281,6 +283,13 @@ one window application for Windows, macOS and Linux. Its main process spawns the
 Node's child-process API and relays lines; a preload script exposes the bridge as `window.mila`, with
 context isolation on and Node integration off in the page. One engine (Chromium) everywhere.
 
+- **The page's address is `mila://chat/`**, a standard, secure scheme the window registers and serves
+  from the page's own folder, nothing outside it (`Window/src/page-protocol.js`). That address is the
+  origin every message from the page is checked against, and the `'self'` of section 5's policy.
+- **The icon is the Mila mark**, the website's (`Web/static/mila-mark.svg`), rendered to
+  `Window/icons/icon.png` (512 px) and `icon.ico` until the product's name and icon are decided
+  (section 9).
+
 - **Costs, accepted:** Electron ships a new major about every eight weeks and supports the latest three,
   so keeping the window's Chromium current is ours; a Node and npm toolchain beside the C++ build, for
   the window only; about a hundred megabytes of Chromium in the package.
@@ -312,8 +321,10 @@ The page never decodes a file. It previews it with an object URL, asks the bridg
 `attachment.add` with the path; the session reads and decodes it as the console's `/image` and `/audio`
 do (`Gemma4Modality.md` 5.7: PNG and JPEG; WAV mixed to mono and resampled to 16 kHz). Paths, not bytes,
 because the window and the session are on one machine and the session decodes anyway. Where the bridge
-returns no path, the attach button falls back to the window's native file dialog. In the mock, an
-attachment is accepted or refused by the scenario.
+returns no path -- a picture dragged out of a web page, which is not a file on disk -- the page refuses
+it as not saved on this computer. The attach button needs no fallback: a file the window's picker
+returns always has a path, so the bridge stays at its three calls. The preview's object URL stays in
+the page and is never sent. In the mock, an attachment is accepted or refused by the scenario.
 
 ## 7. The session split (phase 2, local)
 

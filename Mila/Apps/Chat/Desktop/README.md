@@ -55,5 +55,15 @@ mock session over stdio.
 | Windows installer, on Linux | the same, with 64- and 32-bit Wine installed (`wine64`, `wine32:i386`) | the same |
 | Linux folder | `npm run build:linux` | `linux-unpacked/` |
 
-Builds are unsigned, and use Electron's default icon until Mila Chat has one. A packaged build has no
-developer tools and no menu bar on Windows and Linux.
+Builds are unsigned. The icon is the Mila mark, in `Window/icons/` (electron-builder's build resources),
+rendered from the website's `mila-mark.svg`. A packaged build has no developer tools and no menu bar on
+Windows and Linux.
+
+Electron downloads its binary the first time `npm start` runs, and electron-builder downloads NSIS on the
+first build. Both cache per user; `ELECTRON_CACHE` and `ELECTRON_BUILDER_CACHE` move them.
+
+## CI
+
+`.github/workflows/desktop.yml` runs on any change under this folder: both test suites on Linux, then the
+Windows installer built from the lock file, kept as a workflow upload for 14 days. It is not a release;
+until the session process exists the installer runs the mock.

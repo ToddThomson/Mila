@@ -1,7 +1,7 @@
 // The composer: a growing text box, attachment chips above it, and Send that becomes Stop while a
 // reply is written. A file dropped anywhere on the main pane attaches.
 
-import { element, iconButton, setIcon, clear } from '../dom.js';
+import { element, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
 import { isBusy, streamIdentifier } from '../state.js';
 
 const maximumRows = 12;
@@ -123,7 +123,12 @@ export function createComposerView( root, dropZone, actions )
 
         if ( reason === null )
         {
-            actions.send( request );
+            // The preview stays in the page: the session reads the file from its path.
+            const previewUrl = kind === 'image' ? URL.createObjectURL( file ) : null;
+            const shown = { ...request, previewUrl };
+
+            actions.dispatch( shown );
+            actions.transmit( request );
 
             return;
         }
@@ -181,7 +186,13 @@ export function createComposerView( root, dropZone, actions )
         if ( target === null )
             return;
 
-        const message = { type: 'attachment.remove', attachment_id: target.dataset.identifier };
+        const identifier = target.dataset.identifier;
+        const removed = actions.getState().attachments.find( ( attachment ) => attachment.id === identifier );
+        const message = { type: 'attachment.remove', attachment_id: identifier };
+
+        if ( removed !== undefined && removed.previewUrl !== null )
+            URL.revokeObjectURL( removed.previewUrl );
+
         actions.send( message );
     }
 
@@ -243,7 +254,7 @@ export function createComposerView( root, dropZone, actions )
         chip.title = attachment.status === 'refused' ? attachment.reason : attachment.name;
         remove.dataset.identifier = attachment.id;
         setIcon( icon, attachment.kind === 'audio' ? 'audio' : 'image' );
-        chip.append( icon, name, remove );
+        chip.append( previewOrIcon( attachment, icon ), name, remove );
 
         return chip;
     }

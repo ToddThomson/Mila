@@ -12,8 +12,8 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "build:windows": "electron-builder --win --x64",
-    "build:linux": "electron-builder --linux dir"
+    "build:windows": "electron-builder --win --x64 --publish never",
+    "build:linux": "electron-builder --linux dir --publish never"
   },
   "devDependencies": {
     "electron": "44.9.3",
@@ -23,10 +23,12 @@
     "appId": "me.toddt.mila.chat",
     "productName": "Mila Chat",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "icons"
     },
     "files": [
       "src/**/*",
+      "icons/icon.png",
       "package.json"
     ],
     "extraResources": [

@@ -2,7 +2,7 @@
 // and the session's quiet lines. An entry or a block is rebuilt only when the reducer gave it a
 // new object, so a streamed token touches one element.
 
-import { element, button, iconButton, setIcon, clear } from '../dom.js';
+import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
 import { renderMarkdown } from '../markdown.js';
 import { summarizeTurn, isBusy } from '../state.js';
 import { thoughtLabel, statsLine, finishNotice, readableJson } from '../format.js';
@@ -206,7 +206,7 @@ function buildAttachmentReference( attachment )
     const name = element( 'span', 'attachment-name', attachment.name );
 
     setIcon( icon, attachment.kind === 'audio' ? 'audio' : 'image' );
-    chip.append( icon, name );
+    chip.append( previewOrIcon( attachment, icon ), name );
 
     return chip;
 }
