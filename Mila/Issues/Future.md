@@ -868,13 +868,13 @@ format at equal or fewer bytes serves them better is unmeasured. `Quantization.m
 
 `apps` · `architecture`
 
-Raised by Todd 2026-09-27: a Windows GUI whose core comes from Chat, laid out as a sidebar of conversations and a
-main pane (2026-10-20), for media and saved conversations, and as a showcase to developers of what Mila can build --
-not an end-user product. It needs nothing from `Mila::AI`:
-Chat's session is split from its console at the presentation line v0.22.0 also draws, and the window is a WebView2
-page speaking a JSON schema to a thin Win32 host -- WebView2 rather than WinUI 3 because the same page is to run on
-macOS (Todd, 2026-10-20). Phase 1, the page against a mock, is being built on a branch. Open: the executable's name
-and which release takes phases 2 and 3.
+Raised by Todd 2026-09-27: a GUI whose core comes from Chat, laid out as a sidebar of conversations and a main pane
+(2026-10-20), for media and saved conversations, and as a showcase to developers of what Mila can build -- not an
+end-user product. It needs nothing from `Mila::AI`: Chat's session is split from its console at the presentation
+line v0.22.0 also draws, the session runs as its own C++ process speaking a JSON-lines schema on stdio, and the
+window is an HTML page in an Electron client of that process -- one presentation layer for Windows, macOS and Linux
+(Todd, 2026-10-20). Phase 1, the page and the Electron window against a mock session, is to be built by a cloud
+session. Open: the names, and which release takes phases 2 to 4.
 
 `Mila/Specifications/ChatDesktop.md`
 

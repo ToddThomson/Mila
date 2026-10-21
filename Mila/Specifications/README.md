@@ -136,7 +136,7 @@ means a status line or target is out of date and the rest has not been re-read.
 | Document | Role | Decides or records | Notes |
 |---|---|---|---|
 | [ChatConfiguration.md](ChatConfiguration.md) | Design | Chat's layered configuration | |
-| [ChatDesktop.md](ChatDesktop.md) | Design | Chat's windowed front end on Windows: the presentation-versus-session split, the page-to-host message schema, the layout | Draft, 2026-10-20. Phase 1 (the page against a mock) is written for a cloud session; open decisions in section 9 |
+| [ChatDesktop.md](ChatDesktop.md) | Design | Chat's windowed front end: the presentation-versus-session split, the session as its own process, the JSON-lines message schema, the layout | Draft, 2026-10-20. Phase 1 (the page and the Electron window against a mock session) is written for a cloud session; open decisions in section 9 |
 | [PythonBinding.md](PythonBinding.md) | Design | The Python binding as a product, and its samples | |
 | [InferenceServerWire.md](InferenceServerWire.md) | Design | How the inference server turns each API's request into one conversation and one parsed reply back, with no family knowledge | Draft; depends on `ModelHandle.md` Phase 2, and amends its 3.4. Open decisions in section 10 |
 | [Notebooks/CpuOperationsRetirement.md](Notebooks/CpuOperationsRetirement.md) | Notebook | Retiring the CPU compute operations, 2026-10-11 | Decided: the CPU compute operations go, the CPU device and the CUDA-off build stay. Blocked on coverage: the training spine is proven only on CPU, and two Qwen 4 operations exist only on CPU |
