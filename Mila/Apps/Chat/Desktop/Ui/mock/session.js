@@ -14,6 +14,7 @@ const streamId = 'stream-1';
  * @param options.schedule Calls a function after a delay in milliseconds; returns a handle.
  * @param options.cancel Cancels a handle from schedule.
  * @param options.now Milliseconds since the epoch.
+ * @param options.log Optional; given a line for the log, such as an ignored request.
  */
 export function createMockSession( options )
 {
@@ -42,6 +43,7 @@ export function createMockSession( options )
         nextTurnNumber: 1
     };
 
+    const attachments = new Map();
     let pending = null;
     let reply = null;
 
@@ -165,13 +167,16 @@ export function createMockSession( options )
         }
 
         const turnId = 'turn-' + session.nextTurnNumber;
+        const sent = takeAttachments( request.attachment_ids );
+        const context = { attachments: sent, model: session.model };
         session.nextTurnNumber = session.nextTurnNumber + 1;
         session.busy = true;
 
         reply = {
             turnId,
             request,
-            steps: scenario.createReply( request ),
+            attachments: sent,
+            steps: scenario.createReply( request, context ),
             next: 0,
             thought: '',
             answer: '',
@@ -284,7 +289,8 @@ export function createMockSession( options )
     {
         const stamp = new Date( options.now() );
         const updated = stamp.toISOString();
-        const userMessage = { role: 'user', content: reply.request.text, thought: null, tool_calls: null, attachments: null, stats: null };
+        const sentAttachments = reply.attachments.length > 0 ? reply.attachments : null;
+        const userMessage = { role: 'user', content: reply.request.text, thought: null, tool_calls: null, attachments: sentAttachments, stats: null };
         const toolCalls = reply.toolCalls.length > 0 ? reply.toolCalls : null;
         const thought = reply.thought.length > 0 ? reply.thought : null;
         const stats = storedStats( end.finish );
@@ -312,6 +318,96 @@ export function createMockSession( options )
 
         emitState();
         emitConversations();
+    }
+
+    // ---- Attachments -------------------------------------------------------------------------
+
+    const decodeMilliseconds = 140;
+
+    /**
+     * The accepted attachments a turn names, as a stored message keeps them; each is used once.
+     */
+    function takeAttachments( identifiers )
+    {
+        const taken = [];
+
+        for ( const identifier of identifiers )
+        {
+            const attachment = attachments.get( identifier );
+
+            if ( attachment === undefined || attachment.status !== 'accepted' )
+                continue;
+
+            const stored = { kind: attachment.kind, name: attachment.name };
+            taken.push( stored );
+            attachments.delete( identifier );
+        }
+
+        return taken;
+    }
+
+    function refusalFor( request )
+    {
+        if ( session.model === null )
+            return 'No model is loaded to read it.';
+
+        if ( request.kind !== 'image' && request.kind !== 'audio' )
+            return 'Only PNG and JPEG images and WAV audio can be attached.';
+
+        if ( !session.model.modalities.includes( request.kind ) )
+        {
+            const what = request.kind === 'image' ? 'images' : 'audio';
+
+            return session.model.name + ' cannot take ' + what + '.';
+        }
+
+        if ( request.path === null || request.path.length === 0 )
+            return 'That file could not be found on this computer.';
+
+        return null;
+    }
+
+    function addAttachment( request )
+    {
+        const attachment = { kind: request.kind, name: request.name, status: 'pending' };
+        const decide = () => decideAttachment( request );
+
+        if ( options.log !== undefined )
+            options.log( 'attachment ' + request.attachment_id + ' at ' + request.path );
+
+        attachments.set( request.attachment_id, attachment );
+        options.schedule( decide, decodeMilliseconds );
+    }
+
+    function decideAttachment( request )
+    {
+        const attachment = attachments.get( request.attachment_id );
+
+        if ( attachment === undefined )
+            return;
+
+        const reason = refusalFor( request );
+
+        if ( reason !== null )
+        {
+            attachments.delete( request.attachment_id );
+
+            const refused = { type: 'attachment.refused', attachment_id: request.attachment_id, reason };
+            emit( refused );
+
+            return;
+        }
+
+        attachment.status = 'accepted';
+
+        const sizeBytes = scenario.sample === undefined ? 0 : scenario.sample.sizeBytes;
+        const accepted = { type: 'attachment.accepted', attachment_id: request.attachment_id, kind: request.kind, name: request.name, size_bytes: sizeBytes };
+        emit( accepted );
+    }
+
+    function removeAttachment( request )
+    {
+        attachments.delete( request.attachment_id );
     }
 
     // ---- Conversations -----------------------------------------------------------------------
@@ -558,6 +654,7 @@ export function createMockSession( options )
         session.busy = false;
         session.conversationId = null;
         session.history = [];
+        attachments.clear();
         emitState();
     }
 
@@ -601,9 +698,21 @@ export function createMockSession( options )
             case 'model.load':
                 return loadModel( request );
 
+            case 'attachment.add':
+                return addAttachment( request );
+
+            case 'attachment.remove':
+                return removeAttachment( request );
+
             default:
-                return;
+                return ignore( request );
         }
+    }
+
+    function ignore( request )
+    {
+        if ( options.log !== undefined )
+            options.log( 'ignored a request of type ' + request.type );
     }
 
     return { handle, scenario };

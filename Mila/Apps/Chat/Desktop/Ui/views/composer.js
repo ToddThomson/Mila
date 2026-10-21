@@ -118,19 +118,35 @@ export function createComposerView( root, dropZone, actions )
 
         const kind = kindOf( file );
         const path = actions.pathForFile( file );
-        const local = { type: 'attachment.add', attachment_id: identifier, kind, name: file.name, path };
+        const request = { type: 'attachment.add', attachment_id: identifier, kind, name: file.name, path };
+        const reason = localRefusal( kind, path );
 
-        actions.dispatch( local );
-
-        if ( kind === null )
+        if ( reason === null )
         {
-            const refusal = { type: 'attachment.refused', attachment_id: identifier, reason: 'Only PNG and JPEG images and WAV audio can be attached.' };
-            actions.dispatch( refusal );
+            actions.send( request );
 
             return;
         }
 
-        actions.send( local );
+        const refusal = { type: 'attachment.refused', attachment_id: identifier, reason };
+
+        actions.dispatch( request );
+        actions.dispatch( refusal );
+    }
+
+    /**
+     * What the page can refuse without asking: a file of no kind a model reads, or one that is
+     * not on this computer, such as a picture dragged out of a web page.
+     */
+    function localRefusal( kind, path )
+    {
+        if ( kind === null )
+            return 'Only PNG and JPEG images and WAV audio can be attached.';
+
+        if ( path === null )
+            return 'Only files saved on this computer can be attached.';
+
+        return null;
     }
 
     function addFiles( files )
@@ -315,5 +331,5 @@ export function createComposerView( root, dropZone, actions )
         submitTurn();
     }
 
-    return { render, focus, play };
+    return { render, focus, play, addFiles };
 }

@@ -1,9 +1,8 @@
 // Scenario 1: a Gemma reply streamed token by token -- thinking, a get_weather call and its
 // result, more thinking, then an answer with a table and a code block.
 
-import { splitIntoTokens } from './fixtures.js';
+import { streamSteps, tokenMilliseconds, tokensPerSecond } from './stream.js';
 
-const tokenMilliseconds = 26;
 const toolCallTokens = 17;
 
 const prompt = 'What\'s the weather in Toronto right now? Is it good for cycling to work, and can you give me a quick Python function to convert it to Fahrenheit?';
@@ -33,18 +32,6 @@ const answer = 'It\'s **18 °C and cloudy** in Toronto right now, which is good 
     + 'print(celsius_to_fahrenheit(18))  # 64.4\n'
     + '```\n\n'
     + 'Multiply by `9 / 5` and add 32. To go the other way, subtract 32 and multiply by `5 / 9`.';
-
-function streamSteps( text, round, channel )
-{
-    const pieces = splitIntoTokens( text );
-
-    return pieces.map( ( piece ) => ( { delay: tokenMilliseconds, message: { type: 'turn.text', round, channel, text: piece } } ) );
-}
-
-function tokensPerSecond()
-{
-    return Math.round( 10000 / tokenMilliseconds ) / 10;
-}
 
 function createReply()
 {

@@ -74,6 +74,11 @@ button { cursor: pointer; }
 
 svg { width: 18px; height: 18px; display: block; flex: none; }
 
+.conversation-list, .transcript-scroll, .panel-body, .models-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule) transparent;
+}
+
 kbd {
   font: 11px/1 var(--sans);
   color: var(--faint-text);

@@ -77,10 +77,14 @@ async function mockTransport( location )
 
     const listing = scenarioModule.scenarios.map( ( scenario ) => ( { number: scenario.number, title: scenario.title } ) );
 
+    const sample = session.scenario.sample === undefined ? null : session.scenario.sample;
+
     const development = {
         scenarios: listing,
         scenario: session.scenario.number,
         prompt: session.scenario.prompt,
+        sample,
+        sampleUrl: sample === null ? null : 'mock/' + sample.name,
         autoplay: parameters.get( 'autoplay' ) !== null
     };
 

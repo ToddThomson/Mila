@@ -100,7 +100,7 @@ export function reduce( state, message )
 
 /**
  * A different model means the session cleared its history, as /model load does, so the
- * transcript goes with it.
+ * transcript and any attachment not yet sent go with it.
  */
 function reduceSessionState( state, message )
 {
@@ -108,8 +108,9 @@ function reduceSessionState( state, message )
     const conversationId = stream === null ? null : stream.conversation_id;
     const modelChanged = state.session !== null && state.session.model !== message.model;
     const transcript = modelChanged ? [] : state.transcript;
+    const attachments = modelChanged ? [] : state.attachments;
 
-    return { ...state, session: message, conversationId, transcript };
+    return { ...state, session: message, conversationId, transcript, attachments };
 }
 
 function appendEntry( state, entry )

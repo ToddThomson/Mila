@@ -11,9 +11,45 @@ export function createDevelopmentView( root, development, composer )
         window.location.search = parameters.toString();
     }
 
-    function onPlay()
+    const attachSettleMilliseconds = 400;
+
+    function sendPrompt()
     {
         composer.play( development.prompt );
+    }
+
+    function attachSample( response )
+    {
+        const received = response.blob();
+
+        received.then( addSample );
+    }
+
+    function addSample( blob )
+    {
+        const properties = { type: development.sample.type };
+        const file = new File( [ blob ], development.sample.name, properties );
+        const files = [ file ];
+
+        composer.addFiles( files );
+        window.setTimeout( sendPrompt, attachSettleMilliseconds );
+    }
+
+    /**
+     * Plays the scenario as a person would: attach its sample file when it has one, then send.
+     */
+    function onPlay()
+    {
+        if ( development.sample === null )
+        {
+            sendPrompt();
+
+            return;
+        }
+
+        const fetched = window.fetch( development.sampleUrl );
+
+        fetched.then( attachSample );
     }
 
     function render()

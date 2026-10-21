@@ -152,7 +152,7 @@ export function seedConversations( now )
             messages: [
                 userMessage( 'Summarize "Attention Is All You Need" in three sentences.' ),
                 assistantMessage(
-                    'The paper introduces the Transformer, a sequence model built only from attention and feed-forward layers, with no recurrence. Multi-head self-attention lets every position look at every other in one step, which trains far faster in parallel. It set new results in machine translation and became the basis of today\'s language models.',
+                    'The paper introduces the Transformer, a sequence model built only from attention and feed-forward layers, with no recurrence. Multi-head self-attention lets every position look at every other in one step, which trains far faster in parallel. It set new results in machine translation and became the basis of today\'s language models.\n\nThe paper is at [arXiv 1706.03762](https://arxiv.org/abs/1706.03762).',
                     null,
                     attentionStats )
             ]

@@ -1,0 +1,61 @@
+{
+  "name": "mila-chat",
+  "productName": "Mila Chat",
+  "version": "0.21.0",
+  "description": "Mila Chat, a window over Chat's session",
+  "author": "Todd Thomson",
+  "license": "MIT",
+  "repository": "https://github.com/ToddThomson/Mila",
+  "private": true,
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "build:windows": "electron-builder --win --x64",
+    "build:linux": "electron-builder --linux dir"
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "me.toddt.mila.chat",
+    "productName": "Mila Chat",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../Ui",
+        "to": "Ui",
+        "filter": [
+          "**/*",
+          "!tests/**"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "artifactName": "Mila-Chat-Setup-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ]
+    }
+  }
+}

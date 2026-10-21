@@ -277,3 +277,93 @@ function tokenPiecesJoinBackToTheText()
 }
 
 test( 'token pieces join back to the text', tokenPiecesJoinBackToTheText );
+
+function attachSample( session, identifier, kind )
+{
+    const request = { v: 1, type: 'attachment.add', attachment_id: identifier, kind, name: 'harbour-at-dusk.png', path: '/pictures/harbour-at-dusk.png' };
+
+    session.handle( request );
+}
+
+function scenarioSixAcceptsAnImageAndDescribesIt()
+{
+    const { clock, events, session } = startSession( 6 );
+    const request = { v: 1, type: 'turn.send', stream_id: 'stream-1', text: 'What is in this picture?', attachment_ids: [ 'a1' ] };
+
+    attachSample( session, 'a1', 'image' );
+    clock.run();
+
+    const accepted = ofType( events, 'attachment.accepted' );
+    assert.equal( accepted.length, 1 );
+    assert.equal( accepted[ 0 ].kind, 'image' );
+    assert.ok( accepted[ 0 ].size_bytes > 0 );
+
+    session.handle( request );
+    clock.run();
+
+    const end = ofType( events, 'turn.end' )[ 0 ];
+    assert.match( end.answer, /lighthouse/ );
+
+    const open = { v: 1, type: 'conversation.open', id: ofType( events, 'turn.begin' )[ 0 ].conversation_id };
+    session.handle( open );
+
+    const loaded = ofType( events, 'conversation.loaded' )[ 0 ];
+    assert.deepEqual( loaded.messages[ 0 ].attachments, [ { kind: 'image', name: 'harbour-at-dusk.png' } ] );
+}
+
+test( 'scenario 6 accepts an image on Gemma and describes it', scenarioSixAcceptsAnImageAndDescribesIt );
+
+function anAttachmentIsRefusedOnAModelWithoutItsKind()
+{
+    const { clock, events, session } = startSession( 6 );
+    const load = { v: 1, type: 'model.load', name: 'Llama-3.2-3B-Instruct-fp4', quantization: null };
+
+    session.handle( load );
+    clock.run();
+    attachSample( session, 'a2', 'image' );
+    clock.run();
+
+    const refused = ofType( events, 'attachment.refused' );
+    assert.equal( refused.length, 1 );
+    assert.equal( refused[ 0 ].reason, 'Llama-3.2-3B-Instruct-fp4 cannot take images.' );
+
+    const states = ofType( events, 'session.state' );
+    assert.deepEqual( states[ states.length - 1 ].modalities, [] );
+}
+
+test( 'an attachment is refused on a model without its kind', anAttachmentIsRefusedOnAModelWithoutItsKind );
+
+function anAttachmentWithNoPathIsRefused()
+{
+    const { clock, events, session } = startSession( 6 );
+    const request = { v: 1, type: 'attachment.add', attachment_id: 'a3', kind: 'image', name: 'x.png', path: null };
+
+    session.handle( request );
+    clock.run();
+
+    assert.equal( ofType( events, 'attachment.refused' ).length, 1 );
+}
+
+test( 'an attachment with no path is refused', anAttachmentWithNoPathIsRefused );
+
+function loadingAModelReportsProgressThenTheNewState()
+{
+    const { clock, events, session } = startSession( 1 );
+    const load = { v: 1, type: 'model.load', name: 'qwen3.8-27b-fp4', quantization: null };
+
+    session.handle( load );
+    clock.run();
+
+    const progress = ofType( events, 'progress' );
+    const last = progress[ progress.length - 1 ];
+    assert.equal( last.task, 'load' );
+    assert.equal( last.done, last.total );
+
+    const states = ofType( events, 'session.state' );
+    const final = states[ states.length - 1 ];
+    assert.equal( final.model, 'qwen3.8-27b-fp4' );
+    assert.equal( final.effort_levels, true );
+    assert.equal( final.thinking, 'balanced' );
+}
+
+test( 'loading a model reports progress, then the new state', loadingAModelReportsProgressThenTheNewState );
