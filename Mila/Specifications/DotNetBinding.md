@@ -254,7 +254,9 @@ Mila/Bindings/DotNet/
   Directory.Packages.props        central package management: every test package pinned exactly
   global.json                     the SDK band, and `dotnet test` in Microsoft Testing Platform mode,
                                   which xUnit v3 4.x requires on the .NET 10 SDK
-  */packages.lock.json            every transitive package pinned; CI restores in locked mode
+  */packages.lock.json            the tests' and the sample's packages pinned, transitive ones too; CI
+                                  restores in locked mode. The library has none, so no lock: the SDK
+                                  package IsAotCompatible implies is versioned by the installed SDK
   Mila/                           the library (Mila.csproj)
   Mila.Tests/                     xUnit, over the mock (section 5)
   Samples/Chat/                   a console chat: store name in, streamed reply out

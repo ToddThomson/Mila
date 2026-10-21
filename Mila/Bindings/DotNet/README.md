@@ -99,5 +99,5 @@ void Show(int token)
 | `Mila.Tests/` | Its tests, run against the mock |
 | `Samples/Chat/` | The console chat |
 | `Mock/` | The mock `MilaNative`, in C |
-| `Directory.Packages.props`, `*/packages.lock.json` | Every package, pinned |
+| `Directory.Packages.props`, `*/packages.lock.json` | The tests' and the sample's packages, pinned; the library has none |
 | `global.json` | The SDK, and `dotnet test` on Microsoft Testing Platform |

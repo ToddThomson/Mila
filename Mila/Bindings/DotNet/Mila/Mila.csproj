@@ -6,6 +6,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- No lock file: the library has no packages, and the one IsAotCompatible implies (Microsoft.NET.ILLink.Tasks)
+         is the SDK's own, versioned and built with whichever SDK is installed, so a lock would fail on any other. -->
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
