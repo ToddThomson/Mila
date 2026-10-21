@@ -372,7 +372,8 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
    library target that the wheel and a `FetchContent` consumer both get.
 3. **A C ABI at the `AI` boundary: decided during v0.21.0** against the QuickStart experience, shipped
    no earlier than the release after it. It would make .NET and other compilers' C++ straightforward,
-   and `Mila::AI`'s rule 1 keeps it small enough to be cheap.
+   and `Mila::AI`'s rule 1 keeps it small enough to be cheap. Its first form, over today's binding surface
+   and experimental, is `DotNetBinding.md` (2026-10-21).
 4. **Where Chat and MIS live: `Mila/Apps/Chat` and `Mila/Apps/Server`.** Samples stay
    teaching code; these stay maintained products. Renamed from `Applications` and brought forward to v0.21.0 on
    2026-10-11 (Todd), with the shipped utilities under `Mila/Apps/Tools/` (`Notebooks/MilaCommandLineReview.md` 4.1).

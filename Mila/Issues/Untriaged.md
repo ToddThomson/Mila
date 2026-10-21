@@ -17,3 +17,6 @@ an absence -- no file in the repository or in `.internal/` names them @ a8f5360a
 Todd, 2026-10-20, while choosing the toolkit for Chat's desktop window (`Mila/Specifications/ChatDesktop.md`
 section 9): "We do have a future for .NET bindings." Like the Python binding: a projection of the C++ API
 (`Mila/Bindings/`).
+
+Specified 2026-10-21 in `Mila/Specifications/DotNetBinding.md`: P/Invoke over a C ABI, experimental until
+v0.22.0 or later (Todd).
