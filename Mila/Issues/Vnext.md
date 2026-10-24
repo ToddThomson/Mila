@@ -434,20 +434,6 @@ each op is touched.
 when each op's supported-precision set would be made explicit anyway — but FP16 is not used in Mila,
 so this needs its own pass or a new pairing.
 
-## Tool calling has never been driven end to end on Llama
-
-`llama` · `apps`
-
-Gemma 4 is validated through both adaptors across plain-chat, single-tool and tool-result-resume
-flows. Llama 3.2 3B and 3.1 8B are the primary validated inference lineage in the product definition
-and neither has been driven through a single tool call, from Chat or over the wire. The tool-calling
-framework itself is complete and family-neutral; what is missing is the evidence that Llama's
-grammar reaches it.
-
-Moving this out narrowed two published claims in the same commit — the ROADMAP Models criterion and
-`README.md`'s Llama section — so nothing now asserts it. Related: HuggingFace token parity, which is the other half of what
-"validated lineage" is asked to mean, is held in the suite since `ModelFamilyParity.md` 8.4 L1.
-
 ## Llama, Qwen and GPT-2 tokenize non-ASCII text differently from HuggingFace
 
 `tokenizer` · `gpt` · `llama` · `qwen` · `mila-src`
@@ -673,17 +659,6 @@ It emits `norm_eps` (`Mila/Tools/Converters/Llama/convert_weights.py:188`); `par
 extracts `norm_epsilon`, which is what Gemma and the packer both emit. Harmless only because
 `LlamaModel::configFromMetadata` never reads the epsilon — so the guard against it becoming harmful
 is an accident rather than a decision.
-
-## Any response containing a bracket enters the tool-call parser
-
-`apps`
-
-`Chat.ToolCallParser.ixx:60` uses `response.find( '[' )` where the class's own doc comment at `:34`
-says "Leading `[`", and the nested `parseTagged` path tests it correctly.
-
-It degrades gracefully today, but any prose with a bracket enters the path, and a parse that ever
-*succeeds* on prose would swallow the answer and emit a phantom tool call. Same failure shape as
-the malformed-Gemma-call entry above, in the adaptor rather than the library.
 
 ## `ModelSize` is declared and read nowhere
 
@@ -1298,6 +1273,35 @@ Qwen 4 is the next release's):
   5.19's. `hf_qwen4_tiny_reference.py:392`
 
 `Mila/Specifications/Qwen4.md` · `Mila/Tools/Converters/Qwen4/hf_qwen4_tiny_reference.py`
+
+## A MoE model larger than the card cannot run, because experts cannot live in host memory
+
+`qwen` · `gemma` · `moe` · `mila-src`
+
+Todd, 2026-10-22: design, measure and add for the Qwen 4 timeline if it earns its place. The idea is a GPU-side LRU
+cache of experts held in pinned host memory: a decode step computes every expert on the GPU, and only cache misses
+cross PCIe; large prefill chunks touch nearly every expert, so they stream each layer's experts once per chunk with
+the next layer's copy overlapped. Prior evidence: llama.cpp PRs 29887 and 30449 (merged 2026-10-07 and 10-16), on
+Qwen3.8-Flash-Next -- the Qwen 4 architecture preview -- with 65 GiB of experts, report a 72-77% hit rate from a cache
+of 10% of the expert size and 89% from 18.6 GB, and decode 1.6-2.2x faster than computing the experts on the CPU.
+They also found that one pinned allocation of tens of GiB fails on Windows and falls back silently to pageable memory,
+which streams far slower; pinned buffers of at most 4 GiB fixed it. Ideas only; no code. The cache added per-expert
+placement beside the existing per-layer placement, and their best result put no whole layer on the GPU: all-cache
+(18.6 GB) beat layers plus cache on the 5090, 67.8 against 54.5 tok/s (from the PR description; code not read).
+
+What Mila must decide for itself: their cache is driven from the host after reading the routing back, which decode
+replay forbids, so Mila's lookup and copy must happen on the device (an expert pointer table into mapped host memory,
+or a device-side copy into VRAM slots). Not measured: the hit rate on Mila's own routing traces, Windows' pinned
+allocation limit (see "A 4 GiB single-tensor limit marked DEBUG ships in `TensorBuffer`" above), and whether
+calibration-chosen resident experts beat LRU. First measurement, before any kernel: dump routing traces (Qwen 4
+preview, Gemma 26B-A4B) and simulate LRU, calibration-pinned and hybrid caches across sizes -- including MTP's verify
+step (the union of K+1 tokens' experts, against misses shared by accepted tokens) and several concurrent streams
+sharing one cache. Questions Todd raised: whether Mila's control of pinned and VRAM placement (one planner budget
+across resident experts, cache and KV, per expert rather than per layer) is an advantage; per-expert precision by
+hotness from calibration (cold experts in a 2-3 bit codebook cross PCIe in fewer bytes). Papers on expert offloading are to be found by search before the spec
+cites any.
+
+`Mila/Src/Deployment/` · `Mila/Specifications/Gemma4MoE.md` · `Mila/Specifications/Qwen4.md`
 
 ## Qwen 3.8 27B's embedding table is stored at 16 bits where a 2-bit copy serves
 

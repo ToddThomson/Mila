@@ -43,6 +43,9 @@ export function createTranscriptView( scroller, container, actions )
 
         if ( action === 'copy-reply' )
             copyReply( target );
+
+        if ( action === 'tool-decision' )
+            actions.decideTool( target.dataset.turn, target.dataset.call, target.dataset.decision );
     }
 
     function copyReply( target )
@@ -372,27 +375,98 @@ function createToolRecord( block )
     const resultLabel = element( 'div', 'tool-section-label', 'Result' );
     const resultBody = element( 'pre', 'tool-text' );
 
+    const approval = element( 'div', 'tool-approval' );
+
     toggle.dataset.identifier = block.id;
     setIcon( icon, 'tool' );
     setIcon( chevron, 'chevronRight' );
     toggle.append( icon, summary, name, status, chevron );
     detail.append( argumentsLabel, argumentsBody, resultLabel, resultBody );
-    card.append( toggle, detail );
+    card.append( toggle, detail, approval );
 
-    return { element: card, toggle, status, detail, argumentsBody, resultBody };
+    return { element: card, toggle, status, detail, argumentsBody, resultBody, approval, choices: null };
 }
 
+const choiceLabels = {
+    allow_once: 'Allow once',
+    allow_conversation: 'Allow in this conversation',
+    deny: 'Deny'
+};
+
+function toolStatus( block )
+{
+    if ( block.choices !== null )
+        return 'Waiting for you';
+
+    if ( block.decision === 'deny' && block.result !== null )
+        return 'Declined';
+
+    if ( block.notRun )
+        return 'Not run';
+
+    if ( block.result === null )
+        return 'Running';
+
+    return block.isError ? 'Failed' : '';
+}
+
+function toolResultText( block )
+{
+    if ( block.choices !== null )
+        return 'Runs once you allow it.';
+
+    if ( block.notRun )
+        return 'Not run.';
+
+    return block.result === null ? 'Waiting for the result.' : readableJson( block.result );
+}
+
+/**
+ * A call waiting for the person is shown open, whatever its toggle says: its arguments are what is
+ * being approved.
+ */
 function updateTool( built, block, expanded )
 {
-    const finished = block.result !== null;
+    const waiting = block.choices !== null;
+    const declined = block.decision === 'deny';
+    const open = expanded || waiting;
 
-    built.element.classList.toggle( 'open', expanded );
-    built.element.classList.toggle( 'failed', block.isError );
-    built.toggle.setAttribute( 'aria-expanded', expanded ? 'true' : 'false' );
-    built.status.textContent = finished ? ( block.isError ? 'Failed' : '' ) : 'Running';
-    built.detail.hidden = !expanded;
+    built.element.classList.toggle( 'open', open );
+    built.element.classList.toggle( 'waiting', waiting );
+    built.element.classList.toggle( 'failed', block.isError && !declined );
+    built.toggle.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
+    built.status.textContent = toolStatus( block );
+    built.detail.hidden = !open;
     built.argumentsBody.textContent = readableJson( block.arguments );
-    built.resultBody.textContent = finished ? readableJson( block.result ) : 'Waiting for the result.';
+    built.resultBody.textContent = toolResultText( block );
+    updateApproval( built, block );
+}
+
+function updateApproval( built, block )
+{
+    built.approval.hidden = block.choices === null;
+
+    if ( built.choices === block.choices )
+        return;
+
+    built.choices = block.choices;
+    clear( built.approval );
+
+    if ( block.choices === null )
+        return;
+
+    const question = element( 'span', 'tool-question', 'Run this tool?' );
+    built.approval.append( question );
+
+    for ( const choice of block.choices )
+    {
+        const style = choice === 'deny' ? 'chip-button quiet' : 'chip-button';
+        const choiceButton = button( style, choiceLabels[ choice ], 'tool-decision' );
+        choiceButton.dataset.turn = block.turnId;
+        choiceButton.dataset.call = block.callId;
+        choiceButton.dataset.decision = choice;
+        built.approval.append( choiceButton );
+    }
 }
 
 // ---- Copying ---------------------------------------------------------------------------------

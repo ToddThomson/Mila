@@ -118,6 +118,8 @@ contract. It holds:
 - **`Mila::AI`.** The application-facing object.
 - **The agent core.** Parse a tool call, dispatch it, splice the result into the open turn, continue.
 - **The autonomy policy** (after v0.21.0).
+- **The tool broker's client** (`ToolBroker.md` section 8). **Mila.AI starts in v0.21.0 with this as its only
+  content** (Todd, 2026-10-24), for the desktop app's tool calling; the rest arrives in v0.22.0 around it.
 
 `MilaProductFamily.md`'s standing rule, that there is no "runtime services" layer, still holds for
 `Mila/Src`. Mila.AI is that layer, built on purpose as its own library, so that `Mila/Src` never
@@ -379,10 +381,14 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
    2026-10-11 (Todd), with the shipped utilities under `Mila/Apps/Tools/` (`Notebooks/MilaCommandLineReview.md` 4.1).
 5. **Sequencing against the ROADMAP: section 5 is v0.22.0,** after v0.21.0 completes Qwen 3.8 and Gemma 4
    (moved 2026-10-10, Todd; it was v0.21.0 with them), before any new chassis — which agrees with the rule that the handle is a precondition
-   for every new model. Muse Glimmer follows in ROADMAP's Future.
+   for every new model. Muse Glimmer follows in ROADMAP's Future. One piece comes forward (Todd, 2026-10-24):
+   v0.21.0 ships the desktop app as an agent harness with tool calling through the tool broker, and Mila.AI
+   starts then with the broker's client alone (3.2).
 6. **Tool registration: a compiled-in registry** — a callable plus a schema, registered on the `AI`.
    Declarative subprocess tools alongside it remain open for section 6, carried from
-   `MilaProductFamily.md` Open Decision 5.
+   `MilaProductFamily.md` Open Decision 5. **Tools that need isolation run through a per-user tool broker**
+   (Todd, 2026-10-24): one local MCP service that holds the rules for each user and agent and runs every tool in a
+   sandboxed worker; `Mila::AI` carries its client (`ToolBroker.md`).
 7. **How a composed model meets the handle: a C++ concept** the model satisfies — no registration,
    checked at compile time — so a developer's network and a published one pass through the same check.
 8. **A model runs in the format it was trained for** (2026-09-27). Producers ship quantization-aware

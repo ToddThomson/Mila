@@ -491,6 +491,21 @@ kbd {
 
 .tool-card.failed .tool-status { color: var(--error); }
 
+.tool-card.waiting { border-color: var(--accent); }
+
+.tool-card.waiting .tool-status { color: var(--accent); }
+
+.tool-approval {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 12px 37px;
+  border-top: 1px solid var(--rule);
+}
+
+.tool-question { margin-right: 4px; font-size: 13px; }
+
 .tool-card.open .tool-toggle .chevron svg { transform: rotate(90deg); }
 
 .tool-detail { padding: 2px 12px 10px 37px; border-top: 1px solid var(--rule); }

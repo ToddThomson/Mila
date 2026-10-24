@@ -44,6 +44,7 @@ export function createMockSession( options )
     };
 
     const attachments = new Map();
+    const allowedTools = new Set();
     let pending = null;
     let reply = null;
 
@@ -178,6 +179,7 @@ export function createMockSession( options )
             attachments: sent,
             steps: scenario.createReply( request, context ),
             next: 0,
+            waiting: null,
             thought: '',
             answer: '',
             toolCalls: [],
@@ -204,6 +206,13 @@ export function createMockSession( options )
         const step = reply.steps[ reply.next ];
         reply.next = reply.next + 1;
 
+        if ( step.branches !== undefined )
+        {
+            askOrContinue( step );
+
+            return;
+        }
+
         const message = { ...step.message, stream_id: streamId, turn_id: reply.turnId };
 
         if ( message.type === 'turn.begin' )
@@ -220,6 +229,51 @@ export function createMockSession( options )
         }
 
         scheduleNextStep();
+    }
+
+    /**
+     * A tool allowed in this conversation runs without asking (ChatDesktop.md section 4.5); any
+     * other waits for turn.tool_decision, with nothing scheduled until it comes.
+     */
+    function askOrContinue( step )
+    {
+        if ( allowedTools.has( step.tool ) )
+        {
+            continueWith( step.branches.allow );
+
+            return;
+        }
+
+        const approval = { ...step.message, stream_id: streamId, turn_id: reply.turnId };
+        reply.waiting = step;
+        emit( approval );
+    }
+
+    function continueWith( steps )
+    {
+        reply.steps = [ ...reply.steps.slice( 0, reply.next ), ...steps ];
+        scheduleNextStep();
+    }
+
+    function decideTool( request )
+    {
+        const waiting = reply === null ? null : reply.waiting;
+        const answers = waiting !== null && request.turn_id === reply.turnId && request.call_id === waiting.message.call_id;
+
+        if ( !answers || !waiting.message.choices.includes( request.decision ) )
+        {
+            ignore( request );
+
+            return;
+        }
+
+        reply.waiting = null;
+
+        if ( request.decision === 'allow_conversation' )
+            allowedTools.add( waiting.tool );
+
+        const steps = request.decision === 'deny' ? waiting.branches.deny : waiting.branches.allow;
+        continueWith( steps );
     }
 
     function record( message )
@@ -416,6 +470,7 @@ export function createMockSession( options )
     {
         session.conversationId = null;
         session.history = [];
+        allowedTools.clear();
 
         emitState();
     }
@@ -433,6 +488,7 @@ export function createMockSession( options )
 
         session.conversationId = conversation.id;
         session.history = conversation.messages.slice();
+        allowedTools.clear();
 
         const loaded = { type: 'conversation.loaded', id: conversation.id, title: conversation.title, model: conversation.model, messages: conversation.messages };
 
@@ -655,6 +711,7 @@ export function createMockSession( options )
         session.conversationId = null;
         session.history = [];
         attachments.clear();
+        allowedTools.clear();
         emitState();
     }
 
@@ -676,6 +733,9 @@ export function createMockSession( options )
 
             case 'turn.stop':
                 return stopTurn();
+
+            case 'turn.tool_decision':
+                return decideTool( request );
 
             case 'conversation.new':
                 return newConversation();

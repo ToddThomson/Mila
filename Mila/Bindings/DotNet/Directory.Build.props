@@ -11,4 +11,14 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
+  <!-- The MilaNative a build copies next to every program that references Mila (DotNetBinding.md section 5):
+       the mock until phase 1b; override with -p:MilaNativeDirectory=... -->
+  <PropertyGroup>
+    <MilaNativeMockBuildDirectory>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)Mock/build'))</MilaNativeMockBuildDirectory>
+    <MilaNativeDirectory Condition="'$(MilaNativeDirectory)' == ''">$(MilaNativeMockBuildDirectory)</MilaNativeDirectory>
+    <MilaNativeFileName Condition="$([MSBuild]::IsOSPlatform('Windows'))">MilaNative.dll</MilaNativeFileName>
+    <MilaNativeFileName Condition="$([MSBuild]::IsOSPlatform('OSX'))">libMilaNative.dylib</MilaNativeFileName>
+    <MilaNativeFileName Condition="'$(MilaNativeFileName)' == ''">libMilaNative.so</MilaNativeFileName>
+  </PropertyGroup>
+
 </Project>

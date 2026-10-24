@@ -8,7 +8,7 @@
     <!-- The tests are the library's own consumer of its experimental API. -->
     <NoWarn>$(NoWarn);MILA0001</NoWarn>
     <!-- Where the mock's CMake build put MilaNative; override with -p:MilaNativeMockDirectory=... -->
-    <MilaNativeMockDirectory Condition="'$(MilaNativeMockDirectory)' == ''">$(MSBuildThisFileDirectory)../Mock/build</MilaNativeMockDirectory>
+    <MilaNativeMockDirectory Condition="'$(MilaNativeMockDirectory)' == ''">$(MilaNativeMockBuildDirectory)</MilaNativeMockDirectory>
   </PropertyGroup>
 
   <ItemGroup>

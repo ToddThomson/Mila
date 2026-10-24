@@ -346,6 +346,189 @@ function anAttachmentWithNoPathIsRefused()
 
 test( 'an attachment with no path is refused', anAttachmentWithNoPathIsRefused );
 
+function decide( session, events, decision )
+{
+    const approval = ofType( events, 'turn.tool_approval' ).at( -1 );
+    const request = { v: 1, type: 'turn.tool_decision', stream_id: 'stream-1', turn_id: approval.turn_id, call_id: approval.call_id, decision };
+
+    session.handle( request );
+
+    return request;
+}
+
+function lastTurnEvent( events )
+{
+    return events.filter( ( event ) => event.type.startsWith( 'turn.' ) ).at( -1 );
+}
+
+function scenarioElevenWaitsForThePersonBeforeRunningTheTool()
+{
+    const { clock, events, session } = startSession( 11 );
+
+    sendTurn( session, 'Umbrella?' );
+    clock.run();
+
+    const call = ofType( events, 'turn.tool_call' )[ 0 ];
+    const approval = lastTurnEvent( events );
+    assert.equal( approval.type, 'turn.tool_approval' );
+    assert.equal( approval.call_id, call.call_id );
+    assert.deepEqual( approval.choices, [ 'allow_once', 'allow_conversation', 'deny' ] );
+    assert.equal( ofType( events, 'turn.tool_result' ).length, 0 );
+    assert.equal( ofType( events, 'turn.end' ).length, 0 );
+    assert.equal( ofType( events, 'session.state' ).at( -1 ).busy, true );
+}
+
+test( 'scenario 11 waits for the person before running the tool', scenarioElevenWaitsForThePersonBeforeRunningTheTool );
+
+function anAllowedCallRunsAndTheReplyContinuesWithItsResult()
+{
+    const { clock, events, session } = startSession( 11 );
+
+    sendTurn( session, 'Umbrella?' );
+    clock.run();
+    decide( session, events, 'allow_once' );
+    clock.run();
+
+    const result = ofType( events, 'turn.tool_result' )[ 0 ];
+    assert.equal( result.is_error, false );
+    assert.match( result.result, /light rain/ );
+
+    const end = ofType( events, 'turn.end' )[ 0 ];
+    assert.equal( end.finish, 'stop' );
+    assert.match( end.answer, /11 °C/ );
+
+    sendTurn( session, 'And tomorrow?' );
+    clock.run();
+    assert.equal( ofType( events, 'turn.tool_approval' ).length, 2, 'allowed once asks again' );
+}
+
+test( 'an allowed call runs, and the reply continues with its result', anAllowedCallRunsAndTheReplyContinuesWithItsResult );
+
+function aDeniedCallReachesTheModelAsDeclinedAndTheReplyContinues()
+{
+    const { clock, events, session } = startSession( 11 );
+    let state = createInitialState();
+    const request = { v: 1, type: 'turn.send', stream_id: 'stream-1', text: 'Umbrella?', attachment_ids: [] };
+
+    state = reduce( state, request );
+    session.handle( request );
+    clock.run();
+
+    const decision = decide( session, events, 'deny' );
+    clock.run();
+
+    const result = ofType( events, 'turn.tool_result' )[ 0 ];
+    assert.equal( result.is_error, true );
+    assert.match( result.result, /declined/ );
+
+    const end = ofType( events, 'turn.end' )[ 0 ];
+    assert.equal( end.finish, 'stop' );
+    assert.match( end.answer, /couldn't check/ );
+
+    const decisionIndex = events.indexOf( ofType( events, 'turn.tool_approval' )[ 0 ] ) + 1;
+
+    for ( const event of events.slice( 0, decisionIndex ) )
+        state = reduce( state, event );
+
+    const waiting = state.transcript[ 1 ].blocks.find( ( block ) => block.kind === 'tool' );
+    assert.deepEqual( waiting.choices, [ 'allow_once', 'allow_conversation', 'deny' ] );
+
+    state = reduce( state, decision );
+
+    for ( const event of events.slice( decisionIndex ) )
+        state = reduce( state, event );
+
+    const tool = state.transcript[ 1 ].blocks.find( ( block ) => block.kind === 'tool' );
+    assert.equal( tool.choices, null );
+    assert.equal( tool.decision, 'deny' );
+    assert.equal( tool.notRun, false );
+    assert.match( tool.result, /declined/ );
+
+    const open = { v: 1, type: 'conversation.open', id: ofType( events, 'turn.begin' )[ 0 ].conversation_id };
+    session.handle( open );
+
+    const stored = ofType( events, 'conversation.loaded' )[ 0 ].messages[ 1 ].tool_calls[ 0 ];
+    assert.match( stored.result, /declined/ );
+}
+
+test( 'a denied call reaches the model as declined, and the reply continues', aDeniedCallReachesTheModelAsDeclinedAndTheReplyContinues );
+
+function allowingInThisConversationStopsAskingUntilANewOne()
+{
+    const { clock, events, session } = startSession( 11 );
+
+    sendTurn( session, 'Umbrella?' );
+    clock.run();
+    decide( session, events, 'allow_conversation' );
+    clock.run();
+    sendTurn( session, 'And later?' );
+    clock.run();
+
+    assert.equal( ofType( events, 'turn.tool_approval' ).length, 1 );
+    assert.equal( ofType( events, 'turn.end' ).length, 2 );
+    assert.equal( ofType( events, 'turn.tool_result' ).at( -1 ).is_error, false );
+
+    session.handle( { v: 1, type: 'conversation.new' } );
+    sendTurn( session, 'Umbrella?' );
+    clock.run();
+
+    assert.equal( ofType( events, 'turn.tool_approval' ).length, 2, 'a new conversation asks again' );
+}
+
+test( 'allowing in this conversation stops asking, until a new one', allowingInThisConversationStopsAskingUntilANewOne );
+
+function stoppingWhileACallWaitsEndsTheReplyWithTheCallNotRun()
+{
+    const { clock, events, session } = startSession( 11 );
+    let state = createInitialState();
+    const request = { v: 1, type: 'turn.send', stream_id: 'stream-1', text: 'Umbrella?', attachment_ids: [] };
+    const stop = { v: 1, type: 'turn.stop', stream_id: 'stream-1' };
+
+    state = reduce( state, request );
+    session.handle( request );
+    clock.run();
+    session.handle( stop );
+    clock.run();
+
+    const end = ofType( events, 'turn.end' )[ 0 ];
+    assert.equal( end.finish, 'cancelled' );
+    assert.equal( ofType( events, 'turn.tool_result' ).length, 0 );
+
+    for ( const event of events )
+        state = reduce( state, event );
+
+    const tool = state.transcript[ 1 ].blocks.find( ( block ) => block.kind === 'tool' );
+    assert.equal( tool.choices, null );
+    assert.equal( tool.notRun, true );
+}
+
+test( 'stopping while a call waits ends the reply with the call not run', stoppingWhileACallWaitsEndsTheReplyWithTheCallNotRun );
+
+function aDecisionForACallNotWaitingIsIgnored()
+{
+    const clock = createClock( start );
+    const events = [];
+    const logged = [];
+    const options = { scenario: 11, emit: ( message ) => events.push( message ), schedule: clock.schedule, cancel: clock.cancel, now: clock.now, log: ( line ) => logged.push( line ) };
+    const session = createMockSession( options );
+
+    sendTurn( session, 'Umbrella?' );
+    clock.run();
+
+    const approval = ofType( events, 'turn.tool_approval' )[ 0 ];
+    const wrong = { v: 1, type: 'turn.tool_decision', stream_id: 'stream-1', turn_id: approval.turn_id, call_id: 'call-9', decision: 'allow_once' };
+    const unoffered = { ...wrong, call_id: approval.call_id, decision: 'allow_forever' };
+
+    session.handle( wrong );
+    session.handle( unoffered );
+    clock.run();
+
+    assert.equal( ofType( events, 'turn.tool_result' ).length, 0 );
+    assert.equal( logged.length, 2 );
+}
+
+test( 'a decision for a call not waiting is ignored', aDecisionForACallNotWaitingIsIgnored );
+
 function loadingAModelReportsProgressThenTheNewState()
 {
     const { clock, events, session } = startSession( 1 );

@@ -44,7 +44,8 @@ never committed.
 
 The families finished and measured, in the themes ROADMAP gives them. `Direction.md` section 5 — the
 handle, the deployment request, `Mila::AI` and the applications rebuilt on it — is v0.22.0, and its items
-wait in [`Vnext.md`](Mila/Issues/Vnext.md).
+wait in [`Vnext.md`](Mila/Issues/Vnext.md); only the tool broker's client comes forward, under *The Desktop
+Agent*.
 
 ### Gemma 4 Complete
 
@@ -441,6 +442,104 @@ as two parts of one `developer` message, joined the same way (found 2026-10-15 c
 checked: how Anthropic and OpenAI join a message's parts, or whether the billing line reaches Anthropic's models.
 
 `Mila/Apps/Server/src/mila_llm_server/conversation.py` `text_of`
+
+### The Desktop Agent
+
+#### It is not known whether a sandboxed tool on Windows can be given one folder and nothing else
+
+`open` · `apps` · `ai` · `gate`
+
+The file tools run in an AppContainer, which reads only what is granted to its identity. Granting a project folder
+means adding an entry to that folder's access-control list and removing it afterwards; less-privileged
+AppContainers restrict further. Nothing has been tried. Measured first, with the escape tests: a child started
+through WMI (which does not join a job object), network with no capability granted, a file outside the granted
+folder, and a child process -- each must fail, and each test first passes against an unsandboxed worker. Gates every
+item below that runs a tool; if the grant does not work cleanly, the plan changes here.
+
+`Mila/Specifications/ToolBroker.md` sections 6, 9 (phase 2), 10.1
+
+#### No local service runs a model's tool calls under the person's rules
+
+`open` · `apps` · `ai`
+
+The tool broker itself: one per user, started on demand, MCP on a named pipe only that user can open; the allow,
+ask and deny rules per user, agent and tool, held where no agent writes them; approvals answered through MCP's
+input-required result; tool definitions pinned at approval; the audit trace; workers started in an AppContainer
+inside a kill-on-close job, kept warm. On a platform with no sandbox it runs no tool and says so. Gate: phase 3's
+round trip under 100 us at the median, and the escape tests of the item above passing through the broker.
+
+`Mila/Specifications/ToolBroker.md` sections 2-7
+
+#### A model has no tools to read or edit files or to read a web page
+
+`open` · `apps`
+
+The two workers of `ToolBroker.md` section 6.1: `files` (read, list, find, search, write, edit; one folder, no
+network) and `web` (`fetch_url`; internet only, no files, internal addresses refused), with their default rules
+offered when the person registers the agent. Absent today: Chat's only tool is a `get_weather` stub
+(`Mila/Apps/Chat/Src/main.cpp:1151`).
+
+#### An application cannot use the tool service without writing its own client
+
+`open` · `ai` · `build`
+
+Mila.AI starts here with the broker's client as its only content (`Direction.md` 3.2): a new library at `Mila/AI/`,
+a peer of `Mila/Src` that needs nothing from it; its CMake target, module names and namespace are chosen now and
+kept by v0.22.0. It connects to the broker, lists tools for the model, calls them, and turns an ask into the
+approval the application presents. Gate: a test program runs a tool through it with no application involved.
+
+`Mila/Specifications/ToolBroker.md` section 8
+
+#### Chat's session cannot run anywhere but its console
+
+`open` · `apps`
+
+`ChatDesktop.md` phase 2: `Chat.ixx` writes to `ConsoleRenderer` and reads `std::cin`, so no other front end can
+drive it. It emits section 4's events through an interface and takes its requests from one, including the tool
+approval of section 4.5, and `turn.stop` stops a reply. Gate: the console's transcript byte-for-byte unchanged on
+the four validated models, `ChatRichTextTests` and the stream validator pass, and Ctrl+C stops a reply.
+
+`Mila/Specifications/ChatDesktop.md` section 7
+
+#### The desktop app runs only against a mock
+
+`open` · `apps`
+
+`ChatDesktop.md` phases 3 and 4: the session process that speaks section 4 over stdio on a real model, then the
+window starting it in place of the mock, with tool calls through Mila.AI's client. Gate: a script driving the
+session process runs the equivalents of scenarios 1 to 8 and 11 on a real model; the window runs the theme's task
+on every published model that calls tools.
+
+`Mila/Specifications/ChatDesktop.md` sections 6.1, 8
+
+#### No Chat asks before a tool runs
+
+`open` · `apps`
+
+`Chat.ixx:941` (`dispatchTool`) calls the handler directly. `MilaProductFamily.md` calls Chat the human gate, and
+`ToolBroker.md` section 5 specifies the approval both front ends carry: the window from its schema (built against
+the mock), the console as a prompt line.
+
+`Mila/Apps/Chat/Src/Chat.ixx:941`
+
+#### Tool calling has never been driven end to end on Llama
+
+`open` · `llama` · `apps`
+
+Gemma 4 is validated through both applications across plain-chat, single-tool and tool-result-resume flows. Llama
+3.1 8B has never been driven through a single tool call, from Chat or over the wire; the framework is family-neutral,
+and what is missing is the evidence that Llama's grammar reaches it. Moved from `Vnext.md`, where moving it out had
+narrowed the Models criterion and `README.md`'s Llama section; the theme's criterion now restates it.
+
+#### Any reply containing a bracket enters Chat's tool-call parser
+
+`open` · `apps`
+
+`Chat.ToolCallParser.ixx:60` uses `response.find( '[' )` where the class's own doc comment at `:34` says "Leading
+`[`". A parse that ever succeeds on prose would emit a phantom tool call, which with approval would ask the person
+to run a tool the model never called. Moved from `Vnext.md`.
+
+`Mila/Apps/Chat/Src/Chat.ToolCallParser.ixx:60`
 
 ### Upgrades Keep Your Models
 

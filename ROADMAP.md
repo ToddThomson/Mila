@@ -14,7 +14,8 @@ The roadmap shows the **release in flight**, plus a **Future** tail. A release i
 
 ## v0.21.0 — The Model Families, Finished and Measured
 
-**Release Date:** _Target — 2026-11-20_
+**Release Date:** _Target — 2026-12-04_ (moved two weeks from 2026-11-20 on 2026-10-24, Todd, for the desktop
+agent harness)
 
 **The release makes one claim: every model Mila publishes is finished, and you can see how good it
 is.** Gemma 4, Qwen 3.8 and Llama 3 each run every capability their checkpoints carry that the
@@ -42,9 +43,10 @@ request, `Mila::AI`, and Chat, the inference server and the binding rebuilt on i
 It was this release until 2026-10-10, when it was split out (Todd): the family work had run ahead of the
 API, and a release of finished, measured models need not wait for it. The applications therefore move
 once, in v0.22.0, as that plan intended; what they gain here is what survives that move — a published
-server, correct replies, and defaults read from the model.
+server, correct replies, and defaults read from the model. The one exception is *The Desktop Agent* (below,
+2026-10-24): the desktop app becomes an agent harness here, on a client that already lives where v0.22.0 needs it.
 
-**The date is fixed and the scope drains.** What has not landed by 2026-11-20 returns to
+**The date is fixed and the scope drains.** What has not landed by 2026-12-04 returns to
 [`Vnext.md`](Mila/Issues/Vnext.md) and the release ships with what it has, its claim stated as
 narrowed. **The 26B-A4B's vision tower is tentative and drains first**; the 12B's image and audio are
 committed.
@@ -217,6 +219,30 @@ them still loads; the foreign-harness tool flows established in v0.20 — Codex 
 CLI over the OpenAI and Anthropic wire shapes — still pass unchanged; and the website has a page for each
 application — Chat, the server with every harness it is tested with, and the model store — that takes a
 user from install to a running model.
+
+### The Desktop Agent
+
+*The models this release finishes call tools, and the desktop app lets you put them to work on your own files and
+the web, each call under your rules and in a sandbox.*
+
+Family parity gave this release models that call tools: Gemma 4 and Qwen 3.8 are driven through tool calls today,
+and Llama never has been, which this theme closes. The only harnesses that exercise them are other people's, over
+the inference server, and Mila's own Chat runs one stub tool without asking. The desktop app's window was built in October against a mock; this theme puts it on a real model and
+makes it an agent harness: the model reads and edits files in a folder the person chooses and reads web pages, and
+every call goes through one local service that holds the person's rules, asks them when the rule says ask, and runs
+the tool in a sandbox (`ToolBroker.md`). Added 2026-10-24 (Todd), with the release moved two weeks for it.
+
+It is Windows first: the sandbox is Windows', and on any other platform the app runs without tools until its own
+sandbox is built. The first tools are reading, finding, searching, writing and editing files, and reading a web page;
+search and a shell come after. Mila.AI, the library `Direction.md` plans for v0.22.0, starts here with the service's
+client as its only content, so nothing built for this theme moves again in the rebuild. The app's name is held.
+
+**Success criteria:** on Windows, the desktop app runs every model this release publishes that calls tools through a
+task that reads files in the chosen folder, edits one, and reads a web page, each call allowed or asked by the
+person's rules and shown in the conversation; a denied call reaches the model as declined and the reply continues;
+a tool cannot read or write outside the chosen folder, and only the web tool reaches the network, shown by escape
+tests that each pass against an unsandboxed tool first; the console Chat asks before a tool runs, as the window does;
+and a developer's program reaches the same tools through Mila.AI's client.
 
 ### Upgrades Keep Your Models
 

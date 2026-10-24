@@ -100,7 +100,9 @@ Modelled on the Claude desktop app: a sidebar on the left, the conversation on t
   - User turns, right-aligned, with their attachments as thumbnails (image) or a small player (audio).
   - Assistant turns, full width. The reasoning channel is a collapsed block above the answer ("Thought
     for 412 tokens"), expandable, streamed live when open. Tool calls are compact cards in order of
-    occurrence: the tool's name and summary, the result expandable.
+    occurrence: the tool's name and summary, the result expandable. A call waiting for the person's
+    approval is open, shows its arguments in full and "Waiting for you", and offers *Allow once*, *Allow in
+    this conversation* and *Deny*; a declined call says "Declined".
   - Markdown rendered: headings, emphasis, lists, tables, links, inline code, fenced code with a
     language label and a copy button. Math is shown as its source in phase 1 (section 9).
   - Below each finished reply: copy, and a quiet stats line on hover (prefill ms, tok/s, tokens, rounds).
@@ -158,6 +160,7 @@ The window relays every message unchanged in both directions, except the two it 
 | `turn.text` | `turn_id`, `round`, `channel` (`"thought"` or `"answer"`), `text` | Raw text to append to that channel. Gemma streams many; Llama and Qwen send one per round when it is complete. The page must render both. |
 | `turn.thought_break` | `turn_id`, `round` | The reasoning channel resumed after a tool call; start a new thought block. |
 | `turn.tool_call` | `turn_id`, `round`, `call_id`, `name`, `summary`, `arguments` (JSON string) | The model called a tool. |
+| `turn.tool_approval` | `turn_id`, `call_id`, `choices` (subset of `["allow_once", "allow_conversation", "deny"]`, in that order) | The call named by `call_id`, already sent as `turn.tool_call`, waits for the person's decision (section 4.5). |
 | `turn.tool_result` | `turn_id`, `call_id`, `result`, `is_error` | The tool's result, fed back to the model. |
 | `turn.round_end` | `turn_id`, `round`, `prefill_ms`, `tokens_per_second`, `tokens`, `thought_tokens` (those of `tokens` the reasoning channel took; 0 when it did not open), `finish` (`turn.end`'s values, or `"tool_call"` for a round that ended in one) | One generate call ended. `thought_tokens` labels the round's thought block ("Thought for 412 tokens"), which the page cannot count from text. |
 | `turn.end` | `turn_id`, `finish` (`"stop"`, `"length"`, `"context"`, `"cancelled"`, `"error"`), `answer` (the parsed final answer) | The reply ended. `answer` is what the conversation keeps. |
@@ -175,7 +178,8 @@ The window relays every message unchanged in both directions, except the two it 
 |---|---|---|
 | `ready` | -- | The page has loaded; the session replies with `session.state`, `conversations.list` and `models.list`. |
 | `turn.send` | `text`, `attachment_ids` | A user turn. Refused with `error` while `busy`. |
-| `turn.stop` | -- | Stop the reply in flight; it ends with `finish: "cancelled"`. |
+| `turn.stop` | -- | Stop the reply in flight; it ends with `finish: "cancelled"`. A call waiting for approval is not run. |
+| `turn.tool_decision` | `turn_id`, `call_id`, `decision` (one of the approval's `choices`) | The person's answer to a `turn.tool_approval`. One for a call not waiting is ignored. |
 | `conversation.new` | -- | Clear the session's history and start a new conversation. |
 | `conversation.open` | `id` | Replace the session's history with that conversation's. |
 | `conversation.rename` | `id`, `title` | |
@@ -203,6 +207,20 @@ a reopened conversation shows the attachment's name only.
 Every console command has its message: `/clear` is `conversation.new`, `/model load` is `model.load`,
 `/context`, `/thinking`, `/effort`, `/set`, `/verbose` and `/seed` are `settings.set`, `/stats` is the stats
 line, `/model list` is `models.refresh`. The composer does not parse slash commands.
+
+### 4.5 Approving a tool call
+
+The session asks; the page only presents (`ToolBroker.md` section 5, which these messages carry unchanged once
+the broker decides). Until the broker exists, the session's own rules decide, and a tool the person has not
+allowed is asked about; afterwards the session asks when the broker's rule for that agent and tool is ask.
+
+- After `turn.tool_call`, the session sends `turn.tool_approval` and the reply waits; `busy` stays true.
+- `allow_once` runs this call. `allow_conversation` runs it, and later calls of the same tool in this
+  conversation run without asking; `conversation.new`, `conversation.open` and `model.load` end that.
+- `deny` does not run the call. The session sends `turn.tool_result` with `is_error: true` and a result saying
+  the person declined, which is what the model reads, and the reply continues.
+- `turn.stop` while a call waits ends the reply as `cancelled` with no result for the call.
+- A stored conversation keeps the declined call's result text, as for any call.
 
 ## 5. The page (`Mila/Apps/Chat/Desktop/Ui/`)
 
@@ -238,8 +256,8 @@ line, `/model list` is `models.refresh`. The composer does not parse slash comma
   session process speaking JSON lines (section 4, *Transport*), which the window starts in place of the
   real one (section 6.2). Scenarios, each selectable from a dev-only menu (`?scenario=` in the URL, or
   the mock session's `--scenario` argument):
-  1. Gemma reply streamed: thinking, a `get_weather` tool call and result, more thinking, an answer with
-     a table and a code block.
+  1. Gemma reply streamed: thinking, a `get_weather` tool call the rules allow and its result, more
+     thinking, an answer with a table and a code block.
   2. Llama reply buffered: one `turn.text` per round, at the end.
   3. A reply stopped by the user mid-stream.
   4. A reply ending on `length`, and one on `context`.
@@ -249,6 +267,9 @@ line, `/model list` is `models.refresh`. The composer does not parse slash comma
   8. Install with progress from the published list; remove.
   9. Detail `all`: log lines in the drawer.
   10. A reply of 20,000 tokens, to see that appending stays smooth.
+  11. A tool call that asks first (section 4.5): allowed, the reply continues with the result; denied, the
+      model says it could not check and answers without it. A second message in the same conversation
+      after *Allow in this conversation* runs the call without asking.
 - **Tests:** `node --test` over `state.js`, the markdown renderer and the mock's scenario scripts. No
   committed test dependency beyond Node itself. The visual checks of phase 1's gate may use whatever
   headless browser the building session has, with nothing of it committed.
@@ -368,13 +389,15 @@ and the stream validator pass, and Ctrl+C stops a reply.
 
 1. **Names.** The session process: a mode of `mila-chat` or a command of its own. The window: commands
    are lowercase `mila-` names; a windowed program is not typed, but is installed and shown in the Start
-   menu and the Dock.
+   menu and the Dock. *Leaning (Todd, 2026-10-24), held:* the window is called Mila, as the complete agent
+   harness it is becoming, with the conversation as its face. Deciding it would reverse decision 2 below,
+   and the two are decided together.
 2. **Positioning -- decided 2026-10-20 (Todd).** The window does not make Chat an end-user product. Chat
    and the inference server are applications that show developers, Mila's audience (`Direction.md` 1),
    what can be built on it; the window is built to be beautiful for that reason. The console stays a
    first-class Chat.
-3. **Which release.** On `dev` before v0.21.0 is tagged, phases 2 to 4 are scope added to a release dated
-   2026-11-20.
+3. **Which release -- decided 2026-10-24 (Todd).** Phases 2 to 4 ship in v0.21.0, with tool calling through
+   the tool broker (`ToolBroker.md`), and the release moves two weeks to 2026-12-04 for them.
 4. **Distribution.** An installer, code signing (an unsigned download is warned on by SmartScreen on
    Windows; macOS needs a Developer ID and notarization) and updates.
 5. **Math.** Shown as source in phase 1; a vendored math renderer later, or never.

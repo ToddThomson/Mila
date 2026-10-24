@@ -286,7 +286,14 @@ tested against, as Chat's desktop window was built against its mock session (`Ch
 The tests point the library at the mock with `NativeLibrary.SetDllImportResolver` on the `Mila` assembly,
 from the test project, which is given the mock's build directory at build time. The shipped library has
 no resolver and reads no environment variable; the sample finds the mock as it would find `MilaNative`,
-through the platform's library search (`LD_LIBRARY_PATH` on Linux, `PATH` on Windows).
+through the platform's library search, which looks in the program's own directory first.
+
+`Mila.csproj` declares the native library, so a build copies it next to every program that references
+`Mila` -- the in-repository form of the `runtimes/<rid>/native` entry a NuGet package carries (open
+decision 3). It comes from `MilaNativeDirectory`, which defaults to `Mock/build`; phase 1b points it at
+`MilaNative`'s build. When it is left at that default and the mock is not built, the build of `Mila`
+configures and builds the mock with CMake first, so opening `Mila.slnx` and running is enough
+(Todd, 2026-10-21).
 
 ## 6. `MilaNative` (`Mila/Bindings/Native/`)
 
@@ -335,6 +342,14 @@ through the platform's library search (`LD_LIBRARY_PATH` on Linux, `PATH` on Win
 3. **Distribution.** A NuGet package carrying `MilaNative` under `runtimes/win-x64/native` and
    `runtimes/linux-x64/native`; whether the CUDA libraries go in it, beside it, or are the user's install,
    which is the question the Python wheel answered with NVIDIA's own wheels and which NuGet has no
-   equivalent for; the package name.
+   equivalent for. **The first prerelease requires the CUDA Toolkit (Todd, 2026-10-21):** the package
+   carries `MilaNative` only, and the user installs CUDA 13, whose cuBLAS and cuRAND it loads. NuGet.org
+   holds nothing from NVIDIA (searched 2026-10-21, every cuBLAS package a third-party repack) and caps a
+   package at about 250 MB, below `cublasLt64_13.dll`'s 471 MB, so the libraries cannot ride inside
+   `Mila.Llm`. Repacking them into packages of Mila's own, as the wheel's dependencies spare the Python
+   user, is the aim beyond it, and waits on reading the CUDA licence's redistribution terms. **The package name is decided (Todd, 2026-10-21): `Mila.Llm`** -- PyPI's `mila-llm`
+   in NuGet's spelling, with .NET's casing for a three-letter acronym. `Mila` alone is taken on NuGet.org,
+   and `Mila.AI` reads as the Quebec AI institute's; a `Mila.AI` namespace from v0.22.0 sits inside it.
+   Native packages, if the CUDA answer needs them, are `Mila.Llm.Native.<rid>`.
 4. **Where the C# sample lives once the binding is stable:** `Samples/QuickStart/CSharp`, beside Python's,
    is a published surface the website links, so it waits for the experimental status to end.

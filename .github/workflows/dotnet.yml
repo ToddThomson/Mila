@@ -65,9 +65,8 @@ jobs:
       - name: Test against the mock
         run: dotnet test --no-build --configuration Release
 
+      # No LD_LIBRARY_PATH: the build copied the mock next to the sample, which is what this proves.
       - name: Run the sample against the mock
-        env:
-          LD_LIBRARY_PATH: ${{ github.workspace }}/Mila/Bindings/DotNet/Mock/build
         run: |
           printf 'Hello\n\n' | dotnet run --project Samples/Chat --no-build --configuration Release -- mock-gemma-it | tee sample.log
           grep -q 'Hello from the Mila mock.' sample.log

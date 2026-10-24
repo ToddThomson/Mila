@@ -3,7 +3,7 @@
 
 import { createTransport } from './transport.js';
 import { setIcon } from './dom.js';
-import { createInitialState, reduce, isBusy } from './state.js';
+import { createInitialState, reduce, isBusy, streamIdentifier } from './state.js';
 import { createSidebarView } from './views/sidebar.js';
 import { createHeaderView } from './views/header.js';
 import { createTranscriptView } from './views/transcript.js';
@@ -97,6 +97,14 @@ function newConversation()
     composer.focus();
 }
 
+function decideTool( turnId, callId, decision )
+{
+    const stream = streamIdentifier( state );
+    const message = { type: 'turn.tool_decision', stream_id: stream, turn_id: turnId, call_id: callId, decision };
+
+    send( message );
+}
+
 function openLink( url )
 {
     const message = { type: 'link.open', url };
@@ -112,6 +120,7 @@ const actions = {
     toggleExpanded,
     closeOverlay,
     newConversation,
+    decideTool,
     openLink,
     transmit: ( message ) => transport.send( message ),
     pathForFile: ( file ) => transport.pathForFile( file ),

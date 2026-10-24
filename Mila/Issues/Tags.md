@@ -25,6 +25,7 @@ is a statement about where the work is, not a tag that needs retiring.
 | `gpt` | The GPT family — GPT-2 is its only member today. |
 | `llama` | The Llama family. |
 | `qwen` | The Qwen family. |
+| `moe` | Mixture-of-experts — routing, expert computation, where experts live (VRAM, host, cache). |
 | `quantization` | Weight and KV formats, packing, the offline fitting pipeline. |
 | `training` | The backward path, optimizers, loss, data loaders. |
 | `tokenizer` | BPE, pre-tokenization, vocabularies. |

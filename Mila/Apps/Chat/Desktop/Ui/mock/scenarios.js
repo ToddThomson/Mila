@@ -2,10 +2,12 @@
 
 import { streamedReply } from './scenario-streamed-reply.js';
 import { imageAttachment } from './scenario-image-attachment.js';
+import { toolApproval } from './scenario-tool-approval.js';
 
 export const scenarios = [
     streamedReply,
-    imageAttachment
+    imageAttachment,
+    toolApproval
 ];
 
 export function findScenario( number )

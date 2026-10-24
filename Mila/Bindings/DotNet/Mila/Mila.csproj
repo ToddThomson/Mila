@@ -16,4 +16,20 @@
     <InternalsVisibleTo Include="Mila.Tests" />
   </ItemGroup>
 
+  <!-- The mock is built here, once, rather than by each project that references Mila. -->
+  <Target Name="BuildMilaNativeMock" BeforeTargets="BeforeBuild" Condition="'$(MilaNativeDirectory)' == '$(MilaNativeMockBuildDirectory)' And !Exists('$(MilaNativeDirectory)/$(MilaNativeFileName)')">
+    <Message Importance="high" Text="Building the mock MilaNative with CMake into $(MilaNativeDirectory)" />
+    <Exec Command="cmake -S &quot;$(MSBuildThisFileDirectory)../Mock&quot; -B &quot;$(MilaNativeDirectory)&quot;" />
+    <Exec Command="cmake --build &quot;$(MilaNativeDirectory)&quot;" />
+  </Target>
+
+  <!-- Declared in a target so a mock built by this same build is seen; an item group would be evaluated before it exists.
+       CopyToOutputDirectory flows to every project that references Mila. -->
+  <Target Name="IncludeMilaNative" AfterTargets="BuildMilaNativeMock" BeforeTargets="AssignTargetPaths">
+    <Error Condition="!Exists('$(MilaNativeDirectory)/$(MilaNativeFileName)')" Text="MilaNative is not at $(MilaNativeDirectory)/$(MilaNativeFileName). Set MilaNativeDirectory to the directory that holds it." />
+    <ItemGroup>
+      <None Include="$(MilaNativeDirectory)/$(MilaNativeFileName)" Link="$(MilaNativeFileName)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    </ItemGroup>
+  </Target>
+
 </Project>

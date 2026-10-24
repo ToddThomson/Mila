@@ -52,6 +52,9 @@ export function reduce( state, message )
         case 'turn.tool_call':
             return updateTurn( state, message.turn_id, reduceToolCall, message );
 
+        case 'turn.tool_approval':
+            return updateTurn( state, message.turn_id, reduceToolApproval, message );
+
         case 'turn.tool_result':
             return updateTurn( state, message.turn_id, reduceToolResult, message );
 
@@ -83,6 +86,9 @@ export function reduce( state, message )
 
         case 'turn.send':
             return reduceTurnSend( state, message );
+
+        case 'turn.tool_decision':
+            return updateTurn( state, message.turn_id, reduceToolDecision, message );
 
         case 'conversation.new':
             return { ...state, conversationId: null, transcript: [], attachments: [] };
@@ -226,29 +232,69 @@ function reduceToolCall( turn, message )
     const block = {
         kind: 'tool',
         id: turn.id + ':' + turn.blocks.length,
+        turnId: turn.id,
         callId: message.call_id,
         round: message.round,
         name: message.name,
         summary: message.summary,
         arguments: message.arguments,
         result: null,
-        isError: false
+        isError: false,
+        choices: null,
+        decision: null,
+        notRun: false
     };
 
     return { ...turn, blocks: [ ...turn.blocks, block ] };
 }
 
-function reduceToolResult( turn, message )
+function updateToolBlock( turn, callId, change )
 {
-    const index = turn.blocks.findIndex( ( block ) => block.kind === 'tool' && block.callId === message.call_id );
+    const index = turn.blocks.findIndex( ( block ) => block.kind === 'tool' && block.callId === callId );
 
     if ( index < 0 )
         return turn;
 
     const blocks = turn.blocks.slice();
-    blocks[ index ] = { ...blocks[ index ], result: message.result, isError: message.is_error };
+    blocks[ index ] = { ...blocks[ index ], ...change };
 
     return { ...turn, blocks };
+}
+
+function reduceToolApproval( turn, message )
+{
+    const change = { choices: message.choices };
+
+    return updateToolBlock( turn, message.call_id, change );
+}
+
+/**
+ * The page's own answer: the choices go at once, so a second click has nothing to answer.
+ */
+function reduceToolDecision( turn, message )
+{
+    const change = { choices: null, decision: message.decision };
+
+    return updateToolBlock( turn, message.call_id, change );
+}
+
+function reduceToolResult( turn, message )
+{
+    const change = { result: message.result, isError: message.is_error, choices: null };
+
+    return updateToolBlock( turn, message.call_id, change );
+}
+
+/**
+ * A call with no result when the reply ends was never run: the reply was stopped before it, or
+ * while it waited for the person.
+ */
+function markNotRun( block )
+{
+    if ( block.kind !== 'tool' || block.result !== null )
+        return block;
+
+    return { ...block, choices: null, notRun: true };
 }
 
 function reduceRoundEnd( turn, message )
@@ -277,7 +323,9 @@ function labelThought( block, message )
 
 function reduceTurnEnd( turn, message )
 {
-    return { ...turn, streaming: false, finish: message.finish, answer: message.answer };
+    const blocks = turn.blocks.map( markNotRun );
+
+    return { ...turn, blocks, streaming: false, finish: message.finish, answer: message.answer };
 }
 
 function reduceConversationLoaded( state, message )
@@ -351,13 +399,17 @@ function storedToolBlock( identifier, call )
     return {
         kind: 'tool',
         id: identifier + ':' + call.call_id,
+        turnId: identifier,
         callId: call.call_id,
         round: 1,
         name: call.name,
         summary: call.name,
         arguments: call.arguments,
         result: call.result,
-        isError: false
+        isError: false,
+        choices: null,
+        decision: null,
+        notRun: call.result === null
     };
 }
 

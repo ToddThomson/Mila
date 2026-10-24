@@ -17,32 +17,37 @@ mock of it that answers with a fixed reply. The design is `Mila/Specifications/D
 ## Requirements
 
 - The .NET 10 SDK.
-- To build the mock: CMake 3.20 or later and GCC or Clang.
+- CMake and a C compiler, to build the mock: CMake 3.20 or later with GCC or Clang on Linux; on Windows,
+  Visual Studio's C++ tools and a CMake that knows that Visual Studio (4.2 or later for Visual Studio 2026).
 
 ## Build and test
 
 From this directory:
 
 ```sh
-cmake -S Mock -B Mock/build
-cmake --build Mock/build
 dotnet test
 ```
 
-The tests load the mock from `Mock/build`. To use a mock built elsewhere, pass
-`-p:MilaNativeMockDirectory=<directory>` to `dotnet test`.
+The first build compiles the mock into `Mock/build` with CMake, and every build copies it next to the
+programs that use the library. To use a `MilaNative` built elsewhere, pass
+`-p:MilaNativeDirectory=<directory>`.
 
 ## Run the sample
 
 `Samples/Chat` is a console chat: give it an installed model's name and talk to it. Ctrl-C stops a reply,
-and an empty line quits. The sample finds `MilaNative` the way any .NET program does, so point the
-system's library search at the mock first:
+and an empty line quits.
 
 ```sh
-LD_LIBRARY_PATH=$PWD/Mock/build dotnet run --project Samples/Chat -- mock-gemma-it
+dotnet run --project Samples/Chat -- mock-gemma-it
 ```
 
-Run it with no name to list the models you can choose.
+With no name it lists the models you can choose; `dotnet run` would otherwise take `mock-gemma-it` from
+the project's launch profile, so pass `--no-launch-profile` for that.
+
+## Visual Studio
+
+Open `Mila.slnx` in Visual Studio 2026. It holds the library, the tests and the sample; Test Explorer runs
+the tests, and starting the Chat project runs the sample on `mock-gemma-it`.
 
 ## Using it
 
@@ -99,5 +104,6 @@ void Show(int token)
 | `Mila.Tests/` | Its tests, run against the mock |
 | `Samples/Chat/` | The console chat |
 | `Mock/` | The mock `MilaNative`, in C |
+| `Mila.slnx` | The Visual Studio solution |
 | `Directory.Packages.props`, `*/packages.lock.json` | The tests' and the sample's packages, pinned; the library has none |
 | `global.json` | The SDK, and `dotnet test` on Microsoft Testing Platform |
