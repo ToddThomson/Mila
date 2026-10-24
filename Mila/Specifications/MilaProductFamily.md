@@ -333,7 +333,7 @@ that would validate it is shared. See Honest Risk.
    **It has a second tenant, and a hard sequencing constraint (agreed 2026-08-12).** The same layer
    should own **one typed model handle and one factory** mapping an architecture to its concrete
    instantiation. That erasure exists three times today, in two languages — Chat's `ModelVariant`
-   (`Chat.ixx`), the binding's `LlamaSession`/`GemmaSession`/`QwenSession`, and MIS's `ModelFamily`
+   (`Chat.Session.ixx`), the binding's `LlamaSession`/`GemmaSession`/`QwenSession`, and MIS's `ModelFamily`
    enum.
 
    **GPT-2's absence is now two different things, and they must not be conflated** (revised

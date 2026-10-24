@@ -18,7 +18,7 @@ re-derives what the model can do from which family it belongs to.
 
 | Consumer | Erasure | Per-family sites today |
 |---|---|---|
-| Chat | `ModelVariant`, a `std::variant` of four `unique_ptr`s (`Chat.ixx:73`), ten `std::visit` sites | 28 `ModelType::` references across five files |
+| Chat | `ModelVariant`, a `std::variant` of four `unique_ptr`s (`Chat.Session.ixx`), ten `std::visit` sites | 28 `ModelType::` references across five files |
 | Python binding | one session class per family (`LlamaSession`, `GemmaSession`, `QwenSession`) | the classes themselves, `Tokenizer::fromStore`'s architecture switch, `requireArchitecture` |
 | MIS | `ModelFamily` enum and `SESSION_FOR` (`model_worker.py:38`) | 26 `ModelFamily.<member>` references outside `config.py` |
 
@@ -27,13 +27,13 @@ than about Chat:
 
 | Decision | Chat site | What varies by family |
 |---|---|---|
-| Load the weights | `Chat.ixx:2621` | the concrete model type |
-| Load the tokenizer | `Chat.ixx:2451` | `BpeTokenizer::loadGemma` / `loadLlama32` / `loadQwen` |
-| Render the prompt | `Chat.ixx:1290` | three renderers, in three places (section 1.1) |
-| Declare the tools | `Chat.ixx:2863` | prose plus JSON for Llama, `serializeToolDeclarations` for Gemma, inside `formatPrompt` for Qwen |
-| Parse a tool call | `Chat.ixx:593`, `:607` | Gemma in-stream, `Qwen::parseToolCall`, Chat's own `ToolCallParser` |
-| Stop on a tool call | `Chat.ixx:1078` | Gemma's `<tool_call|>` token id; MIS's `_stop_markers_for` has a second table |
-| Route the reasoning channel | `Chat.ixx:831` | `kGemmaChannel` or Qwen's `<think>` pair |
+| Load the weights | `Chat.Session.ixx` | the concrete model type |
+| Load the tokenizer | `Chat.Session.ixx` | `BpeTokenizer::loadGemma` / `loadLlama32` / `loadQwen` |
+| Render the prompt | `Chat.Session.ixx` | three renderers, in three places (section 1.1) |
+| Declare the tools | `Chat.Session.ixx` | prose plus JSON for Llama, `serializeToolDeclarations` for Gemma, inside `formatPrompt` for Qwen |
+| Parse a tool call | `Chat.Session.ixx` | Gemma in-stream, `Qwen::parseToolCall`, Chat's own `ToolCallParser` |
+| Stop on a tool call | `Chat.Session.ixx` | Gemma's `<tool_call|>` token id; MIS's `_stop_markers_for` has a second table |
+| Route the reasoning channel | `Chat.Session.ixx` | `kGemmaChannel` or Qwen's `<think>` pair |
 
 And `Chat.FamilyTraits.ixx` answers "does it have a reasoning channel" and "how much context can it
 address" with a switch on the family, so two models of one family cannot differ.

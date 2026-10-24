@@ -492,17 +492,6 @@ approval the application presents. Gate: a test program runs a tool through it w
 
 `Mila/Specifications/ToolBroker.md` section 8
 
-#### Chat's session cannot run anywhere but its console
-
-`open` · `apps`
-
-`ChatDesktop.md` phase 2: `Chat.ixx` writes to `ConsoleRenderer` and reads `std::cin`, so no other front end can
-drive it. It emits section 4's events through an interface and takes its requests from one, including the tool
-approval of section 4.5, and `turn.stop` stops a reply. Gate: the console's transcript byte-for-byte unchanged on
-the four validated models, `ChatRichTextTests` and the stream validator pass, and Ctrl+C stops a reply.
-
-`Mila/Specifications/ChatDesktop.md` section 7
-
 #### The desktop app runs only against a mock
 
 `open` · `apps`
@@ -518,11 +507,12 @@ on every published model that calls tools.
 
 `open` · `apps`
 
-`Chat.ixx:941` (`dispatchTool`) calls the handler directly. `MilaProductFamily.md` calls Chat the human gate, and
-`ToolBroker.md` section 5 specifies the approval both front ends carry: the window from its schema (built against
-the mock), the console as a prompt line.
+The session asks every front end before a call runs (`SessionEvents::approveToolCall`, `ChatDesktop.md` 4.5),
+and the console answers allow-once without asking the person. `MilaProductFamily.md` calls Chat the human gate,
+and `ToolBroker.md` section 5 specifies the approval both front ends carry: the window from its schema (built
+against the mock), the console as a prompt line.
 
-`Mila/Apps/Chat/Src/Chat.ixx:941`
+`Mila/Apps/Chat/Src/Chat.ConsoleFrontEnd.ixx` (`approveToolCall`)
 
 #### Tool calling has never been driven end to end on Llama
 

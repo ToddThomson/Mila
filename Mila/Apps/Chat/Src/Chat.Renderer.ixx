@@ -364,8 +364,9 @@ namespace Mila::ChatApp
             flushPendingWord();
             stream_.pending_whitespace.clear();
 
+            // A suspend already ended the last line, so one newline is the blank line.
             if ( !stream_.thinking_lines.empty() || stream_.line_open )
-                stream_.pending_whitespace = "\n\n";
+                stream_.pending_whitespace = stream_.line_closed_by_suspend ? "\n" : "\n\n";
 
             stream_.drop_leading_whitespace = true;
         }
@@ -374,17 +375,26 @@ namespace Mila::ChatApp
          * @brief Close the open visual line so out-of-band lines (tool trace,
          *        info messages, spinner) can print.
          *
-         * Pending word/whitespace survive: the logical text stream resumes on a
+         * The word being written is written first: what interrupts a reply is a
+         * tool call, a notice or the reply's end, each at a word boundary, and a
+         * word held across the interruption printed after the trace line instead.
+         * Pending whitespace survives: the logical text stream resumes on a
          * fresh line at the next streamText. A line forced closed mid-content
          * invalidates line-exact validation (streamForcedBreak).
          */
         void streamSuspend()
         {
-            if ( !stream_.active || !stream_.line_open )
+            if ( !stream_.active )
+                return;
+
+            flushPendingWord();
+
+            if ( !stream_.line_open )
                 return;
 
             stream_.forced_break = true;
             closeStreamLine();
+            stream_.line_closed_by_suspend = true;
             std::cout.flush();
         }
 
@@ -550,6 +560,9 @@ namespace Mila::ChatApp
             bool any_output = false;
             bool forced_break = false;
 
+            /// The last line was ended by a suspend rather than by the text, and no line has opened since.
+            bool line_closed_by_suspend = false;
+
             std::vector<std::string> answer_lines;
             std::vector<std::string> thinking_lines;
         };
@@ -701,6 +714,7 @@ namespace Mila::ChatApp
                 std::cout << ' ' << bg( 40, 44, 60 ) << fg( 200, 215, 240 ) << "  ";
 
             stream_.line_open = true;
+            stream_.line_closed_by_suspend = false;
         }
 
         /**

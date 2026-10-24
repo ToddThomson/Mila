@@ -573,7 +573,7 @@ parallel calls land.
 
 `--device N` and the `device` key choose the card at startup and every device question follows it,
 but there is no `/device` command — `/set` is sampling knobs only, by its own contract. `/context`
-shows the shape a reload-on-change command takes (`Chat.ixx`).
+shows the shape a reload-on-change command takes (`Chat.Session.ixx`).
 
 ## Chat's console output has two rough edges
 

@@ -5,16 +5,16 @@ console. The session runs as its own C++ process; the window is a client of it, 
 suits the window. The console stays first-class on every platform.
 
 **Status:** draft, 2026-10-20. Phase 1 (the page and the Electron window, against a mock session) is
-written to be built by a cloud session from this document alone. Open decisions are in section 9.
+built; phase 2 (the session split, section 7) is built, 2026-10-24. Open decisions are in section 9.
 
 ---
 
 ## 1. What this is
 
-Chat today is one console program: `Chat.ixx` holds the session (model resolution, the deployment
-request, the turn loop, tool dispatch, channel routing) and writes to the terminal itself, through a
-concrete `ConsoleRenderer` and `std::getline( std::cin )`. A window is a second front end over that same
-session. It exists because the things a person now does with a local model are window-shaped:
+Chat is a session and a console front end over it: `ChatSession` (`Chat.Session.ixx`) holds the model
+resolution, the deployment request, the turn loop, tool dispatch and channel routing, and the console
+(`Chat.ConsoleFrontEnd.ixx`) draws its events through `ConsoleRenderer` and reads `std::cin` (section 7). A
+window is a second front end over that same session. It exists because the things a person now does with a local model are window-shaped:
 
 - **Media.** An image or an audio clip attached by drag-and-drop, shown in the transcript, and refused by
   name for a model that has no such modality (`Gemma4Modality.md` 5.7). A terminal can take a path; it
@@ -44,8 +44,8 @@ session already do. Video, which no Mila model takes, has no place in it.
              +--------------------+--------------------+
                                   |
                    +--------------+---------------+
-                   |  Chat session (Chat.ixx,     |
-                   |  less its console I/O)       |
+                   |  Chat session                |
+                   |  (Chat.Session.ixx)          |
                    +--------------+---------------+
                                   |
                                 Mila
@@ -59,7 +59,8 @@ session already do. Video, which no Mila model takes, has no place in it.
   can be written in JavaScript, .NET, Python, Rust or anything else that can start a process and read
   its output. A fault in either does not take down the other, so a window crash does not unload the model.
   Chat's own window is Electron (section 6.2); other clients are welcome on the same schema.
-- **Formatting is presentation.** The session emits channel-routed *raw* text. The console front end
+- **Formatting is presentation.** The session emits channel-routed *raw* text; routing a token to its
+  channel is the session's (`StreamingChannelRouter`). The console front end
   keeps `IncrementalRichFormatter` and `RichText` (markdown and LaTeX to terminal Unicode, word wrap); the
   window renders markdown itself, in the page. Each front end keeps its own streamed-equals-buffered
   check.
@@ -235,7 +236,7 @@ allowed is asked about; afterwards the session asks when the broker's rule for t
 - **The page's text is end-user prose** (CLAUDE.md, *End-User Prose*): no term that exists only inside
   Mila -- not "session process", "stream", "schema", "channel" or "front end" -- in anything the page
   shows. "Thinking", "context window", "model", "install" are the reader's words, as the console already
-  uses them (`Chat.ixx`, `printHelp`).
+  uses them (`Chat.ConsoleFrontEnd.ixx`, `printHelp`).
 - **Code follows CLAUDE.md's naming rule** in JavaScript too: no abbreviations in identifiers
   (`message`, not `msg`; `conversation`, not `conv`).
 - **Realistic content in the mock:** the weather tool's definition is
@@ -349,17 +350,48 @@ the page and is never sent. In the mock, an attachment is accepted or refused by
 
 ## 7. The session split (phase 2, local)
 
-`Chat.ixx` emits section 4's events through an interface and takes its requests from one, instead of
-writing to `ConsoleRenderer` and reading `std::cin`; one type per file, as every touched module is
-brought under the rule. The console front end implements both over today's renderer and stdin loop, so
-its output does not change; the session process (section 6.1) is the second implementation.
-`turn.stop` is wired to `stop_src_.request_stop()`; the library already ends a generate with
-`GenerateStatus::ClientCancelled` on it, and nothing in Chat calls it today, so Ctrl+C in the console
-stops the reply instead of ending the process. `StreamingResponseDisplay` takes the interface rather
-than `ConsoleRenderer&`.
+`ChatSession` (`Chat.Session.ixx`) holds the model, the conversation, the settings and the turn loop, and
+never draws or reads input. **Events** go out through `SessionEvents` (`Chat.SessionEvents.ixx`), section
+4.1 as C++ calls: `info`, `error`, `log`, a load's start and end, a turn's start, each round's start and end
+with its measurements, text by channel, a thought break and close, a tool call opening, the approval of
+section 4.5 (`approveToolCall`, which the reply waits on), the answered call, and the turn's end with its
+whole display. **Requests** are the session's methods, section 4.2 as calls: `respond`, `stop` (from any
+thread), `newConversation`, `loadModel`, `installModel`, `removeModel`, the context and settings setters,
+`seed`. A front end reads state from the session rather than being told it. Both are shaped as
+`Mila::AI` will need them -- a streamed reply by channel, tool calls and their approval, rounds, the
+conversation it holds -- so that v0.22.0 moves this code into Mila.AI rather than redesigning it (Todd,
+2026-10-24).
 
-Gate: the console's transcript is byte-for-byte unchanged on the four validated models, `ChatRichTextTests`
-and the stream validator pass, and Ctrl+C stops a reply.
+- **The split follows presentation.** Gemma's token router (`Chat.StreamingChannelRouter.ixx`) is the
+  session's: which channel a token belongs to is a fact about the reply, and it emits raw text. The console
+  keeps the incremental rich-text formatter, the renderer, the stream validator, the spinner, the slash
+  commands with their usage lines, and every table.
+- **Sentences.** Those about work the session does -- a load, a reload, an install, a context that does
+  not fit -- are the session's `info` and `error`; the console words its own commands. Some of the
+  session's still name console commands ("/model <name> loads it again"), which phase 3 rewords or turns
+  into state.
+- **The session is a library target of its own, `MilaChatSession`,** which `mila-chat` and the session
+  process link. Nothing in it can import the renderer, so the build keeps the line.
+- **`turn.stop` is `ChatSession::stop()`,** on a stop source made fresh for each turn; the library ends a
+  generate with `GenerateStatus::ClientCancelled` on it. A tool call not yet run is not run. Ctrl+C during
+  a reply calls it -- the console installs its SIGINT handler for the turn only, so Ctrl+C at the prompt
+  still ends the process -- and the reply ends with "Reply stopped."
+- **The console allows every call** (`approveToolCall` returns allow-once) until BACKLOG "No Chat asks
+  before a tool runs" gives it the prompt line of `ToolBroker.md` section 5.
+
+Gate, measured 2026-10-24: a piped 24-line session -- every command class, a tool call with reasoning
+hidden and shown, detail all -- on Llama 3.2 3B and 3.1 8B (FP4, packaged afresh: the published packages
+are refused, BACKLOG "A model installed under v0.20 stops loading"), Gemma 4 12B FP4, Gemma 4 26B-A4B Q4_0
+(the streamed-reasoning path, which the 12B package does not declare) and Qwen 3.8 27B FP4; greedy, context
+8192. Standard output and error are byte-for-byte equal to the build before the split once the spinner's
+frames and the log timestamps are removed, and a mutant in the streamed thought break was caught. One-shot
+`-p`, plain and JSON, is equal (prefill time excluded). The stream validator printed nothing. Ctrl+C
+stopped a reply and the next turn answered, on Gemma, Qwen and Llama.
+
+Two defects were found and fixed with it. `/context` ended the process on Qwen before any turn and on
+Llama after any reply, because the floor rendered the history as a prompt; it now measures the history
+with the next turn's user message. And a streamed word still being written when a tool call or a notice
+interrupted the reply printed after the trace line; the renderer now writes it first.
 
 ## 8. Phases
 

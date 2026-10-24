@@ -20,7 +20,9 @@
 #endif
 
 import Mila;
-import Mila.Chat;
+import Chat.ConsoleFrontEnd;
+import Chat.ModelCatalog;
+import Chat.Session;
 import Chat.FamilyTraits;
 import Chat.Footprint;
 import Chat.Settings;
@@ -1144,7 +1146,7 @@ int main( int argc, char* argv[] )
             }
         }
 
-        Chat chat( std::move( config ) );
+        ConsoleFrontEnd chat( std::move( config ) );
 
         // Probe stub for the Gemma 4 native tool-call format experiment
         // (GemmaChatProtocol.md): returns a canned reading, no real lookup.

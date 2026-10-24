@@ -682,7 +682,7 @@ continuation indent, so the hanging indent a list needs cannot be expressed.
 
 `Mila/Apps/Chat/Src/Json.ixx` duplicates `Mila/Src/Utils/json.ixx`, both including the same
 header from their global module fragment. Chat then imports one in four translation units
-(`Chat.ixx`, `Chat.MessageFormatter.ixx`, `Chat.SystemPrompt.ixx`, `Chat.ToolCallParser.ixx`) and
+(`Chat.Session.ixx`, `Chat.MessageFormatter.ixx`, `Chat.SystemPrompt.ixx`, `Chat.ToolCallParser.ixx`) and
 the other in two (`Chat.ModelCatalog.ixx`, `Chat.Settings.ixx`), so the same types arrive under two
 module names in one binary.
 
@@ -945,7 +945,7 @@ prefill, not per token on the device.
 
 `apps`
 
-Raised by Todd 2026-10-01. The loop reads input with `std::getline` (`Chat.ixx:242`), so a pasted block arrives as
+Raised by Todd 2026-10-01. The loop reads input with `std::getline` (`Chat.ConsoleFrontEnd.ixx`), so a pasted block arrives as
 one turn per line: the model answers each line before the next is read, empty lines are skipped, and a pasted line
 starting with `/` runs as a command. How a user writes a multi-line message by hand is the same question.
 
@@ -1009,7 +1009,7 @@ module/header interaction of GitHub #30, whose fix BACKLOG.md carries. Found 202
 `ai` · `architecture` · `api`
 
 The architecture-to-concrete erasure exists three times in two languages — Chat's `ModelVariant`
-(`Chat.ixx:73`, ten `std::visit` sites), the binding's per-family session classes, and the
+(`Chat.Session.ixx`, ten `std::visit` sites), the binding's per-family session classes, and the
 inference server's `ModelFamily` enum (`model_worker.py:38`). The bridge from a store name to a family, a
 weight format and capabilities is the library's since `0.21.0-dev+61` (`InstalledModel`, `Deployment.md` 8.1);
 what remains is the erasure itself, which every app still switches on `InstalledModel::family()` to do.
@@ -1067,7 +1067,7 @@ Qwen by changing only the name, and a sample creates an `AI` over a network it c
 
 `ai` · `apps`
 
-Parse a call, dispatch it, return the result, continue — written once, informally, in `Chat.ixx`,
+Parse a call, dispatch it, return the result, continue — written once, informally, in `Chat.Session.ixx`,
 so a developer's program that wants tools rewrites it. It moves into `Mila/AI/` as the agent core
 (`MilaProductFamily.md`, Native Agent Core), and Chat keeps only its human approval gate. Tools are
 compiled-in functions registered on the `AI`, a callable plus a schema (`Direction.md` §8 decision
