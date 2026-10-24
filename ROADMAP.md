@@ -223,25 +223,28 @@ user from install to a running model.
 ### The Desktop Agent
 
 *The models this release finishes call tools, and the desktop app lets you put them to work on your own files and
-the web, each call under your rules and in a sandbox.*
+the web, each call under your rules and kept to the folder you choose.*
 
 Family parity gave this release models that call tools: Gemma 4 and Qwen 3.8 are driven through tool calls today,
 and Llama never has been, which this theme closes. The only harnesses that exercise them are other people's, over
 the inference server, and Mila's own Chat runs one stub tool without asking. The desktop app's window was built in October against a mock; this theme puts it on a real model and
 makes it an agent harness: the model reads and edits files in a folder the person chooses and reads web pages, and
 every call goes through one local service that holds the person's rules, asks them when the rule says ask, and runs
-the tool in a sandbox (`ToolBroker.md`). Added 2026-10-24 (Todd), with the release moved two weeks for it.
+the tool in a process of its own, kept to that folder (`ToolBroker.md`). Added 2026-10-24 (Todd), with the release
+moved two weeks for it.
 
-It is Windows first: the sandbox is Windows', and on any other platform the app runs without tools until its own
-sandbox is built. The first tools are reading, finding, searching, writing and editing files, and reading a web page;
-search and a shell come after. Mila.AI, the library `Direction.md` plans for v0.22.0, starts here with the service's
+The first tools are reading, finding, searching, writing and editing files, and reading a web page, all Mila's own
+code, so the service's own checks keep them to the folder and the web tool to public addresses; an operating-system
+sandbox is for code Mila does not control, and comes in a later release with the shell and other people's tool
+servers, which wait for it (Todd, 2026-10-24). Search comes after too. It is Windows first: on any other platform the
+app runs without tools until the checks are tested there. Mila.AI, the library `Direction.md` plans for v0.22.0, starts here with the service's
 client as its only content, so nothing built for this theme moves again in the rebuild. The app's name is held.
 
 **Success criteria:** on Windows, the desktop app runs every model this release publishes that calls tools through a
 task that reads files in the chosen folder, edits one, and reads a web page, each call allowed or asked by the
 person's rules and shown in the conversation; a denied call reaches the model as declined and the reply continues;
-a tool cannot read or write outside the chosen folder, and only the web tool reaches the network, shown by escape
-tests that each pass against an unsandboxed tool first; the console Chat asks before a tool runs, as the window does;
+a tool cannot read or write outside the chosen folder by any name that leads there, and the web tool reaches no
+private or local address, shown by tests that each reach their target with the check removed first; the console Chat asks before a tool runs, as the window does;
 and a developer's program reaches the same tools through Mila.AI's client.
 
 ### Upgrades Keep Your Models

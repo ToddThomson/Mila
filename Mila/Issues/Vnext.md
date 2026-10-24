@@ -1087,6 +1087,23 @@ the agent core's.
 Gate: across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
 measured, for every family that permits prefix reuse.
 
+## A tool runs as the user, so no tool Mila does not control can be offered
+
+`apps` · `ai`
+
+v0.21.0 runs only Mila's own tools, limited by the tool broker's path and address checks and by no operating-system
+sandbox (Todd, 2026-10-24). A shell, other people's MCP servers and tools an agent writes wait for one. First
+candidate: Microsoft eXecution Container (MXC, MIT, v1.0.0 on 2026-10-07), one policy launched through Microsoft's
+process container on Windows, Seatbelt on macOS and bubblewrap on Linux -- "quite promising for Windows, and a
+macOS, Linux equivalent" (Todd). Its SDKs are Rust, .NET and Node, with no C or C++.
+
+Before it is adopted: the four escape tests (a child started through WMI, the network with nothing granted, a file
+outside the granted folder, a child process), each first shown to pass unsandboxed; the web tool's connection moved
+into the broker so the worker has no network; and what MXC falls back to on a Windows build below its support table
+(an AppContainer with ACL entries on the folder, by an independent reading).
+
+`Mila/Specifications/ToolBroker.md` section 6.3; `Notebooks/LocalToolService.md` sections 10.1 to 10.4
+
 ## A conversation that fills its context stops, and nothing carries it forward
 
 `ai` · `apps`

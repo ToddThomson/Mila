@@ -1,9 +1,11 @@
 # Tool Broker
 
 One local service that executes the tool calls of every agent on a machine -- Mila's own applications and other
-people's -- under one set of rules, each tool in a sandbox of its own.
+people's -- under one set of rules, each tool in a process of its own, limited by the service's checks and, once
+section 6.3's sandbox arrives, by the operating system.
 
-**Status:** draft, 2026-10-24. No code. The evidence behind it, and the reasoning for each decision, is
+**Status:** draft, 2026-10-24. The process, pipe and message layer is built and phase 3 is measured (sections 8,
+9); the checks of section 6.2, the policy, MCP's tool methods and the executable are not. The evidence behind it, and the reasoning for each decision, is
 `Notebooks/LocalToolService.md`. **Ships in v0.21.0 on Windows** (Todd, 2026-10-24), behind the desktop app's tool
 calling (`ChatDesktop.md`): the ROADMAP theme *The Desktop Agent*. Open decisions are in section 10.
 
@@ -16,8 +18,8 @@ map (`registerTool`, `Mila/Apps/Chat/Src/Chat.ixx`), a developer's program throu
 holds the rules in one place, nothing restricts what a tool can reach, and no Chat asks before a tool runs.
 
 The broker is a separate process that holds the rules and runs the tools. An agent asks it to call a tool; the
-broker decides whether that agent, acting for that user, may; and if so, a sandboxed worker runs the call and
-the result comes back.
+broker decides whether that agent, acting for that user, may; and if so, a worker process runs the call within
+the limits of section 6 and the result comes back.
 
 **Not in scope:**
 
@@ -53,23 +55,25 @@ Every rule and every line of the audit trace is keyed on the pair **(user, agent
   Broker (one per user)      policy, approvals, audit trace; runs no tool code
       |   MCP over stdio, one per worker
       v
-  Workers                    each tool server in its own sandbox:
-                             third-party MCP servers, and Mila's own tools
+  Workers                    each tool server in a process of its own:
+                             Mila's own tools first; third-party MCP servers
+                             once a sandbox holds them (section 6)
 ```
 
 - **Front: MCP**, revision 2026-07-28 (stateless: every request carries its own `_meta`). Any MCP client can use
   the broker; Mila's applications reach it through Mila.AI's client (section 8).
 - **Names:** a tool is shown to the model as `<server>.<tool>`, since MCP tool names are unique only within one
   server.
-- **Back: workers.** Third-party MCP servers, and Mila's own native tools (file read, grep, patch apply, the
-  shell) written as servers of their own. Each is a sandboxed process (section 6).
+- **Back: workers.** Mila's own native tools written as servers of their own, and later third-party MCP servers
+  and the shell, which wait for the sandbox (section 6). Each is a process of its own.
 - **The broker runs as the user, per user, started on demand** (decided 2026-10-24 for the first version;
   section 7 moves it).
 - **The compiled-in registry stays** (`Direction.md` 8, decision 6) for tools that need no isolation. A result
   from either returns to the agent's process, which splices it into the live cache as today.
 - **Cost:** a warm round trip to a resident process measured about 7 us at the median, against about 14 ms to
-  start a process per call (`Notebooks/LocalToolService.md` section 5). Workers are kept warm; a per-call start
-  is used only where section 6 calls for a fresh sandbox.
+  start a process per call (`Notebooks/LocalToolService.md` section 5), and a whole call through the broker -- two
+  hops, each message parsed and checked -- about 52 us (section 11). Workers are kept warm; a per-call start
+  is used only where section 6.3 calls for a fresh sandbox.
 
 ## 4. Policy
 
@@ -102,38 +106,79 @@ question to the person and retries the call with the answer. The broker decides;
 
 Chat's window carries this in its own schema (`ChatDesktop.md` section 4); the console as a prompt line.
 
-## 6. Workers and sandboxes
+## 6. Workers and their limits
 
-- **Windows:** each worker in an AppContainer (files and registry only where granted; network only by
-  capability; isolated kernel objects and windows), inside a job object with kill-on-close, memory and CPU caps,
-  and no breakaway. A child started through WMI does not join the job, so phase 3 tests that route.
-- **Linux and macOS:** not yet read (section 10). **Windows first** (Todd, 2026-10-24): until a platform's sandbox
-  is built and its escape tests pass, the broker runs no tool there and says so; no tool runs unsandboxed.
-- **Environment:** a worker inherits nothing of the user's environment beyond what its server's entry declares.
-- **A fresh sandbox per run** where runs must not see each other: an agent trying two candidate edits (as
-  *Harness^2*'s probes do, each in a fresh container) gets a worker created for each run and destroyed after it.
-- **A tool an agent wrote** -- a script, a plugin -- is a new tool of unknown origin: it runs only as a worker,
-  is recorded as written by that agent, and is asked about before its first run, whatever any library of the
-  agent's adopted it for.
-- **Results are untrusted data**: capped in size before they reach the agent, never interpreted by the broker.
+**The first broker runs no tool in an operating-system sandbox** (Todd, 2026-10-24). Its tools are Mila's own code
+(section 6.1), so what has to be held back is a model steered into misusing tools that behave correctly, and the
+broker's own checks hold that. A sandbox exists to hold back code Mila does not control; that code waits for it
+(section 6.3). This replaces the decision of the same day that no tool runs unsandboxed, which put an AppContainer
+under every worker before the first tool could run (`Notebooks/LocalToolService.md` section 10).
 
 ### 6.1 The first tools
 
-Two workers, each in its own sandbox, so the tool that reads the web never sees the user's files and the file tool
-has no network (decided 2026-10-24, Todd).
+Two workers, so the tool that reads the web never sees the user's files and the file tools make no network
+connection (decided 2026-10-24, Todd).
 
 | Worker | Reaches | Tools | Default rule |
 |---|---|---|---|
-| `files` | The one folder the person chose for the conversation; no network | `read_file` (a path, an optional line range), `list_directory`, `find_files` (a name pattern), `search_text` (text or a pattern across the folder) | allow |
+| `files` | The project area the person chose for the conversation, and its `.mila` folder; no network | `read_file` (a path, an optional line range), `list_directory`, `find_files` (a name pattern), `search_text` (text or a pattern across the folder) | allow |
 | | | `write_file` (create or replace), `edit_file` (replace one exact passage, which must occur once) | ask |
-| `web` | The internet, by http and https; no files | `fetch_url` (a page as readable text, size-capped; private, loopback and link-local addresses refused, as MCP's guidance against requests to internal addresses advises) | ask |
+| `web` | Public addresses, by http and https; no files | `fetch_url` (a page as readable text, size-capped) | ask |
+
+**The project area and `.mila`** (Todd, 2026-10-24). The desktop app works in a project area: the folder the
+person chose. Inside it, `.mila` is the model's own space, where it creates and keeps files for its own use --
+notes, plans, scratch work. Nothing the broker relies on lives there: the policy, the pinned tool definitions and
+the audit trace stay where section 4 puts them, because a tool can write anything in `.mila`.
 
 The default rules are those of section 4's "nothing allowed" made usable: they are offered when the person registers
 the agent, and the person can change them there.
 
 **Not in the first set:** web search, because every search service needs a key and the first broker holds no
-secrets (section 7); and a shell, the largest risk, whose behaviour inside an AppContainer has not been tried. Both
-are the next tools after v0.21.0.
+secrets (section 7); and a shell, which runs programs Mila does not control and so waits for the sandbox (6.3).
+Both are the next tools after v0.21.0.
+
+### 6.2 What limits a worker
+
+- **Files: the path check.** A `files` worker opens the path it is given, then compares the opened file's final
+  path -- after every link, junction and mount point is followed -- with the project area's own final path, and
+  closes and refuses anything outside it. A check on the text of the name is not enough on Windows, where one file
+  has many names. Before opening, it refuses names that are not plain paths: alternate data streams
+  (`name:stream`), device names (`CON`, `NUL`, `COM1`), the `\\?\` and `\\.\` forms, and network (UNC) paths. Short
+  8.3 names and differences of case resolve to the same final path and are caught there. A new file is checked
+  through its folder, which must itself resolve inside the area.
+- **Network: the address check.** The `web` worker resolves each host name itself and refuses private (RFC 1918
+  and IPv6 unique-local), loopback, link-local and unspecified addresses, as MCP's guidance against requests to
+  internal addresses advises. It checks the address it actually connects to, not a name, so a name that resolves
+  differently a second time gains nothing, and it checks again on every redirect.
+- **Processes.** Each worker is a process of its own inside a job object with kill-on-close and no breakaway, so a
+  fault in a tool never lands in the process holding the model, and closing the broker ends every worker. This is
+  separation, not containment: a worker runs as the user and could reach anything the user can, which is why only
+  Mila's own code runs there.
+- **Environment:** a worker inherits nothing of the user's environment beyond what its server's entry declares.
+- **Results are untrusted data**: capped in size before they reach the agent, never interpreted by the broker.
+- **Wording.** Nothing shown to the person calls a tool sandboxed. The app says the tools are limited to the
+  project folder, and that it asks before writing outside `.mila` and before fetching a page.
+
+**What waits for the sandbox:** a shell, third-party MCP servers, and any tool an agent writes -- a script, a
+plugin, a new tool of unknown origin, whatever a library of the agent's adopted it for. Until a platform's sandbox
+is built and its escape tests pass, the broker registers none of them there and says so.
+
+### 6.3 The sandbox, next
+
+Filed in `Mila/Issues/Vnext.md`. **Microsoft eXecution Container (MXC)** is the first candidate (Todd,
+2026-10-24): one containment policy -- read-write, read-only and denied paths, outbound network, UI -- launched on
+Windows through Microsoft's process container, on macOS through Seatbelt and on Linux through bubblewrap, so it
+answers section 10.2 as well. What adopting it requires:
+
+- **The escape tests**, each first shown to pass against an unsandboxed worker: a child started through WMI (which
+  does not join a job object, on Microsoft's job-object page), the network with nothing granted, a file outside
+  the granted folder, and a child process.
+- **The connection moves into the broker.** The `web` worker then has no network at all and turns into text what
+  the broker fetched under policy, which is NVIDIA OpenShell's design (`Notebooks/LocalToolService.md` 10.3).
+- **A fresh sandbox per run** where runs must not see each other: an agent trying two candidate edits (as
+  *Harness^2*'s probes do, each in a fresh container) gets a worker created for each run and destroyed after it.
+- **A tool an agent wrote** runs only there, recorded as written by that agent and asked about before its first
+  run.
 
 ## 7. Secrets
 
@@ -149,7 +194,15 @@ programs running as the user: they can read its memory and decrypt what it store
 ## 8. Placement
 
 - **The broker:** an application under `Mila/Apps/`, shipped, with a `mila-` command name
-  (`Notebooks/MilaCommandLineReview.md`).
+  (`Notebooks/MilaCommandLineReview.md`). Working folder `Mila/Apps/Tools/Broker`, in C++23 like Chat and
+  `mila-store` (Todd, 2026-10-24), until section 10.3 names it. Built so far, as the library `MilaToolBroker` with
+  its tests in `ToolBrokerTests`: the line channel that frames MCP messages on every hop (MCP's stdio framing,
+  which its transports page asks a custom transport to reuse); `launchWorker`, the one place a worker is started,
+  taking a `WorkerLimits` a sandbox can later enforce whole; the named pipe, its access list naming the current
+  user alone, refusing remote clients and refusing to start if its name is taken; and `relayOne`, which checks a
+  client's message against MCP's base protocol (`parseClientMessage`), forwards it, and answers for a worker that
+  sends a request, the wrong id, something other than JSON-RPC, or nothing. JSON is the vendored header Mila
+  itself wraps (Todd, 2026-10-24).
 - **The client:** in Mila.AI (`Mila/AI/`), beside where the agent core will be (`Direction.md` 3.2). **Mila.AI
   starts in v0.21.0 with the client as its only content** (Todd, 2026-10-24), so it is written once, where v0.22.0
   needs it, and no application holds a client of its own (`Direction.md` 3.3). It needs nothing from `Mila/Src`: a
@@ -161,24 +214,28 @@ programs running as the user: they can read its memory and decrypt what it store
 Each phase's gate is written before its run.
 
 1. **Round-trip cost** -- done, 2026-10-23 (`Notebooks/LocalToolService.md` section 5).
-2. **The folder and the escapes on Windows, first:** granting a worker's AppContainer one folder and taking it
-   back (section 10.1), and the escape tests -- a WMI-started child, network with no capability, a file outside the
-   granted folder, a child process. Each escape must fail, and each test is first shown to pass against an
-   unsandboxed worker. If the folder grant does not work cleanly, the plan changes here, before anything is built
-   on it.
-3. **End to end:** client to broker to a worker in an AppContainer, with MCP framing and JSON on both hops.
-   Gate: median under 100 us.
+2. **The path and address checks on Windows, first** (section 6.2): a test for every way a name can lead out of
+   the project area -- `..`, a link, a junction, a mount point, a short 8.3 name, a difference of case, an
+   alternate data stream, a device name, a `\\?\` or `\\.\` form, a network path -- and for every refused address
+   kind, by name, by literal address and through a redirect. Each test is first shown to reach its file or address
+   with the check removed, then shown refused with it.
+3. **End to end** -- done, 2026-10-24: client to broker to a worker, with MCP framing and JSON on both hops, a
+   median of about 52 us against the gate's 100 (`Notebooks/LocalToolService.md` section 11).
 4. **The broker and the two workers of section 6.1**, with section 4's rules and section 5's approvals.
 5. **The client in Mila.AI, and Chat on it:** the console and the window ask through section 5.
-6. **Linux**, after its sandboxing is read; after v0.21.0.
+6. **The sandbox** (section 6.3), then the shell and third-party servers; after v0.21.0.
 
 ## 10. Open decisions
 
-1. **Giving a sandboxed tool the user's files.** Granting an AppContainer a project folder changes that folder's
-   permissions and has to be undone; less-privileged AppContainers restrict further. Whether this is usable for
-   coding work decides whether the Windows sandbox is (`Notebooks/LocalToolService.md` 6.3).
-2. **Linux and macOS sandboxing:** bubblewrap, Landlock and seccomp on Linux; macOS's own. Not read.
+1. **Giving a sandboxed tool the user's files** -- deferred with the sandbox (6.3). Granting an AppContainer a
+   folder means adding an entry to that folder's access-control list, which Windows copies onto every file
+   beneath it and which has to be taken back; MXC's own process container leaves the grant to the operating
+   system instead. Measured when the sandbox is (`Notebooks/LocalToolService.md` 10.1).
+2. **Linux and macOS sandboxing:** MXC's Seatbelt and bubblewrap backends are the first candidates (6.3). Not
+   measured.
 3. **The name** of the broker and its command.
 4. **The policy's format** and how the user edits it: a file, a command, a page in Chat's window.
 5. **Registering an agent:** how the user does it once per application, and what a developer's program shows
    the first time it calls.
+6. **Writes inside `.mila`.** Proposed: allow by default, since asking each time the model writes its own notes
+   wears the person out, while writes elsewhere in the project area stay ask. Not decided.

@@ -1,6 +1,7 @@
 # The apps Mila ships to the people who run it (see Apps/README.md and MilaProductFamily.md):
 # Chat -> a human at a prompt; Server -> a foreign harness over HTTP (Python, importing the
-# mila binding built from Mila/Bindings); Tools/Store -> the model store from the shell.
+# mila binding built from Mila/Bindings); Tools/Store -> the model store from the shell;
+# Tools/Broker -> the tool broker, which runs agents' tool calls (Specifications/ToolBroker.md).
 # Gated on MILA_ENABLE_APPS so a find_package/CPM consumer embedding Mila builds none of them.
 
 # Chat runs models, and CUDA is the only compute backend.
@@ -13,6 +14,11 @@ endif()
 # The store needs only the store and the hub, so it builds on any backend.
 if(MILA_ENABLE_APPS)
     add_subdirectory( Tools/Store )
+endif()
+
+# The broker runs tools on Windows first (ToolBroker.md section 6), so it builds there only.
+if(MILA_ENABLE_APPS AND WIN32)
+    add_subdirectory( Tools/Broker )
 endif()
 
 # The server is not a CMake target -- it consumes the Mila Python binding, which is built from

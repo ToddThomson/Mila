@@ -445,28 +445,30 @@ checked: how Anthropic and OpenAI join a message's parts, or whether the billing
 
 ### The Desktop Agent
 
-#### It is not known whether a sandboxed tool on Windows can be given one folder and nothing else
+#### Nothing keeps a file tool inside the folder it was given, or the web tool off local addresses
 
 `open` · `apps` · `ai` · `gate`
 
-The file tools run in an AppContainer, which reads only what is granted to its identity. Granting a project folder
-means adding an entry to that folder's access-control list and removing it afterwards; less-privileged
-AppContainers restrict further. Nothing has been tried. Measured first, with the escape tests: a child started
-through WMI (which does not join a job object), network with no capability granted, a file outside the granted
-folder, and a child process -- each must fail, and each test first passes against an unsandboxed worker. Gates every
-item below that runs a tool; if the grant does not work cleanly, the plan changes here.
+The first tools run with no operating-system sandbox (Todd, 2026-10-24), so the service's own checks are the only
+limit. On Windows one file has many names: `..`, links, junctions, mount points, short 8.3 names, case, alternate
+data streams, device names, the `\\?\` and `\\.\` forms, network paths. The path check compares the opened file's
+final path with the project area's, and refuses the non-path forms before opening; the address check refuses
+private, loopback, link-local and unspecified addresses on the address actually connected to, and on every
+redirect. Gate: a test per route and per address kind, each first shown reaching its target with the check removed.
+Gates every item below that runs a tool.
 
-`Mila/Specifications/ToolBroker.md` sections 6, 9 (phase 2), 10.1
+`Mila/Specifications/ToolBroker.md` sections 6.2, 9 (phase 2)
 
 #### No local service runs a model's tool calls under the person's rules
 
-`open` · `apps` · `ai`
+`in progress` · `apps` · `ai`
 
 The tool broker itself: one per user, started on demand, MCP on a named pipe only that user can open; the allow,
 ask and deny rules per user, agent and tool, held where no agent writes them; approvals answered through MCP's
-input-required result; tool definitions pinned at approval; the audit trace; workers started in an AppContainer
-inside a kill-on-close job, kept warm. On a platform with no sandbox it runs no tool and says so. Gate: phase 3's
-round trip under 100 us at the median, and the escape tests of the item above passing through the broker.
+input-required result; tool definitions pinned at approval; the audit trace; workers started as processes of their
+own inside a kill-on-close job, with none of the user's environment, kept warm. It registers no shell, no other
+program's tool server and no tool an agent wrote, and says so. Gate: phase 3's round trip under 100 us at the
+median, and the tests of the item above passing through the broker.
 
 `Mila/Specifications/ToolBroker.md` sections 2-7
 
@@ -474,9 +476,9 @@ round trip under 100 us at the median, and the escape tests of the item above pa
 
 `open` · `apps`
 
-The two workers of `ToolBroker.md` section 6.1: `files` (read, list, find, search, write, edit; one folder, no
-network) and `web` (`fetch_url`; internet only, no files, internal addresses refused), with their default rules
-offered when the person registers the agent. Absent today: Chat's only tool is a `get_weather` stub
+The two workers of `ToolBroker.md` section 6.1: `files` (read, list, find, search, write, edit; the project area
+and its `.mila` folder, no network) and `web` (`fetch_url`; public addresses only, no files), with their default
+rules offered when the person registers the agent. Absent today: Chat's only tool is a `get_weather` stub
 (`Mila/Apps/Chat/Src/main.cpp:1151`).
 
 #### An application cannot use the tool service without writing its own client

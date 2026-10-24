@@ -1,8 +1,8 @@
 # A Local Tool Service
 
-**Status:** Evidence, 2026-10-23 to 2026-10-24. Its decisions (sections 8 and 8.5) are carried to the design,
+**Status:** Evidence, 2026-10-23 to 2026-10-24. Its decisions (sections 8.5 and 10.5) are carried to the design,
 `ToolBroker.md`, and to `Direction.md` section 8, decision 6. It records the proposal, what was read to test it,
-and the first measurement.
+the first measurement, and how the first release came to run its tools without an operating-system sandbox.
 
 ## 1. The question
 
@@ -128,7 +128,8 @@ proves too loose.
 An AppContainer worker reads only what has been granted to its identity. Granting a project folder means adding
 an entry to that folder's access-control list, which changes the user's files' permissions, and has to be undone.
 Less-privileged AppContainers restrict further. How a file tool or the shell is given a folder, and taken off it,
-decides whether the Windows sandbox is usable for coding work at all. Not tested.
+decides whether the Windows sandbox is usable for coding work at all. Not tested; deferred with the sandbox
+(section 10).
 
 ### 6.4 Where it lives and what it is called
 
@@ -260,3 +261,145 @@ under:
    effects.
 4. **"Never run a script found in a candidate" is enforced, not asked for.** The paper gives it to the editor
    as a prompt rule; under the broker the editor's agent has no grant to run it.
+
+## 10. 2026-10-24, later: the folder grant, prior art, and a first release without a sandbox
+
+Phase 2 of `ToolBroker.md` section 9 set out to grant a worker's AppContainer one folder, take the grant back, and
+run four escape tests. Its documentation was read and the machine checked; the probe was not built, because the
+discussion in 10.5 replaced the phase.
+
+### 10.1 What was read for the folder grant
+
+Microsoft Learn, read 2026-10-24: *Launch an AppContainer*, *AppContainer isolation*, `CreateAppContainerProfile`,
+`DeriveAppContainerSidFromAppContainerName`, `DeleteAppContainerProfile`, `UpdateProcThreadAttribute`,
+`SetNamedSecurityInfoW`, `SetEntriesInAclW`, `TreeSetNamedSecurityInfoW`, `EXPLICIT_ACCESS_W`, `ACCESS_MODE`,
+`JOBOBJECT_BASIC_LIMIT_INFORMATION`, *Job Objects*, `Win32_Process.Create`, *Example: Calling a Provider Method*,
+*Mandatory Integrity Control*, and the archived page on network isolation and loopback.
+
+- **The documented launch creates a profile.** `CreateAppContainerProfile` makes per-user folders and registry
+  storage for the container (its `LOCALAPPDATA` and `TEMP` are redirected under `%LOCALAPPDATA%\Packages`).
+  Deriving the container's SID needs no profile; whether a process can start without one is not documented.
+- **Access is the intersection** of what the user's SIDs and the container's SIDs are granted. The container runs
+  at low integrity, yet can write an object labelled medium or lower when the DACL grants its package SID. A
+  less-privileged AppContainer opts out of *ALL APPLICATION PACKAGES* and needs capabilities even for the registry
+  (`registryRead`) and COM (`lpacCom`).
+- **A folder grant touches every file beneath it.** `SetNamedSecurityInfo` "automatically propagates any
+  inheritable [ACEs] to existing child objects", so granting a project folder rewrites the security descriptor of
+  every file in it, and revoking it (`SetEntriesInAcl` with `REVOKE_ACCESS`, which removes every allowed entry for
+  the trustee) does so again. Neither cost was measured.
+- **A file the tool creates may keep a low-integrity label** after the grant is gone: objects a process creates
+  take its integrity level. Not measured.
+- **The child-process policy** (`PROCESS_CREATION_CHILD_PROCESS_RESTRICTED`) is, on its own page, effective only in
+  sandboxed applications such as an AppContainer.
+- **Microsoft's two pages disagree on WMI.** *Job Objects* says children created through `Win32_Process.Create`
+  are not associated with the job; the `Create` page says such processes are "limited by the job object unless
+  the CREATE_BREAKAWAY_FROM_JOB flag is specified". Only the escape test can settle which holds.
+
+On Todd's development machine (Windows 11 26H2, build 26300.9711): the root of D: grants nothing to *ALL
+APPLICATION PACKAGES*, so a plain AppContainer would already read nothing of `D:\Repos\Mila`; the firewall is on
+in all three profiles.
+
+### 10.2 What other agent applications do on Windows
+
+Read 2026-10-24, from each project's documentation or source:
+
+- **Claude Code** sandboxes commands with Seatbelt on macOS and bubblewrap on Linux and WSL 2; its documentation
+  says native Windows is not supported, and an open issue (anthropics/claude-code#46740) asks for AppContainer or
+  Windows Sandbox support.
+- **LM Studio's** MCP documentation mentions no sandbox, and warns that some servers "can run arbitrary code".
+- **OpenClaw's** sandboxing is optional and uses Docker containers; with it off, tools run on the host. Nothing
+  for native Windows was found.
+- **Claude's desktop app:** nothing official was found on how its MCP extensions are isolated on Windows.
+- **Codex** has three Windows backends in its source (`openai/codex`, `codex-rs`): two older ones, whose file
+  names point to sandbox user accounts, ACL edits and firewall rules in one and a restricted token in the other;
+  and MXC (10.4), off by default behind `features.prefer_mxc`. OpenAI's write-up *Building the Codex Windows
+  sandbox* refused the fetch and was not read.
+
+So no Windows agent application found uses a bare AppContainer, and most use no operating-system sandbox at all.
+
+### 10.3 NVIDIA OpenShell, under NemoClaw
+
+NemoClaw (announced at GTC, March 2026) runs the whole OpenClaw agent inside OpenShell. From NVIDIA's OpenShell
+documentation: a trusted supervisor makes every decision and the sandbox "never makes policy decisions";
+Landlock limits files to declared paths, fixed at creation; the agent runs non-root with no capabilities under
+seccomp; the workload has no network of its own and reaches out only through the supervisor, whose rules pair a
+host and port with the program allowed to call it, pinned by SHA-256; loopback and link-local addresses are always
+refused; credentials reach the agent as placeholders resolved only at authorized endpoints; a blocked request goes
+to the operator, and approving it widens the running sandbox's policy. Its own stated limits: request-level rules
+default to audit only, output is not scrubbed, a filesystem rule that cannot be applied is skipped under the
+default `best_effort`, and the GPU with user namespaces is unverified. **Windows is WSL 2 with Docker Desktop,
+marked experimental.**
+
+Its bearing on the broker: OpenShell contains the agent, the broker contains the tools, which keeps the model's
+process -- and the GPU -- outside any sandbox. Its network design, a workload with no network and a trusted side
+that connects under policy, is taken for the sandboxed broker (`ToolBroker.md` 6.3), and its placeholders are the
+shape section 7's rule for secrets will take.
+
+### 10.4 Microsoft eXecution Container (MXC)
+
+`github.com/microsoft/mxc`, MIT, v1.0.0 on 2026-10-07 and v1.0.1 on 2026-10-17, read 2026-10-24. One containment
+policy -- read-write, read-only and denied paths, outbound network, UI -- launched through a process container on
+Windows 11, Seatbelt on macOS and bubblewrap on Linux; SDKs for Rust, .NET and Node, none for C or C++, and an
+executor (`wxc-exec.exe`) that takes the policy as JSON. Its Windows table gives process isolation from build
+26300.9550 on 26H2, which Todd's machine passes.
+
+An independent analysis (Tyler Holmwood, *MXC Internals*, Origin, 2026-06-04, read through a summary) describes
+three Windows tiers: an operating-system call that builds the AppContainer or less-privileged token and the file
+access itself; an AppContainer with brokered file access, absent from stock builds; and an AppContainer with ACL
+entries on the folder, each recorded and removed afterwards. It quotes an earlier README saying no MXC profile
+should be treated as a security boundary; today's README no longer says so, and no statement replacing it was
+found. Telemetry is off unless the user consents and the application enables it.
+
+### 10.5 Decided: the first release runs its tools without an operating-system sandbox
+
+Todd questioned the premise: the plan was "getting a bit complex", and could it progress without AppContainer?
+The case for: the first tools are Mila's own code, with no shell, no third-party server and no tool a model writes,
+so the threat is a model steered into misusing tools that behave correctly -- reading outside the project, or
+sending data out through a fetched URL -- and checks in the broker's own code hold that. A sandbox exists to hold
+back code Mila does not control. The costs: the path check becomes the only wall, and on Windows a file has many
+names; the earlier decision that no tool runs unsandboxed is reversed; the rule keeping the shell and outside
+servers out becomes load-bearing; and nothing may call the tools sandboxed. Exfiltration through a URL is stopped
+by no sandbox either, only by asking with the arguments shown.
+
+**Decided 2026-10-24 (Todd):** "let's go this direction to begin with". v0.21.0 runs Mila's own tools with no
+operating-system sandbox, limited by the broker's path and address checks; a shell, third-party MCP servers and
+tools an agent writes wait for a sandbox; nothing shown to the person calls a tool sandboxed. MXC "looks quite
+promising" for Windows, with its macOS and Linux equivalents, as Vnext. Carried to `ToolBroker.md` sections 6 and
+9, ROADMAP *The Desktop Agent*, `BACKLOG.md` and `Mila/Issues/Vnext.md`.
+
+**Also decided the same day (Todd):** the desktop app works in a project area, the folder the person chose, and
+`.mila` inside it is the model's own space for the files it creates and uses (`ToolBroker.md` 6.1).
+
+## 11. Phase 3: the round trip through the broker
+
+**Gate, written before the run** (2026-10-24): the end-to-end path of `ToolBroker.md` section 9 phase 3, through
+the broker's own library rather than a probe. A client sends a 256-byte `tools/call` request, carrying MCP's
+`_meta`, over the broker's named pipe; the broker reads it (`LineChannel`), parses and checks it
+(`parseClientMessage`) and forwards it to a resident worker over its standard handles; the worker parses it and
+answers with a 1 KiB result; the broker parses and checks the answer (`relayOne`) and returns it; the client reads
+and parses it. 20,000 calls after 1,000 warm-up, four runs from one build (`x64-claude-verify`, Release), nothing
+else running. **Pass: a median under 100 us on every run.** Forced failure: a second arm, the client talking to
+the same worker directly with no broker between, must be faster than the broker arm on every run; a run where it
+is not means the arms are wrong. Expected, by arithmetic from section 5: about 14 us for the two hops, plus the
+JSON parsing.
+
+**Result**, 2026-10-24, Todd's development machine, four runs from one build, CPU otherwise idle (3% load before
+the runs). The harness is `Mila/Tests/Apps/ToolBroker/RoundTrip.Windows.cpp` (`ToolBrokerRoundTrip`), the worker the
+tests' echo worker in its MCP mode. Messages came out at 259 and 1,028 bytes, a few over the targets because
+later ids have more digits than the one the sizes were fitted with.
+
+| Arm | Median (us) | p99 (us) | Max (us) |
+|---|---|---|---|
+| Direct to the worker, no broker | 26.9 to 28.2 | 34.7 to 52.1 | 225 to 387 |
+| Through the broker | 51.9 to 52.7 | 67.4 to 71.7 | 219 to 457 |
+
+The gate passes on every run, and the direct arm is faster on every run.
+
+**Reading.** The broker adds about 25 us at the median. Most of that is JSON, not the pipe: section 5's bare
+round trip was about 7 us, and the direct arm here is about 27 us, so parsing and writing a 1 KiB reply with the
+vendored nlohmann library costs about as much as two hops. The broker parses each request and each reply in full,
+only to check them; a reply could be checked from its first fields, if the time ever matters. It does not today:
+52 us against a decode step of milliseconds.
+
+**Not covered:** one client and one worker, with calls one at a time; no policy lookup, approval or audit line,
+which phase 4 adds; Defender's effect was not separated out.

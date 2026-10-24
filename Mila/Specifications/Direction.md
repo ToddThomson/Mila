@@ -388,7 +388,7 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
    Declarative subprocess tools alongside it remain open for section 6, carried from
    `MilaProductFamily.md` Open Decision 5. **Tools that need isolation run through a per-user tool broker**
    (Todd, 2026-10-24): one local MCP service that holds the rules for each user and agent and runs every tool in a
-   sandboxed worker; `Mila::AI` carries its client (`ToolBroker.md`).
+   worker process of its own, sandboxed once a sandbox arrives; `Mila::AI` carries its client (`ToolBroker.md`).
 7. **How a composed model meets the handle: a C++ concept** the model satisfies — no registration,
    checked at compile time — so a developer's network and a published one pass through the same check.
 8. **A model runs in the format it was trained for** (2026-09-27). Producers ship quantization-aware
