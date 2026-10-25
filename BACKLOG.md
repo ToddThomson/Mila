@@ -44,8 +44,8 @@ never committed.
 
 The families finished and measured, in the themes ROADMAP gives them. `Direction.md` section 5 — the
 handle, the deployment request, `Mila::AI` and the applications rebuilt on it — is v0.22.0, and its items
-wait in [`Vnext.md`](Mila/Issues/Vnext.md); only the tool broker's client comes forward, under *The Desktop
-Agent*.
+wait in [`Vnext.md`](Mila/Issues/Vnext.md); what tool calling stands on -- the model's tool grammar, the
+handle, `Mila::AI` and its tool loop -- comes forward under *The Desktop Agent* (Todd, 2026-10-25).
 
 ### Gemma 4 Complete
 
@@ -445,56 +445,127 @@ checked: how Anthropic and OpenAI join a message's parts, or whether the billing
 
 ### The Desktop Agent
 
-#### Nothing keeps a file tool inside the folder it was given, or the web tool off local addresses
+#### Each model's tool-call format is read and written by Chat, not by the library
 
-`open` · `apps` · `ai` · `gate`
+`open` · `models` · `ai` · `mila-src`
 
-The first tools run with no operating-system sandbox (Todd, 2026-10-24), so the service's own checks are the only
-limit. On Windows one file has many names: `..`, links, junctions, mount points, short 8.3 names, case, alternate
-data streams, device names, the `\\?\` and `\\.\` forms, network paths. The path check compares the opened file's
-final path with the project area's, and refuses the non-path forms before opening; the address check refuses
-private, loopback, link-local and unspecified addresses on the address actually connected to, and on every
-redirect. Gate: a test per route and per address kind, each first shown reaching its target with the check removed.
-Gates every item below that runs a tool.
+How each family writes a tool call, frames a result and separates thinking from its answer is the model's own
+grammar, and today an application holds it: `Chat.ToolCallParser` (Llama), `Chat.GemmaToolCallParser`,
+`Chat.QwenProtocol`, `Chat.ChannelParser` and `Chat.StreamingChannelRouter`, beside the protocols already in
+`Mila/Src/Dnn/Models`. It becomes one protocol interface in the library, family-blind from outside: tool
+definitions into the prompt, calls parsed from the stream as tokens arrive (several in one turn, a malformed or
+cut-off one), a result in the model's own form, and the stream separated into thinking, answer and calls in
+progress. Gate: `ModelHandle.md`'s P1 for all three families, and Chat's copies deleted.
 
-`Mila/Specifications/ToolBroker.md` sections 6.2, 9 (phase 2)
+`Mila/Specifications/ModelHandle.md` section 7 (Phase 2) · `Mila/Specifications/ToolCalling.md` section 2
 
-#### No local service runs a model's tool calls under the person's rules
+#### Three places turn a model's name into the type that loads it, each its own way
 
-`in progress` · `apps` · `ai`
+`open` · `ai` · `architecture` · `api`
 
-The tool broker itself: one per user, started on demand, MCP on a named pipe only that user can open; the allow,
-ask and deny rules per user, agent and tool, held where no agent writes them; approvals answered through MCP's
-input-required result; tool definitions pinned at approval; the audit trace; workers started as processes of their
-own inside a kill-on-close job, with none of the user's environment, kept warm. It registers no shell, no other
-program's tool server and no tool an agent wrote, and says so. Gate: phase 3's round trip under 100 us at the
-median, and the tests of the item above passing through the broker. Built: `tools/list` and `tools/call` over
-named workers, rules held in memory, and approvals by input-required retry. Not built: where the rules are kept
-and how the person edits them, registering an agent, telling agents apart by their signed program, withdrawing
-approvals when a server's tools change, the audit trace, and the executable.
+The architecture-to-concrete erasure exists three times in two languages -- Chat's `ModelVariant`
+(`Chat.Session.ixx`, ten `std::visit` sites), the binding's per-family session classes, and the inference server's
+`ModelFamily` enum (`model_worker.py:38`). The bridge from a store name to a family, a weight format and
+capabilities is the library's since `0.21.0-dev+61` (`InstalledModel`, `Deployment.md` 8.1); what remains is the
+erasure itself. One handle and one factory in `Mila::AI`, with the architecture's identity in `Mila/Src` beside
+the manifest reader; the factory takes a deployment request; a network composed from components meets the handle
+through a C++ concept, with no registration. Tool calling's loop drives this handle, so it is built here; the
+server and the binding move onto it in v0.22.0. Moved from `Vnext.md`. Gate: adding an architecture is an edit
+in one place, and decode throughput through the handle is unchanged against the direct type.
 
-`Mila/Specifications/ToolBroker.md` sections 2-7
+`Mila/Specifications/ModelHandle.md` section 7 (Phase 3) · `Mila/Specifications/Direction.md` 3.2, 8
+
+#### Running a model from a program means naming its concrete C++ type
+
+`open` · `ai` · `api`
+
+The application-facing object does not exist: a program names `GemmaModel<Cuda, BF16>::load` or a sibling, and
+the tool loop, streaming and conversation state are its own to write. `Mila::AI`, the object an agent is, on
+`Direction.md` 4.2's rules: small; never decides a deployment; `plan()` and `model()` part of the contract; one
+virtual call per `respond`; a composed model first-class; named by its store name. Moved from `Vnext.md`. Gate:
+one program runs Gemma, Llama and Qwen by changing only the name, streaming and calling a tool, and a sample
+creates it over a network it composed itself.
+
+`Mila/Specifications/Direction.md` section 4
+
+#### The tool loop exists only inside Chat
+
+`open` · `ai` · `apps`
+
+Parse a call, run it, return the result, continue -- written once, in `Chat.Session.ixx`, so a developer's program
+that wants tools rewrites it. It moves into `Mila::AI` (`ToolCalling.md` section 4): limits per turn on rounds,
+time and reply budget; a stopped reply cancels a waiting or running call; a result larger than the context left
+is cut or refused and the model told which; the conversation is the agent's, its history and cache agreeing.
+Moved from `Vnext.md`. Gate: neither Chat's session nor the desktop app's holds a loop, and both run their calls
+through `Mila::AI`.
+
+`Mila/Apps/Chat/Src/Chat.Session.ixx` (`answerToolCall`)
+
+#### A tool result is re-rendered and re-tokenized with the whole conversation before generation continues
+
+`open` · `ai` · `models` · `mila-src`
+
+Decided in v0.20 and deferred (`MilaProductFamily.md` Decided 1): a tool result's tokens are appended to the live
+KV cache, with no re-render of the conversation and no re-tokenize. Today Gemma recovers the prefill through
+transparent prefix reuse (`GemmaModel.ixx:364`) but still renders and tokenizes everything; Qwen prefills from 0
+every turn (`QwenModel.ixx:355`). The grammar that frames a result as tokens is the model's; the loop that decides
+when to splice is `Mila::AI`'s, and reads from the handle which kind of prefix reuse a model offers. Moved from
+`Vnext.md`. Gate: across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
+measured, for every family that permits prefix reuse, Qwen from the position it saved.
+
+`Mila/Specifications/Direction.md` 5.3
+
+#### A program cannot run a model's tool calls under the person's rules without writing the rules itself
+
+`open` · `ai` · `api`
+
+`ToolCalling.md` sections 3.1 to 3.3: a tool with its schema and declared needs, registered as a C++ callable;
+in-process execution with the arguments checked against the schema first, a timeout, cancellation and a result
+cap, a failure returned to the model as an error result; and the gate every call passes -- allow, ask or deny with
+a grant, rules matching on arguments, the application's hook for asking, the question built from Mila's data and
+never the model's text, once / this conversation / deny, no hook meaning deny, a denial reaching the model as a
+result, and a record of each call as an event. The code built for the per-user broker (`Mila/Apps/Tools/Broker`,
+`Mila/AI/`) is material for it; what the refit does not use is deleted, with its tests. Gate: a test for each
+outcome, including a question whose model-written summary is not what the person is shown.
+
+`Mila/Specifications/ToolCalling.md` section 3
+
+#### Nothing keeps a tool inside the folder it was given, or off local addresses
+
+`open` · `ai` · `gate`
+
+`ToolCalling.md` section 3.4: the grant a tool opens files and makes connections through. On Windows one file has
+many names: `..`, links, junctions, mount points, short 8.3 names, case, alternate data streams, device names, the
+`\\?\` and `\\.\` forms, network paths. The grant compares the opened file's final path with the granted folder's,
+and refuses the non-path forms before opening; it refuses private, loopback, link-local and unspecified addresses
+on the address actually connected to, and on every redirect. Gate: a test per route and per address kind, by name,
+by literal address and through a redirect, each first shown reaching its target with the check removed. Gates
+every item below that runs a tool.
+
+`Mila/Specifications/ToolCalling.md` section 3.4
 
 #### A model has no tools to read or edit files or to read a web page
 
 `open` · `apps`
 
-The two workers of `ToolBroker.md` section 6.1: `files` (read, list, find, search, write, edit; the project area
-and its `.mila` folder, no network) and `web` (`fetch_url`; public addresses only, no files), with their default
-rules offered when the person registers the agent. Absent today: Chat's only tool is a `get_weather` stub
-(`Mila/Apps/Chat/Src/main.cpp:515`, and the same stub in `Mila/Apps/Desktop/Session/Src/main.cpp`).
+The desktop app's own tools, written through grants (Mila ships none): reading a file or a range of its lines,
+listing a folder, finding files by name, searching text, writing a file and editing one exact passage, in the
+folder the person chose and its `.mila` folder; and fetching a web page as readable text, size-capped, from public
+addresses. Reads allowed by default, writes and fetches asked. Absent today: Chat's only tool is a `get_weather`
+stub (`Mila/Apps/Chat/Src/main.cpp:515`, and the same stub in `Mila/Apps/Desktop/Session/Src/main.cpp`).
+
+`Mila/Specifications/ToolCalling.md` section 5
 
 #### The desktop app runs only against a mock
 
 `in progress` · `apps`
 
 `ChatDesktop.md` phases 3 and 4: the session process that speaks section 4 over stdio on a real model, then the
-window starting it in place of the mock, with tool calls through Mila.AI's client. Gate: a script driving the
-session process runs the equivalents of scenarios 1 to 8 and 11 on a real model; the window runs the theme's task
-on every published model that calls tools. The session process is built (`mila-desktop-session`) and its gate
-passes on Llama, Gemma and Qwen, with a real install and removal. The window starts it in place of the mock
-and runs scenarios 1 to 11 on Llama, Gemma and a real install; tool calls through Mila.AI's client and the
-theme's task remain.
+window starting it in place of the mock, with tool calls through `Mila::AI`. Gate: a script driving the session
+process runs the equivalents of scenarios 1 to 8 and 11 on a real model; the window runs the theme's task on
+every published model that calls tools. The session process is built (`mila-desktop-session`) and its gate passes
+on Llama, Gemma and Qwen, with a real install and removal. The window starts it in place of the mock and runs
+scenarios 1 to 11 on Llama, Gemma and a real install; tool calls through `Mila::AI` and the theme's task remain.
 
 `Mila/Specifications/ChatDesktop.md` sections 6.1, 8
 

@@ -34,7 +34,7 @@ is a statement about where the work is, not a tag that needs retiring.
 | `build` | CMake, presets, compilers, warnings, platform support. |
 | `ci` | Workflows, gates, runners, release mechanics. |
 | `docs` | Doxygen, README, specs, the website, model cards. |
-| `ai` | `Mila/AI/` — the model handle, `Mila::AI`, and the agent core. |
+| `ai` | `Mila::AI` — the model handle, the agent, and tool calling (`ToolCalling.md`). |
 | `apps` | `Mila/Apps/` — Chat, the inference server and `mila-store`. Was `adaptors` until 2026-10-11. |
 | `binding` | The Python projection. |
 | `perf` | Throughput, bandwidth, memory residency. |

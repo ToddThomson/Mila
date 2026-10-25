@@ -15,7 +15,7 @@ The roadmap shows the **release in flight**, plus a **Future** tail. A release i
 ## v0.21.0 — The Model Families, Finished and Measured
 
 **Release Date:** _Target — 2026-12-04_ (moved two weeks from 2026-11-20 on 2026-10-24, Todd, for the desktop
-agent harness)
+agent harness; it moves again rather than narrow that harness, 2026-10-25)
 
 **The release makes one claim: every model Mila publishes is finished, and you can see how good it
 is.** Gemma 4, Qwen 3.8 and Llama 3 each run every capability their checkpoints carry that the
@@ -43,13 +43,15 @@ request, `Mila::AI`, and Chat, the inference server and the binding rebuilt on i
 It was this release until 2026-10-10, when it was split out (Todd): the family work had run ahead of the
 API, and a release of finished, measured models need not wait for it. The applications therefore move
 once, in v0.22.0, as that plan intended; what they gain here is what survives that move — a published
-server, correct replies, and defaults read from the model. The one exception is *The Desktop Agent* (below,
-2026-10-24): the desktop app becomes an agent harness here, on a client that already lives where v0.22.0 needs it.
+server, correct replies, and defaults read from the model. The one exception is *The Desktop Agent* (below):
+the desktop app becomes an agent harness here, built from the library, so the part of section 5 that tool calling
+stands on -- the model handle, and `Mila::AI` with its tool loop -- comes forward with it (Todd, 2026-10-25).
 
-**The date is fixed and the scope drains.** What has not landed by 2026-12-04 returns to
-[`Vnext.md`](Mila/Issues/Vnext.md) and the release ships with what it has, its claim stated as
+**The date is fixed and the scope drains, except for *The Desktop Agent*.** What has not landed by 2026-12-04
+returns to [`Vnext.md`](Mila/Issues/Vnext.md) and the release ships with what it has, its claim stated as
 narrowed. **The 26B-A4B's vision tower is tentative and drains first**; the 12B's image and audio are
-committed.
+committed. *The Desktop Agent* neither drains nor narrows: its code is not compromised to hold the date, and if
+it is not done the date moves (Todd, 2026-10-25).
 
 Pre-1.0 still holds: breaking changes to the API are acceptable. **A model a user installed is not one
 of them.** From this release on, upgrading Mila by one minor never stops an installed model loading,
@@ -222,30 +224,41 @@ user from install to a running model.
 
 ### The Desktop Agent
 
-*The models this release finishes call tools, and the desktop app lets you put them to work on your own files and
-the web, each call under your rules and kept to the folder you choose.*
+*The models this release finishes call tools, and the desktop app, Mila, lets you put them to work on your own
+files and the web, each call under your rules and kept to the folder you choose -- built from the library alone,
+so a developer's program can do the same.*
 
 Family parity gave this release models that call tools: Gemma 4 and Qwen 3.8 are driven through tool calls today,
 and Llama never has been, which this theme closes. The only harnesses that exercise them are other people's, over
-the inference server, and Mila's own Chat runs one stub tool without asking. The desktop app's window was built in October against a mock; this theme puts it on a real model and
-makes it an agent harness: the model reads and edits files in a folder the person chooses and reads web pages, and
-every call goes through one local service that holds the person's rules, asks them when the rule says ask, and runs
-the tool in a process of its own, kept to that folder (`ToolBroker.md`). Added 2026-10-24 (Todd), with the release
-moved two weeks for it.
+the inference server, and Mila's own Chat runs one stub tool. The desktop app's window was built in October against
+a mock; this theme puts it on a real model and makes it an agent harness: the model reads and edits files in a
+folder the person chooses and reads web pages, and every call is allowed, asked or refused by the person's rules.
 
-The first tools are reading, finding, searching, writing and editing files, and reading a web page, all Mila's own
-code, so the service's own checks keep them to the folder and the web tool to public addresses; an operating-system
-sandbox is for code Mila does not control, and comes in a later release with the shell and other people's tool
-servers, which wait for it (Todd, 2026-10-24). Search comes after too. It is Windows first: on any other platform the
-app runs without tools until the checks are tested there. Mila.AI, the library `Direction.md` plans for v0.22.0, starts here with the service's
-client as its only content, so nothing built for this theme moves again in the rebuild. The app's name is held.
+**The library provides everything an application like this needs** (`ToolCalling.md`, decided 2026-10-25 with
+Todd, replacing the per-user tool broker of 2026-10-24). So the agent is built in `Mila::AI`, the level of the Mila
+library above the model, and the app adds only its window, its rules' storage and its tools. That brings forward
+from v0.22.0 what tool calling stands on: the model's tool grammar on the model handle, the handle and factory that
+let one loop drive every family, and `Mila::AI` itself, whose tool loop appends each result's tokens to the live
+cache instead of reading the conversation again. On it: tools that declare what they touch, permissions every call
+passes, with the app's hook for asking the person, and a grant through which a tool opens files and makes
+connections, which holds it to the folder and to public addresses. Mila ships no tools: the desktop app's file and
+web tools are its own code, the first written through grants. Tools in processes of their own, MCP and an
+operating-system sandbox come later, with the shell and other people's tool servers that need them. The grant's
+checks are Windows first: on any other platform the app runs without tools until they are tested there.
 
 **Success criteria:** on Windows, the desktop app runs every model this release publishes that calls tools through a
 task that reads files in the chosen folder, edits one, and reads a web page, each call allowed or asked by the
 person's rules and shown in the conversation; a denied call reaches the model as declined and the reply continues;
-a tool cannot read or write outside the chosen folder by any name that leads there, and the web tool reaches no
-private or local address, shown by tests that each reach their target with the check removed first; the console Chat asks before a tool runs, as the window does;
-and a developer's program reaches the same tools through Mila.AI's client.
+a tool working through its grant cannot read or write outside the chosen folder by any name that leads there, and
+reaches no private or local address by name, by literal address or through a redirect, shown by tests that each
+reach their target with the check removed first; the desktop app and Chat run every tool call through `Mila::AI`,
+and neither runs a call itself nor holds a model's tool grammar; the console Chat asks before a tool runs, as the
+window does; a program built against the library alone registers a tool and runs it under `Mila::AI`'s permissions
+on Gemma, Llama and Qwen by changing only the model's name, `plan()` and `model()` reaching the objects that ran, and
+a sample does the same over a network it composed from components; no dispatch site in `Mila::AI` carries a
+per-family branch; and across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
+measured, for every family that permits prefix reuse, Qwen from the position it saved at the end of the previous
+turn.
 
 ### Upgrades Keep Your Models
 
@@ -308,7 +321,9 @@ context would move twice with them. Together, each moves once.
    behaviour.
 2. **The planner and the handle.** The build executes the prefill chunk it is given, `planDeployment`
    decides on one device, and the handle's factory takes a deployment request rather than a device.
-3. **`Mila::AI`.** The object, and the in-process tool loop beneath it with the token-level splice.
+3. **`Mila::AI`.** The object, and the in-process tool loop beneath it with the token-level splice. The
+   handle, the object and the loop are built in v0.21.0 under *The Desktop Agent* (Todd, 2026-10-25); what
+   stays here is what this release adds to them.
 4. **The applications.** Chat, the inference server and the binding rebuilt on `Mila::AI`, the
    QuickStarts rewritten, and the public message moved.
 
@@ -332,8 +347,10 @@ weights, and it stays with the application.
 
 The factory then reads the record. A family enum remains, because a model still resolves to a
 concrete compile-time type and that is the point of Mila; what goes is every *second* place that
-re-derives a model's behaviour from which family it belongs to. The handle lives in the new
-`Mila/AI/` library, a peer of `Mila/Src` that depends on it and is never imported by it. Its factory
+re-derives a model's behaviour from which family it belongs to. The handle lives in `Mila::AI`, the
+level of the Mila library above the model, which never imports it. It and its factory are built in v0.21.0,
+under *The Desktop Agent*, since tool calling stands on them; this theme's criteria are met there, except where
+the server and the binding move onto the handle, which is Applications below. Its factory
 takes a deployment request, so the planner is its entry point from the first commit rather than a
 signature change one release later. A network a developer composed from components meets the handle
 through a C++ concept — checked at compile time, with no registration — so a published model and a
@@ -392,14 +409,16 @@ feature allocates nothing.
 *The object a program creates to put a model to work, and the in-process tool loop beneath it.*
 
 `Mila::AI` is a contract, not a catalogue: create, respond whole or streamed, tools, the conversation
-it holds, `plan()` and `model()`. It lives in `Mila/AI/` beside the handle, as its own library target
-that the wheel and a `FetchContent` consumer both receive. It never decides a deployment — creation
+it holds, `plan()` and `model()`. It lives in the Mila library beside the handle, above the model level,
+and the wheel and a `FetchContent` consumer both receive it. The object and its tool loop are built in v0.21.0,
+under *The Desktop Agent* (`ToolCalling.md`); this theme adds compaction and use cases to them. It never decides
+a deployment — creation
 calls the planner and keeps the plan — and descent is part of the contract rather than a debugging
 aid: from `model()` a developer reaches the typed model, and from there every component, operation
 and named activation v0.20 already exposes.
 
 Beneath it is the tool loop, which exists today only inside Chat: parse a call, dispatch it, return
-the result, continue. It moves into `Mila/AI/` so that no application holds a private copy, and it
+the result, continue. It moves into `Mila::AI` so that no application holds a private copy, and it
 gains the depth decided in v0.20 and deferred: a tool result's tokens are appended to the live cache,
 with no re-render of the conversation and no re-tokenize. Tools are registered as compiled-in
 functions. Qwen cannot rewind its recurrent state to an arbitrary position, but it can return to a
@@ -430,12 +449,8 @@ and the plan it produced is as readable as any other.
 The autonomy policy is not in this release. Chat keeps its human approval gate as an application
 concern.
 
-**Success criteria:** one ten-line program runs Gemma, Llama and Qwen by changing only the name,
-streaming and calling a tool; `plan()` and `model()` reach the objects that actually ran; a sample
-creates an `AI` over a network it composed from components itself; and across a multi-turn tool
-session, prefill tokens per turn equal the tokens the turn added, measured, for every family that
-permits prefix reuse, Qwen from the position it saved at the end of the previous turn; and a tool session run past
-its model's measured reliable depth continues after compaction with its system instructions still
+**Success criteria:** those of the object, the loop and the splice are *The Desktop Agent*'s in v0.21.0; this
+release's are that a tool session run past its model's measured reliable depth continues after compaction with its system instructions still
 obeyed, measured by the instruction-retention arm; the reliable depth compaction uses is the one each model's context profile
 reports; and an `AI`
 created for a named use case runs with exactly that use case's features resident, its plan showing

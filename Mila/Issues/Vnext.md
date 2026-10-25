@@ -1004,26 +1004,6 @@ which takes a left-hand operand of type 'nullptr'`; the Release CUDA builds comp
 build of the same directory passes. Not isolated: whether Debug or CUDA-off is the variable, and whether it is the
 module/header interaction of GitHub #30, whose fix BACKLOG.md carries. Found 2026-09-29.
 
-## Three places turn a model's name into the type that loads it, each its own way
-
-`ai` · `architecture` · `api`
-
-The architecture-to-concrete erasure exists three times in two languages — Chat's `ModelVariant`
-(`Chat.Session.ixx`, ten `std::visit` sites), the binding's per-family session classes, and the
-inference server's `ModelFamily` enum (`model_worker.py:38`). The bridge from a store name to a family, a
-weight format and capabilities is the library's since `0.21.0-dev+61` (`InstalledModel`, `Deployment.md` 8.1);
-what remains is the erasure itself, which every app still switches on `InstalledModel::family()` to do.
-
-One handle and one factory in the new `Mila/AI/` library (`Direction.md` §3.2, §8 decision 2). The
-architecture's *identity* — the set of names and the concrete type each resolves to — is the
-library's and lives in `Mila/Src` beside the manifest reader; the handle is its one consumer. The
-factory takes a deployment request rather than a device, so it is built on the planner from the
-start. A network composed from components meets the handle through a C++ concept, with no
-registration (§8 decision 7).
-
-Gate: adding an architecture is an edit in one place, and decode throughput through the handle is
-unchanged against the direct type.
-
 ## A model loads with every feature its loader supports, and the caller cannot choose which
 
 `models` · `api` · `mila-src` · `breaking`
@@ -1048,61 +1028,33 @@ Gemma 4's drafter is not part of this: v0.21.0 ships it in each package, on by d
 
 `ROADMAP.md`, Future, v0.22.0 Deployment Planning · `Mila/Specifications/Deployment.md`
 
-## Running a model from a program means naming its concrete C++ type
+## A tool runs as the user, so no tool Mila does not control can be offered
+
+`ai`
+
+In v0.21.0 a tool runs in the application's process, held only by the grant it works through (`ToolCalling.md`
+3.4). A shell, other people's MCP servers and tools an agent writes need a sandbox that enforces a grant whole,
+under the same containment interface, and wait for one. Microsoft eXecution Container (MXC) was the first
+candidate (Todd, 2026-10-24: "quite promising for Windows, and a macOS, Linux equivalent") and is kept out of Mila
+for now (Todd, 2026-10-25). Its SDKs are Rust, .NET and Node, with no C or C++.
+
+Before any sandbox is adopted: the four escape tests (a child started through WMI, the network with nothing
+granted, a file outside the granted folder, a child process), each first shown to pass unsandboxed.
+
+`Mila/Specifications/ToolCalling.md` section 6; `Notebooks/LocalToolService.md` sections 10.1 to 10.4
+
+## A program cannot reach a tool in a process of its own, or offer its tools to other agents
 
 `ai` · `api`
 
-Today the entry point is `GemmaModel<Cuda, BF16>::load` or its siblings, so a program that wants to
-change models changes types, and the tool loop, streaming and conversation state are the program's
-to write. The finding is an absence: the application-facing object does not exist.
+`Mila::AI` starts with in-process tools only (Todd, 2026-10-25). An MCP client would add local servers started as
+processes over stdio and remote servers over HTTP, their tools joining the same registry so the loop and the
+permissions treat them alike; everything a server says is untrusted, and a changed tool list withdraws its
+approvals. An MCP server would let an application offer its tools to other agents. Remote servers' sign-in
+tokens must be held where neither the model nor the agent's text reaches them. The approval round trip MCP
+specifies is the one `ToolBroker.md` section 5 built.
 
-`Mila::AI` in module `Mila.AI` (`Direction.md` §4, §8 decision 1), a `Mila/AI/` library target that
-the wheel and a `FetchContent` consumer both receive. The contract is `Direction.md` §4.2's seven
-rules: small; never decides a deployment; descent through `plan()` and `model()` is part of the
-contract; one virtual call per `respond`; other languages project it; a composed model is
-first-class; a model is named by its store name. Gate: the ten-line program runs Gemma, Llama and
-Qwen by changing only the name, and a sample creates an `AI` over a network it composed itself.
-
-## The tool loop exists only inside Chat
-
-`ai` · `apps`
-
-Parse a call, dispatch it, return the result, continue — written once, informally, in `Chat.Session.ixx`,
-so a developer's program that wants tools rewrites it. It moves into `Mila/AI/` as the agent core
-(`MilaProductFamily.md`, Native Agent Core), and Chat keeps only its human approval gate. Tools are
-compiled-in functions registered on the `AI`, a callable plus a schema (`Direction.md` §8 decision
-6). The autonomy policy is not part of this.
-
-## A tool result is re-rendered and re-tokenized with the whole conversation before generation continues
-
-`ai` · `models` · `mila-src`
-
-Decided in v0.20 and deferred (`MilaProductFamily.md` Decided 1): a tool result's tokens are appended
-to the live KV cache, with no re-render of the conversation and no re-tokenize. Today Gemma recovers
-the prefill through transparent prefix reuse (`GemmaModel.ixx:364`) but still renders and tokenizes
-everything; Qwen prefills from 0 every turn (`QwenModel.ixx:355`). The grammar that frames a tool
-result as tokens is model-intrinsic and belongs in `Mila/Src`; the loop that decides when to splice is
-the agent core's.
-
-Gate: across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
-measured, for every family that permits prefix reuse.
-
-## A tool runs as the user, so no tool Mila does not control can be offered
-
-`apps` · `ai`
-
-v0.21.0 runs only Mila's own tools, limited by the tool broker's path and address checks and by no operating-system
-sandbox (Todd, 2026-10-24). A shell, other people's MCP servers and tools an agent writes wait for one. First
-candidate: Microsoft eXecution Container (MXC, MIT, v1.0.0 on 2026-10-07), one policy launched through Microsoft's
-process container on Windows, Seatbelt on macOS and bubblewrap on Linux -- "quite promising for Windows, and a
-macOS, Linux equivalent" (Todd). Its SDKs are Rust, .NET and Node, with no C or C++.
-
-Before it is adopted: the four escape tests (a child started through WMI, the network with nothing granted, a file
-outside the granted folder, a child process), each first shown to pass unsandboxed; the web tool's connection moved
-into the broker so the worker has no network; and what MXC falls back to on a Windows build below its support table
-(an AppContainer with ACL entries on the folder, by an independent reading).
-
-`Mila/Specifications/ToolBroker.md` section 6.3; `Notebooks/LocalToolService.md` sections 10.1 to 10.4
+`Mila/Specifications/ToolCalling.md` section 6
 
 ## A conversation that fills its context stops, and nothing carries it forward
 
@@ -1111,13 +1063,14 @@ into the broker so the worker has no network; and what MXC falls back to on a Wi
 Chat ends a reply at the context limit ("finish: context_limit") and nothing shortens the history, so a
 long tool session cannot continue. Admitted 2026-10-03 with a `Mila::AI` success
 criterion added the same day (Todd): scope grown by decision, not found in passing. Two levels, both
-mechanism in `Mila/AI/`: reasoning from earlier turns dropped at turn boundaries -- kept within a turn,
+mechanism in `Mila::AI`: reasoning from earlier turns dropped at turn boundaries -- kept within a turn,
 which is the opposite of the failure in "Gemma loses its own reasoning between tool calls in a turn" --
 and text compaction, the history summarized into a fresh context with instructions kept verbatim,
 reusing the system prompt's cached prefix. It triggers at the configuration's reliable depth, which
 ContextProfile measures, so it needs that tool's first profiles; Qwen resumes from the position it
 saved at the end of each prompt (`savePosition`, `+33`). Compaction in the cache itself (deleting spans in place) is research, outside
-this item (`.internal/Ideas/AgentStreams.md`).
+this item (`.internal/Ideas/AgentStreams.md`). The loop it extends is built in v0.21.0 (`BACKLOG.md`, *The
+Desktop Agent*).
 
 `ROADMAP.md`, Future, v0.22.0 Mila::AI · `Mila/Specifications/ContextProfile.md`
 
@@ -1165,7 +1118,8 @@ read is refused naming why.
 Rebuilt as consumers of `Mila::AI`, reaching anything beneath it only through `model()`: Chat keeps
 terminal rendering and the approval gate, the server keeps the wire shapes and per-request
 statelessness. The move to `Mila/Apps/` is not part of this: it is v0.21.0 work (`BACKLOG.md`,
-Internal fixes). Gate: neither contains model-specific code, and the Codex CLI and Claude Code CLI tool
+Internal fixes). Nor is Chat's tool calling, which moves onto `Mila::AI` in v0.21.0 (`BACKLOG.md`, *The Desktop
+Agent*). Gate: neither contains model-specific code, and the Codex CLI and Claude Code CLI tool
 flows still pass unchanged.
 
 `routes/chat.py` and `routes/completions.py` are not moved:
