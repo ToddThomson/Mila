@@ -59,22 +59,42 @@ namespace Mila::Dnn::Gemma
             return std::string( templateTrim( result ) );
         }
 
-        /// A channel body without the label line the model opens it with ("thought\n").
-        inline std::string_view channelBody( std::string_view body )
+        inline std::optional<Conversation::ToolCall> readToolCall( std::string_view span )
         {
-            const auto newline = body.find( '\n' );
-
-            if ( newline != std::string_view::npos )
+            try
             {
-                const auto label = body.substr( 0, newline );
-
-                if ( std::ranges::find( kChannelLabels, label ) != std::end( kChannelLabels ) )
-                {
-                    return body.substr( newline + 1 );
-                }
+                return parseToolCall( span );
             }
+            catch ( const std::exception& )
+            {
+                return std::nullopt;
+            }
+        }
 
-            return body;
+        /**
+         * A channel opens with its label line ("thought\n"); a result the model writes is the engine's; and
+         * control tokens, the registered ones no list holds included, are never answer text.
+         */
+        inline Conversation::ReplyGrammar replyGrammar()
+        {
+            Conversation::ReplyGrammar grammar;
+
+            grammar.reasoning_open = kChannelOpen;
+            grammar.reasoning_close = kChannelClose;
+            grammar.reasoning_labels.assign( std::begin( kChannelLabels ), std::end( kChannelLabels ) );
+            grammar.tool_call_open = kToolCallOpen;
+            grammar.tool_call_close = kToolCallClose;
+            grammar.tool_response_open = kToolResponseOpen;
+            grammar.tool_response_close = kToolResponseClose;
+            grammar.hidden = {
+                std::string( kBos ), std::string( kEos ), std::string( kPad ), std::string( kTurnOpen ),
+                std::string( kTurnClose ), std::string( kChannelClose ), std::string( kThink ), std::string( kToolOpen ),
+                std::string( kToolClose ), std::string( kToolCallClose ), std::string( kToolResponseClose ),
+                std::string( kStringDelimiter ), "<end_of_turn>", "<start_of_turn>" };
+            grammar.hides_pipe_tokens = true;
+            grammar.read_tool_call = &readToolCall;
+
+            return grammar;
         }
     }
 
@@ -96,7 +116,8 @@ namespace Mila::Dnn::Gemma
             markers_{
                 std::string( kChannelOpen ), std::string( kChannelClose ),
                 std::string( kToolCallOpen ), std::string( kToolCallClose ), std::string( kToolResponseOpen ),
-                { std::string( kToolResponseOpen ) } }
+                { std::string( kToolResponseOpen ) } },
+            grammar_( detail::replyGrammar() )
         {
         }
 
@@ -260,74 +281,9 @@ namespace Mila::Dnn::Gemma
             return { std::move( prompt ), begins_in_reasoning };
         }
 
-        Conversation::Reply parseReply( std::string_view text, const Conversation::Prompt& prompt ) const override
+        const Conversation::ReplyGrammar& replyGrammar() const noexcept override
         {
-            Conversation::Reply reply;
-            std::string_view rest = text;
-
-            if ( prompt.reply_begins_in_reasoning )
-            {
-                const auto close = rest.find( kChannelClose );
-
-                appendReasoning( reply, rest.substr( 0, close ) );
-                rest = close == std::string_view::npos ? std::string_view{} : rest.substr( close + kChannelClose.size() );
-            }
-
-            std::string content;
-
-            while ( !rest.empty() )
-            {
-                const auto channel = rest.find( kChannelOpen );
-                const auto call = rest.find( kToolCallOpen );
-                const auto response = rest.find( kToolResponseOpen );
-                const auto next = std::min( { channel, call, response } );
-
-                if ( next == std::string_view::npos )
-                {
-                    content += rest;
-                    break;
-                }
-
-                content += rest.substr( 0, next );
-                rest.remove_prefix( next );
-
-                if ( next == channel )
-                {
-                    const auto close = rest.find( kChannelClose );
-
-                    appendReasoning( reply, detail::channelBody(
-                        rest.substr( kChannelOpen.size(), close == std::string_view::npos ? std::string_view::npos : close - kChannelOpen.size() ) ) );
-                    rest = close == std::string_view::npos ? std::string_view{} : rest.substr( close + kChannelClose.size() );
-                } else if ( next == call ) {
-                    const auto close = rest.find( kToolCallClose );
-
-                    if ( close == std::string_view::npos )
-                    {
-                        reply.malformed_tool_calls.emplace_back( rest );
-                        break;
-                    }
-
-                    const auto span = rest.substr( 0, close + kToolCallClose.size() );
-                    const auto parsed = parseToolCall( span );
-
-                    if ( parsed.has_value() )
-                    {
-                        reply.tool_calls.push_back( *parsed );
-                    } else {
-                        reply.malformed_tool_calls.emplace_back( span );
-                    }
-
-                    rest.remove_prefix( span.size() );
-                } else {
-                    // A result is the engine's to write: one the model wrote is not part of its answer.
-                    const auto close = rest.find( kToolResponseClose );
-                    rest = close == std::string_view::npos ? std::string_view{} : rest.substr( close + kToolResponseClose.size() );
-                }
-            }
-
-            reply.content = detail::templateTrim( stripControlTokens( content ) );
-
-            return reply;
+            return grammar_;
         }
 
         std::string formatToolResult( std::string_view name, std::string_view result ) const override
@@ -354,23 +310,11 @@ namespace Mila::Dnn::Gemma
 
         std::vector<Conversation::TemplateVariable> variables_;
         Conversation::ProtocolMarkers markers_;
+        Conversation::ReplyGrammar grammar_;
 
         std::string_view variable( const Conversation::PromptOptions& options, std::string_view name ) const
         {
             return Conversation::resolveTemplateVariable( variables_, options.template_variables, name );
-        }
-
-        static void appendReasoning( Conversation::Reply& reply, std::string_view body )
-        {
-            const auto text = detail::templateTrim( body );
-
-            if ( text.empty() )
-            {
-                return;
-            }
-
-            reply.reasoning += reply.reasoning.empty() ? "" : "\n";
-            reply.reasoning += text;
         }
 
         /// The template requires arguments to be a mapping; it renders keys sorted (dictsort).

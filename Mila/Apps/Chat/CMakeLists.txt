@@ -14,9 +14,7 @@ PUBLIC
         "Src/Chat.RoundStats.ixx"
         "Src/Chat.ThinkingEffort.ixx"
         "Src/Chat.ContextFloor.ixx"
-        "Src/Chat.StreamingChannelRouter.ixx"
-        "Src/Chat.StreamingDetokenizer.ixx"
-        "Src/Chat.GemmaStreamTokens.ixx"
+        "Src/Chat.ParsedResponse.ixx"
         "Src/Chat.Ansi.ixx"
 	    "Src/Chat.Config.ixx"
         "Src/Chat.ModelType.ixx"
@@ -39,10 +37,7 @@ PUBLIC
         "Src/Chat.ConfigError.ixx"
         "Src/Chat.ModelNotFound.ixx"
         "Src/Chat.Message.ixx"
-        "Src/Chat.MessageFormatter.ixx"
         "Src/Chat.SystemPrompt.ixx"
-        "Src/Chat.ToolCallParser.ixx"
-        "Src/Chat.ChannelParser.ixx"
         "Src/Json.ixx"
 )
 

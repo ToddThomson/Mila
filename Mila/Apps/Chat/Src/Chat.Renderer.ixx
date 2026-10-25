@@ -348,8 +348,8 @@ namespace Mila::ChatApp
         /**
          * @brief Reasoning piece boundary between channel cycles.
          *
-         * Mirrors ChannelParser's piece join: one blank line between non-empty
-         * pieces, leading whitespace of the new piece dropped.
+         * Mirrors the session's join of a turn's reasoning: one blank line between
+         * non-empty pieces, leading whitespace of the new piece dropped.
          */
         void streamThinkingBreak()
         {

@@ -165,50 +165,9 @@ namespace Mila::Dnn::Llama
             return { std::move( prompt ), false };
         }
 
-        /**
-         * A reply that is a JSON object naming a function, optionally after `<|python_tag|>`, is a
-         * call; one that opens a JSON object and does not read as a call is malformed; anything else
-         * is content. Arguments are read from "parameters", the key the template asks for, or from
-         * "arguments", which the model also writes.
-         */
-        Conversation::Reply parseReply( std::string_view text, const Conversation::Prompt& ) const override
+        const Conversation::ReplyGrammar& replyGrammar() const noexcept override
         {
-            Conversation::Reply reply;
-            std::string_view rest = text;
-
-            for ( const auto terminator : { detail::kEndOfTurn, detail::kEndOfMessage } )
-            {
-                const auto end = rest.find( terminator );
-
-                if ( end != std::string_view::npos )
-                {
-                    rest = rest.substr( 0, end );
-                }
-            }
-
-            std::string_view call = detail::trim( rest );
-            const auto tag = rest.find( detail::kPythonTag );
-
-            if ( tag != std::string_view::npos )
-            {
-                reply.content = detail::trim( rest.substr( 0, tag ) );
-                call = detail::trim( rest.substr( tag + detail::kPythonTag.size() ) );
-            } else if ( !call.starts_with( '{' ) ) {
-                reply.content = call;
-
-                return reply;
-            }
-
-            const auto parsed = parseCall( call );
-
-            if ( parsed.has_value() )
-            {
-                reply.tool_calls.push_back( *parsed );
-            } else {
-                reply.malformed_tool_calls.emplace_back( call );
-            }
-
-            return reply;
+            return grammar_;
         }
 
         /// A result as the template writes the body of its ipython turn: through tojson, so text is JSON-quoted.
@@ -236,13 +195,52 @@ namespace Mila::Dnn::Llama
 
         std::vector<Conversation::TemplateVariable> variables_;
         Conversation::ProtocolMarkers markers_;
+        Conversation::ReplyGrammar grammar_;
 
         explicit LlamaChatProtocol( std::string default_date )
             : variables_{
                 { "tools_in_user_message", { "true", "false" }, "true" },
                 { "date_string", {}, std::move( default_date ) } },
-            markers_{ {}, {}, std::string( detail::kPythonTag ), {}, {}, {} }
+            markers_{ {}, {}, std::string( detail::kPythonTag ), {}, {}, {} },
+            grammar_( templateReplyGrammar() )
         {
+        }
+
+        /**
+         * A reply that is a JSON object, or what follows `<|python_tag|>`, is a call, and it runs to the end of
+         * the reply; anything else is content. A turn makes at most one call.
+         */
+        static Conversation::ReplyGrammar templateReplyGrammar()
+        {
+            Conversation::ReplyGrammar grammar;
+
+            grammar.tool_call_open = detail::kPythonTag;
+            grammar.bare_tool_call_open = "{";
+            grammar.reply_end = { std::string( detail::kEndOfTurn ), std::string( detail::kEndOfMessage ) };
+            grammar.read_tool_call = &readToolCall;
+
+            return grammar;
+        }
+
+        /**
+         * Arguments are read from "parameters", the key the template asks for, or from "arguments", which the
+         * model also writes.
+         */
+        static std::optional<Conversation::ToolCall> readToolCall( std::string_view span )
+        {
+            if ( span.starts_with( detail::kPythonTag ) )
+            {
+                span.remove_prefix( detail::kPythonTag.size() );
+            }
+
+            try
+            {
+                return parseCall( detail::trim( span ) );
+            }
+            catch ( const std::exception& )
+            {
+                return std::nullopt;
+            }
         }
 
         std::string_view variable( const Conversation::PromptOptions& options, std::string_view name ) const

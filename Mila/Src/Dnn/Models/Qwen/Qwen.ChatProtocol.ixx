@@ -45,6 +45,34 @@ namespace Mila::Dnn::Qwen
             "BEFORE the function call, but NOT after\n- If there is no function call available, answer the "
             "question like normal with your current knowledge and do not tell the user about function "
             "calls\n</IMPORTANT>";
+
+        inline std::optional<Conversation::ToolCall> readToolCall( std::string_view span )
+        {
+            try
+            {
+                return parseToolCall( std::string( span ) );
+            }
+            catch ( const std::exception& )
+            {
+                return std::nullopt;
+            }
+        }
+
+        /// A result the model writes is the engine's, so it is not part of the reply.
+        inline Conversation::ReplyGrammar replyGrammar()
+        {
+            Conversation::ReplyGrammar grammar;
+
+            grammar.reasoning_open = kThinkOpen;
+            grammar.reasoning_close = kThinkClose;
+            grammar.tool_call_open = kToolCallOpen;
+            grammar.tool_call_close = kToolCallClose;
+            grammar.tool_response_open = kToolResponseOpen;
+            grammar.tool_response_close = kToolResponseClose;
+            grammar.read_tool_call = &readToolCall;
+
+            return grammar;
+        }
     }
 
     /**
@@ -65,7 +93,8 @@ namespace Mila::Dnn::Qwen
             markers_{
                 std::string( kThinkOpen ), std::string( kThinkClose ),
                 std::string( kToolCallOpen ), std::string( kToolCallClose ), std::string( kToolResponseOpen ),
-                { std::string( kToolResponseOpen ) } }
+                { std::string( kToolResponseOpen ) } },
+            grammar_( detail::replyGrammar() )
         {
         }
 
@@ -208,70 +237,9 @@ namespace Mila::Dnn::Qwen
             return { std::move( prompt ), thinking };
         }
 
-        Conversation::Reply parseReply( std::string_view text, const Conversation::Prompt& prompt ) const override
+        const Conversation::ReplyGrammar& replyGrammar() const noexcept override
         {
-            Conversation::Reply reply;
-            std::string_view rest = text;
-
-            const auto close = rest.find( kThinkClose );
-
-            if ( close != std::string_view::npos )
-            {
-                auto reasoning = rest.substr( 0, close );
-                const auto open = reasoning.find( kThinkOpen );
-
-                if ( open != std::string_view::npos )
-                {
-                    reasoning.remove_prefix( open + kThinkOpen.size() );
-                }
-
-                reply.reasoning = detail::trim( reasoning );
-                rest.remove_prefix( close + kThinkClose.size() );
-            } else if ( prompt.reply_begins_in_reasoning ) {
-                // Generation stopped before the channel closed: all of it is reasoning.
-                reply.reasoning = detail::trim( rest );
-                rest = {};
-            }
-
-            std::string content;
-
-            while ( !rest.empty() )
-            {
-                const auto open = rest.find( kToolCallOpen );
-
-                if ( open == std::string_view::npos )
-                {
-                    content += rest;
-                    break;
-                }
-
-                content += rest.substr( 0, open );
-
-                const auto end = rest.find( kToolCallClose, open );
-
-                if ( end == std::string_view::npos )
-                {
-                    reply.malformed_tool_calls.emplace_back( rest.substr( open ) );
-                    break;
-                }
-
-                const auto span = rest.substr( open, end + kToolCallClose.size() - open );
-
-                try
-                {
-                    reply.tool_calls.push_back( *parseToolCall( std::string( span ) ) );
-                }
-                catch ( const std::runtime_error& )
-                {
-                    reply.malformed_tool_calls.emplace_back( span );
-                }
-
-                rest.remove_prefix( open + span.size() );
-            }
-
-            reply.content = detail::trim( content );
-
-            return reply;
+            return grammar_;
         }
 
         std::string formatToolResult( std::string_view, std::string_view result ) const override
@@ -299,6 +267,7 @@ namespace Mila::Dnn::Qwen
 
         std::vector<Conversation::TemplateVariable> variables_;
         Conversation::ProtocolMarkers markers_;
+        Conversation::ReplyGrammar grammar_;
 
         std::string_view variable( const Conversation::PromptOptions& options, std::string_view name ) const
         {

@@ -11,7 +11,7 @@ module;
 export module Chat.ConsoleFrontEnd;
 
 import std;
-import Chat.ChannelParser;
+import Chat.ParsedResponse;
 import Chat.Footprint;
 import Chat.ModelCatalog;
 import Chat.Renderer;

@@ -90,7 +90,7 @@ Survey of `0.21.0-dev+7`. **Y** has it, **--** missing, **n/a** ruled out by the
 
 | Capability | Llama | Gemma | Qwen | Anchor |
 |---|---|---|---|---|
-| Chat template and tool grammar in `Mila/Src` | -- | Y | Y | Llama's is in Chat (`Chat.MessageFormatter.ixx`, `Chat.ToolCallParser.ixx`) and MIS (`prompt.py`), and the two declare tools differently (`ModelHandle.md` 1.1) |
+| Chat template and tool grammar in `Mila/Src` | Y | Y | Y | `LlamaChatProtocol` since `+68`; Chat reads every family's replies through `Conversation::ReplyReader` and its own copies are deleted since `+94` (`ModelHandle.md` 3.4) |
 | One renderer per family | -- | -- | Y | Gemma: Chat renders its own (`Chat.ixx:1359`) beside `Gemma::formatPrompt` |
 | Grammar projected to Python | -- | Y | Y | `gemma_*` and `qwen_*` in `Mila_py.cpp`; no `llama_*` |
 | Reasoning channel | n/a | Y | Y | |
@@ -153,7 +153,7 @@ each row is in scope unless it cannot fit 16 GB; the last column says whether th
 | Qwen 3.8 27B | 262144-token context, 1M by YaRN | the planner allows 262144; quality measured to 16K on wikitext, and the 2.82-bit build's context profile to 74752 | only with KV-cache compression, and not at FP4 | `Vnext.md`, "Qwen's wikitext perplexity gate has only been run to 16K"; BACKLOG KV compression entry; `ContextProfile.md` section 8 |
 | Qwen 3.8 | Smaller dense members | -- | yes | BACKLOG, "The smaller dense Qwen members were never built" |
 | Llama 3.1 / 3.2 | 128K context by Llama 3 RoPE scaling | Y since 8.4 L2; quality past 10240 unmeasured (L3) | 8B: only with KV compression | 8.4 |
-| Llama 3.1 | Built-in tools (the `ipython` role, `<|python_tag|>` ... `<|eom_id|>`) | custom JSON tools only (`Chat.MessageFormatter.ixx:143`) | yes | nowhere |
+| Llama 3.1 | Built-in tools (the `ipython` role, `<|python_tag|>` ... `<|eom_id|>`) | custom JSON tools only (`Llama.ChatProtocol.ixx`, which refuses them) | yes | nowhere |
 
 "Nowhere" is a finding: a capability the base model has that no Mila record names.
 

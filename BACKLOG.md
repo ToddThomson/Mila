@@ -241,44 +241,7 @@ installs and runs it at 64K on the 16 GB card.
 
 `ROADMAP.md`, Qwen 3.8 Complete success criteria · `Mila/Specifications/Qwen3.8.md` section 5
 
-#### Qwen answers in one block after a long silence
-
-`open` · `qwen` · `apps`
-
-`FamilyTraits::streaming_capable` is false for Qwen (`Chat.FamilyTraits.ixx`), because the harness
-routes tokens by Gemma's four control-token ids and nothing else has them. Qwen has one marker pair,
-`<think>`/`</think>`, which is enough to separate reasoning from answer; the per-token router has
-simply not been written for it.
-
-Not a gap against any other model — Llama and GPT-2 are buffered too, and Gemma is the only family
-that streams. It matters most on Qwen because a 27B is the longest wait to sit through with nothing
-on screen.
-
 ### Llama 3 Measured
-
-#### Llama's prompt and tool grammar live in Chat and the inference server, not the library
-
-`in progress` · `llama` · `mila-src` · `apps`
-
-The library half is built: `LlamaChatProtocol` renders Meta's 3.1 and 3.2 templates byte-identical to their own
-Jinja (`Llama.ChatProtocol.cpp`), and parses a call in the template's own `{"name", "parameters"}` form. The server
-renders through it since `+68` and its copy is deleted; it is not yet run live, because no installed Llama package
-declares `architecture_version` (written at the L7 republish). What is left is Chat rendering through it, which
-waits on the same republish: since `+82` Gemma and Qwen render and parse in Chat through the template the library
-chooses from the manifest, and Llama keeps Chat's own grammar (`Chat.MessageFormatter.ixx`, `Chat.SystemPrompt.ixx`)
-until its packages declare the version. Llama's context profile cannot ask its tool-call question until then.
-
-Chat's own parser (`Chat.ToolCallParser.ixx:121` `parseJson`) accepts only `"arguments"`, where Meta's templates ask
-for `{"name": ..., "parameters": ...}` and replay a call that way, so a call the model writes as the template asks is
-not a call to Chat. Not checked: what Chat's own system prompt asks the model to write, and which key Llama 3.x emits
-under it. Two template facts Chat meets on switching: a plain-text tool result is written through `tojson`, so the
-model sees it JSON-quoted, and an assistant turn that made a call renders the call alone, its text dropped.
-
-Gate: the library renders Meta's template exactly, against its own Jinja rendering, for plain, system and tool
-turns; Chat and the server render through it; and a Llama tool call parses through the library as Gemma's and
-Qwen's do.
-
-`Mila/Apps/Chat/Src/Chat.MessageFormatter.ixx`
 
 #### Nobody can say whether a published model scores like its original on standard benchmarks
 
@@ -337,8 +300,8 @@ exposed a flash prefill defect -- a masked key's zero probability multiplied unw
 fresh memory -- fixed in the same change. The recall arm's answer score forces the value through decode
 steps rather than differencing two of those scores (`ContextProfile.md` 4.3).
 
-Llama's tool-call arm needs its grammar in `Mila/Src`, which "Llama's prompt and tool grammar live in Chat
-and the inference server, not the library" moves. Turn cost and the llama.cpp column (Phases 3 and
+Llama's tool-call arm can ask its question now that Llama's grammar is in `Mila/Src` and the scratch packages
+declare their version (`+94`). Turn cost and the llama.cpp column (Phases 3 and
 4) are not required by the criterion. Storing Gemma's global keys once (K = V, `RopeInAttention.md`)
 waited on the 26B-A4B's profile, to return for discussion only if its reliable depth ran past the 80K that
 fits today; the profile puts it at 96K and not 128K (`ContextProfile.md` section 8), so it returns, framed
@@ -444,20 +407,6 @@ checked: how Anthropic and OpenAI join a message's parts, or whether the billing
 `Mila/Apps/Server/src/mila_llm_server/conversation.py` `text_of`
 
 ### The Desktop Agent
-
-#### Each model's tool-call format is read and written by Chat, not by the library
-
-`open` · `models` · `ai` · `mila-src`
-
-How each family writes a tool call, frames a result and separates thinking from its answer is the model's own
-grammar, and today an application holds it: `Chat.ToolCallParser` (Llama), `Chat.GemmaToolCallParser`,
-`Chat.QwenProtocol`, `Chat.ChannelParser` and `Chat.StreamingChannelRouter`, beside the protocols already in
-`Mila/Src/Dnn/Models`. It becomes one protocol interface in the library, family-blind from outside: tool
-definitions into the prompt, calls parsed from the stream as tokens arrive (several in one turn, a malformed or
-cut-off one), a result in the model's own form, and the stream separated into thinking, answer and calls in
-progress. Gate: `ModelHandle.md`'s P1 for all three families, and Chat's copies deleted.
-
-`Mila/Specifications/ModelHandle.md` section 7 (Phase 2) · `Mila/Specifications/ToolCalling.md` section 2
 
 #### Three places turn a model's name into the type that loads it, each its own way
 

@@ -10,6 +10,26 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## A Llama offered a tool calls it for every question
+
+`Mila/Src/Dnn/Models/LlaMa/Llama.ChatProtocol.ixx` (`tools_in_user_message`, default true) @ 5e7de360
+
+Measured 2026-10-25 in Chat at temperature 0, `tools-weather` prompt, scratch-store packages: Llama 3.1 8B FP4
+and 3.2 3B FP4 both answered "What is the capital of France?" and "Name three primary colors." with a
+`get_weather` call for Paris; 8B, declined, then explained the tool did not fit. Weather questions call it
+correctly (session gate passes). Meta's template puts the tools in the first user message with "please respond
+with a JSON for a function call ... that best answers the given prompt"; Chat's own zero-shot prompt, deleted at
+`+94`, said "If you decide to invoke". The server renders through the same template since `+68`. Not tried:
+`tools_in_user_message=false`. Transcripts `D:\Claude\grammar\console\*.2.stdout`.
+
+## Chat's tool definitions are documented as written into the system prompt by Chat
+
+`Mila/Apps/Chat/Src/Chat.SystemPrompt.ixx` (`ToolDefinition`'s comment) @ 5e7de360
+
+Since `+94` every family's template places the tools itself, and Chat writes none into the system turn; the
+comment still says Chat serializes them, with Llama's pythonic wording. Fixing it brings the module under the
+one-type rule, and it holds five types.
+
 ## .NET bindings for Mila
 
 an absence -- no file in the repository or in `.internal/` names them @ a8f5360a

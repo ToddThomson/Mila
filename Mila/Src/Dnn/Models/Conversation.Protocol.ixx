@@ -1,6 +1,6 @@
 /**
  * @file Conversation.Protocol.ixx
- * @brief A chat template's grammar behind one interface: render a conversation, parse a reply.
+ * @brief A chat template's grammar behind one interface: render a conversation, read a reply.
  */
 
 export module Dnn.Models.Conversation.Protocol;
@@ -11,6 +11,8 @@ export import Dnn.Models.Conversation.TemplateVariable;
 export import Dnn.Models.Conversation.PromptOptions;
 export import Dnn.Models.Conversation.Prompt;
 export import Dnn.Models.Conversation.Reply;
+export import Dnn.Models.Conversation.ReplyGrammar;
+export import Dnn.Models.Conversation.ReplyReader;
 export import Dnn.Models.Conversation.ProtocolMarkers;
 
 namespace Mila::Dnn::Conversation
@@ -39,14 +41,37 @@ namespace Mila::Dnn::Conversation
          */
         virtual Prompt formatPrompt( std::span<const Turn> history, const PromptOptions& options ) const = 0;
 
+        /// How the template's replies are written, which every reading of a reply follows.
+        virtual const ReplyGrammar& replyGrammar() const noexcept = 0;
+
+        /**
+         * @brief A reader for one reply as it streams: its reasoning, its answer and its calls as they arrive.
+         *
+         * @param prompt The prompt the reply continues, which says whether it begins inside the reasoning
+         *        channel. The reader refers to this protocol's grammar, so the protocol must outlive it.
+         */
+        ReplyReader readReply( const Prompt& prompt ) const
+        {
+            return ReplyReader( replyGrammar(), prompt );
+        }
+
         /**
          * @brief Parse a finished reply into its reasoning, its content and every call it made.
          *
+         * The reply read whole by the reader that reads it streamed, so the two never differ.
+         *
          * @param text The reply as generated, its grammar's markers included.
-         * @param prompt The prompt the reply continues, which says whether it begins inside the
-         *        reasoning channel. Never throws for a malformed call (Reply::malformed_tool_calls).
+         * @param prompt The prompt the reply continues. Never throws for a malformed call
+         *        (Reply::malformed_tool_calls).
          */
-        virtual Reply parseReply( std::string_view text, const Prompt& prompt ) const = 0;
+        Reply parseReply( std::string_view text, const Prompt& prompt ) const
+        {
+            ReplyReader reader = readReply( prompt );
+            reader.feed( text );
+            reader.finish();
+
+            return reader.reply();
+        }
 
         /**
          * @brief One tool result as the template's result span, without the turn around it.

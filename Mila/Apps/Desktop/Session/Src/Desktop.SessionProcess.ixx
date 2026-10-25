@@ -6,7 +6,7 @@
 export module Desktop.SessionProcess;
 
 import std;
-import Chat.ChannelParser;
+import Chat.ParsedResponse;
 import Chat.Json;
 import Chat.ModelCatalog;
 import Chat.Session;

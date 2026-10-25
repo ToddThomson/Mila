@@ -119,7 +119,7 @@ Models are named by their store name, not by an alias table — `/model <name>` 
 
 Chat runs **instruct models only** — a base model is refused at the catalogue, so GPT-2 has no `ModelType` and no load path here. It remains a first-class Mila model for training and reference; "Mila supports GPT-2" and "Chat runs GPT-2" are separate claims.
 
-Gemma streams live token-by-token through `Chat.StreamingDisplay` (channel-aware — thinking / tool-call / final routed by the four control-token ids; a stream validator asserts the streamed transcript equals the buffered render). Llama and Qwen stay buffered, and streaming falls back to buffered when the vocabulary lacks the channel-routing tokens.
+Every family streams live: each round's reply is read as it arrives by the template's `Conversation::ReplyReader` in the library, which routes reasoning, answer and calls by the template's own markers, and is the same reader `parseReply` runs, so what streamed is what was parsed. The console's stream validator still checks the streamed transcript against the buffered render.
 
 ---
 

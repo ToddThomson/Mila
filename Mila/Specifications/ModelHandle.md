@@ -188,7 +188,9 @@ class Protocol
 {
 public:
     virtual Prompt formatPrompt( std::span<const Turn> history, const PromptOptions& options ) const = 0;
-    virtual Reply parseReply( std::string_view text, const Prompt& prompt ) const = 0;
+    virtual const ReplyGrammar& replyGrammar() const noexcept = 0;
+    ReplyReader readReply( const Prompt& prompt ) const;                 // a reply as it streams
+    Reply parseReply( std::string_view text, const Prompt& prompt ) const;   // the same reader, fed whole
     virtual std::string formatToolResult( std::string_view name, std::string_view result ) const = 0;
     virtual const ProtocolMarkers& markers() const noexcept = 0;
     virtual std::span<const TemplateVariable> templateVariables() const noexcept = 0;   // empty when none
@@ -246,6 +248,19 @@ though how it is used is that spec's decision. The existing free functions (`Gem
 `Qwen::parseToolCall`, and the rest) stay, and the implementations call them; the binding's
 `qwen_format_prompt` and its siblings keep working until the binding moves onto `Mila::AI`.
 
+**A reply is read as it streams, by one reader** (`0.21.0-dev+94`). Each template declares a `ReplyGrammar` --
+its reasoning, call and result markers, the label a reasoning span opens with, a call written with no marker
+(Llama's bare `{`), text that ends the reply, control text that is never answer -- and a function that reads one
+call span's arguments. `ReplyReader` reads a reply fed in pieces by that grammar into `ReplyEvent`s (reasoning or
+answer text, a span opening or closing, a call opening or closing) and a `Reply`; `parseReply` is the same reader
+fed the whole text, and is no longer virtual. So what streamed is what was parsed: the events' text is the
+`Reply`'s, and how the reply was cut into pieces changes neither (`Conversation.ReplyReader.cpp`). Text that may
+still become a marker, and an incomplete UTF-8 character, are held until the next piece settles them. The reader
+works on text rather than token ids, so every family streams, and a call is read as it closes rather than after
+the turn. Two readings changed at the move, on output no measured model writes: Qwen's reasoning is a
+`<think>` span wherever it opens, where before it was everything before the first `</think>`, and a Qwen result
+the model writes itself is dropped, as Gemma's always was.
+
 **The whole reply, not the first call** (2026-10-13, `InferenceServerWire.md` 3.2). `parseReply` replaced a
 `parseToolCall` that returned one `optional<ToolCall>`: a turn can hold several calls, and OpenAI's `tool_calls`
 and Anthropic's content blocks are lists, so every call after the first was lost on every server endpoint. It
@@ -295,7 +310,8 @@ text of the turn's reasoning channel, so that `preserve_thinking` renders what t
 
 **Llama is folded into the library**, as Gemma was at `+34`: `LlamaChatProtocol` (`+68`) renders Meta's own
 templates, with parity against them rather than against Chat's `MessageFormatter` and `ToolCallParser`, which
-become the copies Chat stops calling. MIS's `_build_llama_prompt` is deleted when MIS moves. **Llama ships two
+Chat stopped calling and deleted at `+94`; a Llama whose record names no `architecture_version` is refused by
+Chat's catalogue. MIS's `_build_llama_prompt` is deleted when MIS moves. **Llama ships two
 templates**: 3.1's and 3.2's differ in `date_string`'s default (a fixed 26 Jul 2024, and today) and in 3.1's
 built-in tools, which the protocol does not take -- so `llama31()` and `llama32()` are two handlers, and the
 architecture alone cannot pick between them. The architecture picks the handler until a family ships a second

@@ -207,6 +207,35 @@ namespace Mila::ChatApp
     }
 
     /**
+     * @brief Refuse a model whose chat template the library cannot name, before anything is released or loaded.
+     *
+     * Every prompt is written in the template the model was trained with, and a Llama's record has to say which
+     * Llama it is to choose between Meta's two.
+     */
+    void requireChatTemplate( const InstalledModel& installed )
+    {
+        const auto& record = installed.stored().record;
+
+        try
+        {
+            (void)chatProtocolFor( record.architecture, record.architecture_version );
+        }
+        catch ( const std::invalid_argument& )
+        {
+            if ( record.architecture == "llama" && record.architecture_version.empty() )
+            {
+                throw std::runtime_error( std::format(
+                    "'{}' does not record which Llama it is, and that decides the chat template it was trained "
+                    "with, so it cannot be chatted with.", installed.name() ) );
+            }
+
+            throw std::runtime_error( std::format(
+                "'{}' was trained with a chat template this build of Mila does not have, so it cannot be chatted "
+                "with.", installed.name() ) );
+        }
+    }
+
+    /**
      * @brief Resolve a model name against the store.
      *
      * The store is the only source. Nothing here consults a hub, reads a models directory or
@@ -295,6 +324,8 @@ namespace Mila::ChatApp
                 "so it cannot be chatted with.", name ) );
         }
 
+        requireChatTemplate( *installed );
+
         // The library's own refusal of a family it cannot deploy, before the resident model is released.
         requirePlannable( *installed );
 
@@ -329,7 +360,6 @@ namespace Mila::ChatApp
             resolved.quantization_applied_at_load = true;
         }
 
-        resolved.streaming_capable = familyTraits( resolved.family ).streaming_capable;
         resolved.thinking_capable = capabilities.thinking;
         resolved.tools_capable = capabilities.tools;
         resolved.agentic = capabilities.agentic;

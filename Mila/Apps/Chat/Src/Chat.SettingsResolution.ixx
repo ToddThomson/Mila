@@ -518,7 +518,6 @@ namespace Mila::ChatApp
             config.is_instruct       = resolved->instruct;
             config.base_model        = resolved->base_model;
             config.license           = resolved->license;
-            config.streaming_capable = resolved->streaming_capable;
 
             // Thinking follows the model, not the config: a preference cannot give a model a
             // reasoning channel, and offering the switch only ever misreported the ones without one.

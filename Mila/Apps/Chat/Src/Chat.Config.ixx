@@ -51,7 +51,6 @@ namespace Mila::ChatApp
         /// and that is the only case where quoting it tells the reader something.
         bool                  quantization_applied_at_load{ false };
         bool                  is_instruct{ false };
-        bool                  streaming_capable{ false };  ///< Live token-streaming display (from the model catalog).
 
         /// Whether this model HAS a reasoning channel, from the model catalog. A capability, not a
         /// preference: it is why show_thinking is no longer a session setting -- a config key

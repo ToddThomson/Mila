@@ -15,7 +15,7 @@ namespace Mila::ChatApp
      * @brief Everything Chat needs to load a model, resolved from its store record.
      *
      * The family, the stored format and the capabilities are the library's answer (InstalledModel); the rest
-     * are Chat's own: whether it streams, and a quantization asked for on load.
+     * is Chat's own: a quantization asked for on load.
      */
     export struct ResolvedModel
     {
@@ -33,7 +33,6 @@ namespace Mila::ChatApp
         std::string license;
 
         bool instruct{ false };
-        bool streaming_capable{ false };
 
         /// Whether the model has a reasoning channel at all, as its manifest declares. Read as a capability so
         /// the session never offers a thinking mode the weights cannot produce.

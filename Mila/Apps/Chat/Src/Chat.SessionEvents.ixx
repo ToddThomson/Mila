@@ -6,7 +6,7 @@
 export module Chat.SessionEvents;
 
 import std;
-import Chat.ChannelParser;
+import Chat.ParsedResponse;
 import Chat.Message;
 import Chat.RoundStats;
 import Chat.TextChannel;

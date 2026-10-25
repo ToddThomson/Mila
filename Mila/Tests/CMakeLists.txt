@@ -85,6 +85,7 @@ add_executable( MilaTests
     "Dnn/Models/Qwen/Qwen.Protocol.cpp"
     # Each template's protocol against the checkpoint's own chat_template.jinja (ModelHandle.md P1).
     "Dnn/Models/ChatProtocolForArchitecture.cpp"
+    "Dnn/Models/Conversation.ReplyReader.cpp"
     "Dnn/Models/QuantizationDispatch.cpp"
     "Dnn/Models/Gemma/Gemma.ChatProtocol.cpp"
     "Dnn/Models/LlaMa/Llama.ChatProtocol.cpp"
@@ -385,13 +386,6 @@ endif()
 
 # MilaMeasurement: the log-likelihood harness and PG-19 reader, shared with Tools/ContextProfile.
 target_link_libraries( MilaTests PRIVATE Mila MilaMeasurement gtest )
-
-# Chat's session library exists only where Chat builds (Apps/CMakeLists.txt), and its parsers
-# import the library, so their tests live in this binary rather than one of their own.
-if(TARGET MilaChatSession)
-    target_sources( MilaTests PRIVATE "Apps/Chat/ToolCallParser.Cpu.cpp" )
-    target_link_libraries( MilaTests PRIVATE MilaChatSession )
-endif()
 
 if(MILA_ENABLE_CUDA)
     # No NVML. The Gate B tests once used it to find a device driving no display, so an absolute

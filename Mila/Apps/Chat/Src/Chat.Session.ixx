@@ -2,9 +2,8 @@
  * @file Chat.Session.ixx
  * @brief One chat session over one loaded model, driven by a front end and reporting through SessionEvents.
  *
- * Supports the instruct families -- Llama, Gemma and Qwen, at BF16 compute. Gemma and Qwen render and parse
- * through the model's own template in the library (Conversation::Protocol); Llama through Chat's
- * MessageFormatter and ToolCallParser until its packages declare which template they carry.
+ * Supports the instruct families -- Llama, Gemma and Qwen, at BF16 compute -- each rendered and read through
+ * the model's own template in the library (Conversation::Protocol).
  */
 
 export module Chat.Session;
@@ -17,17 +16,13 @@ export import Chat.RoundStats;
 export import Chat.SessionEvents;
 export import Chat.SystemPrompt;
 export import Chat.ThinkingEffort;
-import Chat.ChannelParser;
 import Chat.FamilyTraits;
 import Chat.Footprint;
-import Chat.GemmaStreamTokens;
 import Chat.Json;
-import Chat.MessageFormatter;
 import Chat.ModelCatalog;
+import Chat.ParsedResponse;
 import Chat.Settings;
-import Chat.StreamingChannelRouter;
 import Chat.TextChannel;
-import Chat.ToolCallParser;
 import Chat.ToolDecision;
 
 import Mila;
@@ -153,25 +148,14 @@ namespace Mila::ChatApp
 
             history_.push_back( { MessageRole::User, std::move( text ) } );
 
-            // Streaming routes tokens to their channels as they arrive; the buffered response string keeps
-            // accumulating as history and as the display's validation oracle (see finishTurn). One router spans
-            // all tool rounds of the turn.
-            router_.reset();
-
-            if ( config_.streaming_capable && gemma_stream_tokens_.has_value() )
-            {
-                router_ = std::make_unique<StreamingChannelRouter>( events_, *gemma_stream_tokens_ );
-            }
-
-            events_.turnBegan( router_ != nullptr );
+            // Every reply streams: the template's reader routes each piece to its channel as it arrives.
+            events_.turnBegan( true );
 
             std::string response;
             response.reserve( 4096 );
 
             generateResponse( response );
-            handleResponse( response );
-
-            router_.reset();
+            finishTurn( response );
 
             return true;
         }
@@ -550,7 +534,7 @@ namespace Mila::ChatApp
                 : last_turn_rounds_.back().finish_status;
         }
 
-        /// False where the model's template has a thinking switch and no levels; Llama's, which Chat renders, has neither.
+        /// False where the model's template has no effort levels: Gemma's has a thinking switch alone, Llama's neither.
         bool templateHasEffortLevels() const
         {
             if ( !protocol_ )
@@ -583,7 +567,7 @@ namespace Mila::ChatApp
             // The transcript as the next turn renders it, so the system prompt and the template's own control
             // tokens are both counted -- the two a hand-written floor would have forgotten. That turn has a user
             // message, which is also what makes the history renderable at all: Qwen's template refuses a
-            // transcript with no user turn, and Llama's one whose last turn is the model's.
+            // transcript with no user turn.
             std::vector<ChatMessage> next_turn = history_;
             next_turn.push_back( { MessageRole::User, std::string{} } );
 
@@ -601,269 +585,29 @@ namespace Mila::ChatApp
     private:
 
         /**
-         * @brief Route a completed generation response through tool call handling.
+         * @brief Say the turn ended, as the template's reader read it round by round, and store its answer.
          *
-         * When ToolCallParser detects a <|python_tag|> block the response is treated
-         * as a tool call: the call is dispatched, the result is pushed as a Tool-role
-         * message, and generation runs again so the model sees the result and produces
-         * a final answer. Plain text responses are pushed as an Assistant turn.
-         *
-         * A tool call that names an unregistered handler pushes an error result back to
-         * the model rather than throwing, allowing the model to respond gracefully.
-         *
-         * @param response Raw text from the most recent generateResponse() call.
-         */
-        void handleResponse( const std::string& response )
-        {
-            // A model whose template the library renders had its tool rounds inside generateResponse(),
-            // read by its own grammar; the Llama ToolCallParser below is Chat's own.
-            if ( tool_handlers_.empty() || protocol_ )
-            {
-                finishTurn( response );
-                return;
-            }
-
-            std::optional<ToolCall> tool_call;
-
-            try
-            {
-                tool_call = ToolCallParser::parse( response );
-            }
-            catch ( const std::runtime_error& e )
-            {
-                events_.error( std::format( "[tool call parse error: {}]", e.what() ) );
-                finishTurn( response );
-                return;
-            }
-
-            if ( !tool_call.has_value() || stopRequested() )
-            {
-                finishTurn( response );
-                return;
-            }
-
-            ChatMessage assistant_turn;
-            assistant_turn.role = MessageRole::Assistant;
-            assistant_turn.tool_calls.push_back( *tool_call );
-            history_.push_back( std::move( assistant_turn ) );
-
-            if ( !answerToolCall( *tool_call ) )
-            {
-                finishTurn( std::string{} );
-                return;
-            }
-
-            std::string final_response;
-            final_response.reserve( 512 );
-
-            generateResponse( final_response );
-
-            finishTurn( final_response );
-        }
-
-        /**
-         * @brief Split channels and store the assistant turn, and say the turn ended.
-         *
-         * The final answer is the only text pushed to history so the reasoning never re-enters the next
-         * formatted prompt. For models that emit no reasoning channel the parse is a pass-through and the whole
-         * response is the answer.
+         * @param raw The model's output verbatim, every round's, with the results the session wrote between them.
          */
         void finishTurn( const std::string& raw )
         {
-            // A turn the template's grammar read round by round is shown as it read it; Llama's raw
-            // text is split here, its tool spans stripped first so no call syntax reaches the answer.
-            const ParsedResponse parsed = turn_display_.has_value()
-                ? *turn_display_
-                : ChannelParser::parse( stripSpecialTokens( stripToolExchangeSpans( raw ) ), activeChannel() );
-
-            // Text that did not stream arrives once, whole. A template's rounds were reported as each was read.
-            if ( !router_ && !protocol_ )
-            {
-                reportRoundText( parsed.thinking, parsed.answer );
-            }
+            const ParsedResponse parsed = turn_display_.value_or( ParsedResponse{} );
 
             events_.turnEnded( parsed, raw );
-            pushAnswer( parsed );
-        }
-
-        /// One round's text for a reply that does not stream, reasoning first, as the model wrote it.
-        void reportRoundText( const std::string& thinking, const std::string& answer )
-        {
-            if ( !thinking.empty() )
-            {
-                events_.text( TextChannel::Thought, thinking );
-            }
-
-            if ( !answer.empty() )
-            {
-                events_.text( TextChannel::Answer, answer );
-            }
+            pushAnswer();
         }
 
         /**
          * @brief The turn's answer joins the history.
          *
-         * Read through the template, it is the last round's reply with its reasoning, which the template decides
-         * whether to render again; a turn whose last round dispatched calls has already joined the history as those
-         * calls and their results. Llama's is the answer Chat split out of the raw text.
+         * It is the last round's reply with its reasoning, which the template decides whether to render again; a
+         * turn whose last round dispatched calls has already joined the history as those calls and their results.
          */
-        void pushAnswer( const ParsedResponse& parsed )
+        void pushAnswer()
         {
-            if ( !protocol_ )
-            {
-                history_.push_back( { MessageRole::Assistant, parsed.answer } );
-
-                return;
-            }
-
             if ( turn_answer_.has_value() )
             {
                 history_.push_back( { MessageRole::Assistant, turn_answer_->content, {}, {}, turn_answer_->reasoning } );
-            }
-        }
-
-        /**
-         * @brief The markers the resident family wraps its reasoning in.
-         *
-         * A family with no reasoning channel is given Gemma's, which finds nothing in its
-         * output and returns the whole response as the answer -- the pass-through the parser
-         * already contracts for. Naming a "none" pair would be a third case behaving as the
-         * first.
-         *
-         * Qwen's pair carries the session's thinking state, because for that family the state
-         * changes what a response MEANS: the primer opens the reasoning span when thinking is
-         * on, so text before a close marker is reasoning, and when it is off the very same text
-         * with no markers at all is the answer. The parser cannot tell those apart on its own.
-         */
-        ChannelDelimiters activeChannel() const
-        {
-            if ( config_.model_type != ModelType::Qwen )
-            {
-                return kGemmaChannel;
-            }
-
-            ChannelDelimiters channel = kQwenThinkSpan;
-            channel.primer_opens_channel = config_.show_thinking;
-
-            return channel;
-        }
-
-        /**
-         * @brief Remove tool call and tool response spans from a response before it is
-         *        channel-split and displayed.
-         *
-         * These are protocol-internal (the harness already consumed and dispatched them);
-         * showing the raw call/response syntax as answer prose is noise. An unterminated span
-         * (generation stopped mid-span) truncates to end-of-string.
-         *
-         * Every family's pair is stripped rather than only the resident one's: the strings do
-         * not collide, and a list keyed on the model would be a second place to update when a
-         * family is added.
-         */
-        static std::string stripToolExchangeSpans( const std::string& text )
-        {
-            static constexpr std::pair<std::string_view, std::string_view> kSpans[] = {
-                { "<|tool_call>", "<tool_call|>" },
-                { "<|tool_response>", "<tool_response|>" },
-                // Qwen 3.8.
-                { "<tool_call>", "</tool_call>" },
-                { "<tool_response>", "</tool_response>" },
-            };
-
-            std::string result = text;
-
-            for ( const auto& [open, close] : kSpans )
-            {
-                std::string::size_type pos;
-
-                while ( (pos = result.find( open )) != std::string::npos )
-                {
-                    const auto close_pos = result.find( close, pos + open.size() );
-
-                    if ( close_pos == std::string::npos )
-                    {
-                        result.erase( pos );
-                        break;
-                    }
-
-                    result.erase( pos, close_pos + close.size() - pos );
-                }
-            }
-
-            return result;
-        }
-
-        /**
-         * @brief Remove control tokens from a generated response before storing it in the
-         *        conversation history.
-         *
-         * The streaming decoder may include a turn terminator at the tail of the generated
-         * text. Storing these verbatim causes them to be re-emitted literally into the next
-         * formatted prompt, corrupting the token boundary structure and confusing the model
-         * on subsequent turns.
-         *
-         * Every family's tokens are listed, not the resident one's: the spellings do not
-         * collide, and one list is one place to update.
-         */
-        static std::string stripSpecialTokens( const std::string& text )
-        {
-            static constexpr std::string_view kTokens[] = {
-                "<|eot_id|>", "<|eom_id|>", "<|python_tag|>",
-                "<|begin_of_text|>", "<|end_of_text|>",
-                // Gemma 4 instruct special tokens.
-                "<end_of_turn>", "<start_of_turn>", "<bos>", "<eos>", "<pad>",
-                // Gemma 4 control tokens. The <|channel>/<channel|> markers are
-                // deliberately omitted: ChannelParser consumes them before this runs.
-                "<|turn>", "<turn|>", "<|think|>",
-                "<|tool>", "<tool|>", "<|tool_call>", "<tool_call|>",
-                "<|tool_response>", "<tool_response|>",
-                "<|image>", "<image|>", "<|image|>",
-                "<|audio>", "<audio|>", "<|audio|>", "<|video|>",
-                // Qwen 3.8 ChatML and tool markers. <think>/</think> are deliberately omitted
-                // for the same reason Gemma's channel pair is: ChannelParser consumes them
-                // before this runs, and removing them here would erase the boundary it splits on.
-                "<|im_start|>", "<|im_end|>", "<|endoftext|>",
-                "<tool_call>", "</tool_call>",
-                "<tool_response>", "</tool_response>"
-            };
-
-            std::string result = text;
-
-            for ( const auto token : kTokens )
-            {
-                std::string::size_type pos = 0;
-
-                while ( (pos = result.find( token, pos )) != std::string::npos )
-                    result.erase( pos, token.size() );
-            }
-
-            // Trim trailing whitespace left after token removal.
-            const auto last = result.find_last_not_of( " \t\n\r" );
-
-            if ( last != std::string::npos )
-                result.erase( last + 1 );
-            else
-                result.clear();
-
-            return result;
-        }
-
-        /// The call a Llama reply ends in that handleResponse() will dispatch, or nothing.
-        std::optional<ToolCall> llamaToolCall( const std::string& response ) const
-        {
-            if ( tool_handlers_.empty() || stopRequested() )
-            {
-                return std::nullopt;
-            }
-
-            try
-            {
-                return ToolCallParser::parse( response );
-            }
-            catch ( const std::runtime_error& )
-            {
-                // handleResponse() reports the parse error when it reads the same text.
-                return std::nullopt;
             }
         }
 
@@ -921,11 +665,7 @@ namespace Mila::ChatApp
             events_.toolCalled( call, result, is_error );
 
             history_.push_back( { MessageRole::Tool, result, {}, call.name } );
-
-            if ( protocol_ )
-            {
-                pending_tool_results_ += protocol_->formatToolResult( call.name, result );
-            }
+            pending_tool_results_ += protocol_->formatToolResult( call.name, result );
 
             return true;
         }
@@ -964,9 +704,7 @@ namespace Mila::ChatApp
          * @brief The tools worth telling the model about: those with a registered handler.
          *
          * Describing an unhandled tool primes the model to emit a call it will never get a
-         * result for. Read from two places -- the tools a template renders (promptOptions())
-         * and Llama's system turn -- so the filter lives here rather than in whichever of them
-         * happens to run first.
+         * result for.
          */
         std::vector<ToolDefinition> activeTools() const
         {
@@ -979,40 +717,6 @@ namespace Mila::ChatApp
             }
 
             return active;
-        }
-
-        /**
-         * @brief Serialize tool definitions to a JSON array string for inclusion in
-         *        the system prompt so the model knows which tools are available.
-         */
-        static std::string serializeTools( const std::vector<ToolDefinition>& tools )
-        {
-            nlohmann::json arr = nlohmann::json::array();
-
-            for ( const auto& tool : tools )
-            {
-                nlohmann::json props = nlohmann::json::object();
-
-                for ( const auto& [pname, prop] : tool.parameters.properties )
-                {
-                    props[ pname ] = {
-                        { "type", prop.type },
-                        { "description", prop.description }
-                    };
-                }
-
-                arr.push_back( {
-                    { "name", tool.name },
-                    { "description", tool.description },
-                    { "parameters", {
-                        { "type", tool.parameters.type },
-                        { "properties", props },
-                        { "required", tool.parameters.required }
-                    }}
-                    } );
-            }
-
-            return arr.dump( 2 );
         }
 
         /// A round's reasoning and text join the turn's display, in the order the rounds ran.
@@ -1041,6 +745,41 @@ namespace Mila::ChatApp
             for ( const auto& call : reply.malformed_tool_calls )
             {
                 events_.error( std::format( "[tool call not understood: {}]", call ) );
+            }
+        }
+
+        /// What the reader settled, as the session's events. A call is reported once it has been run.
+        void reportReplyEvents( std::span<const Mila::Dnn::Conversation::ReplyEvent> events )
+        {
+            using Kind = Mila::Dnn::Conversation::ReplyEvent::Kind;
+
+            for ( const auto& event : events )
+            {
+                switch ( event.kind )
+                {
+                    case Kind::ReasoningOpened:
+                        events_.thoughtBreak();
+                        break;
+
+                    case Kind::Reasoning:
+                        events_.text( TextChannel::Thought, event.text );
+                        break;
+
+                    case Kind::ReasoningClosed:
+                        events_.thoughtClosed();
+                        break;
+
+                    case Kind::Answer:
+                        events_.text( TextChannel::Answer, event.text );
+                        break;
+
+                    case Kind::ToolCallOpened:
+                        events_.toolCallOpened();
+                        break;
+
+                    case Kind::ToolCallClosed:
+                        break;
+                }
             }
         }
 
@@ -1089,14 +828,8 @@ namespace Mila::ChatApp
             {
                 events_.roundBegan();
 
-                const std::size_t round_begin = response.size();
-
-                // The template left this round's reply inside the reasoning channel (a resume with
-                // thinking on), so the router starts there too.
-                if ( router_ && prompt.reply_begins_in_reasoning )
-                {
-                    router_->beginRoundInReasoning();
-                }
+                // Read against the prompt it continues, which may leave the reply inside the reasoning channel.
+                Mila::Dnn::Conversation::ReplyReader reader = protocol_->readReply( prompt );
 
                 // Per-round timing: each round has its own prefill (a full re-prefill on
                 // rounds after a tool call) so the numbers stay meaningful across the turn.
@@ -1131,20 +864,16 @@ namespace Mila::ChatApp
                                 const std::string piece = tokenizer_->decode(
                                     std::vector<TokenId>{ static_cast<TokenId>(tok) } );
                                 response += piece;
-
-                                if ( router_ )
-                                {
-                                    router_->onToken( tok, piece );
-                                }
+                                reportReplyEvents( reader.feed( piece ) );
                             },
                             gen_params,
                             stop_token );
                     },
                     model_ );
 
-                // Round boundary: surrender any incomplete UTF-8 tail.
-                if ( router_ )
-                    router_->onRoundEnd();
+                // The round's end settles what the reader still held, and reads a call left open as written.
+                reportReplyEvents( reader.finish() );
+                const Mila::Dnn::Conversation::Reply& reply = reader.reply();
 
                 RoundStats round_stats;
                 round_stats.finish_status = round_status;
@@ -1190,25 +919,6 @@ namespace Mila::ChatApp
                     }
                 }
 
-                // Llama's reply is read after the turn, by handleResponse(); whether it ends in a call is read here
-                // as well, so the round reports how it ended.
-                if ( !protocol_ )
-                {
-                    if ( const std::optional<ToolCall> call = llamaToolCall( response ) )
-                    {
-                        round_stats.ended_in_tool_call = true;
-                        round_stats.tool_name = call->name;
-                    }
-
-                    events_.roundEnded( round_stats );
-                    last_turn_rounds_.push_back( std::move( round_stats ) );
-                    break;
-                }
-
-                // Read before the round is reported, so its measurements can say how much of it was reasoning.
-                const Mila::Dnn::Conversation::Reply reply =
-                    protocol_->parseReply( std::string_view( response ).substr( round_begin ), prompt );
-
                 round_stats.reasoning_tokens = reply.reasoning.empty()
                     ? 0
                     : static_cast<int>( tokenizer_->encode( reply.reasoning ).size() );
@@ -1232,12 +942,6 @@ namespace Mila::ChatApp
                 events_.roundEnded( round_stats );
 
                 appendToTurnDisplay( reply );
-
-                if ( !router_ )
-                {
-                    reportRoundText( reply.reasoning, reply.content );
-                }
-
                 reportMalformedCalls( reply );
 
                 if ( !dispatches )
@@ -1273,9 +977,6 @@ namespace Mila::ChatApp
                 prompt = renderPrompt( history_ );
                 input_tokens = encodePrompt( prompt );
             }
-
-            if ( router_ )
-                router_->finish();
         }
 
         std::vector<std::int32_t> encodePrompt( const Mila::Dnn::Conversation::Prompt& prompt ) const
@@ -1293,11 +994,6 @@ namespace Mila::ChatApp
          */
         Mila::Dnn::Conversation::Prompt renderPrompt( const std::vector<ChatMessage>& history ) const
         {
-            if ( !protocol_ )
-            {
-                return { MessageFormatter::format( history ), false };
-            }
-
             return protocol_->formatPrompt( history, promptOptions() );
         }
 
@@ -1402,7 +1098,6 @@ namespace Mila::ChatApp
             config_.is_instruct       = resolved.instruct;
             config_.base_model        = resolved.base_model;
             config_.license           = resolved.license;
-            config_.streaming_capable = resolved.streaming_capable;
 
             // Thinking is the model's capability, so it re-derives on every switch rather than
             // carrying a preference across a family that has no reasoning channel.
@@ -1643,61 +1338,11 @@ namespace Mila::ChatApp
 
                 Logging::Logger::info( std::format( "Tokenizer loaded. Vocab size: {}", tokenizer_->getVocabSize() ) );
 
-                // The model's own chat template, chosen by the library from what the manifest declares. Llama's
-                // packages do not declare the version that tells Meta's two templates apart until they are
-                // republished (BACKLOG, "Llama's prompt and tool grammar live in Chat and the inference server"),
-                // so Chat still renders and parses Llama itself.
+                // The model's own chat template, chosen by the library from what the manifest declares; the
+                // catalogue has already refused a model it cannot choose one for.
                 const auto& record = installed->stored().record;
 
-                protocol_ = config_.model_type == ModelType::Llama
-                    ? nullptr
-                    : Mila::Dnn::chatProtocolFor( record.architecture, record.architecture_version );
-
-                // Cache the Gemma control-token ids: the set drives the streaming channel router.
-                // Only genuine single-token vocab entries (per GemmaChatProtocol.md) are trusted;
-                // a multi-token encode means the checkpoint lacks the registered special
-                // token. Streaming requires all four routing ids or it stays buffered.
-                gemma_stream_tokens_.reset();
-
-                if ( config_.model_type == ModelType::Gemma )
-                {
-                    const auto channel_open = probeSingleTokenId( "<|channel>" );
-                    const auto channel_close = probeSingleTokenId( "<channel|>" );
-                    const auto tool_call_open = probeSingleTokenId( "<|tool_call>" );
-                    const auto tool_call_close = probeSingleTokenId( "<tool_call|>" );
-
-                    if ( channel_open && channel_close && tool_call_open && tool_call_close )
-                    {
-                        GemmaStreamTokens tokens;
-                        tokens.channel_open = *channel_open;
-                        tokens.channel_close = *channel_close;
-                        tokens.tool_call_open = *tool_call_open;
-                        tokens.tool_call_close = *tool_call_close;
-
-                        // Control tokens with no display form: the buffered pipeline strips
-                        // their text post-hoc (stripSpecialTokens); the router drops them live.
-                        static constexpr std::string_view kSuppressedControlTokens[] = {
-                            "<|turn>", "<turn|>", "<|think|>", "<|tool>", "<tool|>",
-                            "<|tool_response>", "<tool_response|>",
-                            "<end_of_turn>", "<start_of_turn>", "<bos>", "<eos>", "<pad>",
-                            "<|image>", "<image|>", "<|image|>",
-                            "<|audio>", "<audio|>", "<|audio|>", "<|video|>"
-                        };
-
-                        for ( const auto control : kSuppressedControlTokens )
-                        {
-                            if ( const auto id = probeSingleTokenId( control ) )
-                                tokens.suppressed.push_back( *id );
-                        }
-
-                        gemma_stream_tokens_ = std::move( tokens );
-                    }
-                    else if ( config_.streaming_capable )
-                    {
-                        Logging::Logger::warning(
-                            "Streaming display disabled: Gemma control tokens not in the vocabulary." );
-                    }
-                }
+                protocol_ = Mila::Dnn::chatProtocolFor( record.architecture, record.architecture_version );
             }
             catch ( const std::exception& e )
             {
@@ -1705,20 +1350,6 @@ namespace Mila::ChatApp
 
                 throw;
             }
-        }
-
-        /**
-         * @brief Resolve text to its vocabulary id when it encodes as a single
-         *        (special) token; nullopt when the checkpoint lacks the
-         *        registered special.
-         */
-        std::optional<std::int32_t> probeSingleTokenId( std::string_view text ) const
-        {
-            const auto ids = tokenizer_->encode( std::string( text ) );
-
-            return (ids.size() == 1)
-                ? std::optional<std::int32_t>( static_cast<std::int32_t>( ids[ 0 ] ) )
-                : std::nullopt;
         }
 
         /**
@@ -1860,27 +1491,8 @@ namespace Mila::ChatApp
             if ( system_prompt_config_.system_prompt.empty() )
                 return;
 
-            std::string system_content = system_prompt_config_.system_prompt;
-
-            const std::vector<ToolDefinition> active_tools = activeTools();
-
-            // A template the library renders places the tools itself, from promptOptions(). Only
-            // Llama's, which Chat still renders, carries them in the system turn.
-            if ( !active_tools.empty() && !protocol_ )
-            {
-                // Instruction text precedes the tool list per the Llama 3.2 zero-shot
-                // tool-calling format the model was fine-tuned on.
-                system_content +=
-                    "\n\nIf you decide to invoke any of the function(s), you MUST put it in the "
-                    "format of [func_name1(params_name1=params_value1, params_name2=params_value2...), "
-                    "func_name2(params)]\n"
-                    "You SHOULD NOT include any other text in the response.\n\n"
-                    "Here is a list of functions in JSON format that you can invoke:\n";
-
-                system_content += serializeTools( active_tools );
-            }
-
-            history_.push_back( { MessageRole::System, std::move( system_content ) } );
+            // The template places the tools itself, from promptOptions().
+            history_.push_back( { MessageRole::System, system_prompt_config_.system_prompt } );
         }
 
         ChatConfig config_;
@@ -1900,24 +1512,17 @@ namespace Mila::ChatApp
         mutable std::mutex stop_mutex_;
         std::stop_source stop_src_;
 
-        // The loaded model's chat template: it renders every prompt and reads every reply. Null for Llama, which
-        // Chat still renders and parses itself (see initializeTokenizer()).
+        // The loaded model's chat template: it renders every prompt and reads every reply.
         std::unique_ptr<Mila::Dnn::Conversation::Protocol> protocol_;
 
         // The turn generateResponse() just ran, read through protocol_ round by round: every round's reasoning
         // and text, for the display, and the last round's reply when it made no call, which history keeps.
-        // Empty for a model Chat parses itself.
         std::optional<ParsedResponse> turn_display_;
         std::optional<Mila::Dnn::Conversation::Reply> turn_answer_;
 
         // A round's tool results as the template writes them, appended to the raw response once the round's
         // calls have all been answered.
         std::string pending_tool_results_;
-
-        // Control-token ids resolved at tokenizer load (absent when the vocabulary lacks them -- streaming falls
-        // back to the buffered path), and the turn's router built from them.
-        std::optional<GemmaStreamTokens> gemma_stream_tokens_;
-        std::unique_ptr<StreamingChannelRouter> router_;
 
         std::vector<RoundStats> last_turn_rounds_;
     };

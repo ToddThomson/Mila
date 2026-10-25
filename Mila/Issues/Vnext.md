@@ -681,9 +681,8 @@ continuation indent, so the hanging indent a list needs cannot be expressed.
 `apps` · `build`
 
 `Mila/Apps/Chat/Src/Json.ixx` duplicates `Mila/Src/Utils/json.ixx`, both including the same
-header from their global module fragment. Chat then imports one in four translation units
-(`Chat.Session.ixx`, `Chat.MessageFormatter.ixx`, `Chat.SystemPrompt.ixx`, `Chat.ToolCallParser.ixx`) and
-the other in two (`Chat.ModelCatalog.ixx`, `Chat.Settings.ixx`), so the same types arrive under two
+header from their global module fragment. Chat then imports one in two translation units
+(`Chat.Session.ixx`, `Chat.SystemPrompt.ixx`) and the other in two (`Chat.ModelCatalog.ixx`, `Chat.Settings.ixx`), so the same types arrive under two
 module names in one binary.
 
 Drop `Json.ixx` from the target and import `nlohmann.json` everywhere.

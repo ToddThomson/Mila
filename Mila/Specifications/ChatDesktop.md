@@ -62,8 +62,9 @@ session already do. Video, which no Mila model takes, has no place in it.
   can be written in JavaScript, .NET, Python, Rust or anything else that can start a process and read
   its output. A fault in either does not take down the other, so a window crash does not unload the model.
   Mila's window is Electron (section 6.2); other clients are welcome on the same schema.
-- **Formatting is presentation.** The session emits channel-routed *raw* text; routing a token to its
-  channel is the session's (`StreamingChannelRouter`). The console front end
+- **Formatting is presentation.** The session emits channel-routed *raw* text; routing a reply to its
+  channels is the session's, through the template's reader in the library (`Conversation::ReplyReader`). The
+  console front end
   keeps `IncrementalRichFormatter` and `RichText` (markdown and LaTeX to terminal Unicode, word wrap); the
   window renders markdown itself, in the page. Each front end keeps its own streamed-equals-buffered
   check.
@@ -408,8 +409,9 @@ thread), `newConversation`, `loadModel`, `installModel`, `removeModel`, the cont
 conversation it holds -- so that v0.22.0 moves this code into Mila.AI rather than redesigning it (Todd,
 2026-10-24).
 
-- **The split follows presentation.** Gemma's token router (`Chat.StreamingChannelRouter.ixx`) is the
-  session's: which channel a token belongs to is a fact about the reply, and it emits raw text. The console
+- **The split follows presentation.** Routing a reply to its channels is the session's: which channel text
+  belongs to is a fact about the reply, read by the template's reader in the library (`+94`; Chat's Gemma-only
+  token router is deleted), and the session emits raw text. The console
   keeps the incremental rich-text formatter, the renderer, the stream validator, the spinner, the slash
   commands with their usage lines, and every table.
 - **Sentences.** Those about work the session does -- a load, a reload, an install, a context that does
