@@ -15,6 +15,7 @@ export function createInitialState()
         installedModels: [],
         publishedModels: null,
         progress: null,
+        modelsError: null,
         attachments: [],
         logs: [],
         nextEntryNumber: 1
@@ -99,6 +100,11 @@ export function reduce( state, message )
         case 'attachment.remove':
             return reduceAttachmentRemove( state, message );
 
+        case 'model.load':
+        case 'model.install':
+        case 'model.remove':
+            return { ...state, modelsError: null };
+
         default:
             return state;
     }
@@ -134,11 +140,21 @@ function reduceInfo( state, message )
     return appendEntry( state, entry );
 }
 
+/**
+ * A refused load or install is also kept for the Models view, which covers the transcript while it is
+ * open, until the person's next load, install or remove.
+ */
 function reduceError( state, message )
 {
     const entry = { kind: 'error', text: message.text, during: message.during };
+    const added = appendEntry( state, entry );
 
-    return appendEntry( state, entry );
+    if ( message.during !== 'load' && message.during !== 'install' )
+        return added;
+
+    const modelsError = { text: message.text, during: message.during };
+
+    return { ...added, modelsError };
 }
 
 function sentAttachment( attachment )
@@ -403,12 +419,12 @@ function storedToolBlock( identifier, call )
         callId: call.call_id,
         round: 1,
         name: call.name,
-        summary: call.name,
+        summary: call.summary,
         arguments: call.arguments,
         result: call.result,
-        isError: false,
+        isError: call.is_error,
         choices: null,
-        decision: null,
+        decision: call.decision,
         notRun: call.result === null
     };
 }

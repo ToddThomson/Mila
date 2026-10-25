@@ -449,6 +449,9 @@ function aDeniedCallReachesTheModelAsDeclinedAndTheReplyContinues()
 
     const stored = ofType( events, 'conversation.loaded' )[ 0 ].messages[ 1 ].tool_calls[ 0 ];
     assert.match( stored.result, /declined/ );
+    assert.equal( stored.summary, ofType( events, 'turn.tool_call' )[ 0 ].summary );
+    assert.equal( stored.decision, 'deny' );
+    assert.equal( stored.is_error, true );
 }
 
 test( 'a denied call reaches the model as declined, and the reply continues', aDeniedCallReachesTheModelAsDeclinedAndTheReplyContinues );

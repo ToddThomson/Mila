@@ -20,7 +20,7 @@ let pageReady = false;
 let held = [];
 
 /**
- * --scenario <n> (or --scenario=<n>) picks the mock's scenario; MILA_CHAT_SESSION names the real
+ * --scenario <n> (or --scenario=<n>) picks the mock's scenario; MILA_DESKTOP_SESSION names the real
  * session program, and without it the mock runs.
  */
 function argumentValue( name )
@@ -44,7 +44,7 @@ function argumentValue( name )
 function readConfiguration()
 {
     const scenario = argumentValue( '--scenario' );
-    const sessionPath = process.env.MILA_CHAT_SESSION;
+    const sessionPath = process.env.MILA_DESKTOP_SESSION;
     const mockScript = path.join( pageRoot, 'mock', 'stdio.js' );
 
     return {

@@ -169,6 +169,13 @@ export function createModelsView( root, actions )
         const current = state.session === null ? null : state.session.model;
         const progress = state.progress;
 
+        if ( state.modelsError !== null )
+        {
+            const refusal = element( 'p', 'notice error', state.modelsError.text );
+            refusal.setAttribute( 'role', 'alert' );
+            body.append( refusal );
+        }
+
         if ( progress !== null && ( progress.total === null || progress.done < progress.total ) )
         {
             const shown = buildProgress( progress );
@@ -210,7 +217,7 @@ export function createModelsView( root, actions )
         if ( !surface.modelsOpen )
             return;
 
-        const key = JSON.stringify( [ state.installedModels, state.publishedModels, state.progress, state.session === null ? null : state.session.model, local ] );
+        const key = JSON.stringify( [ state.installedModels, state.publishedModels, state.progress, state.modelsError, state.session === null ? null : state.session.model, local ] );
 
         if ( key === lastKey )
             return;

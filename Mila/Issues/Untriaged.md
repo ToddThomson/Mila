@@ -41,6 +41,9 @@ console's status line has no Thinking clause (the phase 2 baseline shows the sam
 with `--thinking --tools` declares both. Not checked: whether the published package's `mila.json` or only this
 install lacks them.
 
+Also Gemma 4 12B FP4 (2026-10-24, the desktop window): Todd's `gemma-4-12b-it-fp4.json`, installed 2026-10-03,
+has no `capabilities` block at all, so the session reports `thinking_capable: false` for a model that thinks.
+
 ## Llama's tool-call arguments keep the quote the model wrote
 
 `Mila/Apps/Chat/Src/Chat.ToolCallParser.ixx` @ c8f71f60
@@ -48,3 +51,39 @@ install lacks them.
 Llama 3.2 3B FP4's call reaches the tool as `{"location":"'Paris"}` (summary "Getting weather for 'Paris"), in
 the console before the split and in the desktop session process alike; Toronto came through clean in the same
 run. Llama 3.2 3B also calls `get_weather` for "What is the capital of France?" under the tools-weather prompt.
+
+## A tool call ran in the desktop window without the person being asked, once
+
+`Mila/Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` `approveToolCall` @ a9087567
+
+2026-10-24, the first scripted window run over the real session (Llama 3.2 3B FP4, tools-weather, scratch
+store): the first turn's `get_weather` call ran and its result was stored, while the script clicked nothing; a
+later call in a new conversation did ask. Not reproduced in five later runs (two window runs of the same
+sequence with every page message recorded, two single-turn window runs, one over stdio): each asked. That run's
+files were overwritten by the next, so what the page received is not known.
+
+## A client that sends on `turn.end` is refused as busy
+
+`Mila/Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` `respond` @ a9087567
+
+`turn.end` is sent from inside the turn and `busy` clears after it, so a `turn.send` written on reading
+`turn.end` gets "A reply is still being written" (seen 2026-10-24 from a stdio script). The page waits for
+`session.state`, so it does not hit this; `ChatDesktop.md` 4.1 does not say which message a client waits for.
+
+## The session sends a thought break when the model is not thinking
+
+`Mila/Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` `thoughtBreak` @ a9087567
+
+Gemma 4 12B Q4_0 with thinking off, 2026-10-24: `turn.thought_break` after the tool result, with no thought
+text before or after it. `ChatDesktop.md` 4.1 says it means the reasoning resumed. The page shows nothing for it.
+
+## The desktop Models view stays open after a load, and offers Load while one runs
+
+`Mila/Apps/Desktop/Ui/views/models.js` @ a9087567
+
+2026-10-24, the window over the real session: choosing Load leaves the person on the Models view once the model
+is loaded, and the row's Load button stays during the load (progress shows above the list).
+
+Also, installing `gpt2-small` from it (2026-10-24): after the install the published list is gone again ("Show
+available models"); the list offers `gpt2-small`, a base model the app refuses to chat with, and labels its
+quantization "none"; and the installed base model keeps a Load button that can only be refused.

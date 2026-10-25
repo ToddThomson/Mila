@@ -269,6 +269,11 @@ export function createMockSession( options )
 
         reply.waiting = null;
 
+        const call = reply.toolCalls.find( ( candidate ) => candidate.call_id === request.call_id );
+
+        if ( call !== undefined )
+            call.decision = request.decision;
+
         if ( request.decision === 'allow_conversation' )
             allowedTools.add( waiting.tool );
 
@@ -286,7 +291,7 @@ export function createMockSession( options )
 
         if ( message.type === 'turn.tool_call' )
         {
-            const call = { call_id: message.call_id, name: message.name, arguments: message.arguments, result: null };
+            const call = { call_id: message.call_id, name: message.name, summary: message.summary, arguments: message.arguments, decision: null, result: null, is_error: false };
             reply.toolCalls.push( call );
         }
 
@@ -301,8 +306,11 @@ export function createMockSession( options )
     {
         const call = reply.toolCalls.find( ( candidate ) => candidate.call_id === message.call_id );
 
-        if ( call !== undefined )
-            call.result = message.result;
+        if ( call === undefined )
+            return;
+
+        call.result = message.result;
+        call.is_error = message.is_error;
     }
 
     function stopTurn()

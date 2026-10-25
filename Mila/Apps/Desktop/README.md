@@ -2,8 +2,8 @@
 
 Mila, the desktop app: a page (`Ui/`) over Chat's session, hosted by an Electron window (`Window/`),
 which starts the session process (`Session/`). The design of record is `Mila/Specifications/ChatDesktop.md`.
-Until phase 4 the window runs the mock session (`Ui/mock/`), which plays scripted scenarios, unless it is
-pointed at the real one.
+The window runs the real session when it is pointed at one, and otherwise the mock session (`Ui/mock/`), which
+plays scripted scenarios.
 
 ## The session process
 
@@ -17,8 +17,8 @@ mila-desktop-session --model gemma-4-12b-it-fp4 --system-prompt tools-weather
 {"v": 1, "type": "ready"}
 ```
 
-`MILA_CHAT_SESSION=<path to mila-desktop-session>` makes the window start it in place of the mock, with no
-arguments, so it opens on the model last chosen. Running the two together is phase 4, and has not been tried.
+`MILA_DESKTOP_SESSION=<path to mila-desktop-session>` makes the window start it in place of the mock, with no
+arguments, so it opens on the model last chosen and takes its settings from the user's `chat.json`.
 
 ## The page in a browser
 
@@ -43,7 +43,7 @@ npm ci
 npm start -- --scenario=6
 ```
 
-`--scenario=<n>` picks the mock's scenario. `MILA_CHAT_SESSION=<path>` starts that program as the session
+`--scenario=<n>` picks the mock's scenario. `MILA_DESKTOP_SESSION=<path>` starts that program as the session
 instead of the mock. The window serves the page at `mila://chat/`, starts the session as a child process
 speaking JSON lines on stdio, and relays messages between them; a link the page asks to open goes to the
 system browser.
@@ -81,5 +81,5 @@ first build. Both cache per user; `ELECTRON_CACHE` and `ELECTRON_BUILDER_CACHE` 
 ## CI
 
 `.github/workflows/desktop.yml` runs on any change under this folder: both test suites on Linux, then the
-Windows installer built from the lock file, kept as a workflow upload for 14 days. It is not a release;
-until the session process exists the installer runs the mock.
+Windows installer built from the lock file, kept as a workflow upload for 14 days. It is not a release, and it
+carries no session process yet, so it runs the mock.

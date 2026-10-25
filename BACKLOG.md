@@ -500,7 +500,9 @@ approval the application presents. Gate: a test program runs a tool through it w
 window starting it in place of the mock, with tool calls through Mila.AI's client. Gate: a script driving the
 session process runs the equivalents of scenarios 1 to 8 and 11 on a real model; the window runs the theme's task
 on every published model that calls tools. The session process is built (`mila-desktop-session`) and its gate
-passes on Llama, Gemma and Qwen, with a real install and removal; the window still starts the mock.
+passes on Llama, Gemma and Qwen, with a real install and removal. The window starts it in place of the mock
+and runs scenarios 1 to 11 on Llama, Gemma and a real install; tool calls through Mila.AI's client and the
+theme's task remain.
 
 `Mila/Specifications/ChatDesktop.md` sections 6.1, 8
 

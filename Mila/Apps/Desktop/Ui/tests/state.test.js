@@ -164,20 +164,45 @@ test( 'loading another model clears the transcript', loadingAnotherModelClearsTh
 function aLoadedConversationBecomesTheTranscript()
 {
     const stats = { prefill_ms: 100, tokens_per_second: 40, tokens: 120, rounds: 2, finish: 'stop' };
-    const toolCalls = [ { call_id: 'k', name: 'get_weather', arguments: '{}', result: 'cloudy' } ];
+    const toolCalls = [
+        { call_id: 'k', name: 'get_weather', summary: 'Getting weather for Oslo', arguments: '{}', decision: 'allow_once', result: 'cloudy', is_error: false },
+        { call_id: 'm', name: 'get_weather', summary: 'Getting weather for Bergen', arguments: '{}', decision: null, result: null, is_error: false },
+        { call_id: 'n', name: 'get_weather', summary: 'Getting weather for Tromso', arguments: '{}', decision: 'deny', result: 'declined', is_error: true }
+    ];
     const user = { role: 'user', content: 'Hi', thought: null, tool_calls: null, attachments: null, stats: null };
     const assistant = { role: 'assistant', content: 'Hello', thought: 'greet', tool_calls: toolCalls, attachments: null, stats };
     const loaded = { type: 'conversation.loaded', id: 'c9', title: 'Hi', model: 'm', messages: [ user, assistant ] };
     const state = apply( [ loaded ] );
     const turn = state.transcript[ 1 ];
+    const tools = turn.blocks.filter( ( block ) => block.kind === 'tool' );
 
     assert.equal( state.conversationId, 'c9' );
     assert.equal( state.transcript[ 0 ].text, 'Hi' );
-    assert.deepEqual( turn.blocks.map( ( block ) => block.kind ), [ 'thought', 'tool', 'answer' ] );
+    assert.deepEqual( turn.blocks.map( ( block ) => block.kind ), [ 'thought', 'tool', 'tool', 'tool', 'answer' ] );
+    assert.deepEqual( tools.map( ( tool ) => tool.summary ), [ 'Getting weather for Oslo', 'Getting weather for Bergen', 'Getting weather for Tromso' ] );
+    assert.deepEqual( tools.map( ( tool ) => tool.notRun ), [ false, true, false ] );
+    assert.deepEqual( tools.map( ( tool ) => tool.decision ), [ 'allow_once', null, 'deny' ] );
+    assert.deepEqual( tools.map( ( tool ) => tool.isError ), [ false, false, true ] );
     assert.equal( summarizeTurn( turn ).rounds, 2 );
 }
 
 test( 'a loaded conversation becomes the transcript', aLoadedConversationBecomesTheTranscript );
+
+function aRefusedInstallIsKeptForTheModelsViewUntilTheNextModelRequest()
+{
+    const refused = { type: 'error', text: 'Installed, but loading it failed: it is a base model.', during: 'install' };
+    const turnError = { type: 'error', text: 'A reply is still being written.', during: 'turn' };
+    const installing = { type: 'model.install', name: 'gpt2-small' };
+    const afterRefusal = apply( [ refused ] );
+
+    assert.equal( afterRefusal.modelsError.text, refused.text );
+    assert.equal( afterRefusal.transcript.at( -1 ).text, refused.text, 'the transcript keeps it too' );
+    assert.equal( apply( [ refused, turnError ] ).modelsError.text, refused.text, 'an error elsewhere leaves it' );
+    assert.equal( apply( [ turnError ] ).modelsError, null );
+    assert.equal( apply( [ refused, installing ] ).modelsError, null );
+}
+
+test( 'a refused install is kept for the Models view until the next model request', aRefusedInstallIsKeptForTheModelsViewUntilTheNextModelRequest );
 
 function aReplysFiguresSumItsRoundsAndWeighTheRateByTokens()
 {

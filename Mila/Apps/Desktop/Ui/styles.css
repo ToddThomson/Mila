@@ -660,6 +660,47 @@ kbd {
 
 /* ---- Composer ---------------------------------------------------------------------------- */
 
+.log-drawer { flex: none; width: 100%; max-width: var(--measure); margin: 0 auto 8px; padding: 0 24px; }
+
+.log-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 4px;
+  margin-left: -4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.log-toggle:hover { background: var(--hover); color: var(--fg); }
+
+.log-toggle .chevron svg { width: 14px; height: 14px; }
+
+.log-drawer.open .log-toggle .chevron svg { transform: rotate(90deg); }
+
+.log-count { color: var(--faint-text); }
+
+.log-body {
+  max-height: 30vh;
+  overflow: auto;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--code-bg);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+}
+
+.log-entry + .log-entry { margin-top: 6px; }
+
+.log-entry.warning { color: var(--error); }
+
 .composer-area { flex: none; padding: 0 24px 18px; }
 
 .composer {
@@ -846,6 +887,8 @@ kbd {
 .models-heading { margin: 22px 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
 
 .models-note { margin: 0 0 10px; font-size: 14px; color: var(--muted); }
+
+.models-body .notice.error { margin: 14px 0 4px; font-size: 14px; }
 
 .model-row {
   display: flex;

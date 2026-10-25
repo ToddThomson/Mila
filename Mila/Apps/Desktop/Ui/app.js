@@ -11,6 +11,7 @@ import { createComposerView } from './views/composer.js';
 import { createSettingsView } from './views/settings.js';
 import { createModelsView } from './views/models.js';
 import { createDevelopmentView } from './views/development.js';
+import { createLogView } from './views/log.js';
 
 const narrowQuery = window.matchMedia( '(max-width: 899.98px)' );
 
@@ -25,6 +26,7 @@ const surface = {
     sidebarOverlay: false,
     settingsOpen: false,
     modelsOpen: false,
+    logOpen: false,
     expanded: new Set()
 };
 
@@ -137,6 +139,7 @@ const mainElement = document.getElementById( 'main' );
 const settingsElement = document.getElementById( 'settings' );
 const modelsElement = document.getElementById( 'models' );
 const developmentElement = document.getElementById( 'development' );
+const logElement = document.getElementById( 'log-drawer' );
 
 const sidebar = createSidebarView( sidebarElement, actions );
 const header = createHeaderView( headerElement, actions );
@@ -145,6 +148,7 @@ const composer = createComposerView( composerElement, mainElement, actions );
 const settings = createSettingsView( settingsElement, actions );
 const models = createModelsView( modelsElement, actions );
 const development = createDevelopmentView( developmentElement, transport.development, composer );
+const log = createLogView( logElement, actions );
 
 function render()
 {
@@ -162,6 +166,7 @@ function render()
     composer.render( state, surface );
     settings.render( state, surface );
     models.render( state, surface );
+    log.render( state, surface );
 }
 
 function onNarrowChange( event )

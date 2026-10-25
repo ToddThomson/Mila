@@ -255,7 +255,15 @@ namespace Mila::DesktopApp
             send( "turn.tool_approval", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", call_id },
                 { "choices", { "allow_once", "allow_conversation", "deny" } } } );
 
-            return decision.get();
+            const ToolDecision decided = decision.get();
+
+            // A stop answers the wait with Deny that the person never gave, so the stored call keeps no decision.
+            if ( !stop_asked_.load() )
+            {
+                storedCall( call_id )[ "decision" ] = decisionName( decided );
+            }
+
+            return decided;
         }
 
         void toolCalled( const ToolCall& call, std::string_view result, bool is_error ) override
@@ -267,8 +275,9 @@ namespace Mila::DesktopApp
             send( "turn.tool_result", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", call_id },
                 { "result", result }, { "is_error", is_error } } );
 
-            turn_calls_.push_back( { { "call_id", call_id }, { "name", call.name }, { "arguments", call.arguments },
-                { "result", result } } );
+            nlohmann::json& stored = storedCall( call_id );
+            stored[ "result" ] = result;
+            stored[ "is_error" ] = is_error;
         }
 
         void turnEnded( const ParsedResponse& display, std::string_view ) override
@@ -1148,13 +1157,48 @@ namespace Mila::DesktopApp
         std::string announceCall( const ToolCall& call )
         {
             announced_call_id_ = std::format( "call-{}", ++call_number_ );
+            const std::string summary = formatToolSummary( session_.tools(), call.name, call.arguments );
 
             send( "turn.tool_call", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "round", round_ },
-                { "call_id", announced_call_id_ }, { "name", call.name },
-                { "summary", formatToolSummary( session_.tools(), call.name, call.arguments ) },
+                { "call_id", announced_call_id_ }, { "name", call.name }, { "summary", summary },
                 { "arguments", call.arguments } } );
 
+            // Stored as announced, so a call the person stopped before it ran is kept with no result (6.3).
+            turn_calls_.push_back( { { "call_id", announced_call_id_ }, { "name", call.name }, { "summary", summary },
+                { "arguments", call.arguments }, { "decision", nullptr }, { "result", nullptr }, { "is_error", false } } );
+
             return announced_call_id_;
+        }
+
+        /// The stored record of a call this turn announced.
+        nlohmann::json& storedCall( const std::string& call_id )
+        {
+            for ( nlohmann::json& stored : turn_calls_ )
+            {
+                if ( stored[ "call_id" ] == call_id )
+                {
+                    return stored;
+                }
+            }
+
+            throw std::logic_error( std::format( "No call {} was announced in this turn.", call_id ) );
+        }
+
+        static std::string_view decisionName( ToolDecision decision )
+        {
+            switch ( decision )
+            {
+                case ToolDecision::AllowOnce:
+                    return "allow_once";
+
+                case ToolDecision::AllowConversation:
+                    return "allow_conversation";
+
+                case ToolDecision::Deny:
+                    return "deny";
+            }
+
+            return "deny";
         }
 
         /// The first user message, cut at a word under 60 characters (ChatDesktop.md 6.3).

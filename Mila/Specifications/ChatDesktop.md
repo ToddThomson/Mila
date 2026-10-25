@@ -6,7 +6,8 @@ whatever language suits the window. The console stays first-class on every platf
 
 **Status:** draft, 2026-10-20. Phase 1 (the page and the Electron window, against a mock session) is
 built; phase 2 (the session split, section 7) and phase 3 (the session process, section 6.1) are built,
-2026-10-24. The app's name and audience are decided (section 9, 2026-10-24). Open decisions are in section 9.
+2026-10-24, and the window runs over the real session (phase 4, section 8). The app's name and audience are
+decided (section 9, 2026-10-24). Open decisions are in section 9.
 
 ---
 
@@ -110,14 +111,17 @@ Modelled on the Claude desktop app: a sidebar on the left, the conversation on t
     language label and a copy button. Math is shown as its source in phase 1 (section 9).
   - Below each finished reply: copy, and a quiet stats line on hover (prefill ms, tok/s, tokens, rounds).
     A reply that ended on the token cap or the context bound says so in the reply, not only in stats.
+- *Log drawer:* at detail `all` only, a collapsed "Log" bar between the transcript and the composer, with the
+  count of lines; opened, the session's `log` lines in monospace, newest at the bottom.
 - *Composer:* a multi-line box (Enter sends, Shift+Enter is a newline), an attach button, drop anywhere on
   the pane to attach, attachments as removable chips above the box. While a reply is generating, *Send*
   becomes *Stop* (Esc). Attach is disabled with a tooltip naming why for a model without that modality.
 
 **Models view** (a pane over the main pane): installed models with size and quantization, *Load* (with
 the quantization choice for unquantized weights: none, fp8, fp4, q4_0), *Remove* (asks first);
-*Available to install* from the published list, *Install* with progress. A load that is refused shows the
-refusal's own text.
+*Available to install* from the published list, *Install* with progress. A load or install that is refused
+shows the refusal's own text at the top of the view, which covers the transcript, until the next load,
+install or remove.
 
 **Settings** (a side panel): sampling (temperature, top_k, top_p, presence_penalty, each with *model
 default*), effort (1-5, when the template has levels), thinking on/off, context (a number or *auto*),
@@ -199,11 +203,15 @@ The window relays every message unchanged in both directions, except the two it 
 ### 4.3 Conversation messages
 
 `[{ "role": "user" | "assistant" | "tool", "content": string, "thought": string | null,
-"tool_calls": [{ "call_id", "name", "arguments", "result" }] | null, "attachments": [{ "kind", "name" }] | null,
+"tool_calls": [{ "call_id", "name", "summary", "arguments", "decision", "result", "is_error" }] | null, "attachments": [{ "kind", "name" }] | null,
 "stats": { "prefill_ms", "tokens_per_second", "tokens", "rounds", "finish" } | null }]`
 
 The same shape is the stored conversation (section 6.3). An attachment's bytes are not stored in phase 1;
-a reopened conversation shows the attachment's name only.
+a reopened conversation shows the attachment's name only. A call keeps what its card showed live, so a
+reopened card reads the same: the `summary` of its `turn.tool_call`, the person's `decision` (null when the
+call was not asked about), and the `result` and `is_error` of its `turn.tool_result`. A call the person
+stopped before it ran has a `result` of null and is shown as not run. (Phase 4: the real session stored
+none of these, and a reopened card showed the tool's name twice, lost "Declined", and dropped a stopped call.)
 
 ### 4.4 Commands
 
@@ -456,6 +464,16 @@ interrupted the reply printed after the trace line; the renderer now writes it f
 4. **The real session in the window** (local). The window starts the session process in place of the
    mock; the page and window from phase 1 are unchanged except where the real session showed the schema
    wrong, and this document is amended in the same change.
+   *Run 2026-10-24* (RTX 5060 Ti; the Electron window over `mila-desktop-session` through
+   `MILA_DESKTOP_SESSION`, driven over the DevTools protocol, scratch stores): Llama 3.2 3B FP4 for scenarios
+   2, 3, 4, 6 (Attach disabled, with its reason) and 7 and a call that asks; Gemma 4 12B Q4_0 for 5, 1, 3 and
+   11 on the streamed reasoning path, with Allow once, Deny and Allow in this conversation; 10 as 18,264
+   streamed tokens in one reply (the multiplication tables to 40 x 40), with no frame over 17 ms and no long
+   task; 8 as `gpt2-small` into an empty store, with progress, its refused load reported as an error of the
+   install, and its removal reclaiming every file; 9 as the load's two `log` lines (the model and its memory)
+   in the drawer at detail `all`. The schema was wrong in one place: a stored call (4.3). The page lacked two
+   things section 3 describes, built in the same change: the log drawer, and a refused install shown in the
+   Models view (it had been drawn in the transcript beneath the view, out of sight).
 5. **Distribution.** Section 9.
 
 ## 9. Open decisions
