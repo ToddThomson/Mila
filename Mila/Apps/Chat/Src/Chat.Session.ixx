@@ -622,7 +622,10 @@ namespace Mila::ChatApp
          * @brief Ask whether a call may run, run it or decline it, and put its result in the history.
          *
          * A tool allowed for the conversation is not asked about again until the conversation ends, and a call of a
-         * tool nobody registered is never asked about, since nothing would run: the model reads that it has none.
+         * tool the model was not offered is never asked about, since nothing will run: the model reads that there
+         * is no such tool. Models call tools they invent -- Llama 3.1 8B asked for `get_capital` and `calculate`
+         * when offered only `get_weather` -- and one that happened to share a registered handler's name would
+         * otherwise run.
          *
          * @return False when the reply was stopped while the call waited: the call is not run, and the turn ends.
          */
@@ -630,7 +633,7 @@ namespace Mila::ChatApp
         {
             ToolDecision decision = ToolDecision::AllowOnce;
 
-            if ( tool_handlers_.contains( call.name ) && !tools_allowed_for_conversation_.contains( call.name ) )
+            if ( isOffered( call.name ) && !tools_allowed_for_conversation_.contains( call.name ) )
             {
                 decision = events_.approveToolCall( call );
             }
@@ -674,21 +677,27 @@ namespace Mila::ChatApp
         static constexpr std::string_view kStoppedResult = "The user stopped the reply before this tool call ran.";
 
         /**
-         * @brief Invoke the registered handler for a tool call.
+         * @brief Invoke the registered handler for a tool call the model was offered.
          *
-         * Returns an error string when no handler is registered for the call name so
-         * the model receives feedback rather than silently receiving an empty result.
-         *
-         * @return The handler's result, or a formatted error and true when there was none or it threw.
+         * @return The handler's result, or an error and true for a tool not offered or a handler that threw, so the
+         *         model reads what went wrong and can answer without it.
          */
         std::pair<std::string, bool> dispatchTool( const ToolCall& call )
         {
-            const auto it = tool_handlers_.find( call.name );
-
-            if ( it == tool_handlers_.end() )
+            if ( !isOffered( call.name ) )
             {
-                return { std::format( "Error: no handler registered for tool '{}'", call.name ), true };
+                std::string offered;
+
+                for ( const auto& tool : activeTools() )
+                {
+                    offered += std::format( "{}{}", offered.empty() ? "" : ", ", tool.name );
+                }
+
+                return { std::format( "Error: there is no tool named '{}'. The tools are: {}.", call.name,
+                    offered.empty() ? "none" : offered ), true };
             }
+
+            const auto it = tool_handlers_.find( call.name );
 
             try
             {
@@ -717,6 +726,13 @@ namespace Mila::ChatApp
             }
 
             return active;
+        }
+
+        bool isOffered( const std::string& name ) const
+        {
+            const std::vector<ToolDefinition> active = activeTools();
+
+            return std::ranges::any_of( active, [ &name ]( const ToolDefinition& tool ) { return tool.name == name; } );
         }
 
         /// A round's reasoning and text join the turn's display, in the order the rounds ran.
@@ -1002,6 +1018,11 @@ namespace Mila::ChatApp
          *
          * Thinking is the template's switch. Effort is set only where the template has levels -- Qwen 3.8's
          * three -- and Gemma 4 has none, so no layer writes one for it (ModelHandle.md 10.6).
+         *
+         * Tools go in the system message where the template can place them there. Llama 3.1's template puts
+         * them in the first user message by default, under an instruction to answer with a call, and Llama 3.1
+         * 8B then called a tool for every question; with them in the system message and a system prompt saying
+         * when to call, it answered 10 of 10 questions that needed none (measured 2026-10-25).
          */
         Mila::Dnn::Conversation::PromptOptions promptOptions() const
         {
@@ -1023,6 +1044,10 @@ namespace Mila::ChatApp
                 {
                     options.template_variables[ variable.name ] = qwenEffortName(
                         Mila::Dnn::Qwen::reasoningEffortFromScale( config_.thinking_effort ) );
+                }
+                else if ( variable.name == "tools_in_user_message" && !tools.empty() )
+                {
+                    options.template_variables[ variable.name ] = "false";
                 }
             }
 

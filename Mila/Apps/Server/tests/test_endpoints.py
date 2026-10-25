@@ -340,6 +340,95 @@ def test_thinking_by_default_is_at_the_templates_default_level(serve):
     assert fake.prompts[0] == fake.prompts[1]
 
 
+LLAMA_WEATHER = {"messages": [{"role": "system", "content": "Be brief."}, {"role": "user", "content": "Weather in Paris?"}],
+                 "tools": [{"type": "function", "function": WEATHER}]}
+
+
+@pytest.mark.parametrize("value", [False, "false"])
+def test_chat_template_kwargs_sets_the_templates_own_variable(serve, value):
+    # Llama 3.1 8B asks for a call on every question with the tools in the user message, and not with them in the
+    # system message (measured 2026-10-25); a client chooses with the template's own variable.
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.llama31(), "Hi.")
+
+    response = http.post("/v1/chat/completions", json={**LLAMA_WEATHER, "chat_template_kwargs": {"tools_in_user_message": value}})
+
+    assert response.status_code == 200
+    assert "You have access to the following functions" in fake.prompts[0]
+    assert "Given the following functions" not in fake.prompts[0]
+
+
+def test_chat_template_kwargs_takes_free_text_where_the_template_does(serve):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.llama31(), "Hi.")
+
+    http.post("/v1/chat/completions", json={**LLAMA_WEATHER, "chat_template_kwargs": {"date_string": "1 Jan 2030"}})
+
+    assert "Today Date: 1 Jan 2030\n" in fake.prompts[0]
+
+
+@pytest.mark.parametrize("kwargs, refused", [
+    ({"tools_in_user_message": "sometimes"}, "chat_template_kwargs.tools_in_user_message 'sometimes' is not one"),
+    ({"preserve_thinking": True}, "Its settings: tools_in_user_message, date_string"),
+    ({"enable_thinking": True}, "chat_template_kwargs.enable_thinking is not a setting"),
+    ({"tools_in_user_message": None}, "chat_template_kwargs.tools_in_user_message must be"),
+    (["tools_in_user_message"], "chat_template_kwargs must be an object"),
+])
+def test_chat_template_kwargs_the_template_cannot_take_is_refused_by_name(serve, kwargs, refused):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.llama31(), "Hi.")
+
+    response = http.post("/v1/chat/completions", json={**LLAMA_WEATHER, "chat_template_kwargs": kwargs})
+
+    assert response.status_code == 400 and refused in response.text
+    assert fake.prompts == []
+
+
+def test_thinking_off_is_met_by_a_template_without_the_switch(serve):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.llama31(), "Hi.")
+    body = {"messages": [{"role": "user", "content": "Hi"}]}
+
+    http.post("/v1/chat/completions", json=body)
+    response = http.post("/v1/chat/completions", json={**body, "chat_template_kwargs": {"enable_thinking": False}})
+
+    assert response.status_code == 200
+    assert fake.prompts[0] == fake.prompts[1]
+
+
+def test_chat_template_kwargs_thinking_off_is_not_overridden_by_thinking_by_default(serve):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.gemma(), "Hi.")
+
+    http.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "Hi"}],
+                                            "chat_template_kwargs": {"enable_thinking": False}})
+
+    assert not fake.prompts[0].startswith("<bos><|turn>system\n<|think|>")
+    assert fake.sampling[0].thinking is False
+
+
+@pytest.mark.parametrize("protocol, effort, kwargs", [
+    (mila.ChatProtocol.qwen, "none", {"enable_thinking": True}),
+    (mila.ChatProtocol.qwen, "low", {"enable_thinking": False}),
+    (mila.ChatProtocol.qwen, "low", {"reasoning_effort": "xhigh"}),
+    (mila.ChatProtocol.gemma, "high", {"enable_thinking": False}),
+])
+def test_a_reasoning_effort_that_contradicts_chat_template_kwargs_is_refused(serve, protocol, effort, kwargs):
+    http, fake = serve(OpenAIAdapter(), protocol(), "Hi.")
+
+    response = http.post("/v1/chat/completions", json={
+        "messages": [{"role": "user", "content": "Hi"}], "reasoning_effort": effort, "chat_template_kwargs": kwargs})
+
+    assert response.status_code == 400 and "contradicts chat_template_kwargs" in response.text
+    assert fake.prompts == []
+
+
+def test_a_reasoning_effort_that_agrees_with_chat_template_kwargs_is_served(serve):
+    http, fake = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
+
+    response = http.post("/v1/chat/completions", json={
+        "messages": [{"role": "user", "content": "Hi"}], "reasoning_effort": "low",
+        "chat_template_kwargs": {"reasoning_effort": "low", "enable_thinking": True}})
+
+    assert response.status_code == 200
+    assert "Reasoning effort is set to low." in fake.prompts[0]
+
+
 def test_a_result_that_answers_no_call_is_refused(serve):
     http, _ = serve(OpenAIAdapter(), mila.ChatProtocol.qwen(), "Hi.")
     body = {"messages": [{"role": "user", "content": "Hi"}, {"role": "tool", "tool_call_id": "nope", "content": "x"}]}

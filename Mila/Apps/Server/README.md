@@ -172,6 +172,11 @@ recommends a lower temperature and a presence penalty when it is not thinking. A
 win. A Chat Completions or Completions request that sends `seed` gets the same reply each time it is sent with
 the same seed and settings.
 
+A Chat Completions request can set the model's own chat template settings in `chat_template_kwargs`, as with
+vLLM: `{"tools_in_user_message": false}` puts a Llama model's tools in its system message, and
+`{"enable_thinking": false}` turns thinking off for Gemma and Qwen. A setting the model's template does not have
+is refused, and the error names the ones it has.
+
 There is no family, path or quantization setting. All three are properties of the weights, which
 the store record already states — `gemma-4-12b-it-fp4` *is* FP4 weights, and a variable that said
 otherwise could only ever be wrong.

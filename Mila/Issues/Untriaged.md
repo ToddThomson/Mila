@@ -10,17 +10,39 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
-## A Llama offered a tool calls it for every question
+## Llama 3.2 3B offered a tool in the system message says it will call it and does not
 
-`Mila/Src/Dnn/Models/LlaMa/Llama.ChatProtocol.ixx` (`tools_in_user_message`, default true) @ 5e7de360
+`Mila/Apps/Chat/Prompts/tools-weather.json`; scratch-store package `Llama-3.2-3B-Instruct-fp4` @ e8df2aef
 
-Measured 2026-10-25 in Chat at temperature 0, `tools-weather` prompt, scratch-store packages: Llama 3.1 8B FP4
-and 3.2 3B FP4 both answered "What is the capital of France?" and "Name three primary colors." with a
-`get_weather` call for Paris; 8B, declined, then explained the tool did not fit. Weather questions call it
-correctly (session gate passes). Meta's template puts the tools in the first user message with "please respond
-with a JSON for a function call ... that best answers the given prompt"; Chat's own zero-shot prompt, deleted at
-`+94`, said "If you decide to invoke". The server renders through the same template since `+68`. Not tried:
-`tools_in_user_message=false`. Transcripts `D:\Claude\grammar\console\*.2.stdout`.
+Measured 2026-10-25 at temperature 0, ten questions that need no tool and six about the weather now. With the
+tools in the system message and the system prompt saying when to call, as Chat now renders them, 3B FP4 and BF16
+alike answered all ten directly and called `get_weather` for none of the six: "I'll check the current weather
+for Berlin." and stop, or a sentence and then the call, which the Llama grammar reads as text. With the tools in
+the first user message, the template's default, it called for all sixteen. Meta's documented 3.2 prompt, with
+pythonic calls (llama-models `text_prompt_format.md`), plus the same sentence: ten of ten, three of six. Data
+`D:\Claude\llama-tools\` (`mila-3b-*`, `meta-3b-fp4.jsonl`, `chat-live-Llama-3.2-3B-Instruct-fp4.jsonl`).
+
+## Chat runs a tool call whose arguments lack a field the tool requires
+
+`Mila/Apps/Chat/Src/Chat.Session.ixx` (`dispatchTool`) @ e8df2aef
+
+2026-10-25, Llama 3.1 8B FP4: the model called `get_weather` with `{}`, its schema requiring `location`; Chat
+asked "Getting weather for {location}" with the placeholder unfilled and ran it. `ToolCalling.md` 3.2: the
+arguments are checked against the schema before anything runs.
+
+## Llama 3.1 8B FP4 writes some tool calls in a shape its template does not define
+
+`Mila/Src/Dnn/Models/LlaMa/Llama.ChatProtocol.ixx` (`templateReplyGrammar`); scratch-store package
+`Llama-3.1-8B-Instruct-fp4` @ e8df2aef
+
+Measured 2026-10-25 through the server at temperature 0, tools in the system message
+(`chat_template_kwargs.tools_in_user_message: false`) and a system prompt saying when to call: of six weather
+questions, three became calls, two were written `{"type": "function", "function": "get_weather", "parameters":
+{...}}`, and one was a sentence and then the call. The server answered those three as text, as it does any call
+that does not parse. The same questions on Q4_0 weights, Mila's and llama.cpp's alike, gave six well-formed calls,
+and on FP8 weights quantized on load six as well. In Chat, which now renders that way, two of six (the answers
+used the result) and two answered empty. Data `D:\Claude\llama-tools\mis-8b-fp4-guidance.jsonl`,
+`mila-8b-fp8-guidance.jsonl`, `chat-live-Llama-3.1-8B-Instruct-fp4.jsonl`.
 
 ## Chat's tool definitions are documented as written into the system prompt by Chat
 
@@ -63,14 +85,6 @@ install lacks them.
 
 Also Gemma 4 12B FP4 (2026-10-24, the desktop window): Todd's `gemma-4-12b-it-fp4.json`, installed 2026-10-03,
 has no `capabilities` block at all, so the session reports `thinking_capable: false` for a model that thinks.
-
-## Llama 3.2 3B calls the weather tool for a question that needs no tool
-
-`Mila/Apps/Chat/Src/main.cpp` tools-weather prompt @ c8f71f60
-
-Llama 3.2 3B calls `get_weather` for "What is the capital of France?" under the tools-weather prompt (2026-10-24,
-the console and the desktop session process alike). Its quoted arguments, which reached the tool as `'Paris`,
-were the parser's: single-quoted values are read whole since the change after e08e7802.
 
 ## A tool call ran in the desktop window without the person being asked, once
 

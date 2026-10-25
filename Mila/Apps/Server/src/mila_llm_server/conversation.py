@@ -207,6 +207,71 @@ def has_template_variable(protocol, name: str) -> bool:
     return any(variable["name"] == name for variable in protocol.template_variables)
 
 
+def chat_template_kwargs_variables(protocol, kwargs, *, field_name: str = "chat_template_kwargs") -> dict[str, str]:
+    """
+    vLLM's field for a template's own variables, which other local servers take too (InferenceServerWire.md 3.6).
+    Each key is one of the template's variables and each value one it accepts, given as text. `enable_thinking`
+    false is met as sent by a template without the switch, as `reasoning_effort` `none` is. Any other key the
+    template does not have is refused naming the ones it has: vLLM drops it, which leaves the client believing it
+    was set.
+    """
+    if kwargs is None:
+        return {}
+
+    if not isinstance(kwargs, dict):
+        raise RequestError(f"{field_name} must be an object")
+
+    variables = {}
+
+    for key, given in kwargs.items():
+        where = f"{field_name}.{key}"
+        value = _template_text(given, field_name=where)
+
+        if not has_template_variable(protocol, key):
+            if key == "enable_thinking" and value == "false":
+                continue
+
+            names = ", ".join(variable["name"] for variable in protocol.template_variables) or "none"
+            raise RequestError(f"{where} is not a setting this model's template has. Its settings: {names}")
+
+        name, value = template_variable(protocol, key, value, field_name=where)
+        variables[name] = value
+
+    return variables
+
+
+def _template_text(value, *, field_name: str) -> str:
+    """A JSON value as the template variable's text: JSON's true and false are the templates' own 'true' and 'false'."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, int):
+        return str(value)
+
+    raise RequestError(f"{field_name} must be true, false, text or an integer")
+
+
+def with_effort_variables(variables: dict[str, str], effort: str, effort_variables: dict[str, str], *,
+                          field_name: str) -> dict[str, str]:
+    """
+    The template variables a request set directly, joined with those its reasoning effort sets. Where the two
+    disagree the request is refused naming both, never settled by one of them winning.
+    """
+    for name, value in effort_variables.items():
+        if variables.get(name, value) != value:
+            raise RequestError(
+                f"{field_name} '{effort}' sets {name} to '{value}', which contradicts chat_template_kwargs.{name} '{variables[name]}'")
+
+    if effort != "none" and variables.get("enable_thinking") == "false":
+        raise RequestError(
+            f"{field_name} '{effort}' asks for reasoning, which contradicts chat_template_kwargs.enable_thinking 'false'")
+
+    return {**variables, **effort_variables}
+
+
 def reasoning_effort_variables(protocol, effort: str, *, field_name: str) -> dict[str, str]:
     """
     OpenAI's reasoning switch onto the template's own variables (InferenceServerWire.md 3.6): `none` is thinking

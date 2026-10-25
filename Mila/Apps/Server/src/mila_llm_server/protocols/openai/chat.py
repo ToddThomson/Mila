@@ -16,6 +16,7 @@ from mila_llm_server.conversation import (
     ServedReply,
     ServedRequest,
     assistant_turn,
+    chat_template_kwargs_variables,
     not_offered,
     offered_tool,
     presence_penalty_of,
@@ -24,6 +25,7 @@ from mila_llm_server.conversation import (
     seed_of,
     text_of,
     tool_turn,
+    with_effort_variables,
 )
 from mila_llm_server.protocols.base import ChatEndpoint, CompletionsCapable, ReplyContext
 from mila_llm_server.protocols.utils import (
@@ -118,10 +120,13 @@ class OpenAIChatCompletions(ChatEndpoint):
             else:
                 raise RequestError(f"{where}.role '{role}' is not one this server reads")
 
-        variables = {}
+        variables = chat_template_kwargs_variables(protocol, body.get("chat_template_kwargs"))
 
         if body.get("reasoning_effort") is not None:
-            variables.update(reasoning_effort_variables(protocol, body["reasoning_effort"], field_name="reasoning_effort"))
+            effort = body["reasoning_effort"]
+            variables = with_effort_variables(
+                variables, effort, reasoning_effort_variables(protocol, effort, field_name="reasoning_effort"),
+                field_name="reasoning_effort")
 
         stream_options = body.get("stream_options") or {}
 
