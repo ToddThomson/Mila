@@ -386,9 +386,9 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
 1. **The name of the object: `Mila::AI`,** in module `Mila.AI` — the working name, and the one the
    trait suggests.
 2. **Where Mila.AI lives: in the Mila library,** above the model level, which never imports it; the wheel and a
-   `FetchContent` consumer both get it (revised 2026-10-25, Todd; it was a library of its own at `Mila/AI/`). How
-   the build lays it out -- its directory, and whether its tool pieces are a target of their own so a program
-   wanting tools alone needs no GPU stack -- is `ToolCalling.md` open decision 4.
+   `FetchContent` consumer both get it (revised 2026-10-25, Todd; it was a library of its own at `Mila/AI/`). Its
+   directory is `Mila/Src/AI/`; whether its tool pieces become a target of their own, so a program wanting tools
+   alone needs no GPU stack, is `ToolCalling.md` decision 4.
 3. **A C ABI at the `AI` boundary: decided during v0.21.0** against the QuickStart experience, shipped
    no earlier than the release after it. It would make .NET and other compilers' C++ straightforward,
    and `Mila::AI`'s rule 1 keeps it small enough to be cheap. Its first form, over today's binding surface

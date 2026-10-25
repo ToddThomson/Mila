@@ -194,6 +194,7 @@ if(MILA_ENABLE_CUDA)
         "Data/Loaders/DataLoader.Cuda.cpp"
         # The deployment planner (Deployment.md Phase 3): the objective, limits and refusals against readings the
         # test chooses, on synthetic geometries. Runs anywhere.
+        "AI/ModelHandle.Cuda.cpp"
         "Deployment/DeploymentPlanner.Cuda.cpp"
         # G2: the readings Chat's automatic context saw, and what it picked, reproduced by the planner. Needs weights.
         "Deployment/DeploymentPlanner.G2.Cuda.cpp"

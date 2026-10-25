@@ -166,9 +166,9 @@ system's file and socket calls for the grant; HTTP, TLS and process launching co
    conversation, whether rules tighten -- for example, ask before any write that follows.
 3. **Connections through the grant.** How an application's HTTP client makes its connections through the grant,
    so every connection, a redirect's included, is checked.
-4. **Where `Mila::AI` sits in the build.** One library to the developer; whether the tool pieces are a target of
-   their own inside it, so a program wanting tools alone needs no GPU stack. `ModelHandle.md` 3.5 assumes
-   `Mila/AI/` as a separate target and follows the answer.
+4. **Where `Mila::AI` sits in the build.** *Directory decided 2026-10-25 (Todd): `Mila/Src/AI/`, built into the
+   Mila target* (`ModelHandle.md` 3.5). Still open: whether the tool pieces become a target of their own, so a
+   program wanting tools alone needs no GPU stack -- asked when such a program exists.
 5. **The record of a call:** the event's fields, and whether arguments are kept whole.
 
 ## 10. Relationship to other specs

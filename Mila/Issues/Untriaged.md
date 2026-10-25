@@ -10,6 +10,14 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## GPT-2 cannot be opened by name, because it has no deployment planner
+
+`Mila/Src/Dnn/Models/Gpt/GptModel.ixx` (`load`); an absence -- no `planDeployment`, no `load( path, request )` @ 1f310d50
+
+Found 2026-10-25 building the architecture list (`ModelHandle.md` 3.3): GPT-2 has a model and a tokenizer, but
+its one `load` takes a config and no deployment request, so it cannot be an entry and `gpt2-small` cannot be
+opened through the model handle. The spec's proof that adding an architecture is one list entry was GPT-2 (H5).
+
 ## Llama 3.2 3B offered a tool in the system message says it will call it and does not
 
 `Mila/Apps/Chat/Prompts/tools-weather.json`; scratch-store package `Llama-3.2-3B-Instruct-fp4` @ e8df2aef

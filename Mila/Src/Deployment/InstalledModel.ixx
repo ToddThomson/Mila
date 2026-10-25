@@ -15,6 +15,7 @@ export import Distribution.ModelCapabilities;
 export import Distribution.StoredModel;
 export import Data.BpeTokenizer;
 
+import Dnn.Models.Architectures;
 import Distribution.ModelRecord;
 import Distribution.ModelStore;
 
@@ -91,6 +92,12 @@ namespace Mila::Deployment
             return stored_.record.name;
         }
 
+        /// The architecture the record declares, as its manifest spells it.
+        [[nodiscard]] const std::string& architecture() const noexcept
+        {
+            return stored_.record.architecture;
+        }
+
         /// The family the record declares; ModelType::Unknown for an architecture this build does not know.
         [[nodiscard]] ModelType family() const noexcept
         {
@@ -121,13 +128,21 @@ namespace Mila::Deployment
         }
 
         /**
-         * @brief The draft model to decode with, where the package carries one and this build drafts for its family.
+         * @brief The draft model to decode with, where the package carries one and this build drafts for its
+         *        architecture.
          *
          * This is the MTP capability: present only when both hold, so the claim and the file cannot disagree.
          */
         [[nodiscard]] std::optional<std::filesystem::path> drafter() const
         {
-            if ( stored_.drafter_path.empty() || family() != ModelType::Gemma )
+            bool drafts = false;
+
+            Architectures::visit( architecture(), [&]( auto named )
+                {
+                    drafts = decltype( named )::type::drafts;
+                } );
+
+            if ( stored_.drafter_path.empty() || !drafts )
                 return std::nullopt;
 
             return stored_.drafter_path;
@@ -169,7 +184,7 @@ namespace Mila::Deployment
         /**
          * @brief The model's own tokenizer.
          *
-         * @throws std::runtime_error when the family has no tokenizer in this build or the package carries none.
+         * @throws std::runtime_error when the architecture has no tokenizer in this build or the package carries none.
          */
         [[nodiscard]] std::shared_ptr<Data::BpeTokenizer> loadTokenizer() const
         {
@@ -178,22 +193,19 @@ namespace Mila::Deployment
                 throw std::runtime_error( "'" + name() + "' carries no tokenizer" );
             }
 
-            switch ( family() )
+            std::shared_ptr<Data::BpeTokenizer> tokenizer;
+
+            Architectures::visit( architecture(), [&]( auto named )
+                {
+                    tokenizer = decltype( named )::type::loadTokenizer( stored_.tokenizer_path );
+                } );
+
+            if ( tokenizer )
             {
-                case ModelType::Gemma:
-                    return Data::BpeTokenizer::loadGemma( stored_.tokenizer_path );
-
-                case ModelType::Llama:
-                    return Data::BpeTokenizer::loadLlama32( stored_.tokenizer_path );
-
-                case ModelType::Qwen:
-                    return Data::BpeTokenizer::loadQwen( stored_.tokenizer_path );
-
-                default:
-                    break;
+                return tokenizer;
             }
 
-            throw std::runtime_error( "'" + name() + "' has architecture '" + stored_.record.architecture +
+            throw std::runtime_error( "'" + name() + "' has architecture '" + architecture() +
                 "', which has no tokenizer in this build of Mila" );
         }
 

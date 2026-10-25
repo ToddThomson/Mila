@@ -514,18 +514,27 @@ PUBLIC
         "Src/Dnn/Models/Gpt/GptModel.ixx"
         "Src/Dnn/Models/LlaMa/LlamaModel.ixx"
         "Src/Dnn/Models/LlaMa/Llama.ChatProtocol.ixx"
+        "Src/Dnn/Models/LlaMa/Llama.Architecture.ixx"
         "Src/Dnn/Models/Gemma/GemmaModel.ixx"
         "Src/Dnn/Models/Gemma/Gemma.Protocol.ixx"
         "Src/Dnn/Models/Gemma/Gemma.ChatProtocol.ixx"
+        "Src/Dnn/Models/Gemma/Gemma.Architecture.ixx"
         "Src/Dnn/Models/Qwen/QwenModel.ixx"
         "Src/Dnn/Models/Qwen/Qwen.Protocol.ixx"
         "Src/Dnn/Models/Qwen/Qwen.ChatProtocol.ixx"
+        "Src/Dnn/Models/Qwen/Qwen.Architecture.ixx"
+        "Src/Dnn/Models/ArchitectureList.ixx"
+        "Src/Dnn/Models/Architectures.ixx"
         "Src/Dnn/Models/ChatProtocolForArchitecture.ixx"
 
         # An installed model by its store name, and the family switch that plans it: above the families, which it
         # imports (Deployment.md 8.1).
         "Src/Deployment/InstalledModel.ixx"
         "Src/Deployment/InstalledModelPlanner.ixx"
+
+        # Mila::AI, the level applications are built on (Direction.md 3.2): above the model level, which never
+        # imports it.
+        "Src/AI/ModelHandle.ixx"
 
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.Workspace.ixx"

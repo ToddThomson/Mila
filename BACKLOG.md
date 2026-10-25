@@ -408,22 +408,6 @@ checked: how Anthropic and OpenAI join a message's parts, or whether the billing
 
 ### The Desktop Agent
 
-#### Three places turn a model's name into the type that loads it, each its own way
-
-`open` · `ai` · `architecture` · `api`
-
-The architecture-to-concrete erasure exists three times in two languages -- Chat's `ModelVariant`
-(`Chat.Session.ixx`, ten `std::visit` sites), the binding's per-family session classes, and the inference server's
-`ModelFamily` enum (`model_worker.py:38`). The bridge from a store name to a family, a weight format and
-capabilities is the library's since `0.21.0-dev+61` (`InstalledModel`, `Deployment.md` 8.1); what remains is the
-erasure itself. One handle and one factory in `Mila::AI`, with the architecture's identity in `Mila/Src` beside
-the manifest reader; the factory takes a deployment request; a network composed from components meets the handle
-through a C++ concept, with no registration. Tool calling's loop drives this handle, so it is built here; the
-server and the binding move onto it in v0.22.0. Moved from `Vnext.md`. Gate: adding an architecture is an edit
-in one place, and decode throughput through the handle is unchanged against the direct type.
-
-`Mila/Specifications/ModelHandle.md` section 7 (Phase 3) · `Mila/Specifications/Direction.md` 3.2, 8
-
 #### Running a model from a program means naming its concrete C++ type
 
 `open` · `ai` · `api`
@@ -431,9 +415,8 @@ in one place, and decode throughput through the handle is unchanged against the 
 The application-facing object does not exist: a program names `GemmaModel<Cuda, BF16>::load` or a sibling, and
 the tool loop, streaming and conversation state are its own to write. `Mila::AI`, the object an agent is, on
 `Direction.md` 4.2's rules: small; never decides a deployment; `plan()` and `model()` part of the contract; one
-virtual call per `respond`; a composed model first-class; named by its store name. Moved from `Vnext.md`. Gate:
-one program runs Gemma, Llama and Qwen by changing only the name, streaming and calling a tool, and a sample
-creates it over a network it composed itself.
+virtual call per `respond`; named by its store name. Moved from `Vnext.md`. Gate: one program runs Gemma, Llama
+and Qwen by changing only the name, streaming and calling a tool. A composed network is `Vnext.md`'s.
 
 `Mila/Specifications/Direction.md` section 4
 

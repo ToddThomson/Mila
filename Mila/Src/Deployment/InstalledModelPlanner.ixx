@@ -2,13 +2,13 @@
  * @file InstalledModelPlanner.ixx
  * @brief Plan an installed model by name, whatever its family, and ask which weight formats fit.
  *
- * The family switch every app made for itself, made once. See Specifications/Deployment.md 8.1 and 12.4.
+ * The family switch every app made for itself, made once, through the architecture list. See
+ * Specifications/Deployment.md 8.1 and 12.4.
  */
 
 export module Deployment.InstalledModelPlanner;
 
 import std;
-import Dnn.ModelType;
 import Dnn.WeightQuantization;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
@@ -17,9 +17,7 @@ import Deployment.InstalledModel;
 import Deployment.DeploymentRequest;
 import Deployment.DeploymentPlans;
 import Deployment.DeploymentRefusal;
-import Dnn.Models.GemmaModel;
-import Dnn.Models.LlamaModel;
-import Dnn.Models.QwenModel;
+import Dnn.Models.Architectures;
 
 namespace Mila::Deployment
 {
@@ -29,8 +27,8 @@ namespace Mila::Deployment
     /**
      * @brief Refuse an installed model no deployment can be planned for, naming why.
      *
-     * @throws std::runtime_error when its files are missing, or its family has no planner -- GPT-2, whose FP32
-     *         weights no instruct or agentic model shares, among them.
+     * @throws std::runtime_error when its files are missing, or its architecture is not in the list -- GPT-2,
+     *         which has no planner, among them.
      */
     export inline void requirePlannable( const InstalledModel& model )
     {
@@ -40,17 +38,11 @@ namespace Mila::Deployment
                 "'{}' is installed but its files are missing, so it cannot be loaded", model.name() ) );
         }
 
-        switch ( model.family() )
+        if ( !Architectures::contains( model.architecture() ) )
         {
-            case ModelType::Gemma:
-            case ModelType::Llama:
-            case ModelType::Qwen:
-                return;
-
-            default:
-                throw std::runtime_error( std::format(
-                    "'{}' has architecture '{}', which this build of Mila cannot deploy",
-                    model.name(), model.stored().record.architecture ) );
+            throw std::runtime_error( std::format(
+                "'{}' has architecture '{}', which this build of Mila cannot deploy; it deploys {}",
+                model.name(), model.architecture(), Architectures::names() ) );
         }
     }
 
@@ -68,17 +60,17 @@ namespace Mila::Deployment
     {
         requirePlannable( model );
 
-        switch ( model.family() )
-        {
-            case ModelType::Gemma:
-                return GemmaModel<TDeviceType, TPrecision>::planDeployment( model.weightsPath(), request );
+        std::optional<std::expected<DeploymentPlans, DeploymentRefusal>> planned;
 
-            case ModelType::Llama:
-                return LlamaModel<TDeviceType, TPrecision>::planDeployment( model.weightsPath(), request );
+        Architectures::visit( model.architecture(), [&]( auto named )
+            {
+                using Architecture = typename decltype( named )::type;
 
-            default:
-                return QwenModel<TDeviceType, TPrecision>::planDeployment( model.weightsPath(), request );
-        }
+                planned = Architecture::template Model<TDeviceType, TPrecision>::planDeployment(
+                    model.weightsPath(), request );
+            } );
+
+        return std::move( *planned );
     }
 
     /**

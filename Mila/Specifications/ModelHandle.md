@@ -5,9 +5,10 @@ the concrete type that loads its weights, the tokenizer that reads its text, the
 and what it can do. The handle is the foundation `Mila::AI` is built on (`Direction.md` 3.2, 5.1); this
 document stops at the handle, and `Mila::AI` and the agent core get their own.
 
-Written 2026-09-25 at `0.21.0-dev+7`. **Draft.** It proposes changes to `Mila/Src` -- two members on the
-`LanguageModel` base, a protocol interface, Llama's grammar moved into the library, and the architecture
-list -- and none of them is agreed until the decisions in section 10 are.
+Written 2026-09-25 at `0.21.0-dev+7`. The capabilities (Phase 1) and the protocol (Phase 2) are built, the
+protocol finished at `+94`; the architecture list, the handle and the factory (Phase 3) at `+96`, all but
+`adopt` (10.4, moved to `Vnext.md`). Where this document and the code differ, the code is what was decided since and the section says
+so.
 
 ---
 
@@ -90,13 +91,12 @@ So the handle adds no per-token cost and no new virtual layer beneath `generate`
 ("one virtual call per respond, none per layer or per token") is already true of the base. What the base
 lacks is what the handle has to supply: the plan, the grammar, the tokenizer and the capabilities.
 
-Two members move onto the base, because every family already has them and a caller holding the base cannot
-reach them:
-
-- `getDeploymentPlan()` -- each family keeps an identical `plan_` today.
-- `promptPrefixReuse()` -- on each of `GemmaModel`, `LlamaModel` and `QwenModel` since `0.21.0-dev+33`, which
-  replaced Qwen's `supportsPromptPrefixReuse()`: `AnyPosition` for Gemma and Llama, `SavedPosition` for Qwen,
-  which resumes only from the end of the previous prompt (`PromptCaching.md`). On the base it becomes virtual.
+Two members every family has and the base lacks -- `getDeploymentPlan()` and `promptPrefixReuse()`
+(`AnyPosition` for Gemma and Llama, `SavedPosition` for Qwen, which resumes only from the end of the previous
+prompt, `PromptCaching.md`) -- **stay on the families** (decided 2026-10-25, Todd). This section first moved them
+onto the base so that a caller holding the base could reach them; the caller holds the handle instead, and the
+factory reads both at the one point where the concrete type is known (3.6). The base is unchanged, and GPT-2,
+which has no plan, owes it nothing.
 
 ### 3.2 Capabilities: each fact from the one place that knows it
 
@@ -139,37 +139,44 @@ using Architectures = ArchitectureList<GemmaArchitecture, LlamaArchitecture, Qwe
 ```
 
 Each family contributes one descriptor, in its own directory beside its model and protocol
-(`Gemma/GemmaArchitecture.ixx`):
+(`Gemma/Gemma.Architecture.ixx`), as built at `+96`:
 
 ```cpp
 struct GemmaArchitecture
 {
-    static constexpr std::string_view name = "gemma";          // what a manifest's architecture says
+    static constexpr std::string_view name = "gemma";                        // what a manifest's architecture says
+    static constexpr std::array<std::string_view, 1> template_versions{ "4" }; // architecture_version values
+    static constexpr bool drafts = true;                                     // this build decodes with its MTP drafter
 
     template<DeviceType D, TensorDataType P>
     using Model = GemmaModel<D, P>;
 
-    using Protocol = GemmaProtocol;                              // section 3.4
-
     static std::shared_ptr<BpeTokenizer> loadTokenizer( const std::filesystem::path& path );
-
-    static void applyVariant( DeploymentRequest& request, std::string_view variant );
-
-    static constexpr bool reasoning_by_default = true;          // section 3.2, when the manifest is silent
+    static std::unique_ptr<Conversation::Protocol> chatProtocol( std::string_view version );  // null: none here
 };
 ```
 
-The factory folds over the list comparing names; an unknown name is a refusal listing the names the list
-holds. There is no registrar and no string-keyed runtime table (`CLAUDE.md`: the `OperationRegistry`
-pattern is being retired); a descriptor missing a member is a compile error.
+`ArchitectureList` (`Dnn/Models/ArchitectureList.ixx`) finds a descriptor by name -- `visit( name, visitor )`
+calls the visitor with `std::type_identity` of the one named, and says whether one was -- and gives `contains`,
+`forEach` and `names()` for refusals. There is no registrar and no string-keyed runtime table (`CLAUDE.md`: the
+`OperationRegistry` pattern is retired); a descriptor missing a member a caller uses is a compile error. Names
+compare exactly, as manifests write them.
+
+Every place in `Mila/Src` that turned an architecture into a type goes through it: `chatProtocolFor`,
+`InstalledModel::loadTokenizer` and `drafter`, `requirePlannable` and `planDeployment` in
+`Deployment.InstalledModelPlanner`, and the handle's factory. **Each architecture decides what its versions
+mean**: Gemma and Qwen take an empty `architecture_version` as their one template; Llama, with two, refuses
+it.
 
 **Adding an architecture** is the family directory, which is written anyway, plus one entry in the list.
-That is the ROADMAP's "added in one place" read honestly: one place outside the family's own code.
+That is the ROADMAP's "added in one place" read honestly: one place outside the family's own code. One
+shared file still names every family: `Dnn.ModelType`'s enum, which `LanguageModelConfig` and the
+quantization dispatch key on and which a new family's config extends regardless.
 
-`applyVariant` absorbs a mapping that exists four times today and must be kept in step by hand: the
-binding's `applyQuantizationVariant` and `applyQwenQuantizationVariant`, and Chat's `deploymentRequestFor`
-and `applyQwenQuantization`. Qwen's differs from the others (no FP8 KV type, and the codebook variant), which
-is why it is per architecture.
+What this section first proposed and the build no longer needs: `applyVariant`, because a load now reads
+the weight format from the weights header and a request names one only to quantize on load (`Deployment.md`
+12.6), so the four hand-kept mappings it would have absorbed are gone; and `reasoning_by_default`, because
+whether a model thinks is the manifest's `thinking` capability and the template's own variables (3.2, 3.4).
 
 `Direction.md` 3.2 places the identity "beside the manifest reader". It cannot sit literally there:
 `Distribution/` is independent of `Dnn` in both directions, and the list names `Dnn` types. It sits beside
@@ -314,9 +321,8 @@ Chat stopped calling and deleted at `+94`; a Llama whose record names no `archit
 Chat's catalogue. MIS's `_build_llama_prompt` is deleted when MIS moves. **Llama ships two
 templates**: 3.1's and 3.2's differ in `date_string`'s default (a fixed 26 Jul 2024, and today) and in 3.1's
 built-in tools, which the protocol does not take -- so `llama31()` and `llama32()` are two handlers, and the
-architecture alone cannot pick between them. The architecture picks the handler until a family ships a second
-template (decided 2026-10-14); Llama already has, so what names it -- the package, or the model's lineage -- is
-Phase 3's to decide.
+architecture alone cannot pick between them. The package names it: the manifest's `architecture_version`
+(`+94`), which each descriptor reads (3.3).
 
 **Gemma is made one renderer.** The Gemma protocol renders every variable of Google's template, `enable_thinking`
 and its `<|think|>` trigger included, so Chat's `formatGemmaPrompt` -- whose remaining difference is the effort
@@ -329,23 +335,28 @@ default effort is `xhigh` where Mila assumed `medium`, it groups consecutive too
 and it writes tool signatures with `tojson`'s separators and key order. Where an existing renderer differs from
 the template, the template wins and the difference is recorded as a finding.
 
-### 3.5 The handle, in `Mila/AI/`
+### 3.5 The handle, in the Mila library
 
 ```cpp
+// Src/AI/ModelHandle.ixx, module AI.ModelHandle, namespace Mila::AI
 template<DeviceType TDeviceType, TensorDataType TPrecision>
 class ModelHandle
 {
 public:
-    static ModelHandle open( std::string_view name, const DeploymentRequest& request );   // section 3.6
+    static ModelHandle open( std::string_view name, const DeploymentRequest& request,
+                             const ModelStore& store = ModelStore{} );                       // section 3.6
+    static std::expected<DeploymentPlans, DeploymentRefusal> planFor( name, request, store );
 
     LanguageModel<TDeviceType, TPrecision>& model() noexcept;         // descent: generate, observe, save
     template<typename TModel> TModel* as() noexcept;                  // the typed model, or null
 
-    const BpeTokenizer& tokenizer() const noexcept;
+    BpeTokenizer& tokenizer() const noexcept;
     const Conversation::Protocol* protocol() const noexcept;          // null for a base model
-    const Capabilities& capabilities() const noexcept;
+    const ModelCapabilities& capabilities() const noexcept;           // the package's, modalities this build runs
+    PromptPrefixReuse promptPrefixReuse() const noexcept;             // the implementation's, read at load (3.1)
     const DeploymentPlan& plan() const noexcept;
-    const ModelRecord& record() const noexcept;
+    const InstalledModel& installed() const noexcept;                 // the store's record: lineage, licence, files
+    const std::string& name() const noexcept;
 };
 ```
 
@@ -357,24 +368,29 @@ public:
 - **The handle is small and holds no conversation.** It is what a model *is*; `Mila::AI` is what a program
   does with one.
 
-`Mila/AI/` is a new library target, `Mila::AI`, in module `Mila.AI`, depending on `Mila::Mila` and never
-imported by it (`Direction.md` 8.2). The wheel and a `FetchContent` consumer both receive it.
+**`Mila::AI` is part of the Mila library, not a library of its own** (`Direction.md` decision 2, revised
+2026-10-25): `Src/AI/` is built into the Mila target, above the model level, which never imports it, so the
+wheel and a `FetchContent` consumer receive it with everything else. The `MilaAI` target in `Mila/AI/` holds
+the broker client built to the design `ToolCalling.md` replaced, and goes when that is refit.
 
 ### 3.6 The factory
 
-`open( name, request )`:
+`open( name, request )`, as built:
 
-1. Locates `name` in the store. It never pulls (`ModelDistribution.md`: pull and load are separate verbs).
-2. Resolves the record's architecture through the list (3.3); unknown is a refusal naming the list.
-3. `Architecture::applyVariant( request, record.variant )`: the caller's request with the weights' format.
-4. `Architecture::Model<D, P>::load( weights, request )`: plan, check, execute (`Deployment.md` section 7).
-   A refusal propagates as `DeploymentRefusedError`; the application words it (`Deployment.md` section 6).
-5. Loads the tokenizer, constructs the protocol when `instruct` is true, and reads the capabilities.
+1. Finds `name` in the store, case-folded (`InstalledModel::find`). It never installs (`ModelDistribution.md`:
+   install and load are separate verbs); a name not there is refused.
+2. `requirePlannable`: the files are present, and the architecture is in the list (3.3) -- unknown is a
+   refusal naming the list.
+3. For an instruct model, the protocol from the descriptor's `chatProtocol( architecture_version )`; a
+   version this build has no template for is refused here, before any file is read.
+4. The tokenizer, through the descriptor.
+5. `Architecture::Model<D, P>::load( weights, request )`: plan, check, execute (`Deployment.md` section 7). A
+   refusal propagates as `DeploymentRefusedError`; the application words it (`Deployment.md` section 6). The
+   typed model's plan and prefix reuse are read here, the one point the type is known (3.1).
 
 The factory takes a `DeploymentRequest` rather than a device from the first commit (`ROADMAP.md`), so the
-planner is the handle's entry point and not a signature change later. A preview without loading --
-`ModelHandle::planFor( name, request )`, returning the plans or the refusal -- is the same first three steps
-and the family's `planDeployment`.
+planner is the handle's entry point and not a signature change later. `planFor( name, request )` is steps 1
+and 2 and the family's `planDeployment`, allocating nothing.
 
 ### 3.7 A composed network meets the same handle
 
@@ -392,8 +408,8 @@ static ModelHandle adopt( std::unique_ptr<TModel> model,
                           Capabilities capabilities );
 ```
 
-A developer's model has no manifest, so what the factory reads from the record the developer passes. What
-`plan()` returns for a model the planner did not load is open (10.4).
+A developer's model has no manifest, so what the factory reads from the record the developer passes. Not built:
+what `plan()` returns for a model the planner did not load is open (10.4), and `adopt`'s shape follows it.
 
 ### 3.8 A model deployed for a use case
 
@@ -471,9 +487,10 @@ Bounds written before any run; each gate forced to fail once. All in the maintai
   architecture's defaults.
 - **H4. The manifest wins over the family.** A Qwen manifest declaring `reasoning: false` opens with no
   reasoning capability, and its protocol renders the thinking-off primer.
-- **H5. Adding an architecture is one list entry.** GPT-2 is the proof: it has a model and a tokenizer and no
-  protocol. Adding `Gpt2Architecture` touches its own directory and the list, nothing else; `gpt2-small`
-  opens, generates, and reports no protocol.
+- **H5. Adding an architecture is one list entry.** GPT-2 was to be the proof, and cannot be: it has no
+  planner and no `load( path, request )`, so it cannot be an entry (`Mila/Issues/Untriaged.md`, 2026-10-25).
+  As built, H5 is the structure plus N1: every `Mila/Src` site that named a family goes through the list
+  (3.3), and a name the list lacks is refused rather than routed.
 - **H6. A composed network meets the contract.** A test builds a small `LanguageModel` subclass from
   components, adopts it with no registration, and generates through the handle.
 - **P1. Protocol parity.** Each family's `Protocol` produces prompts byte-identical to the checkpoint's own
@@ -488,16 +505,24 @@ Bounds written before any run; each gate forced to fail once. All in the maintai
 
 ## 7. Phasing
 
-**Phase 1 -- capabilities.** The manifest fields and their defaults; `getDeploymentPlan` and
-`promptPrefixReuse` onto the base. *Exit:* H3, H4, N3. Independent of everything else.
+**Phase 1 -- capabilities.** The manifest fields and their defaults. *Exit:* H3, H4, N3. Independent of
+everything else. Built: `ModelCapabilities` in the manifest, read through `InstalledModel` (`+61`); the two
+members stay on the families (3.1).
 
 **Phase 2 -- the protocol.** The interface, Gemma and Qwen implementations over their free functions,
 Llama's fold into the library, Gemma's renderers made one. *Exit:* P1 for all three families. No application
-switches yet.
+switches yet. Built through `+94`.
 
-**Phase 3 -- identity, handle and factory.** The architecture list, the descriptors, `Mila/AI/` as a target
-in the wheel and a `FetchContent` consumer, `ModelHandle`, `open`, `planFor`, `adopt`. *Exit:* H1, H2, H5,
-H6, N1, N2.
+**Phase 3 -- identity, handle and factory.** The architecture list, the descriptors, `ModelHandle` in the Mila
+library (3.5), `open`, `planFor`, `adopt`. *Exit:* H1, H2, H5, H6, N1, N2. Built at `+96` but `adopt` and H6,
+which wait on 10.4 and are `Vnext.md`'s. `Tests/AI/ModelHandle.Cuda.cpp` holds H1, N1 and N2; H1 compares on every CUDA device that
+holds the model, and on 2026-10-25 did so for Gemma 4 12B FP4 and Llama 3.2 3B FP4 on both cards and Qwen 3.8
+27B FP4 on the 16 GB one. Each gate was made to fail once: `as<>` without its type check, a request's context
+ignored, a list that matches any name, the tokenizer read before the template's refusal, Gemma not drafting.
+H2, measured once on 2026-10-25 and not kept as a test (the handle's `model()` is the object the typed `load`
+returns, so the call is the same one): 256 greedy tokens after a 64-token prompt, context 4096, RTX 5060 Ti,
+three runs each, Gemma 4 12B FP4 54.60-54.65 tok/s through the handle and 54.52-54.55 typed, Llama 3.1 8B FP4
+81.23-81.25 and 81.22.
 
 The applications move in the Applications theme, onto `Mila::AI` rather than onto the handle, so each moves
 once (`ROADMAP.md`, "one release rather than three"). The criterion "no dispatch site outside the handle
@@ -530,20 +555,23 @@ there.
 
 ## 10. Open Decisions
 
-1. **The class name.** `ModelHandle` is the working name. `Mila::AI::Model` reads better in a program and
-   collides in reading, not in code, with `Mila::Dnn::Model`. Recommend `ModelHandle` until `Mila::AI`'s spec
-   shows how often a program types it.
-2. **Chat's FP32 Llama.** The only reason Chat's variant has a fourth member. Keep it through a second handle
-   instantiation, or retire FP32 inference from Chat. Recommend retiring it: every published model is
-   BF16-compute.
+1. **The class name.** *Decided 2026-10-25 (Todd): `ModelHandle`.* `Mila::AI::Model` reads better in a program
+   and collides in reading, not in code, with `Mila::Dnn::Model`; revisit when `Mila::AI`'s own object shows how
+   often a program types it.
+2. **Chat's FP32 Llama.** *Settled by events: retired.* Chat's variant holds three BF16 types and no FP32 one.
 3. **The context ceiling's one source.** Recommend the weights header (3.2), with `ChatConfiguration.md`'s
    `maximum_context_length` withdrawn and `FamilyTraits`' 131072 for Gemma deleted rather than moved. Before
    deciding, measure Gemma 4 12B above 131072 -- the 262144 in its header is HF's `max_position_embeddings`,
    and whether quality holds out there is a question the header cannot answer. If it does not, the header is
    what changes, at conversion.
-4. **`plan()` for an adopted model.** The planner did not load it. Options: the handle's plan is optional; or
-   `adopt` takes a request and plans the network it is given, since `planOnDevice` is already generic over the
-   network. Recommend the second: it keeps rule 2 of `Direction.md` 4.2 true for every `AI`.
+4. **`plan()` for an adopted model.** *Reopened 2026-10-25.* The planner did not load it. The second option
+   below was recommended and agreed, and does not hold as written: `planOnDevice` is generic over the network but
+   also takes the package's `WeightsMetadata` and trained maximum, which a composed network has none of, and a
+   network handed to `adopt` is already built, so a plan made then is priced against a device that already holds
+   it. Options: the handle's plan is optional, null for an adopted model; `adopt` takes the network unbuilt, with a
+   request and the facts the planner reads, and builds what it plans; or `adopt` takes the plan the developer
+   made. `adopt` and H6 wait on this, and both moved to `Vnext.md` (Todd, 2026-10-25): v0.21.0 finishes the
+   Mila app, which opens only installed models.
 5. **The Python projection of descent.** `mila.AI` projects the contract; how far `model()` reaches from
    Python -- the `LanguageModel` surface, or also observation -- is `PythonBinding.md`'s to decide with
    `Mila::AI`'s spec.

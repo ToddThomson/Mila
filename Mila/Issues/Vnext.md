@@ -1407,3 +1407,18 @@ the reasoning under its own heading below the first screen; `.internal/Marketing
 the other marketing docs from it.
 
 `Web/` · `README.md` · model cards
+
+## A network a developer composed cannot be put to work through `Mila::AI`
+
+`ai` · `api` · `architecture`
+
+The model handle opens an installed model by name (`0.21.0-dev+96`); a network built from components has no way
+in. `adopt` was to take it, and its shape waits on one question: what `plan()` is for a model the planner did not
+load. The planner needs the package's weights metadata and trained maximum, which a composed network lacks, and a
+network handed over already built has been priced against nothing. Options and the finding are in
+`ModelHandle.md` 10.4; gate H6 (a test composes a small `LanguageModel`, adopts it with no registration, and
+generates through the handle). Moved out of v0.21.0 by Todd, 2026-10-25, so that release finishes the Mila app,
+which opens only installed models; the two ROADMAP criteria and the `Mila::AI` object's gate clause that promised
+it went with it.
+
+`Mila/Src/AI/ModelHandle.ixx` · `Mila/Specifications/ModelHandle.md` 3.7, 10.4 · `Direction.md` decision 7

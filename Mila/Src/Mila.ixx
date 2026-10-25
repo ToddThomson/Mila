@@ -333,11 +333,24 @@ export import Dnn.Models.QwenModel;
 export import Dnn.Models.QwenModelConfig;
 export import Dnn.Models.QwenProtocol;
 export import Dnn.Models.QwenChatProtocol;
+
+// The architectures a manifest may name, each with its model type, tokenizer and chat templates (ModelHandle.md 3.3).
+export import Dnn.Models.ArchitectureList;
+export import Dnn.Models.GemmaArchitecture;
+export import Dnn.Models.LlamaArchitecture;
+export import Dnn.Models.QwenArchitecture;
+export import Dnn.Models.Architectures;
 export import Dnn.Models.ChatProtocolForArchitecture;
 
 // An installed model by its store name, and the family switch that plans it (Deployment.md 8.1).
 export import Deployment.InstalledModel;
 export import Deployment.InstalledModelPlanner;
+
+// ============================================================================
+// AI - the level applications are built on (Specifications/Direction.md 3.2)
+// ============================================================================
+// An opened model, whatever its family (ModelHandle.md).
+export import AI.ModelHandle;
 
 // ============================================================================
 // Dnn - Optimizers

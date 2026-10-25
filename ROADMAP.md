@@ -254,8 +254,8 @@ reaches no private or local address by name, by literal address or through a red
 reach their target with the check removed first; the desktop app and Chat run every tool call through `Mila::AI`,
 and neither runs a call itself nor holds a model's tool grammar; the console Chat asks before a tool runs, as the
 window does; a program built against the library alone registers a tool and runs it under `Mila::AI`'s permissions
-on Gemma, Llama and Qwen by changing only the model's name, `plan()` and `model()` reaching the objects that ran, and
-a sample does the same over a network it composed from components; no dispatch site in `Mila::AI` carries a
+on Gemma, Llama and Qwen by changing only the model's name, `plan()` and `model()` reaching the objects that ran;
+no dispatch site in `Mila::AI` carries a
 per-family branch; and across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
 measured, for every family that permits prefix reuse, Qwen from the position it saved at the end of the previous
 turn.
@@ -352,9 +352,7 @@ level of the Mila library above the model, which never imports it. It and its fa
 under *The Desktop Agent*, since tool calling stands on them; this theme's criteria are met there, except where
 the server and the binding move onto the handle, which is Applications below. Its factory
 takes a deployment request, so the planner is its entry point from the first commit rather than a
-signature change one release later. A network a developer composed from components meets the handle
-through a C++ concept — checked at compile time, with no registration — so a published model and a
-composed one pass through the same check.
+signature change one release later.
 
 **The thesis is not what is being traded away.** The erasure is one call when a session opens, not
 one per layer or per token. Everything inside the forward pass stays exactly as explicit as it is
@@ -363,8 +361,7 @@ proving Mila is not one.
 
 **Success criteria:** a new architecture is added in one place; no dispatch site outside the handle
 carries a per-family branch; a model's declared capabilities come from its manifest, and a model
-whose manifest omits a field loads rather than failing; a network composed from components meets the
-handle's contract with no registration; and the erasure costs no measurable decode throughput, since
+whose manifest omits a field loads rather than failing; and the erasure costs no measurable decode throughput, since
 it happens once per session and not once per token.
 
 #### Deployment Planning
