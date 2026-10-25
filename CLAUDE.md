@@ -36,7 +36,7 @@ Browse the tree for what is where. What the tree does not tell you:
 - **`Mila::AI`** is the level of the Mila library applications are built on (`Direction.md` 3.2), above the model
   level, which never imports it. Tool calling is its structure and every tool is the application's
   (`ToolCalling.md`). It is part of the Mila library, not a library of its own: `Mila/Src/AI/` holds the model
-  handle (`ModelHandle.md`). The separate `MilaAI` target in `Mila/AI/` holds only the client of the tool broker
+  handle (`ModelHandle.md`) and the agent, `Mila::AI::Agent` (`Direction.md` 4). The separate `MilaAI` target in `Mila/AI/` holds only the client of the tool broker
   (`Mila/Apps/Tools/Broker`, `ToolBroker.md`), both built to the design `ToolCalling.md` replaced and due to be
   refit; nothing new is built on it.
 - **`Mila/Bindings/`** is the Python projection, and is **consumer-blind**: it knows nothing about Chat or MIS. Session depth only, never components.

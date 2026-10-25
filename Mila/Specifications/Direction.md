@@ -127,7 +127,7 @@ open decision, grown to own the application contract. It holds:
   capabilities (reasoning channel, vision, prefix reuse) from the model's manifest, never from its
   family (5.1). It replaces the three erasures that exist today: Chat's `ModelVariant`, the binding's
   per-family session classes and MIS's family enum.
-- **`Mila::AI`.** The application-facing object.
+- **The agent, `Mila::AI::Agent`.** The application-facing object.
 - **The agent core and tool calling** (`ToolCalling.md`, Todd, 2026-10-25): the tool type, the permissions every
   call passes with the application's hook for asking the person, the grant that holds a tool to its folders and
   network, and the loop that parses a call, runs it, splices the result into the open turn and continues.
@@ -161,26 +161,28 @@ measurement (section 6).
 ### 4.1 Shape
 
 ```cpp
-auto ai = Mila::AI::create( "gemma-4-12b-it-fp4" );
+auto agent = Mila::AI::Agent::create( "gemma-4-12b-it-fp4" );
 
-auto response = ai.respond( "Explain transformer attention." );
-std::cout << response.text();
+auto response = agent.respond( "Explain transformer attention." );
+std::cout << response.text;
 ```
 
 With tools, streaming, and a look underneath:
 
 ```cpp
-auto ai = Mila::AI::create( "Qwen3.8-27B-cb2-3" )
+auto agent = Mila::AI::Agent::create( "Qwen3.8-27B-fp4" )
     .withTool( readFile )
-    .withTool( runTests );
+    .withTool( runTests )
+    .onAsk( askThePerson );
 
-ai.respond( "Why does the parser test fail?", onToken );
+agent.respond( "Why does the parser test fail?", onEvent );
 
-const DeploymentPlan& plan = ai.plan();   // what was decided, and what bound it
-auto& model = ai.model();                 // the handle; from here, the typed model and its components
+const DeploymentPlan& plan = agent.plan();   // what was decided, and what bound it
+auto& model = agent.model();                 // the handle; from here, the typed model and its components
 ```
 
-(Method names illustrate the shape; the object's name is decided in section 8.)
+As built at `+97` (`Mila/Src/AI/Agent.ixx`). `Agent` is `BasicAgent<Cuda, BF16>`, the pair every published model
+runs in; a program that wants another names the template.
 
 ### 4.2 Rules
 
@@ -383,8 +385,9 @@ model name resolves to the same package the objective ranks first.
 
 Settled 2026-09-23, each on the leaning this section recorded, when section 5 became v0.21.0.
 
-1. **The name of the object: `Mila::AI`,** in module `Mila.AI` — the working name, and the one the
-   trait suggests.
+1. **The name of the object: `Mila::AI::Agent`,** in module `AI.Agent` (revised 2026-10-25, Todd). It was
+   `Mila::AI`, which is now the namespace of the whole level, so the object takes the name `ToolCalling.md`
+   already gave it.
 2. **Where Mila.AI lives: in the Mila library,** above the model level, which never imports it; the wheel and a
    `FetchContent` consumer both get it (revised 2026-10-25, Todd; it was a library of its own at `Mila/AI/`). Its
    directory is `Mila/Src/AI/`; whether its tool pieces become a target of their own, so a program wanting tools
@@ -431,8 +434,8 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
 ## 10. Vocabulary
 
 - **Library**, never runtime, engine, framework or substrate.
-- **AI** is the application object. **Model**, **weights** and **package** keep their meanings from
-  `CLAUDE.md`.
+- **`Mila::AI`** is the level of the library applications are built on; **the agent** is its application
+  object. **Model**, **weights** and **package** keep their meanings from `CLAUDE.md`.
 - **Application** replaces adaptor.
 - **Harness** is a verb in the trait. As a noun it keeps its industry meaning (Codex, Claude Code), so
   Chat stops being "the chat harness" and becomes Chat, the application.

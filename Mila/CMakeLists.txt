@@ -535,6 +535,12 @@ PUBLIC
         # Mila::AI, the level applications are built on (Direction.md 3.2): above the model level, which never
         # imports it.
         "Src/AI/ModelHandle.ixx"
+        "Src/AI/Tool.ixx"
+        "Src/AI/ToolQuestion.ixx"
+        "Src/AI/ToolAnswer.ixx"
+        "Src/AI/AgentEvent.ixx"
+        "Src/AI/Response.ixx"
+        "Src/AI/Agent.ixx"
 
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.Workspace.ixx"

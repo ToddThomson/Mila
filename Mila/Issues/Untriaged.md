@@ -18,6 +18,19 @@ Found 2026-10-25 building the architecture list (`ModelHandle.md` 3.3): GPT-2 ha
 its one `load` takes a config and no deployment request, so it cannot be an entry and `gpt2-small` cannot be
 opened through the model handle. The spec's proof that adding an architecture is one list entry was GPT-2 (H5).
 
+## Llama 3.1 8B FP4 answers as though a tool's result were made up
+
+`Mila/Tests/AI/Agent.Cuda.cpp` (`askForTheWeather`); scratch-store package `Llama-3.1-8B-Instruct-fp4` @ efa24591
+
+Measured 2026-10-25 through `Mila::AI::Agent`, the publisher's sampling, seeds 1 to 6, one question about the weather
+in Paris and a tool returning "Sunny, 17 degrees Celsius." The rendered prompt is Meta's template: the result is an
+`ipython` turn, quoted as the template quotes a string. With the tools in the first user message, the template's
+default, it called once every time and then used the result once in six: "This is just an example response and may
+not reflect the actual weather", "The function `get_weather` is not defined in the given code snippet". With them in
+the system message, two of six; with that and Chat's when-to-call system prompt, one of six, three runs making no
+call. Its manifest says `agentic: false`, so the agent's gate does not ask it to. 3.2 3B in the same runs: zero of
+twenty-four. Data `D:\Claude\agent\llama_sweep.txt`, `llama_sweep2.txt`.
+
 ## Llama 3.2 3B offered a tool in the system message says it will call it and does not
 
 `Mila/Apps/Chat/Prompts/tools-weather.json`; scratch-store package `Llama-3.2-3B-Instruct-fp4` @ e8df2aef

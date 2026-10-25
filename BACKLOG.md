@@ -408,28 +408,18 @@ checked: how Anthropic and OpenAI join a message's parts, or whether the billing
 
 ### The Desktop Agent
 
-#### Running a model from a program means naming its concrete C++ type
-
-`open` · `ai` · `api`
-
-The application-facing object does not exist: a program names `GemmaModel<Cuda, BF16>::load` or a sibling, and
-the tool loop, streaming and conversation state are its own to write. `Mila::AI`, the object an agent is, on
-`Direction.md` 4.2's rules: small; never decides a deployment; `plan()` and `model()` part of the contract; one
-virtual call per `respond`; named by its store name. Moved from `Vnext.md`. Gate: one program runs Gemma, Llama
-and Qwen by changing only the name, streaming and calling a tool. A composed network is `Vnext.md`'s.
-
-`Mila/Specifications/Direction.md` section 4
-
-#### The tool loop exists only inside Chat
+#### Chat runs its tool calls in a loop of its own, and the library's loop has no limits per turn
 
 `open` · `ai` · `apps`
 
-Parse a call, run it, return the result, continue -- written once, in `Chat.Session.ixx`, so a developer's program
-that wants tools rewrites it. It moves into `Mila::AI` (`ToolCalling.md` section 4): limits per turn on rounds,
-time and reply budget; a stopped reply cancels a waiting or running call; a result larger than the context left
-is cut or refused and the model told which; the conversation is the agent's, its history and cache agreeing.
-Moved from `Vnext.md`. Gate: neither Chat's session nor the desktop app's holds a loop, and both run their calls
-through `Mila::AI`.
+Parse a call, run it, return the result, continue -- written in `Chat.Session.ixx`, and copied as it was into
+`Mila::AI::Agent` (`Mila/Src/AI/Agent.ixx`), which Chat and the desktop app do not yet use. Chat also puts a
+Llama's tools in the system message (`promptOptions`), measured 2026-10-25; moving onto the agent must not lose
+it. What the agent still lacks (`ToolCalling.md` section 4): limits per turn on rounds, time and reply budget,
+where today it stops at four rounds; a stopped reply cancels a running call; a result larger than the context
+left is cut or refused and the model told which; the conversation is the agent's, its history and cache
+agreeing. Moved from `Vnext.md`. Gate: neither Chat's session nor the desktop app's holds a loop, and both run
+their calls through `Mila::AI`.
 
 `Mila/Apps/Chat/Src/Chat.Session.ixx` (`answerToolCall`)
 

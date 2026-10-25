@@ -2,8 +2,11 @@
 
 How a model's tool calls run through `Mila::AI`: what the Mila library provides and what an application brings.
 
-**Status:** design, agreed 2026-10-25 (Todd), conceptually and with no release attached. Nothing is built to it
-yet. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
+**Status:** design, agreed 2026-10-25 (Todd), conceptually and with no release attached. Built to it at `+97`:
+`Mila::AI::Agent` (`Mila/Src/AI/Agent.ixx`) with tools registered as a callable and a schema, the ask hook and its
+three answers, no hook meaning deny, a call of a tool not offered or a tool that throws answered with an error result,
+and a stopped reply running no waiting call -- Chat's loop as it was, re-rendering the conversation each round, at
+most four rounds. The rest of sections 3 and 4 is not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
 spec -- the broker in `Mila/Apps/Tools/Broker`, the client in `Mila/AI/`, the session's own handler map in Chat --
 is refit to this one. Open decisions are in section 9.
 

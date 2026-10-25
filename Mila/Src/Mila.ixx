@@ -352,6 +352,14 @@ export import Deployment.InstalledModelPlanner;
 // An opened model, whatever its family (ModelHandle.md).
 export import AI.ModelHandle;
 
+// A model at work in a program: its conversation, its tools and the loop that runs their calls (ToolCalling.md).
+export import AI.Tool;
+export import AI.ToolQuestion;
+export import AI.ToolAnswer;
+export import AI.AgentEvent;
+export import AI.Response;
+export import AI.Agent;
+
 // ============================================================================
 // Dnn - Optimizers
 // ============================================================================
