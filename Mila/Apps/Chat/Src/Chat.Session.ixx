@@ -877,7 +877,8 @@ namespace Mila::ChatApp
         /**
          * @brief Ask whether a call may run, run it or decline it, and put its result in the history.
          *
-         * A tool allowed for the conversation is not asked about again until the conversation ends.
+         * A tool allowed for the conversation is not asked about again until the conversation ends, and a call of a
+         * tool nobody registered is never asked about, since nothing would run: the model reads that it has none.
          *
          * @return False when the reply was stopped while the call waited: the call is not run, and the turn ends.
          */
@@ -885,7 +886,7 @@ namespace Mila::ChatApp
         {
             ToolDecision decision = ToolDecision::AllowOnce;
 
-            if ( !tools_allowed_for_conversation_.contains( call.name ) )
+            if ( tool_handlers_.contains( call.name ) && !tools_allowed_for_conversation_.contains( call.name ) )
             {
                 decision = events_.approveToolCall( call );
             }

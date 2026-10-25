@@ -462,6 +462,35 @@ namespace Mila::ChatApp
                           << "    " << line << reset() << '\n';
         }
 
+        /**
+         * @brief Ask before a tool runs: what it will do, its arguments in full, then the choices.
+         *
+         * The arguments are shown whole, whatever the detail level, since they are what the person is approving.
+         * The cursor is left after the choices for the answer.
+         */
+        void printToolApproval( std::string_view summary, std::string_view arguments ) const
+        {
+            const int max_width = std::max( 20, std::min( consoleWidth() - 6, 80 ) );
+
+            std::cout << '\n';
+
+            const std::string intent = std::string( "? " ) + std::string( summary );
+            for ( const auto& line : RichText::wordWrap( intent, max_width ) )
+                std::cout << fg( 220, 190, 110 ) << "  " << line << reset() << '\n';
+
+            for ( const auto& line : RichText::wordWrap( arguments, max_width ) )
+                std::cout << fg( 160, 150, 120 ) << "    " << line << reset() << '\n';
+
+            printToolApprovalChoices();
+        }
+
+        /// The choices alone, asked again after an answer that is none of them.
+        void printToolApprovalChoices() const
+        {
+            std::cout << fg( 220, 190, 110 ) << "  Run it? [y] once, [a] for this conversation, [N]o: " << reset()
+                      << std::flush;
+        }
+
         // ── Generation stats (on demand via /stats) ───────────────────────────
 
         /// Print a block of pre-formatted stats lines, dim so they read as metadata.

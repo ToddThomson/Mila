@@ -1,270 +1,181 @@
-# Tool Calling in the Mila Inference Server
+# Tool Calling
 
-**Specification version:** 0.1
-**Target model:** Llama 3.1 8B Instruct (FP8, Alpha.4)
-**Scope:** Single tool call per turn. Parallel tool calls deferred.
+How a model's tool calls run through `Mila::AI`: what the Mila library provides and what an application brings.
 
----
-
-## Overview
-
-When a client such as Codex CLI connects to MIS and sends a request that includes tool definitions, the expected contract is identical to what the client would receive from a cloud provider like OpenAI. The cloud provider's serving layer intercepts raw model tool call output and converts it to a structured response before it leaves the server. MIS must do the same — Codex CLI has no awareness of Llama's internal `<|python_tag|>` format and expects to receive a clean, structured `function_call` output item.
-
-The tool calling flow therefore lives entirely within MIS, across three layers:
-
-```
-Codex CLI
-    │  POST /v1/responses  (input + tool definitions)
-    ▼
-MIS: parse_responses_request
-    │  build_instruct_prompt (with tools serialized into system block)
-    ▼
-Mila C++ inference
-    │  raw text output, possibly containing <|python_tag|>...
-    ▼
-MIS: ToolCallParser (via pybind11)
-    │  structured ToolCall or None
-    ▼
-MIS: format_responses_response / _stream_responses
-    │  function_call output item  OR  message output item
-    ▼
-Codex CLI
-    │  executes tool, sends result back as function_call_output turn
-    ▼
-MIS: parse_responses_request (multi-turn)
-    │  ipython role turn injected into prompt
-    ▼
-Mila C++ inference  →  final assistant response
-```
+**Status:** design, agreed 2026-10-25 (Todd), conceptually and with no release attached. Nothing is built to it
+yet. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
+spec -- the broker in `Mila/Apps/Tools/Broker`, the client in `Mila/AI/`, the session's own handler map in Chat --
+is refit to this one. Open decisions are in section 9.
 
 ---
 
-## Design Decisions
-
-### D1 — ToolCallParser lives in C++, exposed via pybind11
-
-`Chat.ToolCallParser` already implements the full detection and parsing logic for Llama 3.x tool call output:
-
-- `<|python_tag|>`-prefixed blocks (primary path for Llama 3.1)
-- Pythonic call syntax `[tool_name(key="value")]`
-- Bare JSON fallback `{"name": ..., "arguments": {...}}`
-
-This logic must not be duplicated in Python. A pybind11 binding exposes `ToolCallParser::parse(response: str) -> ToolCall | None` to the MIS Python layer.
-
-The binding returns a simple dataclass-equivalent:
-
-```python
-@dataclass
-class ToolCall:
-    id: str        # e.g. "call_1"
-    name: str      # tool name
-    arguments: str # JSON string of arguments dict
-```
-
-### D2 — Streaming is suppressed for tool call responses
-
-Tool calls cannot be streamed meaningfully — the complete output text must be accumulated before `ToolCallParser::parse()` can run. When streaming is requested and the completed output contains a tool call, MIS emits the lifecycle preamble events (`response.created`, `response.output_item.added`, `response.content_part.added`) as normal, but does not emit any `response.output_text.delta` events. It proceeds directly to the done events with a `function_call` output item.
-
-This is transparent to Codex CLI, which does not expect delta events for function call output items.
-
-### D3 — Tool definitions are passed through for Llama 3.1 8B only
-
-`parse_responses_request` currently sets `tools = None` unconditionally, because Llama 3.2 3B does not have reliable tool calling. Once Llama 3.1 8B is the active model this suppression is lifted. Tool definitions arriving from Codex CLI are forwarded to `build_instruct_prompt`, which serializes them into the system block.
-
-A model capability flag in `config.py` gates this behaviour:
-
-```python
-# config.py
-MILA_TOOL_CALLING_ENABLED=false   # set true when Llama 3.1 8B is active
-```
-
-### D4 — Parallel tool calls deferred
-
-Llama 3.1 8B can emit multiple tool calls in one turn. Codex CLI's agentic loop typically issues one tool call per turn. Parallel tool call support is deferred until single tool call flow is validated end-to-end.
-
----
-
-## Prompt Format
-
-### Tool definitions (system block)
-
-Tool definitions are serialized as JSON and appended to the system prompt. `build_instruct_prompt` already supports this via the `tools` parameter. No changes required.
-
-```
-<|begin_of_text|>
-<|start_header_id|>system<|end_header_id|>
-
-You are a helpful assistant.
-
-You have access to the following tools:
-[
-  { "type": "function", "function": { "name": "...", ... } }
-]
-<|eot_id|>
-<|start_header_id|>user<|end_header_id|>
-
-{user message}
-<|eot_id|>
-<|start_header_id|>assistant<|end_header_id|>
-
-```
-
-### Tool result turn (ipython role)
-
-Llama 3.1's convention for injecting a tool result back into the prompt is the `ipython` role. When a `function_call_output` item arrives in the next request's `input` array, `parse_responses_request` maps it to an `ipython` history turn, which `build_instruct_prompt` renders as:
-
-```
-<|start_header_id|>ipython<|end_header_id|>
-
-{tool result text}
-<|eot_id|>
-```
-
-`build_instruct_prompt` requires a small extension to pass `ipython` through as a role without filtering or mapping it.
-
----
-
-## Request Parsing Changes
-
-### parse_responses_request — tool call input handling
-
-The `input` array in a Codex CLI follow-up request (after a tool call) contains a `function_call_output` item:
-
-```json
-{
-  "type": "function_call_output",
-  "call_id": "call_1",
-  "output": "{\"temperature\": \"22C\", \"condition\": \"sunny\"}"
-}
-```
-
-This is not a `message` item and has no `role` field. `parse_responses_request` must detect it and map it to an `ipython` history turn:
-
-```python
-elif msg.get("type") == "function_call_output":
-    content = msg.get("output", "")
-    merged.append({"role": "ipython", "content": content})
-```
-
-The `call_id` is not forwarded to the prompt — Llama's format does not use it.
-
----
-
-## Response Formatting Changes
-
-### Non-streaming — format_responses_response
-
-When `ToolCallParser::parse()` returns a `ToolCall`, the response output item is a `function_call` block rather than a `message` block:
-
-```python
-def format_responses_tool_call(self, tool_call: ToolCall, response: InferenceResponse) -> dict:
-    response_id = f"resp-{uuid.uuid4().hex}"
-    return {
-        "id": response_id,
-        "object": "response",
-        "created_at": int(time.time()),
-        "model": _MODEL_NAME,
-        "status": "completed",
-        "output": [
-            {
-                "type": "function_call",
-                "id": tool_call.id,
-                "call_id": tool_call.id,
-                "name": tool_call.name,
-                "arguments": tool_call.arguments,
-            }
-        ],
-        "usage": {
-            "input_tokens": response.prompt_token_count,
-            "output_tokens": response.completion_token_count,
-            "total_tokens": response.prompt_token_count + response.completion_token_count,
-        },
-    }
-```
-
-### Streaming — _stream_responses
-
-The streaming path accumulates all tokens into `full_text` (already done). After generation completes, the `finally` block checks for a tool call before deciding which done events to emit:
-
-```python
-tool_call = parse_tool_call(full_text)   # pybind11 call
-
-if tool_call:
-    yield adapter.format_responses_stream_function_call(response_id, tool_call)
-else:
-    yield adapter.format_responses_stream_chunk(full_text, done=True, response_id=response_id)
-    yield adapter.format_responses_stream_content_part_done(response_id, full_text)
-    yield adapter.format_responses_stream_output_item_done(response_id, item_id, full_text)
-
-yield adapter.format_responses_stream_done(response_id, tool_call=tool_call, output_text=full_text)
-```
-
-`format_responses_stream_function_call` emits a single SSE event:
-
-```python
-def format_responses_stream_function_call(self, response_id: str, tool_call: ToolCall) -> str:
-    data = {
-        "type": "response.output_item.added",
-        "response_id": response_id,
-        "output_index": 0,
-        "item": {
-            "type": "function_call",
-            "id": tool_call.id,
-            "call_id": tool_call.id,
-            "name": tool_call.name,
-            "arguments": tool_call.arguments,
-            "status": "completed",
-        },
-    }
-    return f"event: response.output_item.added\ndata: {json.dumps(data)}\n\n"
-```
-
-`format_responses_stream_done` gains an optional `tool_call` parameter so it can include the `function_call` item in the `response.completed` output array when appropriate.
-
----
-
-## pybind11 Binding
-
-A new binding in the existing pybind11 module exposes `ToolCallParser::parse()`:
-
-```cpp
-py::class_<ToolCall>( m, "ToolCall" )
-    .def_readwrite( "id", &ToolCall::id )
-    .def_readwrite( "name", &ToolCall::name )
-    .def_readwrite( "arguments", &ToolCall::arguments );
-
-m.def( "parse_tool_call", []( const std::string& response ) -> std::optional<ToolCall>
-{
-    return Mila::ChatApp::ToolCallParser::parse( response );
-} );
-```
-
-On the Python side:
-
-```python
-import mila
-
-def parse_tool_call(text: str):
-    return mila.parse_tool_call(text)   # returns mila.ToolCall or None
-```
-
----
-
-## Implementation Order
-
-1. Add `ToolCall` dataclass and `parse_tool_call` pybind11 binding
-2. Add `MILA_TOOL_CALLING_ENABLED` config flag
-3. Extend `build_instruct_prompt` to pass `ipython` role through unchanged
-4. Update `parse_responses_request` to handle `function_call_output` input items and reinstate tool definitions when flag is set
-5. Add `format_responses_tool_call` and `format_responses_stream_function_call` to `OpenAIAdapter`
-6. Update `_dispatch_responses` and `_stream_responses` to call `parse_tool_call` and branch on result
-7. Validate end-to-end with Llama 3.1 8B Instruct: single tool call round-trip via Codex CLI
-
----
-
-## Out of Scope
-
-- Parallel tool calls (multiple calls per turn)
-- Tool execution within MIS (Codex CLI executes tools; MIS only parses and formats)
-- Vision / multimodal tool inputs
-- Llama 3.2 3B tool calling (unreliable; gated by config flag)
+## 1. The rule
+
+**The Mila library provides everything a developer needs to build an application like the Mila desktop app**
+(`ChatDesktop.md`). An agent's tools are the core of that app, so tool calling is the library's. Leaving it to
+each application would either give the Mila app a capability the library lacks (`Direction.md` 3.3) or require a
+second harness library, which would be Mila under another name.
+
+Two further reasons put it in the library and not in a harness across a wire. A tool result's tokens can be
+appended to the live KV cache, with no re-render and no re-tokenize (section 4), only when the loop runs in the
+process that holds the model. And how each model writes a call and expects a result is the model's own grammar.
+
+There are two pieces: **the Mila library**, which the application links, with `Mila::AI` a namespace and API inside
+it on top of the model; and, at most later, a process outside it (section 7).
+
+**Through `Mila::AI`, the application never runs a model's tool call itself.** It supplies tools and a way to ask
+the person; Mila parses the call, checks it, runs it and puts the result back into the turn. An application that
+wants to run calls its own way works at the model level (`Mila::Dnn` and the handle) and does so there: an explicit
+choice to leave the structure, not a way around it.
+
+## 2. Two levels
+
+- **The model handle: the model's tool grammar.** Writing tool definitions into the prompt in the form the model
+  was trained on; parsing calls out of the stream as the tokens arrive -- where a call starts and ends, its name and
+  arguments, several calls in one turn, a call that is malformed or cut off; writing a result back in the model's
+  own form; separating the stream into thinking, answer text and calls in progress, so an application can show text
+  live and know when a call is forming. From outside it is family-blind: the caller sees a call, a name and
+  arguments, never a family. Whether a model calls tools, or several at once, is a declared capability
+  (`ModelHandle.md`). The inference server works at this level: it parses a call and returns it, since the outside
+  harness owns its tools.
+- **The agent, in `Mila::AI`:** the loop of section 4 and the four pieces of section 3. Every call it parses runs
+  through them.
+
+## 3. The four pieces
+
+### 3.1 Tool
+
+- A name, a description, an input schema and, optionally, an output schema.
+- **Declared needs:** whether it reads files, writes files or uses the network, and which areas it touches. They
+  are facts the permissions of 3.3 decide on, not hints to the model.
+- **Names carry their source** (`<source>.<tool>`), so two sources cannot collide.
+- **The description is prompt text the model reads.** It is pinned when approved; a changed description is asked
+  about again.
+- **Registration:** a C++ callable and its schema, registered on the agent.
+
+### 3.2 Execution
+
+How a call reaches the tool. **Initially in-process only:** a function of the application, called in its process.
+
+- **The arguments are checked against the schema before anything runs.** The model's output is untrusted input.
+- A timeout, cancellation, and a cap on the result's size.
+- **A failure reaches the model as an error result,** never as an exception into the application, so the model can
+  recover.
+- Results are text or structured data, and later images for models that see.
+
+### 3.3 Permissions
+
+A gate that every call passes; inside `Mila::AI` there is no path to execution around it.
+
+- **In:** the agent, the tool, the arguments and the tool's declared needs. **Out:** allow, ask or deny, and with
+  allow a **grant** -- which folders, read-only or read-write, whether the network, the time and size caps.
+- **Rules match on arguments,** not only on the tool: a read inside the project folder can be allowed while one
+  outside it is denied.
+- **Ask goes through a hook the application supplies.** Mila decides that the person must be asked and what they
+  are shown: the tool's name and summary, every argument in full, and what it will touch. **The question is built
+  from Mila's own data, never from text the model wrote.**
+- **Answers:** once, for this conversation, or deny. Making a rule permanent is a change to the rules, never an
+  answer to a question.
+- **No hook means no one to ask,** so ask is deny.
+- **A denial reaches the model as a result** saying the person declined, so it can continue. A stopped reply
+  cancels a pending question.
+- **A record of every call** -- the decision, who decided, duration, sizes -- reaches the application as an event.
+  Where it is kept is the application's.
+
+### 3.4 Containment
+
+What holds a call to its grant. Permissions decide; containment enforces. A grant is worth nothing unless the thing
+running the tool holds it there.
+
+**For now, containment is the grant object.** Mila passes the tool its grant as an object it acts through: the tool
+opens files and makes connections through the grant, and the grant checks each at that moment. A check made ahead
+of the tool, on the text of its arguments, is not enough, since what a name leads to is known only once it is
+opened.
+
+- **Files.** The grant opens the path, then compares the opened file's final path -- after every link, junction and
+  mount point is followed -- with the granted folder's own final path, and closes and refuses anything outside it.
+  Before opening it refuses names that are not plain paths: alternate data streams (`name:stream`), device names
+  (`CON`, `NUL`, `COM1`), the `\\?\` and `\\.\` forms, and network (UNC) paths. Short 8.3 names and differences of
+  case resolve to the same final path and are caught there. A new file is checked through its folder, which must
+  itself resolve inside the grant.
+- **Network.** The grant resolves each host name itself and refuses private (RFC 1918 and IPv6 unique-local),
+  loopback, link-local and unspecified addresses. It checks the address it actually connects to, not a name, so a
+  name that resolves differently a second time gains nothing. A redirect is a new connection and is checked again.
+- **What it holds.** A tool that works through its grant is held to it. One that opens files directly is not; an
+  in-process tool is the application's own code, and that is the application's choice.
+- **Mila never claims containment it does not enforce.** A tool that would need more -- a shell, another party's
+  server, code an agent wrote -- is not offered until an implementation exists that enforces its whole grant.
+
+The checks are the hard, security-critical part, which is why they are Mila's and not each application's: written
+once, and each tested first reaching its target with the check removed, then refused with it.
+
+## 4. The loop and the splice
+
+- Generate; when a call completes, pause, run it through section 3, append the result's tokens to the live cache,
+  and continue the same turn, until the model gives its answer.
+- **Limits per turn:** the most tool rounds, the total time, the reply budget. Stopping a reply cancels a call that
+  is waiting or running.
+- **A result larger than the context left** is cut or refused, and the model told which; it never silently
+  overflows.
+- **Prefix reuse is the model's property**, read from the handle: a rewind to any position, or for a model with
+  recurrent state a return to a position it saved (`Direction.md` 5.3). The loop does not know which family it
+  drives.
+- **The conversation is the agent's;** its history and the cache always agree.
+
+## 5. What the application brings
+
+- **The tools.** Mila ships none (Todd, 2026-10-25). The Mila desktop app's tools for files and the web are its own
+  code, the first written through grants, and a developer's program could write the same.
+- **Its default rules,** and where the person's rules are kept and how they are edited: a file, a settings page, a
+  command.
+- **How a question looks:** a window, a console line, or nothing for a headless program.
+- **The project folder,** chosen with the person, which becomes the files grant.
+- **Where conversations are saved.** Mila gives a conversation as data it can restore.
+
+## 6. Later
+
+- **MCP, client and server** -- not initially. A client would add local servers started as processes over stdio
+  and remote servers over HTTP, whose tools join the same registry, so the loop and the gate treat them like any
+  other; everything a server says is untrusted, and a changed tool list withdraws its approvals. A server would
+  let an application offer its tools to other agents.
+- **Tools in a process of their own** arrive with the client: such a tool is an MCP server Mila starts over stdio.
+  The approval round trip MCP specifies for one -- its input-required result -- is `ToolBroker.md` section 5.
+- **A sandbox** under the same containment interface, enforcing a grant whole. Microsoft's execution containers are
+  kept out of Mila for now (Todd, 2026-10-25).
+- **Remote servers' sign-in tokens,** held where neither the model nor the agent's text can reach them.
+
+## 7. The broker
+
+A per-user broker is not a fifth piece. It is sections 3.2 to 3.4 hosted in a process of their own, which makes it
+an application built on the library, and it is needed only when the rules must hold against the application
+itself -- one set of rules over agents someone else wrote, under an account those agents cannot control. Rules
+inside the application protect the person from the model, steered by a hostile page or file; they cannot protect
+the person from the application, which can skip its own. `ToolBroker.md` records the broker as designed on
+2026-10-24.
+
+## 8. Layering
+
+The tool pieces need nothing of the model, and the model needs nothing of them; only the loop joins them. A program
+that wants tools alone pulls in no CUDA. What the pieces add is JSON for schemas and arguments and the operating
+system's file and socket calls for the grant; HTTP, TLS and process launching come only with section 6.
+
+## 9. Open decisions
+
+1. **Several calls in one turn:** run together or in order. Reads and writes may need different answers.
+2. **Rules after untrusted content.** Once a fetched page or a file the person did not write enters the
+   conversation, whether rules tighten -- for example, ask before any write that follows.
+3. **Connections through the grant.** How an application's HTTP client makes its connections through the grant,
+   so every connection, a redirect's included, is checked.
+4. **Where `Mila::AI` sits in the build.** One library to the developer; whether the tool pieces are a target of
+   their own inside it, so a program wanting tools alone needs no GPU stack. `ModelHandle.md` 3.5 assumes
+   `Mila/AI/` as a separate target and follows the answer.
+5. **The record of a call:** the event's fields, and whether arguments are kept whole.
+
+## 10. Relationship to other specs
+
+- `Direction.md` 3 and 8 -- the layering and decision 6, which point here.
+- `ModelHandle.md` -- the handle the grammar of section 2 lives on, and its declared capabilities.
+- `ChatDesktop.md` 4.5 -- the desktop app's question and answers, which this design's hook presents.
+- `ToolBroker.md` -- the earlier design; its approval round trip informs section 6, its checks are section 3.4's.
+- `Notebooks/LocalToolService.md` -- the reading behind both: placement, identity, secrets, the round trip
+  measured, and prior art.

@@ -131,6 +131,14 @@ means a status line or target is out of date and the rest has not been re-read.
 | [ModelSerialization.md](ModelSerialization.md) | Design | Checkpoints and the flat weights path | |
 | [HttpClient.md](HttpClient.md) | Design | The HTTP transport behind fetching | Built: `Distribution/HttpClient.ixx`, `HttpTransport.ixx` and `CurlHttpTransport.ixx` implement it and cite it. Its status line still says "proposed" |
 
+### Agents and tools
+
+| Document | Role | Decides or records | Notes |
+|---|---|---|---|
+| [ToolCalling.md](ToolCalling.md) | Design | How a model's tool calls run through `Mila::AI`: the tool, execution, permissions and the grant that contains a call, the loop and splice, and what the application brings | Agreed 2026-10-25 (Todd), with no release attached; nothing built to it yet. Mila ships no tools; MCP later. Replaces `ToolBroker.md` as the design of record. Open decisions in section 9 |
+| [ToolBroker.md](ToolBroker.md) | Design | The per-user tool broker as designed and built on 2026-10-24: one local MCP service holding the rules for each user and agent and running every tool in a worker process of its own | Replaced by `ToolCalling.md` (2026-10-25); its code is refit to that spec. Its approval round trip and path and address checks carry over |
+| [Notebooks/LocalToolService.md](Notebooks/LocalToolService.md) | Notebook | How the tool broker was reached, 2026-10-23 to 2026-10-24: placement, identity, secrets, the *Harness^2* paper's bearing, the round-trip measurement, prior art on Windows (Codex, NVIDIA OpenShell, Microsoft's MXC), and the decision to ship the first tools without an operating-system sandbox | Its placement decisions are replaced by `ToolCalling.md`; the reading and measurements stand. Phase 1 measured a warm named-pipe round trip at about 7 us median against about 14 ms to start a process per call |
+
 ### Applications
 
 | Document | Role | Decides or records | Notes |
@@ -142,8 +150,6 @@ means a status line or target is out of date and the rest has not been re-read.
 | [InferenceServerWire.md](InferenceServerWire.md) | Design | How the inference server turns each API's request into one conversation and one parsed reply back, with no family knowledge | Draft; depends on `ModelHandle.md` Phase 2, and amends its 3.4. Open decisions in section 10 |
 | [Notebooks/CpuOperationsRetirement.md](Notebooks/CpuOperationsRetirement.md) | Notebook | Retiring the CPU compute operations, 2026-10-11 | Decided: the CPU compute operations go, the CPU device and the CUDA-off build stay. Blocked on coverage: the training spine is proven only on CPU, and two Qwen 4 operations exist only on CPU |
 | [Notebooks/MilaCommandLineReview.md](Notebooks/MilaCommandLineReview.md) | Notebook | Review of the `mila` command line utility, 2026-10-10 | What the user's commands are and where they live: `Mila/Apps/` (Chat, Server, Tools/Store), the `mila-` lowercase-hyphen names, `mila-store`'s scope, no front door to the apps, and `mila-package` not shipped in v0.21.0. Open: how a MIS-only user gets a model, the fit column |
-| [ToolBroker.md](ToolBroker.md) | Design | The per-user tool broker: one local MCP service that holds the rules for each user and agent, asks the person through the application, and runs every tool in a worker process of its own | Draft, 2026-10-24; no code. Ships in v0.21.0 on Windows (ROADMAP *The Desktop Agent*), its client starting Mila.AI; first tools in section 6.1, limited by the broker's own checks with the operating-system sandbox next (6.3). Open decisions in section 10 |
-| [Notebooks/LocalToolService.md](Notebooks/LocalToolService.md) | Notebook | How the tool broker was reached, 2026-10-23 to 2026-10-24: placement, identity, secrets, the *Harness^2* paper's bearing, the round-trip measurement, prior art on Windows (Codex, NVIDIA OpenShell, Microsoft's MXC), and the decision to ship the first tools without an operating-system sandbox | Decisions owned by `ToolBroker.md` and `Direction.md` section 8 decision 6. Phase 1 measured a warm named-pipe round trip at about 7 us median against about 14 ms to start a process per call |
 | [MilaISCodexAgent.md](MilaISCodexAgent.md) | Design | The inference server's bridge from OpenAI Responses tool schemas to Llama's tool format | Describes code that ships: `protocols/openai/tool_bridge.py`, imported by `responses.py`. Written 2026-05-15 against Llama 3.2 3B; not re-read against today's bridge |
 
 ### Release

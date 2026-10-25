@@ -380,10 +380,55 @@ namespace Mila::ChatApp
             }
         }
 
-        ToolDecision approveToolCall( const ToolCall& ) override
+        /**
+         * @brief Ask at the prompt line before a tool runs (ToolBroker.md section 5).
+         *
+         * Nothing but y or a runs the call: an empty answer, end of input and Ctrl+C all decline it, and Ctrl+C
+         * also stops the reply. In one shot the question goes where everything else does, to standard error.
+         */
+        ToolDecision approveToolCall( const ToolCall& call ) override
         {
-            // The console does not ask yet (BACKLOG, "No Chat asks before a tool runs").
-            return ToolDecision::AllowOnce;
+            renderer_.stopSpinner();
+            suspendStream();
+
+            const std::string summary = formatToolSummary(
+                session_.tools(), call.name, call.arguments, "\x1b[1m", "\x1b[22m" );
+            renderer_.printToolApproval( summary, call.arguments );
+
+            std::string answer;
+
+            while ( std::getline( std::cin, answer ) )
+            {
+                if ( interruptFlag().exchange( false ) )
+                {
+                    stopAtApproval();
+
+                    return ToolDecision::Deny;
+                }
+
+                if ( const auto decision = parseToolDecision( answer ) )
+                {
+                    declined_ = *decision == ToolDecision::Deny;
+
+                    return *decision;
+                }
+
+                renderer_.printToolApprovalChoices();
+            }
+
+            // A read cut short by Ctrl+C leaves the stream failed though more input may follow; at end of input the
+            // next read fails again, so the session still ends there.
+            std::cin.clear();
+            renderer_.endUserPrompt();
+
+            if ( interruptFlag().exchange( false ) )
+            {
+                stopAtApproval();
+            }
+
+            declined_ = true;
+
+            return ToolDecision::Deny;
         }
 
         /**
@@ -394,7 +439,10 @@ namespace Mila::ChatApp
          */
         void toolCalled( const ToolCall& call, std::string_view result, bool is_error ) override
         {
-            if ( is_error )
+            const bool declined = std::exchange( declined_, false );
+
+            // A declined call is the person's own answer, not a failure to report.
+            if ( is_error && !declined )
             {
                 std::cerr << "\n[" << result << "]\n";
             }
@@ -407,7 +455,8 @@ namespace Mila::ChatApp
             const std::string summary = formatToolSummary(
                 session_.tools(), call.name, call.arguments, "\x1b[1m", "\x1b[22m" );
 
-            renderer_.printToolCall( summary, result, config().detail == DetailLevel::All );
+            renderer_.printToolCall( declined ? "Not run: " + summary : summary, result,
+                config().detail == DetailLevel::All );
         }
 
         /**
@@ -464,6 +513,13 @@ namespace Mila::ChatApp
             {
                 display_->suspendForTrace();
             }
+        }
+
+        /// Ctrl+C at the tool question: no round is running to report the stop, so it is said here.
+        void stopAtApproval()
+        {
+            session_.stop();
+            info( "Reply stopped." );
         }
 
         /// The install's progress line ends before the next sentence, which is what the install said when it finished.
@@ -1522,6 +1578,29 @@ namespace Mila::ChatApp
             return out;
         }
 
+        /// y or yes runs the call once, a or all for the conversation; empty, n or no declines; anything else is no answer.
+        static std::optional<ToolDecision> parseToolDecision( std::string_view answer )
+        {
+            std::string word;
+
+            for ( const char c : answer )
+            {
+                if ( c != ' ' && c != '\t' && c != '\r' )
+                    word += static_cast<char>( std::tolower( static_cast<unsigned char>( c ) ) );
+            }
+
+            if ( word == "y" || word == "yes" )
+                return ToolDecision::AllowOnce;
+
+            if ( word == "a" || word == "all" )
+                return ToolDecision::AllowConversation;
+
+            if ( word.empty() || word == "n" || word == "no" )
+                return ToolDecision::Deny;
+
+            return std::nullopt;
+        }
+
         static std::vector<std::string_view> splitWhitespace( std::string_view text )
         {
             std::vector<std::string_view> tokens;
@@ -1669,6 +1748,9 @@ Examples:
 
         TransferProgress transfer_;
         bool transfer_line_open_{ false };
+
+        // Set when the person declines a call at the question, read by the toolCalled() that reports it.
+        bool declined_{ false };
 
         // Set by runOnce: suppresses every display path, so standard output holds the answer
         // alone. Not a detail level -- detail says how much to show, this says show nothing.

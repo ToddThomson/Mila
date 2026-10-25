@@ -3,8 +3,8 @@
  * @brief Detects and parses Llama 3.x tool call output into a ToolCall value.
  *
  * Scans a generated response string for a <|python_tag|>-prefixed block and
- * extracts a pythonic call or JSON tool call. Falls back to bare bracket or
- * JSON detection for models that omit the prefix token.
+ * extracts a pythonic call or JSON tool call. Falls back to a reply that begins
+ * with a bracket or a brace, for models that omit the prefix token.
  */
 
 export module Chat.ToolCallParser;
@@ -26,7 +26,11 @@ namespace Mila::ChatApp
      * Detection order:
      *   1. <|python_tag|> prefix  -> parseTagged  (pythonic or JSON content)
      *   2. Leading '['            -> parsePythonicCall
-     *   3. Fallback               -> parseBareJson
+     *   3. Leading '{'            -> parseBareJson
+     *
+     * Leading means the first character after whitespace. A model that omits the prefix still begins its
+     * reply with the call, while prose may hold a bracket or a brace anywhere; reading one there would be a
+     * call the model never made, which the person would then be asked to run.
      *
      * Thread safety: parse() is stateless.
      */
@@ -51,12 +55,18 @@ namespace Mila::ChatApp
             if ( tag_pos != std::string::npos )
                 return parseTagged( response, tag_pos );
 
-            const auto bracket_pos = response.find( '[' );
+            const auto first = response.find_first_not_of( " \t\n\r" );
 
-            if ( bracket_pos != std::string::npos )
-                return parsePythonicCall( response, bracket_pos );
+            if ( first == std::string::npos )
+                return std::nullopt;
 
-            return parseBareJson( response );
+            if ( response[ first ] == '[' )
+                return parsePythonicCall( response, first );
+
+            if ( response[ first ] == '{' )
+                return parseBareJson( response );
+
+            return std::nullopt;
         }
 
     private:
@@ -190,9 +200,10 @@ namespace Mila::ChatApp
 
                 std::string value;
 
-                if ( !param.empty() && param.front() == '"' )
+                // Llama writes Python, so a string argument may be in either quote.
+                if ( !param.empty() && ( param.front() == '"' || param.front() == '\'' ) )
                 {
-                    const auto close_quote = param.find( '"', 1 );
+                    const auto close_quote = param.find( param.front(), 1 );
 
                     if ( close_quote == std::string::npos )
                         return std::nullopt;

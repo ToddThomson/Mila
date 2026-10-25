@@ -44,13 +44,13 @@ install lacks them.
 Also Gemma 4 12B FP4 (2026-10-24, the desktop window): Todd's `gemma-4-12b-it-fp4.json`, installed 2026-10-03,
 has no `capabilities` block at all, so the session reports `thinking_capable: false` for a model that thinks.
 
-## Llama's tool-call arguments keep the quote the model wrote
+## Llama 3.2 3B calls the weather tool for a question that needs no tool
 
-`Mila/Apps/Chat/Src/Chat.ToolCallParser.ixx` @ c8f71f60
+`Mila/Apps/Chat/Src/main.cpp` tools-weather prompt @ c8f71f60
 
-Llama 3.2 3B FP4's call reaches the tool as `{"location":"'Paris"}` (summary "Getting weather for 'Paris"), in
-the console before the split and in the desktop session process alike; Toronto came through clean in the same
-run. Llama 3.2 3B also calls `get_weather` for "What is the capital of France?" under the tools-weather prompt.
+Llama 3.2 3B calls `get_weather` for "What is the capital of France?" under the tools-weather prompt (2026-10-24,
+the console and the desktop session process alike). Its quoted arguments, which reached the tool as `'Paris`,
+were the parser's: single-quoted values are read whole since the change after e08e7802.
 
 ## A tool call ran in the desktop window without the person being asked, once
 

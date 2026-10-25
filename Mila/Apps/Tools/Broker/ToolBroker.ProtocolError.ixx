@@ -17,6 +17,7 @@ namespace Mila::ToolBroker
     {
         static constexpr int kParseError = -32700;
         static constexpr int kInvalidRequest = -32600;
+        static constexpr int kMethodNotFound = -32601;
         static constexpr int kInvalidParams = -32602;
         static constexpr int kInternalError = -32603;
 

@@ -4,8 +4,16 @@ One local service that executes the tool calls of every agent on a machine -- Mi
 people's -- under one set of rules, each tool in a process of its own, limited by the service's checks and, once
 section 6.3's sandbox arrives, by the operating system.
 
-**Status:** draft, 2026-10-24. The process, pipe and message layer is built and phase 3 is measured (sections 8,
-9); the checks of section 6.2, the policy, MCP's tool methods and the executable are not. The evidence behind it, and the reasoning for each decision, is
+**Status: replaced as the design of record by `ToolCalling.md` (2026-10-25, Todd).** Tool calling is `Mila::AI`'s
+structure in the Mila library, every tool comes from the application, and MCP comes later; a broker is at most an
+application built on those pieces (`ToolCalling.md` section 7). This document records the broker as designed and
+built on 2026-10-24, and the code below is refit to `ToolCalling.md`. Its approval round trip (section 5) and its
+path and address checks (section 6.2) carry into that spec; its placement, its client in Mila.AI and its first
+tools do not.
+
+**Was:** draft, 2026-10-24. The process, pipe and message layer is built and phase 3 is measured (sections 8,
+9); so are MCP's tool methods, rules held in memory, the approvals of section 5, and Mila.AI's client. The checks
+of section 6.2, where the rules are kept, the audit trace and the executable are not. The evidence behind it, and the reasoning for each decision, is
 `Notebooks/LocalToolService.md`. **Ships in v0.21.0 on Windows** (Todd, 2026-10-24), behind the desktop app's tool
 calling (`ChatDesktop.md`): the ROADMAP theme *The Desktop Agent*. Open decisions are in section 10.
 
@@ -96,6 +104,18 @@ optional limits -- folders a tool may reach, whether it may use the network, a t
 
 When the rule is ask, the broker answers the call with MCP's input-required result; the application shows the
 question to the person and retries the call with the answer. The broker decides; the application only presents.
+
+- **As built** (`ToolBroker.Broker`, 2026-10-24): the result carries one form elicitation, `approval`, whose one
+  field `decision` offers `allow_once`, `allow_conversation` and `deny`, and a request state. MCP makes that
+  state attacker-controlled input, so it is a random token the broker keeps, not data it trusts: bound to the
+  agent, the conversation, the tool and its exact arguments, used once, gone after ten minutes. A retry carrying
+  no answer is asked again; a decline, a cancel or `deny` is a declined result.
+- **Who is asking for what** travels in every request's `_meta`, since MCP keeps no session: the agent under
+  `me.toddt.mila/agent`, the conversation under `me.toddt.mila/conversation` (the reverse of the project's own
+  domain, as MCP asks of a vendor's keys). A call that names no conversation is not offered
+  `allow_conversation`.
+- **Nobody to ask:** a client that declares no form elicitation has no person behind it, so its ask is a refusal
+  (section 4) -- and MCP forbids sending it an elicitation anyway.
 
 - **Choices:** allow once, allow for this conversation, deny. Making a rule permanent is done in the policy, not
   from a prompt.
@@ -202,11 +222,17 @@ programs running as the user: they can read its memory and decrypt what it store
   user alone, refusing remote clients and refusing to start if its name is taken; and `relayOne`, which checks a
   client's message against MCP's base protocol (`parseClientMessage`), forwards it, and answers for a worker that
   sends a request, the wrong id, something other than JSON-RPC, or nothing. JSON is the vendored header Mila
-  itself wraps (Todd, 2026-10-24).
+  itself wraps (Todd, 2026-10-24). Then `Broker` (2026-10-24): `tools/list` over every worker added to it, each
+  server's list read once when it is added; `tools/call` routed to its server under the tool's own name; the
+  rules of section 4 as a `Policy` held in memory; and section 5's approvals.
 - **The client:** in Mila.AI (`Mila/AI/`), beside where the agent core will be (`Direction.md` 3.2). **Mila.AI
   starts in v0.21.0 with the client as its only content** (Todd, 2026-10-24), so it is written once, where v0.22.0
   needs it, and no application holds a client of its own (`Direction.md` 3.3). It needs nothing from `Mila/Src`: a
-  pipe, JSON and MCP.
+  pipe, JSON and MCP. Built 2026-10-24 as the target `MilaAI` (`Mila::AI`), module `Mila.AI`, namespace
+  `Mila::AI`: `BrokerClient` lists the broker's tools and calls one, turning an input-required result into an
+  `ApprovalRequest` for the application's `Approver` and retrying with the answer. Its interface holds no JSON
+  type; arguments and results are text. Its gate passes in `MilaAITests`: calls through a real broker, its pipe
+  and echo workers, with no application.
 - **Mila's own tool workers:** under the broker's folder, one program per server.
 
 ## 9. Phases
@@ -221,8 +247,10 @@ Each phase's gate is written before its run.
    with the check removed, then shown refused with it.
 3. **End to end** -- done, 2026-10-24: client to broker to a worker, with MCP framing and JSON on both hops, a
    median of about 52 us against the gate's 100 (`Notebooks/LocalToolService.md` section 11).
-4. **The broker and the two workers of section 6.1**, with section 4's rules and section 5's approvals.
-5. **The client in Mila.AI, and Chat on it:** the console and the window ask through section 5.
+4. **The broker and the two workers of section 6.1**, with section 4's rules and section 5's approvals. The rules
+   and approvals are built (2026-10-24); the workers wait on phase 2.
+5. **The client in Mila.AI, and Chat on it:** the console and the window ask through section 5. The client is
+   built (2026-10-24), and both front ends ask before a tool runs; neither reaches the broker yet.
 6. **The sandbox** (section 6.3), then the shell and third-party servers; after v0.21.0.
 
 ## 10. Open decisions

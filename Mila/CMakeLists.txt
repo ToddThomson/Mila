@@ -1176,6 +1176,12 @@ if(MILA_ENABLE_PYTHON_BINDINGS)
     add_subdirectory( Bindings )
 endif()
 
+# Mila.AI, the layer the apps are built on. In v0.21.0 it is the tool broker's client alone, and the broker
+# and its pipe are Windows' only this release (Specifications/ToolBroker.md section 6).
+if(WIN32)
+    add_subdirectory( AI )
+endif()
+
 # The apps over the library. Each is gated inside Apps/CMakeLists.txt (MILA_ENABLE_APPS, and
 # CUDA for Chat); the inference server is Python and not a CMake target.
 add_subdirectory( Apps )

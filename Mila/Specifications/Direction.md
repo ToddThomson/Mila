@@ -5,7 +5,8 @@ builds on; it is not revised by this document.
 
 Written 2026-09-19; adopted 2026-09-23, when section 5 became v0.21.0 and its open decisions were
 settled (section 8). On 2026-10-10 section 5 became v0.22.0 (Todd): v0.21.0 ships the families finished and
-measured first, and section 5 builds on them. Supersedes `MilaProductFamily.md` for everything after the v0.20 tag. That spec
+measured first, and section 5 builds on them. On 2026-10-25 tool calling was placed in `Mila::AI`, a level of
+the Mila library, by `ToolCalling.md` (3.2, 8). Supersedes `MilaProductFamily.md` for everything after the v0.20 tag. That spec
 remains the definition v0.20 ships under. Releases step by one minor at a time; section 6 is the
 releases after v0.21.0, numbered as each is scheduled.
 
@@ -98,41 +99,44 @@ Applications   Mila (desktop)   Chat   MIS (wire)   your program   Python / othe
                     \            |         |             |              /
                      +-----------+---------+-------------+-------------+
                                          |
-Mila.AI            Mila::AI  -- conversation, tools, agent core, autonomy policy
-                   Model handle + factory (architecture -> concrete type, from the manifest)
+Mila library   Mila::AI      conversation, tool calling, agent core, autonomy policy
+                             Model handle + factory (architecture -> concrete type, from the manifest)
                                          |
-Mila (Src)         planDeployment -> DeploymentPlan -> load
-                   Models, Components, Operations, Tensors, Compute
+               model level   planDeployment -> DeploymentPlan -> load
+               (Mila/Src)    Models, Components, Operations, Tensors, Compute
                                          |
                    CUDA / CPU
 ```
 
-### 3.1 Mila (`Mila/Src`)
+### 3.1 The model level (`Mila/Src`)
 
 Unchanged in role. It owns everything model-intrinsic and consumer-blind: the model as composable C++,
-generation, sampling, the KV cache, the model's native grammar including the token-level splice, and
-deployment planning. It knows nothing about conversations, tools, agents or applications. Its
-components remain a public surface a developer builds with directly (1.1), not only the material the
-shipped models are made from.
+generation, sampling, the KV cache, the model's native grammar including its tool calls and the token-level
+splice, and deployment planning. It knows nothing about conversations, tools, agents or applications;
+conversations, tools and agents are the library's one level up, in `Mila::AI` (3.2), which this level never
+imports. Its components remain a public surface a developer builds with directly (1.1), not only the material
+the shipped models are made from.
 
 ### 3.2 Mila.AI
 
-A new library, a peer beside `Mila/Src` that depends on it and is never imported by it. This is the
-"native agent core" `MilaProductFamily.md` left as an open decision, grown to own the application
-contract. It holds:
+The level of the Mila library above the model: it depends on the model level, which never imports it, and a
+developer links one library (Todd, 2026-10-25). This is the "native agent core" `MilaProductFamily.md` left as an
+open decision, grown to own the application contract. It holds:
 
 - **The model handle and factory.** The one place an architecture name becomes a concrete type, reading
   capabilities (reasoning channel, vision, prefix reuse) from the model's manifest, never from its
   family (5.1). It replaces the three erasures that exist today: Chat's `ModelVariant`, the binding's
   per-family session classes and MIS's family enum.
 - **`Mila::AI`.** The application-facing object.
-- **The agent core.** Parse a tool call, dispatch it, splice the result into the open turn, continue.
+- **The agent core and tool calling** (`ToolCalling.md`, Todd, 2026-10-25): the tool type, the permissions every
+  call passes with the application's hook for asking the person, the grant that holds a tool to its folders and
+  network, and the loop that parses a call, runs it, splices the result into the open turn and continues.
+  Through `Mila::AI` the application never runs a call itself. Every tool comes from the application; Mila ships
+  none.
 - **The autonomy policy** (after v0.21.0).
-- **The tool broker's client** (`ToolBroker.md` section 8). **Mila.AI starts in v0.21.0 with this as its only
-  content** (Todd, 2026-10-24), for the desktop app's tool calling; the rest arrives in v0.22.0 around it.
 
 `MilaProductFamily.md`'s standing rule, that there is no "runtime services" layer, still holds for
-`Mila/Src`. Mila.AI is that layer, built on purpose as its own library, so that `Mila/Src` never
+the model level. Mila.AI is that layer, built on purpose as a level of its own, so that the model level never
 acquires it one convenience class at a time.
 
 ### 3.3 Applications
@@ -381,8 +385,10 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
 
 1. **The name of the object: `Mila::AI`,** in module `Mila.AI` — the working name, and the one the
    trait suggests.
-2. **Where Mila.AI lives: `Mila/AI/`,** a peer of `Mila/Src` and `Mila/Bindings`, built as its own
-   library target that the wheel and a `FetchContent` consumer both get.
+2. **Where Mila.AI lives: in the Mila library,** above the model level, which never imports it; the wheel and a
+   `FetchContent` consumer both get it (revised 2026-10-25, Todd; it was a library of its own at `Mila/AI/`). How
+   the build lays it out -- its directory, and whether its tool pieces are a target of their own so a program
+   wanting tools alone needs no GPU stack -- is `ToolCalling.md` open decision 4.
 3. **A C ABI at the `AI` boundary: decided during v0.21.0** against the QuickStart experience, shipped
    no earlier than the release after it. It would make .NET and other compilers' C++ straightforward,
    and `Mila::AI`'s rule 1 keeps it small enough to be cheap. Its first form, over today's binding surface
@@ -393,13 +399,15 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
 5. **Sequencing against the ROADMAP: section 5 is v0.22.0,** after v0.21.0 completes Qwen 3.8 and Gemma 4
    (moved 2026-10-10, Todd; it was v0.21.0 with them), before any new chassis — which agrees with the rule that the handle is a precondition
    for every new model. Muse Glimmer follows in ROADMAP's Future. One piece comes forward (Todd, 2026-10-24):
-   v0.21.0 ships the desktop app as an agent harness with tool calling through the tool broker, and Mila.AI
-   starts then with the broker's client alone (3.2).
+   v0.21.0 ships the desktop app as an agent harness with tool calling. Its tool calling is designed in
+   `ToolCalling.md` (2026-10-25), which replaced the tool broker's design.
 6. **Tool registration: a compiled-in registry** — a callable plus a schema, registered on the `AI`.
    Declarative subprocess tools alongside it remain open for section 6, carried from
-   `MilaProductFamily.md` Open Decision 5. **Tools that need isolation run through a per-user tool broker**
-   (Todd, 2026-10-24): one local MCP service that holds the rules for each user and agent and runs every tool in a
-   worker process of its own, sandboxed once a sandbox arrives; `Mila::AI` carries its client (`ToolBroker.md`).
+   `MilaProductFamily.md` Open Decision 5. **Tool calling is `Mila::AI`'s structure** (Todd, 2026-10-25,
+   `ToolCalling.md`): every call passes its permissions and runs under a grant, every tool comes from the
+   application, and Mila ships none. MCP and tools in processes of their own come later. A per-user tool broker
+   (`ToolBroker.md`, 2026-10-24) is at most an application built on those pieces, needed only when the rules must
+   hold against the application itself.
 7. **How a composed model meets the handle: a C++ concept** the model satisfies — no registration,
    checked at compile time — so a developer's network and a published one pass through the same check.
 8. **A model runs in the format it was trained for** (2026-09-27). Producers ship quantization-aware

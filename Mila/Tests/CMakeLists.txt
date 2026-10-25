@@ -386,6 +386,13 @@ endif()
 # MilaMeasurement: the log-likelihood harness and PG-19 reader, shared with Tools/ContextProfile.
 target_link_libraries( MilaTests PRIVATE Mila MilaMeasurement gtest )
 
+# Chat's session library exists only where Chat builds (Apps/CMakeLists.txt), and its parsers
+# import the library, so their tests live in this binary rather than one of their own.
+if(TARGET MilaChatSession)
+    target_sources( MilaTests PRIVATE "Apps/Chat/ToolCallParser.Cpu.cpp" )
+    target_link_libraries( MilaTests PRIVATE MilaChatSession )
+endif()
+
 if(MILA_ENABLE_CUDA)
     # No NVML. The Gate B tests once used it to find a device driving no display, so an absolute
     # bound on unmodelled memory could be asserted on a quiet card. That question needed a
@@ -478,6 +485,7 @@ if(TARGET MilaToolBroker)
     target_link_libraries( ToolBrokerEchoWorker PRIVATE MilaToolBroker )
 
     add_executable( ToolBrokerTests
+        "Apps/ToolBroker/Broker.Windows.cpp"
         "Apps/ToolBroker/ClientMessage.cpp"
         "Apps/ToolBroker/LineChannel.Windows.cpp"
         "Apps/ToolBroker/PipeServer.Windows.cpp"
@@ -522,6 +530,36 @@ if(TARGET MilaToolBroker)
 
     add_dependencies( ToolBrokerRoundTrip ToolBrokerEchoWorker )
     target_link_libraries( ToolBrokerRoundTrip PRIVATE MilaToolBroker )
+endif()
+
+# ---------------------------------------------------------------------------
+# Mila.AI: its broker client, run against a real broker over its pipe with the
+# echo workers, and no application. Its own executable, since Mila.AI links
+# nothing of the library yet.
+# ---------------------------------------------------------------------------
+if(TARGET MilaAI AND TARGET MilaToolBroker)
+    add_executable( MilaAITests
+        "AI/BrokerClient.Windows.cpp"
+    )
+
+    set_target_properties( MilaAITests PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_compile_definitions( MilaAITests PRIVATE
+        TOOL_BROKER_ECHO_WORKER="$<TARGET_FILE:ToolBrokerEchoWorker>"
+    )
+
+    add_dependencies( MilaAITests ToolBrokerEchoWorker )
+    target_link_libraries( MilaAITests PRIVATE MilaAI MilaToolBroker gtest gtest_main )
+
+    gtest_discover_tests( MilaAITests
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        PROPERTIES
+            VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
 endif()
 
 # Packaging gates: the FetchContent subproject consumer against the local tree, and the

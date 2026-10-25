@@ -4,7 +4,8 @@
  *
  * `environment`, `directory`, `arguments` and `start-child` report what the worker was given; `keep-running` makes
  * it ignore the end of its input, as a worker that does not shut down would; anything else is echoed. Started with
- * `--json`, it is an MCP server instead, and its `test/` methods misbehave on request.
+ * `--json [label]`, it is an MCP server instead, whose replies carry the label, and its `test/` methods misbehave
+ * on request.
  */
 
 #define NOMINMAX
@@ -21,10 +22,11 @@ namespace
     }
 
     /**
-     * Answers each request with a complete result whose text is `arguments.bytes` long, so a caller chooses the
-     * reply's size, except for the `test/` methods.
+     * Answers `tools/list` with one tool, `echo`; and every other request with a complete result whose text is
+     * `arguments.text` after `label:` and the tool's name, or `arguments.bytes` long, so a caller chooses the reply's
+     * size -- except for the `test/` methods.
      */
-    int runJson()
+    int runJson( std::string_view label )
     {
         std::string line;
 
@@ -55,18 +57,32 @@ namespace
                 continue;
             } else if ( method == "test/exit" ) {
                 return 0;
+            } else if ( method == "tools/list" ) {
+                const nlohmann::json tool = { { "name", "echo" }, { "description", "Repeats its text" },
+                    { "inputSchema", { { "type", "object" }, { "properties", { { "text", { { "type", "string" } } } } } } } };
+                sendJson( { { "jsonrpc", "2.0" }, { "id", id },
+                    { "result", { { "resultType", "complete" }, { "tools", nlohmann::json::array( { tool } ) } } } } );
+                continue;
             }
 
-            std::size_t bytes = 0;
+            std::string text;
 
             if ( request.contains( "params" ) && request[ "params" ].contains( "arguments" ) )
             {
-                bytes = request[ "params" ][ "arguments" ].value( "bytes", std::size_t{ 0 } );
+                const auto& params = request[ "params" ];
+                const auto& arguments = params[ "arguments" ];
+
+                if ( arguments.contains( "text" ) )
+                {
+                    text = std::format( "{}:{}:{}", label, params.value( "name", "" ), arguments[ "text" ].get<std::string>() );
+                } else {
+                    text = std::string( arguments.value( "bytes", std::size_t{ 0 } ), 'x' );
+                }
             }
 
             sendJson( { { "jsonrpc", "2.0" }, { "id", id },
                 { "result", { { "resultType", "complete" },
-                    { "content", nlohmann::json::array( { { { "type", "text" }, { "text", std::string( bytes, 'x' ) } } } ) } } } } );
+                    { "content", nlohmann::json::array( { { { "type", "text" }, { "text", text } } } ) } } } } );
         }
 
         return 0;
@@ -141,9 +157,9 @@ int main( int argc, char** argv )
         ::Sleep( INFINITE );
     }
 
-    if ( argc == 2 && std::string_view( argv[ 1 ] ) == "--json" )
+    if ( argc >= 2 && std::string_view( argv[ 1 ] ) == "--json" )
     {
-        return runJson();
+        return runJson( argc >= 3 ? argv[ 2 ] : "echo" );
     }
 
     bool keep_running = false;

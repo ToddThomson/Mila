@@ -33,6 +33,10 @@ Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. 
 Browse the tree for what is where. What the tree does not tell you:
 
 - **`Mila/Src/`** is the runtime. `Components/`, `Compute/`, `Models/`, `Quantization/`, `Tensors/`, `Serialization/`. `Models/` and `Components/Transformers/` are split per family (`Gemma`, `Gpt`, `LlaMa`, `Qwen`) — a family owns its model, config and chat protocol together.
+- **`Mila::AI`** is the level of the Mila library applications are built on (`Direction.md` 3.2), above the model
+  level, which never imports it. Tool calling is its structure and every tool is the application's
+  (`ToolCalling.md`). Today `Mila/AI/` holds only the client of the tool broker (`Mila/Apps/Tools/Broker`,
+  `ToolBroker.md`), both built to the design `ToolCalling.md` replaced and due to be refit.
 - **`Mila/Bindings/`** is the Python projection, and is **consumer-blind**: it knows nothing about Chat or MIS. Session depth only, never components.
 - **`Mila/Apps/`** are first-class consumers, not samples — `Chat/` (`mila-chat`, human gate), `Desktop/` (Mila, the end-user desktop app: Electron window, page, and `mila-desktop-session` over Chat's session library), `Server/` (MIS, `mila-server`, which imports the binding) and `Tools/Store/` (`mila-store`, the model store from the shell). Everything under it ships; every command a user types is lowercase-hyphenated with the `mila-` prefix. See `Specifications/MilaProductFamily.md` and `Specifications/Notebooks/MilaCommandLineReview.md`.
 - **`Mila/Samples/`** is teaching code and must run in any user's environment. `QuickStart/Cpp` and `QuickStart/Python` are the paths the website's Get Started tabs link to, so they are a published surface.

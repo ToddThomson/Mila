@@ -8,12 +8,15 @@ target_sources( MilaToolBroker
 PUBLIC
     FILE_SET module_files
     TYPE CXX_MODULES FILES
+        "ToolBroker.Broker.ixx"
         "ToolBroker.ClientMessage.ixx"
         "ToolBroker.Json.ixx"
         "ToolBroker.LineChannel.ixx"
         "ToolBroker.PipeServer.ixx"
+        "ToolBroker.Policy.ixx"
         "ToolBroker.ProtocolError.ixx"
         "ToolBroker.Relay.ixx"
+        "ToolBroker.ToolRule.ixx"
         "ToolBroker.Worker.ixx"
         "ToolBroker.WorkerLimits.ixx"
         "ToolBroker.WorkerProgram.ixx"

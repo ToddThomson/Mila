@@ -221,9 +221,9 @@ line, `/model list` is `models.refresh`. The composer does not parse slash comma
 
 ### 4.5 Approving a tool call
 
-The session asks; the page only presents (`ToolBroker.md` section 5, which these messages carry unchanged once
-the broker decides). Until the broker exists, the session's own rules decide, and a tool the person has not
-allowed is asked about; afterwards the session asks when the broker's rule for that agent and tool is ask.
+The session asks; the page only presents. Who decides is `Mila::AI`'s permissions (`ToolCalling.md` 3.3), whose
+hook for asking the person these messages carry; until the session is built on them, its own rules decide, and a
+tool the person has not allowed is asked about.
 
 - After `turn.tool_call`, the session sends `turn.tool_approval` and the reply waits; `busy` stays true.
 - `allow_once` runs this call. `allow_conversation` runs it, and later calls of the same tool in this
@@ -488,9 +488,11 @@ interrupted the reply printed after the trace line; the renderer now writes it f
    desktop app] IS the showcase agentic application for end users. Mila C++23 library is the dev target
    audience." The 2026-10-20 decision -- the window built for developers deciding whether to build on
    Mila -- is withdrawn. The console stays a first-class Chat, for the developer; the app adds no
-   capability of its own (agent logic lives in Mila.AI and the tool broker).
-3. **Which release -- decided 2026-10-24 (Todd).** Phases 2 to 4 ship in v0.21.0, with tool calling through
-   the tool broker (`ToolBroker.md`), and the release moves two weeks to 2026-12-04 for them.
+   capability of its own (agent logic and tool calling live in `Mila::AI`, `ToolCalling.md`; the app's tools
+   are its own code).
+3. **Which release -- decided 2026-10-24 (Todd).** Phases 2 to 4 ship in v0.21.0, with tool calling, and the
+   release moves two weeks to 2026-12-04 for them. Tool calling was designed through a tool broker
+   (`ToolBroker.md`); on 2026-10-25 it became `Mila::AI`'s own (`ToolCalling.md`).
 4. **Distribution.** An installer, code signing (an unsigned download is warned on by SmartScreen on
    Windows; macOS needs a Developer ID and notarization) and updates. An end user installs no toolkit, so
    the app carries the CUDA runtime its session needs, under NVIDIA's redistribution terms, and states the

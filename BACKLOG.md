@@ -468,7 +468,10 @@ ask and deny rules per user, agent and tool, held where no agent writes them; ap
 input-required result; tool definitions pinned at approval; the audit trace; workers started as processes of their
 own inside a kill-on-close job, with none of the user's environment, kept warm. It registers no shell, no other
 program's tool server and no tool an agent wrote, and says so. Gate: phase 3's round trip under 100 us at the
-median, and the tests of the item above passing through the broker.
+median, and the tests of the item above passing through the broker. Built: `tools/list` and `tools/call` over
+named workers, rules held in memory, and approvals by input-required retry. Not built: where the rules are kept
+and how the person edits them, registering an agent, telling agents apart by their signed program, withdrawing
+approvals when a server's tools change, the audit trace, and the executable.
 
 `Mila/Specifications/ToolBroker.md` sections 2-7
 
@@ -480,17 +483,6 @@ The two workers of `ToolBroker.md` section 6.1: `files` (read, list, find, searc
 and its `.mila` folder, no network) and `web` (`fetch_url`; public addresses only, no files), with their default
 rules offered when the person registers the agent. Absent today: Chat's only tool is a `get_weather` stub
 (`Mila/Apps/Chat/Src/main.cpp:515`, and the same stub in `Mila/Apps/Desktop/Session/Src/main.cpp`).
-
-#### An application cannot use the tool service without writing its own client
-
-`open` · `ai` · `build`
-
-Mila.AI starts here with the broker's client as its only content (`Direction.md` 3.2): a new library at `Mila/AI/`,
-a peer of `Mila/Src` that needs nothing from it; its CMake target, module names and namespace are chosen now and
-kept by v0.22.0. It connects to the broker, lists tools for the model, calls them, and turns an ask into the
-approval the application presents. Gate: a test program runs a tool through it with no application involved.
-
-`Mila/Specifications/ToolBroker.md` section 8
 
 #### The desktop app runs only against a mock
 
@@ -506,17 +498,6 @@ theme's task remain.
 
 `Mila/Specifications/ChatDesktop.md` sections 6.1, 8
 
-#### No Chat asks before a tool runs
-
-`open` · `apps`
-
-The session asks every front end before a call runs (`SessionEvents::approveToolCall`, `ChatDesktop.md` 4.5),
-and the console answers allow-once without asking the person. `MilaProductFamily.md` calls Chat the human gate,
-and `ToolBroker.md` section 5 specifies the approval both front ends carry: the window from its schema (built
-against the mock), the console as a prompt line.
-
-`Mila/Apps/Chat/Src/Chat.ConsoleFrontEnd.ixx` (`approveToolCall`)
-
 #### Tool calling has never been driven end to end on Llama
 
 `open` · `llama` · `apps`
@@ -525,16 +506,6 @@ Gemma 4 is validated through both applications across plain-chat, single-tool an
 3.1 8B has never been driven through a single tool call, from Chat or over the wire; the framework is family-neutral,
 and what is missing is the evidence that Llama's grammar reaches it. Moved from `Vnext.md`, where moving it out had
 narrowed the Models criterion and `README.md`'s Llama section; the theme's criterion now restates it.
-
-#### Any reply containing a bracket enters Chat's tool-call parser
-
-`open` · `apps`
-
-`Chat.ToolCallParser.ixx:60` uses `response.find( '[' )` where the class's own doc comment at `:34` says "Leading
-`[`". A parse that ever succeeds on prose would emit a phantom tool call, which with approval would ask the person
-to run a tool the model never called. Moved from `Vnext.md`.
-
-`Mila/Apps/Chat/Src/Chat.ToolCallParser.ixx:60`
 
 ### Upgrades Keep Your Models
 
