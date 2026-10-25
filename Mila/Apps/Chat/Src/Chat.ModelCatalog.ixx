@@ -14,6 +14,7 @@ export import Chat.ResolvedModel;
 export import Chat.RefusalAudience;
 export import Chat.ModelListing;
 export import Chat.FootprintBudget;
+export import Chat.PublishedModel;
 
 import Chat.Ansi;
 import Chat.Config;
@@ -227,8 +228,9 @@ namespace Mila::ChatApp
         std::optional<QuantizationMode> requested_quantization = std::nullopt,
         RefusalAudience audience = RefusalAudience::Session )
     {
+        // At the shell the remedy is a command to type. Inside a session it is said in words, because the session
+        // serves front ends that do not share commands -- the console's slash commands, the window's menus.
         const bool at_shell = ( audience == RefusalAudience::Shell );
-        const std::string_view install_command = at_shell ? "mila-store install" : "/model install";
 
         const std::optional<InstalledModel> installed = InstalledModel::find( requested_name );
 
@@ -246,18 +248,23 @@ namespace Mila::ChatApp
 
             if ( available.empty() )
             {
-                throw std::runtime_error( std::format(
-                    "No model named '{}' is installed, and neither is anything else.\n"
-                    "Install one with {} <name>, or from a package you built with "
-                    "ExportArtifact --install.", requested_name, install_command ) );
+                throw std::runtime_error( at_shell
+                    ? std::format(
+                        "No model named '{}' is installed, and neither is anything else.\n"
+                        "Install one with mila-store install <name>, or from a package you built with "
+                        "ExportArtifact --install.", requested_name )
+                    : std::format(
+                        "No model named '{}' is installed, and neither is anything else. Install one first.",
+                        requested_name ) );
             }
 
             // Deliberately does not ask the publisher whether the name exists there. A load is the
             // offline command, and a typo must not become a network wait.
-            throw std::runtime_error( std::format(
-                "No model named '{}' is installed.\nInstalled: {}\n"
-                "{} shows what can be installed.", requested_name, available,
-                at_shell ? "mila-store models --online" : "/model list --online" ) );
+            throw std::runtime_error( at_shell
+                ? std::format(
+                    "No model named '{}' is installed.\nInstalled: {}\n"
+                    "mila-store models --online shows what can be installed.", requested_name, available )
+                : std::format( "No model named '{}' is installed.\nInstalled: {}", requested_name, available ) );
         }
 
         // Every message below names the model as the store holds it rather than as it was typed.
@@ -265,10 +272,14 @@ namespace Mila::ChatApp
 
         if ( !installed->isComplete() )
         {
-            throw std::runtime_error( std::format(
-                "'{}' is installed but its files are missing, so it cannot be loaded.\n"
-                "Reinstall it with {} {}, or drop the record with /model remove {}{}.",
-                name, install_command, name, name, at_shell ? " inside mila-chat" : "" ) );
+            throw std::runtime_error( at_shell
+                ? std::format(
+                    "'{}' is installed but its files are missing, so it cannot be loaded.\n"
+                    "Reinstall it with mila-store install {}, or remove it with mila-store remove {}.",
+                    name, name, name )
+                : std::format(
+                    "'{}' is installed but its files are missing, so it cannot be loaded. "
+                    "Install it again, or remove it.", name ) );
         }
 
         const ModelCapabilities capabilities = installed->capabilities();
@@ -280,10 +291,8 @@ namespace Mila::ChatApp
         if ( !capabilities.instruct )
         {
             throw std::runtime_error( std::format(
-                "'{}' is a base model, and Chat is an instruct harness -- it renders turns, "
-                "applies a chat template and keeps history, none of which a base model reads.\n"
-                "Base models generate by continuing a prompt; that is what the completion sample "
-                "is for.", name ) );
+                "'{}' is a base model: it continues text rather than answering a conversation, "
+                "so it cannot be chatted with.", name ) );
         }
 
         // The library's own refusal of a family it cannot deploy, before the resident model is released.
@@ -561,6 +570,92 @@ namespace Mila::ChatApp
     }
 
     /**
+     * @brief Every model a publisher offers, with what its manifest says.
+     *
+     * One small GET per row for the manifest, on a request the person made by name: the listing API knows neither
+     * what the transfer costs nor what the model is. A repository whose manifest cannot be read is still listed by
+     * name, with manifest_read false.
+     *
+     * @throws std::exception when the publisher cannot be listed at all.
+     */
+    export std::vector<PublishedModel> listPublishedModels( const std::string& owner )
+    {
+        std::vector<PublishedModel> published;
+
+        if constexpr ( !Mila::Distribution::kHttpTransportAvailable )
+        {
+            return published;
+        }
+
+        const auto hub = Mila::Distribution::makeDefaultModelHub();
+
+        const auto models = hub->listModels( owner );
+
+        // One repository is one model at one precision, so the repository name is the store
+        // name and matching on it is exact rather than approximate.
+        const auto installed = Mila::Distribution::ModelStore{}.list();
+
+        const auto isInstalled = [&installed]( const Mila::Distribution::HubModel& model )
+            {
+                for ( const auto& stored : installed )
+                {
+                    if ( stored.record.name == model.repository )
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            };
+
+        for ( const auto& model : models )
+        {
+            PublishedModel row;
+            row.name = model.repository;
+            row.gated = model.gated;
+            row.installed = isInstalled( model );
+
+            if ( model.hasManifest() )
+            {
+                try
+                {
+                    const Mila::Distribution::ModelCoordinate coordinate{ owner, model.repository };
+
+                    const auto manifest = Mila::Distribution::parseModelManifest(
+                        hub->fetchManifest( coordinate ), model.repository );
+
+                    for ( const auto& file : manifest.files )
+                    {
+                        row.download_bytes += file.bytes;
+                    }
+
+                    // Architecture, weight format and instruct are decided here with certainty, which is most of
+                    // why a first install fails.
+                    const ModelType family = modelTypeFromString( manifest.architecture );
+                    const auto quantization = parseWeightQuantization( manifest.weight_quantization );
+
+                    row.license = manifest.license;
+                    row.quantization = quantization.has_value()
+                        ? std::string( quantizationName( *quantization ) )
+                        : manifest.weight_quantization;
+                    row.supported = manifest.capabilities.instruct
+                        && ( family == ModelType::Gemma || family == ModelType::Llama || family == ModelType::Qwen )
+                        && quantization.has_value();
+                    row.manifest_read = true;
+                }
+                catch ( const std::exception& )
+                {
+                    // Losing one row's detail must not cost the whole listing.
+                }
+            }
+
+            published.push_back( std::move( row ) );
+        }
+
+        return published;
+    }
+
+    /**
      * @brief What is available to install, one line per model.
      *
      * The owner is supplied by the caller and never shown: one publisher makes it a constant
@@ -593,9 +688,7 @@ namespace Mila::ChatApp
             return lines;
         }
 
-        const auto hub = Mila::Distribution::makeDefaultModelHub();
-
-        const auto models = hub->listModels( owner );
+        const std::vector<PublishedModel> models = listPublishedModels( owner );
 
         if ( models.empty() )
         {
@@ -604,36 +697,6 @@ namespace Mila::ChatApp
             return lines;
         }
 
-        // One repository is one model at one precision, so the repository name is the store
-        // name and matching on it is exact rather than approximate.
-        const auto installed = Mila::Distribution::ModelStore{}.list();
-
-        const auto isInstalled = [&installed]( const Mila::Distribution::HubModel& model )
-            {
-                for ( const auto& stored : installed )
-                {
-                    if ( stored.record.name == model.repository )
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
-            };
-
-        struct OnlineDetail
-        {
-            std::uint64_t bytes{ 0 };
-
-            // From the manifest rather than the listing's `license:` tag, which is the model
-            // card's claim. The manifest is what governs once installed, so what is shown before
-            // the download is what the store will hold after it.
-            std::string license;
-
-            /// "yes", "no", "not supported", or empty when the manifest could not be read.
-            std::string_view fit;
-        };
-
         /**
          * What can be settled from a manifest alone, and nothing beyond it.
          *
@@ -641,67 +704,25 @@ namespace Mila::ChatApp
          * `not supported` for a base model or an architecture this build lacks, which no card would
          * change; `no` and `yes` for the card.
          *
-         * Architecture, weight format and instruct are decided here with certainty, which is most of why
-         * a first install fails. Memory is not: the manifest has no geometry, so there is no
-         * footprint to predict, and the download size is a LOWER bound on the device weights rather
-         * than an estimate of them -- FP4 unpacks, and the unquantized tables ride along. That
-         * bound still buys the one honest memory verdict: a download larger than the whole card
-         * cannot possibly fit, so that `no` is certain where the `yes` beside it is provisional.
+         * Memory is not settled: the manifest has no geometry, so there is no footprint to predict, and the
+         * download size is a LOWER bound on the device weights rather than an estimate of them -- FP4 unpacks,
+         * and the unquantized tables ride along. That bound still buys the one honest memory verdict: a download
+         * larger than the whole card cannot possibly fit, so that `no` is certain where the `yes` beside it is
+         * provisional.
          */
-        const auto fitOf = [available_bytes](
-            const Mila::Distribution::ModelManifest& manifest,
-            std::uint64_t bytes ) -> std::string_view
+        const auto fitOf = [available_bytes]( const PublishedModel& model ) -> std::string_view
             {
-                const ModelType family = modelTypeFromString( manifest.architecture );
+                if ( !model.manifest_read )
+                {
+                    return {};
+                }
 
-                if ( !manifest.capabilities.instruct
-                    || ( family != ModelType::Gemma && family != ModelType::Llama && family != ModelType::Qwen )
-                    || !parseWeightQuantization( manifest.weight_quantization ).has_value() )
+                if ( !model.supported )
                 {
                     return "not supported";
                 }
 
-                return ( available_bytes > 0 && bytes > available_bytes ) ? "no" : "yes";
-            };
-
-        // What the transfer costs and what the model is -- both the manifest's answer, and the
-        // repository listing knows neither. The size in particular is not the repo's size: a repo
-        // also holds README, LICENSE and .gitattributes, and Mila fetches none of them. One small
-        // GET per row, on a command the user asked for by name.
-        const auto describe =
-            [&hub, &owner, &fitOf]( const Mila::Distribution::HubModel& model ) -> OnlineDetail
-            {
-                if ( !model.hasManifest() )
-                {
-                    return {};
-                }
-
-                try
-                {
-                    const Mila::Distribution::ModelCoordinate coordinate{
-                        owner, model.repository };
-
-                    const auto manifest = Mila::Distribution::parseModelManifest(
-                        hub->fetchManifest( coordinate ), model.repository );
-
-                    OnlineDetail detail;
-                    detail.license = manifest.license;
-
-                    for ( const auto& file : manifest.files )
-                    {
-                        detail.bytes += file.bytes;
-                    }
-
-                    detail.fit = fitOf( manifest, detail.bytes );
-
-                    return detail;
-                }
-                catch ( const std::exception& )
-                {
-                    // A repository whose manifest cannot be read is still worth listing by name.
-                    // Losing one row's detail must not cost the whole listing.
-                    return {};
-                }
+                return ( available_bytes > 0 && model.download_bytes > available_bytes ) ? "no" : "yes";
             };
 
         // Every field carries its own trailing pad, which is deliberate: the gated sentence used to
@@ -724,19 +745,19 @@ namespace Mila::ChatApp
 
         for ( const auto& model : models )
         {
-            const OnlineDetail detail = describe( model );
+            const std::string_view fit = fitOf( model );
 
             if ( model.gated )
             {
-                gated.push_back( model.repository );
+                gated.push_back( model.name );
             }
 
             lines.push_back( std::format( "  {:<32} {:>10}  {:<12}{:<15}{}",
-                model.repository,
-                detail.bytes > 0 ? formatBytes( detail.bytes ) : std::string( "--" ),
-                detail.license.empty() ? "--" : detail.license,
-                detail.fit.empty() ? "--" : detail.fit,
-                isInstalled( model ) ? "yes" : "no" ) );
+                model.name,
+                model.download_bytes > 0 ? formatBytes( model.download_bytes ) : std::string( "--" ),
+                model.license.empty() ? "--" : model.license,
+                fit.empty() ? "--" : fit,
+                model.installed ? "yes" : "no" ) );
         }
 
         // The card the column is about. A yes here is the provisional one -- the manifest has no
@@ -894,8 +915,13 @@ namespace Mila::ChatApp
 
     /**
      * @brief Install a published model into the store by name.
+     *
+     * @param progress Called with each file's bytes received so far and its size, as often as the transfer
+     *        reports; a front end decides how much of that to show. One call serves every file of the install.
      */
-    export std::vector<std::string> installModel( const std::string& spec )
+    export std::vector<std::string> installModel(
+        const std::string& spec,
+        const std::function<void( std::uint64_t received, std::uint64_t total )>& progress )
     {
         std::vector<std::string> lines;
 
@@ -910,91 +936,22 @@ namespace Mila::ChatApp
 
         Mila::Distribution::ModelStore store;
 
-        bool reported = false;
-
-        // One callback serves every file in a pull, so this tracks which transfer is running as
-        // well as how far along it is: a changed total, or a count that goes backwards, is the
-        // next file starting rather than progress on this one.
-        struct TransferProgress
-        {
-            std::uint64_t total{ 0 };
-            std::uint64_t first_received{ 0 };
-            std::chrono::steady_clock::time_point started{};
-            int last_percent{ -1 };
-            bool active{ false };
-        };
-
-        TransferProgress transfer;
-
-        auto progress = [&reported, &transfer](
-            std::uint64_t received, std::uint64_t total ) -> bool
+        auto forward = [&progress]( std::uint64_t received, std::uint64_t total ) -> bool
             {
-                if ( total == 0 )
+                if ( total > 0 )
                 {
-                    return true;
+                    progress( received, total );
                 }
-
-                const auto now = std::chrono::steady_clock::now();
-
-                if ( !transfer.active || total != transfer.total
-                    || received < transfer.first_received )
-                {
-                    transfer = { total, received, now, -1, true };
-                }
-
-                const int percent = static_cast<int>( ( received * 100 ) / total );
-
-                // One redraw per whole percent. Unthrottled this fired on every chunk, which at
-                // 6.33 GB is tens of thousands of writes to a line that has 101 distinct states.
-                if ( percent == transfer.last_percent && received < total )
-                {
-                    return true;
-                }
-
-                transfer.last_percent = percent;
-
-                // Rate over what this run actually moved. A resumed transfer opens holding a
-                // prefix it spent no time on, and counting those bytes makes the estimate a lie.
-                const double elapsed =
-                    std::chrono::duration<double>( now - transfer.started ).count();
-                const std::uint64_t moved = received - transfer.first_received;
-
-                std::string remaining;
-
-                if ( elapsed > 2.0 && moved > 0 && received < total )
-                {
-                    const double rate = static_cast<double>( moved ) / elapsed;
-
-                    remaining = std::format( "  {} left", formatDuration(
-                        static_cast<double>( total - received ) / rate ) );
-                }
-
-                const std::string line = std::format( "  {:>3}%  {}{}",
-                    percent, formatBytesOf( received, total ), remaining );
-
-                // Erase to end of line rather than padding out to a fixed width. Padding writes
-                // past the content, so on a terminal narrower than the pad the line wraps -- and
-                // once it has wrapped, \r returns to the start of the last visual row, leaving
-                // the earlier rows on screen for the next redraw to sit beside. That is what a
-                // resize turned into fragments. Same idiom the renderer uses for the spinner.
-                std::cout << "\r" << line << "\x1b[K" << std::flush;
-
-                reported = true;
 
                 return true;
             };
 
-        const auto hub = Mila::Distribution::makeDefaultModelHub( progress );
+        const auto hub = Mila::Distribution::makeDefaultModelHub( forward );
 
         Mila::Distribution::ModelResolver resolver( store, *hub );
 
         const auto pulled = resolver.pull(
             spec, std::string( Mila::Distribution::kDefaultHubOwner ) );
-
-        if ( reported )
-        {
-            std::cout << "\n";
-        }
 
         lines.push_back( std::format( "Installed {} ({}, {}).",
             pulled.record.name,

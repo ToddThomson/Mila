@@ -1,8 +1,8 @@
 {
-  "name": "mila-chat",
-  "productName": "Mila Chat",
+  "name": "mila-desktop",
+  "productName": "Mila",
   "version": "0.21.0",
-  "description": "Mila Chat, a window over Chat's session",
+  "description": "Mila, the desktop app over Chat's session",
   "author": "Todd Thomson",
   "license": "MIT",
   "repository": "https://github.com/ToddThomson/Mila",
@@ -20,8 +20,8 @@
     "electron-builder": "26.15.3"
   },
   "build": {
-    "appId": "me.toddt.mila.chat",
-    "productName": "Mila Chat",
+    "appId": "me.toddt.mila",
+    "productName": "Mila",
     "directories": {
       "output": "dist",
       "buildResources": "icons"
@@ -52,7 +52,7 @@
       ]
     },
     "nsis": {
-      "artifactName": "Mila-Chat-Setup-${version}.${ext}"
+      "artifactName": "Mila-Setup-${version}.${ext}"
     },
     "linux": {
       "target": [

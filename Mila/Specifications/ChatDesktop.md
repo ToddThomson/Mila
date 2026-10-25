@@ -1,11 +1,12 @@
-# Chat Desktop
+# Mila Desktop
 
-A windowed front end for Chat: a sidebar of conversations and a main pane, over the same session as the
-console. The session runs as its own C++ process; the window is a client of it, in whatever language
-suits the window. The console stays first-class on every platform.
+Mila, the desktop app (`Mila/Apps/Desktop/`): a sidebar of conversations and a main pane, over the same
+session as Chat's console. The session runs as its own C++ process; the window is a client of it, in
+whatever language suits the window. The console stays first-class on every platform.
 
 **Status:** draft, 2026-10-20. Phase 1 (the page and the Electron window, against a mock session) is
-built; phase 2 (the session split, section 7) is built, 2026-10-24. Open decisions are in section 9.
+built; phase 2 (the session split, section 7) and phase 3 (the session process, section 6.1) are built,
+2026-10-24. The app's name and audience are decided (section 9, 2026-10-24). Open decisions are in section 9.
 
 ---
 
@@ -21,9 +22,10 @@ window is a second front end over that same session. It exists because the thing
   cannot show the picture back.
 - **Conversations.** A sidebar of past conversations, reopened where they were left. Chat has no
   conversation store today: every session starts empty.
-- **A showcase for developers.** Chat, like the inference server, is an application that shows what can
-  be built on Mila, and the window is where that shows best. Its audience is the developer deciding
-  whether to build on Mila, not someone choosing a desktop chat app (decided 2026-10-20, section 9).
+- **The showcase for end users.** Mila is the brand; the desktop app is called Mila and is where a person
+  who runs local models sees what Mila can do -- an agent with tool calling, with the conversation as its
+  face. The library's audience is the developer; the app's is the person running it (Todd, 2026-10-24,
+  section 9). Everything the app shows a person is end-user prose (CLAUDE.md, *End-User Prose*).
 
 **An app adds no capability to the library** (CLAUDE.md). The window shows what the library and the
 session already do. Video, which no Mila model takes, has no place in it.
@@ -58,7 +60,7 @@ session already do. Video, which no Mila model takes, has no place in it.
   window: the session process is the same small program on every platform Chat builds on, and the window
   can be written in JavaScript, .NET, Python, Rust or anything else that can start a process and read
   its output. A fault in either does not take down the other, so a window crash does not unload the model.
-  Chat's own window is Electron (section 6.2); other clients are welcome on the same schema.
+  Mila's window is Electron (section 6.2); other clients are welcome on the same schema.
 - **Formatting is presentation.** The session emits channel-routed *raw* text; routing a token to its
   channel is the session's (`StreamingChannelRouter`). The console front end
   keeps `IncrementalRichFormatter` and `RichText` (markdown and LaTeX to terminal Unicode, word wrap); the
@@ -223,7 +225,7 @@ allowed is asked about; afterwards the session asks when the broker's rule for t
 - `turn.stop` while a call waits ends the reply as `cancelled` with no result for the call.
 - A stored conversation keeps the declined call's result text, as for any call.
 
-## 5. The page (`Mila/Apps/Chat/Desktop/Ui/`)
+## 5. The page (`Mila/Apps/Desktop/Ui/`)
 
 - **Plain HTML, CSS and JavaScript modules. No build step, no framework, no network.** The page loads
   only its own files: a `Content-Security-Policy` of `default-src 'self'; img-src 'self' blob:` in
@@ -279,7 +281,8 @@ allowed is asked about; afterwards the session asks when the broker's rule for t
 
 ### 6.1 The session process (phase 3, local)
 
-A C++23 program built wherever Chat builds -- Windows and Linux today, macOS once a Metal backend exists
+A C++23 program in `Mila/Apps/Desktop/Session/`, linking Chat's session library (`MilaChatSession`, section 7),
+built wherever Chat builds -- Windows and Linux today, macOS once a Metal backend exists
 (`Future.md`, "Compute backends beyond CUDA") -- as a front end over the phase 2 interface: it reads
 section 4.2's requests from standard input and writes section 4.1's events to standard output (section 4,
 *Transport*). One loaded model per process, and one stream for Chat's window (section 4, *Streams*).
@@ -292,6 +295,40 @@ when Chat is rebuilt on `Mila::AI` in v0.22.0 the process becomes a thin layer o
 (Todd, 2026-10-20). The schema and every client are unchanged by that move; anything the session
 process would have to grow to serve a client belongs in `Mila::AI` instead.
 
+**As built (2026-10-24).** `mila-desktop-session`, built beside `mila-chat` wherever Chat builds
+(`Desktop.SessionProcess.ixx`, `Desktop.ConversationStore.ixx`):
+
+- **Settings resolve as the console's do**, from the same files and layers (`Chat.SettingsResolution`, moved
+  out of `mila-chat`'s `main.cpp` so both programs share it); its flags are `--model`, `--context-length`,
+  `--device`, `--system-prompt` and `--settings`, plus `--conversations <dir>` for the store of 6.3, which
+  defaults to `Mila Desktop\Conversations` under `%LOCALAPPDATA%` (`$XDG_DATA_HOME/mila-desktop/conversations`
+  elsewhere).
+- **Two threads.** The one that started the process does all session work, model loads included; a second
+  reads requests. It answers `turn.stop` and `turn.tool_decision` itself, since the session's thread is inside the
+  reply they are about, and refuses a `turn.send` while a turn is queued or running, so the refusal does not
+  wait for it. Every other request is queued and answered in order. End of input stops a reply in flight and
+  ends the process.
+- **A tool call is announced when the session answers it**: `turn.tool_call` arrives after the round's
+  `turn.round_end`, then `turn.tool_approval` when it asks; a tool allowed for the conversation sends
+  `turn.tool_call` and `turn.tool_result` together. Call ids are the process's own; the library's `ToolCall` has
+  none.
+- **`thought_tokens`** is the round's reasoning text encoded again (`RoundStats::reasoning_tokens`), which can
+  differ from what was sampled by a token or two; Llama, whose reply Chat parses itself, reports 0.
+- **Every attachment is refused, by name.** No model this build runs takes an image or audio yet
+  (`isSupportedModality`), so `session.state` lists no modality and `attachment.add` answers
+  `attachment.refused`.
+- **The stored conversation also keeps `turns`**, the history as the model read it (6.3), so a reopened
+  conversation is prefilled exactly rather than rebuilt from what the page shows.
+
+Gate, measured 2026-10-24 on the RTX 5060 Ti (`D:\Claude\phase3\gate.py`, scratch stores; every line on
+standard output checked to be one `"v": 1` message): Llama 3.2 3B FP4 for scenarios 2, 4, 5 and 8 and a Llama
+tool call; Gemma 4 26B-A4B Q4_0 for 1, 3, 6, 7 and 11 on the streamed reasoning path; Qwen 3.8 27B FP4 for a
+tool call with reasoning through the template. Scenario 8 installed `gpt2-small`, the smallest published model,
+into an empty store (196 progress messages, every one bytes of a total), and removed it with every file
+reclaimed. It is a base model, so the load that follows an install into an empty session was refused as an
+error of the install, and no published model can show that load succeeding until the Llama packages are
+republished (BACKLOG, "A model installed under v0.20 stops loading").
+
 ### 6.2 The window (phase 1, against the mock session)
 
 Starts the session process, hosts the page, and relays messages between them (section 4). Its rules
@@ -300,7 +337,7 @@ for any client that hosts the page: the page gets no file-system or process acce
 own origin; developer tools and the default context menu are off in release builds; links go to the
 system browser.
 
-**The window is Electron** (Todd, 2026-10-20: one presentation layer), in `Mila/Apps/Chat/Desktop/Window/`:
+**The window is Electron** (Todd, 2026-10-20: one presentation layer), in `Mila/Apps/Desktop/Window/`:
 one window application for Windows, macOS and Linux. Its main process spawns the session process with
 Node's child-process API and relays lines; a preload script exposes the bridge as `window.mila`, with
 context isolation on and Node integration off in the page. One engine (Chromium) everywhere.
@@ -309,8 +346,7 @@ context isolation on and Node integration off in the page. One engine (Chromium)
   from the page's own folder, nothing outside it (`Window/src/page-protocol.js`). That address is the
   origin every message from the page is checked against, and the `'self'` of section 5's policy.
 - **The icon is the Mila mark**, the website's (`Web/static/mila-mark.svg`), rendered to
-  `Window/icons/icon.png` (512 px) and `icon.ico` until the product's name and icon are decided
-  (section 9).
+  `Window/icons/icon.png` (512 px) and `icon.ico`; the brand's mark is the app's.
 
 - **Costs, accepted:** Electron ships a new major about every eight weeks and supports the latest three,
   so keeping the window's Chromium current is ours; a Node and npm toolchain beside the C++ build, for
@@ -325,7 +361,7 @@ context isolation on and Node integration off in the page. One engine (Chromium)
   development and is not packaged.
 - **The package:** Electron and the packager pinned to exact versions in `package.json`, with the lock
   file committed; `node_modules/` and build output ignored by a `.gitignore` inside the folder. The
-  product name is "Mila Chat" until the name is decided (section 9). electron-builder documents building
+  product name is "Mila" (application id `me.toddt.mila`, section 9). electron-builder documents building
   Windows targets on Linux through Wine, or its `electronuserland/builder:wine` Docker image; the window
   has no native Node dependency, which is the case it names as needing a Windows machine. Signing is
   distribution's (section 9).
@@ -333,8 +369,9 @@ context isolation on and Node integration off in the page. One engine (Chromium)
 ### 6.3 Conversation store
 
 The session process owns it, so every window gets it equally: one JSON file per conversation (section
-4.3 plus `id`, `title`, `model`, `created`, `updated`) under the user's local application data, never in
-the model store. The title is the first user message, cut at a word under 60 characters. Opening a
+4.3 plus `id`, `title`, `model`, `created`, `updated`, and `turns`, the history as the model read it) under the
+user's local application data, never in the model store. An id is used as a file name only when it is made of
+the characters the store gives ids, so an id from the page cannot reach outside the folder. The title is the first user message, cut at a word under 60 characters. Opening a
 conversation replaces the session's history; its next turn prefills it whole.
 
 ### 6.4 Attachments
@@ -352,7 +389,8 @@ the page and is never sent. In the mock, an attachment is accepted or refused by
 
 `ChatSession` (`Chat.Session.ixx`) holds the model, the conversation, the settings and the turn loop, and
 never draws or reads input. **Events** go out through `SessionEvents` (`Chat.SessionEvents.ixx`), section
-4.1 as C++ calls: `info`, `error`, `log`, a load's start and end, a turn's start, each round's start and end
+4.1 as C++ calls: `info`, `error`, `log`, a load's start and end, an install's progress (phase 3; the console
+draws the line the catalogue used to write itself), a turn's start, each round's start and end
 with its measurements, text by channel, a thought break and close, a tool call opening, the approval of
 section 4.5 (`approveToolCall`, which the reply waits on), the answered call, and the turn's end with its
 whole display. **Requests** are the session's methods, section 4.2 as calls: `respond`, `stop` (from any
@@ -368,8 +406,11 @@ conversation it holds -- so that v0.22.0 moves this code into Mila.AI rather tha
   commands with their usage lines, and every table.
 - **Sentences.** Those about work the session does -- a load, a reload, an install, a context that does
   not fit -- are the session's `info` and `error`; the console words its own commands. Some of the
-  session's still name console commands ("/model <name> loads it again"), which phase 3 rewords or turns
-  into state.
+  session's named console commands ("/model <name> loads it again"); phase 3 reworded them, so a remedy is
+  said in words ("an automatic context picks the longest that fits") and each front end keeps its own
+  commands, the console's in `/help`. A refusal at the shell (`RefusalAudience::Shell`) still names its
+  `mila-store` command. A failed load, install or remove is the session's `error`, not its `info`, so the
+  page shows a refusal where it happened.
 - **The session is a library target of its own, `MilaChatSession`,** which `mila-chat` and the session
   process link. Nothing in it can import the renderer, so the build keeps the line.
 - **`turn.stop` is `ChatSession::stop()`,** on a stop source made fresh for each turn; the library ends a
@@ -396,7 +437,7 @@ interrupted the reply printed after the trace line; the renderer now writes it f
 ## 8. Phases
 
 1. **The page and the window, against the mock session** (cloud session; Todd, 2026-10-20), given in two
-   steps, each reviewed before the next is sent. Both touch only `Mila/Apps/Chat/Desktop/` and, for a
+   steps, each reviewed before the next is sent. Both touch only the desktop app's folder (`Mila/Apps/Desktop/` since 2026-10-24) and, for a
    schema change, this document, which is changed first; both leave the schema in section 4 as it is
    otherwise.
    - **1a, the page** (`Ui/`). Done when every scenario in section 5 renders as section 3 describes, at
@@ -419,19 +460,23 @@ interrupted the reply printed after the trace line; the renderer now writes it f
 
 ## 9. Open decisions
 
-1. **Names.** The session process: a mode of `mila-chat` or a command of its own. The window: commands
-   are lowercase `mila-` names; a windowed program is not typed, but is installed and shown in the Start
-   menu and the Dock. *Leaning (Todd, 2026-10-24), held:* the window is called Mila, as the complete agent
-   harness it is becoming, with the conversation as its face. Deciding it would reverse decision 2 below,
-   and the two are decided together.
-2. **Positioning -- decided 2026-10-20 (Todd).** The window does not make Chat an end-user product. Chat
-   and the inference server are applications that show developers, Mila's audience (`Direction.md` 1),
-   what can be built on it; the window is built to be beautiful for that reason. The console stays a
-   first-class Chat.
+1. **Names -- the app's decided 2026-10-24 (Todd: "Mila is the showcase app").** The window is called
+   Mila, the complete agent harness it is becoming, with the conversation as its face; a windowed program
+   is not typed, so it carries no `mila-` command name, and is installed and shown in the Start menu and
+   the Dock. It is its own app, `Mila/Apps/Desktop/`, beside Chat's console in `Mila/Apps/Chat/`. *Open:*
+   the session process's name. It is built as `mila-desktop-session`, a program of the app's own rather than
+   a mode of `mila-chat` (section 6.1); no one types it, so the name is the app's to keep or change.
+2. **Positioning -- decided 2026-10-24 (Todd), reversing 2026-10-20.** "Mila is the brand name. [The
+   desktop app] IS the showcase agentic application for end users. Mila C++23 library is the dev target
+   audience." The 2026-10-20 decision -- the window built for developers deciding whether to build on
+   Mila -- is withdrawn. The console stays a first-class Chat, for the developer; the app adds no
+   capability of its own (agent logic lives in Mila.AI and the tool broker).
 3. **Which release -- decided 2026-10-24 (Todd).** Phases 2 to 4 ship in v0.21.0, with tool calling through
    the tool broker (`ToolBroker.md`), and the release moves two weeks to 2026-12-04 for them.
 4. **Distribution.** An installer, code signing (an unsigned download is warned on by SmartScreen on
-   Windows; macOS needs a Developer ID and notarization) and updates.
+   Windows; macOS needs a Developer ID and notarization) and updates. An end user installs no toolkit, so
+   the app carries the CUDA runtime its session needs, under NVIDIA's redistribution terms, and states the
+   GPU it needs before the download (`Untriaged.md`, 2026-10-24).
 5. **Math.** Shown as source in phase 1; a vendored math renderer later, or never.
 6. **When macOS.** macOS is wanted (Todd, 2026-10-20). The page and the Electron window run there as they
    are; the session process reaches it once a Metal backend exists.

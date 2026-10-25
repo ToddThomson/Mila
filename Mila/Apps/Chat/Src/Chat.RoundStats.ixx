@@ -23,6 +23,12 @@ namespace Mila::ChatApp
         float prefill_time_ms = 0.0f;          // round start -> first token of round
         float decode_tokens_per_second = 0.0f; // steady-state decode throughput this round
         int tokens_generated = 0;
+
+        /// Of tokens_generated, those the reasoning channel took, counted by encoding the round's reasoning text
+        /// again: the round's own ids are not kept by channel, and a re-encoding can differ from what was sampled
+        /// by a token or two. Zero when the channel did not open, and for a reply Chat parses itself (Llama).
+        int reasoning_tokens = 0;
+
         bool ended_in_tool_call = false;
         std::string tool_name;                 // populated when ended_in_tool_call
 

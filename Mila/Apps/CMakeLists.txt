@@ -1,12 +1,15 @@
 # The apps Mila ships to the people who run it (see Apps/README.md and MilaProductFamily.md):
-# Chat -> a human at a prompt; Server -> a foreign harness over HTTP (Python, importing the
+# Chat -> a human at a prompt; Desktop -> Mila, the desktop app, whose session process is built here;
+# Server -> a foreign harness over HTTP (Python, importing the
 # mila binding built from Mila/Bindings); Tools/Store -> the model store from the shell;
 # Tools/Broker -> the tool broker, which runs agents' tool calls (Specifications/ToolBroker.md).
 # Gated on MILA_ENABLE_APPS so a find_package/CPM consumer embedding Mila builds none of them.
 
-# Chat runs models, and CUDA is the only compute backend.
+# Chat runs models, and CUDA is the only compute backend. The desktop app's session process links Chat's session
+# library, so it builds wherever Chat does; its window and page are Node, built by their own workflow.
 if(MILA_ENABLE_APPS AND MILA_ENABLE_CUDA)
     add_subdirectory( Chat )
+    add_subdirectory( Desktop/Session )
 elseif(MILA_ENABLE_APPS)
     message(STATUS "MILA_ENABLE_CUDA is OFF - skipping mila-chat (instruct/CUDA-only)")
 endif()

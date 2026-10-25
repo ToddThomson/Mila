@@ -34,7 +34,7 @@ Browse the tree for what is where. What the tree does not tell you:
 
 - **`Mila/Src/`** is the runtime. `Components/`, `Compute/`, `Models/`, `Quantization/`, `Tensors/`, `Serialization/`. `Models/` and `Components/Transformers/` are split per family (`Gemma`, `Gpt`, `LlaMa`, `Qwen`) — a family owns its model, config and chat protocol together.
 - **`Mila/Bindings/`** is the Python projection, and is **consumer-blind**: it knows nothing about Chat or MIS. Session depth only, never components.
-- **`Mila/Apps/`** are first-class consumers, not samples — `Chat/` (`mila-chat`, human gate), `Server/` (MIS, `mila-server`, which imports the binding) and `Tools/Store/` (`mila-store`, the model store from the shell). Everything under it ships; every command a user types is lowercase-hyphenated with the `mila-` prefix. See `Specifications/MilaProductFamily.md` and `Specifications/Notebooks/MilaCommandLineReview.md`.
+- **`Mila/Apps/`** are first-class consumers, not samples — `Chat/` (`mila-chat`, human gate), `Desktop/` (Mila, the end-user desktop app: Electron window, page, and `mila-desktop-session` over Chat's session library), `Server/` (MIS, `mila-server`, which imports the binding) and `Tools/Store/` (`mila-store`, the model store from the shell). Everything under it ships; every command a user types is lowercase-hyphenated with the `mila-` prefix. See `Specifications/MilaProductFamily.md` and `Specifications/Notebooks/MilaCommandLineReview.md`.
 - **`Mila/Samples/`** is teaching code and must run in any user's environment. `QuickStart/Cpp` and `QuickStart/Python` are the paths the website's Get Started tabs link to, so they are a published surface.
 - **`Mila/Tools/`** is developer tooling and **none of it ships** — the wheel excludes it and a FetchContent consumer never configures it. `Tools/README.md` is the index.
 - **`Data/`** holds weights, packages and corpora, all gitignored; only directory READMEs are tracked.
@@ -108,7 +108,8 @@ Key files:
 - `Chat.Config.ixx` — `ChatConfig` with `ModelType`, `ModelSize`, `ModelPrecision` (compute), `QuantizationMode` (none/fp8/fp4/codebook)
 - `Chat.Footprint.ixx` — what a model would allocate at a context length, without allocating it
 - `Chat.Renderer.ixx` — `ConsoleRenderer` (standalone non-exported module): braille spinner, solid-color response blocks, word-wrap with leading-indent preservation, Unicode welcome box, ANSI stats line
-- `main.cpp` — entry point and the compiled-defaults layer of the config resolution
+- `Chat.SettingsResolution.ixx` — the layered config resolution, compiled defaults included, shared with the desktop app's session process
+- `main.cpp` — entry point and the command line
 
 Models are named by their store name, not by an alias table — `/model <name>` reports, `/model load <name> [quant]` loads, and lookup case-folds. See `Specifications/ChatConfiguration.md` for the layered config resolution.
 

@@ -192,12 +192,14 @@ namespace Mila::ChatApp
         void info( std::string_view text ) override
         {
             suspendStream();
+            endTransferLine();
             renderer_.printInfo( text );
         }
 
         void error( std::string_view text ) override
         {
             suspendStream();
+            endTransferLine();
             renderer_.printError( text );
         }
 
@@ -218,6 +220,60 @@ namespace Mila::ChatApp
         void loadEnded() override
         {
             renderer_.stopSpinner();
+        }
+
+        /// One line, redrawn in place: percent, bytes, and the time left once there is a rate to go on.
+        void installProgress( std::uint64_t received, std::uint64_t total ) override
+        {
+            const auto now = std::chrono::steady_clock::now();
+
+            // One callback serves every file in a pull, so this tracks which transfer is running as
+            // well as how far along it is: a changed total, or a count that goes backwards, is the
+            // next file starting rather than progress on this one.
+            if ( !transfer_.active || total != transfer_.total
+                || received < transfer_.first_received )
+            {
+                transfer_ = { total, received, now, -1, true };
+            }
+
+            const int percent = static_cast<int>( ( received * 100 ) / total );
+
+            // One redraw per whole percent. Unthrottled this fired on every chunk, which at
+            // 6.33 GB is tens of thousands of writes to a line that has 101 distinct states.
+            if ( percent == transfer_.last_percent && received < total )
+            {
+                return;
+            }
+
+            transfer_.last_percent = percent;
+
+            // Rate over what this run actually moved. A resumed transfer opens holding a
+            // prefix it spent no time on, and counting those bytes makes the estimate a lie.
+            const double elapsed =
+                std::chrono::duration<double>( now - transfer_.started ).count();
+            const std::uint64_t moved = received - transfer_.first_received;
+
+            std::string remaining;
+
+            if ( elapsed > 2.0 && moved > 0 && received < total )
+            {
+                const double rate = static_cast<double>( moved ) / elapsed;
+
+                remaining = std::format( "  {} left", formatDuration(
+                    static_cast<double>( total - received ) / rate ) );
+            }
+
+            const std::string line = std::format( "  {:>3}%  {}{}",
+                percent, formatBytesOf( received, total ), remaining );
+
+            // Erase to end of line rather than padding out to a fixed width. Padding writes
+            // past the content, so on a terminal narrower than the pad the line wraps -- and
+            // once it has wrapped, \r returns to the start of the last visual row, leaving
+            // the earlier rows on screen for the next redraw to sit beside. That is what a
+            // resize turned into fragments. Same idiom the renderer uses for the spinner.
+            std::cout << "\r" << line << "\x1b[K" << std::flush;
+
+            transfer_line_open_ = true;
         }
 
         void turnBegan( bool streams ) override
@@ -407,6 +463,17 @@ namespace Mila::ChatApp
             if ( display_ )
             {
                 display_->suspendForTrace();
+            }
+        }
+
+        /// The install's progress line ends before the next sentence, which is what the install said when it finished.
+        void endTransferLine()
+        {
+            if ( transfer_line_open_ )
+            {
+                std::cout << "\n";
+                transfer_line_open_ = false;
+                transfer_.active = false;
             }
         }
 
@@ -1589,6 +1656,19 @@ Examples:
 
         // Read by the spinner thread, written on the turn's thread.
         std::atomic<int> live_token_count_{ 0 };
+
+        // Which file of an install is downloading, and how far along it is, for the progress line.
+        struct TransferProgress
+        {
+            std::uint64_t total{ 0 };
+            std::uint64_t first_received{ 0 };
+            std::chrono::steady_clock::time_point started{};
+            int last_percent{ -1 };
+            bool active{ false };
+        };
+
+        TransferProgress transfer_;
+        bool transfer_line_open_{ false };
 
         // Set by runOnce: suppresses every display path, so standard output holds the answer
         // alone. Not a detail level -- detail says how much to show, this says show nothing.

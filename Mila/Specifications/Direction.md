@@ -52,6 +52,16 @@ long-context protocol that found a loss in a published build (`ModelFamilyParity
 llama.cpp's own tools. Todd: "it's not a shift, it's where Mila must go to be a useful tool to an engineer or
 researcher." Speed beside llama.cpp is evidence that the work is professional, never the race (section 9).
 
+### 1.3 Two audiences, one brand
+
+Decided 2026-10-24 (Todd): "Mila is the brand name. [The desktop app] IS the showcase agentic application
+for end users. Mila C++23 library is the dev target audience." The trait above is the library's, and the
+library's reader is the developer. The desktop app, called Mila (`ChatDesktop.md`), is for the person who
+runs local models: it shows them what Mila can do, an agent at work with the conversation as its face. It
+is judged as an end-user product -- installed without a toolkit, written in end-user prose -- and beside
+other desktop apps for local models its case is the quality of the models it runs and the agent, not
+breadth. It adds no capability of its own (3.3): what it shows, a developer can build.
+
 ---
 
 ## 2. What Changes From v0.20
@@ -84,9 +94,9 @@ sorted them by who closes the generation loop. From v0.21.0 the loop closes insi
 Chat and MIS are applications built on it, in the same position as any developer's program.
 
 ```
-Applications      Chat      MIS (wire)      your program      Python / other languages
-                    \           |                |                /
-                     +----------+----------------+---------------+
+Applications   Mila (desktop)   Chat   MIS (wire)   your program   Python / other languages
+                    \            |         |             |              /
+                     +-----------+---------+-------------+-------------+
                                          |
 Mila.AI            Mila::AI  -- conversation, tools, agent core, autonomy policy
                    Model handle + factory (architecture -> concrete type, from the manifest)
@@ -127,9 +137,10 @@ acquires it one convenience class at a time.
 
 ### 3.3 Applications
 
-Chat, MIS, a developer's program and a Python script are the same kind of thing: a consumer of
-`Mila::AI`. What makes each distinct is its own concern and nothing more. For Chat that is terminal
-rendering and the human approval gate; for MIS it is the HTTP wire shapes and per-request
+The Mila desktop app, Chat, MIS, a developer's program and a Python script are the same kind of thing: a
+consumer of `Mila::AI`. What makes each distinct is its own concern and nothing more. For the desktop app
+that is the window, its conversations and the person's approval of each tool call; for Chat it is
+terminal rendering and the human approval gate; for MIS it is the HTTP wire shapes and per-request
 statelessness.
 
 The v0.20 rule carries over with a new subject: **a gap between what `Mila::AI` can do and what an

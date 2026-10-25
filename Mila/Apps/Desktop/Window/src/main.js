@@ -1,4 +1,4 @@
-// Mila Chat's window: starts Chat's session, hosts the page, and relays messages between them
+// Mila's window: starts Chat's session, hosts the page, and relays messages between them
 // unchanged, except link.open, which it handles itself (ChatDesktop.md 6.2). The page reaches
 // nothing else: no Node, no navigation, no new windows, no permissions but the clipboard.
 
@@ -82,7 +82,7 @@ function onSessionMessage( message )
 
 function onSessionExit()
 {
-    const message = { v: 1, type: 'error', text: 'Chat stopped working unexpectedly. Close the window and open it again.', during: null };
+    const message = { v: 1, type: 'error', text: 'Mila stopped working unexpectedly. Close the window and open it again.', during: null };
 
     sessionProcess = null;
     onSessionMessage( message );
@@ -208,7 +208,7 @@ function createWindow()
         height: 800,
         minWidth: 560,
         minHeight: 480,
-        title: 'Mila Chat',
+        title: 'Mila',
         show: false,
         backgroundColor: nativeTheme.shouldUseDarkColors ? '#121215' : '#ffffff',
         webPreferences

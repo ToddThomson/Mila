@@ -41,6 +41,14 @@ namespace Mila::ChatApp
         virtual void loadEnded() = 0;
 
         /**
+         * @brief An install's transfer moved: @p received of @p total bytes of the file now downloading.
+         *
+         * Called as often as the transfer reports, so a front end throttles what it shows. One install fetches
+         * several files, so a smaller total, or a count that goes backwards, is the next file starting.
+         */
+        virtual void installProgress( std::uint64_t received, std::uint64_t total ) = 0;
+
+        /**
          * @brief A reply starts.
          *
          * @param streams True when the reply's text arrives token by token through text(); false when it arrives

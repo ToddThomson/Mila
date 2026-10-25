@@ -479,7 +479,7 @@ median, and the tests of the item above passing through the broker.
 The two workers of `ToolBroker.md` section 6.1: `files` (read, list, find, search, write, edit; the project area
 and its `.mila` folder, no network) and `web` (`fetch_url`; public addresses only, no files), with their default
 rules offered when the person registers the agent. Absent today: Chat's only tool is a `get_weather` stub
-(`Mila/Apps/Chat/Src/main.cpp:1151`).
+(`Mila/Apps/Chat/Src/main.cpp:515`, and the same stub in `Mila/Apps/Desktop/Session/Src/main.cpp`).
 
 #### An application cannot use the tool service without writing its own client
 
@@ -494,12 +494,13 @@ approval the application presents. Gate: a test program runs a tool through it w
 
 #### The desktop app runs only against a mock
 
-`open` · `apps`
+`in progress` · `apps`
 
 `ChatDesktop.md` phases 3 and 4: the session process that speaks section 4 over stdio on a real model, then the
 window starting it in place of the mock, with tool calls through Mila.AI's client. Gate: a script driving the
 session process runs the equivalents of scenarios 1 to 8 and 11 on a real model; the window runs the theme's task
-on every published model that calls tools.
+on every published model that calls tools. The session process is built (`mila-desktop-session`) and its gate
+passes on Llama, Gemma and Qwen, with a real install and removal; the window still starts the mock.
 
 `Mila/Specifications/ChatDesktop.md` sections 6.1, 8
 

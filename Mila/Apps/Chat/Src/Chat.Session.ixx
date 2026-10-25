@@ -195,6 +195,26 @@ namespace Mila::ChatApp
         }
 
         /**
+         * @brief Replace the conversation with one held earlier, keeping this session's system prompt.
+         *
+         * The next turn prefills it whole. Tools allowed in the conversation it replaces are asked about again.
+         *
+         * @param turns The conversation as history() held it, without its system turn.
+         */
+        void openConversation( std::vector<ChatMessage> turns )
+        {
+            clearHistory();
+
+            for ( auto& turn : turns )
+            {
+                if ( turn.role != MessageRole::System )
+                {
+                    history_.push_back( std::move( turn ) );
+                }
+            }
+        }
+
+        /**
          * @brief Reseed the sampler. The sampler belongs to the model, so there is nothing to seed until one is resident.
          *
          * @return False when no model is resident.
@@ -292,7 +312,7 @@ namespace Mila::ChatApp
             {
                 // The session keeps its working model: resolution happens before the current one
                 // is released.
-                events_.info( error.what() );
+                events_.error( error.what() );
             }
         }
 
@@ -303,7 +323,12 @@ namespace Mila::ChatApp
 
             try
             {
-                for ( const auto& line : Mila::ChatApp::installModel( name ) )
+                const auto progress = [this]( std::uint64_t received, std::uint64_t total )
+                    {
+                        events_.installProgress( received, total );
+                    };
+
+                for ( const auto& line : Mila::ChatApp::installModel( name, progress ) )
                 {
                     events_.info( line );
                 }
@@ -314,7 +339,7 @@ namespace Mila::ChatApp
             {
                 // A failed install must leave the session on its working model, so this reports
                 // and returns rather than propagating.
-                events_.info( std::format( "Install failed: {}", error.what() ) );
+                events_.error( std::format( "Install failed: {}", error.what() ) );
             }
 
             // Bootstrap: a session that opened with nothing resident wants the model it just
@@ -328,7 +353,7 @@ namespace Mila::ChatApp
                 }
                 catch ( const std::exception& error )
                 {
-                    events_.info( std::format(
+                    events_.error( std::format(
                         "Installed, but loading it failed: {}", error.what() ) );
                 }
             }
@@ -345,7 +370,7 @@ namespace Mila::ChatApp
             }
             catch ( const std::exception& error )
             {
-                events_.info( std::format( "Remove failed: {}", error.what() ) );
+                events_.error( std::format( "Remove failed: {}", error.what() ) );
             }
         }
 
@@ -385,7 +410,8 @@ namespace Mila::ChatApp
                         : std::string{} ) );
 
                 events_.info(
-                    "  /clear drops the transcript; /effort lowers the reasoning budget." );
+                    "  A new conversation has no transcript to hold, and a lower thinking effort budgets less "
+                    "for reasoning." );
 
                 return;
             }
@@ -822,6 +848,25 @@ namespace Mila::ChatApp
             return result;
         }
 
+        /// The call a Llama reply ends in that handleResponse() will dispatch, or nothing.
+        std::optional<ToolCall> llamaToolCall( const std::string& response ) const
+        {
+            if ( tool_handlers_.empty() || stopRequested() )
+            {
+                return std::nullopt;
+            }
+
+            try
+            {
+                return ToolCallParser::parse( response );
+            }
+            catch ( const std::runtime_error& )
+            {
+                // handleResponse() reports the parse error when it reads the same text.
+                return std::nullopt;
+            }
+        }
+
         bool stopRequested() const
         {
             std::lock_guard<std::mutex> lock( stop_mutex_ );
@@ -1003,6 +1048,10 @@ namespace Mila::ChatApp
             turn_display_.reset();
             turn_answer_.reset();
 
+            // Before the room check below, so a turn with no room to generate reports no rounds rather than the last
+            // turn's.
+            last_turn_rounds_.clear();
+
             Mila::Dnn::Conversation::Prompt prompt = renderPrompt( history_ );
             std::vector<std::int32_t> input_tokens = encodePrompt( prompt );
 
@@ -1012,7 +1061,7 @@ namespace Mila::ChatApp
             {
                 events_.info( std::format(
                     "The prompt is {} tokens and the context is {}, so there is no room to "
-                    "generate. Clear the history or raise context_length.",
+                    "answer. Start a new conversation, or choose a longer context.",
                     input_tokens.size(), config_.context_length ) );
 
                 return;
@@ -1027,8 +1076,6 @@ namespace Mila::ChatApp
             // Each call is dispatched, the calls and their results join the history, and the
             // template renders the history again -- for Gemma, as the same model turn resumed.
             constexpr int kMaxToolRounds = 4;
-
-            last_turn_rounds_.clear();
 
             const std::stop_token stop_token = [this]
                 {
@@ -1142,17 +1189,46 @@ namespace Mila::ChatApp
                     }
                 }
 
-                events_.roundEnded( round_stats );
-
-                // Llama's reply is read after the turn, by handleResponse().
+                // Llama's reply is read after the turn, by handleResponse(); whether it ends in a call is read here
+                // as well, so the round reports how it ended.
                 if ( !protocol_ )
                 {
+                    if ( const std::optional<ToolCall> call = llamaToolCall( response ) )
+                    {
+                        round_stats.ended_in_tool_call = true;
+                        round_stats.tool_name = call->name;
+                    }
+
+                    events_.roundEnded( round_stats );
                     last_turn_rounds_.push_back( std::move( round_stats ) );
                     break;
                 }
 
+                // Read before the round is reported, so its measurements can say how much of it was reasoning.
                 const Mila::Dnn::Conversation::Reply reply =
                     protocol_->parseReply( std::string_view( response ).substr( round_begin ), prompt );
+
+                round_stats.reasoning_tokens = reply.reasoning.empty()
+                    ? 0
+                    : static_cast<int>( tokenizer_->encode( reply.reasoning ).size() );
+
+                // A round cut short by the budget, the context or a stop is not dispatched: a call it ends in
+                // is not one the model finished.
+                const bool dispatches = !reply.tool_calls.empty() && !tool_handlers_.empty()
+                    && round_status == GenerateStatus::Success && !stopRequested();
+
+                if ( dispatches )
+                {
+                    round_stats.ended_in_tool_call = true;
+
+                    for ( const auto& call : reply.tool_calls )
+                    {
+                        round_stats.tool_name += round_stats.tool_name.empty() ? "" : ", ";
+                        round_stats.tool_name += call.name;
+                    }
+                }
+
+                events_.roundEnded( round_stats );
 
                 appendToTurnDisplay( reply );
 
@@ -1163,22 +1239,11 @@ namespace Mila::ChatApp
 
                 reportMalformedCalls( reply );
 
-                // A round cut short by the budget, the context or a stop is not dispatched: a call it ends in
-                // is not one the model finished.
-                if ( reply.tool_calls.empty() || tool_handlers_.empty() || round_status != GenerateStatus::Success
-                    || stopRequested() )
+                if ( !dispatches )
                 {
                     turn_answer_ = reply;
                     last_turn_rounds_.push_back( std::move( round_stats ) );
                     break;
-                }
-
-                round_stats.ended_in_tool_call = true;
-
-                for ( const auto& call : reply.tool_calls )
-                {
-                    round_stats.tool_name += round_stats.tool_name.empty() ? "" : ", ";
-                    round_stats.tool_name += call.name;
                 }
 
                 last_turn_rounds_.push_back( std::move( round_stats ) );
@@ -1484,7 +1549,7 @@ namespace Mila::ChatApp
                 config_.model_name.clear();
 
                 events_.info( std::format(
-                    "Nothing is loaded. /model {} loads it again at context {}.",
+                    "Nothing is loaded. Loading {} again returns it at context {}.",
                     name, previous_length ) );
 
                 return;
@@ -1695,11 +1760,11 @@ namespace Mila::ChatApp
                         "its weights need {} and this GPU has {} free, so no context length fits.{}",
                         formatBytes( refusal.footprint().device_parameter_bytes ), free,
                         config_.quantization_mode == QuantizationMode::None
-                            ? std::format( " /model {} fp4 needs less.", modelName() ) : std::string{} );
+                            ? std::string( " Quantized to fp4 as it loads, it needs less." ) : std::string{} );
 
                 case DeploymentRefusal::Reason::FixedContextDoesNotFit:
                     return std::format(
-                        "context {} needs {} and this GPU has {} free. /context auto picks the longest that fits.",
+                        "context {} needs {} and this GPU has {} free. An automatic context picks the longest that fits.",
                         refusal.contextLength(), formatBytes( refusal.footprint().totalDeviceBytes() ), free );
 
                 case DeploymentRefusal::Reason::NothingAboveTheFloorFits:
@@ -1708,8 +1773,8 @@ namespace Mila::ChatApp
                         refusal.contextLength(), formatBytes( refusal.footprint().totalDeviceBytes() ), free );
 
                 case DeploymentRefusal::Reason::DeviceDoesNotReportMemory:
-                    return "this GPU does not report its memory, so no context length can be chosen for it. "
-                           "Set one with /context <length>.";
+                    return "this GPU does not report its memory, so no context length can be measured for it. "
+                           "Choose one yourself.";
             }
 
             return refusal.toString();
