@@ -27,6 +27,10 @@ import AI.ModelHandle;
 import AI.Tool;
 import AI.ToolQuestion;
 import AI.ToolAnswer;
+import AI.ToolRules;
+import AI.ToolDecision;
+import AI.ToolOutcome;
+import AI.ToolGate;
 import AI.AgentEvent;
 import AI.AgentLimits;
 import AI.Response;
@@ -153,7 +157,7 @@ namespace Mila::AI
 
         using Handle = ModelHandle<TDeviceType, TPrecision>;
         using EventSink = std::function<void( const AgentEvent& )>;
-        using Asker = std::function<ToolAnswer( const ToolQuestion& )>;
+        using Asker = ToolGate::Asker;
 
         /**
          * @brief Open an installed model on the best plan for the request, ready to converse.
@@ -192,26 +196,42 @@ namespace Mila::AI
         /**
          * @brief Offer the model a tool.
          *
-         * @throws std::invalid_argument for a tool with no name or function, a name already registered, or
-         *         parameters that are not a JSON object.
+         * @throws std::invalid_argument as ToolGate::add.
          */
         BasicAgent& withTool( Tool tool ) &
         {
-            addTool( std::move( tool ) );
+            gate_.add( std::move( tool ) );
 
             return *this;
         }
 
         BasicAgent&& withTool( Tool tool ) &&
         {
-            addTool( std::move( tool ) );
+            gate_.add( std::move( tool ) );
 
             return std::move( *this );
         }
 
         /**
-         * @brief How the person is asked whether a call may run. With none, no one can be asked, so every call of
-         *        a registered tool is declined.
+         * @brief Decide the model's calls by these rules from the next call on. With none, every call is asked about.
+         */
+        BasicAgent& withRules( ToolRules rules ) &
+        {
+            gate_.setRules( std::move( rules ) );
+
+            return *this;
+        }
+
+        BasicAgent&& withRules( ToolRules rules ) &&
+        {
+            gate_.setRules( std::move( rules ) );
+
+            return std::move( *this );
+        }
+
+        /**
+         * @brief How the person is asked whether a call may run. With none, no one can be asked, so every call the
+         *        rules would ask about is declined.
          */
         BasicAgent& onAsk( Asker ask ) &
         {
@@ -456,7 +476,7 @@ namespace Mila::AI
                     emit( { AgentEvent::Kind::MalformedToolCall, span } );
                 }
 
-                const bool runs_calls = !reply.tool_calls.empty() && !tools_.empty()
+                const bool runs_calls = !reply.tool_calls.empty() && !gate_.tools().empty()
                     && status == GenerateStatus::Success && !halted.stop_requested();
 
                 if ( !runs_calls )
@@ -522,14 +542,14 @@ namespace Mila::AI
         void newConversation()
         {
             history_.clear();
-            allowed_for_conversation_.clear();
+            gate_.newConversation();
         }
 
         /// Continue a conversation saved earlier, as `conversation()` gave it; no tool is allowed for it yet.
         void openConversation( std::vector<Conversation::Turn> turns )
         {
             history_ = std::move( turns );
-            allowed_for_conversation_.clear();
+            gate_.newConversation();
         }
 
         /// Every message, reply and result so far, without the system prompt.
@@ -557,7 +577,6 @@ namespace Mila::AI
 
     private:
 
-        static constexpr std::string_view kDeclinedResult = "The user declined to run this tool call.";
         static constexpr std::string_view kStoppedResult = "The user stopped the reply before this tool call ran.";
         static constexpr std::string_view kStoppedWhileRunningResult =
             "The user stopped the reply while this tool call ran, so it may not have finished.";
@@ -568,34 +587,6 @@ namespace Mila::AI
         static std::string baseModelRefusal( std::string_view name )
         {
             return std::format( "'{}' is a base model: it has no chat template to converse in", name );
-        }
-
-        void addTool( Tool tool )
-        {
-            if ( tool.name.empty() )
-            {
-                throw std::invalid_argument( "a tool needs a name" );
-            }
-
-            if ( !tool.run )
-            {
-                throw std::invalid_argument( std::format( "tool '{}' has no function to run it", tool.name ) );
-            }
-
-            if ( findTool( tool.name ) != nullptr )
-            {
-                throw std::invalid_argument( std::format( "a tool named '{}' is already registered", tool.name ) );
-            }
-
-            const auto parameters = nlohmann::ordered_json::parse( tool.parameters, nullptr, false );
-
-            if ( parameters.is_discarded() || !parameters.is_object() )
-            {
-                throw std::invalid_argument( std::format(
-                    "tool '{}': its parameters must be a JSON Schema object", tool.name ) );
-            }
-
-            tools_.push_back( std::move( tool ) );
         }
 
         void setTemplateVariable( std::string name, std::string value )
@@ -631,6 +622,17 @@ namespace Mila::AI
                     std::format( "a response needs at least one reply token, not {}", *limits.reply_tokens ) );
             }
 
+            if ( limits.tool_time && limits.tool_time->count() <= 0 )
+            {
+                throw std::invalid_argument( std::format( "a tool call needs some time to run, not {}", *limits.tool_time ) );
+            }
+
+            if ( limits.result_tokens && *limits.result_tokens <= 0 )
+            {
+                throw std::invalid_argument(
+                    std::format( "a result needs at least one token, not {}", *limits.result_tokens ) );
+            }
+
             limits_ = limits;
         }
 
@@ -645,13 +647,6 @@ namespace Mila::AI
             const dim_t context_left = handle_.plan().contextLength() - static_cast<dim_t>( tokens.size() );
 
             return std::min( *limits_.reply_tokens - generated, context_left );
-        }
-
-        const Tool* findTool( std::string_view name ) const noexcept
-        {
-            const auto tool = std::ranges::find( tools_, name, &Tool::name );
-
-            return tool == tools_.end() ? nullptr : &*tool;
         }
 
         /**
@@ -767,7 +762,7 @@ namespace Mila::AI
             Conversation::PromptOptions options;
             options.template_variables = template_variables_;
 
-            if ( !tools_.empty() )
+            if ( !gate_.tools().empty() )
             {
                 options.tools_json = toolsJson();
             }
@@ -797,7 +792,7 @@ namespace Mila::AI
         {
             nlohmann::ordered_json array = nlohmann::ordered_json::array();
 
-            for ( const auto& tool : tools_ )
+            for ( const auto& tool : gate_.tools() )
             {
                 nlohmann::ordered_json function = nlohmann::ordered_json::object();
                 function[ "name" ] = tool.name;
@@ -860,11 +855,10 @@ namespace Mila::AI
         }
 
         /**
-         * @brief Ask whether a call may run, run it or decline it, and put its result in the conversation.
+         * @brief Pass a call through the gate, and put its result in the conversation.
          *
-         * A call of a tool the model was not offered is never asked about, since nothing will run: the model reads
-         * that there is no such tool. Models call tools they invent -- Llama 3.1 8B asked for `get_capital` when
-         * offered only `get_weather`.
+         * Models call tools they invent -- Llama 3.1 8B asked for `get_capital` when offered only `get_weather` --
+         * and leave out arguments a tool requires: the gate answers both without asking (ToolGate).
          *
          * The time the person takes to answer is not the response's: the clock is paused while they are asked.
          *
@@ -874,81 +868,37 @@ namespace Mila::AI
         template<typename TEmit>
         bool answerCall( const Conversation::ToolCall& call, const TEmit& emit, std::stop_token halted, ResponseClock& clock )
         {
-            if ( halted.stop_requested() )
+            Asker ask;
+
+            if ( ask_ )
+            {
+                ask = [this, &clock]( const ToolQuestion& question )
+                    {
+                        clock.pause();
+                        const ToolAnswer answer = ask_( question );
+                        clock.resume();
+
+                        return answer;
+                    };
+            }
+
+            ToolOutcome outcome = gate_.answer( call.name, call.arguments, ask, halted, limits_ );
+
+            if ( outcome.stopped )
             {
                 // Every call in the conversation keeps a result, so the next prompt renders.
-                history_.push_back( { Conversation::Role::Tool, std::string( stoppedResult( clock, false ) ), {}, call.name } );
+                history_.push_back(
+                    { Conversation::Role::Tool, std::string( stoppedResult( clock, outcome.ran ) ), {}, call.name } );
 
                 return false;
             }
 
-            const Tool* tool = findTool( call.name );
-
-            ToolAnswer answer = ToolAnswer::Once;
-
-            if ( tool != nullptr && !allowed_for_conversation_.contains( call.name ) )
+            if ( outcome.ran && outcome.result_tokens )
             {
-                if ( ask_ )
-                {
-                    clock.pause();
-                    answer = ask_( ToolQuestion{ tool->name, tool->description, call.arguments } );
-                    clock.resume();
-                }
-                else
-                {
-                    answer = ToolAnswer::Deny;
-                }
+                cutToResultTokens( outcome );
             }
 
-            if ( halted.stop_requested() )
-            {
-                history_.push_back( { Conversation::Role::Tool, std::string( stoppedResult( clock, false ) ), {}, call.name } );
-
-                return false;
-            }
-
-            if ( answer == ToolAnswer::ForConversation )
-            {
-                allowed_for_conversation_.insert( call.name );
-            }
-
-            std::string result;
-            bool is_error = true;
-
-            if ( tool == nullptr )
-            {
-                result = notOfferedResult( call.name );
-            }
-            else if ( answer == ToolAnswer::Deny )
-            {
-                result = std::string( kDeclinedResult );
-            }
-            else
-            {
-                try
-                {
-                    result = tool->run( call.arguments, halted );
-                    is_error = false;
-                }
-                catch ( const std::exception& error )
-                {
-                    result = std::format( "Error: tool '{}' failed: {}", call.name, error.what() );
-                }
-                catch ( ... )
-                {
-                    result = std::format( "Error: tool '{}' failed", call.name );
-                }
-
-                if ( halted.stop_requested() )
-                {
-                    // What a tool returns once it was asked to stop may be partial, so the model is not given it.
-                    history_.push_back( { Conversation::Role::Tool, std::string( stoppedResult( clock, true ) ), {}, call.name } );
-
-                    return false;
-                }
-            }
-
-            addResult( call, std::move( result ), is_error, emit );
+            addResult( call, std::move( outcome ), emit );
 
             return true;
         }
@@ -963,9 +913,30 @@ namespace Mila::AI
             AgentEvent called{ AgentEvent::Kind::ToolCalled, result };
             called.call = &call;
             called.is_error = true;
+            called.decision = ToolDecision::NotRun;
             emit( called );
 
             history_.push_back( { Conversation::Role::Tool, result, {}, call.name } );
+        }
+
+        /// Cut a result to the most tokens its tool may give the model, and tell the model so.
+        void cutToResultTokens( ToolOutcome& outcome ) const
+        {
+            const std::vector<std::int32_t> tokens = handle_.tokenizer().encode( outcome.result );
+            const dim_t total = static_cast<dim_t>( tokens.size() );
+            const dim_t kept = *outcome.result_tokens;
+
+            if ( total <= kept )
+            {
+                return;
+            }
+
+            outcome.result = handle_.tokenizer().decode(
+                std::span<const std::int32_t>( tokens.data(), static_cast<std::size_t>( kept ) ) );
+
+            dropIncompleteLastCharacter( outcome.result );
+            outcome.result += std::format(
+                "\n[The result was cut to its first {} of {} tokens, the most this tool may give.]", kept, total );
         }
 
         static std::string_view stoppedResult( const ResponseClock& clock, bool while_running ) noexcept
@@ -986,8 +957,11 @@ namespace Mila::AI
          * prompt, which would end the response with no word of why.
          */
         template<typename TEmit>
-        void addResult( const Conversation::ToolCall& call, std::string result, bool is_error, const TEmit& emit )
+        void addResult( const Conversation::ToolCall& call, ToolOutcome outcome, const TEmit& emit )
         {
+            std::string& result = outcome.result;
+            bool is_error = outcome.is_error;
+
             history_.push_back( { Conversation::Role::Tool, result, {}, call.name } );
 
             std::vector<std::int32_t> prompt_tokens = nextRound().tokens;
@@ -1031,6 +1005,9 @@ namespace Mila::AI
             AgentEvent called{ AgentEvent::Kind::ToolCalled, history_.back().content };
             called.call = &call;
             called.is_error = is_error;
+            called.decision = outcome.decision;
+            called.duration = outcome.duration;
+            called.returned_bytes = outcome.returned_bytes;
             emit( called );
         }
 
@@ -1066,27 +1043,14 @@ namespace Mila::AI
             }
         }
 
-        std::string notOfferedResult( std::string_view name ) const
-        {
-            std::string offered;
-
-            for ( const auto& tool : tools_ )
-            {
-                offered += std::format( "{}{}", offered.empty() ? "" : ", ", tool.name );
-            }
-
-            return std::format( "Error: there is no tool named '{}'. The tools are: {}.", name, offered );
-        }
-
         Handle handle_;
-        std::vector<Tool> tools_;
+        ToolGate gate_;
         Asker ask_;
         std::string system_prompt_;
         std::map<std::string, std::string> template_variables_;
         std::optional<SamplingParams> sampling_;
         AgentLimits limits_;
         std::vector<Conversation::Turn> history_;
-        std::set<std::string, std::less<>> allowed_for_conversation_;
 
         // While a round's calls are answered: its prompt and its reply as generated, which the results continue.
         std::optional<RoundPrompt> continued_;

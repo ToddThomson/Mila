@@ -535,9 +535,18 @@ PUBLIC
         # Mila::AI, the level applications are built on (Direction.md 3.2): above the model level, which never
         # imports it.
         "Src/AI/ModelHandle.ixx"
+        "Src/AI/ToolNeeds.ixx"
         "Src/AI/Tool.ixx"
         "Src/AI/ToolQuestion.ixx"
         "Src/AI/ToolAnswer.ixx"
+        "Src/AI/ToolPermission.ixx"
+        "Src/AI/ArgumentCondition.ixx"
+        "Src/AI/ToolRule.ixx"
+        "Src/AI/ToolRules.ixx"
+        "Src/AI/ToolDecision.ixx"
+        "Src/AI/ToolOutcome.ixx"
+        "Src/AI/ArgumentSchema.ixx"
+        "Src/AI/ToolGate.ixx"
         "Src/AI/AgentEvent.ixx"
         "Src/AI/AgentLimits.ixx"
         "Src/AI/Response.ixx"
@@ -1193,12 +1202,6 @@ endif()
 # the parity/converter tooling alike, so it is a peer of the runtime, not an adaptor.
 if(MILA_ENABLE_PYTHON_BINDINGS)
     add_subdirectory( Bindings )
-endif()
-
-# Mila.AI, the layer the apps are built on. In v0.21.0 it is the tool broker's client alone, and the broker
-# and its pipe are Windows' only this release (Specifications/ToolBroker.md section 6).
-if(WIN32)
-    add_subdirectory( AI )
 endif()
 
 # The apps over the library. Each is gated inside Apps/CMakeLists.txt (MILA_ENABLE_APPS, and

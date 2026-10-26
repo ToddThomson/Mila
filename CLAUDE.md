@@ -24,7 +24,7 @@ The user builds exclusively inside **Visual Studio 2026**. Ninja is required —
 
 **The C++23 modules constrain the compiler:** MSVC (VS 2026 18.6.2+ — earlier 2026 builds have a module regression that breaks Mila) or Clang 22+ with a standard library that ships a `std` module (libstdc++ 15, libc++ 17). Every module does `import std;` -- never `std.compat`; C names are written `std::size_t`, `std::uint32_t` -- from `MilaStd`, the library's own `std` module target (`cmake/StdModule.cmake`); Clang 21 rejects libstdc++'s `shared_ptr` friends once `std` is reachable (LLVM #156604). On MSVC a translation unit that does `import Mila;` keeps its standard `#include`s before it. **GCC is not supported:** 14.2 and the GCC 15 on Ubuntu 25.04 failed to compile the modules (GitHub issue #2), and GCC 16 has never been tried. Never write that GCC 16 works — that claim shipped in v0.20.0 unmeasured. In CUDA builds the C++ compiler handles the module units while nvcc uses a separate host compiler for `.cu` files, so an older host GCC is fine in that role. Cross-compiler builds surface missing `#include`s that MSVC resolves transitively — those are real portability fixes, not Clang being difficult.
 
-Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. VS 2026 shows each preset's `displayName`, not its `name` (`x64-validate` appears as "x64 Release (full validation - run before committing)"). The unit tests build into **one binary**, `Mila/Tests/MilaTests` — narrow with `--gtest_filter`; `ChatRichTextTests` and `ToolBrokerTests` (Windows) are the separate targets, each for a module that imports nothing of Mila.
+Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. VS 2026 shows each preset's `displayName`, not its `name` (`x64-validate` appears as "x64 Release (full validation - run before committing)"). The unit tests build into **one binary**, `Mila/Tests/MilaTests` — narrow with `--gtest_filter`; `ChatRichTextTests` is the separate target, for a module that imports nothing of Mila.
 
 ---
 
@@ -36,9 +36,8 @@ Browse the tree for what is where. What the tree does not tell you:
 - **`Mila::AI`** is the level of the Mila library applications are built on (`Direction.md` 3.2), above the model
   level, which never imports it. Tool calling is its structure and every tool is the application's
   (`ToolCalling.md`). It is part of the Mila library, not a library of its own: `Mila/Src/AI/` holds the model
-  handle (`ModelHandle.md`) and the agent, `Mila::AI::Agent` (`Direction.md` 4). The separate `MilaAI` target in `Mila/AI/` holds only the client of the tool broker
-  (`Mila/Apps/Tools/Broker`, `ToolBroker.md`), both built to the design `ToolCalling.md` replaced and due to be
-  refit; nothing new is built on it.
+  handle (`ModelHandle.md`), the agent, `Mila::AI::Agent` (`Direction.md` 4), and `ToolGate`, the one path a
+  model's call takes to a tool: the arguments checked, the person's rules and question, the call's limits.
 - **`Mila/Bindings/`** is the Python projection, and is **consumer-blind**: it knows nothing about Chat or MIS. Session depth only, never components.
 - **`Mila/Apps/`** are first-class consumers, not samples — `Chat/` (`mila-chat`, human gate), `Desktop/` (Mila, the end-user desktop app: Electron window, page, and `mila-desktop-session` over Chat's session library), `Server/` (MIS, `mila-server`, which imports the binding) and `Tools/Store/` (`mila-store`, the model store from the shell). Everything under it ships; every command a user types is lowercase-hyphenated with the `mila-` prefix. See `Specifications/MilaProductFamily.md` and `Specifications/Notebooks/MilaCommandLineReview.md`.
 - **`Mila/Samples/`** is teaching code and must run in any user's environment. `QuickStart/Cpp` and `QuickStart/Python` are the paths the website's Get Started tabs link to, so they are a published surface.

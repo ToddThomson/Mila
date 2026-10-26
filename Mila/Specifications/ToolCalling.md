@@ -10,8 +10,11 @@ rounds, time, reply tokens, none set by default), a stop or the time running out
 a result the context cannot hold cut to what fits and the model told so; Chat and the desktop app's session run
 their calls through the agent and hold no loop of their own. Built at `+99`: section 4's splice -- within a response
 each round continues from the reply as generated and the results as the template frames them
-(`Protocol::continueWithToolResults`), and Qwen continues from the state its last generation left. The rest of
-section 3 is not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
+(`Protocol::continueWithToolResults`), and Qwen continues from the state its last generation left. Built at
+`+100`: sections 3.1 to 3.3 -- every call passes `ToolGate`: the arguments checked against the tool's parameters,
+the person's rules (`ToolRules`), the question built from the tool as registered, the call's own time and a cap on
+its result, and the record of each call on its event. Section 3.4, an output schema, and results other than text
+are not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
 spec -- the broker in `Mila/Apps/Tools/Broker`, the client in `Mila/AI/`, the session's own handler map in Chat --
 is refit to this one. Open decisions are in section 9.
 
@@ -54,11 +57,15 @@ choice to leave the structure, not a way around it.
 ### 3.1 Tool
 
 - A name, a description, an input schema and, optionally, an output schema.
+- **A summary, written for the person,** which is what a question shows. The description is written for the model.
 - **Declared needs:** whether it reads files, writes files or uses the network, and which areas it touches. They
-  are facts the permissions of 3.3 decide on, not hints to the model.
-- **Names carry their source** (`<source>.<tool>`), so two sources cannot collide.
+  are facts the person is shown, and the permissions of 3.3 decide on, not hints to the model.
+- **The source is a field,** shown to the person. *Decided 2026-10-26 (Todd):* the name the model reads is letters,
+  digits, `_` and `-`, since Anthropic's tool names refuse a dot; two tools of one name are refused when the second
+  is registered, so two sources cannot collide.
 - **The description is prompt text the model reads.** It is pinned when approved; a changed description is asked
-  about again.
+  about again. A tool registered in-process cannot change: a name registers once on an agent. Pinning is needed
+  when tools come from outside the application, and arrives with MCP (section 6).
 - **Registration:** a C++ callable and its schema, registered on the agent.
 
 ### 3.2 Execution
@@ -66,7 +73,15 @@ choice to leave the structure, not a way around it.
 How a call reaches the tool. **Initially in-process only:** a function of the application, called in its process.
 
 - **The arguments are checked against the schema before anything runs.** The model's output is untrusted input.
-- A timeout, cancellation, and a cap on the result's size.
+  *Decided 2026-10-26 (Todd):* Mila checks a stated part of JSON Schema itself (`ArgumentSchema`): type,
+  properties, required, additionalProperties, enum, const, items, and the length, range and item-count limits, at
+  any depth. A schema with any other keyword is refused when the tool is registered, so no check is claimed that
+  is not made. A call that fails is answered with an error naming what failed; no one is asked and nothing runs.
+- A timeout, cancellation, and a cap on the result's size. *Decided 2026-10-26 (Todd):* a tool sets its own time
+  and its own cap in tokens, else the response's (`AgentLimits` `tool_time`, `result_tokens`); none is set by
+  default. A call out of its time is asked to stop through its `std::stop_token`, the model reads that it ran out,
+  and the response goes on. A result over the cap is cut, by tokens, to the first that fit, with a note of how many
+  of how many.
 - **A failure reaches the model as an error result,** never as an exception into the application, so the model can
   recover.
 - Results are text or structured data, and later images for models that see.
@@ -76,14 +91,20 @@ How a call reaches the tool. **Initially in-process only:** a function of the ap
 A gate that every call passes; inside `Mila::AI` there is no path to execution around it.
 
 - **In:** the agent, the tool, the arguments and the tool's declared needs. **Out:** allow, ask or deny, and with
-  allow a **grant** -- which folders, read-only or read-write, whether the network, the time and size caps.
+  allow a **grant** -- which folders, read-only or read-write, whether the network, the time and size caps. *Built
+  at `+100`:* an allow carries the time and size caps; the folders and the network arrive with the grant of 3.4.
 - **Rules match on arguments,** not only on the tool: a read inside the project folder can be allowed while one
-  outside it is denied.
+  outside it is denied. *Decided 2026-10-26 (Todd):* a rule names a tool, or a pattern of tools, and conditions on
+  arguments named by JSON Pointer -- one of some values, or matching a pattern. Of the rules that apply, deny wins
+  over ask and ask over allow; a call no rule applies to is asked about. A condition compares text, so a pattern on
+  a path decides whether a call is asked about, never what the tool can reach: that is the grant's.
+- **A call that will not run is never asked about:** a tool the model was not offered, or arguments that fail the
+  schema.
 - **Ask goes through a hook the application supplies.** Mila decides that the person must be asked and what they
   are shown: the tool's name and summary, every argument in full, and what it will touch. **The question is built
   from Mila's own data, never from text the model wrote.**
 - **Answers:** once, for this conversation, or deny. Making a rule permanent is a change to the rules, never an
-  answer to a question.
+  answer to a question. An answer for the conversation stands in for asking again; it never overrides a deny rule.
 - **No hook means no one to ask,** so ask is deny.
 - **A denial reaches the model as a result** saying the person declined, so it can continue. A stopped reply
   cancels a pending question.
@@ -194,7 +215,9 @@ system's file and socket calls for the grant; HTTP, TLS and process launching co
 4. **Where `Mila::AI` sits in the build.** *Directory decided 2026-10-25 (Todd): `Mila/Src/AI/`, built into the
    Mila target* (`ModelHandle.md` 3.5). Still open: whether the tool pieces become a target of their own, so a
    program wanting tools alone needs no GPU stack -- asked when such a program exists.
-5. **The record of a call:** the event's fields, and whether arguments are kept whole.
+5. **The record of a call.** *Decided 2026-10-26 (Todd):* the event of each call answered carries the decision and
+   who made it (`ToolDecision`), how long the tool ran and the size of what it returned; it carries the call, so
+   the arguments whole. Whether they are kept whole is the application's, which keeps the record.
 
 ## 10. Relationship to other specs
 

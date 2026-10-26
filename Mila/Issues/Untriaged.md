@@ -52,15 +52,6 @@ the first user message, the template's default, it called for all sixteen. Meta'
 pythonic calls (llama-models `text_prompt_format.md`), plus the same sentence: ten of ten, three of six. Data
 `D:\Claude\llama-tools\` (`mila-3b-*`, `meta-3b-fp4.jsonl`, `chat-live-Llama-3.2-3B-Instruct-fp4.jsonl`).
 
-## Chat runs a tool call whose arguments lack a field the tool requires
-
-`Mila/Apps/Chat/Src/Chat.Session.ixx` (`dispatchTool`) @ e8df2aef
-
-2026-10-25, Llama 3.1 8B FP4: the model called `get_weather` with `{}`, its schema requiring `location`; Chat
-asked "Getting weather for {location}" with the placeholder unfilled and ran it. `ToolCalling.md` 3.2: the
-arguments are checked against the schema before anything runs. Since Chat moved onto the agent, the call runs in
-`Mila/Src/AI/Agent.ixx` (`answerCall`), which checks no arguments either.
-
 ## Llama 3.1 8B FP4 writes some tool calls in a shape its template does not define
 
 `Mila/Src/Dnn/Models/LlaMa/Llama.ChatProtocol.ixx` (`templateReplyGrammar`); scratch-store package
@@ -152,3 +143,29 @@ is loaded, and the row's Load button stays during the load (progress shows above
 Also, installing `gpt2-small` from it (2026-10-24): after the install the published list is gone again ("Show
 available models"); the list offers `gpt2-small`, a base model the app refuses to chat with, and labels its
 quantization "none"; and the installed base model keeps a Load button that can only be refused.
+
+## A tool that needs a shell has nothing on Windows to hold it to its grant
+
+`Mila/Specifications/ToolCalling.md` sections 3.4 and 6; an absence -- no sandbox under the containment interface @ 571b5063
+
+Todd, 2026-10-26: interested in Microsoft's execution containers (MXC) and NVIDIA OpenShell for the agent. OpenShell
+sandboxes a whole agent; its Windows design (NVIDIA/OpenShell#2050, RFC 0013, tracked by #4450) runs MXC through
+`wxc-exec.exe` -- AppContainer and a low-integrity token, unelevated, Windows 11 build 26100 or later. Per that design:
+read-write and read-only paths are set at creation, denied paths "limited / unsupported"; network filtering by host, IP
+or CIDR only, `allowedHosts`/`blockedHosts` "not yet enforced on Windows", so OpenShell's host proxy is the real network
+enforcer; mapping five policies onto MXC gave 64 access-broadening errors. #2050 closed stale, "not planned",
+2026-10-13; #4450 showed 6 of 9 sub-issues done. Fits Mila per tool, not per agent: the loop runs in the model's
+process (section 1). Section 6 records MXC kept out for now (Todd, 2026-10-25). Unmeasured: launching a container
+from a C++ process, and whether it holds against the routes of 3.4.
+
+## The installed Mila app opens on the mock session, not a model
+
+`Mila/Apps/Desktop/Window/src/main.js` (`MILA_DESKTOP_SESSION`) and `Window/package.json` (`build`) @ 571b5063
+
+Todd, 2026-10-26: Mila should open from the file manager. The package carries the page and its mock but not the
+session program, and the window starts the mock unless `MILA_DESKTOP_SESSION` names a session, so a packaged
+`Mila.exe` plays scripted scenarios. `ChatDesktop.md` 6.2: after phase 3 "the mock stays for development and is
+not packaged". The mock default dates from phase 1 (no session existed); the real session arrived at `+90`/`+91`.
+Fix outlined to Todd, after `+100`: the Windows build copies the session program (and the CUDA libraries, 9.4)
+into the package, and the window starts that copy by default, `MILA_DESKTOP_SESSION` an override and the mock
+only on `--scenario`. `Window/dist/` on disk is stale, still `Mila Chat.exe` from before `+90`.

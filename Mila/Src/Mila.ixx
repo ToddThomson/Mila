@@ -353,9 +353,18 @@ export import Deployment.InstalledModelPlanner;
 export import AI.ModelHandle;
 
 // A model at work in a program: its conversation, its tools and the loop that runs their calls (ToolCalling.md).
+export import AI.ToolNeeds;
 export import AI.Tool;
 export import AI.ToolQuestion;
 export import AI.ToolAnswer;
+export import AI.ToolPermission;
+export import AI.ArgumentCondition;
+export import AI.ToolRule;
+export import AI.ToolRules;
+export import AI.ToolDecision;
+export import AI.ToolOutcome;
+export import AI.ArgumentSchema;
+export import AI.ToolGate;
 export import AI.AgentEvent;
 export import AI.AgentLimits;
 export import AI.Response;

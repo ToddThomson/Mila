@@ -373,8 +373,8 @@ public:
 
 **`Mila::AI` is part of the Mila library, not a library of its own** (`Direction.md` decision 2, revised
 2026-10-25): `Src/AI/` is built into the Mila target, above the model level, which never imports it, so the
-wheel and a `FetchContent` consumer receive it with everything else. The `MilaAI` target in `Mila/AI/` holds
-the broker client built to the design `ToolCalling.md` replaced, and goes when that is refit.
+wheel and a `FetchContent` consumer receive it with everything else. The `MilaAI` target that held the broker's
+client, built to the design `ToolCalling.md` replaced, was deleted with the broker at `+100`.
 
 ### 3.6 The factory
 

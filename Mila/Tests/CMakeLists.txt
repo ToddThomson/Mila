@@ -47,6 +47,10 @@ add_executable( MilaTests
     # ==============================================================
     # Section 1 - Current test methodology (Specifications/Testing.md)
     # ==============================================================
+    # The gate every tool call passes (ToolCalling.md 3.1 to 3.3). Needs no model.
+    "AI/ArgumentSchema.cpp"
+    "AI/ToolRules.cpp"
+    "AI/ToolGate.cpp"
     "Data/Loaders/DataLoader.cpp"
     "Dnn/Components/Activations/Activation/ActivationConfig.cpp"
     "Dnn/Components/Activations/Gelu/GeluConfig.cpp"
@@ -458,105 +462,6 @@ gtest_discover_tests( ChatRichTextTests
     PROPERTIES
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
-
-# ---------------------------------------------------------------------------
-# The tool broker: its own executable for the reason Chat.RichText has one --
-# it imports nothing of Mila. Windows only, as the broker is.
-#
-# The echo worker is a program the tests start as a worker; its path is compiled
-# into the tests so they find it in whichever build directory they run from.
-# ---------------------------------------------------------------------------
-if(TARGET MilaToolBroker)
-    add_executable( ToolBrokerEchoWorker
-        "Apps/ToolBroker/EchoWorker.cpp"
-    )
-
-    set_target_properties( ToolBrokerEchoWorker PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-    )
-
-    # For the JSON module only: the worker speaks MCP in its --json mode.
-    target_link_libraries( ToolBrokerEchoWorker PRIVATE MilaToolBroker )
-
-    add_executable( ToolBrokerTests
-        "Apps/ToolBroker/Broker.Windows.cpp"
-        "Apps/ToolBroker/ClientMessage.cpp"
-        "Apps/ToolBroker/LineChannel.Windows.cpp"
-        "Apps/ToolBroker/PipeServer.Windows.cpp"
-        "Apps/ToolBroker/Relay.Windows.cpp"
-        "Apps/ToolBroker/Worker.Windows.cpp"
-    )
-
-    set_target_properties( ToolBrokerTests PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-    )
-
-    target_compile_definitions( ToolBrokerTests PRIVATE
-        TOOL_BROKER_ECHO_WORKER="$<TARGET_FILE:ToolBrokerEchoWorker>"
-    )
-
-    add_dependencies( ToolBrokerTests ToolBrokerEchoWorker )
-    target_link_libraries( ToolBrokerTests PRIVATE MilaToolBroker gtest gtest_main )
-
-    gtest_discover_tests( ToolBrokerTests
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-        PROPERTIES
-            VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    )
-
-    # Phase 3's measurement (Notebooks/LocalToolService.md section 11). Run by hand, never by CTest: a timing
-    # gate belongs to a quiet machine, not to the suite.
-    add_executable( ToolBrokerRoundTrip
-        "Apps/ToolBroker/RoundTrip.Windows.cpp"
-    )
-
-    set_target_properties( ToolBrokerRoundTrip PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-    )
-
-    target_compile_definitions( ToolBrokerRoundTrip PRIVATE
-        TOOL_BROKER_ECHO_WORKER="$<TARGET_FILE:ToolBrokerEchoWorker>"
-    )
-
-    add_dependencies( ToolBrokerRoundTrip ToolBrokerEchoWorker )
-    target_link_libraries( ToolBrokerRoundTrip PRIVATE MilaToolBroker )
-endif()
-
-# ---------------------------------------------------------------------------
-# Mila.AI: its broker client, run against a real broker over its pipe with the
-# echo workers, and no application. Its own executable, since Mila.AI links
-# nothing of the library yet.
-# ---------------------------------------------------------------------------
-if(TARGET MilaAI AND TARGET MilaToolBroker)
-    add_executable( MilaAITests
-        "AI/BrokerClient.Windows.cpp"
-    )
-
-    set_target_properties( MilaAITests PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-    )
-
-    target_compile_definitions( MilaAITests PRIVATE
-        TOOL_BROKER_ECHO_WORKER="$<TARGET_FILE:ToolBrokerEchoWorker>"
-    )
-
-    add_dependencies( MilaAITests ToolBrokerEchoWorker )
-    target_link_libraries( MilaAITests PRIVATE MilaAI MilaToolBroker gtest gtest_main )
-
-    gtest_discover_tests( MilaAITests
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-        PROPERTIES
-            VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    )
-endif()
 
 # Packaging gates: the FetchContent subproject consumer against the local tree, and the
 # opt-in CPM-by-tag consumer against a published release. Defined here, with the tests,

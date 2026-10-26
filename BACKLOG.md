@@ -408,21 +408,6 @@ checked: how Anthropic and OpenAI join a message's parts, or whether the billing
 
 ### The Desktop Agent
 
-#### A program cannot run a model's tool calls under the person's rules without writing the rules itself
-
-`open` · `ai` · `api`
-
-`ToolCalling.md` sections 3.1 to 3.3: a tool with its schema and declared needs, registered as a C++ callable;
-in-process execution with the arguments checked against the schema first, a timeout, cancellation and a result
-cap, a failure returned to the model as an error result; and the gate every call passes -- allow, ask or deny with
-a grant, rules matching on arguments, the application's hook for asking, the question built from Mila's data and
-never the model's text, once / this conversation / deny, no hook meaning deny, a denial reaching the model as a
-result, and a record of each call as an event. The code built for the per-user broker (`Mila/Apps/Tools/Broker`,
-`Mila/AI/`) is material for it; what the refit does not use is deleted, with its tests. Gate: a test for each
-outcome, including a question whose model-written summary is not what the person is shown.
-
-`Mila/Specifications/ToolCalling.md` section 3
-
 #### Nothing keeps a tool inside the folder it was given, or off local addresses
 
 `open` · `ai` · `gate`

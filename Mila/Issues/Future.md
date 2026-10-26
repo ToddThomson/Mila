@@ -979,7 +979,7 @@ this job too. Only text crosses -- a task in, a summary out -- so it is two serv
 is in the orchestration: when to delegate, how far a worker's summary is trusted. Measured as the Hermes set is:
 main model alone against main model with a worker, pass rate and wall time.
 
-`Mila/Specifications/LayerSplit.md` · `Mila/AI/`
+`Mila/Specifications/LayerSplit.md` · `Mila/Src/AI/`
 
 ## Mila runs no image-generation model
 

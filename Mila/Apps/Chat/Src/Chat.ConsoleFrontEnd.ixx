@@ -381,7 +381,7 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Ask at the prompt line before a tool runs (ToolBroker.md section 5).
+         * @brief Ask at the prompt line before a tool runs (ToolCalling.md section 3.3).
          *
          * Nothing but y or a runs the call: an empty answer, end of input and Ctrl+C all decline it, and Ctrl+C
          * also stops the reply. In one shot the question goes where everything else does, to standard error.

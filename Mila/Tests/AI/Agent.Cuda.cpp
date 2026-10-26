@@ -606,7 +606,9 @@ namespace Mila::Tests::AI
                         }
 
                         return std::string( kWeatherResult );
-                    } } ) );
+                    },
+                    "Agent tests",
+                    "Looks up the weather." } ) );
         }
 
         static void TearDownTestSuite()
@@ -625,6 +627,7 @@ namespace Mila::Tests::AI
             agent_->onAsk( {} );
             agent_->withSystemPrompt( {} );
             agent_->withLimits( {} );
+            agent_->withRules( {} );
             agent_->model().model().seedSampler( 7 );
 
             arguments_seen_.clear();
@@ -707,7 +710,8 @@ namespace Mila::Tests::AI
             {
                 ++asked;
                 EXPECT_EQ( question.name, "get_weather" );
-                EXPECT_EQ( question.description, "Get the current weather in a city." );
+                EXPECT_EQ( question.summary, "Looks up the weather." );
+                EXPECT_EQ( question.source, "Agent tests" );
                 EXPECT_NE( question.arguments.find( "Paris" ), std::string_view::npos ) << question.arguments;
 
                 return ToolAnswer::Deny;
@@ -719,6 +723,43 @@ namespace Mila::Tests::AI
         EXPECT_GE( asked, 1 );
         EXPECT_TRUE( arguments_seen_.empty() );
         EXPECT_TRUE( called.front().is_error );
+        EXPECT_EQ( called.front().decision, ToolDecision::DeclinedByPerson );
+    }
+
+    TEST_F( AgentOnGemmaCuda, ACallTheRulesAllowRunsWithoutAskingAndIsRecorded )
+    {
+        int asked = 0;
+
+        agent_->onAsk( [&asked]( const ToolQuestion& )
+            {
+                ++asked;
+
+                return ToolAnswer::Deny;
+            } );
+        agent_->withRules( ToolRules{}.add( { "get_weather", ToolPermission::Allow } ) );
+
+        const auto called = respond( "What is the weather in Paris right now?" );
+
+        ASSERT_FALSE( called.empty() ) << last_.text;
+        EXPECT_EQ( asked, 0 );
+        EXPECT_FALSE( arguments_seen_.empty() );
+        EXPECT_EQ( called.front().decision, ToolDecision::AllowedByRule );
+        EXPECT_EQ( called.front().returned_bytes, std::string_view( kWeatherResult ).size() );
+        EXPECT_FALSE( called.front().is_error );
+    }
+
+    TEST_F( AgentOnGemmaCuda, ACallTheRulesDenyDoesNotRunAndTheModelReadsSo )
+    {
+        allowEveryCall();
+        agent_->withRules( ToolRules{}.add( { "*", ToolPermission::Deny } ) );
+
+        const auto called = respond( "What is the weather in Paris right now?" );
+
+        ASSERT_FALSE( called.empty() ) << last_.text;
+        EXPECT_TRUE( arguments_seen_.empty() );
+        EXPECT_EQ( called.front().decision, ToolDecision::DeniedByRule );
+        EXPECT_EQ( agent_->conversation()[ 2 ].content, "The user's rules do not allow this tool call." );
+        EXPECT_EQ( agent_->conversation().back().role, Conversation::Role::Assistant );
     }
 
     TEST_F( AgentOnGemmaCuda, AToolAllowedForTheConversationIsNotAskedAboutAgainUntilItEnds )
@@ -817,6 +858,8 @@ namespace Mila::Tests::AI
         EXPECT_THROW( agent_->withLimits( { .rounds = 0 } ), std::invalid_argument );
         EXPECT_THROW( agent_->withLimits( { .time = std::chrono::milliseconds( 0 ) } ), std::invalid_argument );
         EXPECT_THROW( agent_->withLimits( { .reply_tokens = 0 } ), std::invalid_argument );
+        EXPECT_THROW( agent_->withLimits( { .tool_time = std::chrono::milliseconds( 0 ) } ), std::invalid_argument );
+        EXPECT_THROW( agent_->withLimits( { .result_tokens = 0 } ), std::invalid_argument );
     }
 
     // ================================================================
@@ -929,6 +972,64 @@ namespace Mila::Tests::AI
         EXPECT_EQ( agent_->conversation()[ 2 ].content, result );
 
         // The cut leaves the model a position to answer in, so the response never overflowed with no word of why.
+        EXPECT_EQ( last_.rounds, 2 );
+    }
+
+    TEST_F( AgentOnGemmaCuda, AResultLongerThanAToolMayGiveIsCutAndTheModelToldSo )
+    {
+        allowEveryCall();
+        agent_->withLimits( { .result_tokens = 40 } );
+
+        std::string forecast;
+
+        for ( int day = 0; day < 30; ++day )
+        {
+            forecast += std::format( "Day {}: sunny, 17 degrees Celsius, light wind from the west. ", day );
+        }
+
+        tool_body_ = [&forecast]( std::stop_token ) { return forecast; };
+
+        const auto called = respond( "What is the weather in Paris right now?" );
+
+        ASSERT_FALSE( called.empty() ) << last_.text;
+        EXPECT_FALSE( called.front().is_error ) << results_.front();
+        EXPECT_EQ( called.front().returned_bytes, forecast.size() );
+
+        const std::string& result = results_.front();
+        const std::size_t note = result.rfind( "\n[The result was cut to its first 40 of " );
+
+        ASSERT_NE( note, std::string::npos ) << result;
+        EXPECT_TRUE( result.ends_with( " tokens, the most this tool may give.]" ) ) << result;
+        EXPECT_TRUE( forecast.starts_with( result.substr( 0, note ) ) ) << "the cut is not the result's beginning";
+        EXPECT_EQ( agent_->conversation()[ 2 ].content, result );
+    }
+
+    TEST_F( AgentOnGemmaCuda, ACallOutOfItsTimeEndsAndTheResponseGoesOn )
+    {
+        allowEveryCall();
+        agent_->withLimits( { .rounds = 2, .tool_time = std::chrono::milliseconds( 200 ) } );
+
+        bool tool_saw_stop = false;
+
+        tool_body_ = [&tool_saw_stop]( std::stop_token running )
+            {
+                std::mutex mutex;
+                std::condition_variable_any never;
+                std::unique_lock<std::mutex> lock( mutex );
+
+                never.wait_for( lock, running, std::chrono::minutes( 1 ), [] { return false; } );
+                tool_saw_stop = running.stop_requested();
+
+                return std::string( kWeatherResult );
+            };
+
+        const auto called = respond( "What is the weather in Paris right now?" );
+
+        ASSERT_FALSE( called.empty() ) << last_.text;
+        EXPECT_TRUE( tool_saw_stop );
+        EXPECT_TRUE( called.front().is_error );
+        EXPECT_EQ( results_.front(), "Error: tool 'get_weather' ran out of its 200 ms, so it may not have finished." );
+        EXPECT_NE( last_.status, GenerateStatus::ClientCancelled ) << "a call out of its time ended the response";
         EXPECT_EQ( last_.rounds, 2 );
     }
 

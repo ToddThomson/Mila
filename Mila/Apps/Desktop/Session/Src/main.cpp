@@ -215,8 +215,8 @@ int main( int argc, char* argv[] )
         SessionProcess process(
             std::move( config ), line.conversations.value_or( ConversationStore::defaultDirectory() ), protocol_out );
 
-        // The same canned reading as mila-chat's probe stub, so a reply can call a tool before the tool broker
-        // runs real ones (ToolBroker.md).
+        // The same canned reading as mila-chat's probe stub, so a reply can call a tool before the app has tools of
+        // its own (ToolCalling.md section 5).
         process.registerTool( "get_weather", []( const std::string& ) -> std::string
         {
             return R"({"temperature_c": 18, "condition": "cloudy"})";

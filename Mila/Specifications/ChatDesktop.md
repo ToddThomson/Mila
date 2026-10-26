@@ -487,7 +487,8 @@ interrupted the reply printed after the trace line; the renderer now writes it f
    is not typed, so it carries no `mila-` command name, and is installed and shown in the Start menu and
    the Dock. It is its own app, `Mila/Apps/Desktop/`, beside Chat's console in `Mila/Apps/Chat/`. *Open:*
    the session process's name. It is built as `mila-desktop-session`, a program of the app's own rather than
-   a mode of `mila-chat` (section 6.1); no one types it, so the name is the app's to keep or change.
+   a mode of `mila-chat` (section 6.1); no one types it, so the name is the app's to keep or change. Todd,
+   2026-10-26: `mila-session` or `mila-local-session`, renamed in the change that packages it.
 2. **Positioning -- decided 2026-10-24 (Todd), reversing 2026-10-20.** "Mila is the brand name. [The
    desktop app] IS the showcase agentic application for end users. Mila C++23 library is the dev target
    audience." The 2026-10-20 decision -- the window built for developers deciding whether to build on
@@ -500,7 +501,14 @@ interrupted the reply printed after the trace line; the renderer now writes it f
 4. **Distribution.** An installer, code signing (an unsigned download is warned on by SmartScreen on
    Windows; macOS needs a Developer ID and notarization) and updates. An end user installs no toolkit, so
    the app carries the CUDA runtime its session needs, under NVIDIA's redistribution terms, and states the
-   GPU it needs before the download (`Untriaged.md`, 2026-10-24).
+   GPU it needs before the download (`Untriaged.md`, 2026-10-24). *Decided 2026-10-26 (Todd):* the
+   installer carries them, as Ollama's Windows package does -- no separate download and no download on first
+   run. The build copies the CUDA libraries the session loads from the build machine's toolkit to beside the
+   session program: at CUDA 13.4 `cublasLt64_13.dll` (about 470 MiB) and `curand64_10.dll` (about 57 MiB), the
+   runtime itself linked statically (`dumpbin /dependents`, 2026-10-26). Both are in the 13.4 EULA's
+   Attachment A, on its conditions: the app adds substantial function, only the app uses them, and its terms
+   match NVIDIA's. The Visual C++ runtime ships too, app-local or through Microsoft's redistributable -- its
+   terms read before choosing.
 5. **Math.** Shown as source in phase 1; a vendored math renderer later, or never.
 6. **When macOS.** macOS is wanted (Todd, 2026-10-20). The page and the Electron window run there as they
    are; the session process reaches it once a Metal backend exists.
