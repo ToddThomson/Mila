@@ -39,7 +39,7 @@ Browse the tree for what is where. What the tree does not tell you:
   handle (`ModelHandle.md`), the agent, `Mila::AI::Agent` (`Direction.md` 4), and `ToolGate`, the one path a
   model's call takes to a tool: the arguments checked, the person's rules and question, the call's limits.
 - **`Mila/Bindings/`** is the Python projection, and is **consumer-blind**: it knows nothing about Chat or MIS. Session depth only, never components.
-- **`Mila/Apps/`** are first-class consumers, not samples — `Chat/` (`mila-chat`, human gate), `Desktop/` (Mila, the end-user desktop app: Electron window, page, and `mila-desktop-session` over Chat's session library), `Server/` (MIS, `mila-server`, which imports the binding) and `Tools/Store/` (`mila-store`, the model store from the shell). Everything under it ships; every command a user types is lowercase-hyphenated with the `mila-` prefix. See `Specifications/MilaProductFamily.md` and `Specifications/Notebooks/MilaCommandLineReview.md`.
+- **`Mila/Apps/`** are first-class consumers, not samples — `Chat/` (`mila-chat`, human gate), `Desktop/` (Mila, the end-user desktop app: Electron window, page, and `mila-session` over Chat's session library), `Server/` (MIS, `mila-server`, which imports the binding) and `Tools/Store/` (`mila-store`, the model store from the shell). Everything under it ships; every command a user types is lowercase-hyphenated with the `mila-` prefix. See `Specifications/MilaProductFamily.md` and `Specifications/Notebooks/MilaCommandLineReview.md`.
 - **`Mila/Samples/`** is teaching code and must run in any user's environment. `QuickStart/Cpp` and `QuickStart/Python` are the paths the website's Get Started tabs link to, so they are a published surface.
 - **`Mila/Tools/`** is developer tooling and **none of it ships** — the wheel excludes it and a FetchContent consumer never configures it. `Tools/README.md` is the index.
 - **`Data/`** holds weights, packages and corpora, all gitignored; only directory READMEs are tracked.
@@ -110,7 +110,7 @@ Key files:
 - `Chat.Session.ixx` — `ChatSession`: the model as one `Mila::AI::Agent`, which runs every turn and its tool calls; model hot-switching, the round measurements; never draws or reads input, and reports through `SessionEvents` (library target `MilaChatSession`, `ChatDesktop.md` section 7)
 - `Chat.ConsoleFrontEnd.ixx` — the console over the session: slash commands, tables, the live display, Ctrl+C stops a reply
 - `Chat.ModelCatalog.ixx` — resolves a store name to a loadable model, and owns the load refusals
-- `Chat.Config.ixx` — `ChatConfig` with `ModelType`, `ModelSize`, `ModelPrecision` (compute), `QuantizationMode` (none/fp8/fp4/codebook)
+- `Chat.Config.ixx` — `ChatConfig`: the model a store name resolved to (`ModelType`, `QuantizationMode` none/fp8/fp4/codebook), its device, context length and sampling
 - `Chat.Footprint.ixx` — what a model would allocate at a context length, without allocating it
 - `Chat.Renderer.ixx` — `ConsoleRenderer` (standalone non-exported module): braille spinner, solid-color response blocks, word-wrap with leading-indent preservation, Unicode welcome box, ANSI stats line
 - `Chat.SettingsResolution.ixx` — the layered config resolution, compiled defaults included, shared with the desktop app's session process

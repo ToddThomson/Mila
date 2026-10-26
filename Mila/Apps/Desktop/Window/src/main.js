@@ -19,10 +19,6 @@ let sessionProcess = null;
 let pageReady = false;
 let held = [];
 
-/**
- * --scenario <n> (or --scenario=<n>) picks the mock's scenario; MILA_DESKTOP_SESSION names the real
- * session program, and without it the mock runs.
- */
 function argumentValue( name )
 {
     const prefix = name + '=';
@@ -41,15 +37,23 @@ function argumentValue( name )
     return null;
 }
 
+/**
+ * The session the package carries, or in development the copy staged for it (Window/session), unless
+ * MILA_SESSION names another program. --scenario <n> (or --scenario=<n>) runs the mock instead; the mock
+ * is not packaged, so a packaged build ignores it.
+ */
 function readConfiguration()
 {
-    const scenario = argumentValue( '--scenario' );
-    const sessionPath = process.env.MILA_DESKTOP_SESSION;
+    const scenario = app.isPackaged ? null : argumentValue( '--scenario' );
+    const named = process.env.MILA_SESSION;
+    const program = process.platform === 'win32' ? 'mila-session.exe' : 'mila-session';
+    const carried = app.isPackaged ? path.join( process.resourcesPath, 'Session', program ) : path.resolve( here, '..', 'session', program );
+    const sessionPath = named === undefined || named.length === 0 ? carried : named;
     const mockScript = path.join( pageRoot, 'mock', 'stdio.js' );
 
     return {
-        scenario: scenario === null ? '1' : scenario,
-        sessionPath: sessionPath === undefined || sessionPath.length === 0 ? null : sessionPath,
+        scenario,
+        sessionPath: scenario === null ? sessionPath : null,
         mockScript
     };
 }

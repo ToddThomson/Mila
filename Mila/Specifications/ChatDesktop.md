@@ -305,7 +305,8 @@ when Chat is rebuilt on `Mila::AI` in v0.22.0 the process becomes a thin layer o
 (Todd, 2026-10-20). The schema and every client are unchanged by that move; anything the session
 process would have to grow to serve a client belongs in `Mila::AI` instead.
 
-**As built (2026-10-24).** `mila-desktop-session`, built beside `mila-chat` wherever Chat builds
+**As built (2026-10-24).** `mila-session` (`mila-desktop-session` until 2026-10-26, section 9.1), built beside
+`mila-chat` wherever Chat builds
 (`Desktop.SessionProcess.ixx`, `Desktop.ConversationStore.ixx`):
 
 - **Settings resolve as the console's do**, from the same files and layers (`Chat.SettingsResolution`, moved
@@ -366,9 +367,10 @@ context isolation on and Node integration off in the page. One engine (Chromium)
   scrolling (Electron's `BrowserWindow` documentation).
 - **To confirm from Electron's documentation before the window is written:** how a dropped `File` becomes
   a path (`webUtils.getPathForFile`).
-- **Which session it starts:** the real session process when its path is configured, and the mock
-  session (section 5) otherwise. Until phase 3, every build runs the mock; afterwards the mock stays for
-  development and is not packaged.
+- **Which session it starts:** the session the package carries (`resources/Session/`), or in development the
+  copy staged for packaging (`Window/session/`); `MILA_SESSION` names another program, and `--scenario <n>`
+  runs the mock session (section 5) instead. The mock stays for development and is not packaged, so a packaged
+  build has no `--scenario` (2026-10-26).
 - **The package:** Electron and the packager pinned to exact versions in `package.json`, with the lock
   file committed; `node_modules/` and build output ignored by a `.gitignore` inside the folder. The
   product name is "Mila" (application id `me.toddt.mila`, section 9). electron-builder documents building
@@ -485,10 +487,10 @@ interrupted the reply printed after the trace line; the renderer now writes it f
 1. **Names -- the app's decided 2026-10-24 (Todd: "Mila is the showcase app").** The window is called
    Mila, the complete agent harness it is becoming, with the conversation as its face; a windowed program
    is not typed, so it carries no `mila-` command name, and is installed and shown in the Start menu and
-   the Dock. It is its own app, `Mila/Apps/Desktop/`, beside Chat's console in `Mila/Apps/Chat/`. *Open:*
-   the session process's name. It is built as `mila-desktop-session`, a program of the app's own rather than
-   a mode of `mila-chat` (section 6.1); no one types it, so the name is the app's to keep or change. Todd,
-   2026-10-26: `mila-session` or `mila-local-session`, renamed in the change that packages it.
+   the Dock. It is its own app, `Mila/Apps/Desktop/`, beside Chat's console in `Mila/Apps/Chat/`. The session
+   process's name, *decided 2026-10-26 (Todd):* `mila-session`, a program of the app's own rather
+   than a mode of `mila-chat` (section 6.1). The name implies a local session; one reached over a network
+   would be another program, such as `mila-network-session`.
 2. **Positioning -- decided 2026-10-24 (Todd), reversing 2026-10-20.** "Mila is the brand name. [The
    desktop app] IS the showcase agentic application for end users. Mila C++23 library is the dev target
    audience." The 2026-10-20 decision -- the window built for developers deciding whether to build on
@@ -507,8 +509,18 @@ interrupted the reply printed after the trace line; the renderer now writes it f
    session program: at CUDA 13.4 `cublasLt64_13.dll` (about 470 MiB) and `curand64_10.dll` (about 57 MiB), the
    runtime itself linked statically (`dumpbin /dependents`, 2026-10-26). Both are in the 13.4 EULA's
    Attachment A, on its conditions: the app adds substantial function, only the app uses them, and its terms
-   match NVIDIA's. The Visual C++ runtime ships too, app-local or through Microsoft's redistributable -- its
-   terms read before choosing.
+   match NVIDIA's. *Decided 2026-10-26 (Todd):* the Visual C++ runtime ships app-local, beside the session, from
+   the toolset's own redistributable folder. VS 2026's Distributable Code list covers everything under
+   `VC\redist` for every edition, so the terms allow either way. Microsoft's redistributable installer needs
+   an administrator and a registry version check, which a per-user installer does not have; and a machine whose
+   installed runtime is older than the toolset's would not start the session. The cost is that Windows Update
+   does not service an app-local runtime, so a runtime fix reaches users in Mila's next release.
+   *As built 2026-10-26:* the session's `mila-session` install component (`Desktop/Session/CMakeLists.txt`)
+   stages the program, its prompts and the libraries it imports -- found by reading its imports
+   (`install(RUNTIME_DEPENDENCY_SET)`), so a toolkit that renames them needs no edit -- and the Visual C++
+   runtime (`InstallRequiredSystemLibraries`, which needs a CMake that knows the VS 2026 toolset: Visual
+   Studio's 4.3 does, 4.0 does not and is warned on) into `Window/session/`, which the package carries as
+   `resources/Session/`; the window's build refuses to run without the program and the runtime.
 5. **Math.** Shown as source in phase 1; a vendored math renderer later, or never.
 6. **When macOS.** macOS is wanted (Todd, 2026-10-20). The page and the Electron window run there as they
    are; the session process reaches it once a Metal backend exists.

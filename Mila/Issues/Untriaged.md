@@ -10,6 +10,17 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## A program names a compute precision to open a model whose precision its package already decides
+
+`Mila/Src/AI/Agent.ixx` (`Agent`, `BasicAgent`) and `Mila/Src/AI/ModelHandle.ixx` (`ModelHandle`) @ 793bddb5
+
+Todd, 2026-10-26: `BasicAgent<Cuda, BF16>` reads as a BF16 model, but the same agent runs the FP4, FP8 and codebook
+packages -- BF16 is the compute precision, and the weight format comes from the package named. Every installed
+model's format runs at BF16 compute only (Qwen refuses another, `QwenModel.ixx` near 567); FP32 is used below
+`Mila::AI`, by the HuggingFace reference tests and GPT-2's training. Outlined to Todd: `BasicAgent<TDeviceType>`
+and `ModelHandle<TDeviceType>`, BF16 compute fixed inside; `Direction.md` 4.1 and `ModelHandle.md` 3 and 10.1 say
+the pair. A format that changes the compute itself (Vnext's NVFP4 W4A4) is the package's choice too.
+
 ## Two of the agent's answers to a stop or a cut have no test that fails without them
 
 `Mila/Src/AI/Agent.ixx` (`respond`, `dropIncompleteLastCharacter`) @ 6f077474
@@ -85,15 +96,14 @@ section 9): "We do have a future for .NET bindings." Like the Python binding: a 
 Specified 2026-10-21 in `Mila/Specifications/DotNetBinding.md`: P/Invoke over a C ABI, experimental until
 v0.22.0 or later (Todd).
 
-## An end user cannot install the Mila desktop app without a developer's toolkit
+## The Mila desktop app's download is unsigned, has no updates and does not say it needs an NVIDIA GPU
 
-`Mila/Specifications/ChatDesktop.md` section 9.4; an absence -- the installer carries no CUDA runtime @ c8f71f60
+`Mila/Specifications/ChatDesktop.md` section 9.4; an absence -- no signing, no update channel, no stated
+requirement @ c8f71f60
 
-Todd, 2026-10-24: the desktop app is the end-user showcase. A person who installs it has no CUDA Toolkit,
-so the app ships the CUDA libraries its session loads (cuBLAS, cuBLASLt and the rest), which needs
-NVIDIA's CUDA EULA redistribution terms read first. The .NET binding's option A ("the user installs CUDA
-13") does not fit an end user. Also needed: the NVIDIA GPU requirement stated before the download, code
-signing, an installer and updates.
+Todd, 2026-10-24: the desktop app is the end-user showcase. Since +101 its installer carries the session, the
+CUDA libraries it loads and the Visual C++ runtime, so no toolkit is needed. Still missing: the NVIDIA GPU
+requirement stated before the download, code signing (SmartScreen warns on an unsigned one), and updates.
 
 ## The installed Qwen 3.8 27B FP4 package does not say it can think or call tools
 
@@ -158,14 +168,11 @@ enforcer; mapping five policies onto MXC gave 64 access-broadening errors. #2050
 process (section 1). Section 6 records MXC kept out for now (Todd, 2026-10-25). Unmeasured: launching a container
 from a C++ process, and whether it holds against the routes of 3.4.
 
-## The installed Mila app opens on the mock session, not a model
+## No CI job builds the desktop app's installer
 
-`Mila/Apps/Desktop/Window/src/main.js` (`MILA_DESKTOP_SESSION`) and `Window/package.json` (`build`) @ 571b5063
+`.github/workflows/desktop.yml`; an absence -- the `windows-installer` job removed @ 793bddb5
 
-Todd, 2026-10-26: Mila should open from the file manager. The package carries the page and its mock but not the
-session program, and the window starts the mock unless `MILA_DESKTOP_SESSION` names a session, so a packaged
-`Mila.exe` plays scripted scenarios. `ChatDesktop.md` 6.2: after phase 3 "the mock stays for development and is
-not packaged". The mock default dates from phase 1 (no session existed); the real session arrived at `+90`/`+91`.
-Fix outlined to Todd, after `+100`: the Windows build copies the session program (and the CUDA libraries, 9.4)
-into the package, and the window starts that copy by default, `MILA_DESKTOP_SESSION` an override and the mock
-only on `--scenario`. `Window/dist/` on disk is stale, still `Mila Chat.exe` from before `+90`.
+Removed 2026-10-26 when the installer began carrying the session (`ChatDesktop.md` 9.4): `npm run build:windows`
+refuses to run without `Window/session/` staged from a C++ build, and the desktop workflow has no C++ build. Before
+that the job's upload was an installer that ran only the mock. Nothing builds the installer now but a person
+with a Release build directory (`Mila/Apps/Desktop/README.md`, *Staging it for the window*).

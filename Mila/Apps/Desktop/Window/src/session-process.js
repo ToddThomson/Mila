@@ -6,8 +6,8 @@ import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 
 /**
- * The real session when one is configured, and the mock session otherwise, run by this
- * Electron's own Node so nothing else needs installing.
+ * The session program, or the mock session when a scenario is asked for, run by this Electron's
+ * own Node so nothing else needs installing.
  */
 function commandFor( configuration )
 {

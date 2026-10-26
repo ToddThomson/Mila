@@ -2,23 +2,33 @@
 
 Mila, the desktop app: a page (`Ui/`) over Chat's session, hosted by an Electron window (`Window/`),
 which starts the session process (`Session/`). The design of record is `Mila/Specifications/ChatDesktop.md`.
-The window runs the real session when it is pointed at one, and otherwise the mock session (`Ui/mock/`), which
-plays scripted scenarios.
+For development the window can run the mock session (`Ui/mock/`) instead, which plays scripted scenarios.
 
 ## The session process
 
-`mila-desktop-session` is built with the C++ targets, beside `mila-chat` in the build directory. It reads
+`mila-session` is built with the C++ targets, beside `mila-chat` in the build directory. It reads
 requests as JSON lines on standard input and writes events as JSON lines on standard output (section 4 of the
 spec); log records go to standard error, and end of input ends it. Settings resolve as `mila-chat`'s do, from
 the same files; `--help` lists its flags.
 
 ```
-mila-desktop-session --model gemma-4-12b-it-fp4 --system-prompt tools-weather
+mila-session --model gemma-4-12b-it-fp4 --system-prompt tools-weather
 {"v": 1, "type": "ready"}
 ```
 
-`MILA_DESKTOP_SESSION=<path to mila-desktop-session>` makes the window start it in place of the mock, with no
-arguments, so it opens on the model last chosen and takes its settings from the user's `chat.json`.
+The window starts it with no arguments, so it opens on the model last chosen and takes its settings from the
+user's `chat.json`.
+
+### Staging it for the window
+
+The window starts the copy in `Window/session/`, and the package carries that folder. Install the session's
+component from a Release build directory into it -- the program, its prompts, the CUDA libraries it loads,
+copied from the build's toolkit, and the Visual C++ runtime. The build directory must be configured with
+Visual Studio's CMake, or another that knows the VS 2026 toolset; an older one warns and leaves the runtime out.
+
+```
+cmake --install out/build/x64-release --component mila-session --prefix Mila/Apps/Desktop/Window/session
+```
 
 ## The page in a browser
 
@@ -40,13 +50,13 @@ Node 22 or later. Electron and electron-builder are pinned in `Window/package.js
 ```
 cd Mila/Apps/Desktop/Window
 npm ci
-npm start -- --scenario=6
+npm start
 ```
 
-`--scenario=<n>` picks the mock's scenario. `MILA_DESKTOP_SESSION=<path>` starts that program as the session
-instead of the mock. The window serves the page at `mila://chat/`, starts the session as a child process
-speaking JSON lines on stdio, and relays messages between them; a link the page asks to open goes to the
-system browser.
+`npm start` runs the staged session. `npm start -- --scenario=6` runs the mock's scenario 6 instead, and
+`MILA_SESSION=<path>` starts that program as the session. The window serves the page at `mila://chat/`, starts
+the session as a child process speaking JSON lines on stdio, and relays messages between them; a link the page
+asks to open goes to the system browser.
 
 The mock session also runs on its own, for any client: `node Ui/mock/stdio.js --scenario 1`.
 
@@ -71,6 +81,9 @@ mock session over stdio.
 | Windows installer, on Linux | the same, with 64- and 32-bit Wine installed (`wine64`, `wine32:i386`) | the same |
 | Linux folder | `npm run build:linux` | `linux-unpacked/` |
 
+Each build needs the session staged first, built for the platform it packages, and refuses to run without it. The package
+carries it as `resources/Session/` and starts it; the mock is not packaged.
+
 Builds are unsigned. The icon is the Mila mark, in `Window/icons/` (electron-builder's build resources),
 rendered from the website's `mila-mark.svg`. A packaged build has no developer tools and no menu bar on
 Windows and Linux.
@@ -80,6 +93,5 @@ first build. Both cache per user; `ELECTRON_CACHE` and `ELECTRON_BUILDER_CACHE` 
 
 ## CI
 
-`.github/workflows/desktop.yml` runs on any change under this folder: both test suites on Linux, then the
-Windows installer built from the lock file, kept as a workflow upload for 14 days. It is not a release, and it
-carries no session process yet, so it runs the mock.
+`.github/workflows/desktop.yml` runs both test suites on Linux on any change under this folder. It builds no
+installer: an installer carries the session, which needs the C++ build.

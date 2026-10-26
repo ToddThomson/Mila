@@ -1,13 +1,12 @@
 name: Mila Desktop
 
 # The Mila desktop app (Mila/Apps/Desktop/, ChatDesktop.md): the page's and the window's tests on
-# every change to them, and the Windows installer built from the committed lock file as an upload.
-# Its own workflow because it shares nothing with the C++ build -- no CMake, no CUDA, minutes not
-# an hour -- and because build-pipeline.yml's triggers (contributor PRs and the release merge)
-# would leave a change to the window untested on the `dev` push that makes it.
+# every change to them. Its own workflow because it shares nothing with the C++ build -- no CMake,
+# no CUDA, minutes not an hour -- and because build-pipeline.yml's triggers (contributor PRs and the
+# release merge) would leave a change to the window untested on the `dev` push that makes it.
 #
-# The installer is unsigned and is not a release: until the session process exists (phase 3) the
-# window runs the mock session. Signing and where it ships are ChatDesktop.md section 9.
+# No installer is built here: the installer carries the session process and its CUDA libraries
+# (ChatDesktop.md 9.4), which come from the C++ build. Signing and where it ships are section 9.
 
 on:
   push:
@@ -51,32 +50,3 @@ jobs:
       - name: Window tests
         working-directory: Mila/Apps/Desktop/Window
         run: node --test
-
-  windows-installer:
-    name: Windows installer (electron-builder, unsigned)
-    needs: tests
-    runs-on: windows-2025
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: Mila/Apps/Desktop/Window/package-lock.json
-
-      - name: Install the pinned packages
-        working-directory: Mila/Apps/Desktop/Window
-        run: npm ci --no-audit --no-fund
-
-      - name: Build the installer
-        working-directory: Mila/Apps/Desktop/Window
-        run: npm run build:windows
-
-      - uses: actions/upload-artifact@v5
-        with:
-          name: mila-desktop-windows-${{ github.sha }}
-          path: Mila/Apps/Desktop/Window/dist/*.exe
-          if-no-files-found: error
-          retention-days: 14
