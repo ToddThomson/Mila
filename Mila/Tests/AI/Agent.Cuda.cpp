@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -18,9 +19,13 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <regex>
+#include <source_location>
+#include <span>
 #include <stdexcept>
 #include <stop_token>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <vector>
@@ -213,6 +218,211 @@ namespace Mila::Tests::AI
             }
         }
 
+        /**
+         * @brief Every prompt prefix a model reports it reused, matched to the round that reused it.
+         *
+         * Read from the model's log line, the one report of it there is; every record is passed on to the logger
+         * this one stands in for while it lives.
+         */
+        class ReuseLog final : public Mila::Logging::Logger
+        {
+        public:
+
+            struct Prefill
+            {
+                dim_t prompt{ 0 };
+                dim_t skipped{ 0 };
+            };
+
+            ReuseLog()
+                : previous_( Logger::defaultLogger() )
+            {
+                Logger::setDefaultLogger( this );
+            }
+
+            ~ReuseLog() override
+            {
+                Logger::setDefaultLogger( &previous_ );
+            }
+
+            /// Called as each round begins.
+            void beginRound()
+            {
+                rounds_.emplace_back();
+            }
+
+            /// Each round's reuse, or nothing for a round that prefilled its whole prompt.
+            const std::vector<std::optional<Prefill>>& rounds() const noexcept
+            {
+                return rounds_;
+            }
+
+            void setLevel( Mila::Logging::LogLevel level ) override { previous_.setLevel( level ); }
+            Mila::Logging::LogLevel getLevel() const override { return previous_.getLevel(); }
+            bool isEnabled( Mila::Logging::LogLevel level ) const override { return previous_.isEnabled( level ); }
+
+            void log_trace( std::string_view message, const std::source_location& location ) override
+            {
+                previous_.log_trace( message, location );
+            }
+
+            void log_debug( std::string_view message, const std::source_location& location ) override
+            {
+                previous_.log_debug( message, location );
+            }
+
+            void log_info( std::string_view message, const std::source_location& location ) override
+            {
+                record( message );
+                previous_.log_info( message, location );
+            }
+
+            void log_warning( std::string_view message, const std::source_location& location ) override
+            {
+                previous_.log_warning( message, location );
+            }
+
+            void log_error( std::string_view message, const std::source_location& location ) override
+            {
+                previous_.log_error( message, location );
+            }
+
+            void log_critical( std::string_view message, const std::source_location& location ) override
+            {
+                previous_.log_critical( message, location );
+            }
+
+            void log( std::string_view message, Mila::Logging::LogLevel level, const std::source_location& location ) override
+            {
+                if ( level == Mila::Logging::LogLevel::Info )
+                {
+                    record( message );
+                }
+
+                previous_.log( message, level, location );
+            }
+
+        private:
+
+            void record( std::string_view message )
+            {
+                static const std::regex reuse( R"(KV prefix reuse -- skipped (\d+) of (\d+) prompt tokens)" );
+
+                std::match_results<std::string_view::const_iterator> match;
+
+                if ( !rounds_.empty() && std::regex_search( message.begin(), message.end(), match, reuse ) )
+                {
+                    rounds_.back() = Prefill{ std::stoll( match[ 2 ].str() ), std::stoll( match[ 1 ].str() ) };
+                }
+            }
+
+            Logger& previous_;
+            std::vector<std::optional<Prefill>> rounds_;
+        };
+
+        /**
+         * @brief The gate on what a conversation prefills: within a response a round prefills only the results it
+         *        adds, framed as the template frames them; the next message never prefills from the start.
+         *
+         * Two messages, each asking for a call. Rounds are matched to the calls they answered by walking the
+         * conversation, which holds each round's reply and then its results.
+         */
+        void expectEachRoundPrefillsOnlyWhatItAdds( const std::string& name )
+        {
+            std::vector<std::string> arguments_seen;
+
+            auto agent = Agent::create( name, *requestThatFits( name ) )
+                .withTool( weatherTool( arguments_seen ) )
+                .onAsk( []( const ToolQuestion& ) { return ToolAnswer::Once; } );
+
+            agent.model().model().seedSampler( 7 );
+
+            ReuseLog reuse;
+
+            const std::vector<std::string> messages{
+                "What is the weather in Paris right now?", "And what is the weather in Rome right now?" };
+
+            for ( std::size_t message = 0; message < messages.size(); ++message )
+            {
+                const std::size_t first_round = reuse.rounds().size();
+                const std::size_t first_turn = agent.conversation().size();
+
+                // Each round's prompt is the last one's, the tokens it generated and its results: none dropped.
+                dim_t expected_prompt = static_cast<dim_t>(
+                    agent.model().tokenizer().encode( agent.prompt( messages[ message ] ).text ).size() );
+                std::vector<dim_t> generated;
+
+                const Response response = agent.respond( messages[ message ], [&reuse, &generated]( const AgentEvent& event )
+                    {
+                        if ( event.kind == AgentEvent::Kind::RoundBegan )
+                        {
+                            reuse.beginRound();
+                            generated.push_back( 0 );
+                        }
+                        else if ( event.kind == AgentEvent::Kind::Token )
+                        {
+                            ++generated.back();
+                        }
+                    } );
+
+                if ( message == 0 )
+                {
+                    ASSERT_GE( response.rounds, 2 ) << name << " answered without calling the tool: " << response.text;
+                }
+                else
+                {
+                    // The first message's rounds are in the model; this one resumes from them.
+                    const auto& resumed = reuse.rounds()[ first_round ];
+
+                    ASSERT_TRUE( resumed.has_value() ) << name << ": the next message prefilled the conversation from its start";
+                    std::printf( "%s\n", std::format( "{}: next message prefilled {} of {} prompt tokens",
+                        name, resumed->prompt - resumed->skipped, resumed->prompt ).c_str() );
+                }
+
+                ASSERT_EQ( reuse.rounds().size(), first_round + static_cast<std::size_t>( response.rounds ) );
+
+                const auto conversation = agent.conversation();
+                std::size_t turn = first_turn + 1;
+
+                for ( int round = 1; round < response.rounds; ++round )
+                {
+                    // The reply that made the calls, then their results.
+                    ASSERT_LT( turn, conversation.size() );
+                    ASSERT_FALSE( conversation[ turn ].tool_calls.empty() );
+
+                    const std::size_t first_result = ++turn;
+
+                    while ( turn < conversation.size() && conversation[ turn ].role == Conversation::Role::Tool )
+                    {
+                        ++turn;
+                    }
+
+                    const Conversation::Prompt after = agent.model().protocol()->continueWithToolResults(
+                        conversation.subspan( first_result, turn - first_result ), {} );
+                    const dim_t added = static_cast<dim_t>( agent.model().tokenizer().encode( after.text ).size() );
+
+                    const auto& prefill = reuse.rounds()[ first_round + static_cast<std::size_t>( round ) ];
+
+                    ASSERT_TRUE( prefill.has_value() ) << name << " round " << round + 1 << " prefilled its whole prompt";
+
+                    expected_prompt += generated[ static_cast<std::size_t>( round - 1 ) ] + added;
+
+                    EXPECT_EQ( prefill->prompt, expected_prompt )
+                        << name << " round " << round + 1 << " is not the last round's prompt, its reply and its results";
+
+                    const dim_t prefilled = prefill->prompt - prefill->skipped;
+
+                    std::printf( "%s\n", std::format( "{}: message {} round {} prefilled {} of {} prompt tokens; the results add {}",
+                        name, message + 1, round + 1, prefilled, prefill->prompt, added ).c_str() );
+
+                    // The first token the results add is the token the reply stopped at, which the model holds
+                    // when its reply ended on the marker the template opens the results with.
+                    EXPECT_LE( prefilled, added ) << name << " round " << round + 1 << " prefilled more than its results";
+                    EXPECT_GE( prefilled, added - 1 ) << name << " round " << round + 1;
+                }
+            }
+        }
+
         /// A store root under the temp directory, removed on destruction.
         class ScratchStore
         {
@@ -317,6 +527,46 @@ namespace Mila::Tests::AI
         }
 
         askForTheWeather<QwenModel<DeviceType::Cuda, TensorDataType::BF16>>( *name );
+    }
+
+    // ================================================================
+    // A round prefills only what it adds (ToolCalling.md section 4)
+    // ================================================================
+
+    TEST( AgentCuda, GemmaPrefillsOnlyWhatEachRoundAdds )
+    {
+        const auto name = firstInstalled( { "gemma-4-26B-A4B-it-q4_0", "gemma-4-12b-it-fp4", "gemma-4-12b-it-q4_0" } );
+
+        if ( const auto skipped = whyNotRunnable( name ) )
+        {
+            GTEST_SKIP() << *skipped;
+        }
+
+        expectEachRoundPrefillsOnlyWhatItAdds( *name );
+    }
+
+    TEST( AgentCuda, LlamaPrefillsOnlyWhatEachRoundAdds )
+    {
+        const auto name = firstInstalled( { "Llama-3.1-8B-Instruct-fp4", "Llama-3.1-8B-Instruct-fp8" } );
+
+        if ( const auto skipped = whyNotRunnable( name ) )
+        {
+            GTEST_SKIP() << *skipped;
+        }
+
+        expectEachRoundPrefillsOnlyWhatItAdds( *name );
+    }
+
+    TEST( AgentCuda, QwenPrefillsOnlyWhatEachRoundAdds )
+    {
+        const auto name = firstInstalled( { "Qwen3.8-27B-fp4", "Qwen3.8-27B-fp4-cb3" } );
+
+        if ( const auto skipped = whyNotRunnable( name ) )
+        {
+            GTEST_SKIP() << *skipped;
+        }
+
+        expectEachRoundPrefillsOnlyWhatItAdds( *name );
     }
 
     // ================================================================

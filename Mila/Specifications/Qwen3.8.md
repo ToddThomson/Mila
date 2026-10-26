@@ -2530,7 +2530,10 @@ puts the copy back and rewinds the attention layers, and refuses any other posit
 that writes inside the saved prefix discards it. One position is held. `QwenModel` saves at the end of
 each prompt, not of the reply, because the chat template drops a reply's reasoning from the history and
 the next prompt diverges inside the reply; it reports `PromptPrefixReuse::SavedPosition`. Measured cost
-of what it replaces: a refill of 52 s at 32K and 118 s at 64K on the 2.82-bit build.
+of what it replaces: a refill of 52 s at 32K and 118 s at 64K on the 2.82-bit build. Since `0.21.0-dev+99` a
+prompt that extends every token the state holds -- the last prompt, its reply and the stop token decode-ahead
+fed in -- continues from the state as it stands, with no rewind; that is how a round of tool results continues
+the reply the model generated (`ToolCalling.md` section 4).
 
 **Host, not device, for now.** On the device the copy would restore in under a millisecond instead of
 about ten, at 144 MiB of VRAM -- about 2,300 tokens of the cache, on a card the weights already fill.

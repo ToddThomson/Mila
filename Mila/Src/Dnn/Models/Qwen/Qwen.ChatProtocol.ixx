@@ -247,6 +247,43 @@ namespace Mila::Dnn::Qwen
             return std::format( "{}\n{}\n{}", kToolResponseOpen, detail::trim( result ), kToolResponseClose );
         }
 
+        /**
+         * The end of the assistant turn, the results in the user turn that carries them, and the primer of the next
+         * assistant turn.
+         *
+         * @throws std::invalid_argument for no results, or one that is not a Tool turn.
+         */
+        Conversation::Prompt continueWithToolResults(
+            std::span<const Conversation::Turn> results, const Conversation::PromptOptions& options ) const override
+        {
+            Conversation::validateTemplateVariables( variables_, options.template_variables );
+
+            if ( results.empty() )
+            {
+                throw std::invalid_argument( "Qwen chat template: a reply that made calls continues with their results" );
+            }
+
+            std::string text = "<|im_end|>\n<|im_start|>user";
+
+            for ( const auto& result : results )
+            {
+                if ( result.role != Conversation::Role::Tool )
+                {
+                    throw std::invalid_argument( "Qwen chat template: only tool results continue a reply that made calls" );
+                }
+
+                text += "\n";
+                text += formatToolResult( result.tool_name, result.content );
+            }
+
+            const bool thinking = variable( options, "enable_thinking" ) == "true";
+
+            text += "<|im_end|>\n<|im_start|>assistant\n";
+            text += thinking ? "<think>\n" : "<think>\n\n</think>\n\n";
+
+            return { std::move( text ), thinking };
+        }
+
         const Conversation::ProtocolMarkers& markers() const noexcept override
         {
             return markers_;

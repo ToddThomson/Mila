@@ -8,7 +8,9 @@
 // this renderer is a finding about the renderer, never about the template (ModelHandle.md 3.4).
 
 #include <gtest/gtest.h>
+#include <cstddef>
 #include <map>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -496,5 +498,60 @@ namespace Mila::Tests::Dnn::Models
     {
         EXPECT_EQ( GemmaChatProtocol{}.formatToolResult( "get_weather", "Sunny, 21 C" ),
             "<|tool_response>response:get_weather{value:<|\"|>Sunny, 21 C<|\"|>}<tool_response|>" );
+    }
+
+    // ---- Continuing a reply that made calls ----------------------------------------
+
+    namespace
+    {
+        /// What follows the reply's last call in the rendering of a history that ends on its results.
+        void expectContinuesTheRendering( const std::vector<Conversation::Turn>& history, const Conversation::PromptOptions& prompt_options )
+        {
+            std::size_t first_result = history.size();
+
+            while ( first_result > 0 && history[ first_result - 1 ].role == Conversation::Role::Tool )
+            {
+                --first_result;
+            }
+
+            const GemmaChatProtocol protocol;
+            const auto rendered = protocol.formatPrompt( history, prompt_options );
+            const auto continued = protocol.continueWithToolResults(
+                std::span<const Conversation::Turn>( history ).subspan( first_result ), prompt_options );
+
+            ASSERT_TRUE( rendered.text.ends_with( continued.text ) ) << continued.text;
+            EXPECT_TRUE( rendered.text.substr( 0, rendered.text.size() - continued.text.size() ).ends_with( "<tool_call|>" ) );
+            EXPECT_TRUE( continued.text.starts_with( "<|tool_response>" ) ) << "it does not begin at the marker the reply stops at";
+            EXPECT_EQ( continued.reply_begins_in_reasoning, rendered.reply_begins_in_reasoning );
+        }
+    }
+
+    TEST( GemmaChatProtocolContinuation, IsWhatAResumeRendersAfterTheCall )
+    {
+        expectContinuesTheRendering( oneCallResume(), options( tools( { kWeather } ) ) );
+    }
+
+    TEST( GemmaChatProtocolContinuation, WithThinkingOnOpensTheThoughtChannel )
+    {
+        expectContinuesTheRendering( oneCallResume(), options( tools( { kWeather } ), { { "enable_thinking", "true" } } ) );
+    }
+
+    TEST( GemmaChatProtocolContinuation, CarriesEveryResultInTheOrderGiven )
+    {
+        expectContinuesTheRendering( {
+            user( kAskBoth ),
+            assistant( "", { kWeatherCall, kTimeCall } ),
+            result( "get_time", "14:05" ),
+            result( "get_weather", "Sunny, 21 C" ) }, options( tools( { kWeather, kTime } ) ) );
+    }
+
+    TEST( GemmaChatProtocolContinuation, RefusesWhatTheTemplateWouldNotRender )
+    {
+        const GemmaChatProtocol protocol;
+
+        EXPECT_THROW( (void)protocol.continueWithToolResults( {}, {} ), std::invalid_argument );
+        EXPECT_THROW( (void)protocol.continueWithToolResults( std::vector{ result( "", "Sunny" ) }, {} ), std::invalid_argument );
+        EXPECT_THROW( (void)protocol.continueWithToolResults( std::vector{ result( "get_weather", "Sunny" ) },
+            options( {}, { { "reasoning_effort", "low" } } ) ), std::invalid_argument );
     }
 }

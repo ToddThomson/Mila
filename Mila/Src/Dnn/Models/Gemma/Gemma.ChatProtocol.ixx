@@ -291,6 +291,45 @@ namespace Mila::Dnn::Gemma
             return formatToolResponseText( name, result );
         }
 
+        /**
+         * The results inside the model turn, as a resume renders them; with thinking on, the thought channel the
+         * model's next reply opens in.
+         *
+         * @throws std::invalid_argument for no results, or one that is not a Tool turn or names no tool.
+         */
+        Conversation::Prompt continueWithToolResults(
+            std::span<const Conversation::Turn> results, const Conversation::PromptOptions& options ) const override
+        {
+            Conversation::validateTemplateVariables( variables_, options.template_variables );
+
+            if ( results.empty() )
+            {
+                throw std::invalid_argument( "Gemma chat template: a reply that made calls continues with their results" );
+            }
+
+            std::string text;
+
+            for ( const auto& result : results )
+            {
+                if ( result.role != Conversation::Role::Tool || result.tool_name.empty() )
+                {
+                    throw std::invalid_argument( "Gemma chat template: a tool result must name its tool" );
+                }
+
+                text += formatToolResponseText( result.tool_name, result.content );
+            }
+
+            const bool thinking = variable( options, "enable_thinking" ) == "true";
+
+            if ( thinking )
+            {
+                text += kChannelOpen;
+                text += "thought\n";
+            }
+
+            return { std::move( text ), thinking };
+        }
+
         const Conversation::ProtocolMarkers& markers() const noexcept override
         {
             return markers_;

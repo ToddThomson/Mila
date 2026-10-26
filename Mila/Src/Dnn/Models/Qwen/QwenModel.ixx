@@ -367,27 +367,36 @@ namespace Mila::Dnn
             const std::int64_t seq_len = static_cast<std::int64_t>( prompt_tokens.size() );
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
-            // Prefix reuse returns to the position saved at the end of the previous prompt, so it
-            // applies when this prompt starts with that whole prompt and extends it. Saved at the
-            // end of the prompt rather than of the reply: the chat template drops a reply's
-            // reasoning from the history, so the next prompt diverges inside the reply. Otherwise,
-            // or when the caller turns reuse off for a reply independent of earlier calls,
-            // a full prefill from position 0, which zeroes the recurrent state and starts the
-            // convolution windows cold, so nothing carries over from what ran before.
+            // Prefix reuse continues from the state as the last generation left it when this prompt
+            // extends every token that state holds -- the reply it generated included -- and otherwise
+            // returns to the position saved at the end of the previous prompt when this prompt extends
+            // that. The saved position is at the end of the prompt rather than of the reply: a chat
+            // template that drops a reply's reasoning from the history makes the next prompt diverge
+            // inside the reply. Otherwise, or when the caller turns reuse off for a reply independent
+            // of earlier calls, a full prefill from position 0, which zeroes the recurrent state and
+            // starts the convolution windows cold, so nothing carries over from what ran before.
+            const std::int64_t held = static_cast<std::int64_t>( live_tokens_.size() );
             const std::int64_t saved = static_cast<std::int64_t>( saved_prompt_.size() );
-            const bool extends_saved = params.reuse_kv_prefix && saved > 0 && saved < seq_len
+
+            const bool extends_held = params.reuse_kv_prefix && held > 0 && held < seq_len
+                && std::equal( live_tokens_.begin(), live_tokens_.end(), prompt_tokens.begin() );
+            const bool extends_saved = params.reuse_kv_prefix && !extends_held && saved > 0 && saved < seq_len
                 && std::equal( saved_prompt_.begin(), saved_prompt_.end(), prompt_tokens.begin() );
 
-            const bool reused = extends_saved
-                && this->getNetwork().rewindKvCache( saved );
+            const bool reused = extends_held
+                || ( extends_saved && this->getNetwork().rewindKvCache( saved ) );
+            const std::int64_t skipped = extends_held ? held : saved;
+
+            // Cleared first, so a prefill that throws leaves no claim on the state it left.
+            live_tokens_.clear();
 
             auto& logits = reused
-                ? this->getNetwork().prefillFrom( prefill_input, saved )
+                ? this->getNetwork().prefillFrom( prefill_input, skipped )
                 : this->getNetwork().prefill( prefill_input );
 
             if ( reused )
                 Logging::Logger::info( std::format(
-                    "QwenModel: KV prefix reuse -- skipped {} of {} prompt tokens", saved, seq_len ) );
+                    "QwenModel: KV prefix reuse -- skipped {} of {} prompt tokens", skipped, seq_len ) );
 
             // Decode-ahead pipeline: the sampler runs on the network stream (ordered after
             // the forward that produced the logits) and writes the sampled token into
@@ -398,6 +407,7 @@ namespace Mila::Dnn
             // Stream-ordered after the prefill and before the first decode step changes the state.
             this->getNetwork().savePosition();
             saved_prompt_.assign( prompt_tokens.begin(), prompt_tokens.end() );
+            live_tokens_.assign( prompt_tokens.begin(), prompt_tokens.end() );
 
             dim_t position = seq_len;
             int emitted = 0;
@@ -429,7 +439,11 @@ namespace Mila::Dnn
                 const std::int32_t token = this->awaitSampledToken();
 
                 if ( decode_logits )
+                {
+                    // The ahead-decode advanced the state by this token, whatever it turns out to be.
+                    live_tokens_.push_back( token );
                     ++position;
+                }
 
                 if ( stop_ids.contains( token ) )
                 {
@@ -506,6 +520,9 @@ namespace Mila::Dnn
 
         // The prompt whose end the network saved (savePosition): the prefix the next generation may resume from.
         std::vector<std::int32_t> saved_prompt_;
+
+        // Every token the state has advanced by since its prefill: the prompt, and each token decoded after it.
+        std::vector<std::int32_t> live_tokens_;
 
         // Qwen 3.8 instruct stop tokens, read from the checkpoint's own tokenizer_config and
         // generation_config: <|im_end|> is the conversational EOS and <|endoftext|> the

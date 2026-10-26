@@ -253,9 +253,15 @@ re-render and no re-tokenize. Which kind of prefix reuse a model offers -- a rew
 or for Qwen a return to a position whose recurrent state it saved -- is a model property the core reads
 from the handle (decided 2026-10-03, Todd; `ModelFamilyParity.md` 8.3, Q5).
 
-*Success:* across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
-measured, for every family -- Qwen continuing from the position it saved at the end of the previous
-turn.
+*Success:* across a multi-turn tool session, measured for every family, a round within a response
+prefills only the results it adds, and the next message prefills only what the template requires --
+what it renders differently from what the model holds, such as the reasoning it drops. Restated
+2026-10-25 (Todd) from "prefill tokens per turn equal the tokens the turn added", which no template
+that drops earlier reasoning can meet. Met at `0.21.0-dev+99` (`Tests/AI/Agent.Cuda.cpp`): a second
+round prefilled 20 tokens of 21 its results added on Gemma 4 26B-A4B, 24 of 25 on Qwen 3.8 27B and 19
+of 19 on Llama 3.1 8B -- the first is the token the reply stopped at, already in the cache when the
+reply ends on the token the results open with -- and Qwen's next message resumed from the end of the
+last round's prompt.
 
 ### 5.4 `Mila::AI`
 

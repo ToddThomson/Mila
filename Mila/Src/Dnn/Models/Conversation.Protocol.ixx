@@ -81,6 +81,20 @@ namespace Mila::Dnn::Conversation
          */
         virtual std::string formatToolResult( std::string_view name, std::string_view result ) const = 0;
 
+        /**
+         * @brief What the template writes after a reply that ended in calls, through where the model resumes.
+         *
+         * Begins with the marker the reply stopped at and ends where formatPrompt leaves a history that ends on
+         * these results, so a reply as the template writes it followed by this is that rendering. A consumer that
+         * holds the conversation's tokens appends it to the reply as generated instead of rendering again.
+         *
+         * @param results The Tool turns that answer the reply's calls, in order.
+         * @param options As for formatPrompt; they decide how the model's next reply opens.
+         * @throws std::invalid_argument for results the template cannot render after a reply -- each implementation
+         *         names its own -- and as formatPrompt for the options.
+         */
+        virtual Prompt continueWithToolResults( std::span<const Turn> results, const PromptOptions& options ) const = 0;
+
         virtual const ProtocolMarkers& markers() const noexcept = 0;
 
         /// The template's own variables, each with the values it accepts and its default. Empty when it takes none.

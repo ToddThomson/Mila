@@ -176,6 +176,30 @@ namespace Mila::Dnn::Llama
             return Conversation::templateJson( nlohmann::ordered_json( std::string( result ) ) );
         }
 
+        /**
+         * The end of the assistant turn, the ipython turn that carries the result, and the next assistant header.
+         *
+         * @throws std::invalid_argument for anything but one result: a turn makes at most one call.
+         */
+        Conversation::Prompt continueWithToolResults(
+            std::span<const Conversation::Turn> results, const Conversation::PromptOptions& options ) const override
+        {
+            Conversation::validateTemplateVariables( variables_, options.template_variables );
+
+            if ( results.size() != 1 || results.front().role != Conversation::Role::Tool )
+            {
+                throw std::invalid_argument( "Llama chat template: a reply that made its one call continues with one result" );
+            }
+
+            std::string text( detail::kEndOfTurn );
+            text += detail::header( "ipython" );
+            text += formatToolResult( results.front().tool_name, results.front().content );
+            text += detail::kEndOfTurn;
+            text += detail::header( "assistant" );
+
+            return { std::move( text ), false };
+        }
+
         const Conversation::ProtocolMarkers& markers() const noexcept override
         {
             return markers_;

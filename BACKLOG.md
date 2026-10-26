@@ -408,25 +408,6 @@ checked: how Anthropic and OpenAI join a message's parts, or whether the billing
 
 ### The Desktop Agent
 
-#### A tool result is re-rendered and re-tokenized with the whole conversation before generation continues
-
-`open` · `ai` · `models` · `mila-src`
-
-Decided in v0.20 and deferred (`MilaProductFamily.md` Decided 1): a tool result's tokens are appended to the live
-KV cache, with no re-render of the conversation and no re-tokenize. Today Gemma and Llama skip the longest prefix
-of tokens they still hold, and Qwen resumes from the end of its previous prompt, but `Mila::AI::Agent` re-renders
-and re-tokenizes every round, and each model prefills again whatever of its own reply the re-render writes
-differently. Measured 2026-10-25 on a tool session in Chat: Gemma 26B with thinking, 17 tokens a round (the
-template writes a newline before `<channel|>` that the model did not); Gemma 12B with thinking off, its whole reply
-(it writes an empty thought channel the template drops); Qwen, its whole reply, since it resumes only from a
-prompt's end. Across turns the templates drop earlier reasoning, so that part is prefilled again in any design that
-keeps the trained format. The grammar that frames a result as tokens is the model's; the loop that decides
-when to splice is `Mila::AI`'s, and reads from the handle which kind of prefix reuse a model offers. Moved from
-`Vnext.md`. Gate: across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
-measured, for every family that permits prefix reuse, Qwen from the position it saved.
-
-`Mila/Specifications/Direction.md` 5.3
-
 #### A program cannot run a model's tool calls under the person's rules without writing the rules itself
 
 `open` · `ai` · `api`

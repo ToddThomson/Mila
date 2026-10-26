@@ -8,8 +8,10 @@ three answers, no hook meaning deny, a call of a tool not offered or a tool that
 and a stopped reply running no waiting call. Built at `+98`: section 4's limits per response (`AgentLimits` --
 rounds, time, reply tokens, none set by default), a stop or the time running out asking a running call to stop, and
 a result the context cannot hold cut to what fits and the model told so; Chat and the desktop app's session run
-their calls through the agent and hold no loop of their own. The loop still re-renders the conversation each round
-(the splice is not built), and the rest of section 3 is not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
+their calls through the agent and hold no loop of their own. Built at `+99`: section 4's splice -- within a response
+each round continues from the reply as generated and the results as the template frames them
+(`Protocol::continueWithToolResults`), and Qwen continues from the state its last generation left. The rest of
+section 3 is not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
 spec -- the broker in `Mila/Apps/Tools/Broker`, the client in `Mila/AI/`, the session's own handler map in Chat --
 is refit to this one. Open decisions are in section 9.
 
@@ -130,9 +132,19 @@ once, and each tested first reaching its target with the check removed, then ref
   overflows. *Decided 2026-10-25 (Todd):* cut, by tokens, to the first that fit, with a note of how many of how
   many; refused only when none fit. The cut keeps the prompt inside the context and reserves nothing for the
   answer, so the result cap of 3.2 is what keeps an ordinary result small.
+- **The splice.** *Decided 2026-10-25 (Todd):* within a response the model continues from its own tokens, not from
+  a rendering of them. A round's prompt is the last round's prompt and its reply as generated, followed by the
+  results as the template frames them after a call -- the model's protocol gives that text, tested against the
+  template's full rendering -- so a round prefills only the results it adds. A reply whose last call is left open is
+  rendered instead, so the model never reads a call it did not finish followed by its result. Across responses the
+  conversation is rendered: Gemma and Llama prefill from where the rendering first differs from what they hold,
+  such as the reasoning a template drops, and Qwen from the end of its last reply when the rendering extends it,
+  else from the end of the last round's prompt. Measured in `Direction.md` 5.3. The model ends a reply on the token the template opens its results with (Gemma's
+  `<|tool_response>`, Qwen's `<|im_end|>`, Llama's `<|eot_id|>`), and decode-ahead has already put that token in the
+  cache, so the results' first token is never prefilled.
 - **Prefix reuse is the model's property**, read from the handle: a rewind to any position, or for a model with
-  recurrent state a return to a position it saved (`Direction.md` 5.3). The loop does not know which family it
-  drives.
+  recurrent state a return to a position it saved (`Direction.md` 5.3); Qwen also continues from the state its last
+  generation left when a prompt extends every token that state holds. The loop does not know which family it drives.
 - **The conversation is the agent's;** its history and the cache always agree.
 
 ## 5. What the application brings

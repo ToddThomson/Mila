@@ -12,6 +12,7 @@
 #include <chrono>
 #include <format>
 #include <map>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -663,5 +664,41 @@ namespace Mila::Tests::Dnn::Models
     TEST( LlamaChatProtocolResult, IsJsonQuoted )
     {
         EXPECT_EQ( LlamaChatProtocol::llama31().formatToolResult( "get_weather", "Sunny, \"21\" C" ), R"("Sunny, \"21\" C")" );
+    }
+
+    // ---- Continuing a reply that made calls ----------------------------------------
+
+    TEST( LlamaChatProtocolContinuation, IsWhatTheTemplateRendersAfterTheCall )
+    {
+        const std::vector<Conversation::Turn> history{
+            system( kSystem ), user( kAsk ), assistant( "", { kWeatherCall } ), result( "get_weather", R"(Sunny, "21" C)" ) };
+
+        for ( const auto& tools_in_user_message : { "true", "false" } )
+        {
+            const auto prompt_options = options( tools( { kWeather } ), { { "tools_in_user_message", tools_in_user_message } } );
+
+            for ( const auto& protocol : { LlamaChatProtocol::llama31(), LlamaChatProtocol::llama32() } )
+            {
+                const auto rendered = protocol.formatPrompt( history, prompt_options );
+                const auto continued = protocol.continueWithToolResults(
+                    std::span<const Conversation::Turn>( history ).subspan( 3 ), prompt_options );
+
+                ASSERT_TRUE( rendered.text.ends_with( continued.text ) ) << continued.text;
+                EXPECT_TRUE( rendered.text.substr( 0, rendered.text.size() - continued.text.size() ).ends_with( R"("Paris"}})" ) );
+                EXPECT_TRUE( continued.text.starts_with( "<|eot_id|>" ) ) << "it does not begin at the token the reply stops at";
+                EXPECT_FALSE( continued.reply_begins_in_reasoning );
+            }
+        }
+    }
+
+    TEST( LlamaChatProtocolContinuation, RefusesAnythingButOneResult )
+    {
+        const auto protocol = LlamaChatProtocol::llama31();
+
+        EXPECT_THROW( (void)protocol.continueWithToolResults( {}, {} ), std::invalid_argument );
+        EXPECT_THROW( (void)protocol.continueWithToolResults(
+            std::vector{ result( "get_weather", "Sunny" ), result( "get_time", "14:05" ) }, {} ), std::invalid_argument );
+        EXPECT_THROW( (void)protocol.continueWithToolResults( std::vector{ result( "get_weather", "Sunny" ) },
+            options( {}, { { "enable_thinking", "true" } } ) ), std::invalid_argument );
     }
 }

@@ -199,6 +199,7 @@ public:
     ReplyReader readReply( const Prompt& prompt ) const;                 // a reply as it streams
     Reply parseReply( std::string_view text, const Prompt& prompt ) const;   // the same reader, fed whole
     virtual std::string formatToolResult( std::string_view name, std::string_view result ) const = 0;
+    virtual Prompt continueWithToolResults( std::span<const Turn> results, const PromptOptions& options ) const = 0;
     virtual const ProtocolMarkers& markers() const noexcept = 0;
     virtual std::span<const TemplateVariable> templateVariables() const noexcept = 0;   // empty when none
 };
@@ -250,8 +251,10 @@ turn (`InferenceServerWire.md` 3.4 and W2).
 
 Each member answers one of section 1's seven decisions: `formatPrompt` renders and declares tools,
 `parseReply` parses, `markers()` gives the stop and the channel routing, `formatToolResult` renders a
-tool's answer as the text that continues the turn -- what the agent core's splice appends to the live cache,
-though how it is used is that spec's decision. The existing free functions (`Gemma::formatPrompt`,
+tool's answer as the template's result span, and `continueWithToolResults` (`0.21.0-dev+99`) writes everything
+the template puts after a reply that ended in calls -- from the marker the reply stopped at, through the results,
+to where the model resumes -- which is what the agent's splice appends to the reply as generated
+(`ToolCalling.md` section 4). Each is tested to be the tail of the template's own rendering of that history. The existing free functions (`Gemma::formatPrompt`,
 `Qwen::parseToolCall`, and the rest) stay, and the implementations call them; the binding's
 `qwen_format_prompt` and its siblings keep working until the binding moves onto `Mila::AI`.
 

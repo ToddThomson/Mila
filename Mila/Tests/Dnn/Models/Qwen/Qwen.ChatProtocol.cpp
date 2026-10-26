@@ -8,7 +8,9 @@
 // renderer, never about the template (ModelHandle.md 3.4).
 
 #include <gtest/gtest.h>
+#include <cstddef>
 #include <map>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -966,5 +968,60 @@ namespace Mila::Tests::Dnn::Models
     TEST( QwenChatProtocolResult, IsTheTemplatesResponseSpan )
     {
         EXPECT_EQ( QwenChatProtocol{}.formatToolResult( "get_weather", " Sunny, 21 C\n" ), "<tool_response>\nSunny, 21 C\n</tool_response>" );
+    }
+
+    // ---- Continuing a reply that made calls ----------------------------------------
+
+    namespace
+    {
+        /// What follows the reply's last call in the rendering of a history that ends on its results.
+        void expectContinuesTheRendering( const std::vector<Conversation::Turn>& history, const Conversation::PromptOptions& prompt_options )
+        {
+            std::size_t first_result = history.size();
+
+            while ( first_result > 0 && history[ first_result - 1 ].role == Conversation::Role::Tool )
+            {
+                --first_result;
+            }
+
+            const QwenChatProtocol protocol;
+            const auto rendered = protocol.formatPrompt( history, prompt_options );
+            const auto continued = protocol.continueWithToolResults(
+                std::span<const Conversation::Turn>( history ).subspan( first_result ), prompt_options );
+
+            ASSERT_TRUE( rendered.text.ends_with( continued.text ) ) << continued.text;
+            EXPECT_TRUE( rendered.text.substr( 0, rendered.text.size() - continued.text.size() ).ends_with( "</tool_call>" ) );
+            EXPECT_TRUE( continued.text.starts_with( "<|im_end|>" ) ) << "it does not begin at the token the reply stops at";
+            EXPECT_EQ( continued.reply_begins_in_reasoning, rendered.reply_begins_in_reasoning );
+        }
+    }
+
+    TEST( QwenChatProtocolContinuation, IsWhatTheTemplateRendersAfterTheCall )
+    {
+        expectContinuesTheRendering( oneCallResume(), options( tools( { kWeather } ) ) );
+    }
+
+    TEST( QwenChatProtocolContinuation, WithThinkingOffPrimesAnEmptyChannel )
+    {
+        expectContinuesTheRendering( oneCallResume(), options( tools( { kWeather } ), { { "enable_thinking", "false" } } ) );
+    }
+
+    TEST( QwenChatProtocolContinuation, CarriesEveryResultInOneUserTurn )
+    {
+        expectContinuesTheRendering( {
+            user( kAskBoth ),
+            assistant( "Let me check both.", { kWeatherCall, kTimeCall } ),
+            result( "get_weather", "  Sunny, 21 C\n" ),
+            result( "get_time", "14:05" ) }, options( tools( { kWeather, kTime } ) ) );
+    }
+
+    TEST( QwenChatProtocolContinuation, RefusesWhatTheTemplateWouldNotRender )
+    {
+        const QwenChatProtocol protocol;
+
+        EXPECT_THROW( (void)protocol.continueWithToolResults( {}, {} ), std::invalid_argument );
+        EXPECT_THROW( (void)protocol.continueWithToolResults( std::vector{ user( "Sunny" ) }, {} ), std::invalid_argument );
+        EXPECT_THROW( (void)protocol.continueWithToolResults( std::vector{ result( "get_weather", "Sunny" ) },
+            options( {}, { { "reasoning_effort", "high" } } ) ), std::invalid_argument );
     }
 }

@@ -301,7 +301,8 @@ that would validate it is shared. See Honest Risk.
    (Agentic's viability, Chat's thinness, the "at the metal" positioning) already assumed this
    answer; it is now explicit. String-level parse/format helpers still exist as the first
    deliverable and as the surface MIS consumes via pybind — the splice is the depth they are built
-   on, not an alternative to them.
+   on, not an alternative to them. Delivered at `0.21.0-dev+99` in `Mila::AI::Agent`
+   (`ToolCalling.md` section 4, measured in `Direction.md` 5.3).
 
    **How the structural claim gets measured** (added 2026-08-12): same model, same tools, two loops
    — Agentic in-process against that identical model driven through MIS by a foreign harness on the

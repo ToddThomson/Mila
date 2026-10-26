@@ -339,6 +339,10 @@ namespace Mila::AI
          * round's reply and each call's result join the conversation. A round cut short -- by the context, the reply
          * tokens, the time or stop -- runs none of its calls, and every call the conversation holds keeps a result.
          *
+         * The first round reads the conversation as the template renders it. Each round after it continues from
+         * the reply as the model generated it, followed by the results as the template frames them, so the model
+         * prefills only the results; a reply that left its last call open is rendered again instead.
+         *
          * @param message  What the user says.
          * @param on_event Every event in order; may be empty.
          * @param stop     Stops the reply; a call waiting for the person's answer does not run, and a call running is
@@ -357,9 +361,11 @@ namespace Mila::AI
             Response response;
 
             history_.push_back( { Conversation::Role::User, std::string( message ) } );
+            continued_.reset();
 
-            Conversation::Prompt prompt = render( history_ );
-            std::vector<std::int32_t> tokens = encode( prompt );
+            RoundPrompt next = nextRound();
+            Conversation::Prompt& prompt = next.prompt;
+            std::vector<std::int32_t>& tokens = next.tokens;
 
             if ( !fitsContext( tokens ) )
             {
@@ -414,6 +420,9 @@ namespace Mila::AI
                         }
                     };
 
+                std::vector<std::int32_t> reply_tokens;
+                std::string reply_text;
+
                 const GenerateStatus status = handle_.model().generate(
                     tokens,
                     [&]( std::int32_t token )
@@ -421,6 +430,8 @@ namespace Mila::AI
                         const std::string piece = handle_.tokenizer().decode( std::span<const std::int32_t>( &token, 1 ) );
 
                         ++generated;
+                        reply_tokens.push_back( token );
+                        reply_text += piece;
                         emit( { AgentEvent::Kind::Token, piece } );
                         forward( reader.feed( piece ) );
                     },
@@ -471,6 +482,13 @@ namespace Mila::AI
                     return response;
                 }
 
+                if ( closesItsCalls( reply_text ) )
+                {
+                    RoundPrompt as_generated{ { prompt.text + reply_text, false }, tokens };
+                    as_generated.tokens.insert( as_generated.tokens.end(), reply_tokens.begin(), reply_tokens.end() );
+                    continued_ = std::move( as_generated );
+                }
+
                 for ( std::size_t index = 0; index < reply.tool_calls.size(); ++index )
                 {
                     if ( !answerCall( reply.tool_calls[ index ], emit, halted, clock ) )
@@ -488,8 +506,8 @@ namespace Mila::AI
                     }
                 }
 
-                prompt = render( history_ );
-                tokens = encode( prompt );
+                next = nextRound();
+                continued_.reset();
 
                 if ( !fitsContext( tokens ) )
                 {
@@ -680,7 +698,71 @@ namespace Mila::AI
             return sampling;
         }
 
-        Conversation::Prompt render( std::span<const Conversation::Turn> history ) const
+        /// A prompt and its tokens, which within a response are not always the encoding of its text.
+        struct RoundPrompt
+        {
+            Conversation::Prompt prompt;
+            std::vector<std::int32_t> tokens;
+        };
+
+        /**
+         * @brief The prompt the next round begins from.
+         *
+         * After a reply that made calls, the reply as generated followed by the results answered so far, as the
+         * template frames them after it: the model holds every token before the results, so nothing it read or
+         * wrote is prefilled again. Otherwise the conversation as the template renders it.
+         */
+        RoundPrompt nextRound() const
+        {
+            if ( !continued_ )
+            {
+                Conversation::Prompt prompt = render( history_ );
+                std::vector<std::int32_t> tokens = encode( prompt );
+
+                return { std::move( prompt ), std::move( tokens ) };
+            }
+
+            std::size_t first_result = history_.size();
+
+            while ( first_result > 0 && history_[ first_result - 1 ].role == Conversation::Role::Tool )
+            {
+                --first_result;
+            }
+
+            const Conversation::Prompt after = handle_.protocol()->continueWithToolResults(
+                std::span<const Conversation::Turn>( history_ ).subspan( first_result ), promptOptions() );
+
+            RoundPrompt next = *continued_;
+            next.prompt.text += after.text;
+            next.prompt.reply_begins_in_reasoning = after.reply_begins_in_reasoning;
+
+            const std::vector<std::int32_t> added = encode( after );
+            next.tokens.insert( next.tokens.end(), added.begin(), added.end() );
+
+            return next;
+        }
+
+        /**
+         * @brief Whether a reply's last call is closed as the template closes it, so the reply can stand in the
+         *        next prompt as written. One left open is rendered again: the model never reads a call it did not
+         *        finish followed by its result.
+         */
+        bool closesItsCalls( std::string_view reply ) const
+        {
+            const std::string& close = handle_.protocol()->replyGrammar().tool_call_close;
+
+            if ( close.empty() )
+            {
+                // A call with no close runs to the end of the reply.
+                return true;
+            }
+
+            const std::size_t end = reply.find_last_not_of( " \t\r\n" );
+
+            return end != std::string_view::npos && reply.substr( 0, end + 1 ).ends_with( close );
+        }
+
+        Conversation::PromptOptions promptOptions() const
         {
             Conversation::PromptOptions options;
             options.template_variables = template_variables_;
@@ -689,6 +771,13 @@ namespace Mila::AI
             {
                 options.tools_json = toolsJson();
             }
+
+            return options;
+        }
+
+        Conversation::Prompt render( std::span<const Conversation::Turn> history ) const
+        {
+            const Conversation::PromptOptions options = promptOptions();
 
             std::vector<Conversation::Turn> turns;
             turns.reserve( history.size() + 1 );
@@ -901,7 +990,7 @@ namespace Mila::AI
         {
             history_.push_back( { Conversation::Role::Tool, result, {}, call.name } );
 
-            std::vector<std::int32_t> prompt_tokens = encode( render( history_ ) );
+            std::vector<std::int32_t> prompt_tokens = nextRound().tokens;
 
             if ( !fitsContext( prompt_tokens ) )
             {
@@ -923,7 +1012,7 @@ namespace Mila::AI
                         "\n[The result was cut to its first {} of {} tokens to fit the context.]", kept, total );
 
                     history_.back().content = cut;
-                    prompt_tokens = encode( render( history_ ) );
+                    prompt_tokens = nextRound().tokens;
 
                     if ( fitsContext( prompt_tokens ) )
                     {
@@ -998,6 +1087,9 @@ namespace Mila::AI
         AgentLimits limits_;
         std::vector<Conversation::Turn> history_;
         std::set<std::string, std::less<>> allowed_for_conversation_;
+
+        // While a round's calls are answered: its prompt and its reply as generated, which the results continue.
+        std::optional<RoundPrompt> continued_;
     };
 
     /// The agent every published model runs as: CUDA, computing in BF16 whatever its weights' format.
