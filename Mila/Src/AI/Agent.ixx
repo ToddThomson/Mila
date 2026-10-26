@@ -15,6 +15,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.GenerateParams;
 import Dnn.SamplingParams;
 import Dnn.GenerateStatus;
+import Dnn.TensorTypes;
 import Dnn.Models.Conversation.Protocol;
 import Data.BpeTokenizer;
 import Deployment.DeploymentRequest;
@@ -27,6 +28,7 @@ import AI.Tool;
 import AI.ToolQuestion;
 import AI.ToolAnswer;
 import AI.AgentEvent;
+import AI.AgentLimits;
 import AI.Response;
 
 namespace Mila::AI
@@ -37,11 +39,109 @@ namespace Mila::AI
     using namespace Mila::Distribution;
 
     /**
+     * @brief The time one response may take, which stops the response when it runs out.
+     *
+     * A thread waits on the deadline, since a call that runs or a prefill emits nothing the response could check the
+     * clock at. While the person is asked the clock is paused, and the deadline moves by the time they took.
+     */
+    class ResponseClock
+    {
+    public:
+
+        ResponseClock( std::optional<std::chrono::milliseconds> limit, std::stop_source halt )
+        {
+            if ( !limit )
+            {
+                return;
+            }
+
+            deadline_ = std::chrono::steady_clock::now() + *limit;
+            watcher_ = std::jthread( [this, halt]( std::stop_token finished ) { watch( finished, halt ); } );
+        }
+
+        ResponseClock( const ResponseClock& ) = delete;
+        ResponseClock& operator=( const ResponseClock& ) = delete;
+
+        void pause()
+        {
+            if ( !watcher_.joinable() )
+            {
+                return;
+            }
+
+            std::lock_guard<std::mutex> lock( mutex_ );
+            paused_at_ = std::chrono::steady_clock::now();
+            paused_ = true;
+            changed_.notify_all();
+        }
+
+        void resume()
+        {
+            if ( !watcher_.joinable() )
+            {
+                return;
+            }
+
+            std::lock_guard<std::mutex> lock( mutex_ );
+            deadline_ += std::chrono::steady_clock::now() - paused_at_;
+            paused_ = false;
+            changed_.notify_all();
+        }
+
+        [[nodiscard]] bool expired() const noexcept
+        {
+            return expired_.load();
+        }
+
+    private:
+
+        void watch( std::stop_token finished, std::stop_source halt )
+        {
+            std::unique_lock<std::mutex> lock( mutex_ );
+
+            while ( !finished.stop_requested() )
+            {
+                if ( paused_ )
+                {
+                    changed_.wait( lock, finished, [this] { return !paused_; } );
+                    continue;
+                }
+
+                const auto deadline = deadline_;
+
+                if ( changed_.wait_until( lock, finished, deadline, [this, deadline] { return paused_ || deadline_ != deadline; } ) )
+                {
+                    continue;
+                }
+
+                if ( !finished.stop_requested() )
+                {
+                    expired_ = true;
+                    halt.request_stop();
+                }
+
+                return;
+            }
+        }
+
+        std::mutex mutex_;
+        std::condition_variable_any changed_;
+        std::chrono::steady_clock::time_point deadline_{};
+        std::chrono::steady_clock::time_point paused_at_{};
+        bool paused_{ false };
+        std::atomic<bool> expired_{ false };
+
+        // Last, so it is joined before the members it reads are destroyed.
+        std::jthread watcher_;
+    };
+
+    /**
      * @brief A model named by its store name, holding one conversation and running the calls the model makes.
      *
      * Through an agent the application never runs a call itself: it registers tools and a way to ask the person, and
      * the agent parses each call, asks, runs it and gives the model its result. Family-blind: everything a model
-     * does differently comes from its handle. A response is one virtual call into the model per round.
+     * does differently comes from its handle. A response is one virtual call into the model per round, and runs
+     * within the program's limits (AgentLimits).
      *
      * Device and precision are the program's, fixed at compile time; Agent is the pair every published model runs.
      */
@@ -180,15 +280,69 @@ namespace Mila::AI
         }
 
         /**
-         * @brief Answer one message, running every call the model makes, until it gives its answer.
+         * @brief Set every one of the chat template's variables at once; a variable not named takes its default.
+         *
+         * @throws std::invalid_argument for a name or value the template does not accept, leaving the variables
+         *         as they were.
+         */
+        BasicAgent& withTemplateVariables( std::map<std::string, std::string> variables ) &
+        {
+            setTemplateVariables( std::move( variables ) );
+
+            return *this;
+        }
+
+        BasicAgent&& withTemplateVariables( std::map<std::string, std::string> variables ) &&
+        {
+            setTemplateVariables( std::move( variables ) );
+
+            return std::move( *this );
+        }
+
+        /**
+         * @brief Limit how far each response may run. None is set until this is called.
+         *
+         * @throws std::invalid_argument for a limit set to zero or less.
+         */
+        BasicAgent& withLimits( AgentLimits limits ) &
+        {
+            setLimits( limits );
+
+            return *this;
+        }
+
+        BasicAgent&& withLimits( AgentLimits limits ) &&
+        {
+            setLimits( limits );
+
+            return std::move( *this );
+        }
+
+        /**
+         * @brief The prompt a response to this message would begin from, the system prompt and tools included.
+         *
+         * Nothing joins the conversation; what it measures is what the next response would prefill.
+         */
+        [[nodiscard]] Conversation::Prompt prompt( std::string_view message = {} ) const
+        {
+            std::vector<Conversation::Turn> turns( history_.begin(), history_.end() );
+            turns.push_back( { Conversation::Role::User, std::string( message ) } );
+
+            return render( turns );
+        }
+
+        /**
+         * @brief Answer one message, running every call the model makes, until it gives its answer or a limit ends
+         *        the response.
          *
          * Blocks on the caller's thread, reporting what happens through on_event as it happens. The message, each
-         * round's reply and each call's result join the conversation. A round cut short -- by the context, or by
-         * stop -- runs none of its calls.
+         * round's reply and each call's result join the conversation. A round cut short -- by the context, the reply
+         * tokens, the time or stop -- runs none of its calls, and every call the conversation holds keeps a result.
          *
          * @param message  What the user says.
          * @param on_event Every event in order; may be empty.
-         * @param stop     Stops the reply; a call still waiting for the person's answer does not run.
+         * @param stop     Stops the reply; a call waiting for the person's answer does not run, and a call running is
+         *                 asked to stop.
          */
         Response respond( std::string_view message, const EventSink& on_event = {}, std::stop_token stop = {} )
         {
@@ -204,7 +358,7 @@ namespace Mila::AI
 
             history_.push_back( { Conversation::Role::User, std::string( message ) } );
 
-            Conversation::Prompt prompt = render();
+            Conversation::Prompt prompt = render( history_ );
             std::vector<std::int32_t> tokens = encode( prompt );
 
             if ( !fitsContext( tokens ) )
@@ -216,12 +370,37 @@ namespace Mila::AI
                 return response;
             }
 
+            // One stop for everything the response runs: the caller's, or its own time running out.
+            std::stop_source halt;
+            const std::stop_callback forward_stop( stop, [&halt] { halt.request_stop(); } );
+            ResponseClock clock( limits_.time, halt );
+            const std::stop_token halted = halt.get_token();
+
             GenerateParams params;
             params.sampling = sampling();
 
-            for ( int round = 0; round < kMaximumRounds; ++round )
+            dim_t generated = 0;
+
+            for ( int round = 0;; ++round )
             {
-                emit( { AgentEvent::Kind::RoundBegan } );
+                const std::optional<dim_t> budget = roundBudget( tokens, generated );
+
+                if ( budget && *budget <= 0 )
+                {
+                    // Every reply token is spent, and the last round's calls already have their results.
+                    response.status = GenerateStatus::MaxNewTokensReached;
+
+                    return response;
+                }
+
+                params.max_new_tokens = budget.transform( []( dim_t tokens_allowed )
+                    {
+                        return static_cast<int>( std::min<dim_t>( tokens_allowed, std::numeric_limits<int>::max() ) );
+                    } );
+
+                AgentEvent began{ AgentEvent::Kind::RoundBegan };
+                began.budget = budget;
+                emit( began );
                 ++response.rounds;
 
                 // Read against the prompt it continues, which may leave the reply inside the reasoning channel.
@@ -239,10 +418,14 @@ namespace Mila::AI
                     tokens,
                     [&]( std::int32_t token )
                     {
-                        forward( reader.feed( handle_.tokenizer().decode( std::span<const std::int32_t>( &token, 1 ) ) ) );
+                        const std::string piece = handle_.tokenizer().decode( std::span<const std::int32_t>( &token, 1 ) );
+
+                        ++generated;
+                        emit( { AgentEvent::Kind::Token, piece } );
+                        forward( reader.feed( piece ) );
                     },
                     params,
-                    stop );
+                    halted );
 
                 // The round's end settles what the reader still held, and reads a call left open as written.
                 forward( reader.finish() );
@@ -250,9 +433,11 @@ namespace Mila::AI
                 const Conversation::Reply& reply = reader.reply();
 
                 response.status = status;
+                response.time_limit_reached = clock.expired();
 
                 AgentEvent ended{ AgentEvent::Kind::RoundEnded };
                 ended.status = status;
+                ended.reply = &reply;
                 emit( ended );
 
                 for ( const auto& span : reply.malformed_tool_calls )
@@ -261,7 +446,7 @@ namespace Mila::AI
                 }
 
                 const bool runs_calls = !reply.tool_calls.empty() && !tools_.empty()
-                    && status == GenerateStatus::Success && !stop.stop_requested();
+                    && status == GenerateStatus::Success && !halted.stop_requested();
 
                 if ( !runs_calls )
                 {
@@ -273,17 +458,37 @@ namespace Mila::AI
                 history_.push_back(
                     { Conversation::Role::Assistant, reply.content, reply.tool_calls, {}, reply.reasoning } );
 
-                for ( const auto& call : reply.tool_calls )
+                if ( limits_.rounds && round + 1 >= *limits_.rounds )
                 {
-                    if ( !answerCall( call, emit, stop ) )
+                    // Run now, their results would reach no round; the next response can make the calls again.
+                    for ( const auto& call : reply.tool_calls )
                     {
+                        answerNotRun( call, emit );
+                    }
+
+                    response.round_limit_reached = true;
+
+                    return response;
+                }
+
+                for ( std::size_t index = 0; index < reply.tool_calls.size(); ++index )
+                {
+                    if ( !answerCall( reply.tool_calls[ index ], emit, halted, clock ) )
+                    {
+                        for ( std::size_t rest = index + 1; rest < reply.tool_calls.size(); ++rest )
+                        {
+                            history_.push_back( { Conversation::Role::Tool,
+                                std::string( stoppedResult( clock, false ) ), {}, reply.tool_calls[ rest ].name } );
+                        }
+
                         response.status = GenerateStatus::ClientCancelled;
+                        response.time_limit_reached = clock.expired();
 
                         return response;
                     }
                 }
 
-                prompt = render();
+                prompt = render( history_ );
                 tokens = encode( prompt );
 
                 if ( !fitsContext( tokens ) )
@@ -293,8 +498,6 @@ namespace Mila::AI
                     return response;
                 }
             }
-
-            return response;
         }
 
         /// Forget the conversation, and every tool allowed for it. Tools and settings stay.
@@ -336,11 +539,13 @@ namespace Mila::AI
 
     private:
 
-        /// Rounds in one response, as Chat has run them.
-        static constexpr int kMaximumRounds = 4;
-
         static constexpr std::string_view kDeclinedResult = "The user declined to run this tool call.";
         static constexpr std::string_view kStoppedResult = "The user stopped the reply before this tool call ran.";
+        static constexpr std::string_view kStoppedWhileRunningResult =
+            "The user stopped the reply while this tool call ran, so it may not have finished.";
+        static constexpr std::string_view kOutOfTimeResult = "The response ran out of time before this tool call ran.";
+        static constexpr std::string_view kOutOfTimeWhileRunningResult =
+            "The response ran out of time while this tool call ran, so it may not have finished.";
 
         static std::string baseModelRefusal( std::string_view name )
         {
@@ -381,6 +586,47 @@ namespace Mila::AI
                 handle_.protocol()->templateVariables(), { { name, value } } );
 
             template_variables_[ std::move( name ) ] = std::move( value );
+        }
+
+        void setTemplateVariables( std::map<std::string, std::string> variables )
+        {
+            Conversation::validateTemplateVariables( handle_.protocol()->templateVariables(), variables );
+
+            template_variables_ = std::move( variables );
+        }
+
+        void setLimits( const AgentLimits& limits )
+        {
+            if ( limits.rounds && *limits.rounds <= 0 )
+            {
+                throw std::invalid_argument( std::format( "a response needs at least one round, not {}", *limits.rounds ) );
+            }
+
+            if ( limits.time && limits.time->count() <= 0 )
+            {
+                throw std::invalid_argument( std::format( "a response needs some time, not {}", *limits.time ) );
+            }
+
+            if ( limits.reply_tokens && *limits.reply_tokens <= 0 )
+            {
+                throw std::invalid_argument(
+                    std::format( "a response needs at least one reply token, not {}", *limits.reply_tokens ) );
+            }
+
+            limits_ = limits;
+        }
+
+        /// The most tokens a round may generate: the reply tokens the response has left, within the context left.
+        std::optional<dim_t> roundBudget( const std::vector<std::int32_t>& tokens, dim_t generated ) const
+        {
+            if ( !limits_.reply_tokens )
+            {
+                return std::nullopt;
+            }
+
+            const dim_t context_left = handle_.plan().contextLength() - static_cast<dim_t>( tokens.size() );
+
+            return std::min( *limits_.reply_tokens - generated, context_left );
         }
 
         const Tool* findTool( std::string_view name ) const noexcept
@@ -434,7 +680,7 @@ namespace Mila::AI
             return sampling;
         }
 
-        Conversation::Prompt render() const
+        Conversation::Prompt render( std::span<const Conversation::Turn> history ) const
         {
             Conversation::PromptOptions options;
             options.template_variables = template_variables_;
@@ -444,15 +690,15 @@ namespace Mila::AI
                 options.tools_json = toolsJson();
             }
 
-            if ( system_prompt_.empty() )
+            std::vector<Conversation::Turn> turns;
+            turns.reserve( history.size() + 1 );
+
+            if ( !system_prompt_.empty() )
             {
-                return handle_.protocol()->formatPrompt( history_, options );
+                turns.push_back( { Conversation::Role::System, system_prompt_ } );
             }
 
-            std::vector<Conversation::Turn> turns;
-            turns.reserve( history_.size() + 1 );
-            turns.push_back( { Conversation::Role::System, system_prompt_ } );
-            turns.insert( turns.end(), history_.begin(), history_.end() );
+            turns.insert( turns.end(), history.begin(), history.end() );
 
             return handle_.protocol()->formatPrompt( turns, options );
         }
@@ -531,24 +777,43 @@ namespace Mila::AI
          * that there is no such tool. Models call tools they invent -- Llama 3.1 8B asked for `get_capital` when
          * offered only `get_weather`.
          *
-         * @return False when the reply was stopped while the call waited: it does not run, and the response ends.
+         * The time the person takes to answer is not the response's: the clock is paused while they are asked.
+         *
+         * @return False when the response was stopped, or ran out of time, before the call ran or while it ran: its
+         *         result says so, nothing reports it, and the response ends.
          */
         template<typename TEmit>
-        bool answerCall( const Conversation::ToolCall& call, const TEmit& emit, std::stop_token stop )
+        bool answerCall( const Conversation::ToolCall& call, const TEmit& emit, std::stop_token halted, ResponseClock& clock )
         {
+            if ( halted.stop_requested() )
+            {
+                // Every call in the conversation keeps a result, so the next prompt renders.
+                history_.push_back( { Conversation::Role::Tool, std::string( stoppedResult( clock, false ) ), {}, call.name } );
+
+                return false;
+            }
+
             const Tool* tool = findTool( call.name );
 
             ToolAnswer answer = ToolAnswer::Once;
 
             if ( tool != nullptr && !allowed_for_conversation_.contains( call.name ) )
             {
-                answer = ask_ ? ask_( ToolQuestion{ tool->name, tool->description, call.arguments } ) : ToolAnswer::Deny;
+                if ( ask_ )
+                {
+                    clock.pause();
+                    answer = ask_( ToolQuestion{ tool->name, tool->description, call.arguments } );
+                    clock.resume();
+                }
+                else
+                {
+                    answer = ToolAnswer::Deny;
+                }
             }
 
-            if ( stop.stop_requested() )
+            if ( halted.stop_requested() )
             {
-                // Every call in the conversation keeps a result, so the next prompt renders; nothing reports one.
-                history_.push_back( { Conversation::Role::Tool, std::string( kStoppedResult ), {}, call.name } );
+                history_.push_back( { Conversation::Role::Tool, std::string( stoppedResult( clock, false ) ), {}, call.name } );
 
                 return false;
             }
@@ -573,7 +838,7 @@ namespace Mila::AI
             {
                 try
                 {
-                    result = tool->run( call.arguments );
+                    result = tool->run( call.arguments, halted );
                     is_error = false;
                 }
                 catch ( const std::exception& error )
@@ -584,16 +849,132 @@ namespace Mila::AI
                 {
                     result = std::format( "Error: tool '{}' failed", call.name );
                 }
+
+                if ( halted.stop_requested() )
+                {
+                    // What a tool returns once it was asked to stop may be partial, so the model is not given it.
+                    history_.push_back( { Conversation::Role::Tool, std::string( stoppedResult( clock, true ) ), {}, call.name } );
+
+                    return false;
+                }
             }
+
+            addResult( call, std::move( result ), is_error, emit );
+
+            return true;
+        }
+
+        /// A call of the last round a response may run, which is answered without running it.
+        template<typename TEmit>
+        void answerNotRun( const Conversation::ToolCall& call, const TEmit& emit )
+        {
+            const std::string result = std::format(
+                "This tool call was not run: the response reached its limit of {} rounds.", *limits_.rounds );
 
             AgentEvent called{ AgentEvent::Kind::ToolCalled, result };
             called.call = &call;
-            called.is_error = is_error;
+            called.is_error = true;
             emit( called );
 
-            history_.push_back( { Conversation::Role::Tool, std::move( result ), {}, call.name } );
+            history_.push_back( { Conversation::Role::Tool, result, {}, call.name } );
+        }
 
-            return true;
+        static std::string_view stoppedResult( const ResponseClock& clock, bool while_running ) noexcept
+        {
+            if ( clock.expired() )
+            {
+                return while_running ? kOutOfTimeWhileRunningResult : kOutOfTimeResult;
+            }
+
+            return while_running ? kStoppedWhileRunningResult : kStoppedResult;
+        }
+
+        /**
+         * @brief Put a call's result in the conversation, cut to the context left, and report it.
+         *
+         * A result the context cannot hold is cut to its first tokens that fit, and the model told it was cut and by
+         * how much; one with no room at all is refused, and the model told so. Never left to overflow the next
+         * prompt, which would end the response with no word of why.
+         */
+        template<typename TEmit>
+        void addResult( const Conversation::ToolCall& call, std::string result, bool is_error, const TEmit& emit )
+        {
+            history_.push_back( { Conversation::Role::Tool, result, {}, call.name } );
+
+            std::vector<std::int32_t> prompt_tokens = encode( render( history_ ) );
+
+            if ( !fitsContext( prompt_tokens ) )
+            {
+                const std::vector<std::int32_t> result_tokens = handle_.tokenizer().encode( result );
+                const dim_t total = static_cast<dim_t>( result_tokens.size() );
+                dim_t kept = total - tokensOverContext( prompt_tokens );
+
+                result = std::format(
+                    "Error: the result of '{}' was {} tokens, and the context has no room left for it.", call.name, total );
+                is_error = true;
+
+                while ( kept > 0 )
+                {
+                    std::string cut = handle_.tokenizer().decode(
+                        std::span<const std::int32_t>( result_tokens.data(), static_cast<std::size_t>( kept ) ) );
+
+                    dropIncompleteLastCharacter( cut );
+                    cut += std::format(
+                        "\n[The result was cut to its first {} of {} tokens to fit the context.]", kept, total );
+
+                    history_.back().content = cut;
+                    prompt_tokens = encode( render( history_ ) );
+
+                    if ( fitsContext( prompt_tokens ) )
+                    {
+                        result = std::move( cut );
+                        is_error = false;
+
+                        break;
+                    }
+
+                    kept -= tokensOverContext( prompt_tokens );
+                }
+
+                history_.back().content = result;
+            }
+
+            AgentEvent called{ AgentEvent::Kind::ToolCalled, history_.back().content };
+            called.call = &call;
+            called.is_error = is_error;
+            emit( called );
+        }
+
+        /// How many tokens the prompt must lose to leave the model a position to answer in.
+        dim_t tokensOverContext( const std::vector<std::int32_t>& tokens ) const noexcept
+        {
+            return static_cast<dim_t>( tokens.size() ) - handle_.plan().contextLength() + 1;
+        }
+
+        /// A cut between tokens can split a character; its leading bytes alone are not text a template can write.
+        static void dropIncompleteLastCharacter( std::string& text )
+        {
+            std::size_t start = text.size();
+            int continuation = 0;
+
+            while ( start > 0 && continuation < 3 && ( static_cast<unsigned char>( text[ start - 1 ] ) & 0xC0 ) == 0x80 )
+            {
+                --start;
+                ++continuation;
+            }
+
+            if ( start == 0 )
+            {
+                return;
+            }
+
+            const auto lead = static_cast<unsigned char>( text[ start - 1 ] );
+            const int length = ( lead & 0x80 ) == 0 ? 1 : ( lead & 0xE0 ) == 0xC0 ? 2 : ( lead & 0xF0 ) == 0xE0 ? 3 : 4;
+
+            if ( continuation + 1 < length )
+            {
+                text.erase( start - 1 );
+            }
         }
 
         std::string notOfferedResult( std::string_view name ) const
@@ -614,6 +995,7 @@ namespace Mila::AI
         std::string system_prompt_;
         std::map<std::string, std::string> template_variables_;
         std::optional<SamplingParams> sampling_;
+        AgentLimits limits_;
         std::vector<Conversation::Turn> history_;
         std::set<std::string, std::less<>> allowed_for_conversation_;
     };

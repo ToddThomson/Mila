@@ -96,7 +96,7 @@ namespace Mila::ChatApp
 
             // The parsed answer is the final Assistant turn, so the last entry is the answer after any tool round
             // trip -- which is what a caller asked for, rather than the raw text with its channels still in it.
-            const std::vector<ChatMessage>& history = session_.history();
+            const std::span<const ChatMessage> history = session_.history();
             const std::string answer = history.empty() ? std::string{} : history.back().content;
 
             if ( as_json )

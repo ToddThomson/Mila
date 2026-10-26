@@ -10,6 +10,15 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Two of the agent's answers to a stop or a cut have no test that fails without them
+
+`Mila/Src/AI/Agent.ixx` (`respond`, `dropIncompleteLastCharacter`) @ 6f077474
+
+Found 2026-10-25 writing the limit tests: a round with several calls, stopped at its first, gives every call after
+it a stopped result -- the tests' model makes one call per round, so nothing reaches them. And a result cut between
+two bytes of one character drops the character's leading bytes; the test's result is ASCII, so no cut lands inside
+a character.
+
 ## GPT-2 cannot be opened by name, because it has no deployment planner
 
 `Mila/Src/Dnn/Models/Gpt/GptModel.ixx` (`load`); an absence -- no `planDeployment`, no `load( path, request )` @ 1f310d50
@@ -49,7 +58,8 @@ pythonic calls (llama-models `text_prompt_format.md`), plus the same sentence: t
 
 2026-10-25, Llama 3.1 8B FP4: the model called `get_weather` with `{}`, its schema requiring `location`; Chat
 asked "Getting weather for {location}" with the placeholder unfilled and ran it. `ToolCalling.md` 3.2: the
-arguments are checked against the schema before anything runs.
+arguments are checked against the schema before anything runs. Since Chat moved onto the agent, the call runs in
+`Mila/Src/AI/Agent.ixx` (`answerCall`), which checks no arguments either.
 
 ## Llama 3.1 8B FP4 writes some tool calls in a shape its template does not define
 

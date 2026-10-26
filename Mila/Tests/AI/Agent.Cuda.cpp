@@ -1,23 +1,28 @@
 /**
  * @file Agent.Cuda.cpp
- * @brief One program runs Gemma, Llama and Qwen by changing only the name, streaming and calling a tool, and every
- *        call is asked, declined, refused or stopped as ToolCalling.md 3.3 says.
+ * @brief One program runs Gemma, Llama and Qwen by changing only the name, streaming and calling a tool; every call
+ *        is asked, declined, refused or stopped as ToolCalling.md 3.3 says, and a response keeps to its limits (4).
  *
  * Reads installed models from the model store, read only, and skips a family with none installed.
  */
 
 #include <gtest/gtest.h>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <initializer_list>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <stop_token>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 import Mila;
@@ -47,7 +52,7 @@ namespace Mila::Tests::AI
                 "get_weather",
                 "Get the current weather in a city.",
                 kWeatherParameters,
-                [&arguments_seen]( std::string_view arguments )
+                [&arguments_seen]( std::string_view arguments, std::stop_token )
                 {
                     arguments_seen.emplace_back( arguments );
 
@@ -336,13 +341,18 @@ namespace Mila::Tests::AI
                     "get_weather",
                     "Get the current weather in a city.",
                     kWeatherParameters,
-                    []( std::string_view arguments )
+                    []( std::string_view arguments, std::stop_token stop )
                     {
                         arguments_seen_.emplace_back( arguments );
 
                         if ( tool_throws_ )
                         {
                             throw std::runtime_error( "the weather service is down" );
+                        }
+
+                        if ( tool_body_ )
+                        {
+                            return tool_body_( stop );
                         }
 
                         return std::string( kWeatherResult );
@@ -364,10 +374,12 @@ namespace Mila::Tests::AI
             agent_->newConversation();
             agent_->onAsk( {} );
             agent_->withSystemPrompt( {} );
+            agent_->withLimits( {} );
             agent_->model().model().seedSampler( 7 );
 
             arguments_seen_.clear();
             tool_throws_ = false;
+            tool_body_ = {};
         }
 
         /// Ask about the weather and collect the result of every call answered.
@@ -378,10 +390,24 @@ namespace Mila::Tests::AI
             last_ = agent_->respond( message,
                 [&called, this]( const AgentEvent& event )
                 {
-                    if ( event.kind == AgentEvent::Kind::ToolCalled )
+                    switch ( event.kind )
                     {
-                        results_.emplace_back( event.text );
-                        called.push_back( event );
+                        case AgentEvent::Kind::ToolCalled:
+                            results_.emplace_back( event.text );
+                            called.push_back( event );
+                            break;
+
+                        case AgentEvent::Kind::RoundBegan:
+                            budgets_.push_back( event.budget );
+                            tokens_.emplace_back();
+                            break;
+
+                        case AgentEvent::Kind::Token:
+                            tokens_.back().emplace_back( event.text );
+                            break;
+
+                        default:
+                            break;
                     }
                 },
                 stop );
@@ -389,12 +415,24 @@ namespace Mila::Tests::AI
             return called;
         }
 
+        static void allowEveryCall()
+        {
+            agent_->onAsk( []( const ToolQuestion& ) { return ToolAnswer::Once; } );
+        }
+
         static inline std::unique_ptr<Agent> agent_;
         static inline std::vector<std::string> arguments_seen_;
         static inline bool tool_throws_ = false;
 
+        /// What the tool does in place of reporting the weather, when set.
+        static inline std::function<std::string( std::stop_token )> tool_body_;
+
         Response last_;
         std::vector<std::string> results_;
+
+        /// Each round's budget, and each round's tokens as decoded.
+        std::vector<std::optional<dim_t>> budgets_;
+        std::vector<std::vector<std::string>> tokens_;
     };
 
     TEST_F( AgentOnGemmaCuda, WithNoOneToAskACallIsDeclinedAndTheModelReadsSo )
@@ -514,7 +552,7 @@ namespace Mila::Tests::AI
 
     TEST_F( AgentOnGemmaCuda, RefusesAToolOrSettingItCannotUse )
     {
-        const auto run = []( std::string_view ) { return std::string(); };
+        const auto run = []( std::string_view, std::stop_token ) { return std::string(); };
 
         EXPECT_THROW( agent_->withTool( Tool{ "get_weather", "again", kWeatherParameters, run } ), std::invalid_argument );
         EXPECT_THROW( agent_->withTool( Tool{ "", "nameless", kWeatherParameters, run } ), std::invalid_argument );
@@ -524,6 +562,210 @@ namespace Mila::Tests::AI
 
         EXPECT_THROW( agent_->withTemplateVariable( "no_such_variable", "true" ), std::invalid_argument );
         EXPECT_THROW( agent_->withTemplateVariable( "enable_thinking", "maybe" ), std::invalid_argument );
+        EXPECT_THROW( agent_->withTemplateVariables( { { "enable_thinking", "maybe" } } ), std::invalid_argument );
+
+        EXPECT_THROW( agent_->withLimits( { .rounds = 0 } ), std::invalid_argument );
+        EXPECT_THROW( agent_->withLimits( { .time = std::chrono::milliseconds( 0 ) } ), std::invalid_argument );
+        EXPECT_THROW( agent_->withLimits( { .reply_tokens = 0 } ), std::invalid_argument );
+    }
+
+    // ================================================================
+    // A response runs within its limits (ToolCalling.md section 4)
+    // ================================================================
+
+    TEST_F( AgentOnGemmaCuda, TheLastRoundAllowedAnswersItsCallsWithoutRunningThem )
+    {
+        allowEveryCall();
+        agent_->withLimits( { .rounds = 1 } );
+
+        const auto called = respond( "What is the weather in Paris right now?" );
+
+        ASSERT_FALSE( called.empty() ) << "Gemma answered without calling the tool: " << last_.text;
+        EXPECT_TRUE( arguments_seen_.empty() ) << "a call of the last round ran";
+        EXPECT_TRUE( called.front().is_error );
+        EXPECT_EQ( results_.front(), "This tool call was not run: the response reached its limit of 1 rounds." );
+        EXPECT_TRUE( last_.round_limit_reached );
+        EXPECT_EQ( last_.rounds, 1 );
+
+        // The calls keep their results, so the conversation renders and the next response can ask again.
+        const auto conversation = agent_->conversation();
+        ASSERT_EQ( conversation.size(), 3u );
+        EXPECT_EQ( conversation.back().role, Conversation::Role::Tool );
+        EXPECT_NO_THROW( (void)agent_->prompt( "And now?" ) );
+    }
+
+    TEST_F( AgentOnGemmaCuda, ReplyTokensBoundTheWholeResponseAcrossItsRounds )
+    {
+        allowEveryCall();
+        agent_->withLimits( { .reply_tokens = 4000 } );
+
+        ASSERT_FALSE( respond( "What is the weather in Paris right now?" ).empty() ) << last_.text;
+        ASSERT_GE( budgets_.size(), 2u );
+
+        // The first round may take every token; the next only what the first left.
+        EXPECT_EQ( budgets_[ 0 ], dim_t( 4000 ) );
+        EXPECT_EQ( budgets_[ 1 ], dim_t( 4000 ) - static_cast<dim_t>( tokens_[ 0 ].size() ) );
+    }
+
+    TEST_F( AgentOnGemmaCuda, AResponseOutOfReplyTokensStopsAndRunsNothing )
+    {
+        allowEveryCall();
+        agent_->withLimits( { .reply_tokens = 3 } );
+
+        const auto called = respond( "What is the weather in Paris right now?" );
+
+        EXPECT_TRUE( called.empty() );
+        EXPECT_TRUE( arguments_seen_.empty() );
+        EXPECT_EQ( last_.status, GenerateStatus::MaxNewTokensReached ) << to_string( last_.status );
+        ASSERT_EQ( tokens_.size(), 1u );
+        EXPECT_EQ( tokens_[ 0 ].size(), 3u );
+        EXPECT_EQ( agent_->conversation().back().role, Conversation::Role::Assistant );
+    }
+
+    TEST_F( AgentOnGemmaCuda, TokenEventsAreTheModelsOutputVerbatim )
+    {
+        allowEveryCall();
+
+        ASSERT_FALSE( respond( "What is the weather in Paris right now?" ).empty() ) << last_.text;
+        ASSERT_GE( tokens_.size(), 2u );
+
+        std::string first_round;
+        std::string last_round;
+
+        for ( const auto& piece : tokens_.front() )
+        {
+            first_round += piece;
+        }
+
+        for ( const auto& piece : tokens_.back() )
+        {
+            last_round += piece;
+        }
+
+        // The call as the template writes it, markers and all, which no Answer event carries.
+        EXPECT_NE( first_round.find( "<|tool_call>" ), std::string::npos ) << first_round;
+
+        // And the answer the last round streamed, read from those same tokens.
+        const std::size_t end = last_.text.find_last_not_of( " \n" );
+
+        ASSERT_NE( end, std::string::npos ) << "the response has no text";
+        ASSERT_GE( end, 12u );
+        EXPECT_NE( last_round.find( last_.text.substr( end - 12, 13 ) ), std::string::npos ) << last_round;
+    }
+
+    TEST_F( AgentOnGemmaCuda, AResultLargerThanTheContextLeftIsCutAndTheModelToldSo )
+    {
+        allowEveryCall();
+
+        std::string forecast;
+
+        for ( int day = 0; forecast.size() < 64'000; ++day )
+        {
+            forecast += std::format( "Day {}: sunny, 17 degrees Celsius, light wind from the west. ", day );
+        }
+
+        tool_body_ = [&forecast]( std::stop_token ) { return forecast; };
+
+        const auto called = respond( "What is the weather in Paris right now?" );
+
+        ASSERT_FALSE( called.empty() ) << last_.text;
+        EXPECT_FALSE( called.front().is_error ) << results_.front();
+
+        const std::string& result = results_.front();
+        const std::size_t note = result.rfind( "\n[The result was cut to its first " );
+
+        ASSERT_NE( note, std::string::npos ) << result.substr( result.size() - 200 );
+        EXPECT_TRUE( forecast.starts_with( result.substr( 0, note ) ) ) << "the cut is not the result's beginning";
+        EXPECT_EQ( agent_->conversation()[ 2 ].content, result );
+
+        // The cut leaves the model a position to answer in, so the response never overflowed with no word of why.
+        EXPECT_EQ( last_.rounds, 2 );
+    }
+
+    TEST_F( AgentOnGemmaCuda, AStopWhileACallRunsAsksTheCallToStopAndEndsTheResponse )
+    {
+        allowEveryCall();
+
+        std::stop_source stop;
+        bool tool_saw_stop = false;
+
+        tool_body_ = [&stop, &tool_saw_stop]( std::stop_token running )
+            {
+                stop.request_stop();
+                tool_saw_stop = running.stop_requested();
+
+                return std::string( "partial" );
+            };
+
+        respond( "What is the weather in Paris right now?", stop.get_token() );
+
+        ASSERT_FALSE( arguments_seen_.empty() ) << last_.text;
+        EXPECT_TRUE( tool_saw_stop ) << "the running call was not asked to stop";
+        EXPECT_TRUE( results_.empty() ) << "a stopped call was reported";
+        EXPECT_EQ( last_.status, GenerateStatus::ClientCancelled );
+        EXPECT_FALSE( last_.time_limit_reached );
+        EXPECT_EQ( agent_->conversation().back().content,
+            "The user stopped the reply while this tool call ran, so it may not have finished." );
+    }
+
+    TEST_F( AgentOnGemmaCuda, ATimeLimitEndsARunningCallAndTheResponse )
+    {
+        allowEveryCall();
+        agent_->withLimits( { .time = std::chrono::seconds( 10 ) } );
+
+        bool tool_saw_stop = false;
+
+        tool_body_ = [&tool_saw_stop]( std::stop_token running )
+            {
+                std::mutex mutex;
+                std::condition_variable_any never;
+                std::unique_lock<std::mutex> lock( mutex );
+
+                // Only a stop ends the wait, and a minute is far past the limit.
+                never.wait_for( lock, running, std::chrono::minutes( 1 ), [] { return false; } );
+                tool_saw_stop = running.stop_requested();
+
+                return std::string( kWeatherResult );
+            };
+
+        respond( "What is the weather in Paris right now?" );
+
+        ASSERT_FALSE( arguments_seen_.empty() ) << last_.text;
+        EXPECT_TRUE( tool_saw_stop );
+        EXPECT_TRUE( last_.time_limit_reached );
+        EXPECT_EQ( last_.status, GenerateStatus::ClientCancelled );
+        EXPECT_EQ( agent_->conversation().back().content,
+            "The response ran out of time while this tool call ran, so it may not have finished." );
+    }
+
+    TEST_F( AgentOnGemmaCuda, ThePersonsTimeToAnswerIsNotTheResponses )
+    {
+        agent_->withLimits( { .time = std::chrono::seconds( 8 ) } );
+        agent_->onAsk( []( const ToolQuestion& )
+            {
+                std::this_thread::sleep_for( std::chrono::seconds( 9 ) );
+
+                return ToolAnswer::Once;
+            } );
+
+        respond( "What is the weather in Paris right now?" );
+
+        ASSERT_FALSE( arguments_seen_.empty() ) << last_.text;
+        EXPECT_FALSE( last_.time_limit_reached );
+        EXPECT_EQ( last_.status, GenerateStatus::Success ) << to_string( last_.status );
+        EXPECT_EQ( agent_->conversation()[ 2 ].content, kWeatherResult );
+    }
+
+    TEST_F( AgentOnGemmaCuda, ThePromptOfANextMessageLeavesTheConversationAlone )
+    {
+        agent_->withSystemPrompt( "You are terse." );
+
+        const Conversation::Prompt prompt = agent_->prompt( "Is it raining in Lima?" );
+
+        EXPECT_NE( prompt.text.find( "You are terse." ), std::string::npos );
+        EXPECT_NE( prompt.text.find( "Is it raining in Lima?" ), std::string::npos );
+        EXPECT_NE( prompt.text.find( "get_weather" ), std::string::npos ) << "the tools are not in the prompt";
+        EXPECT_TRUE( agent_->conversation().empty() );
     }
 
     // ================================================================

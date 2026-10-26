@@ -357,6 +357,7 @@ export import AI.Tool;
 export import AI.ToolQuestion;
 export import AI.ToolAnswer;
 export import AI.AgentEvent;
+export import AI.AgentLimits;
 export import AI.Response;
 export import AI.Agent;
 

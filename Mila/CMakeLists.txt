@@ -539,6 +539,7 @@ PUBLIC
         "Src/AI/ToolQuestion.ixx"
         "Src/AI/ToolAnswer.ixx"
         "Src/AI/AgentEvent.ixx"
+        "Src/AI/AgentLimits.ixx"
         "Src/AI/Response.ixx"
         "Src/AI/Agent.ixx"
 

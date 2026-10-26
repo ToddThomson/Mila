@@ -23,7 +23,12 @@ namespace Mila::AI
         /// The arguments' JSON Schema, an object, as the chat template declares it to the model.
         std::string parameters;
 
-        /// Runs one call: the arguments as the model wrote them, a JSON object; returns the result the model reads.
-        std::function<std::string( std::string_view arguments )> run;
+        /**
+         * @brief Runs one call: the arguments as the model wrote them, a JSON object; returns the result the model reads.
+         *
+         * The stop token is requested when the reply is stopped or the response's time runs out while the call
+         * runs. A tool that can end early should, since what it returns after a stop does not reach the model.
+         */
+        std::function<std::string( std::string_view arguments, std::stop_token stop )> run;
     };
 }

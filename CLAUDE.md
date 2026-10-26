@@ -108,7 +108,7 @@ without prior agreement (they consume the runtime; they are not the runtime's pu
 change to the core Mila library (`Mila/Src/`) still requires explicit agreement first.
 
 Key files:
-- `Chat.Session.ixx` — `ChatSession`: the turn loop, model hot-switching, tool call dispatch; never draws or reads input, and reports through `SessionEvents` (library target `MilaChatSession`, `ChatDesktop.md` section 7)
+- `Chat.Session.ixx` — `ChatSession`: the model as one `Mila::AI::Agent`, which runs every turn and its tool calls; model hot-switching, the round measurements; never draws or reads input, and reports through `SessionEvents` (library target `MilaChatSession`, `ChatDesktop.md` section 7)
 - `Chat.ConsoleFrontEnd.ixx` — the console over the session: slash commands, tables, the live display, Ctrl+C stops a reply
 - `Chat.ModelCatalog.ixx` — resolves a store name to a loadable model, and owns the load refusals
 - `Chat.Config.ixx` — `ChatConfig` with `ModelType`, `ModelSize`, `ModelPrecision` (compute), `QuantizationMode` (none/fp8/fp4/codebook)

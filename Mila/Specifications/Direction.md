@@ -125,8 +125,8 @@ open decision, grown to own the application contract. It holds:
 
 - **The model handle and factory.** The one place an architecture name becomes a concrete type, reading
   capabilities (reasoning channel, vision, prefix reuse) from the model's manifest, never from its
-  family (5.1). It replaces the three erasures that exist today: Chat's `ModelVariant`, the binding's
-  per-family session classes and MIS's family enum.
+  family (5.1). It replaces the erasures that exist today: the binding's per-family session classes and MIS's
+  family enum. Chat's `ModelVariant` went when Chat moved onto the agent.
 - **The agent, `Mila::AI::Agent`.** The application-facing object.
 - **The agent core and tool calling** (`ToolCalling.md`, Todd, 2026-10-25): the tool type, the permissions every
   call passes with the application's hook for asking the person, the grant that holds a tool to its folders and

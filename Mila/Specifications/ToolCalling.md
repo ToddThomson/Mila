@@ -5,8 +5,11 @@ How a model's tool calls run through `Mila::AI`: what the Mila library provides 
 **Status:** design, agreed 2026-10-25 (Todd), conceptually and with no release attached. Built to it at `+97`:
 `Mila::AI::Agent` (`Mila/Src/AI/Agent.ixx`) with tools registered as a callable and a schema, the ask hook and its
 three answers, no hook meaning deny, a call of a tool not offered or a tool that throws answered with an error result,
-and a stopped reply running no waiting call -- Chat's loop as it was, re-rendering the conversation each round, at
-most four rounds. The rest of sections 3 and 4 is not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
+and a stopped reply running no waiting call. Built at `+98`: section 4's limits per response (`AgentLimits` --
+rounds, time, reply tokens, none set by default), a stop or the time running out asking a running call to stop, and
+a result the context cannot hold cut to what fits and the model told so; Chat and the desktop app's session run
+their calls through the agent and hold no loop of their own. The loop still re-renders the conversation each round
+(the splice is not built), and the rest of section 3 is not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
 spec -- the broker in `Mila/Apps/Tools/Broker`, the client in `Mila/AI/`, the session's own handler map in Chat --
 is refit to this one. Open decisions are in section 9.
 
@@ -117,9 +120,16 @@ once, and each tested first reaching its target with the check removed, then ref
 - Generate; when a call completes, pause, run it through section 3, append the result's tokens to the live cache,
   and continue the same turn, until the model gives its answer.
 - **Limits per turn:** the most tool rounds, the total time, the reply budget. Stopping a reply cancels a call that
-  is waiting or running.
+  is waiting or running. *Decided 2026-10-25 (Todd):* the library sets none by default -- the context bounds a
+  response that has none -- and an application sets its own; Chat keeps the four rounds it has always run, a number
+  no measurement set. The reply budget counts every round's tokens. The time the person takes to answer a question
+  is not the response's. The calls of the last round allowed are answered as not run, since no round would read
+  their results. A running call is asked to stop through a `std::stop_token`; an in-process tool can only
+  cooperate, and what it returns after the stop is not given to the model.
 - **A result larger than the context left** is cut or refused, and the model told which; it never silently
-  overflows.
+  overflows. *Decided 2026-10-25 (Todd):* cut, by tokens, to the first that fit, with a note of how many of how
+  many; refused only when none fit. The cut keeps the prompt inside the context and reserves nothing for the
+  answer, so the result cap of 3.2 is what keeps an ordinary result small.
 - **Prefix reuse is the model's property**, read from the handle: a rewind to any position, or for a model with
   recurrent state a return to a position it saved (`Direction.md` 5.3). The loop does not know which family it
   drives.

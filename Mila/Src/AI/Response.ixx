@@ -20,10 +20,17 @@ namespace Mila::AI
         std::string text;
         std::string reasoning;
 
-        /// Why the last round stopped: Success when the model finished its answer.
+        /// Why the last round stopped: Success when the model finished its answer, MaxNewTokensReached when the
+        /// response used its reply tokens, ClientCancelled when it was stopped or its time ran out.
         Dnn::GenerateStatus status{ Dnn::GenerateStatus::Success };
 
         /// How many times the model generated: one, and one more after each round of calls.
         int rounds{ 0 };
+
+        /// The response reached its limit of rounds with calls the model still wanted run.
+        bool round_limit_reached{ false };
+
+        /// The response's time ran out.
+        bool time_limit_reached{ false };
     };
 }

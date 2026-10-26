@@ -2,8 +2,8 @@
  * @file Chat.Session.ixx
  * @brief One chat session over one loaded model, driven by a front end and reporting through SessionEvents.
  *
- * Supports the instruct families -- Llama, Gemma and Qwen, at BF16 compute -- each rendered and read through
- * the model's own template in the library (Conversation::Protocol).
+ * Every instruct model runs through one Mila::AI::Agent, which renders and reads it through its own template and
+ * runs the calls it makes; the session words what the agent reports and keeps the measurements.
  */
 
 export module Chat.Session;
@@ -33,16 +33,6 @@ namespace Mila::ChatApp
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Deployment;
     using namespace Mila::Data;
-
-    using LlamaModelBF16Type = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
-    using GemmaModelBF16Type = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
-    using QwenModelBF16Type  = QwenModel<DeviceType::Cuda, TensorDataType::BF16>;
-
-    using ModelVariant = std::variant<
-        std::unique_ptr<LlamaModelBF16Type>,
-        std::unique_ptr<GemmaModelBF16Type>,
-        std::unique_ptr<QwenModelBF16Type>
-    >;
 
     /**
      * @brief The model, the conversation and the settings, with every request a front end can make of them.
@@ -80,7 +70,16 @@ namespace Mila::ChatApp
          */
         void registerTool( std::string name, std::function<std::string( const std::string& )> handler )
         {
-            tool_handlers_.emplace( std::move( name ), std::move( handler ) );
+            const auto [handler_entry, added] = tool_handlers_.emplace( std::move( name ), std::move( handler ) );
+
+            // A tool registered once a model is resident is offered from the next response.
+            if ( added && agent_ )
+            {
+                if ( const auto tool = agentTool( handler_entry->first ) )
+                {
+                    agent_->withTool( *tool );
+                }
+            }
         }
 
         /**
@@ -109,7 +108,7 @@ namespace Mila::ChatApp
             {
                 events_.error( std::format( "Could not load {}: {}", config_.model_name, error.what() ) );
 
-                std::visit( []( auto& model ) { model.reset(); }, model_ );
+                releaseModel();
 
                 // An empty name IS the no-model state, tested in both places that ask.
                 config_.model_name.clear();
@@ -129,7 +128,7 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Answer one user turn, through as many tool rounds as it takes.
+         * @brief Answer one user turn, through as many tool rounds as it takes, up to Chat's four.
          *
          * @return False, doing nothing, when no model is resident: every generation path dereferences the model.
          */
@@ -146,16 +145,15 @@ namespace Mila::ChatApp
                 stop_src_ = std::stop_source{};
             }
 
-            history_.push_back( { MessageRole::User, std::move( text ) } );
-
             // Every reply streams: the template's reader routes each piece to its channel as it arrives.
             events_.turnBegan( true );
 
             std::string response;
             response.reserve( 4096 );
 
-            generateResponse( response );
-            finishTurn( response );
+            generateResponse( text, response );
+
+            events_.turnEnded( turn_display_.value_or( ParsedResponse{} ), response );
 
             return true;
         }
@@ -187,14 +185,15 @@ namespace Mila::ChatApp
          */
         void openConversation( std::vector<ChatMessage> turns )
         {
-            clearHistory();
+            std::erase_if( turns, []( const ChatMessage& turn ) { return turn.role == MessageRole::System; } );
 
-            for ( auto& turn : turns )
+            if ( agent_ )
             {
-                if ( turn.role != MessageRole::System )
-                {
-                    history_.push_back( std::move( turn ) );
-                }
+                agent_->openConversation( std::move( turns ) );
+            }
+            else
+            {
+                held_conversation_ = std::move( turns );
             }
         }
 
@@ -210,7 +209,7 @@ namespace Mila::ChatApp
                 return false;
             }
 
-            std::visit( [&]( auto& m ) { m->seedSampler( seed ); }, model_ );
+            agent_->model().model().seedSampler( seed );
 
             return true;
         }
@@ -245,6 +244,7 @@ namespace Mila::ChatApp
             }
 
             config_.show_thinking = on;
+            applyTemplateVariables();
 
             return true;
         }
@@ -258,6 +258,7 @@ namespace Mila::ChatApp
             }
 
             config_.thinking_effort = level;
+            applyTemplateVariables();
 
             return true;
         }
@@ -427,7 +428,7 @@ namespace Mila::ChatApp
             // so planning with this model resident would describe a card that still holds it.
             const std::string name = modelName();
 
-            std::visit( []( auto& model ) { model.reset(); }, model_ );
+            releaseModel();
 
             const std::size_t previous_length = config_.context_length;
             const bool previous_automatic = config_.context_is_automatic;
@@ -468,7 +469,7 @@ namespace Mila::ChatApp
                 events_.error( std::format(
                     "Could not reload {} at context {}: {}", name, previous_length, error.what() ) );
 
-                std::visit( []( auto& model ) { model.reset(); }, model_ );
+                releaseModel();
                 config_.model_name.clear();
             }
         }
@@ -483,7 +484,7 @@ namespace Mila::ChatApp
         /// it names the model that will be loaded as readily as the one that is.
         bool modelIsResident() const
         {
-            return !std::visit( []( const auto& model ) { return model == nullptr; }, model_ );
+            return agent_ != nullptr;
         }
 
         /**
@@ -515,7 +516,11 @@ namespace Mila::ChatApp
         /// The tools the system prompt describes, registered or not.
         const std::vector<ToolDefinition>& tools() const noexcept { return system_prompt_config_.tools; }
 
-        const std::vector<ChatMessage>& history() const noexcept { return history_; }
+        /// The conversation, without the system prompt; held across a reload, when no model is resident.
+        std::span<const ChatMessage> history() const noexcept
+        {
+            return agent_ ? agent_->conversation() : std::span<const ChatMessage>( held_conversation_ );
+        }
 
         /// The most recent turn's rounds, in the order they ran.
         const std::vector<RoundStats>& lastTurnRounds() const noexcept { return last_turn_rounds_; }
@@ -537,12 +542,12 @@ namespace Mila::ChatApp
         /// False where the model's template has no effort levels: Gemma's has a thinking switch alone, Llama's neither.
         bool templateHasEffortLevels() const
         {
-            if ( !protocol_ )
+            if ( !agent_ )
             {
                 return true;
             }
 
-            return std::ranges::any_of( protocol_->templateVariables(),
+            return std::ranges::any_of( agent_->model().protocol()->templateVariables(),
                 []( const auto& variable ) { return variable.name == "reasoning_effort"; } );
         }
 
@@ -559,7 +564,7 @@ namespace Mila::ChatApp
         {
             ContextFloor floor;
 
-            if ( !tokenizer_ )
+            if ( !agent_ )
             {
                 return floor;
             }
@@ -568,10 +573,7 @@ namespace Mila::ChatApp
             // tokens are both counted -- the two a hand-written floor would have forgotten. That turn has a user
             // message, which is also what makes the history renderable at all: Qwen's template refuses a
             // transcript with no user turn.
-            std::vector<ChatMessage> next_turn = history_;
-            next_turn.push_back( { MessageRole::User, std::string{} } );
-
-            floor.transcript = encodePrompt( renderPrompt( next_turn ) ).size();
+            floor.transcript = agent_->model().tokenizer().encode( agent_->prompt().text ).size();
 
             floor.reasoning = ( config_.show_thinking && config_.thinking_capable )
                 ? static_cast<std::size_t>( thinkingEffort( config_.thinking_effort ).budget )
@@ -584,31 +586,21 @@ namespace Mila::ChatApp
 
     private:
 
-        /**
-         * @brief Say the turn ended, as the template's reader read it round by round, and store its answer.
-         *
-         * @param raw The model's output verbatim, every round's, with the results the session wrote between them.
-         */
-        void finishTurn( const std::string& raw )
-        {
-            const ParsedResponse parsed = turn_display_.value_or( ParsedResponse{} );
+        /// Rounds in one turn: the four Chat has run since it first ran tools, a number no measurement has set.
+        static constexpr int kToolRounds = 4;
 
-            events_.turnEnded( parsed, raw );
-            pushAnswer();
-        }
-
-        /**
-         * @brief The turn's answer joins the history.
-         *
-         * It is the last round's reply with its reasoning, which the template decides whether to render again; a
-         * turn whose last round dispatched calls has already joined the history as those calls and their results.
-         */
-        void pushAnswer()
+        /// The agent's conversation is kept across a reload, and while nothing is resident.
+        void releaseModel()
         {
-            if ( turn_answer_.has_value() )
+            if ( agent_ )
             {
-                history_.push_back( { MessageRole::Assistant, turn_answer_->content, {}, {}, turn_answer_->reasoning } );
+                const auto conversation = agent_->conversation();
+
+                held_conversation_.assign( conversation.begin(), conversation.end() );
+                agent_.reset();
             }
+
+            deployment_plan_.reset();
         }
 
         bool stopRequested() const
@@ -618,95 +610,21 @@ namespace Mila::ChatApp
             return stop_src_.stop_requested();
         }
 
-        /**
-         * @brief Ask whether a call may run, run it or decline it, and put its result in the history.
-         *
-         * A tool allowed for the conversation is not asked about again until the conversation ends, and a call of a
-         * tool the model was not offered is never asked about, since nothing will run: the model reads that there
-         * is no such tool. Models call tools they invent -- Llama 3.1 8B asked for `get_capital` and `calculate`
-         * when offered only `get_weather` -- and one that happened to share a registered handler's name would
-         * otherwise run.
-         *
-         * @return False when the reply was stopped while the call waited: the call is not run, and the turn ends.
-         */
-        bool answerToolCall( const ToolCall& call )
+        static Mila::AI::ToolAnswer toolAnswer( ToolDecision decision ) noexcept
         {
-            ToolDecision decision = ToolDecision::AllowOnce;
-
-            if ( isOffered( call.name ) && !tools_allowed_for_conversation_.contains( call.name ) )
+            switch ( decision )
             {
-                decision = events_.approveToolCall( call );
+                case ToolDecision::AllowOnce:
+                    return Mila::AI::ToolAnswer::Once;
+
+                case ToolDecision::AllowConversation:
+                    return Mila::AI::ToolAnswer::ForConversation;
+
+                case ToolDecision::Deny:
+                    break;
             }
 
-            if ( stopRequested() )
-            {
-                // The history keeps a result for every call it holds, so the next prompt renders; the person
-                // stopped the reply, so no event reports one.
-                history_.push_back( { MessageRole::Tool, std::string( kStoppedResult ), {}, call.name } );
-
-                return false;
-            }
-
-            if ( decision == ToolDecision::AllowConversation )
-            {
-                tools_allowed_for_conversation_.insert( call.name );
-            }
-
-            std::string result;
-            bool is_error = false;
-
-            if ( decision == ToolDecision::Deny )
-            {
-                result = std::string( kDeclinedResult );
-                is_error = true;
-            }
-            else
-            {
-                std::tie( result, is_error ) = dispatchTool( call );
-            }
-
-            events_.toolCalled( call, result, is_error );
-
-            history_.push_back( { MessageRole::Tool, result, {}, call.name } );
-            pending_tool_results_ += protocol_->formatToolResult( call.name, result );
-
-            return true;
-        }
-
-        static constexpr std::string_view kDeclinedResult = "The user declined to run this tool call.";
-        static constexpr std::string_view kStoppedResult = "The user stopped the reply before this tool call ran.";
-
-        /**
-         * @brief Invoke the registered handler for a tool call the model was offered.
-         *
-         * @return The handler's result, or an error and true for a tool not offered or a handler that threw, so the
-         *         model reads what went wrong and can answer without it.
-         */
-        std::pair<std::string, bool> dispatchTool( const ToolCall& call )
-        {
-            if ( !isOffered( call.name ) )
-            {
-                std::string offered;
-
-                for ( const auto& tool : activeTools() )
-                {
-                    offered += std::format( "{}{}", offered.empty() ? "" : ", ", tool.name );
-                }
-
-                return { std::format( "Error: there is no tool named '{}'. The tools are: {}.", call.name,
-                    offered.empty() ? "none" : offered ), true };
-            }
-
-            const auto it = tool_handlers_.find( call.name );
-
-            try
-            {
-                return { it->second( call.arguments ), false };
-            }
-            catch ( const std::exception& e )
-            {
-                return { std::format( "Error: tool '{}' handler threw: {}", call.name, e.what() ), true };
-            }
+            return Mila::AI::ToolAnswer::Deny;
         }
 
         /**
@@ -728,11 +646,43 @@ namespace Mila::ChatApp
             return active;
         }
 
-        bool isOffered( const std::string& name ) const
+        /// A tool the system prompt describes and a handler runs, as the agent offers it; nothing for any other name.
+        std::optional<Mila::AI::Tool> agentTool( const std::string& name ) const
         {
-            const std::vector<ToolDefinition> active = activeTools();
+            const auto definition = std::ranges::find( system_prompt_config_.tools, name, &ToolDefinition::name );
+            const auto handler = tool_handlers_.find( name );
 
-            return std::ranges::any_of( active, [ &name ]( const ToolDefinition& tool ) { return tool.name == name; } );
+            if ( definition == system_prompt_config_.tools.end() || handler == tool_handlers_.end() )
+            {
+                return std::nullopt;
+            }
+
+            return Mila::AI::Tool{
+                definition->name,
+                definition->description,
+                parametersJson( *definition ),
+                [run = handler->second]( std::string_view arguments, std::stop_token )
+                {
+                    return run( std::string( arguments ) );
+                } };
+        }
+
+        /// A tool's arguments as the JSON Schema object a request writes, keys in that order.
+        static std::string parametersJson( const ToolDefinition& tool )
+        {
+            nlohmann::ordered_json properties = nlohmann::ordered_json::object();
+
+            for ( const auto& [name, property] : tool.parameters.properties )
+            {
+                properties[ name ] = { { "type", property.type }, { "description", property.description } };
+            }
+
+            nlohmann::ordered_json parameters = nlohmann::ordered_json::object();
+            parameters[ "type" ] = tool.parameters.type;
+            parameters[ "properties" ] = std::move( properties );
+            parameters[ "required" ] = tool.parameters.required;
+
+            return parameters.dump();
         }
 
         /// A round's reasoning and text join the turn's display, in the order the rounds ran.
@@ -755,159 +705,59 @@ namespace Mila::ChatApp
             append( display.answer, reply.content );
         }
 
-        /// A call the template's grammar could not read is said, never dropped: the model meant to call something.
-        void reportMalformedCalls( const Mila::Dnn::Conversation::Reply& reply )
+        /**
+         * @brief A round as the console and the desktop app measure it: when its first token came, how fast the
+         *        rest followed, and where it stalled.
+         *
+         * Timed here, in the consumer, from the agent's events: the agent reports that a token arrived, never how
+         * long it took.
+         */
+        class RoundTimer
         {
-            for ( const auto& call : reply.malformed_tool_calls )
+        public:
+
+            void begin( std::optional<dim_t> budget )
             {
-                events_.error( std::format( "[tool call not understood: {}]", call ) );
-            }
-        }
-
-        /// What the reader settled, as the session's events. A call is reported once it has been run.
-        void reportReplyEvents( std::span<const Mila::Dnn::Conversation::ReplyEvent> events )
-        {
-            using Kind = Mila::Dnn::Conversation::ReplyEvent::Kind;
-
-            for ( const auto& event : events )
-            {
-                switch ( event.kind )
-                {
-                    case Kind::ReasoningOpened:
-                        events_.thoughtBreak();
-                        break;
-
-                    case Kind::Reasoning:
-                        events_.text( TextChannel::Thought, event.text );
-                        break;
-
-                    case Kind::ReasoningClosed:
-                        events_.thoughtClosed();
-                        break;
-
-                    case Kind::Answer:
-                        events_.text( TextChannel::Answer, event.text );
-                        break;
-
-                    case Kind::ToolCallOpened:
-                        events_.toolCallOpened();
-                        break;
-
-                    case Kind::ToolCallClosed:
-                        break;
-                }
-            }
-        }
-
-        void generateResponse( std::string& response )
-        {
-            turn_display_.reset();
-            turn_answer_.reset();
-
-            // Before the room check below, so a turn with no room to generate reports no rounds rather than the last
-            // turn's.
-            last_turn_rounds_.clear();
-
-            Mila::Dnn::Conversation::Prompt prompt = renderPrompt( history_ );
-            std::vector<std::int32_t> input_tokens = encodePrompt( prompt );
-
-            const std::size_t budget = generationBudget( input_tokens.size() );
-
-            if ( budget == 0 )
-            {
-                events_.info( std::format(
-                    "The prompt is {} tokens and the context is {}, so there is no room to "
-                    "answer. Start a new conversation, or choose a longer context.",
-                    input_tokens.size(), config_.context_length ) );
-
-                return;
+                start_ = std::chrono::high_resolution_clock::now();
+                first_ = start_;
+                last_ = start_;
+                count_ = 0;
+                budget_ = budget;
+                gaps_ms_.clear();
+                gaps_ms_.reserve( 4096 );
             }
 
-            GenerateParams gen_params;
-            gen_params.max_new_tokens = static_cast<int>( budget );
-            gen_params.sampling = sessionSampling( config_ );
-
-            // A round ends where the model hands over to its tools, having written every call it
-            // needs: Gemma 4 at <|tool_response>, in its stop set, and Qwen 3.8 by ending its turn.
-            // Each call is dispatched, the calls and their results join the history, and the
-            // template renders the history again -- for Gemma, as the same model turn resumed.
-            constexpr int kMaxToolRounds = 4;
-
-            const std::stop_token stop_token = [this]
-                {
-                    std::lock_guard<std::mutex> lock( stop_mutex_ );
-
-                    return stop_src_.get_token();
-                }();
-
-            for ( int round = 0; round < kMaxToolRounds; ++round )
+            void token()
             {
-                events_.roundBegan();
+                const auto now = std::chrono::high_resolution_clock::now();
 
-                // Read against the prompt it continues, which may leave the reply inside the reasoning channel.
-                Mila::Dnn::Conversation::ReplyReader reader = protocol_->readReply( prompt );
+                if ( count_ == 0 )
+                    first_ = now;
+                else
+                    gaps_ms_.push_back( std::chrono::duration<float, std::milli>( now - last_ ).count() );
 
-                // Per-round timing: each round has its own prefill (a full re-prefill on
-                // rounds after a tool call) so the numbers stay meaningful across the turn.
-                const auto round_start = std::chrono::high_resolution_clock::now();
-                auto first_token_time = round_start;
-                auto last_token_time = round_start;
-                int round_token_count = 0;
+                last_ = now;
+                ++count_;
+            }
 
-                std::vector<float> token_gaps_ms;
-                token_gaps_ms.reserve( 4096 );
-
-                GenerateStatus round_status = GenerateStatus::Success;
-
-                std::visit(
-                    [&]( auto& m )
-                    {
-                        round_status = m->generate(
-                            input_tokens,
-                            [&]( std::int32_t tok )
-                            {
-                                const auto now = std::chrono::high_resolution_clock::now();
-                                if ( round_token_count == 0 )
-                                    first_token_time = now;
-                                else
-                                    token_gaps_ms.push_back(
-                                        std::chrono::duration<float, std::milli>( now - last_token_time ).count() );
-                                last_token_time = now;
-                                ++round_token_count;
-
-                                events_.tokenGenerated();
-
-                                const std::string piece = tokenizer_->decode(
-                                    std::vector<TokenId>{ static_cast<TokenId>(tok) } );
-                                response += piece;
-                                reportReplyEvents( reader.feed( piece ) );
-                            },
-                            gen_params,
-                            stop_token );
-                    },
-                    model_ );
-
-                // The round's end settles what the reader still held, and reads a call left open as written.
-                reportReplyEvents( reader.finish() );
-                const Mila::Dnn::Conversation::Reply& reply = reader.reply();
-
+            RoundStats stats( GenerateStatus status ) const
+            {
                 RoundStats round_stats;
-                round_stats.finish_status = round_status;
-                round_stats.token_budget = budget;
-                round_stats.tokens_generated = round_token_count;
-                round_stats.prefill_time_ms =
-                    std::chrono::duration<float, std::milli>( first_token_time - round_start ).count();
-                const int decode_tokens = round_token_count > 0 ? round_token_count - 1 : 0;
-                const float decode_ms =
-                    std::chrono::duration<float, std::milli>( last_token_time - first_token_time ).count();
-                round_stats.decode_tokens_per_second =
-                    ( decode_ms > 0.0f && decode_tokens > 0 )
+                round_stats.finish_status = status;
+                round_stats.token_budget = budget_ ? static_cast<std::size_t>( *budget_ ) : 0;
+                round_stats.tokens_generated = count_;
+                round_stats.prefill_time_ms = std::chrono::duration<float, std::milli>( first_ - start_ ).count();
+
+                const int decode_tokens = count_ > 0 ? count_ - 1 : 0;
+                const float decode_ms = std::chrono::duration<float, std::milli>( last_ - first_ ).count();
+
+                round_stats.decode_tokens_per_second = ( decode_ms > 0.0f && decode_tokens > 0 )
                     ? static_cast<float>( decode_tokens ) / ( decode_ms / 1000.0f )
                     : 0.0f;
 
-                if ( !token_gaps_ms.empty() )
+                if ( !gaps_ms_.empty() )
                 {
-                    std::vector<float> ordered( token_gaps_ms );
+                    std::vector<float> ordered( gaps_ms_ );
                     const std::size_t mid = ordered.size() / 2;
                     std::nth_element( ordered.begin(), ordered.begin() + mid, ordered.end() );
                     round_stats.median_gap_ms = ordered[ mid ];
@@ -916,16 +766,14 @@ namespace Mila::ChatApp
                     std::nth_element( ordered.begin(), ordered.begin() + p99_index, ordered.end() );
                     round_stats.p99_gap_ms = ordered[ p99_index ];
 
-                    const auto max_it = std::max_element( token_gaps_ms.begin(), token_gaps_ms.end() );
+                    const auto max_it = std::max_element( gaps_ms_.begin(), gaps_ms_.end() );
                     round_stats.max_gap_ms = *max_it;
                     // +1: gap i sits between token i and token i+1 of the round.
-                    round_stats.max_gap_token_index =
-                        static_cast<int>( max_it - token_gaps_ms.begin() ) + 1;
+                    round_stats.max_gap_token_index = static_cast<int>( max_it - gaps_ms_.begin() ) + 1;
 
-                    const float stall_floor =
-                        std::max( 2.5f * round_stats.median_gap_ms, 40.0f );
+                    const float stall_floor = std::max( 2.5f * round_stats.median_gap_ms, 40.0f );
 
-                    for ( const float gap : token_gaps_ms )
+                    for ( const float gap : gaps_ms_ )
                     {
                         if ( gap > stall_floor )
                         {
@@ -935,86 +783,151 @@ namespace Mila::ChatApp
                     }
                 }
 
-                round_stats.reasoning_tokens = reply.reasoning.empty()
-                    ? 0
-                    : static_cast<int>( tokenizer_->encode( reply.reasoning ).size() );
+                return round_stats;
+            }
 
-                // A round cut short by the budget, the context or a stop is not dispatched: a call it ends in
-                // is not one the model finished.
-                const bool dispatches = !reply.tool_calls.empty() && !tool_handlers_.empty()
-                    && round_status == GenerateStatus::Success && !stopRequested();
+        private:
 
-                if ( dispatches )
+            std::chrono::high_resolution_clock::time_point start_;
+            std::chrono::high_resolution_clock::time_point first_;
+            std::chrono::high_resolution_clock::time_point last_;
+            int count_{ 0 };
+            std::optional<dim_t> budget_;
+            std::vector<float> gaps_ms_;
+        };
+
+        /**
+         * @brief Answer one message through the agent, reporting what it does as this session's events.
+         *
+         * @param response The model's output verbatim, every round's, with the results written between them as the
+         *                 template writes them -- what the console's stream check compares the display against.
+         */
+        void generateResponse( const std::string& text, std::string& response )
+        {
+            turn_display_.reset();
+
+            // Before the room check below, so a turn with no room to generate reports no rounds rather than the last
+            // turn's.
+            last_turn_rounds_.clear();
+
+            const std::stop_token stop_token = [this]
                 {
-                    round_stats.ended_in_tool_call = true;
+                    std::lock_guard<std::mutex> lock( stop_mutex_ );
 
-                    for ( const auto& call : reply.tool_calls )
+                    return stop_src_.get_token();
+                }();
+
+            agent_->withSampling( sessionSampling( config_ ) );
+            agent_->withLimits( { .rounds = kToolRounds, .reply_tokens = static_cast<dim_t>( config_.max_new_tokens ) } );
+
+            const Mila::Dnn::Conversation::Protocol& protocol = *agent_->model().protocol();
+            RoundTimer timer;
+
+            const Mila::AI::Response answered = agent_->respond( text,
+                [&]( const Mila::AI::AgentEvent& event )
+                {
+                    using Kind = Mila::AI::AgentEvent::Kind;
+
+                    switch ( event.kind )
                     {
-                        round_stats.tool_name += round_stats.tool_name.empty() ? "" : ", ";
-                        round_stats.tool_name += call.name;
+                        case Kind::RoundBegan:
+                            events_.roundBegan();
+                            timer.begin( event.budget );
+                            break;
+
+                        case Kind::Token:
+                            timer.token();
+                            events_.tokenGenerated();
+                            response += event.text;
+                            break;
+
+                        case Kind::ReasoningOpened:
+                            events_.thoughtBreak();
+                            break;
+
+                        case Kind::Reasoning:
+                            events_.text( TextChannel::Thought, event.text );
+                            break;
+
+                        case Kind::ReasoningClosed:
+                            events_.thoughtClosed();
+                            break;
+
+                        case Kind::Answer:
+                            events_.text( TextChannel::Answer, event.text );
+                            break;
+
+                        case Kind::ToolCallOpened:
+                            events_.toolCallOpened();
+                            break;
+
+                        case Kind::ToolCalled:
+                            events_.toolCalled( *event.call, event.text, event.is_error );
+                            response += protocol.formatToolResult( event.call->name, event.text );
+                            break;
+
+                        case Kind::MalformedToolCall:
+                            // A call the template's grammar could not read is said, never dropped: the model meant
+                            // to call something.
+                            events_.error( std::format( "[tool call not understood: {}]", event.text ) );
+                            break;
+
+                        case Kind::RoundEnded:
+                            endRound( timer, event );
+                            break;
                     }
-                }
+                },
+                stop_token );
 
-                events_.roundEnded( round_stats );
-
-                appendToTurnDisplay( reply );
-                reportMalformedCalls( reply );
-
-                if ( !dispatches )
-                {
-                    turn_answer_ = reply;
-                    last_turn_rounds_.push_back( std::move( round_stats ) );
-                    break;
-                }
-
-                last_turn_rounds_.push_back( std::move( round_stats ) );
-
-                history_.push_back( { MessageRole::Assistant, reply.content, reply.tool_calls, {}, reply.reasoning } );
-
-                bool stopped = false;
-                pending_tool_results_.clear();
-
-                for ( const auto& call : reply.tool_calls )
-                {
-                    if ( !answerToolCall( call ) )
-                    {
-                        stopped = true;
-                        break;
-                    }
-                }
-
-                response += pending_tool_results_;
-
-                if ( stopped )
-                {
-                    break;
-                }
-
-                prompt = renderPrompt( history_ );
-                input_tokens = encodePrompt( prompt );
+            if ( answered.rounds == 0 && answered.status == GenerateStatus::ContextOverflow )
+            {
+                events_.info( std::format(
+                    "The prompt is {} tokens and the context is {}, so there is no room to "
+                    "answer. Start a new conversation, or choose a longer context.",
+                    agent_->model().tokenizer().encode( agent_->prompt( text ).text ).size(), config_.context_length ) );
             }
         }
 
-        std::vector<std::int32_t> encodePrompt( const Mila::Dnn::Conversation::Prompt& prompt ) const
+        /// A round's measurements, and its reasoning and text for the turn's display.
+        void endRound( const RoundTimer& timer, const Mila::AI::AgentEvent& event )
         {
-            const auto token_ids = tokenizer_->encode( prompt.text );
+            const Mila::Dnn::Conversation::Reply& reply = *event.reply;
 
-            return std::vector<std::int32_t>( token_ids.begin(), token_ids.end() );
+            RoundStats round_stats = timer.stats( event.status );
+
+            round_stats.reasoning_tokens = reply.reasoning.empty()
+                ? 0
+                : static_cast<int>( agent_->model().tokenizer().encode( reply.reasoning ).size() );
+
+            // The agent answers a round's calls when the round finished them, as it says the reason in status.
+            const bool answers_calls = !reply.tool_calls.empty() && !activeTools().empty()
+                && event.status == GenerateStatus::Success && !stopRequested();
+
+            if ( answers_calls )
+            {
+                round_stats.ended_in_tool_call = true;
+
+                for ( const auto& call : reply.tool_calls )
+                {
+                    round_stats.tool_name += round_stats.tool_name.empty() ? "" : ", ";
+                    round_stats.tool_name += call.name;
+                }
+            }
+
+            events_.roundEnded( round_stats );
+            appendToTurnDisplay( reply );
+            last_turn_rounds_.push_back( std::move( round_stats ) );
+        }
+
+        /// The agent asks the person through this session's events, which a front end answers.
+        Mila::AI::ToolAnswer askAboutCall( const Mila::AI::ToolQuestion& question )
+        {
+            return toolAnswer( events_.approveToolCall(
+                ToolCall{ std::string( question.name ), std::string( question.arguments ) } ) );
         }
 
         /**
-         * @brief A history as the model's template renders it, primed for the reply.
-         *
-         * There is no base-model branch: `resolveModel` refuses a non-instruct model, so history is
-         * always something the model was trained to read.
-         */
-        Mila::Dnn::Conversation::Prompt renderPrompt( const std::vector<ChatMessage>& history ) const
-        {
-            return protocol_->formatPrompt( history, promptOptions() );
-        }
-
-        /**
-         * @brief The session's settings as the template's own variables, and the tools offered.
+         * @brief The session's settings as the template's own variables.
          *
          * Thinking is the template's switch. Effort is set only where the template has levels -- Qwen 3.8's
          * three -- and Gemma 4 has none, so no layer writes one for it (ModelHandle.md 10.6).
@@ -1024,34 +937,37 @@ namespace Mila::ChatApp
          * 8B then called a tool for every question; with them in the system message and a system prompt saying
          * when to call, it answered 10 of 10 questions that needed none (measured 2026-10-25).
          */
-        Mila::Dnn::Conversation::PromptOptions promptOptions() const
+        std::map<std::string, std::string> templateVariables() const
         {
-            Mila::Dnn::Conversation::PromptOptions options;
-            const std::vector<ToolDefinition> tools = activeTools();
+            std::map<std::string, std::string> variables;
+            const bool offers_tools = !activeTools().empty();
 
-            if ( !tools.empty() )
-            {
-                options.tools_json = toolsJson( tools );
-            }
-
-            for ( const auto& variable : protocol_->templateVariables() )
+            for ( const auto& variable : agent_->model().protocol()->templateVariables() )
             {
                 if ( variable.name == "enable_thinking" )
                 {
-                    options.template_variables[ variable.name ] = config_.show_thinking ? "true" : "false";
+                    variables[ variable.name ] = config_.show_thinking ? "true" : "false";
                 }
                 else if ( variable.name == "reasoning_effort" && config_.show_thinking )
                 {
-                    options.template_variables[ variable.name ] = qwenEffortName(
+                    variables[ variable.name ] = qwenEffortName(
                         Mila::Dnn::Qwen::reasoningEffortFromScale( config_.thinking_effort ) );
                 }
-                else if ( variable.name == "tools_in_user_message" && !tools.empty() )
+                else if ( variable.name == "tools_in_user_message" && offers_tools )
                 {
-                    options.template_variables[ variable.name ] = "false";
+                    variables[ variable.name ] = "false";
                 }
             }
 
-            return options;
+            return variables;
+        }
+
+        void applyTemplateVariables()
+        {
+            if ( agent_ )
+            {
+                agent_->withTemplateVariables( templateVariables() );
+            }
         }
 
         static std::string qwenEffortName( Mila::Dnn::Qwen::ReasoningEffort effort )
@@ -1069,39 +985,6 @@ namespace Mila::ChatApp
             }
 
             return "xhigh";
-        }
-
-        /// The tools as OpenAI-style function schemas, keys in the order a request writes them.
-        static std::string toolsJson( const std::vector<ToolDefinition>& tools )
-        {
-            nlohmann::ordered_json array = nlohmann::ordered_json::array();
-
-            for ( const auto& tool : tools )
-            {
-                nlohmann::ordered_json properties = nlohmann::ordered_json::object();
-
-                for ( const auto& [name, property] : tool.parameters.properties )
-                {
-                    properties[ name ] = { { "type", property.type }, { "description", property.description } };
-                }
-
-                nlohmann::ordered_json parameters = nlohmann::ordered_json::object();
-                parameters[ "type" ] = tool.parameters.type;
-                parameters[ "properties" ] = std::move( properties );
-                parameters[ "required" ] = tool.parameters.required;
-
-                nlohmann::ordered_json function = nlohmann::ordered_json::object();
-                function[ "name" ] = tool.name;
-                function[ "description" ] = tool.description;
-                function[ "parameters" ] = std::move( parameters );
-
-                nlohmann::ordered_json entry = nlohmann::ordered_json::object();
-                entry[ "type" ] = "function";
-                entry[ "function" ] = std::move( function );
-                array.push_back( std::move( entry ) );
-            }
-
-            return array.dump();
         }
 
         void switchModel(
@@ -1154,7 +1037,7 @@ namespace Mila::ChatApp
             // It also has to happen before the load plans: the planner reads the device's FREE
             // memory, so a plan made while the outgoing model is resident describes a card that
             // still holds it.
-            std::visit( []( auto& m ) { m.reset(); }, model_ );
+            releaseModel();
 
             // Under auto the load plans the context for the model being loaded, rather than carrying
             // a number derived for the one being replaced -- the defect configured_context_length
@@ -1249,7 +1132,7 @@ namespace Mila::ChatApp
             try
             {
                 // Released before the replacement is built, so the two never both hold VRAM.
-                std::visit( []( auto& model ) { model.reset(); }, model_ );
+                releaseModel();
 
                 loadActiveModel();
             }
@@ -1258,7 +1141,7 @@ namespace Mila::ChatApp
                 events_.error( std::format(
                     "Could not reload {} at context {}: {}", name, length, error.what() ) );
 
-                std::visit( []( auto& model ) { model.reset(); }, model_ );
+                releaseModel();
 
                 config_.context_length = previous_length;
                 config_.context_is_automatic = previous_automatic;
@@ -1282,7 +1165,7 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Load the active tokenizer and model.
+         * @brief Load the active model as an agent.
          *
          * Reported as a load from start to end, so a front end can show progress across the multi-second
          * weight load.
@@ -1310,7 +1193,6 @@ namespace Mila::ChatApp
             // Ended here rather than in each caller's catch: the one place that begins it owns ending it.
             try
             {
-                initializeTokenizer();
                 loadModel();
             }
             catch ( ... )
@@ -1321,60 +1203,6 @@ namespace Mila::ChatApp
             }
 
             events_.loadEnded();
-        }
-
-        /**
-         * @brief Tokens this model may generate, bounded by the context the prompt leaves free.
-         *
-         * The prompt already occupies context, so a budget measured from zero would ask for
-         * more than can fit. This was once load-bearing: GPT-2's positional embeddings are
-         * *learned*, exactly context_length of them, so position 1024 was an out-of-bounds
-         * lookup -- observed at 1005 generated tokens on a 1024 context. The models now guard
-         * the decode position themselves and return GenerateStatus::ContextOverflow, so this
-         * is no longer what stands between a base model and a crash.
-         *
-         * It stays because asking for a budget that cannot fit is a worse question than asking
-         * for one that can: the round ends on `length` at a number the user chose, rather than
-         * on `context_limit` at one they did not.
-         */
-        std::size_t generationBudget( std::size_t prompt_tokens ) const
-        {
-            const std::size_t remaining = config_.context_length > prompt_tokens
-                ? config_.context_length - prompt_tokens
-                : 0;
-
-            return std::min( config_.max_new_tokens, remaining );
-        }
-
-        void initializeTokenizer()
-        {
-            try
-            {
-                Logging::Logger::info( std::format( "Loading tokenizer from: {}", config_.tokenizer_path.string() ) );
-
-                const std::optional<InstalledModel> installed = InstalledModel::find( config_.model_name );
-
-                if ( !installed )
-                {
-                    throw std::runtime_error( std::format( "'{}' is no longer installed", config_.model_name ) );
-                }
-
-                tokenizer_ = installed->loadTokenizer();
-
-                Logging::Logger::info( std::format( "Tokenizer loaded. Vocab size: {}", tokenizer_->getVocabSize() ) );
-
-                // The model's own chat template, chosen by the library from what the manifest declares; the
-                // catalogue has already refused a model it cannot choose one for.
-                const auto& record = installed->stored().record;
-
-                protocol_ = Mila::Dnn::chatProtocolFor( record.architecture, record.architecture_version );
-            }
-            catch ( const std::exception& e )
-            {
-                Logging::Logger::error( std::format( "Failed to load tokenizer: {}", e.what() ) );
-
-                throw;
-            }
         }
 
         /**
@@ -1437,43 +1265,39 @@ namespace Mila::ChatApp
             return refusal.toString();
         }
 
+        /**
+         * @brief Open the model by its name, offer it the tools, and carry the conversation held across a reload.
+         *
+         * Takes the context length the plan resolved.
+         */
         void loadModel()
         {
-            const DeploymentRequest request = activeDeploymentRequest();
-
-            // Loads, keeps the model and its plan, and takes the context length the plan resolved.
-            auto adopt = [&]( auto&& model )
-                {
-                    if ( config_.detail == DetailLevel::All )
-                    {
-                        events_.log( model->toString() );
-                        events_.log( model->getMemoryStats().toString() + "\n" );
-                    }
-
-                    deployment_plan_ = model->getDeploymentPlan();
-                    config_.context_length = static_cast<std::size_t>( deployment_plan_->contextLength() );
-                    model_ = std::move( model );
-                };
-
             try
             {
-                switch ( config_.model_type )
+                auto agent = std::make_unique<Mila::AI::Agent>(
+                    Mila::AI::Agent::create( config_.model_name, activeDeploymentRequest() ) );
+
+                if ( config_.detail == DetailLevel::All )
                 {
-                    case ModelType::Llama:
-                        adopt( LlamaModelBF16Type::load( config_.model_path, request ) );
-                        break;
-
-                    case ModelType::Gemma:
-                        adopt( GemmaModelBF16Type::load( config_.model_path, request ) );
-                        break;
-
-                    case ModelType::Qwen:
-                        adopt( QwenModelBF16Type::load( config_.model_path, request ) );
-                        break;
-
-                    default:
-                        throw std::runtime_error( std::format( "'{}' is not a family Chat runs", config_.model_name ) );
+                    events_.log( agent->model().model().toString() );
+                    events_.log( agent->model().model().getMemoryStats().toString() + "\n" );
                 }
+
+                agent->withSystemPrompt( system_prompt_config_.system_prompt );
+
+                for ( const auto& tool : activeTools() )
+                {
+                    agent->withTool( *agentTool( tool.name ) );
+                }
+
+                agent->onAsk( [this]( const Mila::AI::ToolQuestion& question ) { return askAboutCall( question ); } );
+                agent->openConversation( std::exchange( held_conversation_, {} ) );
+
+                deployment_plan_ = agent->plan();
+                config_.context_length = static_cast<std::size_t>( deployment_plan_->contextLength() );
+                agent_ = std::move( agent );
+
+                applyTemplateVariables();
             }
             catch ( const DeploymentRefusedError& error )
             {
@@ -1508,16 +1332,14 @@ namespace Mila::ChatApp
 
         void clearHistory()
         {
-            history_.clear();
+            // Ends the tools allowed for the conversation with it: conversation.new, conversation.open and model.load
+            // (ChatDesktop.md 4.5).
+            if ( agent_ )
+            {
+                agent_->newConversation();
+            }
 
-            // Ends with the conversation: conversation.new, conversation.open and model.load (ChatDesktop.md 4.5).
-            tools_allowed_for_conversation_.clear();
-
-            if ( system_prompt_config_.system_prompt.empty() )
-                return;
-
-            // The template places the tools itself, from promptOptions().
-            history_.push_back( { MessageRole::System, system_prompt_config_.system_prompt } );
+            held_conversation_.clear();
         }
 
         ChatConfig config_;
@@ -1526,28 +1348,21 @@ namespace Mila::ChatApp
         // The plan the resident model was loaded with: what /context and the one-shot JSON report,
         // rather than a second derivation of it.
         std::optional<DeploymentPlan> deployment_plan_;
-        ModelVariant model_;
         SystemPromptConfig system_prompt_config_;
-        std::shared_ptr<BpeTokenizer> tokenizer_{ nullptr };
-        std::vector<ChatMessage> history_;
         std::unordered_map<std::string, std::function<std::string( const std::string& )>> tool_handlers_;
-        std::unordered_set<std::string> tools_allowed_for_conversation_;
+
+        // The resident model, its conversation and the calls it makes; empty when nothing is resident.
+        std::unique_ptr<Mila::AI::Agent> agent_;
+
+        // The conversation while no agent holds it: between releasing a model and loading the next.
+        std::vector<ChatMessage> held_conversation_;
 
         // Replaced at the start of each turn and read by stop() from any thread, hence the lock.
         mutable std::mutex stop_mutex_;
         std::stop_source stop_src_;
 
-        // The loaded model's chat template: it renders every prompt and reads every reply.
-        std::unique_ptr<Mila::Dnn::Conversation::Protocol> protocol_;
-
-        // The turn generateResponse() just ran, read through protocol_ round by round: every round's reasoning
-        // and text, for the display, and the last round's reply when it made no call, which history keeps.
+        // Every round's reasoning and text of the turn generateResponse() just ran, for the display.
         std::optional<ParsedResponse> turn_display_;
-        std::optional<Mila::Dnn::Conversation::Reply> turn_answer_;
-
-        // A round's tool results as the template writes them, appended to the raw response once the round's
-        // calls have all been answered.
-        std::string pending_tool_results_;
 
         std::vector<RoundStats> last_turn_rounds_;
     };

@@ -14,7 +14,8 @@ decided (section 9, 2026-10-24). Open decisions are in section 9.
 ## 1. What this is
 
 Chat is a session and a console front end over it: `ChatSession` (`Chat.Session.ixx`) holds the model
-resolution, the deployment request, the turn loop, tool dispatch and channel routing, and the console
+resolution, the deployment request and the model as a `Mila::AI::Agent`, which runs the turn, its tool calls and
+the channel routing (`+98`), and the console
 (`Chat.ConsoleFrontEnd.ixx`) draws its events through `ConsoleRenderer` and reads `std::cin` (section 7). A
 window is a second front end over that same session. It exists because the things a person now does with a local model are window-shaped:
 
@@ -396,8 +397,9 @@ the page and is never sent. In the mock, an attachment is accepted or refused by
 
 ## 7. The session split (phase 2, local)
 
-`ChatSession` (`Chat.Session.ixx`) holds the model, the conversation, the settings and the turn loop, and
-never draws or reads input. **Events** go out through `SessionEvents` (`Chat.SessionEvents.ixx`), section
+`ChatSession` (`Chat.Session.ixx`) holds the model and the settings, and never draws or reads input; since
+`+98` the model is a `Mila::AI::Agent`, which holds the conversation and runs the turn and its calls, and the
+session words the agent's events as its own. **Events** go out through `SessionEvents` (`Chat.SessionEvents.ixx`), section
 4.1 as C++ calls: `info`, `error`, `log`, a load's start and end, an install's progress (phase 3; the console
 draws the line the catalogue used to write itself), a turn's start, each round's start and end
 with its measurements, text by channel, a thought break and close, a tool call opening, the approval of
